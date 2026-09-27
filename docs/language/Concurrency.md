@@ -127,8 +127,8 @@ import net
 
 handler Receiving() [Console] of Inbound {           // frames arrive as messages
     mailbox { capacity: 16 }
-    send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data {
-        println("${to_str(from)}: ${str_of_bytes(data) ?: "?"}")
+    send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
+        println("${to_str(from)}: ${str_of_bytes(frame) ?: "?"}")
     }
 }
 

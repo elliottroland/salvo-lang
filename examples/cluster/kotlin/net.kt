@@ -73,33 +73,33 @@ fun to_str__3(e: Union2<Unreachable, WireFailed>): String {
 }
 
 interface Inbound {
-    fun frame(from: NodeEndpoint, data: salvo.SalvoBytes)
+    fun receive_frame(from: NodeEndpoint, frame: salvo.SalvoBytes)
 }
 
 class __Stub_Inbound(private val addr: Int) : Inbound {
-    override fun frame(from: NodeEndpoint, data: salvo.SalvoBytes) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Inbound.Frame(from, data), __PROTO_Inbound, __Codec___Msg_Inbound)
+    override fun receive_frame(from: NodeEndpoint, frame: salvo.SalvoBytes) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Inbound.ReceiveFrame(from, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
     }
 }
 
 sealed class __Msg_Inbound {
-    class Frame(val from: NodeEndpoint, val data: salvo.SalvoBytes) : __Msg_Inbound()
+    class ReceiveFrame(val from: NodeEndpoint, val frame: salvo.SalvoBytes) : __Msg_Inbound()
 }
 
 object __Codec___Msg_Inbound : salvo.WireCodec<__Msg_Inbound> {
     override fun enc(v: __Msg_Inbound, out: salvo.WireOut) {
         when (v) {
-            is __Msg_Inbound.Frame -> { out.u8(0); __Codec_NodeEndpoint.enc(v.from, out); salvo.BytesCodec.enc(v.data, out) }
+            is __Msg_Inbound.ReceiveFrame -> { out.u8(0); __Codec_NodeEndpoint.enc(v.from, out); salvo.BytesCodec.enc(v.frame, out) }
         }
     }
     override fun dec(inp: salvo.WireIn): __Msg_Inbound = when (inp.u8()) {
-            0 -> __Msg_Inbound.Frame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
+            0 -> __Msg_Inbound.ReceiveFrame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
         else -> throw salvo.WireError()
     }
 }
 
 /** [protocol-hash] The canonical hash of `Inbound`. */
-const val __PROTO_Inbound: String = "d9080cf2876be4b1"
+const val __PROTO_Inbound: String = "8e46ddb2a3e90b03"
 
 interface Transport {
     fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>>
@@ -120,46 +120,46 @@ class __Mon_Transport(private val inner: Transport) : Transport {
 }
 
 interface Outbound {
-    fun frame(to: NodeEndpoint, data: salvo.SalvoBytes)
+    fun send_frame(to: NodeEndpoint, frame: salvo.SalvoBytes)
 }
 
 class __Stub_Outbound(private val addr: Int) : Outbound {
-    override fun frame(to: NodeEndpoint, data: salvo.SalvoBytes) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Outbound.Frame(to, data), __PROTO_Outbound, __Codec___Msg_Outbound)
+    override fun send_frame(to: NodeEndpoint, frame: salvo.SalvoBytes) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Outbound.SendFrame(to, frame), __PROTO_Outbound, __Codec___Msg_Outbound)
     }
 }
 
 sealed class __Msg_Outbound {
-    class Frame(val to: NodeEndpoint, val data: salvo.SalvoBytes) : __Msg_Outbound()
+    class SendFrame(val to: NodeEndpoint, val frame: salvo.SalvoBytes) : __Msg_Outbound()
 }
 
 object __Codec___Msg_Outbound : salvo.WireCodec<__Msg_Outbound> {
     override fun enc(v: __Msg_Outbound, out: salvo.WireOut) {
         when (v) {
-            is __Msg_Outbound.Frame -> { out.u8(0); __Codec_NodeEndpoint.enc(v.to, out); salvo.BytesCodec.enc(v.data, out) }
+            is __Msg_Outbound.SendFrame -> { out.u8(0); __Codec_NodeEndpoint.enc(v.to, out); salvo.BytesCodec.enc(v.frame, out) }
         }
     }
     override fun dec(inp: salvo.WireIn): __Msg_Outbound = when (inp.u8()) {
-            0 -> __Msg_Outbound.Frame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
+            0 -> __Msg_Outbound.SendFrame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
         else -> throw salvo.WireError()
     }
 }
 
 /** [protocol-hash] The canonical hash of `Outbound`. */
-const val __PROTO_Outbound: String = "d9080cf2876be4b1"
+const val __PROTO_Outbound: String = "e754249e848e9986"
 
 class Sending<__Fx>(private val __fx: __Fx) : Outbound where __Fx : __Has_Transport {
     internal val __mailboxCapacity: Int = 256
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Sending> = mutableMapOf()
 
-    override fun frame(to: NodeEndpoint, data: salvo.SalvoBytes) {
-        val _sent = __fx.__fx_Transport.deliver(to, data)
+    override fun send_frame(to: NodeEndpoint, frame: salvo.SalvoBytes) {
+        val _sent = __fx.__fx_Transport.deliver(to, frame)
     }
 }
 
 sealed class __Cont_Sending {
-    class Frame(val to: NodeEndpoint) : __Cont_Sending()
+    class SendFrame(val to: NodeEndpoint) : __Cont_Sending()
 }
 
 class __Actor_Sending<__Fx>(private val handler: Sending<__Fx>) : salvo.SalvoActor where __Fx : __Has_Transport {
@@ -170,7 +170,7 @@ class __Actor_Sending<__Fx>(private val handler: Sending<__Fx>) : salvo.SalvoAct
 
     private fun __dispatch(m: __Msg_Outbound) {
         when (m) {
-            is __Msg_Outbound.Frame -> handler.frame(m.to, m.data)
+            is __Msg_Outbound.SendFrame -> handler.send_frame(m.to, m.frame)
         }
     }
 
@@ -179,14 +179,14 @@ class __Actor_Sending<__Fx>(private val handler: Sending<__Fx>) : salvo.SalvoAct
         // A reply whose continuation is gone: nothing to run.
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
-            is __Cont_Sending.Frame -> handler.frame(c.to, value as salvo.SalvoBytes)
+            is __Cont_Sending.SendFrame -> handler.send_frame(c.to, value as salvo.SalvoBytes)
         }
     }
 
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
-            is __Cont_Sending.Frame -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.BytesCodec) })(payload)
+            is __Cont_Sending.SendFrame -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.BytesCodec) })(payload)
             else -> Pair(false, null)
         }
     }
@@ -206,13 +206,13 @@ class Receiving : Inbound {
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Receiving> = mutableMapOf()
 
-    override fun frame(from: NodeEndpoint, data: salvo.SalvoBytes) {
-        val _delivered = salvo.SalvoSched.deliverFrame((data).toByteArray())
+    override fun receive_frame(from: NodeEndpoint, frame: salvo.SalvoBytes) {
+        val _delivered = salvo.SalvoSched.deliverFrame((frame).toByteArray())
     }
 }
 
 sealed class __Cont_Receiving {
-    class Frame(val from: NodeEndpoint) : __Cont_Receiving()
+    class ReceiveFrame(val from: NodeEndpoint) : __Cont_Receiving()
 }
 
 class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
@@ -223,7 +223,7 @@ class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
 
     private fun __dispatch(m: __Msg_Inbound) {
         when (m) {
-            is __Msg_Inbound.Frame -> handler.frame(m.from, m.data)
+            is __Msg_Inbound.ReceiveFrame -> handler.receive_frame(m.from, m.frame)
         }
     }
 
@@ -232,14 +232,14 @@ class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
         // A reply whose continuation is gone: nothing to run.
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
-            is __Cont_Receiving.Frame -> handler.frame(c.from, value as salvo.SalvoBytes)
+            is __Cont_Receiving.ReceiveFrame -> handler.receive_frame(c.from, value as salvo.SalvoBytes)
         }
     }
 
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
-            is __Cont_Receiving.Frame -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.BytesCodec) })(payload)
+            is __Cont_Receiving.ReceiveFrame -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.BytesCodec) })(payload)
             else -> Pair(false, null)
         }
     }
@@ -1407,7 +1407,7 @@ class MemTransport(private val me: NodeEndpoint, private val net: Int) : Transpo
         if (sink == null) {
             return U2_2<Unit, Union2<Unreachable, WireFailed>>(U2_1<Unreachable, WireFailed>(err(Unreachable(to = to))))
         }
-        salvo.SalvoSched.sendWire(sink, __Msg_Inbound.Frame(me, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
+        salvo.SalvoSched.sendWire(sink, __Msg_Inbound.ReceiveFrame(me, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
         return U2_1<Unit, Union2<Unreachable, WireFailed>>(ok(Unit))
     }
 

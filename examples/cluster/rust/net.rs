@@ -84,7 +84,7 @@ pub fn to_str__3(e: &Union2<Unreachable, WireFailed>) -> String {
 }
 
 pub trait Inbound {
-    fn frame(&mut self, from: NodeEndpoint, data: Vec<u8>);
+    fn receive_frame(&mut self, from: NodeEndpoint, frame: Vec<u8>);
 }
 
 pub trait __Has_Inbound {
@@ -102,19 +102,19 @@ impl __Stub_Inbound {
 }
 
 impl Inbound for __Stub_Inbound {
-    fn frame(&mut self, from: NodeEndpoint, data: Vec<u8>) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Inbound::Frame(from, data), crate::net::__PROTO_Inbound);
+    fn receive_frame(&mut self, from: NodeEndpoint, frame: Vec<u8>) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Inbound::ReceiveFrame(from, frame), crate::net::__PROTO_Inbound);
     }
 }
 
 pub enum __Msg_Inbound {
-    Frame(NodeEndpoint, Vec<u8>),
+    ReceiveFrame(NodeEndpoint, Vec<u8>),
 }
 
 impl crate::wire::__Wire for __Msg_Inbound {
     fn __enc(&self, out: &mut Vec<u8>) {
         match self {
-            __Msg_Inbound::Frame(__p0, __p1) => {
+            __Msg_Inbound::ReceiveFrame(__p0, __p1) => {
                 out.push(0);
                 crate::wire::__Wire::__enc(__p0, out);
                 crate::wire::__Wire::__enc(__p1, out);
@@ -123,14 +123,14 @@ impl crate::wire::__Wire for __Msg_Inbound {
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
         match r.u8()? {
-            0 => Some(__Msg_Inbound::Frame(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            0 => Some(__Msg_Inbound::ReceiveFrame(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
             _ => None,
         }
     }
 }
 
 /// [protocol-hash] The canonical hash of `Inbound`.
-pub const __PROTO_Inbound: &str = "d9080cf2876be4b1";
+pub const __PROTO_Inbound: &str = "8e46ddb2a3e90b03";
 
 pub trait Transport {
     fn listen(&mut self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
@@ -222,7 +222,7 @@ impl __Has_Transport for __Mon_Transport {
 }
 
 pub trait Outbound {
-    fn frame(&mut self, to: NodeEndpoint, data: Vec<u8>);
+    fn send_frame(&mut self, to: NodeEndpoint, frame: Vec<u8>);
 }
 
 pub trait __Has_Outbound {
@@ -240,19 +240,19 @@ impl __Stub_Outbound {
 }
 
 impl Outbound for __Stub_Outbound {
-    fn frame(&mut self, to: NodeEndpoint, data: Vec<u8>) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Outbound::Frame(to, data), crate::net::__PROTO_Outbound);
+    fn send_frame(&mut self, to: NodeEndpoint, frame: Vec<u8>) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Outbound::SendFrame(to, frame), crate::net::__PROTO_Outbound);
     }
 }
 
 pub enum __Msg_Outbound {
-    Frame(NodeEndpoint, Vec<u8>),
+    SendFrame(NodeEndpoint, Vec<u8>),
 }
 
 impl crate::wire::__Wire for __Msg_Outbound {
     fn __enc(&self, out: &mut Vec<u8>) {
         match self {
-            __Msg_Outbound::Frame(__p0, __p1) => {
+            __Msg_Outbound::SendFrame(__p0, __p1) => {
                 out.push(0);
                 crate::wire::__Wire::__enc(__p0, out);
                 crate::wire::__Wire::__enc(__p1, out);
@@ -261,14 +261,14 @@ impl crate::wire::__Wire for __Msg_Outbound {
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
         match r.u8()? {
-            0 => Some(__Msg_Outbound::Frame(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            0 => Some(__Msg_Outbound::SendFrame(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
             _ => None,
         }
     }
 }
 
 /// [protocol-hash] The canonical hash of `Outbound`.
-pub const __PROTO_Outbound: &str = "d9080cf2876be4b1";
+pub const __PROTO_Outbound: &str = "e754249e848e9986";
 
 pub struct Sending {
     pub __mailbox_capacity: i32,
@@ -298,18 +298,18 @@ impl<'a, __P: __Has_Transport + ?Sized> __Has_Transport for __Deps_Sending<'a, _
 
 pub trait __Impl_Sending {
 
-    fn frame<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, to: NodeEndpoint, data: Vec<u8>);
+    fn send_frame<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, to: NodeEndpoint, frame: Vec<u8>);
 }
 
 impl __Impl_Sending for Sending {
 
-    fn frame<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, to: NodeEndpoint, data: Vec<u8>) {
-        let mut _sent = __Has_Transport::__get_Transport(&mut *__fx).deliver(&to, data);
+    fn send_frame<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, to: NodeEndpoint, frame: Vec<u8>) {
+        let mut _sent = __Has_Transport::__get_Transport(&mut *__fx).deliver(&to, frame);
     }
 }
 
 pub enum __Cont_Sending {
-    Frame(NodeEndpoint),
+    SendFrame(NodeEndpoint),
 }
 
 pub struct __Prov_Sending<__D0> {
@@ -337,7 +337,7 @@ impl<__D0: Transport> __Actor_Sending<__D0> {
     fn __dispatch(&mut self, msg: crate::net::__Msg_Outbound) {
         let mut __deps = __Deps_Sending{ __p: &mut self.prov };
         match msg {
-            crate::net::__Msg_Outbound::Frame(to, data) => __Impl_Sending::frame(&mut self.handler, &mut __deps, to, data),
+            crate::net::__Msg_Outbound::SendFrame(to, frame) => __Impl_Sending::send_frame(&mut self.handler, &mut __deps, to, frame),
         }
     }
 }
@@ -355,13 +355,13 @@ impl<__D0: Transport + Send + 'static> crate::scheduler::SalvoActor for __Actor_
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Sending::Frame(to) => self.__dispatch(crate::net::__Msg_Outbound::Frame(to, *value.downcast::<Vec<u8>>().expect("the awaited answer"))),
+            __Cont_Sending::SendFrame(to) => self.__dispatch(crate::net::__Msg_Outbound::SendFrame(to, *value.downcast::<Vec<u8>>().expect("the awaited answer"))),
         }
     }
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont_Sending::Frame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Vec<u8>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Sending::SendFrame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Vec<u8>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -393,13 +393,13 @@ impl Receiving {
 
 impl Inbound for Receiving {
 
-    fn frame(&mut self, from: NodeEndpoint, data: Vec<u8>) {
-        let mut _delivered = crate::scheduler::salvo_deliver_frame(&data);
+    fn receive_frame(&mut self, from: NodeEndpoint, frame: Vec<u8>) {
+        let mut _delivered = crate::scheduler::salvo_deliver_frame(&frame);
     }
 }
 
 pub enum __Cont_Receiving {
-    Frame(NodeEndpoint),
+    ReceiveFrame(NodeEndpoint),
 }
 
 pub struct __Actor_Receiving {
@@ -415,7 +415,7 @@ impl __Actor_Receiving {
 impl __Actor_Receiving {
     fn __dispatch(&mut self, msg: crate::net::__Msg_Inbound) {
         match msg {
-            crate::net::__Msg_Inbound::Frame(from, data) => crate::net::Inbound::frame(&mut self.handler, from, data),
+            crate::net::__Msg_Inbound::ReceiveFrame(from, frame) => crate::net::Inbound::receive_frame(&mut self.handler, from, frame),
         }
     }
 }
@@ -433,13 +433,13 @@ impl crate::scheduler::SalvoActor for __Actor_Receiving {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Receiving::Frame(from) => self.__dispatch(crate::net::__Msg_Inbound::Frame(from, *value.downcast::<Vec<u8>>().expect("the awaited answer"))),
+            __Cont_Receiving::ReceiveFrame(from) => self.__dispatch(crate::net::__Msg_Inbound::ReceiveFrame(from, *value.downcast::<Vec<u8>>().expect("the awaited answer"))),
         }
     }
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont_Receiving::Frame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Vec<u8>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Receiving::ReceiveFrame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Vec<u8>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -2227,7 +2227,7 @@ impl Transport for MemTransport {
         if sink.is_none() {
             return Union2::<(), Union2<Unreachable, WireFailed>>::U2(Union2::<Unreachable, WireFailed>::U1(err(Unreachable { to: to.clone() })));
         }
-        crate::scheduler::salvo_send_wire(sink.as_ref().unwrap().clone(), crate::net::__Msg_Inbound::Frame(self.me.clone(), frame), crate::net::__PROTO_Inbound);
+        crate::scheduler::salvo_send_wire(sink.as_ref().unwrap().clone(), crate::net::__Msg_Inbound::ReceiveFrame(self.me.clone(), frame), crate::net::__PROTO_Inbound);
         return Union2::<(), Union2<Unreachable, WireFailed>>::U1(ok(()));
     }
 

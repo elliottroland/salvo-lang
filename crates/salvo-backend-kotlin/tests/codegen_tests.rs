@@ -9042,8 +9042,8 @@ handler Receiving(label: Str) of Inbound, Counting {
     mailbox { capacity: 16 }
     seen: Mut List<Str> = []
 
-    send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data {
-        seen.add("${label} <- ${to_str(from)}: ${str_of_bytes(data) ?: "?"}")
+    send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
+        seen.add("${label} <- ${to_str(from)}: ${str_of_bytes(frame) ?: "?"}")
     }
 
     send fn total(out: Reply<Str>) => !out {
@@ -9127,8 +9127,8 @@ handler Echoing() of Inbound, Seen {
     got: Str = ""
     waiting: Mut List<Reply<Str>> = mut_list_of()
 
-    send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data {
-        got = "${to_str(from)}: ${str_of_bytes(data) ?: "?"}"
+    send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
+        got = "${to_str(from)}: ${str_of_bytes(frame) ?: "?"}"
         let text = copy(got)
         drain(waiting, r -> send(r, copy(text)))
         waiting = mut_list_of()

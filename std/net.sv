@@ -76,7 +76,7 @@ export fn to_str(e: NetError) [] -> Str => e {
 // The frame is opaque `Bytes`: this layer does not know what a protocol is.
 // The codecs (step ②) decode it one level up, in the actor that registered.
 export actor effect Inbound {
-    send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data
+    send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame
 }
 
 // The wire. A plain effect — its members are calls on the caller's thread —
@@ -164,15 +164,15 @@ export intrinsic fn credits<E>(a: Addr<E>) [] -> Int? => a
 // wants on the wire here, and the one handler of it hands them to the
 // `Transport` in scope.
 export actor effect Outbound {
-    send fn frame(to: NodeEndpoint, data: Bytes) => !to, !data
+    send fn send_frame(to: NodeEndpoint, frame: Bytes) => !to, !frame
 }
 
 export handler Sending() [Transport] of Outbound {
     mailbox { capacity: 256 }
 
-    send fn frame(to: NodeEndpoint, data: Bytes) => !to, !data {
+    send fn send_frame(to: NodeEndpoint, frame: Bytes) => !to, !frame {
         // A frame the wire refuses is lost: at-most-once, as promised.
-        let _sent = deliver(to, data)
+        let _sent = deliver(to, frame)
     }
 }
 
@@ -182,8 +182,8 @@ export handler Sending() [Transport] of Outbound {
 export handler Receiving() of Inbound {
     mailbox { capacity: 256 }
 
-    send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data {
-        let _delivered = deliver_frame(data)
+    send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
+        let _delivered = deliver_frame(frame)
     }
 }
 
@@ -964,7 +964,7 @@ export handler MemTransport(me: NodeEndpoint, net: Addr<MemNet>) of Transport {
         if sink is None {
             return err(Unreachable { to: copy(to) })
         }
-        sink.frame(copy(me), frame)
+        sink.receive_frame(copy(me), frame)
         return ok(None)
     }
 

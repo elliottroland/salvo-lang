@@ -126,7 +126,7 @@ impl HostTcpTransport {
                 return;
             };
             let mut stub = __Stub_Inbound::new(addr);
-            stub.frame(from.clone(), frame);
+            stub.receive_frame(from.clone(), frame);
         }
     }
 }

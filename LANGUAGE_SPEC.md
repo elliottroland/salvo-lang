@@ -5399,8 +5399,8 @@ between endpoints and delivers what arrives into the scheduler.
     nothing more: `Ok` from `deliver` means the transport *accepted* the frame
     (written to a connected socket), never that the far side has it.
     Anything stronger is a protocol over this, not a promise of it.
-  * **Inbound is an actor effect**, `actor effect Inbound { send fn frame(from:
-    NodeEndpoint, data: Bytes) }`, because bytes arrive on a thread the
+  * **Inbound is an actor effect**, `actor effect Inbound { send fn receive_frame(from:
+    NodeEndpoint, frame: Bytes) }`, because bytes arrive on a thread the
     scheduler does not own and a send is the only door in [actor-effect-kind].
     A node that wants to receive spawns an actor serving `Inbound` and hands
     its addr to `listen`; the host forwards every arriving frame through the

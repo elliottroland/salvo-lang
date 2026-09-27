@@ -16741,7 +16741,7 @@ impl<'p> Emitter<'p> {
                     return format!(
                         "{{ let __out = {out}; crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| {{ \
                          if let Some(__to) = crate::wire::salvo_decode::<{ep}>(__ep) {{ \
-                         crate::scheduler::salvo_send_wire(__out, {msg}::Frame(__to, __frame), {proto}); }} }})) }}"
+                         crate::scheduler::salvo_send_wire(__out, {msg}::SendFrame(__to, __frame), {proto}); }} }})) }}"
                     );
                 }
                 _ => {}

@@ -8837,7 +8837,7 @@ impl<'p> Emitter<'p> {
                     return format!(
                         "run {{ val __out = {out}; salvo.SalvoSched.setWire {{ __ep, __frame -> \
                          val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), {codec}); \
-                         if (__to != null) salvo.SalvoSched.sendWire(__out, {msg}.Frame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec_{msg}) }} }}"
+                         if (__to != null) salvo.SalvoSched.sendWire(__out, {msg}.SendFrame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec_{msg}) }} }}"
                     );
                 }
                 _ => {}
