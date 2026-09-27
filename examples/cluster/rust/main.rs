@@ -675,56 +675,6 @@ fn __decode_msg_Looking(proto: &str, payload: &[u8]) -> Option<crate::scheduler:
     None
 }
 
-pub trait Delayed {
-    fn answer(&mut self, key: String, out: crate::scheduler::SalvoReply, fired: Fired);
-}
-
-pub trait __Has_Delayed {
-    fn __get_Delayed(&mut self) -> &mut dyn Delayed;
-}
-
-pub struct __Stub_Delayed {
-    addr: usize,
-}
-
-impl __Stub_Delayed {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl Delayed for __Stub_Delayed {
-    fn answer(&mut self, key: String, out: crate::scheduler::SalvoReply, fired: Fired) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Delayed::Answer(key, out, fired), crate::__PROTO_Delayed);
-    }
-}
-
-pub enum __Msg_Delayed {
-    Answer(String, crate::scheduler::SalvoReply, Fired),
-}
-
-impl crate::wire::__Wire for __Msg_Delayed {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Delayed::Answer(__p0, __p1, __p2) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-                crate::wire::__Wire::__enc(__p2, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Delayed::Answer(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Delayed`.
-pub const __PROTO_Delayed: &str = "1607e3eed21c41ef";
-
 pub struct SlowLooking {
     who: String,
     timer: usize,
@@ -752,7 +702,7 @@ impl Lookup for SlowLooking {
     }
 }
 
-impl Delayed for SlowLooking {
+impl SlowLooking {
 
     fn answer(&mut self, key: String, out: crate::scheduler::SalvoReply, fired: Fired) {
         crate::scheduler::salvo_reply_wire::<String>(out, format!("{} from {}", key, self.who.clone()));
@@ -762,6 +712,10 @@ impl Delayed for SlowLooking {
 pub enum __Cont_SlowLooking {
     Lookup(String),
     Answer(String, crate::scheduler::SalvoReply),
+}
+
+pub enum __Priv_SlowLooking {
+    Answer(String, crate::scheduler::SalvoReply, Fired),
 }
 
 pub struct __Actor_SlowLooking {
@@ -780,9 +734,9 @@ impl __Actor_SlowLooking {
             crate::__Msg_Lookup::Lookup(key, out) => crate::Lookup::lookup(&mut self.handler, key, out),
         }
     }
-    fn __dispatch_Delayed(&mut self, msg: crate::__Msg_Delayed) {
+    fn __dispatch_priv(&mut self, msg: __Priv_SlowLooking) {
         match msg {
-            crate::__Msg_Delayed::Answer(key, out, fired) => crate::Delayed::answer(&mut self.handler, key, out, fired),
+            __Priv_SlowLooking::Answer(key, out, fired) => self.handler.answer(key, out, fired),
         }
     }
 }
@@ -794,8 +748,8 @@ impl crate::scheduler::SalvoActor for __Actor_SlowLooking {
             Ok(__m) => return self.__dispatch_Lookup(*__m),
             Err(__m) => __m,
         };
-        let msg = match msg.downcast::<crate::__Msg_Delayed>() {
-            Ok(__m) => return self.__dispatch_Delayed(*__m),
+        let msg = match msg.downcast::<__Priv_SlowLooking>() {
+            Ok(__m) => return self.__dispatch_priv(*__m),
             Err(__m) => __m,
         };
         let _ = msg;
@@ -809,7 +763,7 @@ impl crate::scheduler::SalvoActor for __Actor_SlowLooking {
         };
         match __cont {
             __Cont_SlowLooking::Lookup(key) => self.__dispatch_Lookup(crate::__Msg_Lookup::Lookup(key, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_SlowLooking::Answer(key, out) => self.__dispatch_Delayed(crate::__Msg_Delayed::Answer(key, out, *value.downcast::<Fired>().expect("the awaited answer"))),
+            __Cont_SlowLooking::Answer(key, out) => self.__dispatch_priv(__Priv_SlowLooking::Answer(key, out, *value.downcast::<Fired>().expect("the awaited answer"))),
         }
     }
 
@@ -825,10 +779,6 @@ pub const __DECODE_SlowLooking: Option<crate::scheduler::MsgDecoder> = Some(__de
 fn __decode_msg_SlowLooking(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         if proto == crate::__PROTO_Lookup {
             return crate::wire::salvo_decode::<crate::__Msg_Lookup>(payload)
-                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
-        if proto == crate::__PROTO_Delayed {
-            return crate::wire::salvo_decode::<crate::__Msg_Delayed>(payload)
                 .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
         }
     None
@@ -924,7 +874,6 @@ fn __decode_msg_Scattering(proto: &str, payload: &[u8]) -> Option<crate::schedul
 
 pub trait Gather {
     fn scatter(&mut self, word: String, members: Vec<usize>, out: crate::scheduler::SalvoReply);
-    fn partial(&mut self, n: i32);
 }
 
 pub trait __Has_Gather {
@@ -945,14 +894,10 @@ impl Gather for __Stub_Gather {
     fn scatter(&mut self, word: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Gather::Scatter(word, members, out), crate::__PROTO_Gather);
     }
-    fn partial(&mut self, n: i32) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Gather::Partial(n), crate::__PROTO_Gather);
-    }
 }
 
 pub enum __Msg_Gather {
     Scatter(String, Vec<usize>, crate::scheduler::SalvoReply),
-    Partial(i32),
 }
 
 impl crate::wire::__Wire for __Msg_Gather {
@@ -964,23 +909,18 @@ impl crate::wire::__Wire for __Msg_Gather {
                 crate::wire::__Wire::__enc(__p1, out);
                 crate::wire::__Wire::__enc(__p2, out);
             }
-            __Msg_Gather::Partial(__p0) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
         }
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
         match r.u8()? {
             0 => Some(__Msg_Gather::Scatter(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_Gather::Partial(crate::wire::__Wire::__dec(r)?)),
             _ => None,
         }
     }
 }
 
 /// [protocol-hash] The canonical hash of `Gather`.
-pub const __PROTO_Gather: &str = "7f7fdb6ff535fdc0";
+pub const __PROTO_Gather: &str = "98712ca205da344c";
 
 pub struct Gathering {
     pending: Vec<crate::scheduler::SalvoReply>,
@@ -1014,6 +954,9 @@ impl Gather for Gathering {
             crate::scheduler::salvo_send_wire(m.clone(), crate::__Msg_Search::Query(word.clone(), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Gathering::Partial); __r }), crate::__PROTO_Search);
         }
     }
+}
+
+impl Gathering {
 
     fn partial(&mut self, n: i32) {
         self.total = self.total + n;
@@ -1036,6 +979,10 @@ pub enum __Cont_Gathering {
     Partial,
 }
 
+pub enum __Priv_Gathering {
+    Partial(i32),
+}
+
 pub struct __Actor_Gathering {
     handler: Gathering,
 }
@@ -1047,10 +994,14 @@ impl __Actor_Gathering {
 }
 
 impl __Actor_Gathering {
-    fn __dispatch(&mut self, msg: crate::__Msg_Gather) {
+    fn __dispatch_Gather(&mut self, msg: crate::__Msg_Gather) {
         match msg {
             crate::__Msg_Gather::Scatter(word, members, out) => crate::Gather::scatter(&mut self.handler, word, members, out),
-            crate::__Msg_Gather::Partial(n) => crate::Gather::partial(&mut self.handler, n),
+        }
+    }
+    fn __dispatch_priv(&mut self, msg: __Priv_Gathering) {
+        match msg {
+            __Priv_Gathering::Partial(n) => self.handler.partial(n),
         }
     }
 }
@@ -1058,8 +1009,16 @@ impl __Actor_Gathering {
 impl crate::scheduler::SalvoActor for __Actor_Gathering {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
-        let msg = *msg.downcast::<crate::__Msg_Gather>().expect("message of this protocol");
-        self.__dispatch(msg);
+        let msg = match msg.downcast::<crate::__Msg_Gather>() {
+            Ok(__m) => return self.__dispatch_Gather(*__m),
+            Err(__m) => __m,
+        };
+        let msg = match msg.downcast::<__Priv_Gathering>() {
+            Ok(__m) => return self.__dispatch_priv(*__m),
+            Err(__m) => __m,
+        };
+        let _ = msg;
+        unreachable!("a message of one of this actor's protocols")
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -1068,8 +1027,8 @@ impl crate::scheduler::SalvoActor for __Actor_Gathering {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Gathering::Scatter(word, members) => self.__dispatch(crate::__Msg_Gather::Scatter(word, members, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_Gathering::Partial => self.__dispatch(crate::__Msg_Gather::Partial(*value.downcast::<i32>().expect("the awaited answer"))),
+            __Cont_Gathering::Scatter(word, members) => self.__dispatch_Gather(crate::__Msg_Gather::Scatter(word, members, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Gathering::Partial => self.__dispatch_priv(__Priv_Gathering::Partial(*value.downcast::<i32>().expect("the awaited answer"))),
         }
     }
 
@@ -1180,7 +1139,6 @@ fn __decode_msg_Hedging(proto: &str, payload: &[u8]) -> Option<crate::scheduler:
 
 pub trait Race {
     fn race(&mut self, key: String, members: Vec<usize>, out: crate::scheduler::SalvoReply);
-    fn first(&mut self, answer: String);
 }
 
 pub trait __Has_Race {
@@ -1201,14 +1159,10 @@ impl Race for __Stub_Race {
     fn race(&mut self, key: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Race::Race(key, members, out), crate::__PROTO_Race);
     }
-    fn first(&mut self, answer: String) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Race::First(answer), crate::__PROTO_Race);
-    }
 }
 
 pub enum __Msg_Race {
     Race(String, Vec<usize>, crate::scheduler::SalvoReply),
-    First(String),
 }
 
 impl crate::wire::__Wire for __Msg_Race {
@@ -1220,23 +1174,18 @@ impl crate::wire::__Wire for __Msg_Race {
                 crate::wire::__Wire::__enc(__p1, out);
                 crate::wire::__Wire::__enc(__p2, out);
             }
-            __Msg_Race::First(__p0) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
         }
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
         match r.u8()? {
             0 => Some(__Msg_Race::Race(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_Race::First(crate::wire::__Wire::__dec(r)?)),
             _ => None,
         }
     }
 }
 
 /// [protocol-hash] The canonical hash of `Race`.
-pub const __PROTO_Race: &str = "eb629d717e1f6176";
+pub const __PROTO_Race: &str = "5e0ec4d63d5f53dd";
 
 pub struct Racing {
     pending: Vec<crate::scheduler::SalvoReply>,
@@ -1264,6 +1213,9 @@ impl Race for Racing {
             crate::scheduler::salvo_send_wire(m.clone(), crate::__Msg_Lookup::Lookup(key.clone(), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Racing::First); __r }), crate::__PROTO_Lookup);
         }
     }
+}
+
+impl Racing {
 
     fn first(&mut self, answer: String) {
         let mut out = self.pending.salvo_remove_first();
@@ -1283,6 +1235,10 @@ pub enum __Cont_Racing {
     First,
 }
 
+pub enum __Priv_Racing {
+    First(String),
+}
+
 pub struct __Actor_Racing {
     handler: Racing,
 }
@@ -1294,10 +1250,14 @@ impl __Actor_Racing {
 }
 
 impl __Actor_Racing {
-    fn __dispatch(&mut self, msg: crate::__Msg_Race) {
+    fn __dispatch_Race(&mut self, msg: crate::__Msg_Race) {
         match msg {
             crate::__Msg_Race::Race(key, members, out) => crate::Race::race(&mut self.handler, key, members, out),
-            crate::__Msg_Race::First(answer) => crate::Race::first(&mut self.handler, answer),
+        }
+    }
+    fn __dispatch_priv(&mut self, msg: __Priv_Racing) {
+        match msg {
+            __Priv_Racing::First(answer) => self.handler.first(answer),
         }
     }
 }
@@ -1305,8 +1265,16 @@ impl __Actor_Racing {
 impl crate::scheduler::SalvoActor for __Actor_Racing {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
-        let msg = *msg.downcast::<crate::__Msg_Race>().expect("message of this protocol");
-        self.__dispatch(msg);
+        let msg = match msg.downcast::<crate::__Msg_Race>() {
+            Ok(__m) => return self.__dispatch_Race(*__m),
+            Err(__m) => __m,
+        };
+        let msg = match msg.downcast::<__Priv_Racing>() {
+            Ok(__m) => return self.__dispatch_priv(*__m),
+            Err(__m) => __m,
+        };
+        let _ = msg;
+        unreachable!("a message of one of this actor's protocols")
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -1315,8 +1283,8 @@ impl crate::scheduler::SalvoActor for __Actor_Racing {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Racing::Race(key, members) => self.__dispatch(crate::__Msg_Race::Race(key, members, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_Racing::First => self.__dispatch(crate::__Msg_Race::First(*value.downcast::<String>().expect("the awaited answer"))),
+            __Cont_Racing::Race(key, members) => self.__dispatch_Race(crate::__Msg_Race::Race(key, members, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Racing::First => self.__dispatch_priv(__Priv_Racing::First(*value.downcast::<String>().expect("the awaited answer"))),
         }
     }
 
@@ -1392,12 +1360,12 @@ pub fn checkout<__Fx: __Has_Inventory + __Has_Console>(__fx: &mut __Fx, skus: &V
             *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
         };
         let mut parts = answer.split(&":".to_string()[..]).map(|__p| __p.to_string()).collect::<Vec<String>>();
-        shards.push(parts.get((0) as i64 as usize).expect("salvo: value is absent at main:223:26").clone());
-        println(&mut *__fx, &(format!("  {}: {} reserved on its shard so far", sku.clone(), parts.get((1) as i64 as usize).expect("salvo: value is absent at main:224:30"))));
+        shards.push(parts.get((0) as i64 as usize).expect("salvo: value is absent at main:217:26").clone());
+        println(&mut *__fx, &(format!("  {}: {} reserved on its shard so far", sku.clone(), parts.get((1) as i64 as usize).expect("salvo: value is absent at main:218:30"))));
     }
-    println(&mut *__fx, &(format!("  apple and apple on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:226:51")[..] == &shards.get((2) as i64 as usize).expect("salvo: value is absent at main:226:68")[..]))));
-    println(&mut *__fx, &(format!("  apple and fig on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:227:49")[..] == &shards.get((3) as i64 as usize).expect("salvo: value is absent at main:227:66")[..]))));
-    println(&mut *__fx, &(format!("  apple and pear on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:228:50")[..] == &shards.get((1) as i64 as usize).expect("salvo: value is absent at main:228:67")[..]))));
+    println(&mut *__fx, &(format!("  apple and apple on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:220:51")[..] == &shards.get((2) as i64 as usize).expect("salvo: value is absent at main:220:68")[..]))));
+    println(&mut *__fx, &(format!("  apple and fig on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:221:49")[..] == &shards.get((3) as i64 as usize).expect("salvo: value is absent at main:221:66")[..]))));
+    println(&mut *__fx, &(format!("  apple and pear on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:222:50")[..] == &shards.get((1) as i64 as usize).expect("salvo: value is absent at main:222:67")[..]))));
 }
 
 pub fn count<__Fx: __Has_Search>(__fx: &mut __Fx, word: String) -> i32 {
@@ -1547,8 +1515,7 @@ impl __Impl_Booting for Booting {
         join(&index, ({ let __h = Indexing::new(vec!["salvo".to_string(), "actors".to_string(), "salvo".to_string(), "nodes".to_string()]); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Indexing::new(__h)), __DECODE_Indexing) }));
         let mut looks = attach__2(Protocol { name: "Lookup".to_string(), hash: crate::__PROTO_Lookup.to_string() }, group);
         let mut timer = ({ let __h = DefaultTimer::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_DefaultTimer::new(__h)), __DECODE_DefaultTimer) });
-        let (mut slow, mut _delayed) = ({ let __h = SlowLooking::new("b (slow)".to_string(), timer); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_SlowLooking::new(__h)), __DECODE_SlowLooking); (__a, __a) });
-        join(&looks, slow);
+        join(&looks, ({ let __h = SlowLooking::new("b (slow)".to_string(), timer); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_SlowLooking::new(__h)), __DECODE_SlowLooking) }));
         crate::scheduler::salvo_reply_wire::<usize>(done, mine);
     }
 
@@ -1642,7 +1609,7 @@ pub fn settle(timer: &usize) {
 }
 
 pub fn main() {
-    crate::scheduler::salvo_set_protocols(vec![("ActorChanges".to_string(), crate::net::__PROTO_ActorChanges.to_string()), ("ActorGroup".to_string(), crate::net::__PROTO_ActorGroup.to_string()), ("Boot".to_string(), crate::__PROTO_Boot.to_string()), ("Delayed".to_string(), crate::__PROTO_Delayed.to_string()), ("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Gather".to_string(), crate::__PROTO_Gather.to_string()), ("Inbound".to_string(), crate::net::__PROTO_Inbound.to_string()), ("Inventory".to_string(), crate::__PROTO_Inventory.to_string()), ("Lookup".to_string(), crate::__PROTO_Lookup.to_string()), ("MemNet".to_string(), crate::net::__PROTO_MemNet.to_string()), ("NodeChanges".to_string(), crate::net::__PROTO_NodeChanges.to_string()), ("NodeGroup".to_string(), crate::net::__PROTO_NodeGroup.to_string()), ("Outbound".to_string(), crate::net::__PROTO_Outbound.to_string()), ("PeerEvents".to_string(), crate::net::__PROTO_PeerEvents.to_string()), ("Race".to_string(), crate::__PROTO_Race.to_string()), ("Search".to_string(), crate::__PROTO_Search.to_string()), ("Sequencer".to_string(), crate::__PROTO_Sequencer.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string())]);
+    crate::scheduler::salvo_set_protocols(vec![("ActorChanges".to_string(), crate::net::__PROTO_ActorChanges.to_string()), ("ActorGroup".to_string(), crate::net::__PROTO_ActorGroup.to_string()), ("Boot".to_string(), crate::__PROTO_Boot.to_string()), ("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Gather".to_string(), crate::__PROTO_Gather.to_string()), ("Inbound".to_string(), crate::net::__PROTO_Inbound.to_string()), ("Inventory".to_string(), crate::__PROTO_Inventory.to_string()), ("Lookup".to_string(), crate::__PROTO_Lookup.to_string()), ("MemNet".to_string(), crate::net::__PROTO_MemNet.to_string()), ("NodeChanges".to_string(), crate::net::__PROTO_NodeChanges.to_string()), ("NodeGroup".to_string(), crate::net::__PROTO_NodeGroup.to_string()), ("Outbound".to_string(), crate::net::__PROTO_Outbound.to_string()), ("PeerEvents".to_string(), crate::net::__PROTO_PeerEvents.to_string()), ("Race".to_string(), crate::__PROTO_Race.to_string()), ("Search".to_string(), crate::__PROTO_Search.to_string()), ("Sequencer".to_string(), crate::__PROTO_Sequencer.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string())]);
     let mut __fx = __Fx_main_5 { __h: StdOutConsole::new() };
     let mut a = NodeEndpoint { host: "a".to_string(), port: 1 };
     let mut b = NodeEndpoint { host: "b".to_string(), port: 1 };

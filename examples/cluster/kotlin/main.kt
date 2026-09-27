@@ -372,36 +372,7 @@ class __Actor_Looking(private val handler: Looking) : salvo.SalvoActor {
     }
 }
 
-interface Delayed {
-    fun answer(key: String, out: salvo.SalvoReply, fired: Fired)
-}
-
-class __Stub_Delayed(private val addr: Int) : Delayed {
-    override fun answer(key: String, out: salvo.SalvoReply, fired: Fired) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Delayed.Answer(key, out, fired), __PROTO_Delayed, __Codec___Msg_Delayed)
-    }
-}
-
-sealed class __Msg_Delayed {
-    class Answer(val key: String, val out: salvo.SalvoReply, val fired: Fired) : __Msg_Delayed()
-}
-
-object __Codec___Msg_Delayed : salvo.WireCodec<__Msg_Delayed> {
-    override fun enc(v: __Msg_Delayed, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Delayed.Answer -> { out.u8(0); salvo.StrCodec.enc(v.key, out); salvo.ReplyCodec.enc(v.out, out); __Codec_Fired.enc(v.fired, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Delayed = when (inp.u8()) {
-            0 -> __Msg_Delayed.Answer(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp), __Codec_Fired.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-/** [protocol-hash] The canonical hash of `Delayed`. */
-const val __PROTO_Delayed: String = "1607e3eed21c41ef"
-
-class SlowLooking(private val who: String, private val timer: Int) : Lookup, Delayed {
+class SlowLooking(private val who: String, private val timer: Int) : Lookup {
     internal val __mailboxCapacity: Int = 16
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_SlowLooking> = mutableMapOf()
@@ -410,7 +381,7 @@ class SlowLooking(private val who: String, private val timer: Int) : Lookup, Del
         salvo.SalvoSched.sendWire(timer, __Msg_Timer.After(millis(150L), run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_SlowLooking.Answer(key, out); __r }), __PROTO_Timer, __Codec___Msg_Timer)
     }
 
-    override fun answer(key: String, out: salvo.SalvoReply, fired: Fired) {
+    fun answer(key: String, out: salvo.SalvoReply, fired: Fired) {
         salvo.SalvoSched.replyWire(out, "$key from $who", salvo.StrCodec)
     }
 }
@@ -420,12 +391,16 @@ sealed class __Cont_SlowLooking {
     class Answer(val key: String, val out: salvo.SalvoReply) : __Cont_SlowLooking()
 }
 
+sealed class __Priv_SlowLooking {
+    class Answer(val key: String, val out: salvo.SalvoReply, val fired: Fired) : __Priv_SlowLooking()
+}
+
 class __Actor_SlowLooking(private val handler: SlowLooking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
             is __Msg_Lookup -> __dispatchLookup(msg)
-            is __Msg_Delayed -> __dispatchDelayed(msg)
+            is __Priv_SlowLooking -> __dispatchPriv(msg)
             else -> error("a message of one of this actor's protocols")
         }
     }
@@ -436,9 +411,9 @@ class __Actor_SlowLooking(private val handler: SlowLooking) : salvo.SalvoActor {
         }
     }
 
-    private fun __dispatchDelayed(m: __Msg_Delayed) {
+    private fun __dispatchPriv(m: __Priv_SlowLooking) {
         when (m) {
-            is __Msg_Delayed.Answer -> handler.answer(m.key, m.out, m.fired)
+            is __Priv_SlowLooking.Answer -> handler.answer(m.key, m.out, m.fired)
         }
     }
 
@@ -465,7 +440,6 @@ class __Actor_SlowLooking(private val handler: SlowLooking) : salvo.SalvoActor {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
                 __PROTO_Lookup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Lookup)?.let { Pair(true, it) } ?: Pair(false, null)
-                __PROTO_Delayed -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Delayed)?.let { Pair(true, it) } ?: Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -533,39 +507,32 @@ class __Actor_Scattering(private val handler: Scattering) : salvo.SalvoActor {
 
 interface Gather {
     fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply)
-    fun partial(n: Int)
 }
 
 class __Stub_Gather(private val addr: Int) : Gather {
     override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Gather.Scatter(word, members, out), __PROTO_Gather, __Codec___Msg_Gather)
     }
-    override fun partial(n: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Gather.Partial(n), __PROTO_Gather, __Codec___Msg_Gather)
-    }
 }
 
 sealed class __Msg_Gather {
     class Scatter(val word: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Gather()
-    class Partial(val n: Int) : __Msg_Gather()
 }
 
 object __Codec___Msg_Gather : salvo.WireCodec<__Msg_Gather> {
     override fun enc(v: __Msg_Gather, out: salvo.WireOut) {
         when (v) {
             is __Msg_Gather.Scatter -> { out.u8(0); salvo.StrCodec.enc(v.word, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
-            is __Msg_Gather.Partial -> { out.u8(1); salvo.IntCodec.enc(v.n, out) }
         }
     }
     override fun dec(inp: salvo.WireIn): __Msg_Gather = when (inp.u8()) {
             0 -> __Msg_Gather.Scatter(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
-            1 -> __Msg_Gather.Partial(salvo.IntCodec.dec(inp))
         else -> throw salvo.WireError()
     }
 }
 
 /** [protocol-hash] The canonical hash of `Gather`. */
-const val __PROTO_Gather: String = "7f7fdb6ff535fdc0"
+const val __PROTO_Gather: String = "98712ca205da344c"
 
 class Gathering : Gather {
     private var pending: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
@@ -584,7 +551,7 @@ class Gathering : Gather {
         }
     }
 
-    override fun partial(n: Int) {
+    fun partial(n: Int) {
         total = total + n
         left = left - 1
         if (left == 0) {
@@ -605,16 +572,29 @@ sealed class __Cont_Gathering {
     class Partial() : __Cont_Gathering()
 }
 
+sealed class __Priv_Gathering {
+    class Partial(val n: Int) : __Priv_Gathering()
+}
+
 class __Actor_Gathering(private val handler: Gathering) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch(msg as __Msg_Gather)
+        when (msg) {
+            is __Msg_Gather -> __dispatchGather(msg)
+            is __Priv_Gathering -> __dispatchPriv(msg)
+            else -> error("a message of one of this actor's protocols")
+        }
     }
 
-    private fun __dispatch(m: __Msg_Gather) {
+    private fun __dispatchGather(m: __Msg_Gather) {
         when (m) {
             is __Msg_Gather.Scatter -> handler.scatter(m.word, m.members, m.out)
-            is __Msg_Gather.Partial -> handler.partial(m.n)
+        }
+    }
+
+    private fun __dispatchPriv(m: __Priv_Gathering) {
+        when (m) {
+            is __Priv_Gathering.Partial -> handler.partial(m.n)
         }
     }
 
@@ -708,39 +688,32 @@ class __Actor_Hedging(private val handler: Hedging) : salvo.SalvoActor {
 
 interface Race {
     fun race(key: String, members: List<Int>, out: salvo.SalvoReply)
-    fun first(answer: String)
 }
 
 class __Stub_Race(private val addr: Int) : Race {
     override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Race.Race(key, members, out), __PROTO_Race, __Codec___Msg_Race)
     }
-    override fun first(answer: String) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Race.First(answer), __PROTO_Race, __Codec___Msg_Race)
-    }
 }
 
 sealed class __Msg_Race {
     class Race(val key: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Race()
-    class First(val answer: String) : __Msg_Race()
 }
 
 object __Codec___Msg_Race : salvo.WireCodec<__Msg_Race> {
     override fun enc(v: __Msg_Race, out: salvo.WireOut) {
         when (v) {
             is __Msg_Race.Race -> { out.u8(0); salvo.StrCodec.enc(v.key, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
-            is __Msg_Race.First -> { out.u8(1); salvo.StrCodec.enc(v.answer, out) }
         }
     }
     override fun dec(inp: salvo.WireIn): __Msg_Race = when (inp.u8()) {
             0 -> __Msg_Race.Race(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
-            1 -> __Msg_Race.First(salvo.StrCodec.dec(inp))
         else -> throw salvo.WireError()
     }
 }
 
 /** [protocol-hash] The canonical hash of `Race`. */
-const val __PROTO_Race: String = "eb629d717e1f6176"
+const val __PROTO_Race: String = "5e0ec4d63d5f53dd"
 
 class Racing : Race {
     private var pending: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
@@ -755,7 +728,7 @@ class Racing : Race {
         }
     }
 
-    override fun first(answer: String) {
+    fun first(answer: String) {
         val out = (pending).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
         when {
             out != null -> {
@@ -773,16 +746,29 @@ sealed class __Cont_Racing {
     class First() : __Cont_Racing()
 }
 
+sealed class __Priv_Racing {
+    class First(val answer: String) : __Priv_Racing()
+}
+
 class __Actor_Racing(private val handler: Racing) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch(msg as __Msg_Race)
+        when (msg) {
+            is __Msg_Race -> __dispatchRace(msg)
+            is __Priv_Racing -> __dispatchPriv(msg)
+            else -> error("a message of one of this actor's protocols")
+        }
     }
 
-    private fun __dispatch(m: __Msg_Race) {
+    private fun __dispatchRace(m: __Msg_Race) {
         when (m) {
             is __Msg_Race.Race -> handler.race(m.key, m.members, m.out)
-            is __Msg_Race.First -> handler.first(m.answer)
+        }
+    }
+
+    private fun __dispatchPriv(m: __Priv_Racing) {
+        when (m) {
+            is __Priv_Racing.First -> handler.first(m.answer)
         }
     }
 
@@ -855,12 +841,12 @@ fun<__Fx> checkout(__fx: __Fx, skus: List<String>) where __Fx : __Has_Inventory,
             salvo.SalvoSched.awaitReply(__wid) as String
         }
         val parts = answer.split(":")
-        shards.add((parts.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:223:26")))
-        println(__fx, "  $sku: ${(parts.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:224:30"))} reserved on its shard so far")
+        shards.add((parts.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:217:26")))
+        println(__fx, "  $sku: ${(parts.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:218:30"))} reserved on its shard so far")
     }
-    println(__fx, "  apple and apple on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:226:51"))) == ((shards.getOrNull(2) ?: throw AssertionError("salvo: value is absent at main:226:68"))))}")
-    println(__fx, "  apple and fig on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:227:49"))) == ((shards.getOrNull(3) ?: throw AssertionError("salvo: value is absent at main:227:66"))))}")
-    println(__fx, "  apple and pear on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:228:50"))) == ((shards.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:228:67"))))}")
+    println(__fx, "  apple and apple on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:220:51"))) == ((shards.getOrNull(2) ?: throw AssertionError("salvo: value is absent at main:220:68"))))}")
+    println(__fx, "  apple and fig on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:221:49"))) == ((shards.getOrNull(3) ?: throw AssertionError("salvo: value is absent at main:221:66"))))}")
+    println(__fx, "  apple and pear on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:222:50"))) == ((shards.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:222:67"))))}")
 }
 
 fun<__Fx> count(__fx: __Fx, word: String): Int where __Fx : __Has_Search {
@@ -951,8 +937,7 @@ class Booting<__Fx>(private val at: NodeEndpoint, private val all: List<NodeEndp
         join(index, run { val __h = Indexing(listOf<String>("salvo", "actors", "salvo", "nodes")); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE) })
         val looks = attach__2(Protocol("Lookup", salvo.main.__PROTO_Lookup), group)
         val timer = run { val __h = DefaultTimer(); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_DefaultTimer(__h), __Actor_DefaultTimer.__DECODE) }
-        val (slow, _delayed) = run { val __h = SlowLooking("b (slow)", timer); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_SlowLooking(__h), __Actor_SlowLooking.__DECODE); Pair(__a, __a) }
-        join(looks, slow)
+        join(looks, run { val __h = SlowLooking("b (slow)", timer); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_SlowLooking(__h), __Actor_SlowLooking.__DECODE) })
         salvo.SalvoSched.replyWire(done, mine, salvo.AddrCodec)
     }
 
@@ -1022,7 +1007,7 @@ fun settle(timer: Int) {
 }
 
 fun main() {
-    salvo.SalvoSched.setProtocols(listOf(Pair("ActorChanges", salvo.net.__PROTO_ActorChanges), Pair("ActorGroup", salvo.net.__PROTO_ActorGroup), Pair("Boot", salvo.main.__PROTO_Boot), Pair("Delayed", salvo.main.__PROTO_Delayed), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Gather", salvo.main.__PROTO_Gather), Pair("Inbound", salvo.net.__PROTO_Inbound), Pair("Inventory", salvo.main.__PROTO_Inventory), Pair("Lookup", salvo.main.__PROTO_Lookup), Pair("MemNet", salvo.net.__PROTO_MemNet), Pair("NodeChanges", salvo.net.__PROTO_NodeChanges), Pair("NodeGroup", salvo.net.__PROTO_NodeGroup), Pair("Outbound", salvo.net.__PROTO_Outbound), Pair("PeerEvents", salvo.net.__PROTO_PeerEvents), Pair("Race", salvo.main.__PROTO_Race), Pair("Search", salvo.main.__PROTO_Search), Pair("Sequencer", salvo.main.__PROTO_Sequencer), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl)))
+    salvo.SalvoSched.setProtocols(listOf(Pair("ActorChanges", salvo.net.__PROTO_ActorChanges), Pair("ActorGroup", salvo.net.__PROTO_ActorGroup), Pair("Boot", salvo.main.__PROTO_Boot), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Gather", salvo.main.__PROTO_Gather), Pair("Inbound", salvo.net.__PROTO_Inbound), Pair("Inventory", salvo.main.__PROTO_Inventory), Pair("Lookup", salvo.main.__PROTO_Lookup), Pair("MemNet", salvo.net.__PROTO_MemNet), Pair("NodeChanges", salvo.net.__PROTO_NodeChanges), Pair("NodeGroup", salvo.net.__PROTO_NodeGroup), Pair("Outbound", salvo.net.__PROTO_Outbound), Pair("PeerEvents", salvo.net.__PROTO_PeerEvents), Pair("Race", salvo.main.__PROTO_Race), Pair("Search", salvo.main.__PROTO_Search), Pair("Sequencer", salvo.main.__PROTO_Sequencer), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl)))
     val __fx = __Fx_7(StdOutConsole())
     val a = NodeEndpoint(host = "a", port = 1)
     val b = NodeEndpoint(host = "b", port = 1)

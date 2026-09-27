@@ -1929,12 +1929,10 @@ fn two_processes_that_gate_on_each_other_are_refused() {
 actor effect OrderApi {
     send fn place(id: Int, out: Reply<Str>) => !out
     send fn open_orders(id: Int, out: Reply<Int>) => !out
-    send fn placed(out: Reply<Str>, ok: Bool) => !out
 }
 
 actor effect CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) => !out
-    send fn counted(out: Reply<Bool>, n: Int) => !out
 }
 
 handler Orders(credit: Addr<CreditApi>) of OrderApi {
@@ -1943,7 +1941,7 @@ handler Orders(credit: Addr<CreditApi>) of OrderApi {
     send fn place(id: Int, out: Reply<Str>) {
         credit.credit(id, replyto! placed(out))
     }
-    send fn placed(out: Reply<Str>, ok: Bool) {
+    send fn placed(out: Reply<Str>, ok: Bool) => !out, !ok {
         out.send(\"placed\")
     }
     send fn open_orders(id: Int, out: Reply<Int>) {
@@ -1957,7 +1955,7 @@ handler Credit(orders: Addr<OrderApi>) of CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) {
         orders.open_orders(id, replyto! counted(out))
     }
-    send fn counted(out: Reply<Bool>, n: Int) {
+    send fn counted(out: Reply<Bool>, n: Int) => !out, !n {
         out.send(true)
     }
 }
@@ -2030,12 +2028,10 @@ fn one_ungated_side_downgrades_the_cycle_to_a_warning() {
 actor effect OrderApi {
     send fn place(id: Int, out: Reply<Str>) => !out
     send fn open_orders(id: Int, out: Reply<Int>) => !out
-    send fn placed(out: Reply<Str>, ok: Bool) => !out
 }
 
 actor effect CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) => !out
-    send fn counted(out: Reply<Bool>, n: Int) => !out
 }
 
 handler Orders(credit: Addr<CreditApi>) of OrderApi {
@@ -2044,7 +2040,7 @@ handler Orders(credit: Addr<CreditApi>) of OrderApi {
     send fn place(id: Int, out: Reply<Str>) {
         credit.credit(id, replyto! placed(out))
     }
-    send fn placed(out: Reply<Str>, ok: Bool) {
+    send fn placed(out: Reply<Str>, ok: Bool) => !out, !ok {
         out.send(\"placed\")
     }
     send fn open_orders(id: Int, out: Reply<Int>) {
@@ -2058,7 +2054,7 @@ handler Credit(orders: Addr<OrderApi>) of CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) {
         orders.open_orders(id, replyto counted(out))
     }
-    send fn counted(out: Reply<Bool>, n: Int) {
+    send fn counted(out: Reply<Bool>, n: Int) => !out, !n {
         out.send(true)
     }
 }
@@ -2085,11 +2081,7 @@ handler Credit(orders: Addr<OrderApi>) of CreditApi {
 #[test]
 fn an_intercepting_handler_that_gates_is_not_a_cycle() {
     let src = "\
-actor effect CacheFill {
-    send fn answered(out: Reply<Int>, n: Int) => !out
-}
-
-handler Caching() [Counter] of Counter, CacheFill {
+handler Caching() [Counter] of Counter {
     mailbox { capacity: 1 }
 
     send fn bump(n: Int) {
@@ -2098,7 +2090,7 @@ handler Caching() [Counter] of Counter, CacheFill {
     send fn total(out: Reply<Int>) {
         total(replyto! answered(out))
     }
-    send fn answered(out: Reply<Int>, n: Int) {
+    send fn answered(out: Reply<Int>, n: Int) => !out, !n {
         out.send(n)
     }
 }
@@ -2454,29 +2446,52 @@ fn each(f: () [any Counter] -> None) [any Counter] -> None {{
     );
 }
 
-/// [actor-send-fn] A `send fn` no face declares is refused at the declaration:
-/// it would have no message variant to arrive on, so a `k@self(…)` or a
-/// `replyto k(…)` naming it would type-check and run nothing. The servant of a
-/// mixed handler [mixed-handler] — every face plain — keeps its private send
-/// members, which are the design there.
+/// [actor-private-send] A `send fn` no face declares is a **private** member:
+/// reachable by `k@self(…)` and `replyto k(…)`, refused to a bare call (with
+/// the selector named), and carrying the free send fn's written, all-consumed
+/// clause [free-send-fn] since no effect declaration mirrors it. A private
+/// member consuming a linear parameter discharges it by its own clause.
 #[test]
-fn a_private_send_member_of_an_actor_handler_is_refused() {
+fn a_private_send_member_is_reachable_by_self_send_and_replyto() {
+    let errs = errors(
+        "\
+handler Sneaky(inner: Addr<Counter>) of Counter {
+    mailbox { capacity: 4 }
+    sum: Int = 0
+    send fn bump(n: Int) { helper@self(n) }
+    send fn total(out: Reply<Int>) { inner.total(replyto answered(out)) }
+    send fn helper(n: Int) => !n { sum = sum + n }
+    send fn answered(out: Reply<Int>, n: Int) => !out, !n { out.send(n + sum) }
+}
+",
+    );
+    assert!(errs.is_empty(), "{errs:?}");
     let errs = errors(
         "\
 handler Sneaky() of Counter {
     mailbox { capacity: 4 }
     sum: Int = 0
-    send fn bump(n: Int) { helper@self(n) }
+    send fn bump(n: Int) { helper(n) }
     send fn total(out: Reply<Int>) { out.send(sum) }
     send fn helper(n: Int) { sum = sum + n }
 }
 ",
     );
     assert!(
-        errs.iter().any(|m| m.contains("declares `send fn helper`, which no effect it implements declares")
-            && m.contains("second face")),
-        "{errs:?}"
+        errs.iter().any(|m| m.contains("`send fn helper` implements no effect member")
+            && m.contains("`=> !n`")),
+        "the clause is required, as for a free send fn: {errs:?}"
     );
+    assert!(
+        errs.iter().any(|m| m.contains("is a send member of `Sneaky`") && m.contains("`helper@self(…)`")),
+        "a bare call names the selector: {errs:?}"
+    );
+}
+
+/// [mixed-handler] A mixed handler's servant keeps its handler-local send
+/// members under the same rule: a written clause, reached by `@self`.
+#[test]
+fn a_mixed_servant_keeps_its_private_send_members() {
     let errs = errors(
         "\
 effect Random {
@@ -2496,8 +2511,5 @@ handler CyclicRandom(seed: Int) of Random {
 }
 ",
     );
-    assert!(
-        !errs.iter().any(|m| m.contains("no effect it implements declares")),
-        "a mixed handler's servant keeps its private send members: {errs:?}"
-    );
+    assert!(errs.is_empty(), "{errs:?}");
 }

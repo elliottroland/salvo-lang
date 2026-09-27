@@ -610,31 +610,20 @@ backends**.
   v1); and an `iter fn` over a recursive subject snapshots per field, which is a
   deep copy.
 
-## Open defects
-
-- **`get(map, k) ?: default` on a `Map<K, Int>` does not compile on the Rust
-  backend** (found 2026-09-27, building step ⑦'s demo; Kotlin prints `3 10`).
-  Repro:
-  ```
-  fn main() [use] {
-      use StdOutConsole()
-      let levels: Mut Map<Str, Int> = {}
-      put(levels, "a", 3)
-      let have = get(levels, "a") ?: 10
-      println("${have}")
-  }
-  ```
-  rustc: `if` and `else` have incompatible types — `__pick.unwrap()` is `&i32`
-  (the map's `get` answers `Option<&V>`) and the default is `10`. The list
-  `get` takes the same shape without the error, so the difference is in how
-  the map intrinsic's `proj` answer meets [proj-type]'s "a Copy scalar's
-  `proj` never borrows" in the elvis lowering. Not fixed with step ⑦ (the
-  demo was rewritten around it).
-
 ## Recorded, not scheduled
 
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
+
+- **Unify the mixed servant with private send members** (2026-09-27). A mixed
+  handler's servant emits a handler-keyed `__Msg_H` and calls its members
+  directly from `resume`; a private send member of an actor handler now does
+  the same through `__Priv_H` [actor-private-send]. They are one mechanism
+  in two emitter paths (`emit_mixed_actor_parts` beside `emit_actor_body`);
+  re-expressing the servant as "a handler with no actor faces and only private
+  members" would delete the first. Churn in two emitters, three goldens and
+  `examples/`, for no behaviour — do it when one of the paths next needs a
+  change.
 
 - **Pick chains** (`^Ok?: Err?: err(_)`) — recorded rather than scheduled at the
   user's call: the same program is expressible today with one pick plus a `when`,

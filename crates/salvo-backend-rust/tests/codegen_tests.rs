@@ -13512,6 +13512,123 @@ fn rustc_compiles_and_runs_an_effect_typed_generic() {
     run_rust_files(&files, "effect-generic", EFFECT_GENERIC_DEMO_OUTPUT);
 }
 
+/// [rs-opt-borrow] [elvis] `?:` over an optional **borrow** — `get` on a
+/// list or a map answers `Option<&T>` — dereferences a Copy scalar, keeps a
+/// `proj` result as the borrow it is, and reads a local bound from such a
+/// call the same way. `get(xs, 0) ?: 10` was `&i32` against `10` before
+/// 2026-09-27; `when`/`is` over the same subjects are here to pin parity.
+const ELVIS_BORROW_DEMO: &str = r#"fn main() [use] {
+    use StdOutConsole()
+    let xs: List<Int> = [3]
+    let names: List<Str> = ["ann"]
+    let m: Mut Map<Str, Int> = {}
+    put(m, "a", 3)
+    let a = get(xs, 0) ?: 10
+    let b = get(m, "a") ?: 10
+    let c = get(m, "zz") ?: 10
+    let d = copy(get(names, 0) ?: get(names, 0)!)
+    let e = if get(names, 9) is Str s { copy(s) } else { "nobody" }
+    let h = get(names, 9) ?: get(names, 0)!
+    let first = get(xs, 0)
+    let w = when first { is Int { first + 1 } is None { 0 } }
+    let found = get(xs, 0)
+    let f = found ?: 5
+    let g = if found is Int v { v * 2 } else { 0 }
+    println("${a} ${b} ${c} ${d} ${e} ${w} ${f} ${g} ${h}")
+}
+"#;
+
+const ELVIS_BORROW_DEMO_OUTPUT: &str = "3 3 10 ann nobody 4 3 6 ann\n";
+
+#[test]
+fn rustc_compiles_and_runs_elvis_over_a_borrowed_optional() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ELVIS_BORROW_DEMO)]);
+    run_rust_files(&files, "elvis-borrow", ELVIS_BORROW_DEMO_OUTPUT);
+}
+
+/// [actor-private-send] Private send members: one reached by `k@self(…)`,
+/// one a `replyto` target with two captures answered by another actor — on an
+/// independent handler and on a dependent (`[Console]`) one, whose private
+/// dispatch goes through the fused form.
+const PRIVATE_SENDS_DEMO: &str = r#"actor effect Counter {
+    send fn bump(n: Int) => !n
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Counting() of Counter {
+    mailbox { capacity: 8 }
+    sum: Int = 0
+    send fn bump(n: Int) { sum = sum + n }
+    send fn total(out: Reply<Int>) { out.send(sum) }
+}
+
+actor effect Report {
+    send fn report(label: Str, out: Reply<Str>) => !label, !out
+}
+
+// Two private members: `twice` is reached by a self-send, `reported` is a
+// continuation target with two captures.
+handler Reporting(counter: Addr<Counter>) of Report {
+    mailbox { capacity: 8 }
+    asked: Int = 0
+    send fn report(label: Str, out: Reply<Str>) {
+        twice@self(1)
+        counter.total(replyto reported(label, out))
+    }
+    send fn twice(n: Int) => !n {
+        asked = asked + n * 2
+    }
+    send fn reported(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total {
+        out.send("${label}: total ${total}, asked ${asked}")
+    }
+}
+
+// The same shape on a dependent handler (`[Console]`), which dispatches
+// through the fused form.
+handler LoudReporting(counter: Addr<Counter>) [Console] of Report {
+    mailbox { capacity: 8 }
+    send fn report(label: Str, out: Reply<Str>) {
+        note@self(copy(label))
+        counter.total(replyto reported(label, out))
+    }
+    send fn note(label: Str) => !label {
+        println("asking for ${label}")
+    }
+    send fn reported(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total {
+        out.send("${label}: ${total}")
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let p = pool(2)
+    let c = spawn Counting() on p
+    c.bump(3)
+    c.bump(4)
+    let r = spawn Reporting(copy(c)) on p
+    println(waitfor out: Reply<Str> { r.report("first", out) })
+    println(waitfor out: Reply<Str> { r.report("second", out) })
+    let loud = spawn LoudReporting(c) on p
+    println(waitfor out: Reply<Str> { loud.report("third", out) })
+}
+"#;
+
+const PRIVATE_SENDS_DEMO_OUTPUT: &str = "first: total 7, asked 2\nsecond: total 7, asked 4\nasking for third\nthird: 7\n";
+
+#[test]
+fn rustc_compiles_and_runs_private_send_members() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", PRIVATE_SENDS_DEMO)]);
+    run_rust_files(&files, "private-sends", PRIVATE_SENDS_DEMO_OUTPUT);
+}
+
 /// [effect-any] A hand-written router: `RoundRobin(members) of any Resizer`
 /// bound with `use` (a monitor of an actor effect — the lock adapter alone),
 /// `thumbnail` declaring `[any Resizer]`, three sends spread over two members.

@@ -518,6 +518,14 @@ the blanket rule:
   passes `h.unwrap()`; `let v = get(xs, i)!` binds as a plain `Ref`.
   Found live 2026-09-11: the generic path emitted `.as_ref().unwrap()
   .clone()`, a clone of the *reference* (`&&T → &T`).
+  * [elvis] The same rule for the **`?:` read** and for an `is` binding over
+    an optional borrow — a `get(xs, i)` hoisted into `__pickN`, or an
+    `OptRef` local: `*__pick.unwrap()` for a Copy scalar, `__pick.unwrap()`
+    kept as the borrow when the picked type is `proj`, `.unwrap().clone()`
+    otherwise (`subject_is_optional_borrow`, `emit_narrowed_read`). Found
+    2026-09-27: `get(xs, 0) ?: 10` emitted `&i32` against `10`, on lists and
+    maps alike; the `proj` case had compiled only because `.as_ref()
+    .unwrap().clone()` over `Option<&T>` happens to yield `&T`.
   * [proj-type] [lambda-view] An unwrap whose own checker type is a
     projection stays the reference — no clone, no deref: a lambda tail
     `get(all, i)!` typed `proj Str` yields `&String` into the closure's
@@ -1722,6 +1730,16 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   (`ty_effect_parts`, `entry_effect_parts`, `handler_dep_effects`,
   `named_type_parts`, the `use` turbofish) — `__Has_Pick`, `dyn Pick`,
   `Sharded::new()`. `while true` lowers to `loop`.
+* [rs-actor] [actor-private-send] A private send member is an **inherent
+  method** on the handler struct (`impl H { fn k(…) }`; a dependent
+  handler's lands in `__Impl_H` with every other member) with owned
+  parameters (its written clause is all-consumed). `__Priv_H` is the
+  handler-keyed enum of its private messages; `__Actor_H::handle` tries it
+  after the faces' enums, `__dispatch_priv` calls the method (or the
+  `__Impl_H` form over `__Deps_H`), `resume` rebuilds a `__Priv_H` for a
+  `ContTarget::Private` variant of `__Cont_H`, and `decode_reply` covers it
+  by its answer type. `k@self(…)` builds `__Priv_H::K(payload)`, or the
+  method call inline when `__addr` is unset.
 * [rs-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `trait` is emitted as any effect's, and the `use` site
   constructs the host struct as `crate::platform_<M>::H::new(args)` — `M`

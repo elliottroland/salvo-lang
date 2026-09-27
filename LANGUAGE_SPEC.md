@@ -4406,14 +4406,34 @@ docs/language/ remains the source of truth for everything that does.
     (user decision 2026-09-15: kept for now, revisited when the surface is
     real) — because there the member does have something true to say, even
     though a send payload always crosses the seam and so is always consumed.
-  * **A handler's send members are its faces'** (2026-09-27). A `send fn` no
-    effect the handler implements declares has no message variant and no
-    continuation variant to arrive on, so a `k@self(…)` or a `replyto k(…)`
-    naming it would type-check and run nothing: refused at the declaration,
-    naming the remedies (add it to the protocol, or give the handler a second
-    face that declares it — `examples/cluster/`'s `Delayed`). The one
-    exception is the servant of a mixed handler [mixed-handler], whose faces
-    are all plain and whose private send members are the design.
+  * A `send fn` **no face declares** is a private member of the handler —
+    [actor-private-send].
+* [actor-private-send] **A handler of an actor effect may declare `send fn`
+  members no face declares; they are private** (user decision 2026-09-27).
+  A private member has no message in any protocol, so nothing outside the
+  handler can send to it: the only ways to reach it are `k@self(…)` from one
+  of the handler's own members [actor-self-send] and `replyto k(…)`
+  [actor-replyto], both aimed at **this instance**. A private member with at
+  least one parameter may be a continuation target, its trailing parameter
+  being the answer. Private members are not part of the protocol hash
+  [protocol-hash] and never cross the wire as messages; their continuations
+  are still answered from another node, since a reply travels by slot.
+  * **It carries the free send fn's obligations** [free-send-fn], because no
+    effect declaration mirrors it: a written, all-consumed deduction clause
+    (`=> !label, !out, !total`), no `Mut` parameter, no generics, sendable
+    payloads — the same rule a mixed handler's servant members have always
+    had [mixed-handler], which are this rule's oldest case. Its own clause is
+    its linear-discharge context [linear-group].
+  * A **bare call** to a private member resolves to nothing (it is a message,
+    not a function); the diagnostic names the selector: "`k` is a send member
+    of `H`, so it is sent, not called: `k@self(…)`".
+  * Emission: a handler-keyed private message enum (`__Priv_H`) beside the
+    faces' `__Msg_E`s — separate because a face enum is the protocol's wire
+    form and hash — one more downcast arm in `handle`, direct-call arms in
+    `resume`, the member body as an inherent method (a dependent handler's
+    through its `__Impl_H` trait). Until 2026-09-27 such a member type-checked
+    and had no variant to arrive on (a raw rustc error); a stop-gap refusal
+    that day was replaced by this rule the same day.
 * [actor-spawn-effect] `[spawn]` in an effect list is the **capability to
   create an actor** — lowercase and compiler-owned, like `use`, and
   contextual for the same reason `send` is. Accepted on a function and on a

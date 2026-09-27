@@ -598,6 +598,19 @@ fn msg_class_name(effect: &str) -> String {
 }
 
 /// [kt-actor] [actor-replyto] The parked-continuation class of a protocol:
+/// [actor-private-send] `__Priv_Gathering`: a handler's private messages.
+fn private_class_name(handler: &str) -> String {
+    format!("__Priv_{handler}")
+}
+
+/// [actor-replyto] [actor-private-send] What a parked continuation targets:
+/// a face's member, or a private one.
+#[derive(Clone, Copy)]
+enum ContTarget<'p> {
+    Face(&'p EffectDecl, usize),
+    Private(&'p FnDecl),
+}
+
 /// `__Cont_Counter`. Beside the message class and named the same way — a
 /// continuation is a member invocation waiting for its last argument.
 fn cont_class_name(effect: &str) -> String {
@@ -2284,10 +2297,16 @@ impl<'p> Emitter<'p> {
         }
         let cont_name = cont_class_name(&h.name.name);
         let mut out = format!("\nsealed class {cont_name} {{\n");
-        for (e, i) in &targets {
-            let Some(f) = e.fns.get(*i) else { continue };
-            let member = salvo_core::effect_member_name(e, *i);
-            let variant = msg_variant_name(&member);
+        for target in &targets {
+            // [actor-private-send] A private member's subclass is named after
+            // the member itself; a face member's after the face's spelling.
+            let (f, variant) = match target {
+                ContTarget::Face(e, i) => {
+                    let Some(f) = e.fns.get(*i) else { continue };
+                    (f, msg_variant_name(&salvo_core::effect_member_name(e, *i)))
+                }
+                ContTarget::Private(f) => (*f, msg_variant_name(&f.name.name)),
+            };
             let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
             let captures: Vec<String> = fixed[..fixed.len() - 1]
                 .iter()
@@ -2662,7 +2681,11 @@ impl<'p> Emitter<'p> {
                 out.push_str(&self.emit_fn_inner(f, "fun", 1, false));
                 continue;
             }
-            out.push_str(&self.emit_fn_inner(f, "override fun", 1, false));
+            // [actor-private-send] A private send member is a plain `fun`:
+            // no face's interface declares it.
+            let private = f.is_send && self.member_faces(h, f).is_empty();
+            let keyword = if private { "fun" } else { "override fun" };
+            out.push_str(&self.emit_fn_inner(f, keyword, 1, false));
         }
         self.current_handler = saved_handler;
         self.handler_member_of = saved_member_effect;
@@ -2681,6 +2704,7 @@ impl<'p> Emitter<'p> {
         // [actor-replyto] The parked-continuation classes, beside the handler
         // whose members they name.
         out.push_str(&self.emit_cont_classes(h));
+        out.push_str(&self.emit_private_classes(h));
         // [kt-actor] The body a `spawn` hands the scheduler, for a handler
         // that can be one.
         out.push_str(&self.emit_actor_body(h, &deps));
@@ -2730,10 +2754,14 @@ impl<'p> Emitter<'p> {
         }
         self.needs_scheduler = true;
         let proc_name = actor_class_name(&h.name.name);
+        // [actor-private-send] The private send members: `__Priv_H`, its own
+        // dispatcher.
+        let privates = self.private_members(h);
+        let priv_class = private_class_name(&h.name.name);
         // Per face: its message class and the dispatcher that runs its members.
         // One face keeps the bare `__dispatch`, which is what a
         // single-protocol actor has always emitted.
-        let single = faces.len() == 1;
+        let single = faces.len() == 1 && privates.is_empty();
         let dispatchers: Vec<(String, String)> = faces
             .iter()
             .map(|e| {
@@ -2780,6 +2808,9 @@ impl<'p> Emitter<'p> {
             for (msg, dispatch) in &dispatchers {
                 out.push_str(&format!("            is {msg} -> {dispatch}(msg)\n"));
             }
+            if !privates.is_empty() {
+                out.push_str(&format!("            is {priv_class} -> __dispatchPriv(msg)\n"));
+            }
             out.push_str(
                 "            else -> error(\"a message of one of this actor's protocols\")\n        }\n    }\n",
             );
@@ -2799,6 +2830,27 @@ impl<'p> Emitter<'p> {
                     .collect();
                 out.push_str(&format!(
                     "            is {msg}.{variant} -> handler.{member}({})\n",
+                    args.join(", ")
+                ));
+            }
+            out.push_str("        }\n    }\n");
+        }
+        // [actor-private-send] The private dispatcher: a plain method call.
+        if !privates.is_empty() {
+            out.push_str(&format!(
+                "\n    private fun __dispatchPriv(m: {priv_class}) {{\n        when (m) {{\n"
+            ));
+            for f in &privates {
+                let variant = msg_variant_name(&f.name.name);
+                let args: Vec<String> = f
+                    .params
+                    .iter()
+                    .filter(|p| !p.implicit)
+                    .map(|p| format!("m.{}", p.name.name))
+                    .collect();
+                out.push_str(&format!(
+                    "            is {priv_class}.{variant} -> handler.{}({})\n",
+                    kt_ident(&f.name.name),
                     args.join(", ")
                 ));
             }
@@ -2842,6 +2894,25 @@ impl<'p> Emitter<'p> {
                         ));
                     }
                 }
+                // [actor-private-send] A private target resumes as a direct call.
+                for f in &privates {
+                    let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                    if fixed.is_empty() {
+                        continue;
+                    }
+                    let variant = msg_variant_name(&f.name.name);
+                    let mut args: Vec<String> = fixed[..fixed.len() - 1]
+                        .iter()
+                        .map(|p| format!("c.{}", p.name.name))
+                        .collect();
+                    let answer_ty = self.emit_type(&fixed[fixed.len() - 1].ty);
+                    args.push(format!("value as {answer_ty}"));
+                    out.push_str(&format!(
+                        "            is {cont}.{variant} -> handler.{}({})\n",
+                        kt_ident(&f.name.name),
+                        args.join(", ")
+                    ));
+                }
                 out.push_str("        }\n    }\n");
                 // [addr-routable] [wire-format] A reply arriving over the wire
                 // is decoded by the parked subclass's answer type. The `else`
@@ -2866,6 +2937,17 @@ impl<'p> Emitter<'p> {
                             "            is {cont}.{variant} -> ({decoder})(payload)\n"
                         ));
                     }
+                }
+                for f in &privates {
+                    let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                    if fixed.is_empty() {
+                        continue;
+                    }
+                    let variant = msg_variant_name(&f.name.name);
+                    let decoder = self.reply_decoder_for_ast(&fixed[fixed.len() - 1].ty);
+                    out.push_str(&format!(
+                        "            is {cont}.{variant} -> ({decoder})(payload)\n"
+                    ));
                 }
                 out.push_str("            else -> Pair(false, null)\n        }\n    }\n");
             }
@@ -3042,19 +3124,75 @@ impl<'p> Emitter<'p> {
     /// [actor-replyto] The handler's members a continuation could target: a
     /// `send fn` with at least one parameter (the trailing one is the answer),
     /// paired with the face that declares it.
-    fn cont_targets(&self, h: &HandlerDecl) -> Vec<(&'p EffectDecl, usize)> {
-        let mut targets: Vec<(&'p EffectDecl, usize)> = Vec::new();
+    fn cont_targets(&self, h: &HandlerDecl) -> Vec<ContTarget<'p>> {
+        let mut targets: Vec<ContTarget<'p>> = Vec::new();
         for f in &h.fns {
             if !f.is_send || !f.params.iter().any(|p| !p.implicit) {
                 continue;
             }
-            if let Some(found) = self.member_faces(h, f).into_iter().next() {
-                if found.0.is_actor {
-                    targets.push(found);
+            match self.member_faces(h, f).into_iter().next() {
+                Some((e, i)) => {
+                    if e.is_actor {
+                        targets.push(ContTarget::Face(e, i));
+                    }
+                }
+                // [actor-private-send] No face declares it: a private member.
+                None => {
+                    if let Some(f) = self.private_member_of(h, &f.name.name) {
+                        targets.push(ContTarget::Private(f));
+                    }
                 }
             }
         }
         targets
+    }
+
+    /// [actor-private-send] The `send fn` members of `h` no face declares,
+    /// dispatched from the handler-keyed `__Priv_H`. Empty for a mixed
+    /// handler, whose servant owns every send member [mixed-handler].
+    fn private_members(&self, h: &HandlerDecl) -> Vec<&'p FnDecl> {
+        if self.handler_is_mixed(h) || !self.handler_is_actor(h) {
+            return Vec::new();
+        }
+        let Some(decl) = self.symbols.handlers.get(h.name.name.as_str()).copied() else {
+            return Vec::new();
+        };
+        decl.fns
+            .iter()
+            .filter(|f| f.is_send && self.member_faces(decl, f).is_empty())
+            .collect()
+    }
+
+    fn private_member_of(&self, h: &HandlerDecl, name: &str) -> Option<&'p FnDecl> {
+        self.private_members(h).into_iter().find(|f| f.name.name == name)
+    }
+
+    /// [actor-private-send] `sealed class __Priv_H`: the handler-keyed
+    /// messages of its private send members, beside the faces' `__Msg_E`s —
+    /// separate, since a face class is the protocol's wire form and hash.
+    fn emit_private_classes(&mut self, h: &HandlerDecl) -> String {
+        let privates = self.private_members(h);
+        if privates.is_empty() {
+            return String::new();
+        }
+        let name = private_class_name(&h.name.name);
+        let mut out = format!("\nsealed class {name} {{\n");
+        for f in privates {
+            let variant = msg_variant_name(&f.name.name);
+            let payload: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| format!("val {}: {}", p.name.name, self.emit_type(&p.ty)))
+                .collect();
+            if payload.is_empty() {
+                out.push_str(&format!("    object {variant} : {name}()\n"));
+            } else {
+                out.push_str(&format!("    class {variant}({}) : {name}()\n", payload.join(", ")));
+            }
+        }
+        out.push_str("}\n");
+        out
     }
 
     /// [effect-handler-deps] The effects `h` declares as dependencies,
@@ -7292,6 +7430,22 @@ impl<'p> Emitter<'p> {
                 format!("{msg}.{variant}({})", payload.join(", "))
             };
             return format!("salvo.SalvoSched.send(__addr!!, {built})");
+        }
+        // [actor-private-send] A private member: `__Priv_H.K(payload)` when
+        // running as an actor, the method inline otherwise.
+        if self.private_member_of(decl, member).is_some() {
+            let msg = private_class_name(&handler);
+            let variant = msg_variant_name(member);
+            let built = if payload.is_empty() {
+                format!("{msg}.{variant}")
+            } else {
+                format!("{msg}.{variant}({})", payload.join(", "))
+            };
+            return format!(
+                "run {{ val __a = __addr; if (__a != null) salvo.SalvoSched.send(__a, {built}) else this.{}({}) }}",
+                kt_ident(member),
+                payload.join(", ")
+            );
         }
         // [effect-handler-multi] The message class is the *face's*, so the
         // protocol is the one whose members include this one.

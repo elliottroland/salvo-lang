@@ -56,9 +56,9 @@ a container, and `remove_first` moves it out.
 **4 — hedge.** The same shape with two members racing: `Racing` sends both,
 the first answer is sent on, the second finds nothing to send to — a `Reply`
 is discharged exactly once, so there is no double answer to guard against. The
-slow replica parks its answer on the timer through a second face (`Delayed`),
-since a handler's members are its faces' and a timer's fire is not part of
-`Lookup`.
+slow replica parks its answer on the timer with `replyto answer(key, out)`,
+where `answer` is a **private** send member — one no face declares, so nothing
+outside the handler can send to it; `partial` and `first` are the same shape.
 
 **5 — failover.** `b` leaves its node group. Every replica hears it through
 `NodeChanges` and withdraws the members `b` hosted; the election now answers

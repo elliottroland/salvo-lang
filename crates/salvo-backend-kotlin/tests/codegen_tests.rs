@@ -4499,6 +4499,8 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_an_effect_typed_generic,
     kotlinc_compiles_and_runs_an_actor_group_across_nodes,
     kotlinc_compiles_and_runs_a_router_of_any,
+    kotlinc_compiles_and_runs_elvis_over_a_borrowed_optional,
+    kotlinc_compiles_and_runs_private_send_members,
     kotlinc_compiles_and_runs_a_sharded_route,
     kotlinc_compiles_and_runs_least_loaded_and_elected_routes,
     kotlinc_compiles_and_runs_member_overloads,
@@ -9490,6 +9492,103 @@ fn main() [use, spawn] {
 fn kotlinc_compiles_and_runs_an_effect_typed_generic() -> KotlinCase {
     let files = generate_files(&[("main.sv", EFFECT_GENERIC_DEMO)]);
     kotlin_case(files, "effect-generic", "members: 1\nping 7\n")
+}
+
+/// The Rust backend's `ELVIS_BORROW_DEMO`, verbatim [elvis] — parity for a
+/// Rust-side borrow defect.
+const ELVIS_BORROW_DEMO: &str = r#"fn main() [use] {
+    use StdOutConsole()
+    let xs: List<Int> = [3]
+    let names: List<Str> = ["ann"]
+    let m: Mut Map<Str, Int> = {}
+    put(m, "a", 3)
+    let a = get(xs, 0) ?: 10
+    let b = get(m, "a") ?: 10
+    let c = get(m, "zz") ?: 10
+    let d = copy(get(names, 0) ?: get(names, 0)!)
+    let e = if get(names, 9) is Str s { copy(s) } else { "nobody" }
+    let h = get(names, 9) ?: get(names, 0)!
+    let first = get(xs, 0)
+    let w = when first { is Int { first + 1 } is None { 0 } }
+    let found = get(xs, 0)
+    let f = found ?: 5
+    let g = if found is Int v { v * 2 } else { 0 }
+    println("${a} ${b} ${c} ${d} ${e} ${w} ${f} ${g} ${h}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_elvis_over_a_borrowed_optional() -> KotlinCase {
+    let files = generate_files(&[("main.sv", ELVIS_BORROW_DEMO)]);
+    kotlin_case(files, "elvis-borrow", "3 3 10 ann nobody 4 3 6 ann\n")
+}
+
+/// The Rust backend's `PRIVATE_SENDS_DEMO`, verbatim [actor-private-send].
+const PRIVATE_SENDS_DEMO: &str = r#"actor effect Counter {
+    send fn bump(n: Int) => !n
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Counting() of Counter {
+    mailbox { capacity: 8 }
+    sum: Int = 0
+    send fn bump(n: Int) { sum = sum + n }
+    send fn total(out: Reply<Int>) { out.send(sum) }
+}
+
+actor effect Report {
+    send fn report(label: Str, out: Reply<Str>) => !label, !out
+}
+
+// Two private members: `twice` is reached by a self-send, `reported` is a
+// continuation target with two captures.
+handler Reporting(counter: Addr<Counter>) of Report {
+    mailbox { capacity: 8 }
+    asked: Int = 0
+    send fn report(label: Str, out: Reply<Str>) {
+        twice@self(1)
+        counter.total(replyto reported(label, out))
+    }
+    send fn twice(n: Int) => !n {
+        asked = asked + n * 2
+    }
+    send fn reported(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total {
+        out.send("${label}: total ${total}, asked ${asked}")
+    }
+}
+
+// The same shape on a dependent handler (`[Console]`), which dispatches
+// through the fused form.
+handler LoudReporting(counter: Addr<Counter>) [Console] of Report {
+    mailbox { capacity: 8 }
+    send fn report(label: Str, out: Reply<Str>) {
+        note@self(copy(label))
+        counter.total(replyto reported(label, out))
+    }
+    send fn note(label: Str) => !label {
+        println("asking for ${label}")
+    }
+    send fn reported(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total {
+        out.send("${label}: ${total}")
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let p = pool(2)
+    let c = spawn Counting() on p
+    c.bump(3)
+    c.bump(4)
+    let r = spawn Reporting(copy(c)) on p
+    println(waitfor out: Reply<Str> { r.report("first", out) })
+    println(waitfor out: Reply<Str> { r.report("second", out) })
+    let loud = spawn LoudReporting(c) on p
+    println(waitfor out: Reply<Str> { loud.report("third", out) })
+}
+"#;
+
+fn kotlinc_compiles_and_runs_private_send_members() -> KotlinCase {
+    let files = generate_files(&[("main.sv", PRIVATE_SENDS_DEMO)]);
+    kotlin_case(files, "private-sends", "first: total 7, asked 2\nsecond: total 7, asked 4\nasking for third\nthird: 7\n")
 }
 
 /// The Rust backend's `ANY_ROUTER_DEMO`, verbatim [effect-any].

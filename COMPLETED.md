@@ -229,6 +229,34 @@ built, recorded in ROADMAP.md §16: an `iter fn` over a *generic* source or
 taking an `iter T` parameter (a stage — needs the generated `next` to carry
 forwarded implicits and the obligation match to ignore them).
 
+**Private send members, and `?:` over a borrowed optional (2026-09-27, user
+decision — built).** Two fixes scoped in PRIVATE_SENDS.md (retired with this
+entry). **[actor-private-send]**: a handler of an actor effect may declare
+`send fn` members no face declares, reachable by `k@self(…)` and
+`replyto k(…)` only — option (2) of the question step ⑧ raised, chosen by the
+user over keeping the stop-gap refusal. Such a member carries the free send
+fn's obligations (a written all-consumed clause, no `Mut`, no generics,
+sendable payloads) — the rule the mixed servant's members always had, now
+one rule for both — and is emitted as an inherent method (Rust) / plain
+`fun` (Kotlin) with a handler-keyed `__Priv_H` message enum beside the faces'
+`__Msg_E`s, one more downcast arm in `handle`, a `__dispatch_priv`, and
+`ContTarget::{Face, Private}` in `__Cont_H`'s construction, resume and
+decode-reply. Separate from the face enums deliberately: a face enum is the
+protocol's wire form and hash. `examples/cluster/` lost its `Delayed` face and
+the `partial`/`first` protocol members (same output); the three checker
+fixtures rewritten on 2026-09-27 are back in their private form with clauses.
+**[rs-opt-borrow] for `?:`**: `get(xs, 0) ?: 10` failed rustc (`&i32` against
+`10`) on lists *and* maps — the ROADMAP entry said map-only because the
+earlier demo used `!`, not `?:`; `emit_narrowed_read` now asks
+`subject_is_optional_borrow` (the predicate `!` already used) and derefs a
+Copy scalar, keeps a `proj` borrow, clones otherwise. Kotlin was unaffected.
+**1618 tests** (+22, most from the iterator rework landing between counts;
+this change: the private-member positive test and the mixed-servant one, a
+compile-and-run case per backend for private sends, and one per backend for
+`?:`/`is` over borrowed optionals). Recorded follow-up: the mixed servant is
+now the special case of the private-member mechanism and could be unified
+(ROADMAP.md, "Recorded, not scheduled").
+
 **The network sequence, step ⑧ — `examples/cluster/` (2026-09-27 — built;
 the sequence is complete).** One program over two virtual nodes and the
 in-memory transport: a singleton behind `Elected` and an election by host
@@ -19049,6 +19077,22 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **When a construct type-checks and fails in the target compiler, the
+  question is which side is wrong** (2026-09-27). Private `send fn` members
+  (a `replyto partial()` target no face declares) passed the checker and
+  failed rustc with "no variant `Partial`". The first response was a checker
+  refusal — honest, and it turned a raw rustc error into a Salvo one the same
+  day — but it also outlawed the natural shape for a fan-out actor's
+  collector and a timer continuation, and the mixed servant already had the
+  machinery to make the shape work. A refusal that is cheaper than the
+  feature is a stop-gap: name it as one in the log and put the question to
+  the user rather than shipping it as the rule.
+- **A "works on lists, fails on maps" report deserves a second repro**
+  (2026-09-27). The `?:`-over-`get` defect was filed as map-specific because
+  the list demo had used `!`; both `get`s lower to `Option<&T>` and both
+  failed under `?:`. The proj-typed case had only compiled because
+  `.as_ref().unwrap().clone()` over `Option<&T>` happens to yield `&T` —
+  right by accident, which is how it escaped notice.
 - **A checker type reaching a backend's type renderer must render like the
   written type would** (2026-09-27). The Rust `emit_type` path had always added
   `'_` to a borrowing struct's mention and `rust_ty` had not, because nothing

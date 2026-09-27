@@ -890,6 +890,12 @@ where Rust had to build the fusion to get the same programs running
   argument's codec and hashes `toByteArray()`. An erased struct's codec is
   monomorphic (`__Codec_ActorView`, no argument codecs), and an erased
   handler is constructed without type arguments (`Sharded()`).
+* [kt-actor] [actor-private-send] A private send member is a plain `fun` on
+  the handler class (no interface declares it). `sealed class __Priv_H`
+  holds its messages; `handle`'s `when` gains `is __Priv_H -> __dispatchPriv`,
+  which calls the method; `resume` and `decodeReply` cover `ContTarget::
+  Private` subclasses of `__Cont_H`. `k@self(…)` builds `__Priv_H.K(payload)`
+  when `__addr` is set, the method call otherwise.
 * [kt-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `interface` is emitted as any effect's, and the `use`
   site constructs the host class — `salvo.platform.<M>.H(args)`,

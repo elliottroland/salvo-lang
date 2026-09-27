@@ -3590,15 +3590,22 @@ impl<'p> Emitter<'p> {
             return String::new();
         }
         let mut out = format!("\npub enum {} {{\n", cont_enum_name(&h.name.name));
-        for (e, i) in &targets {
-            let Some(f) = e.fns.get(*i) else { continue };
+        for target in &targets {
+            // [actor-private-send] A private member's variant is named after
+            // the member itself; a face member's after the face's spelling.
+            let (f, variant) = match target {
+                ContTarget::Face(e, i) => {
+                    let Some(f) = e.fns.get(*i) else { continue };
+                    (f, msg_variant_name(&salvo_core::effect_member_name(e, *i)))
+                }
+                ContTarget::Private(f) => (*f, msg_variant_name(&f.name.name)),
+            };
             let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
             let captures: Vec<String> = fixed[..fixed.len() - 1]
                 .iter()
                 // A capture is *stored* in the continuation, so it is owned.
                 .map(|p| self.param_type(&p.ty, p.variadic, ParamMode::Owned))
                 .collect();
-            let variant = msg_variant_name(&salvo_core::effect_member_name(e, *i));
             if captures.is_empty() {
                 out.push_str(&format!("    {variant},\n"));
             } else {
@@ -4217,12 +4224,24 @@ impl<'p> Emitter<'p> {
                 }
                 out.push_str("}\n");
             }
+            // [actor-private-send] Private send members are inherent methods:
+            // no face's trait has room for them, and only this handler's own
+            // activations call them.
+            let privates = self.private_members(h);
+            if !privates.is_empty() {
+                out.push_str(&format!("\nimpl{generics} {name}{generic_args} {{\n"));
+                for f in privates {
+                    out.push_str(&self.emit_fn_inner(f, FnStyle::HandlerMember(h), 1));
+                }
+                out.push_str("}\n");
+            }
         } else {
             out.push_str(&self.emit_dependent_members(h, &deps));
         }
         // [actor-replyto] The parked-continuation enum, beside the handler
         // whose members it names.
         out.push_str(&self.emit_cont_enum(h));
+        out.push_str(&self.emit_private_enum(h));
         // [rs-actor] The body a `spawn` boxes, for a handler that can be
         // one: the message dispatch onto its members.
         out.push_str(&self.emit_actor_body(h, &deps));
@@ -4279,11 +4298,15 @@ impl<'p> Emitter<'p> {
         self.needs_scheduler = true;
         let name = rs_ident(&h.name.name);
         let proc_name = actor_struct_name(&h.name.name);
+        // [actor-private-send] The private send members, dispatched from
+        // `__Priv_H` by a dispatcher of their own.
+        let privates = self.private_members(h);
+        let priv_enum = private_enum_name(&h.name.name);
         // Per face: its message enum path, its trait path, and the name of the
         // dispatcher that runs its members. One face keeps the bare
         // `__dispatch`, which is what a single-protocol actor has always
         // emitted.
-        let single = faces.len() == 1;
+        let single = faces.len() == 1 && privates.is_empty();
         let dispatchers: Vec<(String, String, String)> = faces
             .iter()
             .map(|e| {
@@ -4427,6 +4450,40 @@ impl<'p> Emitter<'p> {
             }
             out.push_str("        }\n    }\n");
         }
+        // [actor-private-send] The private dispatcher: an inherent method
+        // call (or the `__Impl_H` form for a dependent handler), no trait.
+        if !privates.is_empty() {
+            out.push_str(&format!("    fn __dispatch_priv(&mut self, msg: {priv_enum}) {{\n"));
+            if !deps.is_empty() {
+                out.push_str(&format!(
+                    "        let mut __deps = __Deps_{name}{{ __p: &mut self.prov }};\n"
+                ));
+            }
+            out.push_str("        match msg {\n");
+            for f in &privates {
+                let variant = msg_variant_name(&f.name.name);
+                let params: Vec<String> = f
+                    .params
+                    .iter()
+                    .filter(|p| !p.implicit)
+                    .map(|p| rs_ident(&p.name.name))
+                    .collect();
+                let bind = if params.is_empty() {
+                    String::new()
+                } else {
+                    format!("({})", params.join(", "))
+                };
+                let call = if deps.is_empty() {
+                    format!("self.handler.{}({})", rs_ident(&f.name.name), params.join(", "))
+                } else {
+                    let mut args = vec!["&mut self.handler".to_string(), "&mut __deps".to_string()];
+                    args.extend(params);
+                    format!("__Impl_{name}::{}({})", rs_ident(&f.name.name), args.join(", "))
+                };
+                out.push_str(&format!("            {priv_enum}::{variant}{bind} => {call},\n"));
+            }
+            out.push_str("        }\n    }\n");
+        }
         out.push_str("}\n");
         // [rs-actor] [actor-self-send] Every activation writes the
         // actor's own address into the handler before running a member, so
@@ -4457,6 +4514,15 @@ impl<'p> Emitter<'p> {
                 out.push_str(&format!(
                     "        let msg = match msg.downcast::<{msg_path}>() {{\n            \
                      Ok(__m) => return self.{dispatch}(*__m),\n            \
+                     Err(__m) => __m,\n        }};\n"
+                ));
+            }
+            // [actor-private-send] A self-send to a private member arrives
+            // as `__Priv_H`, one more protocol only this actor speaks.
+            if !privates.is_empty() {
+                out.push_str(&format!(
+                    "        let msg = match msg.downcast::<{priv_enum}>() {{\n            \
+                     Ok(__m) => return self.__dispatch_priv(*__m),\n            \
                      Err(__m) => __m,\n        }};\n"
                 ));
             }
@@ -4519,6 +4585,37 @@ impl<'p> Emitter<'p> {
                         ));
                     }
                 }
+                // [actor-private-send] A private target resumes through its
+                // own enum: the same rebuild, handed to `__dispatch_priv`.
+                for f in &privates {
+                    let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                    if fixed.is_empty() {
+                        continue;
+                    }
+                    let variant = msg_variant_name(&f.name.name);
+                    let caps: Vec<String> = fixed[..fixed.len() - 1]
+                        .iter()
+                        .map(|p| rs_ident(&p.name.name))
+                        .collect();
+                    let bind = if caps.is_empty() {
+                        String::new()
+                    } else {
+                        format!("({})", caps.join(", "))
+                    };
+                    let answer_ty = {
+                        let last = fixed[fixed.len() - 1];
+                        self.param_type(&last.ty, last.variadic, ParamMode::Owned)
+                    };
+                    let mut args: Vec<String> = caps.clone();
+                    args.push(format!(
+                        "*value.downcast::<{answer_ty}>().expect(\"the awaited answer\")"
+                    ));
+                    out.push_str(&format!(
+                        "            {cont_path}::{variant}{bind} => \
+                         self.__dispatch_priv({priv_enum}::{variant}({})),\n",
+                        args.join(", ")
+                    ));
+                }
                 out.push_str("        }\n    }\n");
                 // [addr-routable] [wire-format] A reply arriving over the wire
                 // is decoded by the parked variant's answer type — the same
@@ -4543,6 +4640,18 @@ impl<'p> Emitter<'p> {
                             "            {cont_path}::{variant}{{ .. }} => {decoder}(payload),\n"
                         ));
                     }
+                }
+                for f in &privates {
+                    let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                    if fixed.is_empty() {
+                        continue;
+                    }
+                    let variant = msg_variant_name(&f.name.name);
+                    let last = fixed[fixed.len() - 1];
+                    let decoder = self.reply_decoder_for_ast(&last.ty);
+                    out.push_str(&format!(
+                        "            {cont_path}::{variant}{{ .. }} => {decoder}(payload),\n"
+                    ));
                 }
                 out.push_str("        }\n    }\n");
             }
@@ -4630,19 +4739,80 @@ impl<'p> Emitter<'p> {
     /// `send fn` with at least one parameter (the trailing one is the answer),
     /// paired with the face that declares it — which is what says *which*
     /// message enum `resume` rebuilds.
-    fn cont_targets(&mut self, h: &HandlerDecl) -> Vec<(&'p EffectDecl, usize)> {
-        let mut targets: Vec<(&'p EffectDecl, usize)> = Vec::new();
+    fn cont_targets(&mut self, h: &HandlerDecl) -> Vec<ContTarget<'p>> {
+        let mut targets: Vec<ContTarget<'p>> = Vec::new();
         for f in &h.fns {
             if !f.is_send || !f.params.iter().any(|p| !p.implicit) {
                 continue;
             }
-            if let Some(found) = self.member_faces(h, f).into_iter().next() {
-                if found.0.is_actor {
-                    targets.push(found);
+            match self.member_faces(h, f).into_iter().next() {
+                Some((e, i)) => {
+                    if e.is_actor {
+                        targets.push(ContTarget::Face(e, i));
+                    }
+                }
+                // [actor-private-send] No face declares it: a private member,
+                // a target in its own right.
+                None => {
+                    if let Some(f) = self.private_member_of(h, &f.name.name) {
+                        targets.push(ContTarget::Private(f));
+                    }
                 }
             }
         }
         targets
+    }
+
+    /// [actor-private-send] The `send fn` members of `h` no face declares:
+    /// reachable through `k@self(…)` and `replyto k(…)` only, dispatched from
+    /// the handler-keyed `__Priv_H` enum. Empty for a mixed handler, whose
+    /// servant owns every send member through `__Msg_H` [mixed-handler].
+    fn private_members(&mut self, h: &HandlerDecl) -> Vec<&'p FnDecl> {
+        if self.handler_is_mixed(h) || !self.handler_is_actor(h) {
+            return Vec::new();
+        }
+        let Some(decl) = self.symbols.handlers.get(h.name.name.as_str()).copied() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for f in &decl.fns {
+            if f.is_send && self.member_faces(decl, f).is_empty() {
+                out.push(f);
+            }
+        }
+        out
+    }
+
+    fn private_member_of(&mut self, h: &HandlerDecl, name: &str) -> Option<&'p FnDecl> {
+        self.private_members(h).into_iter().find(|f| f.name.name == name)
+    }
+
+    /// [actor-private-send] `__Priv_H`: the handler-keyed message enum of its
+    /// private send members, beside the faces' `__Msg_E`s. Separate from them
+    /// because a face enum is the protocol's wire form and hash, and a private
+    /// member is neither on the wire nor in the protocol.
+    fn emit_private_enum(&mut self, h: &HandlerDecl) -> String {
+        let privates = self.private_members(h);
+        if privates.is_empty() {
+            return String::new();
+        }
+        let mut out = format!("\npub enum {} {{\n", private_enum_name(&h.name.name));
+        for f in privates {
+            let payload: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| self.param_type(&p.ty, p.variadic, ParamMode::Owned))
+                .collect();
+            let variant = msg_variant_name(&f.name.name);
+            if payload.is_empty() {
+                out.push_str(&format!("    {variant},\n"));
+            } else {
+                out.push_str(&format!("    {variant}({}),\n", payload.join(", ")));
+            }
+        }
+        out.push_str("}\n");
+        out
     }
 
     /// [rs-effect-fusion] The member bodies of a *dependent* handler. They
@@ -8148,6 +8318,21 @@ fn monitor_struct_name(effect: &str) -> String {
     format!("__Mon_{}", rs_ident(effect))
 }
 
+/// [actor-private-send] The handler-keyed enum of a handler's private send
+/// members: `__Priv_Gathering`.
+fn private_enum_name(handler: &str) -> String {
+    format!("__Priv_{}", rs_ident(handler))
+}
+
+/// [actor-replyto] [actor-private-send] What a parked continuation may
+/// target: a member of one of the handler's faces (whose message the resume
+/// rebuilds), or a private member (called directly).
+#[derive(Clone, Copy)]
+enum ContTarget<'p> {
+    Face(&'p EffectDecl, usize),
+    Private(&'p FnDecl),
+}
+
 /// [rs-monitor] The clone-box supertrait behind the handle: what lets a
 /// `Box<dyn __Share_E>` be cloned, which is what makes the handle freely
 /// copyable whatever kind of value sits inside it.
@@ -11431,12 +11616,37 @@ impl<'p> Emitter<'p> {
             }
             _ => {
                 // `T?` representation (or a checked field): Option unwrap.
+                // [rs-opt-borrow] Over an **optional borrow** — `get(xs, i)`
+                // hoisted into a temporary, or a local bound from such a call
+                // — the storage is `Option<&T>`, and `unwrap()` yields the
+                // reference: a Copy scalar is dereferenced, a `proj` target
+                // keeps the borrow (the read *is* the reference), anything
+                // else is cloned through it. `get(xs, 0) ?: 10` emitted
+                // `&i32` against `10` before this (found 2026-09-27).
+                let borrowed = self.subject_is_optional_borrow(subject);
+                self.narrowed_read_is_ref = false;
                 match target {
+                    Some(t) if Self::is_copy_ty(t) && borrowed => format!("*{subj}.unwrap()"),
                     Some(t) if Self::is_copy_ty(t) => format!("{subj}.unwrap()"),
+                    Some(t) if borrowed && t.is_proj() => {
+                        self.narrowed_read_is_ref = true;
+                        format!("{subj}.unwrap()")
+                    }
+                    _ if borrowed => format!("{subj}.unwrap().clone()"),
                     _ => format!("{subj}.as_ref().unwrap().clone()"),
                 }
             }
         }
+    }
+
+    /// [rs-opt-borrow] Whether a narrowing's subject holds `Option<&T>`: a
+    /// local recorded as an optional borrow, or a call with a derived
+    /// (`proj`) optional result — the two shapes `!` already recognises.
+    fn subject_is_optional_borrow(&self, subject: &Expr) -> bool {
+        matches!(
+            subject,
+            Expr::Ident(id) if matches!(self.bindings.get(id.name.as_str()), Some(BindKind::OptRef))
+        ) || self.is_optional_derived_call(subject)
     }
 
     /// [rs-narrow-mut] `emit_narrowed_read`'s mutable twin, for peeling an
@@ -13239,6 +13449,38 @@ impl<'p> Emitter<'p> {
             return format!(
                 "crate::scheduler::salvo_send(self.__addr\
                  .expect(\"a mixed servant runs as an actor\"), Box::new({built}))"
+            );
+        }
+        // [actor-private-send] A private member: `__Priv_H::K(payload)` when
+        // running as an actor, the inherent method inline otherwise (a
+        // `use`-bound handler runs its members on the caller's thread).
+        if let Some(f) = self.private_member_of(decl, member) {
+            let f = f.clone();
+            let priv_enum = private_enum_name(&handler);
+            let variant = msg_variant_name(member);
+            let built = if payload.is_empty() {
+                format!("{priv_enum}::{variant}")
+            } else {
+                format!("{priv_enum}::{variant}({})", payload.join(", "))
+            };
+            let deps = self.handler_dep_effects(decl);
+            let inline = if deps.is_empty() {
+                format!("self.{}({})", rs_ident(&f.name.name), payload.join(", "))
+            } else {
+                let fx = self
+                    .effect_env
+                    .iter()
+                    .rev()
+                    .find(|e| !e.is_local)
+                    .map(|e| e.var.clone())
+                    .unwrap_or_else(|| "__fx".to_string());
+                let mut args = vec!["self".to_string(), format!("&mut *{fx}")];
+                args.extend(payload.iter().cloned());
+                format!("__Impl_{}::{}({})", rs_ident(&handler), rs_ident(&f.name.name), args.join(", "))
+            };
+            return format!(
+                "match self.__addr {{ Some(__a) => crate::scheduler::salvo_send(__a, Box::new({built})), \
+                 None => {inline} }}"
             );
         }
         // [effect-handler-multi] The message enum is the *face's*, so the

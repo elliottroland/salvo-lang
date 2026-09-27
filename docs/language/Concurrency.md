@@ -59,6 +59,20 @@ fn fetch(id: Int, out: Reply<Str>) [Db] -> None => !out {
 }
 ```
 
+Inside an actor, `replyto` more often targets one of the actor's **own** members — usually a private one. A `send fn` that no face declares is a private member: nothing outside the handler can send to it, and the only ways in are `k@self(…)` from a sibling member and `replyto k(…)`. Its parameters are consumed like any message's, so its clause is written out, and its trailing parameter is the answer the continuation carries:
+
+```
+handler Gathering() of Gather {
+    mailbox { capacity: 16 }
+    total: Int = 0
+    send fn scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>) => !word, !members, !out {
+        for m in members { m.query(copy(word), replyto partial()) }   // one continuation per member
+        …
+    }
+    send fn partial(n: Int) => !n { total = total + n … }              // private: no face declares it
+}
+```
+
 **A mint schedules nothing.** `replyto finish(…)` allocates a token and decides *where* the continuation will run; the body runs only when someone sends to that token. Sending to it queues the task on that pool, and a worker of that pool runs it.
 
 **Placement is inherited unless you write it.** `on POOL` is optional at a mint, and omitted means the pool current where the mint was written — inside an actor's member, the actor's own pool; in `main`, main's own pool. Whoever creates work pays for it, so a client cannot spend a shared service's threads by accident, and an actor's continuations stay on the threads its author budgeted. Write `on p` when the work belongs somewhere else.

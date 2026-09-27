@@ -2207,6 +2207,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 msg.push_str(&note);
             }
         }
+        // [actor-private-send] A bare call to a private send member of the
+        // enclosing handler: it is a message, not a function, so the fix is
+        // the selector.
+        if let Some(h) = self.own_handler {
+            if h.fns.iter().any(|f| f.is_send && f.name.name == name) {
+                msg.push_str(&format!(
+                    " — `{name}` is a send member of `{}`, so it is sent, not called: \
+                     `{name}@self(…)`",
+                    h.name.name
+                ));
+            }
+        }
         self.out
             .errors
             .push(FileDiagnostic::error(self.file_idx, span, msg).with_imports(imports));
@@ -2591,13 +2603,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // [actor-send-fn] A handler's `send fn` answers
                         // nothing, exactly as the effect's declaration does.
                         self.check_send_member(f);
-                        // [mixed-handler] A **mixed** handler's send member
-                        // is the servant protocol, and it carries the free
+                        // [mixed-handler] [actor-private-send] A send member
+                        // no face declares — every one of a mixed handler's,
+                        // an actor handler's private ones — carries the free
                         // send fn's obligations, because no effect
-                        // declaration mirrors it. (An *actor* handler's
-                        // local send members stay as they are: private
-                        // helpers under the face's regime.)
-                        if f.is_send && mixed {
+                        // declaration mirrors it: a written, all-consumed
+                        // clause, no `Mut`, no generics, sendable payloads.
+                        let private = f.is_send
+                            && (mixed
+                                || crate::handler_member_faces(&self.handler_faces(h), f).is_empty());
+                        if private {
                             self.check_local_send_member(h, f);
                         }
                         // [defer-deduction] The rung-4 contract point: while
@@ -11625,26 +11640,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         for f in &h.fns {
             let matched = crate::handler_member_faces(&decls, f);
             let Some((first, first_idx)) = matched.first().copied() else {
-                // [actor-send-fn] A `send fn` no face declares has no
-                // message variant and no continuation variant to arrive on:
-                // a `k@self(…)` or `replyto k(…)` naming it would type-check
-                // and then have nothing to run. Refused here, at the
-                // declaration, naming the two remedies.
-                // [mixed-handler] Except the servant of a mixed handler,
-                // whose faces are all plain: there the private send
-                // members *are* the design, and they get their own enum.
-                let mixed = !decls.is_empty() && decls.iter().all(|e| !e.is_actor);
-                if f.is_send && !decls.is_empty() && !mixed {
-                    self.error(
-                        f.name.span,
-                        format!(
-                            "handler `{}` declares `send fn {}`, which no effect it implements \
-                             declares: a handler's members are its faces' — add `{}` to the \
-                             protocol, or give the handler a second face that declares it",
-                            h.name.name, f.name.name, f.name.name
-                        ),
-                    );
-                }
+                // [actor-private-send] A `send fn` no face declares is a
+                // **private** member: reachable by `k@self(…)` and
+                // `replyto k(…)` only, with a message and continuation
+                // variant of its own in the emitters (user decision
+                // 2026-09-27). Nothing to check against a face here.
                 continue;
             };
             let Some(first_member) = first.fns.get(first_idx) else {
@@ -11746,6 +11746,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return self.member_discharges(&effect.name.name, member);
             }
         }
+        // [actor-private-send] A private member has no face to take its
+        // contract from, so its *own* written clause is the contract — a
+        // consumed linear parameter declared in this file makes the body a
+        // discharge context, as it does for a free `send fn` [free-send-fn].
+        if f.is_send {
+            return self.member_discharges_in(Some(self.file_idx), f);
+        }
         HashSet::new()
     }
 
@@ -11756,6 +11763,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// keeps the discharge set a property of the type's own module.
     fn member_discharges(&self, effect_name: &str, member: &FnDecl) -> HashSet<String> {
         let effect_file = self.scope.effect_files.get(effect_name).copied();
+        self.member_discharges_in(effect_file, member)
+    }
+
+    /// [linear-group] `member_discharges` with the owning file given: the
+    /// effect's for a face member, the handler's for a private one.
+    fn member_discharges_in(&self, effect_file: Option<usize>, member: &FnDecl) -> HashSet<String> {
         member
             .params
             .iter()

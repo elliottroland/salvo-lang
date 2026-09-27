@@ -75,14 +75,10 @@ handler Looking(who: Str) of Lookup {
 }
 
 // …and one that takes its time: the answer is parked on the timer and sent
-// when it fires. `replyto` mints the continuation onto its own `answer` — a
-// member of a second face, since a handler's members are its faces' and the
-// timer's fire is not part of `Lookup`.
-actor effect Delayed {
-    send fn answer(key: Str, out: Reply<Str>, fired: Fired) => !key, !out, !fired
-}
-
-handler SlowLooking(who: Str, timer: Addr<Timer>) of Lookup, Delayed {
+// when it fires. `replyto` mints the continuation onto its own `answer`, a
+// **private** send member — no face declares it, so nothing outside this
+// handler can send to it, and its clause is written out like a free send fn's.
+handler SlowLooking(who: Str, timer: Addr<Timer>) of Lookup {
     mailbox { capacity: 16 }
     send fn lookup(key: Str, out: Reply<Str>) => !key, !out {
         timer.after(millis(150), replyto answer(key, out))
@@ -111,8 +107,6 @@ handler Scattering(group: Addr<ActorGroup<Search>>, gather: Addr<Gather>) of any
 
 actor effect Gather {
     send fn scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>) => !word, !members, !out
-    // One index's answer — the continuation `scatter` mints per member.
-    send fn partial(n: Int) => !n
 }
 
 // One query at a time: the reply token waits in the actor's state until every
@@ -132,6 +126,7 @@ handler Gathering() of Gather {
             m.query(copy(word), replyto partial())
         }
     }
+    // Private: one index's answer, the continuation `scatter` mints per member.
     send fn partial(n: Int) => !n {
         total = total + n
         left = left - 1
@@ -158,7 +153,6 @@ handler Hedging(group: Addr<ActorGroup<Lookup>>, racer: Addr<Race>) of any Looku
 
 actor effect Race {
     send fn race(key: Str, members: List<Addr<Lookup>>, out: Reply<Str>) => !key, !members, !out
-    send fn first(answer: Str) => !answer
 }
 
 handler Racing() of Race {
@@ -285,8 +279,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
 
         let looks = attach(protocol<Lookup>(), group)
         let timer = spawn DefaultTimer() on p
-        let (slow, _delayed) = spawn SlowLooking("b (slow)", timer) on p
-        join(looks, slow)
+        join(looks, spawn SlowLooking("b (slow)", timer) on p)
 
         done.send(mine)
     }

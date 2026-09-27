@@ -1801,7 +1801,7 @@ impl Pick for Sharded {
             k
         };
         let mut slot = ((magnitude % ((n) as i64)) as i32);
-        let mut picked = { let __pick1 = view.actors.get((slot) as i64 as usize); if __pick1.is_some() { __pick1.as_ref().unwrap().clone() } else { return None } };
+        let mut picked = { let __pick1 = view.actors.get((slot) as i64 as usize); if __pick1.is_some() { __pick1.unwrap() } else { return None } };
         return Some(picked.addr.clone());
     }
 }
