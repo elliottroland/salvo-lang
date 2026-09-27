@@ -170,17 +170,17 @@ A process is one node; it may also **host virtual nodes** (`new_node()`, `pool_a
 
 ### Node groups
 
-Which nodes exist is a **membership** question, and the answer is an actor effect, `NodeGroup`, whose handlers are the mechanisms. A node first **connects** — `connect(me)` binds the scheduler to the transport in scope: the actor that puts the runtime's frames on the wire, the actor that hands arriving frames back, and the route to the node's own endpoint — then joins by spawning a mechanism on its own pool — `StaticNodeGroup("demo", all)` when the fleet is fixed, `GossipNodeGroup("mesh", seeds)` when it is not — and asks it `members(out)`, or `subscribe(w)` to hear `NodeChanges.joined` and `left` as messages.
+Which nodes exist is a **membership** question, and the answer is an actor effect, `NodeGroup`, whose handlers are the mechanisms. A node first **connects** — `connect(me)` binds the scheduler to the transport in scope: the actor that puts the runtime's frames on the wire, the actor that hands arriving frames back, and the route to the node's own endpoint — then spawns a mechanism on its own pool — `StaticNodeGroup("demo", all)` when the fleet is fixed, `GossipNodeGroup("mesh", seeds)` when it is not — and asks it `members(out)`, or `subscribe(w)` to hear `NodeChanges.joined` and `left` as messages.
 
 ```
 use HostTcpTransport(copy(me))
 connect(copy(me))                                           // once per node; `false` if already connected
-let group = node_group(spawn GossipNodeGroup("mesh", seeds) on p)
+let group = spawn GossipNodeGroup("mesh", seeds) on p       // the mechanism starts itself in its `init`
 group.subscribe(spawn Announcing() on p)                    // "+ b:1", "- b:1 (left)"
 let peers = waitfor out: Reply<List<Node>> { group.members(out) }
 ```
 
-`connect` is idempotent — `connected()` says whether the node is on the wire, and a second `connect` answers `false` and binds nothing — and a node group refuses to start on a node that is not connected, so the order cannot be got wrong silently. The handshake underneath is the runtime's, common to every mechanism: the group's name (so two deployments on one network refuse each other by name), the node's endpoint, and its protocol table — which is what lets a node refuse to talk to a peer whose version of a protocol differs before a single message is decoded.
+`connect` is idempotent — `connected()` says whether the node is on the wire, and a second `connect` answers `false` and binds nothing — and a mechanism refuses to start on a node that is not connected, so the order cannot be got wrong silently. The handshake underneath is the runtime's, common to every mechanism: the group's name (so two deployments on one network refuse each other by name), the node's endpoint, and its protocol table — which is what lets a node refuse to talk to a peer whose version of a protocol differs before a single message is decoded. Its events arrive at the mechanism as messages to private members of its own, registered in its `init` with `watch_peers(self@NodeGroup)`.
 
 ### Actor groups
 

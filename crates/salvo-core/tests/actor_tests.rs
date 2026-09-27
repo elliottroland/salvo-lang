@@ -1323,7 +1323,7 @@ fn main() [use, spawn] {
     );
     assert!(
         errs.iter().any(|m| m
-            .contains("mints a continuation with `replyto`, so it can only be `spawn`ed")),
+            .contains("mints a continuation with `replyto`, or names its own address with `self@…`, so it can only be `spawn`ed")),
         "expected the parking-handler `use` refusal: {errs:?}"
     );
 }
@@ -2512,4 +2512,61 @@ handler CyclicRandom(seed: Int) of Random {
 ",
     );
     assert!(errs.is_empty(), "{errs:?}");
+}
+
+/// [handler-init] `init { … }` is checked as a parameterless private member;
+/// `self@Face` is the handler's own address as one of its actor faces —
+/// refused outside a handler, for a face the handler lacks or a plain one,
+/// and a handler using it is spawn-only.
+#[test]
+fn init_and_self_addr_are_checked_as_members() {
+    let errs = errors(
+        "\
+actor effect Registry { send fn register(who: Addr<Counter>) => !who }
+handler Registering() of Registry {
+    mailbox { capacity: 4 }
+    send fn register(who: Addr<Counter>) => !who {}
+}
+handler Announcing(reg: Addr<Registry>) of Counter {
+    mailbox { capacity: 4 }
+    sum: Int = 0
+    init {
+        sum = 1
+        reg.register(self@Counter)
+    }
+    send fn bump(n: Int) { sum = sum + n }
+    send fn total(out: Reply<Int>) { out.send(sum) }
+}
+fn main() [use, spawn] {
+    let p = pool(1)
+    let reg = spawn Registering() on p
+    let _a = spawn Announcing(reg) on p
+}
+",
+    );
+    assert!(errs.is_empty(), "{errs:?}");
+    let errs = errors(
+        "\
+handler Twice() of Counter {
+    mailbox { capacity: 4 }
+    init {}
+    send fn init() {}
+    send fn bump(n: Int) { let _me = self@Log }
+    send fn total(out: Reply<Int>) { out.send(0) }
+}
+handler Named() of Counter {
+    mailbox { capacity: 4 }
+    send fn bump(n: Int) { let _me = self@Counter }
+    send fn total(out: Reply<Int>) { out.send(0) }
+}
+fn free() -> None { let _x = self@Counter }
+fn main() [use] {
+    use Named()
+}
+",
+    );
+    assert!(errs.iter().any(|m| m.contains("cannot also declare a member named `init`")), "{errs:?}");
+    assert!(errs.iter().any(|m| m.contains("has no actor face `Log`")), "{errs:?}");
+    assert!(errs.iter().any(|m| m.contains("legal only inside a handler member or its `init` block")), "{errs:?}");
+    assert!(errs.iter().any(|m| m.contains("names its own address with `self@…`") && m.contains("can only be `spawn`ed")), "{errs:?}");
 }

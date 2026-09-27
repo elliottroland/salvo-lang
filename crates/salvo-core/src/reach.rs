@@ -438,7 +438,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         }
         // [actor-self-send] The member is the enclosing handler's, so the
         // selector names nothing a module could provide.
-        Expr::SelfScoped { .. } => {}
+        Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
         // [actor-replyto] The member name is resolved against the enclosing
         // handler, not the module, so only the captures name things here.
         Expr::ReplyTo {

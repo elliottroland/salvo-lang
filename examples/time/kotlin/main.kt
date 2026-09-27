@@ -253,7 +253,7 @@ fun main() {
     println(__fx4, verdict(Tick(nanos = 0L), Tick(nanos = 2000000000L), budget))
     val p = salvo.SalvoSched.pool(1)
     val (timer, ctl) = run { val __h = ManualTime(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_ManualTime(__h), __Actor_ManualTime.__DECODE); Pair(__a, __a) }
-    val sessions = run { val __h = Sessions(__Fx_4(__Stub_Timer(timer))); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sessions(__h), __Actor_Sessions.__DECODE) }
+    val sessions = run { val __h = Sessions(__Fx_4(__Stub_Timer(timer))); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sessions(__h), __Actor_Sessions.__DECODE); __a }
     val outcome = run {
         val (answer, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
@@ -268,7 +268,7 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     println(__fx4, "session: $outcome")
-    val sleeper = run { val __h = Napping(__Fx_5(TestTicker(timer), __Stub_Timer(timer))); salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Napping(__h), __Actor_Napping.__DECODE) }
+    val sleeper = run { val __h = Napping(__Fx_5(TestTicker(timer), __Stub_Timer(timer))); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Napping(__h), __Actor_Napping.__DECODE); __a }
     val napped = run {
         val (answer, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })

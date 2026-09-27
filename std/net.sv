@@ -308,12 +308,6 @@ export struct Node : auto Hashed<self> {
 // handler serves this face the same way; what differs is how it learns who is
 // there and how it notices who has gone.
 export actor effect NodeGroup {
-    // Start the mechanism: register this node's group and its events face
-    // with the runtime, then find the others. [events] is the group actor's
-    // own `PeerEvents` addr, which the spawn answered — a handler cannot name
-    // its own addr, so the spawner hands it back; [start_group] does exactly
-    // this for the pair a spawn answers.
-    send fn join(events: Addr<PeerEvents>) => !events
     // Everyone this node currently knows, itself excluded.
     send fn members(out: Reply<List<Node>>) => !out
     // Hear about arrivals and departures.
@@ -327,19 +321,6 @@ export actor effect NodeGroup {
 export actor effect NodeChanges {
     send fn joined(n: Node) => !n
     send fn left(n: Node, why: Str) => !n, !why
-}
-
-// [node-group] The runtime's account of the handshake, delivered to whichever
-// group actor registered with [watch_peers]: a peer completed a HELLO/ACK
-// exchange (its identity, endpoint and protocol table), a peer sent LEAVE, or
-// a peer introduced others (an INTRO frame, sent with [introduce]). Introductions
-// travel as frames rather than as an actor protocol so the group serves
-// `PeerEvents` and never sends it — which keeps gossip out of the deadlock
-// graph's send-cycle warning [actor-deadlock-cycle].
-export actor effect PeerEvents {
-    send fn hello(node: NodeId, at: NodeEndpoint, protocols: List<(Str, Str)>) => !node, !at, !protocols
-    send fn gone(node: NodeId) => !node
-    send fn introduced(peers: List<NodeEndpoint>) => !peers
 }
 
 // ---- the handshake (private: a mechanism's tools)
@@ -358,9 +339,17 @@ export actor effect PeerEvents {
 // groups of different names refuse each other by name at the handshake.
 intrinsic fn set_group(name: Str, at: NodeEndpoint) [] -> None => name, at
 
-// [node-group] Where the current node's peer events go: `hello`, `gone` and
-// `introduced` arrive at [sink] as messages.
-intrinsic fn watch_peers(sink: Addr<PeerEvents>) [] -> None => !sink
+// [node-group] Where the current node's peer events go — the runtime's
+// account of the handshake, delivered to the mechanism as messages to three
+// **private** send members it declares [actor-private-send]: `hello(node, at,
+// protocols)` when a peer completed a HELLO/ACK exchange, `gone(node)` when a
+// peer sent LEAVE, `introduced(peers)` when a peer introduced others (an INTRO
+// frame, sent with [introduce]). Introductions travel as frames rather than
+// as an actor protocol so a mechanism never sends the protocol it serves —
+// which keeps gossip out of the deadlock graph's send-cycle warning
+// [actor-deadlock-cycle]. Called from the mechanism's `init` with
+// `self@NodeGroup`; the emitters build the mechanism's own private messages.
+intrinsic fn watch_peers(sink: Addr<NodeGroup>) [] -> None => !sink
 
 // [node-group] Tells peer [node] about [peers]: an INTRO frame, which arrives
 // there as `PeerEvents.introduced`.
@@ -378,33 +367,25 @@ intrinsic fn leave_group() [] -> None
 // protocol. What a replica compares before merging a peer's members.
 export intrinsic fn peer_protocol(node: NodeId, protocol: Str) [] -> Str? => node, protocol
 
-// [node-group] Starts a spawned node group: `node_group(spawn StaticNodeGroup(…)
-// on p)` — the two faces a spawn answers, the `join` sent, the `NodeGroup`
-// face answered. The node must be connected first [net-connect]; a mechanism
-// started on a node that is not traps, naming the fix.
-export fn node_group(faces: (Addr<NodeGroup>, Addr<PeerEvents>)) [] -> Addr<NodeGroup> => !faces {
-    let (group, events) = faces
-    group.join(events)
-    return group
-}
-
 // [node-group] Fixed membership: every endpoint is known up front, so the
 // mechanism is "say HELLO to each, and report who answers". Death detection
 // is the transport's: a LEAVE, or — once step ④'s follow-up lands — a failed
 // delivery. The double every later step tests on, over `MemTransport`.
 export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, spawn]
-    of NodeGroup, PeerEvents {
+    of NodeGroup {
     mailbox { capacity: 64 }
 
     known: Mut Map<NodeId, Node> = mut_map_of()
     watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
 
-    send fn join(events: Addr<PeerEvents>) => !events {
+    // The mechanism starts itself: `init` is the first activation, and
+    // `self@NodeGroup` is where the runtime's peer events go.
+    init {
         assert!(connected(), "a node group starts on a connected node: call connect(me) first")
         // The node's own endpoint is the transport's: one source of truth.
         let me = local_endpoint()
         set_group(copy(name), copy(me))
-        watch_peers(events)
+        watch_peers(self@NodeGroup)
         for e in all {
             if !eq(e, me) {
                 let _sent = deliver(copy(e), hello_frame())
@@ -466,18 +447,18 @@ export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, s
 // delivery). The mechanism most deployments want when the fleet is not fixed;
 // its partition policy is the recorded follow-up.
 export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport, spawn]
-    of NodeGroup, PeerEvents {
+    of NodeGroup {
     mailbox { capacity: 64 }
 
     known: Mut Map<NodeId, Node> = mut_map_of()
     dialed: Mut Set<Str> = mut_set_of()
     watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
 
-    send fn join(events: Addr<PeerEvents>) => !events {
+    init {
         assert!(connected(), "a node group starts on a connected node: call connect(me) first")
         let me = local_endpoint()
         set_group(copy(name), copy(me))
-        watch_peers(events)
+        watch_peers(self@NodeGroup)
         for e in seeds {
             dial(dialed, copy(e))
         }
@@ -585,15 +566,6 @@ export actor effect ActorGroup<E> {
     send fn members(out: Reply<List<Addr<E>>>) => !out
     // Hear about arrivals and departures.
     send fn subscribe(w: Addr<ActorChanges<E>>) => !w
-    // Runtime: peer node [node] published a replica under this group's name.
-    send fn peer(node: NodeId) => !node
-    // Runtime: the replica on [from] shared everything it knows (a MEMBERS
-    // frame, sent with [share_members]). Replicas talk through frames rather
-    // than through addrs of one another, so the group serves `ActorGroup` and
-    // never sends it — no send cycle for the deadlock graph to warn of.
-    send fn merged(from: NodeId, found: List<Addr<E>>) => !from, !found
-    // The spawner hands the replica its own addr, which it publishes.
-    send fn start(me: Addr<ActorGroup<E>>) => !me
 }
 
 // [actor-group] What a subscriber hears.
@@ -612,12 +584,16 @@ export actor effect ActorChanges<E> {
 // as addresses; nothing is copied or moved.
 
 // [actor-group] Publishes [me] under [name] on the current node and asks to
-// hear, as `ActorGroup.peer`, of every peer node that publishes the same name,
-// and as `ActorGroup.merged` of what those peers share.
+// hear of every peer node that publishes the same name, and of what those
+// peers share, as messages to two **private** members of the replica
+// [actor-private-send]: `peer(node)` and `merged(from, found)`. Replicas talk
+// through frames rather than through addrs of one another, so the group
+// serves `ActorGroup` and never sends it — no send cycle for the deadlock
+// graph to warn of. Called from the replica's `init` with `self@ActorGroup<E>`.
 intrinsic fn publish_group<E>(name: Str, me: Addr<ActorGroup<E>>) [] -> None => name, !me
 
 // [actor-group] Tells the replica named [name] on peer [node] about [members]:
-// a MEMBERS frame, arriving there as `ActorGroup.merged`.
+// a MEMBERS frame, arriving there as the replica's private `merged`.
 intrinsic fn share_members<E>(name: Str, node: NodeId, members: List<Addr<E>>) [] -> None
     => name, node, members
 
@@ -658,9 +634,13 @@ export fn open_group<E>(proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> A
 
 export fn open_named_group<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>>
     => !name, !proto, !nodes {
+    // The subscription is sent from here rather than from the replica's
+    // `init`: sent by the replica it would be a `NodeChanges → NodeGroup →
+    // NodeChanges` edge in the deadlock graph [actor-deadlock-cycle] — a real
+    // one, since the node group sends `joined` back — and sent from the
+    // opener's frame it is not.
     let (group, changes) = spawn ActorGrouping<E>(name, proto) on pool(1)
     nodes.subscribe(changes)
-    group.start(copy(group))
     return group
 }
 
@@ -672,8 +652,7 @@ export fn join<E>(group: Addr<ActorGroup<E>>, member: Addr<E>) [] -> None => gro
 
 // [actor-group] The std replica. State: members as a list of addrs (an addr
 // has no `hash` yet, so membership is checked by `eq`), the peer replicas, the
-// subscribers, and its own addr once `start` has handed it over. Its second
-// face hears the node group: a node's departure withdraws every member it
+// subscribers. Its second face hears the node group: a node's departure withdraws every member it
 // hosted. [route-stub] After every change it mirrors the member set into the
 // runtime (`view_set`), which is what a `route(group)` stub reads on the
 // sender's thread — the replica is behind the view by one message, never in
@@ -685,18 +664,18 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
     all: Mut List<Addr<E>> = mut_list_of()
     peers: Mut List<NodeId> = mut_list_of()
     watchers: Mut List<Addr<ActorChanges<E>>> = mut_list_of()
-    self_addr: Addr<ActorGroup<E>>? = None
 
-    send fn start(me: Addr<ActorGroup<E>>) => !me {
-        self_addr = copy(me)
-        publish_group(copy(name), me)
+    // The replica starts itself: it publishes its `ActorGroup<E>` face by
+    // name, so the replicas other nodes open under the same name find it.
+    init {
+        publish_group(copy(name), self@ActorGroup<E>)
     }
 
     send fn join(member: Addr<E>) => !member {
         if !admit(all, copy(member)) {
             return
         }
-        mirror(self_addr, all)
+        mirror(self@ActorGroup<E>, all)
         for w in watchers {
             w.joined(copy(member))
         }
@@ -709,7 +688,7 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
         if !withdraw(all, copy(member)) {
             return
         }
-        mirror(self_addr, all)
+        mirror(self@ActorGroup<E>, all)
         for w in watchers {
             w.left(copy(member))
         }
@@ -735,7 +714,7 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
             }
         }
         if size(gone) > 0 {
-            mirror(self_addr, all)
+            mirror(self@ActorGroup<E>, all)
         }
     }
 
@@ -779,17 +758,13 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
             }
         }
         if changed {
-            mirror(self_addr, all)
+            mirror(self@ActorGroup<E>, all)
         }
     }
 }
 
-// [route-stub] Mirrors [members] into the runtime's view of [group], once the
-// replica knows its own addr.
-fn mirror<E>(group: Addr<ActorGroup<E>>?, members: List<Addr<E>>) [] -> None => group, members {
-    if group is None {
-        return
-    }
+// [route-stub] Mirrors [members] into the runtime's view of [group].
+fn mirror<E>(group: Addr<ActorGroup<E>>, members: List<Addr<E>>) [] -> None => group, members {
     view_set(copy(group), copy(members))
 }
 

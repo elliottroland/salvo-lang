@@ -4776,13 +4776,19 @@ impl<'p> Emitter<'p> {
     /// the handler-keyed `__Priv_H` enum. Empty for a mixed handler, whose
     /// servant owns every send member through `__Msg_H` [mixed-handler].
     fn private_members(&mut self, h: &HandlerDecl) -> Vec<&'p FnDecl> {
-        if self.handler_is_mixed(h) || !self.handler_is_actor(h) {
-            return Vec::new();
-        }
         let Some(decl) = self.symbols.handlers.get(h.name.name.as_str()).copied() else {
             return Vec::new();
         };
         let mut out = Vec::new();
+        // [handler-init] The `init` block is a private member the runtime
+        // sends once, first — on a plain handler too, where a `use` calls it
+        // inline (a mixed servant's is one of its own send members).
+        if let Some(init) = &decl.init {
+            out.push(init);
+        }
+        if self.handler_is_mixed(h) || !self.handler_is_actor(h) {
+            return out;
+        }
         for f in &decl.fns {
             if f.is_send && self.member_faces(decl, f).is_empty() {
                 out.push(f);
@@ -4845,7 +4851,7 @@ impl<'p> Emitter<'p> {
         let dep_effects: Vec<(String, Vec<String>)> = deps.to_vec();
         let trait_name = format!("__Impl_{name}");
         let mut sigs = String::new();
-        for f in &h.fns {
+        for f in h.fns.iter().chain(h.init.iter()) {
             sigs.push_str(&self.emit_fn_inner(f, FnStyle::DepMemberSig(h), 1));
         }
         // The generated trait is *not* generic: the fusion owns the handler
@@ -4870,7 +4876,7 @@ impl<'p> Emitter<'p> {
         out.push_str(&format!(
             "\nimpl{generics} {trait_name} for {name}{generic_args} {{\n"
         ));
-        for f in &h.fns {
+        for f in h.fns.iter().chain(h.init.iter()) {
             out.push_str(&self.emit_fn_inner(f, FnStyle::DepMember(h), 1));
         }
         out.push_str("}\n");
@@ -9579,15 +9585,26 @@ impl<'p> Emitter<'p> {
         // actor, one mailbox and one scheduler index; the tuple hands the same
         // index out under each protocol's type, which is where "least authority
         // falls out of the types" is paid for — nothing at run time.
+        // [handler-init] The `init` block is the actor's first activation:
+        // sent right after the spawn, before the addr is handed back, so no
+        // message anyone sends afterwards can overtake it.
+        let init = if decl.init.is_some() {
+            format!(
+                "crate::scheduler::salvo_send(__a, Box::new({}::Init)); ",
+                private_enum_name(&handler_name)
+            )
+        } else {
+            String::new()
+        };
         if decl.of.len() > 1 {
             let faces: Vec<String> = (0..decl.of.len()).map(|_| "__a".to_string()).collect();
             return format!(
                 "({{ let __h = {held}; let __cap = __h.__mailbox_capacity; \
-                 let __a = {spawn_call}; ({}) }})",
+                 let __a = {spawn_call}; {init}({}) }})",
                 faces.join(", ")
             );
         }
-        format!("({{ let __h = {held}; let __cap = __h.__mailbox_capacity; {spawn_call} }})")
+        format!("({{ let __h = {held}; let __cap = __h.__mailbox_capacity; let __a = {spawn_call}; {init}__a }})")
     }
 
     /// [actor-spawn-expr] [rs-actor] The child's flat provider, built from
@@ -10266,6 +10283,22 @@ impl<'p> Emitter<'p> {
             self.handler_ctor_path(&handler_name, decl),
             arg_code.join(", ")
         );
+        // [handler-init] A `use`-bound handler runs its `init` inline, right
+        // after construction. An independent handler's `init` is a plain
+        // method; a dependent one's takes the fused value, which is not built
+        // until the fusion struct holds the instance — reported rather than
+        // emitted wrong [backend-never-wrong].
+        if decl.init.is_some() {
+            if self.handler_dep_effects(decl).is_empty() {
+                ctor = format!("{{ let mut __h = {ctor}; __h.init(); __h }}");
+            } else {
+                self.error(format!(
+                    "handler `{handler_name}` has an `init` block and declares effect \
+                     dependencies, and the rust backend cannot run its `init` under a `use` \
+                     yet — spawn it, or drop the dependencies"
+                ));
+            }
+        }
         // [rs-monitor] A monitor binding wraps in the per-effect lock
         // adapter. [rs-platform-handler] [threadsafe-platform] A platform
         // handler *without* `threadsafe` classifies as a monitor since
@@ -13246,6 +13279,11 @@ impl<'p> Emitter<'p> {
             Expr::SelfScoped { .. } => {
                 self.error("internal: `@self` outside a call reached emission");
                 "todo!()".to_string()
+            }
+            // [handler-init] `self@Face`: the address the runtime wrote before
+            // this activation. Every face of one actor is the same index.
+            Expr::SelfAddr { .. } => {
+                "self.__addr.expect(\"a handler naming its own address runs as an actor\")".to_string()
             }
             // [actor-replyto] The mint: allocate a slot, park the
             // continuation, hand back the token.
@@ -16640,7 +16678,13 @@ impl<'p> Emitter<'p> {
                     self.needs_scheduler = true;
                     self.needs_wire = true;
                     let sink = self.emit_read(args[0]);
-                    let msg = self.effect_path("PeerEvents", &msg_enum_name("PeerEvents"));
+                    // [actor-private-send] The events arrive as the enclosing
+                    // mechanism's own private messages (`hello`, `gone`,
+                    // `introduced`), so the enum is the handler's.
+                    let Some(msg) = self.current_handler.clone().map(|h| private_enum_name(&h)) else {
+                        self.error("`watch_peers` is called from a node group mechanism's `init`");
+                        return "todo!()".to_string();
+                    };
                     let ep = self.rust_ty(&Ty::Named {
                         name: "NodeEndpoint".to_string(),
                         args: Vec::new(),
@@ -16748,7 +16792,12 @@ impl<'p> Emitter<'p> {
                     self.needs_scheduler = true;
                     let name = self.emit_read(args[0]);
                     let me = self.emit_read(args[1]);
-                    let msg = self.effect_path("ActorGroup", &msg_enum_name("ActorGroup"));
+                    // [actor-private-send] `peer`/`merged` are the replica's
+                    // private members: the enum is the handler's.
+                    let Some(msg) = self.current_handler.clone().map(|h| private_enum_name(&h)) else {
+                        self.error("`publish_group` is called from a replica's `init`");
+                        return "todo!()".to_string();
+                    };
                     let nid = self.node_id_ty();
                     return format!(
                         "{{ let __me = ({me}).clone(); crate::scheduler::salvo_publish(({name}).clone(), __me, Some((__me, \
@@ -19402,7 +19451,7 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         // [actor-self-send] A leaf.
-        Expr::SelfScoped { .. } => {}
+        Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
         Expr::WaitFor { body, .. } => collect_mutated(body, out),
         // [qual-lift] The check reads its subject.
         Expr::Widen { subject, .. } => collect_mutated_expr(subject, out),
@@ -19644,7 +19693,7 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         // [actor-self-send] A leaf: it declares nothing.
-        Expr::SelfScoped { .. } => {}
+        Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
         // [actor-waitfor] The token binder is a declaration of its own, and
         // the block declares like any other.
         Expr::WaitFor { binding, body, .. } => {
@@ -19757,6 +19806,7 @@ fn expr_terminates(expr: &Expr) -> bool {
         // value and none diverges: a `waitfor` blocks and then continues.
         // [actor-self-send] A callee, hence a leaf.
         | Expr::SelfScoped { .. }
+        | Expr::SelfAddr { .. }
         | Expr::Spawn { .. }
         | Expr::ReplyTo { .. }
         | Expr::WaitFor { .. }

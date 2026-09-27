@@ -258,6 +258,7 @@ Module {
                 of_any: [
                     false,
                 ],
+                init: None,
                 mailbox: None,
                 state: [
                     FieldDecl {
@@ -452,6 +453,7 @@ Module {
                 of_any: [
                     false,
                 ],
+                init: None,
                 mailbox: None,
                 state: [],
                 fns: [

@@ -155,6 +155,26 @@ Both of these rest on shadowing, which is worth stating on its own: a `use` for 
 
 One thing a handler cannot do yet: call **its own** effect's other members. `Twice.greet` cannot call `greet` on itself — a handler does not dispatch to itself, and declaring the effect as a dependency means the handler *outside*, not this one. Move the shared logic into a function both members call; the diagnostic says as much.
 
+## Starting up: `init` and `self@Face`
+
+A handler's state fields have initialisers, but an initialiser is an expression that sees only the constructor parameters. Anything a handler must *do* as it starts — register itself somewhere, compute state from a dependency — goes in its **`init` block**, which runs once, first:
+
+```
+handler Working(registry: Addr<Registry>, who: Str) of Worker {
+    mailbox { capacity: 8 }
+    started: Int = 0
+    init {
+        started = 1
+        registry.register(self@Worker)      // this actor's own address, as its Worker face
+    }
+    send fn work(out: Reply<Str>) => !out { out.send("${who} (started ${started})") }
+}
+```
+
+For a spawned handler, `init` is the actor's **first activation**: the spawn enqueues it before it hands the address back, so nothing anyone sends can overtake it, and it runs on the actor's pool like every member. For a `use`-bound handler it runs inline, right after construction — a constructor body. It sees constructor parameters, state and the handler's dependencies, declares no effects, and is checked as a member; it is in fact a private send member named `init` that only the runtime sends.
+
+`self@Face` is the handler's own address as one of its actor faces, an `Addr<Face>`, legal in `init` and in send members. It is how an actor hands itself to something else — a registry, a group, the runtime's peer events — without the spawner having to pass the address back in a first message. A handler that names its own address is spawn-only, because a `use`-bound instance has none; the `use` says so, as it does for a handler that parks with `replyto`.
+
 ## One handler, several effects
 
 A handler may implement more than one effect, and the effects are simply listed: `handler H() of Public, Admin`. It stays one handler with one piece of state — what it gains is a *face* per effect, which is how a public protocol and an administrative one share an implementation without a second handler forwarding into the first.

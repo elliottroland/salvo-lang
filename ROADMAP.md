@@ -116,11 +116,14 @@ sequence left behind, by step — each a leftover, none a blocker:
   policy is the pattern, and lifting it means keeping a phantom on the erased
   trait plus a marker type per effect on the Rust side.
 - **the tidy-up (2026-09-27)**: a node group connecting the node itself
-  (`node_group` asserting `connected()` instead) waits on an actor member
+  (the mechanism asserts `connected()` instead) waits on an actor member
   being able to hand an inherited effect to a spawn on the Rust backend
   [rs-handle-bundle]; the in-process double's second node spawns its wire
-  actors `with` the transport meanwhile. The mixed servant / private-member
-  unification (below) is unchanged.
+  actors `with` the transport meanwhile. A *dependent* handler's `init`
+  under a `use` on the Rust backend is a codegen error for the same family
+  of reason (the fused value is built after the instance). A mixed handler
+  has no `init` block yet. The mixed servant / private-member unification
+  (below) is unchanged.
 - **⑧ the example**: `examples/cluster/` ships an election by host order behind
   `Leader`, not Raft. **Raft as a flagship example is still to be written** —
   terms, votes, heartbeats over `Timer`, a replicated log — and wants a

@@ -656,7 +656,7 @@ pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Counter".to_string(), crate::__PROTO_Counter.to_string()), ("Desk".to_string(), crate::__PROTO_Desk.to_string()), ("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Fragile".to_string(), crate::__PROTO_Fragile.to_string()), ("Ledger".to_string(), crate::__PROTO_Ledger.to_string())]);
     let mut __fx = __Fx_main_1 { __h: StdOutConsole::new() };
     let mut workers = crate::scheduler::salvo_pool(((2) as usize));
-    let mut counter = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Counting::new(__h)), __DECODE_Counting) });
+    let mut counter = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Counting::new(__h)), __DECODE_Counting); __a });
     crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Bump(2), crate::__PROTO_Counter);
     crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Bump(3), crate::__PROTO_Counter);
     let mut sum = {
@@ -666,7 +666,7 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
     println(&mut __fx, &(format!("1. counter total is {}", sum)));
-    let mut ledger = ({ let __h = Bookkeeping::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Bookkeeping::new(__h, __Prov_Bookkeeping { __d0: __Stub_Counter::new(counter) })), __DECODE_Bookkeeping) });
+    let mut ledger = ({ let __h = Bookkeeping::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Bookkeeping::new(__h, __Prov_Bookkeeping { __d0: __Stub_Counter::new(counter) })), __DECODE_Bookkeeping); __a });
     let mut line = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
@@ -674,7 +674,7 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
     println(&mut __fx, &(format!("3. ledger says {}", line)));
-    let mut desk = ({ let __h = Desking::new(8); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Desking::new(__h)), __DECODE_Desking) });
+    let mut desk = ({ let __h = Desking::new(8); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Desking::new(__h)), __DECODE_Desking); __a });
     let mut first = {
         let (mut a, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
@@ -691,7 +691,7 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
     println(&mut __fx, &(format!("4. first waiter got: {}", first)));
-    let mut fragile = ({ let __h = Breaking::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Breaking::new(__h)), __DECODE_Breaking) });
+    let mut fragile = ({ let __h = Breaking::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Breaking::new(__h)), __DECODE_Breaking); __a });
     let mut exit = {
         let (mut gone, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Exit>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
@@ -711,7 +711,7 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
     println(&mut __fx2, &(format!("6. inline total is {}", inline)));
-    let mut mine = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(crate::scheduler::salvo_current_pool(), __cap as usize, Box::new(__Actor_Counting::new(__h)), __DECODE_Counting) });
+    let mut mine = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_current_pool(), __cap as usize, Box::new(__Actor_Counting::new(__h)), __DECODE_Counting); __a });
     crate::scheduler::salvo_send_wire(mine, crate::__Msg_Counter::Bump(6), crate::__PROTO_Counter);
     let mut local = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();

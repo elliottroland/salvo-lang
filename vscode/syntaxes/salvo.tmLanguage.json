@@ -141,6 +141,11 @@
           "match": "\\bmailbox(?=\\s*\\{)"
         },
         {
+          "comment": "the init block of a handler — a keyword by position, not a reserved word",
+          "name": "keyword.declaration.salvo",
+          "match": "\\binit(?=\\s*\\{)"
+        },
+        {
           "comment": "the spawn expression — a keyword by position, not a reserved word",
           "name": "keyword.control.salvo",
           "match": "\\bspawn(?=\\s+[A-Za-z_])"

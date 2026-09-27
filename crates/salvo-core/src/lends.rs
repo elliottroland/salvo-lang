@@ -409,7 +409,8 @@ impl<'p> Walk<'_, '_, 'p> {
             Expr::Spawn { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
-            | Expr::SelfScoped { .. } => Some(HashSet::new()),
+            | Expr::SelfScoped { .. }
+            | Expr::SelfAddr { .. } => Some(HashSet::new()),
             // Owned leaves and computations hold nothing.
             Expr::Int { .. }
             | Expr::Float { .. }

@@ -1730,6 +1730,17 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   (`ty_effect_parts`, `entry_effect_parts`, `handler_dep_effects`,
   `named_type_parts`, the `use` turbofish) — `__Has_Pick`, `dyn Pick`,
   `Sharded::new()`. `while true` lowers to `loop`.
+* [rs-actor] [handler-init] `init` is one more private member: `__Priv_H::Init`,
+  an inherent `fn init(&mut self)` (or an `__Impl_H` method for a dependent
+  handler), dispatched by `__dispatch_priv`. A spawn emits
+  `salvo_send(__a, Box::new(__Priv_H::Init))` right after `salvo_spawn` and
+  before the addr is answered. A `use` of an independent handler wraps the
+  construction in `{ let mut __h = H::new(…); __h.init(); __h }`; a dependent
+  handler's `init` under a `use` is a codegen error for now — it takes the
+  fused value, which the fusion struct only holds after construction.
+  `self@Face` lowers to `self.__addr.expect(…)`; the `watch_peers` and
+  `publish_group` intrinsics build `__Priv_{current handler}` variants, since
+  the events they register for arrive as the mechanism's own private members.
 * [rs-actor] [actor-private-send] A private send member is an **inherent
   method** on the handler struct (`impl H { fn k(…) }`; a dependent
   handler's lands in `__Impl_H` with every other member) with owned

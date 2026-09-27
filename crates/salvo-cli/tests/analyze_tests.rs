@@ -2412,7 +2412,7 @@ fn route_refusals_name_the_fix() {
         "import net\n\nexport actor effect Ping {\n    send fn ping(out: Reply<Str>) => !out\n}\n\n\
          export fn group_of(g: Addr<ActorGroup<Ping>>) -> Addr<ActorGroup<Ping>> => !g {\n    return g\n}\n\n\
          export fn some_group() [spawn] -> Addr<ActorGroup<Ping>> {\n    \
-         return actor_group<Ping>(node_group(spawn StaticNodeGroup(\"x\", list_of(NodeEndpoint { host: \"a\", port: 1 })) with MemTransport(NodeEndpoint { host: \"a\", port: 1 }, spawn MemNetwork() on pool(1)) on pool(1)))\n}\n",
+         return actor_group<Ping>(spawn StaticNodeGroup(\"x\", list_of(NodeEndpoint { host: \"a\", port: 1 })) with MemTransport(NodeEndpoint { host: \"a\", port: 1 }, spawn MemNetwork() on pool(1) on pool(1)))\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);

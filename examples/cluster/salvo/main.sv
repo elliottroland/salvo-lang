@@ -267,7 +267,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
         // on cannot be inherited by a spawn yet (Rust backend) — so the two
         // wire actors are spawned here `with` it and handed to `connect`.
         let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
-        let group = node_group(spawn StaticNodeGroup("cluster", copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        let group = spawn StaticNodeGroup("cluster", copy(all)) with MemTransport(copy(at), copy(net)) on p
         nodes = copy(group)
 
         let seq = actor_group<Sequencer>(copy(group))
@@ -312,7 +312,7 @@ fn main() [use, spawn] {
     use MemTransport(copy(a), copy(network))
     let p = pool(2)
     let _connected = connect(copy(a), copy(p))
-    let nodes = node_group(spawn StaticNodeGroup("cluster", copy(all)) on p)
+    let nodes = spawn StaticNodeGroup("cluster", copy(all)) on p
 
     let seq = actor_group<Sequencer>(copy(nodes))
     spawn Sequencing("a") on p in seq

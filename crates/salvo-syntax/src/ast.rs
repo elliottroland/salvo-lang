@@ -488,6 +488,14 @@ pub struct HandlerDecl {
     /// `of any E` — the handler forwards to many instances and promises no
     /// order, so a `use` of it binds `any E`, which satisfies `[any E]` only.
     pub of_any: Vec<bool>,
+    /// [handler-init] `init { … }` — the body that runs **once, first**: as a
+    /// spawned handler's first activation (before any message anyone sends
+    /// it), or inline right after a `use` constructs the instance (user
+    /// decision 2026-09-27). Held as a `send fn` named `init` with no
+    /// parameters — a private member [actor-private-send] the runtime sends
+    /// once — so the checker and emitters treat it as one; it is not in
+    /// `fns`, so no `init@self(…)` can reach it.
+    pub init: Option<FnDecl>,
     /// [actor-mailbox] `mailbox { capacity: 16 }` — the **actor settings slot**
     /// (user decision 2026-09-16). A handler of an `actor effect` states its
     /// mailbox here rather than at every spawn: the author who knows the
@@ -1431,6 +1439,12 @@ pub enum Expr {
     /// the handler the code is written in. Legal only as a call's callee, and
     /// only inside a handler member — both the checker's rules.
     SelfScoped { name: Ident, span: Span },
+    /// [handler-init] [actor-self-send] `self@Face` — the enclosing handler's
+    /// own address, as the face named: an `Addr<Face>`, read off what the
+    /// runtime wrote before this activation. Legal in `init` and in send
+    /// members; a handler that uses it is spawn-only, since a `use`-bound
+    /// instance has no address.
+    SelfAddr { face: TypeRef, span: Span },
     /// [actor-spawn-expr] `spawn Counting(0) with ScriptedDb(f), ddb
     /// on pool(2)` — bind a handler *asynchronously*: the actor. Read left to
     /// right: what to run, what it depends on, where it runs. Its value is the
@@ -1641,6 +1655,7 @@ impl Expr {
             | Expr::Placeholder { span }
             | Expr::SafeField { span, .. }
             | Expr::SelfScoped { span, .. }
+            | Expr::SelfAddr { span, .. }
             | Expr::Spawn { span, .. }
             | Expr::ReplyTo { span, .. }
             | Expr::WaitFor { span, .. }

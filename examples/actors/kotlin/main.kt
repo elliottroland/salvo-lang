@@ -404,7 +404,7 @@ fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Counter", salvo.main.__PROTO_Counter), Pair("Desk", salvo.main.__PROTO_Desk), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Fragile", salvo.main.__PROTO_Fragile), Pair("Ledger", salvo.main.__PROTO_Ledger)))
     val __fx = __Fx_1(StdOutConsole())
     val workers = salvo.SalvoSched.pool(2)
-    val counter = run { val __h = Counting(); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE) }
+    val counter = run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
     salvo.SalvoSched.sendWire(counter, __Msg_Counter.Bump(2), __PROTO_Counter, __Codec___Msg_Counter)
     salvo.SalvoSched.sendWire(counter, __Msg_Counter.Bump(3), __PROTO_Counter, __Codec___Msg_Counter)
     val sum = run {
@@ -414,7 +414,7 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     println(__fx, "1. counter total is $sum")
-    val ledger = run { val __h = Bookkeeping(__Fx_2(__Stub_Counter(counter))); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Bookkeeping(__h), __Actor_Bookkeeping.__DECODE) }
+    val ledger = run { val __h = Bookkeeping(__Fx_2(__Stub_Counter(counter))); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Bookkeeping(__h), __Actor_Bookkeeping.__DECODE); __a }
     val line = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
@@ -422,7 +422,7 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     println(__fx, "3. ledger says $line")
-    val desk = run { val __h = Desking(8); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Desking(__h), __Actor_Desking.__DECODE) }
+    val desk = run { val __h = Desking(8); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Desking(__h), __Actor_Desking.__DECODE); __a }
     val first = run {
         val (a, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
@@ -439,7 +439,7 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     println(__fx, "4. first waiter got: $first")
-    val fragile = run { val __h = Breaking(); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Breaking(__h), __Actor_Breaking.__DECODE) }
+    val fragile = run { val __h = Breaking(); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Breaking(__h), __Actor_Breaking.__DECODE); __a }
     val exit = run {
         val (gone, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Exit) })
@@ -459,7 +459,7 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     println(__fx2, "6. inline total is $inline")
-    val mine = run { val __h = Counting(); salvo.SalvoSched.spawn(salvo.SalvoSched.currentPool(), __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE) }
+    val mine = run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.currentPool(), __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
     salvo.SalvoSched.sendWire(mine, __Msg_Counter.Bump(6), __PROTO_Counter, __Codec___Msg_Counter)
     val local = run {
         val (out, __wid) = salvo.SalvoSched.waiter()

@@ -229,6 +229,40 @@ built, recorded in ROADMAP.md §16: an `iter fn` over a *generic* source or
 taking an `iter T` parameter (a stage — needs the generated `next` to carry
 forwarded implicits and the obligation match to ignore them).
 
+**`init { … }` and `self@Face` (2026-09-27, user decision — built).** The
+user read `node_group()` — a helper whose whole body was `group.join(events)`
+— and asked why a mechanism needed the workaround. Root cause: a handler
+could not name its own address, so three places in `net` had a member whose
+only job was to receive the address the spawn had just answered
+(`NodeGroup.join(events)`, `ActorGroup.start(me)`, and the opener
+subscribing the replica for it). One rule, [handler-init]: a handler may
+declare one `init { … }` block, contextual like `mailbox`, checked and
+emitted as a **parameterless private send member** the runtime sends once
+— a spawn enqueues it before answering the address, so it is the first
+activation and nothing overtakes it; a `use` calls it inline after
+construction, which incidentally gives handlers a constructor body. And
+`self@Face`: the handler's own address as one of its actor faces, an
+`Addr<Face>`, legal in `init` and send members; using it makes the handler
+spawn-only, reported at a `use` as a `replyto` handler's is. The
+`@self`/`self@` pair reads both ways deliberately — `k@self(…)` selects a
+member of self, `self@Face` selects a face of self. What fell out in std:
+`PeerEvents` stopped being a face (its three members are private members of
+the mechanism, registered with `watch_peers(self@NodeGroup)`); `ActorGroup`
+lost `start`/`peer`/`merged` (the replica publishes `self@ActorGroup<E>` in
+its `init`); `node_group()` is deleted, and a node group is `spawn
+StaticNodeGroup("demo", all) on p`, one addr. The `watch_peers`/
+`publish_group` intrinsics build the *current handler's* private enum, since
+the events arrive as its own members. One thing stayed where it was: the
+opener, not the replica's `init`, subscribes the replica to the node group —
+sent by the replica it is a `NodeChanges → NodeGroup → NodeChanges` cycle the
+deadlock graph rightly reports, since the node group answers `joined`. The
+Rust backend cannot yet run a *dependent* handler's `init` under a `use`
+(the fused value exists only after the fusion struct holds the instance) and
+says so; spawns are unaffected. **1624 tests** (+3: `init` and `self@Face` in
+the parser, the checker's five refusals, a compile-and-run case per backend
+with a self-registering actor and a plain handler's constructor body). The
+cluster example's output is unchanged.
+
 **The `net` tidy-up (2026-09-27, user decisions — built).** Five changes
 the user asked for after reading `examples/cluster/`, each its own commit:
 (1) **`Inbound.receive_frame` / `Outbound.send_frame`** — the direction in
@@ -19117,6 +19151,21 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A helper that exists to pass an actor its own address is a missing
+  feature, not a helper** (2026-09-27). `node_group()`, `ActorGroup.start`
+  and the opener's `subscribe` were three copies of the same handshake, each
+  with a member whose only job was to receive what the spawn had just
+  answered; the design note even said so in a comment ("a handler cannot
+  name its own addr, so the spawner hands it back"). Written three times,
+  the workaround was the specification of `init` + `self@Face`.
+- **`init` sending to something that sends back is a cycle the graph will
+  find** (2026-09-27). The first draft had the replica's `init` call
+  `nodes.subscribe(self@NodeChanges)`; the node group answers `joined` to
+  every subscriber, so that is `NodeChanges → NodeGroup → NodeChanges`, and
+  the checker warned on every program importing `net`. Moving the one send
+  to the opener's frame (a plain fn, no node in the graph) resolved it —
+  the same shape as the `NodeLink` cycle step ④ removed. When a start-up
+  action closes a loop, do it from the spawner.
 - **A generated struct a cross-module call must name needs a name both sides
   can compute** (2026-09-27). Handle bundles (`__Hs_N`) were numbered per
   emitter; the callee's module minted `__Hs_1` and a caller in another module

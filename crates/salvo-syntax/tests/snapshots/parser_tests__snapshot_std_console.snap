@@ -143,6 +143,7 @@ Module {
                 of_any: [
                     false,
                 ],
+                init: None,
                 mailbox: None,
                 state: [],
                 fns: [],

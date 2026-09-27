@@ -89,6 +89,12 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the mailbox slot of a handler",
     ),
+    // `init { … }`: the handler's start block [handler-init], named before a block.
+    (
+        "\\\\binit(?=\\\\s*\\\\{)",
+        "keyword.declaration.salvo",
+        "the init block of a handler",
+    ),
     // `spawn H(…)`: a name follows, which is what the parser tests for.
     (
         "\\\\bspawn(?=\\\\s+[A-Za-z_])",

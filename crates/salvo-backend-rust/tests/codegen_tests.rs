@@ -11985,7 +11985,7 @@ fn the_replyto_refusals_are_errors() {
     assert!(
         parking
             .iter()
-            .any(|e| e.contains("mints a continuation with `replyto`, so it can only be `spawn`ed")),
+            .any(|e| e.contains("mints a continuation with `replyto`, or names its own address with `self@…`, so it can only be `spawn`ed")),
         "expected the parking-handler `use` refusal, got {parking:?}"
     );
     let remote = expect_errors(REMOTE_MINT);
@@ -13341,11 +13341,11 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>, go
         let p = pool(1)
         let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
         if gossip {
-            let group = node_group(spawn GossipNodeGroup("mesh", copy(all)) with MemTransport(copy(at), copy(net)) on p)
+            let group = spawn GossipNodeGroup("mesh", copy(all)) with MemTransport(copy(at), copy(net)) on p
             done.send(group)
             return
         }
-        let group = node_group(spawn StaticNodeGroup("demo", copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        let group = spawn StaticNodeGroup("demo", copy(all)) with MemTransport(copy(at), copy(net)) on p
         done.send(group)
     }
 }
@@ -13361,7 +13361,7 @@ fn main() [use, spawn] {
     use MemTransport(copy(a), copy(net))
     let pa = pool(1)
     let _connected = connect(copy(a), copy(pa))
-    let group_a = node_group(spawn StaticNodeGroup("demo", copy(all)) on pa)
+    let group_a = spawn StaticNodeGroup("demo", copy(all)) on pa
     group_a.subscribe(spawn Announcing("a") on pa)
 
     // Node B: hosted beside it.
@@ -13652,7 +13652,7 @@ fn main() [use, spawn] {
     use MemTransport(copy(a), copy(net))
     let p = pool(1)
     let _c = connect(copy(a), copy(p))
-    let nodes = node_group(spawn StaticNodeGroup("demo", [copy(a)]) on p)
+    let nodes = spawn StaticNodeGroup("demo", [copy(a)]) on p
     let pings = actor_group<Ping>(nodes)
     let one = spawn Pinging("one") on p in pings
     let (two, _admin) = spawn TwoFaced("two") on p in pings
@@ -13675,6 +13675,69 @@ fn rustc_compiles_and_runs_spawn_in_group() {
     }
     let files = generate(&[("main.sv", SPAWN_IN_GROUP_DEMO)]);
     run_rust_files(&files, "spawn-in-group", SPAWN_IN_GROUP_DEMO_OUTPUT);
+}
+
+/// [handler-init] `init { … }` and `self@Face`: a spawned handler's `init`
+/// runs first and registers its own address; a `use`-bound plain handler's
+/// `init` runs inline as a constructor body.
+const HANDLER_INIT_DEMO: &str = r#"actor effect Registry {
+    send fn register(who: Addr<Worker>) => !who
+    send fn count(out: Reply<Int>) => !out
+}
+actor effect Worker {
+    send fn work(out: Reply<Str>) => !out
+}
+
+handler Registering() of Registry {
+    mailbox { capacity: 8 }
+    n: Int = 0
+    send fn register(who: Addr<Worker>) => !who { n = n + 1 }
+    send fn count(out: Reply<Int>) => !out { out.send(n) }
+}
+
+// Registers itself as it starts: `init` runs first, and `self@Worker` is
+// this actor's own address as its Worker face.
+handler Working(registry: Addr<Registry>, who: Str) of Worker {
+    mailbox { capacity: 8 }
+    started: Int = 0
+    init {
+        started = 1
+        registry.register(self@Worker)
+    }
+    send fn work(out: Reply<Str>) => !out { out.send("${who} (started ${started})") }
+}
+
+effect Greeter { fn greet() -> Str }
+handler Greeting(name: Str) of Greeter {
+    prefix: Str = ""
+    init { prefix = "hello, " }          // a constructor body for a plain handler
+    fn greet() -> Str { return "${prefix}${name}" }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let p = pool(2)
+    let reg = spawn Registering() on p
+    let a = spawn Working(copy(reg), "a") on p
+    let b = spawn Working(copy(reg), "b") on p
+    println(waitfor out: Reply<Str> { a.work(out) })
+    println(waitfor out: Reply<Str> { b.work(out) })
+    println("registered: ${waitfor out: Reply<Int> { reg.count(out) }}")
+    use Greeting("world")
+    println(greet())
+}
+"#;
+
+const HANDLER_INIT_DEMO_OUTPUT: &str = "a (started 1)\nb (started 1)\nregistered: 2\nhello, world\n";
+
+#[test]
+fn rustc_compiles_and_runs_handler_init() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", HANDLER_INIT_DEMO)]);
+    run_rust_files(&files, "handler-init", HANDLER_INIT_DEMO_OUTPUT);
 }
 
 /// [effect-any] A hand-written router: `RoundRobin(members) of any Resizer`
@@ -13767,7 +13830,7 @@ fn main() [use, spawn] {
     use MemTransport(copy(a), copy(net))
     let p = pool(1)
     let _connected = connect(copy(a), copy(p))
-    let nodes = node_group(spawn StaticNodeGroup("shop", [copy(a)]) on p)
+    let nodes = spawn StaticNodeGroup("shop", [copy(a)]) on p
     let stock = actor_group<Inventory>(nodes)
     spawn Stocking("s1") on p in stock
     spawn Stocking("s2") on p in stock
@@ -13818,7 +13881,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
     send fn boot(done: Reply<Addr<Sequencer>>) => !done {
         let p = pool(1)
         let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
-        let nodes = node_group(spawn StaticNodeGroup("ids", copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        let nodes = spawn StaticNodeGroup("ids", copy(all)) with MemTransport(copy(at), copy(net)) on p
         let seq = actor_group<Sequencer>(nodes)
         let mine = spawn Sequencing("b") on p in seq
         done.send(mine)
@@ -13838,7 +13901,7 @@ fn main() [use, spawn] {
     use MemTransport(copy(a), copy(net))
     let pa = pool(1)
     let _connected = connect(copy(a), copy(pa))
-    let nodes = node_group(spawn StaticNodeGroup("ids", copy(all)) on pa)
+    let nodes = spawn StaticNodeGroup("ids", copy(all)) on pa
     let seq = actor_group<Sequencer>(nodes)
     spawn Sequencing("a") on pa in seq
 
@@ -13907,7 +13970,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
     send fn boot(done: Reply<Addr<ActorGroup<Ping>>>) => !done {
         let p = pool(1)
         let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
-        let nodes = node_group(spawn StaticNodeGroup("demo", copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        let nodes = spawn StaticNodeGroup("demo", copy(all)) with MemTransport(copy(at), copy(net)) on p
         let pings = actor_group<Ping>(nodes)
         spawn Pinging("b") on p in pings
         done.send(pings)
@@ -13924,7 +13987,7 @@ fn main() [use, spawn] {
     use MemTransport(copy(a), copy(net))
     let pa = pool(1)
     let _connected = connect(copy(a), copy(pa))
-    let nodes_a = node_group(spawn StaticNodeGroup("demo", copy(all)) on pa)
+    let nodes_a = spawn StaticNodeGroup("demo", copy(all)) on pa
     let pings_a = actor_group<Ping>(nodes_a)
     pings_a.subscribe(spawn Noticing("a") on pa)
     spawn Pinging("a") on pa in pings_a

@@ -484,7 +484,7 @@ pub fn main() {
     println(&mut __fx4, &(verdict(&(Tick { nanos: 0i64 }), &(Tick { nanos: 2000000000i64 }), &budget)));
     let mut p = crate::scheduler::salvo_pool(((1) as usize));
     let (mut timer, mut ctl) = ({ let __h = ManualTime::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_ManualTime::new(__h)), __DECODE_ManualTime); (__a, __a) });
-    let mut sessions = ({ let __h = Sessions::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sessions::new(__h, __Prov_Sessions { __d0: __Stub_Timer::new(timer) })), __DECODE_Sessions) });
+    let mut sessions = ({ let __h = Sessions::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sessions::new(__h, __Prov_Sessions { __d0: __Stub_Timer::new(timer) })), __DECODE_Sessions); __a });
     let mut outcome = {
         let (mut answer, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
@@ -499,7 +499,7 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
     println(&mut __fx4, &(format!("session: {}", outcome)));
-    let mut sleeper = ({ let __h = Napping::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, Box::new(__Actor_Napping::new(__h, __Prov_Napping { __d0: __Stub_Timer::new(timer), __d1: TestTicker::new(timer) })), __DECODE_Napping) });
+    let mut sleeper = ({ let __h = Napping::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, Box::new(__Actor_Napping::new(__h, __Prov_Napping { __d0: __Stub_Timer::new(timer), __d1: TestTicker::new(timer) })), __DECODE_Napping); __a });
     let mut napped = {
         let (mut answer, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));

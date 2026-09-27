@@ -53,6 +53,8 @@ struct Snapshot {
 /// `k@self(args)`. Contextual, not reserved — `self` stays an ordinary name
 /// everywhere else, and it is only special immediately after `@`.
 pub const SELF_SELECTOR: &str = "self";
+/// [handler-init] The contextual name of a handler's `init { … }` block.
+pub const INIT_BLOCK: &str = "init";
 
 /// [mod-export] The contextual modifier that makes a declaration visible to
 /// other modules: `export fn size(...)`. Declarations are module-private by
@@ -1822,6 +1824,7 @@ impl<'s> Parser<'s> {
         let mut state = Vec::new();
         let mut fns = Vec::new();
         let mut mailbox = None;
+        let mut init: Option<FnDecl> = None;
         let mut end = of.last().map(|t| t.span()).unwrap_or(start);
         if self.at(&TokenKind::LBrace) && self.same_line() {
             self.bump();
@@ -1833,8 +1836,42 @@ impl<'s> Parser<'s> {
                     self.at_word("send") && matches!(self.peek_at(1).kind, TokenKind::KwFn);
                 let is_mailbox = self.at_word(MAILBOX_SLOT)
                     && matches!(self.peek_at(1).kind, TokenKind::LBrace);
+                // [handler-init] `init { … }`: contextual like `mailbox` — a
+                // state field named `init` is `init: T = …`.
+                let is_init = self.at_word(INIT_BLOCK)
+                    && matches!(self.peek_at(1).kind, TokenKind::LBrace);
                 if self.at(&TokenKind::KwFn) || is_send_member {
                     fns.push(self.parse_member_fn()?);
+                } else if is_init {
+                    let name_tok = self.bump();
+                    let body = self.parse_block()?;
+                    if init.is_some() {
+                        self.error("a handler declares one `init` block", name_tok.span);
+                    }
+                    let name = Ident { name: INIT_BLOCK.to_string(), span: name_tok.span };
+                    let span = name_tok.span.to(body.span);
+                    init = Some(FnDecl {
+                        docs: Vec::new(),
+                        exported: false,
+                        intrinsic: false,
+                        is_iter: false,
+                        iter_state: Vec::new(),
+                        is_send: true,
+                        name,
+                        scoped_to: None,
+                        structural: false,
+                        generics: Vec::new(),
+                        generic_canbe: Vec::new(),
+                        derived_return: None,
+                        params: Vec::new(),
+                        implicit_groups: Vec::new(),
+                        effects: None,
+                        deductions: None,
+                        return_type: None,
+                        constructs: None,
+                        body: Some(body),
+                        span,
+                    });
                 } else if is_mailbox {
                     // [actor-mailbox] The slot is a struct literal with its
                     // type elided: `mailbox { capacity: 16 }` *is*
@@ -1885,6 +1922,7 @@ impl<'s> Parser<'s> {
             effects,
             of,
             of_any,
+            init,
             mailbox,
             state,
             fns,
@@ -4210,6 +4248,17 @@ impl<'s> Parser<'s> {
                 // which parse exactly as they do without the `@`.
                 TokenKind::At if self.same_line() => {
                     let at = self.bump().span;
+                    // [handler-init] `self@Face`: the enclosing handler's own
+                    // address as the face named — a type ref, so a generic
+                    // face (`self@ActorGroup<E>`) parses with its arguments.
+                    if matches!(&expr, Expr::Ident(id) if id.name == SELF_SELECTOR)
+                        && matches!(self.kind(), TokenKind::Ident(n) if n.chars().next().is_some_and(|c| c.is_uppercase()))
+                    {
+                        let face = self.parse_type_ref()?;
+                        let span = expr.span().to(face.span);
+                        expr = Expr::SelfAddr { face, span };
+                        continue;
+                    }
                     let first = self.ident()?;
                     // [actor-self-send] `k@self(args)`: the enclosing
                     // *handler*'s member — a message to this actor. One

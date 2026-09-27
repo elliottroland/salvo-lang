@@ -2675,7 +2675,7 @@ impl<'p> Emitter<'p> {
         // handler whose members these are.
         let saved_handler =
             std::mem::replace(&mut self.current_handler, Some(h.name.name.clone()));
-        for f in &h.fns {
+        for f in h.fns.iter().chain(h.init.iter()) {
             // [mixed-handler] [kt-mixed] The split: send members are the
             // servant's, plain `fun`s (no interface declares them); sync
             // members are the façade's and are emitted there.
@@ -3156,16 +3156,21 @@ impl<'p> Emitter<'p> {
     /// dispatched from the handler-keyed `__Priv_H`. Empty for a mixed
     /// handler, whose servant owns every send member [mixed-handler].
     fn private_members(&self, h: &HandlerDecl) -> Vec<&'p FnDecl> {
-        if self.handler_is_mixed(h) || !self.handler_is_actor(h) {
-            return Vec::new();
-        }
         let Some(decl) = self.symbols.handlers.get(h.name.name.as_str()).copied() else {
             return Vec::new();
         };
-        decl.fns
-            .iter()
-            .filter(|f| f.is_send && self.member_faces(decl, f).is_empty())
-            .collect()
+        // [handler-init] The `init` block: a private member sent once, first —
+        // on a plain handler too, where a `use` calls it inline.
+        let init = decl.init.iter();
+        if self.handler_is_mixed(h) || !self.handler_is_actor(h) {
+            return init.collect();
+        }
+        init.chain(
+            decl.fns
+                .iter()
+                .filter(|f| f.is_send && self.member_faces(decl, f).is_empty()),
+        )
+        .collect()
     }
 
     fn private_member_of(&self, h: &HandlerDecl, name: &str) -> Option<&'p FnDecl> {
@@ -4959,6 +4964,13 @@ impl<'p> Emitter<'p> {
             actor_class_name(&handler_name),
             actor_class_name(&handler_name)
         );
+        // [handler-init] The `init` block is the first activation: sent before
+        // the addr is handed back, so nothing can overtake it.
+        let init = if decl.init.is_some() {
+            format!("salvo.SalvoSched.send(__a, {}.Init); ", private_class_name(&handler_name))
+        } else {
+            String::new()
+        };
         // [effect-handler-multi] One addr per implemented effect. There is one
         // actor, one mailbox and one scheduler id; the tuple hands the same id
         // out under each protocol's type, so least authority costs nothing at
@@ -4981,13 +4993,13 @@ impl<'p> Emitter<'p> {
             };
             let faces: Vec<&str> = (0..decl.of.len()).map(|_| "__a").collect();
             return format!(
-                "run {{ val __h = {ctor}({}); val __a = {spawn_call}; {ctor_name}({}) }}",
+                "run {{ val __h = {ctor}({}); val __a = {spawn_call}; {init}{ctor_name}({}) }}",
                 args.join(", "),
                 faces.join(", ")
             );
         }
         format!(
-            "run {{ val __h = {ctor}({}); {spawn_call} }}",
+            "run {{ val __h = {ctor}({}); val __a = {spawn_call}; {init}__a }}",
             args.join(", ")
         )
     }
@@ -5596,6 +5608,14 @@ impl<'p> Emitter<'p> {
             self.handler_ctor_name(&handler_name, decl),
             ctor_args.join(", ")
         );
+        // [handler-init] A `use`-bound handler runs its `init` inline, right
+        // after construction: the dependencies are the class's constructor
+        // arguments, so the method is callable at once.
+        let handler_code = if decl.init.is_some() {
+            format!("{handler_code}.also {{ it.init() }}")
+        } else {
+            handler_code
+        };
         // [use-local] [kt-monitor] The monitor binding: the construction
         // wrapped in the per-effect lock wrapper, which implements the same
         // interface, so everything downstream is unchanged.
@@ -7270,6 +7290,9 @@ impl<'p> Emitter<'p> {
                 self.error("internal: `@self` outside a call reached emission");
                 "TODO()".to_string()
             }
+            // [handler-init] `self@Face`: the address the runtime wrote before
+            // this activation.
+            Expr::SelfAddr { .. } => "__addr!!".to_string(),
             // [actor-replyto] The mint: allocate a slot, park the
             // continuation, hand back the token.
             Expr::ReplyTo {
@@ -8738,7 +8761,11 @@ impl<'p> Emitter<'p> {
                     let sink = self.emit_expr(args[0]);
                     let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
                     let codec = self.kotlin_codec_expr(&ep);
-                    let msg = msg_class_name("PeerEvents");
+                    // [actor-private-send] The mechanism's own private messages.
+                    let Some(msg) = self.current_handler.clone().map(|h| private_class_name(&h)) else {
+                        self.error("`watch_peers` is called from a node group mechanism's `init`");
+                        return "TODO()".to_string();
+                    };
                     let nid = self.node_id_ty();
                     return format!(
                         "salvo.SalvoSched.watchPeers({sink}, {{ __n, __ep, __t -> \
@@ -8832,7 +8859,11 @@ impl<'p> Emitter<'p> {
                     self.needs_scheduler = true;
                     let name = self.emit_expr(args[0]);
                     let me = self.emit_expr(args[1]);
-                    let msg = msg_class_name("ActorGroup");
+                    // [actor-private-send] `peer`/`merged` are the replica's own.
+                    let Some(msg) = self.current_handler.clone().map(|h| private_class_name(&h)) else {
+                        self.error("`publish_group` is called from a replica's `init`");
+                        return "TODO()".to_string();
+                    };
                     let nid = self.node_id_ty();
                     return format!(
                         "run {{ val __me = {me}; salvo.SalvoSched.publish({name}, __me, __me, \
@@ -10421,7 +10452,7 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         // [actor-self-send] A leaf.
-        Expr::SelfScoped { .. } => {}
+        Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
         Expr::WaitFor { body, .. } => collect_mutated(body, out),
         // Leaves: no sub-expression, so nothing can be mutated inside.
         // Listed rather than defaulted, because a missed form emits an

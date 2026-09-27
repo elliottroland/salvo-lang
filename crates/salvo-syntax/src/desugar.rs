@@ -1548,7 +1548,7 @@ impl Rewrite {
             }
             // [actor-self-send] A leaf: the selector names the enclosing
             // handler, so there is no sub-expression to rewrite.
-            Expr::SelfScoped { .. } => {}
+            Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
             // [actor-replyto] The captures are expressions; the member name
             // is not one.
             Expr::ReplyTo { captures, .. } => {
@@ -1740,7 +1740,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             }
             // [actor-self-send] A leaf: no sub-expressions, and the member
             // name is resolved against the handler rather than a scope.
-            Expr::SelfScoped { .. } => {}
+            Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
             Expr::WaitFor { body, .. } => walk_block(body, reserved, out),
             Expr::Call { callee, args, named, .. } => {
                 walk_expr(callee, reserved, out);
@@ -2437,6 +2437,7 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
         | Expr::Placeholder { .. }
         | Expr::Continue { .. }
         | Expr::SelfScoped { .. }
+        | Expr::SelfAddr { .. }
         | Expr::Error { .. } => {}
     }
 }

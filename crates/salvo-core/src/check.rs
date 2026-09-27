@@ -2602,7 +2602,33 @@ impl<'p, 'r> Checker<'p, 'r> {
                             }
                         }
                     }
-                    for f in &h.fns {
+                    // [handler-init] The `init` block is checked as one more
+                    // member — a parameterless private send member the
+                    // runtime sends first — and a written member of the same
+                    // name would collide with its message variant.
+                    if let Some(init) = &h.init {
+                        if mixed {
+                            self.error(
+                                init.name.span,
+                                format!(
+                                    "handler `{}` is mixed [mixed-handler], and a mixed handler \
+                                     has no `init` block yet: start it with a send member instead",
+                                    h.name.name
+                                ),
+                            );
+                        }
+                        if let Some(clash) = h.fns.iter().find(|f| f.name.name == init.name.name) {
+                            self.error(
+                                clash.name.span,
+                                format!(
+                                    "handler `{}` has an `init` block, so it cannot also declare a \
+                                     member named `init`: the block is that member",
+                                    h.name.name
+                                ),
+                            );
+                        }
+                    }
+                    for f in h.fns.iter().chain(h.init.iter()) {
                         self.reject_member_effects(f, "handler member functions");
                         // [actor-send-fn] A handler's `send fn` answers
                         // nothing, exactly as the effect's declaration does.
@@ -7451,10 +7477,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 span,
                 format!(
-                    "handler `{}` mints a continuation with `replyto`, so it can only \
-                     be `spawn`ed: bound with `use` its members run inline, and the \
-                     answer would have nowhere to arrive — write `spawn {}(...) on \
-                     pool(1)` instead",
+                    "handler `{}` mints a continuation with `replyto`, or names its own \
+                     address with `self@…`, so it can only be `spawn`ed: bound with `use` \
+                     its members run inline, and there is no mailbox for the answer to \
+                     arrive on and no address to name — write `spawn {}(...) on pool(1)` \
+                     instead",
                     id.name, id.name
                 ),
             );
@@ -14681,6 +14708,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // yields what was sent to its token — whatever its block does.
             // [actor-self-send] `k@self` is a callee, so it is a leaf here.
             | Expr::SelfScoped { .. }
+            | Expr::SelfAddr { .. }
             | Expr::Spawn { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
@@ -14779,6 +14807,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // yields what was sent to its token — whatever its block does.
             // [actor-self-send] `k@self` is a callee, so it is a leaf here.
             | Expr::SelfScoped { .. }
+            | Expr::SelfAddr { .. }
             | Expr::Spawn { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
@@ -18946,7 +18975,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         // [actor-self-send] A leaf: the selector names a handler member.
-        Expr::SelfScoped { .. } => {}
+        Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
         // [actor-waitfor] The bridge's block is ordinary code.
         Expr::WaitFor { body, .. } => collect_assigned(body, out),
         // A lambda body's assignments happen when the value is called, and
@@ -19182,7 +19211,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         // [actor-replyto] A capture is a value the continuation takes.
         Expr::ReplyTo { captures, .. } => captures.iter().any(|c| expr_mentions(c, name)),
         // [actor-self-send] A leaf: it mentions no value of its own.
-        Expr::SelfScoped { .. } => false,
+        Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => false,
         // [actor-waitfor] The bridge's block is ordinary code.
         Expr::WaitFor { body, .. } => block_mentions(body),
         // [fn-overload-at] The name is a *function*, never a value; only the
@@ -21761,6 +21790,47 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 );
                 Ty::Unknown
+            }
+            // [handler-init] `self@Face`: the enclosing handler's own address
+            // as one of its actor faces. Legal inside a handler's members
+            // (init included); the handler becomes spawn-only, since only an
+            // activation has an address to read.
+            Expr::SelfAddr { face, span } => {
+                let Some(h) = self.own_handler else {
+                    self.error(
+                        *span,
+                        "`self@…` names the enclosing handler's own address, so it is legal \
+                         only inside a handler member or its `init` block"
+                            .to_string(),
+                    );
+                    return Ty::Unknown;
+                };
+                let Some(ty) = self.lower_effect_ref(face) else {
+                    return Ty::Unknown;
+                };
+                let is_actor_face = self
+                    .scope
+                    .effects
+                    .get(face.name.name.as_str())
+                    .is_some_and(|e| e.is_actor);
+                if !self.handler_ofs.iter().any(|of| *of == ty) || !is_actor_face {
+                    let faces: Vec<String> = self.handler_ofs.iter().map(|t| t.to_string()).collect();
+                    self.error(
+                        *span,
+                        format!(
+                            "`self@{ty}`: handler `{}` has no actor face `{ty}` — it implements `{}` — \
+                             and an address is a face of an actor effect",
+                            h.name.name,
+                            faces.join("`, `")
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+                // The address exists only when the instance runs as an actor:
+                // a `use` of this handler is refused where the binding is
+                // chosen, as a `replyto` handler's is [actor-replyto].
+                self.parking_handlers.insert(h.name.name.clone());
+                Ty::Named { name: ADDR_TYPE.to_string(), args: vec![ty] }
             }
             // [actor-replyto] A parked one-shot continuation targeting a
             // member of the enclosing handler; its value is the linear token.

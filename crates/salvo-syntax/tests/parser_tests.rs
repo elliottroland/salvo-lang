@@ -2868,3 +2868,34 @@ fn main() [spawn] {
         .collect();
     assert_eq!(spawns, vec![(true, true), (false, true), (true, false)]);
 }
+
+/// [handler-init] `init { … }` in a handler body is a parameterless send member
+/// held apart from `fns`; a second one is a parse error; `self@Face` parses
+/// with a generic face. A state field named `init` is still a field.
+#[test]
+fn init_block_and_self_addr_parse() {
+    use salvo_syntax::ast::{Expr, Item, Stmt};
+    let source = "\
+handler H() of Reg<E> {
+    init: Int = 0
+    init {
+        let me = self@Reg<E>
+    }
+    send fn go() {}
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let Item::Handler(h) = &module.items[0] else { panic!("handler") };
+    assert_eq!(h.state.len(), 1);
+    assert_eq!(h.fns.len(), 1);
+    let init = h.init.as_ref().expect("init block");
+    assert!(init.is_send && init.params.is_empty() && init.name.name == "init");
+    let Stmt::Let { value: Expr::SelfAddr { face, .. }, .. } = &init.body.as_ref().unwrap().stmts[0] else {
+        panic!("self@Reg<E>")
+    };
+    assert_eq!(face.name.name, "Reg");
+    assert_eq!(face.args.len(), 1);
+    let (_, diagnostics) = salvo_syntax::parse_module("handler H() of R {\n    init {}\n    init {}\n}\n");
+    assert!(diagnostics.iter().any(|d| d.message.contains("one `init` block")), "{diagnostics:?}");
+}

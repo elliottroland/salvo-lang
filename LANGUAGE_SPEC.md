@@ -4481,6 +4481,35 @@ docs/language/ remains the source of truth for everything that does.
     (`mailbox: Int = 3`), and only a brace after the word makes the slot.
   * **No spawn-site override**, deliberately: exposing the bound as a
     constructor parameter *is* the override, and it needs no grammar.
+* [handler-init] **A handler may declare one `init { … }` block, which runs
+  once, first** (user decision 2026-09-27). Contextual like `mailbox` — a
+  state field named `init` is `init: T = …`; a brace makes it the block — and
+  checked as a parameterless **private send member** named `init`
+  [actor-private-send]: it sees constructor parameters, initialised state
+  (and may assign it, which gives a handler a constructor body), and the
+  handler's dependencies; it declares no effects; its sends count as the
+  handler's in the deadlock graph. A written member named `init` beside the
+  block is refused; a mixed handler has no `init` yet (its servant starts
+  with a send member).
+  * **Spawned**, `init` is the actor's **first activation**: the spawn
+    enqueues it before handing back the address, so no message anyone sends
+    afterwards can overtake it, and the address is already written when it
+    runs. **`use`-bound**, it runs inline right after construction, on the
+    caller's thread (the Rust backend cannot yet run a *dependent* handler's
+    `init` under a `use`, and says so [rs-actor]).
+  * **`self@Face`** is the enclosing handler's own address as one of its
+    actor faces, an `Addr<Face>` — legal in `init` and in send members,
+    refused outside a handler, for a face the handler lacks, and for a plain
+    face (a monitor has no address). A handler that names its address is
+    **spawn-only**, reported at a `use` of it exactly as a `replyto` handler
+    is [actor-replyto]: a `use`-bound instance has no address to name. With
+    several faces the value is the same actor under each face's type.
+  * What it replaced: three "hand me my own address" handshakes in std `net`
+    — `NodeGroup.join(events)` with the `node_group()` helper, `ActorGroup.
+    start(me)`, and the opener subscribing the replica to the node group —
+    each a member whose only job was to receive the address a spawn
+    answered. A mechanism now starts itself; `PeerEvents` stopped being a
+    face; a spawn of a node group answers one `Addr<NodeGroup>`.
 * [actor-spawn-expr] `spawn H(args) with D1(...), addr on POOL` is the
   asynchronous binding, and its value is the child's `Addr`. Read left to
   right: what to run, what it depends on, where it runs — the queue depth is
@@ -5607,15 +5636,17 @@ between endpoints and delivers what arrives into the scheduler.
   the mechanisms** (step ④, user decision 2026-09-26, after a separate
   `NodeDiscovery` effect collapsed twice: its `authoritative()` flag was a
   plain handler steering a std actor's algorithm, which meant the algorithm
-  *was* the mechanism). `actor effect NodeGroup { join(events), members(out),
-  subscribe(w), leave() }`, `NodeChanges { joined(n), left(n, why) }`, `Node {
-  id: NodeId, at: NodeEndpoint }` — what a mechanism knows *after* contact,
-  where a `NodeEndpoint` is what it knows before. `node_group(spawn H(…) on
-  p)` sends the `join` with the `PeerEvents` face a spawn answers (a handler
-  cannot name its own addr). A mechanism learns the node's own endpoint from
-  `Transport.local_endpoint()`, so it is not a constructor parameter, and it
-  **asserts `connected()`** as it starts [net-connect]: a node group on a node
-  that is not on the wire traps, naming `connect(me)`.
+  *was* the mechanism). `actor effect NodeGroup { members(out), subscribe(w),
+  leave() }`, `NodeChanges { joined(n), left(n, why) }`, `Node { id: NodeId,
+  at: NodeEndpoint }` — what a mechanism knows *after* contact, where a
+  `NodeEndpoint` is what it knows before. **A mechanism starts itself** in its
+  `init` block [handler-init] (2026-09-27; until then `node_group(spawn H(…))`
+  sent it a `join(events)` carrying the face a spawn answered, because a
+  handler could not name its own address): `let nodes = spawn
+  StaticNodeGroup("demo", all) on p` is the whole of it. It learns the node's
+  own endpoint from `Transport.local_endpoint()`, so that is not a constructor
+  parameter, and it **asserts `connected()`** as it starts [net-connect]: a
+  node group on a node that is not on the wire traps, naming `connect(me)`.
   * **The handshake is the runtime's**, common to every mechanism: a HELLO
     frame (group name, the sender's endpoint, its **protocol table** — every
     actor effect with a wire form and its hash, registered by `main`'s
@@ -5625,17 +5656,21 @@ between endpoints and delivers what arrives into the scheduler.
     other by name; the route and the peer's table learnt; a LEAVE on
     departure, which also kills every proxy of an actor on that node (sends
     become the silent no-op, watches fire with `node left`). The group actor
-    hears about it through `actor effect PeerEvents { hello(node, at,
-    protocols), gone(node), introduced(peers) }`, registered with
-    `watch_peers`. `peer_protocol(node, name)` answers a peer's hash for a
-    protocol — what `actor_group<E>` compares.
+    hears about it as messages to three **private** send members of its own
+    [actor-private-send] — `hello(node, at, protocols)`, `gone(node)`,
+    `introduced(peers)` — registered from its `init` with
+    `watch_peers(self@NodeGroup)`; the emitters build the mechanism's own
+    private messages (until 2026-09-27 these were a `PeerEvents` face the
+    spawn answered as a second addr). `peer_protocol(node, name)` answers a
+    peer's hash for a protocol — what `actor_group<E>` compares.
   * **Introductions are frames, not a protocol**: `introduce(node, peers)`
-    sends an INTRO frame that arrives as `PeerEvents.introduced`. Gossip
+    sends an INTRO frame that arrives as the private `introduced`. Gossip
     was first written with a `NodeLink` actor effect the group both served
     and sent to, and the deadlock graph warned of the `NodeLink → NodeLink`
     send cycle on every program importing `net` [actor-deadlock-cycle] — a
-    correct warning about an inherent cycle, so the cycle was removed:
-    the group serves `PeerEvents` and never sends it.
+    correct warning about an inherent cycle, so the cycle was removed: the
+    events are frames in, private messages out, and the group never sends
+    the protocol it serves.
   * **std ships two mechanisms**: `StaticNodeGroup(name, all)` — every
     endpoint known up front, a HELLO to each — and `GossipNodeGroup(name,
     seeds)` — a HELLO to the seeds, and on every `hello` the newcomer is
@@ -5673,8 +5708,11 @@ between endpoints and delivers what arrives into the scheduler.
     marker type per effect on the Rust side; recorded in ROADMAP.md.
 * [actor-group] **`ActorGroup<E>` is the routable set of `Addr<E>` a program
   spreads over its nodes**, a std actor effect: `join(member)`, `leave(member)`,
-  `members(reply)`, `subscribe(who: Addr<ActorChanges<E>>)`, plus the
-  mechanism's own `peer(node)`, `merged(from, found)`, `start(me)`.
+  `members(reply)`, `subscribe(who: Addr<ActorChanges<E>>)`. The replica's
+  own `peer(node)` and `merged(from, found)` are private members it
+  publishes itself for in its `init` (`publish_group(name,
+  self@ActorGroup<E>)`) [handler-init]; until 2026-09-27 they were members of
+  the effect and a `start(me)` handed the replica its address.
   `actor_group<E>(nodes) -> Addr<ActorGroup<E>>` (and `actor_group<E>(name,
   nodes)` for several groups of one protocol; renamed from `attach` 2026-09-27)
   spawns the std `ActorGrouping<E>` handler on the current node and
@@ -5698,9 +5736,9 @@ between endpoints and delivers what arrives into the scheduler.
     Emission: the spawn, then `__Msg_ActorGroup::Join(addr)` over the wire
     send std's `join` makes, the spawn's value unchanged (`spawn_joins`
     records which tuple element).
-  * **Two levels, one program**: `node_group(…)` is about *machines* — a
-    program has one, started once per node on a connected node
-    [net-connect]; `actor_group<E>(nodes)` is about *the actors of one
+  * **Two levels, one program**: a node group (`spawn StaticNodeGroup(…)`) is
+    about *machines* — a program has one, started once per node on a
+    connected node [net-connect]; `actor_group<E>(nodes)` is about *the actors of one
     protocol across them* — a program opens one per protocol it routes to or
     lists the members of, on every node that hosts or reaches them.
   * `actor_group<E>(…)` — and `protocol<E>() -> Protocol<E>{name, hash}`

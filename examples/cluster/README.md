@@ -26,7 +26,7 @@ router under it (`examples/actors/` has the single-actor shape).
 
 **Two nodes, one group each.** Node `a` is `main`'s own; node `b` is booted on
 a second node id by `Booting`. Each first connects to the wire (`connect`),
-starts the node group (`node_group`), opens a replica of every actor group —
+spawns the node group (a mechanism that starts itself in its `init`), opens a replica of every actor group —
 `actor_group<Sequencer>(nodes)` — and spawns its members into them
 (`spawn Sequencing("a") on p in seq`: a local spawn plus one `join`). The
 replicas find each other by name through the node group, so `seq.members(out)`

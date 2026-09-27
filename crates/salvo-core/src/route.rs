@@ -484,6 +484,7 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
         effects: Some(vec![pick]),
         of: vec![named(e, Vec::new(), spans)],
         of_any: vec![true],
+        init: None,
         mailbox: Some(mailbox),
         state: Vec::new(),
         fns,

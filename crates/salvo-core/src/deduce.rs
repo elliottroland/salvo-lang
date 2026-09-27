@@ -1309,7 +1309,7 @@ impl<'p> Walk<'_, 'p> {
                 }
             }
             // [actor-self-send] A leaf: nothing to walk into.
-            Expr::SelfScoped { .. } => {}
+            Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
             // [actor-replyto] The captures are reads.
             Expr::ReplyTo { captures, .. } => {
                 for capture in captures {
