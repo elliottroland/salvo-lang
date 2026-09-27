@@ -520,6 +520,10 @@ pub struct Checked {
     /// none. The clause items themselves stay in the AST; this records what
     /// each *resolved to*, which is what the child's construction needs.
     pub spawn_deps: HashMap<Key, Vec<Ty>>,
+    /// [actor-group] `spawn H(…) on p in group`: the index of the face the
+    /// group is of, among the addrs the spawn answers — which element the
+    /// emitters `join`.
+    pub spawn_joins: HashMap<Key, usize>,
     /// [actor-spawn-expr] **Which clause item satisfied which declared
     /// dependency**: one index into the spawn's written `use` clause per
     /// declared dependency, in the *handler's declaration* order (keyed by
@@ -13011,6 +13015,50 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// names the main pool without new vocabulary. [waitfor-dedicated] A
     /// `Dedicated Pool` placement is **consumed** here — one thread, one
     /// occupant, enforced by the move.
+    /// [actor-group] The `in GROUP` clause of a spawn: `group` must be an
+    /// `Addr<ActorGroup<E>>` for one of the faces the spawn answers, and that
+    /// face's addr is what joins. A place, not a placement: the actor still
+    /// runs on its pool, and the clause adds the one `join` send.
+    fn check_spawn_join(&mut self, group: &'p Expr, spawned: &Ty, span: Span) {
+        let gty = self.check_expr(group, None);
+        if gty.is_unknown() || spawned.is_unknown() {
+            return;
+        }
+        let of = match addr_effect(&gty) {
+            Some(Ty::Named { name, args }) if name == "ActorGroup" && args.len() == 1 => args[0].clone(),
+            _ => {
+                self.error(
+                    group.span(),
+                    format!(
+                        "`in` takes a group handle — an `Addr<ActorGroup<E>>` — and this is `{gty}` \
+                         [actor-group]"
+                    ),
+                );
+                return;
+            }
+        };
+        let faces: Vec<Ty> = match spawned {
+            Ty::Tuple(elems) => elems.iter().filter_map(addr_effect).collect(),
+            other => addr_effect(other).into_iter().collect(),
+        };
+        match faces.iter().position(|f| *f == of) {
+            Some(i) => {
+                self.out.spawn_joins.insert(self.key(span), i);
+            }
+            None => {
+                let names: Vec<String> = faces.iter().map(|f| f.to_string()).collect();
+                self.error(
+                    group.span(),
+                    format!(
+                        "this spawn answers no `Addr<{of}>` to join the group with: it serves \
+                         {} — `in` needs a group of one of the handler's faces [actor-group]",
+                        if names.is_empty() { "no actor effect".to_string() } else { format!("`{}`", names.join("`, `")) }
+                    ),
+                );
+            }
+        }
+    }
+
     fn check_spawn(
         &mut self,
         handler: &'p Expr,
@@ -21690,8 +21738,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 handler,
                 with_items,
                 pool,
+                join,
                 span,
-            } => self.check_spawn(handler, with_items, pool.as_deref(), *span),
+            } => {
+                let ty = self.check_spawn(handler, with_items, pool.as_deref(), *span);
+                if let Some(group) = join {
+                    self.check_spawn_join(group, &ty, *span);
+                }
+                ty
+            }
             // [actor-self-send] A selector is a *callee*, never a value: a
             // handler member is not a function value any more than an effect
             // member is [effect-not-data]. Reached only when one is written

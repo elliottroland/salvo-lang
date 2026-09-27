@@ -188,9 +188,11 @@ Nodes are where actors live; the set of actors a program spreads across them is 
 
 ```
 let pings = actor_group<Ping>(nodes)             // one replica per node
-join(pings, spawn Pinging("a") on p)
+spawn Pinging("a") on p in pings
 pings.subscribe(spawn Noticing("a") on p)               // "a: + a Ping (local: false)"
 ```
+
+`spawn Pinging("a") on p in pings` is a local spawn with one more message: `join(pings, addr)`. The actor runs here, on `p` — there is no remote spawn — and `in` says where it can be found; with a handler of several faces, the face the group is of is the one that joins. `join(group, addr)` is the same thing written after the fact.
 
 `actor_group<E>(…)` is where a protocol that cannot cross a node boundary is refused: if any `send fn` of `E` carries a `noremote` payload, a group of `E` cannot span nodes, and the compiler says so at that call rather than at the first remote send. The type parameter of `ActorGroup<E>` is only ever an effect, so it costs nothing at runtime — `Addr<E>` is one handle whatever `E` is, and a generic that is only ever an effect is erased from the generated code.
 
@@ -221,7 +223,7 @@ actor effect Inventory {
 fn checkout(skus: List<Str>) [any Inventory, Console] -> None { … }   // `any`: shards are unordered
 
 let stock = actor_group<Inventory>(nodes)
-join(stock, spawn Stocking("s1") on p)
+spawn Stocking("s1") on p in stock
 use Sharded<Inventory>()          // the policy: the member that owns the key…
 use route(stock)                  // …and the stub, binding `any Inventory`
 checkout(["apple", "pear", "apple"])   // "apple" lands on the same shard both times

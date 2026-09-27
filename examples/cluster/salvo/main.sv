@@ -271,18 +271,17 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
         nodes = copy(group)
 
         let seq = actor_group<Sequencer>(copy(group))
-        let mine = spawn Sequencing("b") on p
-        join(seq, copy(mine))
+        let mine = spawn Sequencing("b") on p in seq
 
         let stock = actor_group<Inventory>(copy(group))
-        join(stock, spawn Stocking("shard-b") on p)
+        spawn Stocking("shard-b") on p in stock
 
         let index = actor_group<Search>(copy(group))
-        join(index, spawn Indexing(["salvo", "actors", "salvo", "nodes"]) on p)
+        spawn Indexing(["salvo", "actors", "salvo", "nodes"]) on p in index
 
         let looks = actor_group<Lookup>(group)
         let timer = spawn DefaultTimer() on p
-        join(looks, spawn SlowLooking("b (slow)", timer) on p)
+        spawn SlowLooking("b (slow)", timer) on p in looks
 
         done.send(mine)
     }
@@ -316,13 +315,13 @@ fn main() [use, spawn] {
     let nodes = node_group(spawn StaticNodeGroup("cluster", copy(all)) on p)
 
     let seq = actor_group<Sequencer>(copy(nodes))
-    join(seq, spawn Sequencing("a") on p)
+    spawn Sequencing("a") on p in seq
     let stock = actor_group<Inventory>(copy(nodes))
-    join(stock, spawn Stocking("shard-a") on p)
+    spawn Stocking("shard-a") on p in stock
     let index = actor_group<Search>(copy(nodes))
-    join(index, spawn Indexing(["salvo", "is", "salvo"]) on p)
+    spawn Indexing(["salvo", "is", "salvo"]) on p in index
     let looks = actor_group<Lookup>(copy(nodes))
-    join(looks, spawn Looking("a") on p)
+    spawn Looking("a") on p in looks
 
     // Node b, and a moment for the two node groups to meet.
     let pb = pool_at(new_node(), 1)

@@ -4501,6 +4501,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_router_of_any,
     kotlinc_compiles_and_runs_elvis_over_a_borrowed_optional,
     kotlinc_compiles_and_runs_private_send_members,
+    kotlinc_compiles_and_runs_spawn_in_group,
     kotlinc_compiles_and_runs_a_sharded_route,
     kotlinc_compiles_and_runs_least_loaded_and_elected_routes,
     kotlinc_compiles_and_runs_member_overloads,
@@ -9585,6 +9586,48 @@ fn kotlinc_compiles_and_runs_private_send_members() -> KotlinCase {
     kotlin_case(files, "private-sends", "first: total 7, asked 2\nsecond: total 7, asked 4\nasking for third\nthird: 7\n")
 }
 
+/// The Rust backend's `SPAWN_IN_GROUP_DEMO`, verbatim [actor-group].
+const SPAWN_IN_GROUP_DEMO: &str = r#"import net
+import time
+
+actor effect Ping { send fn ping(out: Reply<Str>) => !out }
+actor effect Admin { send fn stop() }
+
+handler Pinging(who: Str) of Ping {
+    mailbox { capacity: 4 }
+    send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
+}
+handler TwoFaced(who: Str) of Ping, Admin {
+    mailbox { capacity: 4 }
+    send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
+    send fn stop() {}
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let a = NodeEndpoint { host: "a", port: 1 }
+    let net = spawn MemNetwork() on pool(1)
+    use MemTransport(copy(a), copy(net))
+    let p = pool(1)
+    let _c = connect(copy(a), copy(p))
+    let nodes = node_group(spawn StaticNodeGroup("demo", [copy(a)]) on p)
+    let pings = actor_group<Ping>(nodes)
+    let one = spawn Pinging("one") on p in pings
+    let (two, _admin) = spawn TwoFaced("two") on p in pings
+    let timer = spawn DefaultTimer() on pool(1)
+    let _t = waitfor f: Reply<Fired> { timer.after(millis(100), f) }
+    let members = waitfor out: Reply<List<Addr<Ping>>> { pings.members(out) }
+    println("members: ${size(members)}")
+    println(waitfor out: Reply<Str> { one.ping(out) })
+    println(waitfor out: Reply<Str> { two.ping(out) })
+}
+"#;
+
+fn kotlinc_compiles_and_runs_spawn_in_group() -> KotlinCase {
+    let files = generate_files(&[("main.sv", SPAWN_IN_GROUP_DEMO)]);
+    kotlin_case(files, "spawn-in-group", "members: 2\npong from one\npong from two\n")
+}
+
 /// The Rust backend's `ANY_ROUTER_DEMO`, verbatim [effect-any].
 const ANY_ROUTER_DEMO: &str = r#"import time
 
@@ -9667,8 +9710,8 @@ fn main() [use, spawn] {
     let _connected = connect(copy(a), copy(p))
     let nodes = node_group(spawn StaticNodeGroup("shop", [copy(a)]) on p)
     let stock = actor_group<Inventory>(nodes)
-    join(stock, spawn Stocking("s1") on p)
-    join(stock, spawn Stocking("s2") on p)
+    spawn Stocking("s1") on p in stock
+    spawn Stocking("s2") on p in stock
 
     use Sharded<Inventory>()
     use route(stock)
@@ -9709,8 +9752,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
         let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
         let nodes = node_group(spawn StaticNodeGroup("ids", copy(all)) with MemTransport(copy(at), copy(net)) on p)
         let seq = actor_group<Sequencer>(nodes)
-        let mine = spawn Sequencing("b") on p
-        join(seq, copy(mine))
+        let mine = spawn Sequencing("b") on p in seq
         done.send(mine)
     }
 }
@@ -9730,7 +9772,7 @@ fn main() [use, spawn] {
     let _connected = connect(copy(a), copy(pa))
     let nodes = node_group(spawn StaticNodeGroup("ids", copy(all)) on pa)
     let seq = actor_group<Sequencer>(nodes)
-    join(seq, spawn Sequencing("a") on pa)
+    spawn Sequencing("a") on pa in seq
 
     let pb = pool_at(new_node(), 1)
     let booter = spawn Booting(copy(b), copy(all), copy(net)) with MemTransport(copy(b), copy(net)) on pb
@@ -9788,7 +9830,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
         let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
         let nodes = node_group(spawn StaticNodeGroup("demo", copy(all)) with MemTransport(copy(at), copy(net)) on p)
         let pings = actor_group<Ping>(nodes)
-        join(pings, spawn Pinging("b") on p)
+        spawn Pinging("b") on p in pings
         done.send(pings)
     }
 }
@@ -9806,7 +9848,7 @@ fn main() [use, spawn] {
     let nodes_a = node_group(spawn StaticNodeGroup("demo", copy(all)) on pa)
     let pings_a = actor_group<Ping>(nodes_a)
     pings_a.subscribe(spawn Noticing("a") on pa)
-    join(pings_a, spawn Pinging("a") on pa)
+    spawn Pinging("a") on pa in pings_a
 
     let pb = pool_at(new_node(), 1)
     let booter = spawn Booting(copy(b), copy(all), copy(net)) with MemTransport(copy(b), copy(net)) on pb

@@ -39,6 +39,7 @@ const STD_NET: &str = concat!(
     "export struct Protocol<E> { name: Str, hash: Str }\n",
     "export intrinsic fn protocol<E>() [] -> Protocol<E>\n",
     "export actor effect NodeGroup { send fn leave() }\n",
+    "export actor effect ActorGroup<E> { send fn join(member: Addr<E>) => !member }\n",
     "export intrinsic fn actor_group<E>(nodes: Addr<NodeGroup>) [spawn] -> Int => !nodes\n",
     // The pick kit's shape, enough for the erased-sibling rule [route-stub].
     "export struct ActorGroupView<E> { key: Long? = None }\n",
@@ -323,4 +324,35 @@ fn main() [use] {
             && errs[0].contains("nested block"),
         "{errs:?}"
     );
+}
+
+/// [actor-group] The `in GROUP` clause of a spawn: the group must be of one
+/// of the spawn's faces, and must be a group handle at all.
+#[test]
+fn spawn_in_group_needs_a_group_of_one_of_its_faces() {
+    let src = "\
+import net
+
+actor effect Ping { send fn ping() }
+actor effect Pong { send fn pong() }
+handler Pinging() of Ping { mailbox { capacity: 1 } send fn ping() {} }
+handler Both() of Ping, Pong { mailbox { capacity: 1 } send fn ping() {} send fn pong() {} }
+
+fn main(pings: Addr<ActorGroup<Ping>>, pongs: Addr<ActorGroup<Pong>>, n: Int) [spawn] -> None
+    => !pings, !pongs, !n {
+    let _ok = spawn Pinging() on pool(1) in pings
+    let (_p, _q) = spawn Both() on pool(1) in pongs
+    let _wrong = spawn Pinging() on pool(1) in pongs
+    let _not = spawn Pinging() on pool(1) in n
+}
+";
+    let errs: Vec<String> = program(src)
+        .1
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect();
+    assert_eq!(errs.len(), 2, "{errs:?}");
+    assert!(errs[0].contains("answers no `Addr<Pong>`") && errs[0].contains("serves `Ping`"), "{errs:?}");
+    assert!(errs[1].contains("`in` takes a group handle") && errs[1].contains("this is `Int`"), "{errs:?}");
 }

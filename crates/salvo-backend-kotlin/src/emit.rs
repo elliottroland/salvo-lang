@@ -7229,8 +7229,34 @@ impl<'p> Emitter<'p> {
                 handler,
                 with_items,
                 pool,
+                join,
                 span,
-            } => self.emit_spawn(handler, with_items, pool.as_deref(), *span),
+            } => {
+                let code = self.emit_spawn(handler, with_items, pool.as_deref(), *span);
+                match join {
+                    None => code,
+                    // [actor-group] `in GROUP`: the spawn, then the one `join`
+                    // send with the face's addr, the value unchanged.
+                    Some(group) => {
+                        self.needs_scheduler = true;
+                        self.needs_wire = true;
+                        let face = self.checked.spawn_joins.get(&(self.file_idx, *span)).copied();
+                        let g = self.emit_expr(group);
+                        let net = self.effect_paths.get("ActorGroup").cloned().unwrap_or_default();
+                        let msg = msg_class_name("ActorGroup");
+                        let member = match face {
+                            Some(i) if matches!(self.ty_of(*span), Some(Ty::Tuple(_))) => {
+                                format!("__spawned.{}", tuple_field(i))
+                            }
+                            _ => "__spawned".to_string(),
+                        };
+                        format!(
+                            "run {{ val __spawned = {code}; salvo.SalvoSched.sendWire({g}, {net}{msg}.Join({member}), \
+                             {net}__PROTO_ActorGroup, {net}__Codec_{msg}); __spawned }}"
+                        )
+                    }
+                }
+            }
             // [actor-waitfor] `main`'s bridge, as a `run { }` expression.
             Expr::WaitFor {
                 binding,

@@ -1467,6 +1467,11 @@ pub enum Expr {
         /// to `spawn`, which is also how a spawn site *names* the main pool
         /// without new vocabulary.
         pool: Option<Box<Expr>>,
+        /// [actor-group] `in GROUP` — an `Addr<ActorGroup<E>>` the spawned
+        /// actor joins (user decision 2026-09-27): the spawn stays local, on
+        /// its pool; the clause adds the one message `join(group, addr)`
+        /// sends. A place, not a placement — which is why it is not `on`.
+        join: Option<Box<Expr>>,
         span: Span,
     },
     /// [actor-replyto] `replyto batch_arrived(id)` — allocate a parked

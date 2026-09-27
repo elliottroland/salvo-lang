@@ -3408,6 +3408,7 @@ impl<'s> Parser<'s> {
                         handler: Box::new(handler),
                         with_items,
                         pool: Some(Box::new(pool)),
+                        join: None,
                         span: spawn_span,
                     };
                     return Some(Stmt::Use {
@@ -5098,10 +5099,21 @@ impl<'s> Parser<'s> {
         } else if let Some(last) = with_items.last() {
             end = last.span();
         }
+        // [actor-group] `in GROUP`: join the spawned actor to an actor group.
+        // After `on`, since a placement reads before a membership; a real
+        // keyword (`for x in xs`), so no contextual guard is needed.
+        let mut join = None;
+        if self.at(&TokenKind::KwIn) && self.same_line() {
+            self.bump();
+            let expr = self.parse_expr()?;
+            end = expr.span();
+            join = Some(Box::new(expr));
+        }
         Some(Expr::Spawn {
             handler: Box::new(handler),
             with_items,
             pool,
+            join,
             span: start.to(end),
         })
     }

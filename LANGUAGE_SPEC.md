@@ -5687,6 +5687,22 @@ between endpoints and delivers what arrives into the scheduler.
   their member sets, admit a remote member once, and withdraw every member
   hosted on a node that leaves. `join<E>(group, member)` is the ordinary
   send; `members` answers the union as seen locally.
+  * **`spawn H(…) on p in group`** (user decision 2026-09-27) joins the spawned
+    actor to `group` — the spawn stays local, on its pool, and the clause adds
+    the one `join` send. `in`, not `on`: a group is a *place the actor can be
+    found*, not a placement, and a spawn never runs anywhere but here (no
+    remote spawn). `group` must be an `Addr<ActorGroup<E>>` for one of the
+    handler's faces; with several faces the addr of that face joins and the
+    spawn still answers its tuple. Refused, naming the faces, when the group
+    is of none of them, and when the clause is not a group handle at all.
+    Emission: the spawn, then `__Msg_ActorGroup::Join(addr)` over the wire
+    send std's `join` makes, the spawn's value unchanged (`spawn_joins`
+    records which tuple element).
+  * **Two levels, one program**: `node_group(…)` is about *machines* — a
+    program has one, started once per node on a connected node
+    [net-connect]; `actor_group<E>(nodes)` is about *the actors of one
+    protocol across them* — a program opens one per protocol it routes to or
+    lists the members of, on every node that hosts or reaches them.
   * `actor_group<E>(…)` — and `protocol<E>() -> Protocol<E>{name, hash}`
     underneath it — is the crossing site for `noremote` [noremote]: it refuses
     when any `send fn` of `E` carries a payload with no wire form — "a group of

@@ -13204,8 +13204,34 @@ impl<'p> Emitter<'p> {
                 handler,
                 with_items,
                 pool,
+                join,
                 span,
-            } => self.emit_spawn(handler, with_items, pool.as_deref(), *span),
+            } => {
+                let code = self.emit_spawn(handler, with_items, pool.as_deref(), *span);
+                match join {
+                    None => code,
+                    // [actor-group] `in GROUP`: the spawn, then the one `join`
+                    // send with the face's addr — the same send std's `join`
+                    // fn makes — and the spawn's value stays the value.
+                    Some(group) => {
+                        self.needs_scheduler = true;
+                        let face = self.checked.spawn_joins.get(&(self.file_idx, *span)).copied();
+                        let g = self.emit_read(group);
+                        let msg = self.effect_path("ActorGroup", &msg_enum_name("ActorGroup"));
+                        let proto = self.effect_path("ActorGroup", &protocol_const_name("ActorGroup"));
+                        let member = match face {
+                            Some(i) if matches!(self.ty_of(*span), Some(Ty::Tuple(_))) => {
+                                format!("__spawned.{i}")
+                            }
+                            _ => "__spawned".to_string(),
+                        };
+                        format!(
+                            "{{ let __spawned = {code}; crate::scheduler::salvo_send_wire(({g}).clone(), \
+                             {msg}::Join({member}), {proto}); __spawned }}"
+                        )
+                    }
+                }
+            }
             // [actor-waitfor] `main`'s bridge, as a block expression: mint a
             // waiter token, run the block that sends it somewhere, then block
             // this thread until the answer arrives.

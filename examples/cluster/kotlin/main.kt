@@ -927,15 +927,14 @@ class Booting<__Fx>(private val at: NodeEndpoint, private val all: List<NodeEndp
         val group = node_group(run { val __h = StaticNodeGroup("cluster", all, __Fx_6(MemTransport(at, net))); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); Pair(__a, __a) })
         nodes = group
         val seq = salvo.net.open_group(Protocol("Sequencer", salvo.main.__PROTO_Sequencer), group)
-        val mine = run { val __h = Sequencing("b"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE) }
-        join(seq, mine)
+        val mine = run { val __spawned = run { val __h = Sequencing("b"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE) }; salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
         val stock = salvo.net.open_group(Protocol("Inventory", salvo.main.__PROTO_Inventory), group)
-        join(stock, run { val __h = Stocking("shard-b"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE) })
+        run { val __spawned = run { val __h = Stocking("shard-b"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE) }; salvo.SalvoSched.sendWire(stock, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
         val index = salvo.net.open_group(Protocol("Search", salvo.main.__PROTO_Search), group)
-        join(index, run { val __h = Indexing(listOf<String>("salvo", "actors", "salvo", "nodes")); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE) })
+        run { val __spawned = run { val __h = Indexing(listOf<String>("salvo", "actors", "salvo", "nodes")); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE) }; salvo.SalvoSched.sendWire(index, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
         val looks = salvo.net.open_group(Protocol("Lookup", salvo.main.__PROTO_Lookup), group)
         val timer = run { val __h = DefaultTimer(); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_DefaultTimer(__h), __Actor_DefaultTimer.__DECODE) }
-        join(looks, run { val __h = SlowLooking("b (slow)", timer); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_SlowLooking(__h), __Actor_SlowLooking.__DECODE) })
+        run { val __spawned = run { val __h = SlowLooking("b (slow)", timer); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_SlowLooking(__h), __Actor_SlowLooking.__DECODE) }; salvo.SalvoSched.sendWire(looks, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
         salvo.SalvoSched.replyWire(done, mine, salvo.AddrCodec)
     }
 
@@ -1016,13 +1015,13 @@ fun main() {
     val _connected = connect__2(__fx2, a, p)
     val nodes = node_group(run { val __h = StaticNodeGroup("cluster", all, __Fx_6(__fx2.__fx_Transport)); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); Pair(__a, __a) })
     val seq = salvo.net.open_group(Protocol("Sequencer", salvo.main.__PROTO_Sequencer), nodes)
-    join(seq, run { val __h = Sequencing("a"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE) })
+    run { val __spawned = run { val __h = Sequencing("a"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE) }; salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
     val stock = salvo.net.open_group(Protocol("Inventory", salvo.main.__PROTO_Inventory), nodes)
-    join(stock, run { val __h = Stocking("shard-a"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE) })
+    run { val __spawned = run { val __h = Stocking("shard-a"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE) }; salvo.SalvoSched.sendWire(stock, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
     val index = salvo.net.open_group(Protocol("Search", salvo.main.__PROTO_Search), nodes)
-    join(index, run { val __h = Indexing(listOf<String>("salvo", "is", "salvo")); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE) })
+    run { val __spawned = run { val __h = Indexing(listOf<String>("salvo", "is", "salvo")); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE) }; salvo.SalvoSched.sendWire(index, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
     val looks = salvo.net.open_group(Protocol("Lookup", salvo.main.__PROTO_Lookup), nodes)
-    join(looks, run { val __h = Looking("a"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Looking(__h), __Actor_Looking.__DECODE) })
+    run { val __spawned = run { val __h = Looking("a"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Looking(__h), __Actor_Looking.__DECODE) }; salvo.SalvoSched.sendWire(looks, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
     val pb = salvo.SalvoSched.poolAt((NodeId(salvo.SalvoSched.newNode())).id, 1)
     val booter = run { val __h = Booting(b, all, network, __Fx_6(MemTransport(b, network))); salvo.SalvoSched.spawn(pb, __h.__mailboxCapacity, __Actor_Booting(__h), __Actor_Booting.__DECODE) }
     val remote_seq = run {

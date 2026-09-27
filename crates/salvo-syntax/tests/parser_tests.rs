@@ -2841,3 +2841,30 @@ fn thumbnail(name: Str) [Console, any Resizer] -> Str {
     assert!(matches!(&effects[1], EffectRef::AnyEffect(r) if r.name.name == "Resizer"));
     assert_eq!(effects[1].to_string(), "any Resizer");
 }
+
+/// [actor-group] `spawn H(args) on POOL in GROUP`: the `in` clause after the
+/// placement, an ordinary expression, optional.
+#[test]
+fn spawn_in_group_parses() {
+    use salvo_syntax::ast::{Expr, Item, Stmt};
+    let source = "\
+fn main() [spawn] {
+    let a = spawn Pinging(\"a\") on p in pings
+    let b = spawn Pinging(\"b\") in pings
+    let c = spawn Pinging(\"c\") on p
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!("fn") };
+    let body = f.body.as_ref().unwrap();
+    let spawns: Vec<(bool, bool)> = body
+        .stmts
+        .iter()
+        .map(|s| match s {
+            Stmt::Let { value: Expr::Spawn { pool, join, .. }, .. } => (pool.is_some(), join.is_some()),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(spawns, vec![(true, true), (false, true), (true, false)]);
+}
