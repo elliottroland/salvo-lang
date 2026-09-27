@@ -4488,6 +4488,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_node_groups_over_mem_transport,
     kotlinc_compiles_and_runs_an_effect_typed_generic,
     kotlinc_compiles_and_runs_an_actor_group_across_nodes,
+    kotlinc_compiles_and_runs_a_router_of_any,
     kotlinc_compiles_and_runs_member_overloads,
     kotlinc_compiles_and_runs_member_modes,
     kotlinc_compiles_and_runs_a_linear_token_closed_by_a_member,
@@ -9018,20 +9019,21 @@ fn kotlinc_compiles_and_runs_a_threadsafe_platform_handler() -> KotlinCase {
 const NET_MEM_TRANSPORT: &str = r#"import net
 
 actor effect Counting {
-    send fn total(out: Reply<Int>) => !out
+    send fn total(out: Reply<Str>) => !out
 }
 
-handler Receiving(label: Str) [Console] of Inbound, Counting {
+// The receiver records rather than prints: a `deliver` answers as soon as
+// the frame is handed over, so a print here would race main's own.
+handler Receiving(label: Str) of Inbound, Counting {
     mailbox { capacity: 16 }
-    seen: Int = 0
+    seen: Mut List<Str> = []
 
     send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data {
-        seen = seen + 1
-        println("${label} <- ${to_str(from)}: ${str_of_bytes(data) ?: "?"}")
+        seen.add("${label} <- ${to_str(from)}: ${str_of_bytes(data) ?: "?"}")
     }
 
-    send fn total(out: Reply<Int>) => !out {
-        out.send(seen)
+    send fn total(out: Reply<Str>) => !out {
+        out.send(join(seen, ", "))
     }
 }
 
@@ -9068,13 +9070,13 @@ fn main() [use, spawn] {
     net.kill(copy(b))
     report("dead", deliver(copy(b), to_bytes("dead")))
 
-    let got = waitfor out: Reply<Int> { count_b.total(out) }
+    let got = waitfor out: Reply<Str> { count_b.total(out) }
     let routed = waitfor out: Reply<Int> { net.delivered(out) }
-    println("b saw ${got}, routed ${routed}")
+    println("b saw [${got}], routed ${routed}")
 }
 "#;
 
-const NET_MEM_TRANSPORT_OUTPUT: &str = "listen a: sent\nlisten b: sent\nhello: sent\nb <- a:1: hello\nlost: unreachable: b:1\nagain: sent\nb <- a:1: again\nvoid: unreachable: c:9\ndead: unreachable: b:1\nb saw 2, routed 2\n";
+const NET_MEM_TRANSPORT_OUTPUT: &str = "listen a: sent\nlisten b: sent\nhello: sent\nlost: unreachable: b:1\nagain: sent\nvoid: unreachable: c:9\ndead: unreachable: b:1\nb saw [b <- a:1: hello, b <- a:1: again], routed 2\n";
 
 /// [threadsafe-platform] A program that never binds `HostTcpTransport`
 /// constructs no host class (the shipped companion is copied with `net`, as
@@ -9476,6 +9478,55 @@ fn main() [use, spawn] {
 fn kotlinc_compiles_and_runs_an_effect_typed_generic() -> KotlinCase {
     let files = generate_files(&[("main.sv", EFFECT_GENERIC_DEMO)]);
     kotlin_case(files, "effect-generic", "members: 1\nping 7\n")
+}
+
+/// The Rust backend's `ANY_ROUTER_DEMO`, verbatim [effect-any].
+const ANY_ROUTER_DEMO: &str = r#"import time
+
+actor effect Resizer {
+    send fn resize(name: Str, w: Int, out: Reply<Str>) => !name, !out
+}
+
+handler Resizing(who: Str) of Resizer {
+    mailbox { capacity: 8 }
+    send fn resize(name: Str, w: Int, out: Reply<Str>) => !out {
+        out.send("${who} resized ${name} to ${w}")
+    }
+}
+
+// [effect-any] A hand-written router: forwards each request to the next
+// member, so it promises no order between two sends — and says so.
+handler RoundRobin(members: List<Addr<Resizer>>) of any Resizer {
+    mailbox { capacity: 16 }
+    next: Int = 0
+    send fn resize(name: Str, w: Int, out: Reply<Str>) => !out {
+        let i = next % size(members)
+        next = next + 1
+        let target = copy(get(members, i)!)
+        target.resize(name, w, out)
+    }
+}
+
+// Any Resizer will do: one send, one reply.
+fn thumbnail(name: Str) [any Resizer] -> Str {
+    return waitfor out: Reply<Str> { resize(name, 100, out) }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let p = pool(2)
+    let a = spawn Resizing("a") on p
+    let b = spawn Resizing("b") on p
+    use RoundRobin([a, b])
+    println(thumbnail("cat.png"))
+    println(thumbnail("dog.png"))
+    println(thumbnail("owl.png"))
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_router_of_any() -> KotlinCase {
+    let files = generate_files(&[("main.sv", ANY_ROUTER_DEMO)]);
+    kotlin_case(files, "any-router", "a resized cat.png to 100\nb resized dog.png to 100\na resized owl.png to 100\n")
 }
 
 /// The Rust backend's `ACTOR_GROUP_DEMO`, verbatim [actor-group].

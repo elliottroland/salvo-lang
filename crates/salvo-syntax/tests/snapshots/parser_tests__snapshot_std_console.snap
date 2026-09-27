@@ -140,6 +140,9 @@ Module {
                         },
                     },
                 ],
+                of_any: [
+                    false,
+                ],
                 mailbox: None,
                 state: [],
                 fns: [],

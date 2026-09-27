@@ -82,7 +82,7 @@ design.
 
 **Step 1 is complete.**
 
-### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–⑤ ✅ built)
+### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–⑥ ✅ built)
 
 The design round is complete — sixteen decisions, all the user's, taken in five
 rounds on 2026-09-26 and recorded in COMPLETED.md's log ("Actors across
@@ -138,10 +138,13 @@ The layering, bottom up, and the order it is built in (each step runs on
    `ActorChanges<E>`, `protocol<E>()` as the `noremote` crossing site,
    `pending`, `node_of`, `eq` on addresses. **Left**: a partition/unreachable
    withdrawal follows the node-group one (step ④'s leftover).
-6. **`[any E]` / `of any E`** — the weaker claim (no ordering, no shared state
-   between sends), on both the requirement and the binding, viral downward
-   like `local`; bare `[E]` keeps the strong meaning. With it the
-   hand-written router example.
+6. ✅ **`[any E]` / `of any E` — built 2026-09-26** (COMPLETED.md's log,
+   "step ⑥"). [effect-any]. **Left (recorded gaps)**: an `Addr<E>` answered
+   by *spawning* a router binds as an ordinary `E` under `use addr` — the
+   addr type has no room for the claim; a lambda's body is checked under
+   strong availabilities; `local`/`any` on a fn type is reported once per
+   lowering of the type (three times for a parameter), a pre-existing
+   duplication.
 7. **`Pick<E>`** — `fn choose(view: ActorGroupView<E>) -> Addr<E>?`, `None`
    parks — with std handlers `LeastLoaded`, `Sharded` (a `Key` qualifier on a
    protocol parameter) and `Elected` (`[Leader]`, a std effect a Salvo election

@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1584 tests, complete: the toolchain tests are
+cargo test                  # 1590 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,27 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The network sequence, step ⑥ — `[any E]` / `of any E` (2026-09-26 —
+built).** One rule, [effect-any]: `any` weakens *identity* as `local`
+weakens seam rights. Bare `[E]` keeps meaning one instance with ordered
+sends; `[any E]` accepts a binding spread over many instances and is viral
+downward; a handler says `of any E` per face and its `use` binds `any E`,
+which satisfies `[any E]` only; `local any` is refused as redundant; a fn
+type carries no strength. What it took beyond the checker rule: a router
+`of any E` is the one handler of an actor effect whose `use` binds
+**shareable** (the old rule forced every actor-face `use` to `Local`, whose
+reason — "the shareable handle of an actor effect is the addr" — does not
+hold for a forwarder), so both emitters now give an actor effect its
+monitor adapter exactly when a router of it exists (Rust: the lock adapter
+alone, `emit_lock_adapter`; Kotlin: `__Mon_E` over send members too); and
+the deadlock graph gives a router a servant node of its own, since its
+forwards otherwise read as `E → E` on every program with a router. **1590
+tests** (+6: parser `any` in both positions; the identity rule, virality,
+the no-cycle property and the two refusals in `actor_tests`; the
+hand-written `RoundRobin` router compiled and run on both backends). The
+`route(group)` stub of step ⑦ will declare `of any E` and be `use`-bound,
+which is exactly the shape this step made legal.
 
 **The network sequence, step ⑤ — effect-typed generics and `ActorGroup<E>`
 (2026-09-26 — built).** Two rules: [effect-generic-decl] — a type parameter
@@ -18874,6 +18895,31 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A `deliver` answers when the frame is handed over, not when it is
+  read — so a receiver that prints races the sender's own print**
+  (2026-09-27). The step-① mem-transport case printed from the receiving
+  actor and from `main` after `report(...)`, and passed hundreds of warm
+  runs before a fresh nextest run under load printed the two lines in the
+  other order. A compile-and-run case with two printers on a shared pool is
+  a coin that has not come up tails yet: record in the actor, print once at
+  the end. Fixed in both backends' copies of the case.
+- **A rule stated for a kind can have an exception hiding in its reason**
+  (2026-09-26). "A `use` of an actor-effect handler binds scope-local,
+  because the shareable handle of an actor effect is the addr a spawn
+  answers" was true of every handler *that is* a member of the protocol. A
+  router `of any E` is not a member — it forwards to members — and the very
+  design that introduced it says a group handle is always shareable, so the
+  first `[any Resizer]` program failed with the `local` refusal against the
+  router's `use`. When a new construct trips an old classification, reread
+  the classification's *reason* before touching its rule: here the reason
+  said precisely which handlers were exempt.
+- **A router is a servant in the deadlock graph, not a member** (2026-09-26).
+  Modelled as a handler of `E`, every `of any E` router sends `E → E` — the
+  graph is over types, so a forwarder and the members it forwards to are one
+  node, and the first router warned of a self-cycle. The mixed-handler
+  servant node already existed for "sends through addrs it holds, serves no
+  actor effect"; a router is that shape with an actor face, and shares the
+  node kind.
 - **An erased program copy invalidates every by-address table built from the
   original** (2026-09-26). Step ⑤ emits against a copy of the program with
   effect-only generics cleared [effect-generic-decl]. The first cut rebuilt

@@ -1812,8 +1812,11 @@ impl<'s> Parser<'s> {
         self.expect(&TokenKind::KwOf)?;
         // [effect-handler-multi] One effect or several, comma-separated: the
         // handler wears one face per effect over one piece of state.
+        // [effect-any] `of any E`: this face forwards to many instances.
+        let mut of_any = vec![self.eat_any_prefix()];
         let mut of = vec![self.parse_type()?];
         while self.eat(&TokenKind::Comma).is_some() {
+            of_any.push(self.eat_any_prefix());
             of.push(self.parse_type()?);
         }
         let mut state = Vec::new();
@@ -1881,11 +1884,23 @@ impl<'s> Parser<'s> {
             params,
             effects,
             of,
+            of_any,
             mailbox,
             state,
             fns,
             span: start.to(end),
         })
+    }
+
+    /// [effect-any] `any` before a type name, contextual like `local`: an
+    /// effect called `any` (unwise) still parses alone.
+    fn eat_any_prefix(&mut self) -> bool {
+        if self.at_word("any") && matches!(self.peek_at(1).kind, TokenKind::Ident(_)) {
+            self.bump();
+            true
+        } else {
+            false
+        }
     }
 
     // --- Functions ---
@@ -2174,12 +2189,30 @@ impl<'s> Parser<'s> {
                 // name, so an effect called `local` (unwise) still parses
                 // alone.
                 TokenKind::Ident(name)
-                    if name == "local"
+                    if (name == "local" || name == "any")
                         && matches!(self.peek_at(1).kind, TokenKind::Ident(_)) =>
                 {
-                    self.bump();
+                    let word = self.bump();
+                    let is_local = matches!(&word.kind, TokenKind::Ident(n) if n == "local");
+                    // [effect-any] `local any E` would claim no rights at
+                    // all — but a group handle is always shareable, so a
+                    // group never needs `local`, and the pair is refused as
+                    // redundant rather than given a meaning.
+                    if (self.at_word("any") || self.at_word("local"))
+                        && matches!(self.peek_at(1).kind, TokenKind::Ident(_))
+                    {
+                        let other = self.bump();
+                        self.error(
+                            "`local` and `any` do not combine: `local` weakens seam \
+                             rights and `any` weakens identity, and a binding spread \
+                             over many instances is always shareable — write one of \
+                             them",
+                            word.span.to(other.span),
+                        );
+                    }
                     match self.parse_type_ref() {
-                        Some(r) => effects.push(EffectRef::LocalEffect(r)),
+                        Some(r) if is_local => effects.push(EffectRef::LocalEffect(r)),
+                        Some(r) => effects.push(EffectRef::AnyEffect(r)),
                         None => {
                             self.group_depth -= 1;
                             return None;

@@ -132,6 +132,14 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "a local effect entry in an effect list",
     ),
+    // `[any E]` and `of any E`: the entry that accepts a binding spread over
+    // many instances [effect-any]. Same shape as `local`, plus the `of`
+    // clause of a handler.
+    (
+        "(?<=[\\\\[,]|\\\\bof)\\\\s*(any)\\\\b(?=\\\\s+[A-Z])",
+        "keyword.other.salvo",
+        "an any-instance effect entry in an effect list or an `of` clause",
+    ),
     // `on POOL`, the placement clause of a spawn or a mint. A name follows;
     // a *use* of a variable called `on` is followed by an operator, a comma,
     // a brace or a bracket instead.

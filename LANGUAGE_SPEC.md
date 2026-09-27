@@ -3290,6 +3290,39 @@ Conventions:
     scope-local binding — which cannot be captured into a shared instance,
     so it pins the handler itself to `use local` ([use-local]) and keeps
     the handler on the fusion emission ([effect-handler-deps]).
+* [effect-any] **`any E` weakens identity, as `local E` weakens seam
+  rights** (user decision 2026-09-26, the network round). Bare `[E]` keeps
+  the strong meaning every program so far assumed: *one* instance, sends in
+  order, state shared between them. `[any E]` says "each send may go to a
+  different instance; I assume no order between my sends and no state
+  across them" — and accepts every binding, since a single instance is a
+  group of one. Contextual like `local`, and the two never combine: a
+  binding spread over many instances is always shareable, so `local any E`
+  is refused as redundant rather than given a meaning.
+  * **The binding side**: a handler declares the weaker guarantee in its
+    `of` clause, per face — `handler RoundRobin(members) of any Resizer` —
+    and a `use` of it binds `any Resizer`, which satisfies **only**
+    `[any Resizer]`. A router that forwards to many members and omits `any`
+    is telling a lie the checker cannot see: the one gap, accepted.
+  * **The call-site rule** mirrors `local`'s: a bare `[E]` requirement
+    against an `any` binding is an error naming both remedies (declare
+    `[any E]` if any member may take each send, or bind one instance); a
+    strong binding satisfies both forms. **Viral downward**: a body holding
+    `[any E]` may call `E`'s members and callees declaring `[any E]`, never
+    a callee assuming one instance; a body holding `[E]` may call either.
+  * A router is the one handler of an **actor effect** whose `use` binds
+    shareable (bare when stateless, a monitor when stateful): it forwards
+    to members and holds no protocol state of its own, and the emitters
+    give an actor effect the lock adapter exactly when a router of it
+    exists. It is also a servant node of its own in the deadlock graph, so
+    its forwards do not read as `E → E`.
+  * **A fn type carries no strength** (it cannot say `any`, as it cannot say
+    `local`): an inherited requirement [fn-effects] is the strong one unless
+    the function taking the value writes `[any E]` itself, which weakens it
+    — the written entry wins the dedupe. Recorded gaps: an `Addr<E>`
+    answered by *spawning* a router binds as an ordinary `E` under `use
+    addr` (the addr type has no room for the claim), and a lambda's body is
+    checked under strong availabilities.
 * [effect-no-dup] Two effects of the same type in one list are an error
   unless their generic arguments differ (`[Random<Int>, Random<Double>]`
   is fine, `[Console, Console]` is not).

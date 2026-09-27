@@ -221,7 +221,7 @@ fn build(
                     .effects
                     .iter()
                     .flatten()
-                    .any(|e| matches!(e, EffectRef::Effect(_) | EffectRef::LocalEffect(_)));
+                    .any(|e| matches!(e, EffectRef::Effect(_) | EffectRef::LocalEffect(_) | EffectRef::AnyEffect(_)));
                 let waits = out
                     .waitfor_sites
                     .iter()
@@ -302,7 +302,14 @@ fn build(
                 && h.of
                     .iter()
                     .all(|of| base_name(of).is_some_and(is_plain));
-            if mixed {
+            // [effect-any] A router `of any E` is a servant too: it is not a
+            // member of `E` but a forwarder in front of them, so its sends
+            // to `E` leave from a node of its own — otherwise every router
+            // would read as `E → E`, a cycle the type-level graph cannot
+            // tell from a real one. Callers' edges still land on `E`, which
+            // is what a binding of `E` may be.
+            let router = h.of_any.iter().any(|any| *any);
+            if mixed || router {
                 let from = servant_node(&h.name.name);
                 let gate = out
                     .actor_gates
@@ -373,7 +380,7 @@ fn build(
             // which one a binding will choose [actor-deadlock-cycle].
             let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
             for dep in h.effects.iter().flatten() {
-                let (EffectRef::Effect(r) | EffectRef::LocalEffect(r)) = dep else { continue };
+                let (EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r)) = dep else { continue };
                 let name = r.name.name.as_str();
                 if !is_actor(name) {
                     if let Some(mixed_handlers) = mixed_of.get(name) {
@@ -479,7 +486,7 @@ fn build(
         let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
         let mut targets: Vec<(String, usize, Span)> = Vec::new();
         for dep in h.effects.iter().flatten() {
-            let (EffectRef::Effect(r) | EffectRef::LocalEffect(r)) = dep else { continue };
+            let (EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r)) = dep else { continue };
             let name = r.name.name.as_str();
             if own_faces.contains(&name) {
                 continue;

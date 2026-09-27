@@ -34,7 +34,7 @@ pub fn handler_handle_deps(h: &HandlerDecl, is_actor_effect: impl Fn(&str) -> bo
             // travels as a constructor parameter instead), and a generic
             // effect instance has no `__Mon_E` — either pins the fusion
             // form like a `local` dep does.
-            EffectRef::Effect(r) => {
+            EffectRef::Effect(r) | EffectRef::AnyEffect(r) => {
                 if is_actor_effect(&r.name.name) || !r.args.is_empty() {
                     return false;
                 }
@@ -57,6 +57,31 @@ pub fn handler_handle_deps(h: &HandlerDecl, is_actor_effect: impl Fn(&str) -> bo
         };
         name.is_some_and(|n| !is_actor_effect(n))
     })
+}
+
+/// [effect-any] Whether `program` declares a handler `of any E` for the
+/// actor effect `effect` — a router. Only then does an actor effect need
+/// the monitor adapter a plain effect always has: a router is the one
+/// actor-effect handler whose `use` binds shareable (as a lock, or bare),
+/// since it forwards to members and holds no protocol state of its own.
+pub fn has_any_router<'a>(
+    handlers: impl IntoIterator<Item = &'a HandlerDecl>,
+    effect: &str,
+) -> bool {
+    handlers.into_iter().any(|h| {
+        h.of.iter().zip(h.of_any.iter()).any(|(of, any)| {
+            *any && of_base_name(of) == Some(effect)
+        })
+    })
+}
+
+/// The base name of an `of` clause entry.
+fn of_base_name(of: &salvo_syntax::ast::Type) -> Option<&str> {
+    match of {
+        salvo_syntax::ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
+        salvo_syntax::ast::Type::QualifiedGroup { base, .. } => of_base_name(base),
+        _ => None,
+    }
 }
 
 /// [effect-member-overload] The emitted name of the member at `idx` in

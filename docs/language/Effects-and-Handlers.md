@@ -236,6 +236,40 @@ That is what `[E]` now means: **a shareable `E`** — the function may pass it a
 
 A dependent handler bound shareable captures its dependencies as owned handles **at construction** — from a binding in the same function, or from an effect the function received through its own signature, in which case the handle is threaded in by the caller (see the next section). A `platform handler` **states its own thread-safety** (user decision 2026-09-26): `threadsafe platform handler` classifies bare and is shared raw; without the word it classifies as a monitor and the compiler serializes it on both backends. Either is shareable, so nothing that depends on a platform-backed effect ever writes `local` — `DefaultFs [RawFs]` stays annotation-free, as does the production interceptor chain, which was the point of lifting monitor dependencies. The contract itself is on the Backends page.
 
+## Many instances: `[any E]` and `of any E`
+
+`local` weakens one thing a bare `[E]` claims — that the binding may cross a seam. The other claim is **identity**: that `E` is *one* instance, so two sends to it arrive in order and see the same state. A function written `bump(2); bump(3); total(out)` relies on that, and nothing in its body says so. A binding spread over many instances — a router in front of a fleet — cannot give it, so the weakening is spelled where the requirement is:
+
+```
+handler RoundRobin(members: List<Addr<Resizer>>) of any Resizer {   // forwards; promises no order
+    mailbox { capacity: 16 }
+    next: Int = 0
+    send fn resize(name: Str, w: Int, out: Reply<Str>) => !name, !out {
+        let target = copy(get(members, next % size(members))!)
+        next = next + 1
+        target.resize(name, w, out)
+    }
+}
+
+fn thumbnail(name: Str) [any Resizer] -> Str {                       // any Resizer will do
+    return waitfor out: Reply<Str> { resize(name, 100, out) }         // one send, one reply
+}
+
+fn tally(names: List<Str>) [Resizer] -> Str { … }                    // needs ONE Resizer
+
+use RoundRobin([a, b])
+thumbnail("cat.png")     // fine
+tally(["dog.png"])       // error: `tally` declares `[Resizer]` — one instance, sends in order —
+                         //        but `Resizer` is bound to many instances here
+```
+
+- **`of any E`** on a handler's face says the handler forwards to many instances. A `use` of it binds `any E`, which satisfies only `[any E]`. It is also the one handler of an actor effect that `use` binds *shareable* — bare when stateless, a monitor when it keeps a cursor — since a group handle is always shareable.
+- **`[any E]`** in an effect list says "each send may go to a different instance; I assume no order and no shared state between them." It accepts every binding, a single instance being a group of one, and it is viral downward like `local`: a body holding `[any E]` may call `E` directly and callees declaring `[any E]`, never a callee that assumes one instance. Bare `[E]` keeps the strong meaning, so a program written before groups existed cannot be broken by binding one under it.
+- The two axes never combine: `local any E` is refused, because a binding spread over many instances is always shareable.
+- A fn type carries no strength (no `any`, no `local`): the function that takes the value writes `[any E]` itself if any instance will do, which weakens the requirement it inherits.
+
+`any` is a claim about the guarantee the effect gives, not about where the instances are: a local group of a hundred on `pool(4)` is `any`; a single actor on another machine, reached through its `Addr`, is not.
+
 ## Inheriting the scope, and overriding it with `with`
 
 A spawned handler **inherits its dependencies from the spawning scope** (user decision 2026-09-20). A handler declares what it needs, the spawn says where it runs, and the wiring in between is the compiler's:

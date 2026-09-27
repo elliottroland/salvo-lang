@@ -3097,7 +3097,17 @@ impl<'p> Emitter<'p> {
     /// re-entrant monitor [backend-never-wrong].
     fn emit_monitor_stub(&mut self, e: &EffectDecl) -> String {
         if e.is_actor {
-            return String::new();
+            // [effect-any] An actor effect's shareable handle is the addr,
+            // so it has no `__Mon_E` — but a router `of any E` bound with
+            // `use` is a monitor of it, and needs the lock adapter alone.
+            let routed = salvo_core::has_any_router(
+                self.symbols.handlers.values().copied(),
+                &e.name.name,
+            );
+            if !routed {
+                return String::new();
+            }
+            return self.emit_lock_adapter(e, &e.fns.iter().enumerate().collect::<Vec<_>>());
         }
         // A plain effect's members are sync members (send fns need the actor
         // kind); a member with its own generics was refused and skipped by
@@ -3255,6 +3265,56 @@ impl<'p> Emitter<'p> {
             out.push_str(&emit_has_impl(&g_params, &name, &e.name.name, &g_args, "self"));
         }
         out
+    }
+
+    /// [effect-any] [rs-monitor] The lock adapter on its own, for an actor
+    /// effect with a router: `__Lock_E<H>` forwarding every member (send
+    /// members included — a `use`-bound router runs them inline) under the
+    /// mutex. The plain-effect path emits the same adapter inline.
+    fn emit_lock_adapter(&mut self, e: &EffectDecl, members: &[(usize, &FnDecl)]) -> String {
+        let lock = lock_struct_name(&e.name.name);
+        let g_args: Vec<String> = e.generics.iter().map(|g| g.name.clone()).collect();
+        let trait_name = trait_type(&e.name.name, &g_args);
+        let g_params: Vec<String> = e.generics.iter().map(|g| format!("{}: 'static", g.name)).collect();
+        let lock_impl_generics = if g_params.is_empty() {
+            format!("<H: {trait_name} + Send>")
+        } else {
+            format!("<{}, H: {trait_name} + Send>", g_params.join(", "))
+        };
+        let mut forwards = String::new();
+        for (i, f) in members {
+            let member = self.member_name(e, *i);
+            let mut params = format!(
+                "{}{}",
+                self.emit_member_param_list(f),
+                self.emit_member_implicits(f)
+            );
+            let mut ret = self.emit_return_type(f.return_type.as_ref());
+            let lt = self.member_lend_lifetime(f, &mut params, &mut ret);
+            let mut args: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| rs_ident(&p.name.name))
+                .collect();
+            args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
+            let args = args.join(", ");
+            forwards.push_str(&format!(
+                "    fn {member}{lt}(&mut self{params}){ret} {{\n        \
+                 self.inner.lock().unwrap().{member}({args})\n    }}\n"
+            ));
+        }
+        format!(
+            "\npub struct {lock}<H> {{\n    \
+             inner: std::sync::Arc<std::sync::Mutex<H>>,\n}}\n\n\
+             impl<H> Clone for {lock}<H> {{\n    \
+             fn clone(&self) -> Self {{\n        \
+             Self {{ inner: self.inner.clone() }}\n    }}\n}}\n\n\
+             impl<H> {lock}<H> {{\n    \
+             pub fn new(inner: H) -> Self {{\n        \
+             Self {{ inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }}\n    }}\n}}\n\n\
+             impl{lock_impl_generics} {trait_name} for {lock}<H> {{\n{forwards}}}\n"
+        )
     }
 
     fn emit_message_enum(&mut self, e: &EffectDecl) -> String {
@@ -3675,7 +3735,7 @@ impl<'p> Emitter<'p> {
             }
             None => {
                 for eff in f.effects.iter().flatten() {
-                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                         let name = r.name.name.as_str();
                         if self.symbols.effects.get(name).is_some_and(|e| e.platform) {
                             push(name, &mut out);
@@ -4734,7 +4794,7 @@ impl<'p> Emitter<'p> {
             .filter_map(|e| match e {
                 // [effect-local] Dep locality is the checker's business; at
                 // the fusion layer a `local E` dep threads like any other.
-                EffectRef::Effect(r) | EffectRef::LocalEffect(r) => Some(r.clone()),
+                EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) => Some(r.clone()),
                 EffectRef::Use(_) => None,
                 // [actor-spawn-effect] A capability, not an effect type: no
                 // handler parameter is threaded for it.
@@ -5594,7 +5654,7 @@ impl<'p> Emitter<'p> {
                 }
                 None => {
                     for eff in f.effects.iter().flatten() {
-                        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                             if r.name.name == salvo_core::THROW_EFFECT {
                                 continue;
                             }
@@ -6741,7 +6801,7 @@ impl<'p> Emitter<'p> {
     fn fn_type_effect_params(&mut self, effects: Option<&[EffectRef]>) -> Vec<String> {
         let mut rendered: Vec<String> = Vec::new();
         for eff in effects.into_iter().flatten() {
-            if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+            if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                 rendered.push(self.emit_type_ref(r));
             }
         }
@@ -6968,7 +7028,7 @@ impl<'p> Emitter<'p> {
     /// host calls rather than the crate's own `main`.
     fn declares_platform_effect(&self, f: &FnDecl) -> bool {
         f.effects.iter().flatten().any(|eff| match eff {
-            EffectRef::Effect(r) | EffectRef::LocalEffect(r) => self
+            EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) => self
                 .symbols
                 .effects
                 .get(r.name.name.as_str())
@@ -13304,7 +13364,7 @@ impl<'p> Emitter<'p> {
                 fn_name = self.qualifier_member_name(decl, "qualifies");
                 if let Some(f) = decl.fns.iter().find(|f| f.name.name == "qualifies") {
                     for eff in f.effects.iter().flatten() {
-                        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                             let ty = self.emit_type_ref(r);
                             args.push(self.thread_effect_by_key(&ty));
                         }
@@ -13409,7 +13469,7 @@ impl<'p> Emitter<'p> {
         if self.fusion {
             let mut rendered: Vec<String> = Vec::new();
             for eff in exp_effects.iter().flatten() {
-                if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                     rendered.push(self.emit_type_ref(r));
                 }
             }
@@ -13418,7 +13478,7 @@ impl<'p> Emitter<'p> {
                 let prov_param = self.unique_name("__prov".to_string());
                 effect_params.push(format!("{prov_param}: &mut dyn {prov}"));
                 let needs_effects = decl.effects.iter().flatten().any(
-                    |eff| matches!(eff, EffectRef::Effect(r) | EffectRef::LocalEffect(r) if r.name.name != salvo_core::THROW_EFFECT),
+                    |eff| matches!(eff, EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) if r.name.name != salvo_core::THROW_EFFECT),
                 );
                 if needs_effects {
                     self.fusion_id += 1;
@@ -13454,7 +13514,7 @@ impl<'p> Emitter<'p> {
             }
         } else {
             for eff in exp_effects.iter().flatten() {
-                if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                     let rendered = self.emit_type_ref(r);
                     let var = format!("__fx{}", effect_params.len());
                     effect_params.push(format!("{var}: &mut dyn {rendered}"));
@@ -13467,7 +13527,7 @@ impl<'p> Emitter<'p> {
             forwarded_effects.push(fused);
         } else if !self.fusion {
             for eff in decl.effects.iter().flatten() {
-                if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                     if r.name.name == salvo_core::THROW_EFFECT {
                         continue;
                     }
@@ -17374,7 +17434,7 @@ impl<'p> Emitter<'p> {
             }
             _ => {
                 for eff in f.effects.iter().flatten() {
-                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                         if r.name.name == salvo_core::THROW_EFFECT {
                             continue;
                         }

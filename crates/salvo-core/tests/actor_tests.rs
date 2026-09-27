@@ -2322,3 +2322,126 @@ fn main() [use, spawn] {
         "expected the cannot-infer refusal, got: {errs:?}"
     );
 }
+
+/// [effect-any] The shared shape: a router `of any Counter` in front of two
+/// members. Forwarding to a member of the effect it implements is not
+/// self-dispatch (the receiver is an addr), and the deadlock graph gives the
+/// router a node of its own, so `Counter → Counter` is not reported.
+const ROUTER: &str = r#"
+handler Spraying(a: Addr<Counter>, b: Addr<Counter>) of any Counter {
+    mailbox { capacity: 16 }
+    flip: Bool = false
+    send fn bump(n: Int) {
+        flip = !flip
+        if flip { a.bump(n) } else { b.bump(n) }
+    }
+    send fn total(out: Reply<Int>) {
+        a.total(out)
+    }
+}
+
+fn tally() [Counter] -> Int {
+    bump(1)
+    bump(2)
+    return waitfor out: Reply<Int> { total(out) }
+}
+
+fn poke() [any Counter] -> None {
+    bump(3)
+}
+"#;
+
+/// [effect-any] The identity rule: a `use` of a router binds `any Counter`,
+/// which a bare `[Counter]` requirement refuses (one instance, ordered
+/// sends) and `[any Counter]` accepts. The message names both remedies.
+#[test]
+fn a_router_binding_satisfies_only_any_requirements() {
+    let errs = errors(&format!(
+        "{ROUTER}
+fn main() [use, spawn] {{
+    let p = pool(2)
+    let log = spawn Printing() on p
+    use log
+    let a = spawn Counting() on p
+    let b = spawn Counting() on p
+    use Spraying(a, b)
+    poke()
+    let n = tally()
+}}
+"
+    ));
+    assert!(
+        errs.iter().any(|m| m.contains("`tally` declares `[Counter]`")
+            && m.contains("many instances")
+            && m.contains("declare `[any Counter]` on `tally`")),
+        "expected the bare requirement refused against the router: {errs:?}"
+    );
+    assert_eq!(errs.len(), 1, "`poke` declares `[any Counter]` and is legal: {errs:?}");
+}
+
+/// [effect-any] Viral downward, like `local`: a body holding `[any Counter]`
+/// may not call a callee that assumes one instance, and a body holding the
+/// strong `[Counter]` may call either.
+#[test]
+fn any_is_viral_downward_and_strong_satisfies_weak() {
+    let errs = errors(&format!(
+        "{ROUTER}
+fn weak() [any Counter] -> Int {{
+    poke()
+    return tally()
+}}
+
+fn strong() [Counter] -> Int {{
+    poke()
+    return tally()
+}}
+"
+    ));
+    assert_eq!(errs.len(), 1, "one refusal, in `weak`: {errs:?}");
+    assert!(errs[0].contains("`tally` declares `[Counter]`"), "{errs:?}");
+}
+
+/// [effect-any] A router is not a self-send cycle: the deadlock graph
+/// reports nothing for a router forwarding to members of its own face.
+#[test]
+fn a_router_forwarding_to_members_is_not_a_cycle() {
+    let all = diagnostics(&format!(
+        "{ROUTER}
+fn main() [use, spawn] {{
+    let p = pool(2)
+    let log = spawn Printing() on p
+    use log
+    let a = spawn Counting() on p
+    let b = spawn Counting() on p
+    use Spraying(a, b)
+    poke()
+}}
+"
+    ));
+    assert!(
+        all.iter().all(|(_, m)| !m.contains("in a cycle")),
+        "a router's forwards must not read as `Counter → Counter`: {all:?}"
+    );
+}
+
+/// [effect-any] `local` and `any` do not combine, and a fn type carries no
+/// strength — both refused with the reason.
+#[test]
+fn any_is_refused_beside_local_and_on_fn_types() {
+    let (_, diags) = salvo_syntax::parse_module("fn f() [local any Counter] -> None {}");
+    assert!(
+        diags.iter().any(|d| d.is_error() && d.message.contains("do not combine")),
+        "{diags:?}"
+    );
+    let errs = errors(&format!(
+        "{ROUTER}
+fn each(f: () [any Counter] -> None) [any Counter] -> None {{
+    f()
+}}
+"
+    ));
+    assert!(
+        errs.iter().any(|m| m.contains("carry no strength") && m.contains("declare `[any Counter]`")),
+        "{errs:?}"
+    );
+}

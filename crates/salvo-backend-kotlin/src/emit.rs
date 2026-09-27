@@ -2026,14 +2026,19 @@ impl<'p> Emitter<'p> {
     /// shares like any other — and unused wrappers are inert classes kotlinc
     /// accepts quietly.
     fn emit_monitor_stub(&mut self, e: &EffectDecl) -> String {
-        if e.is_actor {
+        // [effect-any] An actor effect gets the monitor class only when a
+        // router `of any E` exists: a `use` of the router binds it as a
+        // monitor, and its send members run inline under the lock.
+        let routed = e.is_actor
+            && salvo_core::has_any_router(self.symbols.handlers.values().copied(), &e.name.name);
+        if e.is_actor && !routed {
             return String::new();
         }
         let members: Vec<(usize, &FnDecl)> = e
             .fns
             .iter()
             .enumerate()
-            .filter(|(_, f)| !f.is_send)
+            .filter(|(_, f)| routed || !f.is_send)
             .collect();
         let name = monitor_class_name(&e.name.name);
         let generics = self.emit_generic_params(&e.generics);
@@ -2397,7 +2402,7 @@ impl<'p> Emitter<'p> {
             }
             None => {
                 for eff in f.effects.iter().flatten() {
-                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                         let rendered = self.emit_type_ref(r);
                         if self.is_platform_effect(None, &rendered)
                             && !out.contains(&rendered)
@@ -3028,7 +3033,7 @@ impl<'p> Emitter<'p> {
             .filter_map(|e| match e {
                 // [effect-local] Dep locality is the checker's business; at
                 // the fusion layer a `local E` dep threads like any other.
-                EffectRef::Effect(r) | EffectRef::LocalEffect(r) => Some(r.clone()),
+                EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) => Some(r.clone()),
                 EffectRef::Use(_) => None,
                 // [actor-spawn-effect] A capability, not an effect type: no
                 // handler parameter is threaded for it.
@@ -3309,7 +3314,7 @@ impl<'p> Emitter<'p> {
                 }
                 None => {
                     for eff in f.effects.iter().flatten() {
-                        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                             if r.name.name == salvo_core::THROW_EFFECT {
                                 continue;
                             }
@@ -3827,7 +3832,7 @@ impl<'p> Emitter<'p> {
                 // of the Kotlin function type's parameter list.
                 let mut ps: Vec<String> = Vec::new();
                 for eff in effects.iter().flatten() {
-                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                         ps.push(self.emit_type_ref(r));
                     }
                 }
@@ -6446,7 +6451,7 @@ impl<'p> Emitter<'p> {
             {
                 if let Some(f) = decl.fns.iter().find(|f| f.name.name == "qualifies") {
                     for eff in f.effects.iter().flatten() {
-                        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                             let ty = self.emit_type_ref(r);
                             args.push(self.thread_effect_fused_by_type(&ty));
                         }
@@ -8838,7 +8843,7 @@ impl<'p> Emitter<'p> {
     /// host calls rather than a `main` of its own.
     fn declares_platform_effect(&self, f: &FnDecl) -> bool {
         f.effects.iter().flatten().any(|eff| match eff {
-            EffectRef::Effect(r) | EffectRef::LocalEffect(r) => self
+            EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) => self
                 .symbols
                 .effects
                 .get(r.name.name.as_str())
@@ -9218,7 +9223,7 @@ impl<'p> Emitter<'p> {
             }
             _ => {
                 for eff in f.effects.iter().flatten() {
-                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
                         if r.name.name == salvo_core::THROW_EFFECT {
                             continue;
                         }

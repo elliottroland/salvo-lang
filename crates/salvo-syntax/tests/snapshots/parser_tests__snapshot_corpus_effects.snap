@@ -255,6 +255,9 @@ Module {
                         },
                     },
                 ],
+                of_any: [
+                    false,
+                ],
                 mailbox: None,
                 state: [
                     FieldDecl {
@@ -445,6 +448,9 @@ Module {
                             span: 307..314,
                         },
                     },
+                ],
+                of_any: [
+                    false,
                 ],
                 mailbox: None,
                 state: [],

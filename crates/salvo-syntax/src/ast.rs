@@ -484,6 +484,10 @@ pub struct HandlerDecl {
     /// 2026-09-17), which a `spawn` answers one addr per and a `use` binds all
     /// of.
     pub of: Vec<Type>,
+    /// [effect-any] Parallel to `of`: `true` where the face was written
+    /// `of any E` — the handler forwards to many instances and promises no
+    /// order, so a `use` of it binds `any E`, which satisfies `[any E]` only.
+    pub of_any: Vec<bool>,
     /// [actor-mailbox] `mailbox { capacity: 16 }` — the **actor settings slot**
     /// (user decision 2026-09-16). A handler of an `actor effect` states its
     /// mailbox here rather than at every spawn: the author who knows the
@@ -640,6 +644,15 @@ pub enum EffectRef {
     /// `use local` binding. Kept apart from `Effect` so every existing
     /// match keeps meaning "the shareable default".
     LocalEffect(TypeRef),
+    /// [effect-any] `any Resizer` — the requirement that accepts a binding
+    /// spread over **many instances** (a router `of any Resizer`): the
+    /// function assumes no order between its sends to the effect and no
+    /// state shared across them. Bare `[E]` keeps the strong meaning — one
+    /// instance, sends in order — so a group bound where `[E]` is required
+    /// is refused at the call (user decision 2026-09-26). Orthogonal to
+    /// `local`, which weakens seam rights; the two never combine, since a
+    /// group handle is always shareable.
+    AnyEffect(TypeRef),
 }
 
 /// An entry in a function's deduction clause [deduce-syntax], written after
@@ -1044,6 +1057,7 @@ impl fmt::Display for EffectRef {
             EffectRef::Spawn(_) => write!(f, "spawn"),
             EffectRef::Effect(r) => write!(f, "{r}"),
             EffectRef::LocalEffect(r) => write!(f, "local {r}"),
+            EffectRef::AnyEffect(r) => write!(f, "any {r}"),
         }
     }
 }

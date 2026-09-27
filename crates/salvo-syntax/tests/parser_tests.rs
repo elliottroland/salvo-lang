@@ -2812,3 +2812,31 @@ fn noremote_on_a_fn_is_an_error() {
         diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
 }
+
+/// [effect-any] `any` is contextual, in two places: an effect-list entry
+/// (`[any Resizer]`) and a handler's `of` clause (`of any Resizer, Stats`),
+/// per face. A variable named `any` stays a variable.
+#[test]
+fn any_parses_in_effect_lists_and_of_clauses() {
+    use salvo_syntax::ast::{EffectRef, Item};
+    let source = "\
+handler Router(members: List<Addr<Resizer>>) of any Resizer, Stats {
+    send fn resize(name: Str) {}
+}
+
+fn thumbnail(name: Str) [Console, any Resizer] -> Str {
+    let any = 1
+    return name
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let Item::Handler(h) = &module.items[0] else { panic!("handler") };
+    assert_eq!(h.of.len(), 2);
+    assert_eq!(h.of_any, vec![true, false]);
+    let Item::Fn(f) = &module.items[1] else { panic!("fn") };
+    let effects = f.effects.as_ref().expect("effect list");
+    assert!(matches!(&effects[0], EffectRef::Effect(r) if r.name.name == "Console"));
+    assert!(matches!(&effects[1], EffectRef::AnyEffect(r) if r.name.name == "Resizer"));
+    assert_eq!(effects[1].to_string(), "any Resizer");
+}

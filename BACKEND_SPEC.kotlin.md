@@ -880,6 +880,10 @@ where Rust had to build the fusion to get the same programs running
   `publish(name, addr, sink, named, members)`, `shareMembers(name, to,
   members)`, `pending(addr)` — byte-identical frames to Rust's. Intrinsics
   lowered as in Rust; `eq(Addr, Addr)` is `==` on the `Int` handle.
+* [kt-monitor] [effect-any] An actor effect gets the monitor class
+  (`__Mon_E(inner)`, `synchronized` forwards) only when the program declares
+  a handler `of any E`; the forwards then cover its send members too, since a
+  `use`-bound router runs them inline. Without a router, nothing is emitted.
 * [kt-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `interface` is emitted as any effect's, and the `use`
   site constructs the host class — `salvo.platform.<M>.H(args)`,

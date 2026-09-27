@@ -1705,6 +1705,12 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   the new peer. Intrinsics lowered: `protocol_name`/`protocol_hash`/`protocol`
   (from the per-protocol hash constant), `publish_group`, `share_members`,
   `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
+* [rs-monitor] [effect-any] An actor effect gets **the lock adapter alone**
+  (`__Lock_E<H>`, `emit_lock_adapter`) when the program declares a handler
+  `of any E` — a router bound with `use` is a monitor of an actor effect,
+  and its send members run inline under the mutex. No `__Mon_E`/`__Share_E`:
+  an actor effect's shareable handle stays the addr. Nothing is emitted for
+  an actor effect without a router, so existing output is unchanged.
 * [rs-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `trait` is emitted as any effect's, and the `use` site
   constructs the host struct as `crate::platform_<M>::H::new(args)` — `M`

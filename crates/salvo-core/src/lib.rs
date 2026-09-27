@@ -29,7 +29,7 @@ pub use deduce::ParamDeduction;
 pub use expand::{expand, Expansion, TestCase};
 pub use effects::{
     effect_member_index, effect_member_name, effect_members_named, handler_handle_deps,
-    handler_member_faces,
+    handler_member_faces, has_any_router,
 };
 pub use diag::FileDiagnostic;
 pub use place::{Place, Step};

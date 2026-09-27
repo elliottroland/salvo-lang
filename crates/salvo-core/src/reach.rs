@@ -296,7 +296,7 @@ fn fn_names<'p>(f: &'p FnDecl, used: &mut HashSet<&'p str>) {
         type_ref_names(g, used);
     }
     for eff in f.effects.iter().flatten() {
-        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) = eff {
+        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
             type_ref_names(r, used);
         }
     }

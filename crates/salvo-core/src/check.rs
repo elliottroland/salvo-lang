@@ -363,6 +363,10 @@ struct EffectAvail {
     ty: Ty,
     local: bool,
     declared: bool,
+    /// [effect-any] The binding is spread over many instances (a `use` of
+    /// a handler `of any E`, or a `[any E]` declaration): it satisfies a
+    /// `[any E]` requirement only.
+    any: bool,
 }
 
 /// [qual-depend] One qualifier of a predicate `is` check, with the places
@@ -3381,7 +3385,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 ),
                 // Inherited at the mint.
-                EffectRef::Effect(_) => continue,
+                EffectRef::Effect(_) | EffectRef::AnyEffect(_) => continue,
             };
             self.error(
                 span,
@@ -6291,7 +6295,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .flatten()
                 .filter_map(|e| match e {
-                    EffectRef::Effect(r) | EffectRef::LocalEffect(r)
+                    EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r)
                         if r.name.name == THROW_EFFECT =>
                     {
                         Some(r.span)
@@ -6742,7 +6746,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for p in &f.params {
             for ty in self.inherited_fn_effects(&p.ty) {
                 if !env.iter().any(|a| a.ty == ty) {
-                    env.push(EffectAvail { ty, local: true, declared: true });
+                    env.push(EffectAvail { ty, local: true, declared: true, any: false });
                 }
             }
         }
@@ -6760,8 +6764,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [effect-local] `local E` accepts a `use local` binding
                 // and disclaims seam rights; the bare default requires a
                 // shareable one (user decision 2026-09-20).
-                EffectRef::Effect(r) | EffectRef::LocalEffect(r) => {
+                EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) => {
                     let local = matches!(eff, EffectRef::LocalEffect(_));
+                    // [effect-any] `any E` declares the weak availability:
+                    // this body may call `E` and callees declaring
+                    // `[any E]`, never a callee that assumes one instance.
+                    let any = matches!(eff, EffectRef::AnyEffect(_));
                     let Some(ty) = self.lower_effect_ref(r) else {
                         continue;
                     };
@@ -6776,7 +6784,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     } else {
                         written.push(ty.clone());
                         if !env.iter().any(|a| a.ty == ty) {
-                            env.push(EffectAvail { ty, local, declared: true });
+                            env.push(EffectAvail { ty, local, declared: true, any });
                         }
                     }
                 }
@@ -6931,7 +6939,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let span = match eff {
                 EffectRef::Use(s) => *s,
                 EffectRef::Spawn(s) => *s,
-                EffectRef::Effect(r) | EffectRef::LocalEffect(r) => r.span,
+                EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) => r.span,
             };
             self.error(
                 span,
@@ -6983,6 +6991,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ty: effect,
                 local: false,
                 declared: false,
+                any: false,
             });
             return;
         }
@@ -7394,7 +7403,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         // runs its members inline in this scope — the historical escape
         // hatch, and necessarily scope-local: the shareable handle of an
         // actor effect is the addr a `spawn` answers, not a lock.
-        let actor_face = decl.of.iter().any(|of| {
+        // [effect-any] Except a face written `of any E`: a router forwards
+        // to many members and holds no protocol state of its own, so its
+        // shareable form *is* a lock (or the bare instance) — the one kind
+        // of actor-effect handler whose `use` may bind shareable, and it
+        // must, since a group handle is always shareable.
+        let actor_face = decl.of.iter().zip(decl.of_any.iter()).any(|(of, any)| {
+            if *any {
+                return false;
+            }
             let base = match of {
                 ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
                 ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
@@ -7429,7 +7446,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // The two dependency shapes the owned-handle form excludes
                 // ([effect-handler-deps], `handler_handle_deps`): either
                 // pins the fusion form, which binds `use local` only.
-                EffectRef::Effect(r) => {
+                EffectRef::Effect(r) | EffectRef::AnyEffect(r) => {
                     if self
                         .scope
                         .effects
@@ -7549,6 +7566,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ty: effect,
             local: false,
             declared: false,
+            any: false,
         });
     }
 
@@ -7782,6 +7800,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ty: substitute_vars(&d.ty, &subst, &generic_set),
                 local: d.local,
                 declared: d.declared,
+                any: d.any,
             })
             .collect();
         Some((concrete, deps))
@@ -7955,11 +7974,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out
             .use_effects
             .insert(self.key(span), concrete.clone());
-        for effect in concrete {
+        // [effect-any] A face written `of any E` binds the weak
+        // availability: the handler forwards to many instances and promises
+        // no order, so only a `[any E]` requirement may lean on it.
+        let of_any: Vec<bool> = self
+            .scope
+            .handlers
+            .get(id.name.as_str())
+            .map(|d| d.of_any.clone())
+            .unwrap_or_default();
+        for (i, effect) in concrete.into_iter().enumerate() {
             self.effect_env.push(EffectAvail {
                 ty: effect,
                 local: kind == UseKind::Local,
                 declared: false,
+                any: of_any.get(i).copied().unwrap_or(false),
             });
         }
     }
@@ -11794,6 +11823,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                              value cannot spawn, so `{}` grants no seam rights here \
                              either way: drop the `local`",
                             r.name.name
+                        ),
+                    );
+                    if let Some(ty) = self.lower_effect_ref(r) {
+                        if !out.contains(&ty) {
+                            out.push(ty);
+                        }
+                    }
+                }
+                // [effect-any] A fn type's requirement is inherited by the
+                // function that takes the value, and a type carries no
+                // strength: the function that calls the value states
+                // `[any E]` itself if any instance will do.
+                EffectRef::AnyEffect(r) => {
+                    self.error(
+                        r.span,
+                        format!(
+                            "a fn type's effects carry no strength — `any {}` is \
+                             refused here: declare `[any {}]` on the function that \
+                             calls the value, which inherits the requirement",
+                            r.name.name, r.name.name
                         ),
                     );
                     if let Some(ty) = self.lower_effect_ref(r) {
@@ -16323,7 +16372,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn handler_dep_effects(&mut self, h: &'p ast::HandlerDecl) -> Vec<EffectAvail> {
         let mut out: Vec<EffectAvail> = Vec::new();
         for eff in h.effects.iter().flatten() {
-            let (r, local) = match eff {
+            let (r, local, any) = match eff {
                 EffectRef::Use(span) => {
                     self.error(
                         *span,
@@ -16343,8 +16392,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [effect-local] A `local E` dependency accepts a scope-local
                 // binding — and pins the handler to the **fusion** form, so
                 // the handler itself becomes `use local`-only.
-                EffectRef::Effect(r) => (r, false),
-                EffectRef::LocalEffect(r) => (r, true),
+                EffectRef::Effect(r) => (r, false, false),
+                EffectRef::LocalEffect(r) => (r, true, false),
+                // [effect-any] A dependency on `any E`: the handler assumes
+                // no order between its sends, so a router may be bound for it.
+                EffectRef::AnyEffect(r) => (r, false, true),
             };
             if r.name.name == THROW_EFFECT {
                 self.error(
@@ -16368,7 +16420,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 continue;
             }
-            out.push(EffectAvail { ty, local, declared: true });
+            out.push(EffectAvail { ty, local, declared: true, any });
         }
         out
     }
@@ -22118,6 +22170,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         ty: ty.clone(),
                         local: true,
                         declared: true,
+                        any: false,
                     })
                     .collect(),
             )),
@@ -22826,7 +22879,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             };
             for eff in qf.effects.iter().flatten() {
-                let (EffectRef::Effect(r) | EffectRef::LocalEffect(r)) = eff else { continue };
+                let (EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r)) = eff else { continue };
                 let ename = r.name.name.as_str();
                 let available = self
                     .effect_env
@@ -26689,13 +26742,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         // bare default demands a **shareable** binding (the callee may pass
         // it across seams), `local E` accepts either, and an inherited
         // requirement is call-only, so it accepts either too.
-        let mut wants: Vec<(Ty, bool)> = Vec::new();
+        let mut wants: Vec<(Ty, bool, bool)> = Vec::new();
         {
             let saved = self.enter_generics(&decl.generics);
             for eff in decl.effects.iter().flatten() {
-                let (r, req_local) = match eff {
-                    EffectRef::Effect(r) => (r, false),
-                    EffectRef::LocalEffect(r) => (r, true),
+                let (r, req_local, req_any) = match eff {
+                    EffectRef::Effect(r) => (r, false, false),
+                    EffectRef::LocalEffect(r) => (r, true, false),
+                    // [effect-any] The weak requirement: any binding does.
+                    EffectRef::AnyEffect(r) => (r, false, true),
                     _ => continue,
                 };
                 // Unknown effect names are reported at the callee's own
@@ -26705,14 +26760,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 let empty = HashMap::new();
                 let lowered = self.lower_base_ref(r, &empty, 0);
-                if !wants.iter().any(|(w, _)| *w == lowered) {
-                    wants.push((lowered, req_local));
+                if !wants.iter().any(|(w, _, _)| *w == lowered) {
+                    wants.push((lowered, req_local, req_any));
                 }
             }
+            // [effect-any] An inherited requirement carries no strength of
+            // its own (a fn type cannot say `any`), so it is the strong one
+            // unless the callee's written list weakened it above — the
+            // written entry comes first and wins the dedupe.
             for p in &decl.params {
                 for ty in self.inherited_fn_effects(&p.ty) {
-                    if !wants.iter().any(|(w, _)| *w == ty) {
-                        wants.push((ty, true));
+                    if !wants.iter().any(|(w, _, _)| *w == ty) {
+                        wants.push((ty, true, false));
                     }
                 }
             }
@@ -26720,7 +26779,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [use-no-dup] Innermost first, shadowed duplicates hidden.
         let visible = self.visible_avail();
-        for (lowered, req_local) in wants {
+        for (lowered, req_local, req_any) in wants {
             let want = substitute_vars(&lowered, subst, callee_generics);
             // [throw] A callee that may throw does not need a handler — it
             // needs a delimiter. The call is an *exit* of everything up to
@@ -26758,6 +26817,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                                  grants seam rights), and the binding in scope here is \
                                  local-only: bind `{want}` shareable, or declare \
                                  `[local {want}]` on `{name}` if it only calls it"
+                            ),
+                        );
+                    }
+                    // [effect-any] The identity rule (user decision
+                    // 2026-09-26): a bare `[E]` assumes one instance and
+                    // ordered sends, which a binding spread over many
+                    // instances cannot give; `[any E]` accepts either.
+                    if !req_any && avail.any {
+                        self.error(
+                            span,
+                            format!(
+                                "`{name}` declares `[{want}]` — one instance, sends in \
+                                 order — but `{want}` is bound to many instances here \
+                                 (`any {want}`): declare `[any {want}]` on `{name}` if any \
+                                 member may take each send, or bind one instance"
                             ),
                         );
                     }
