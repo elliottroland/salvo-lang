@@ -338,6 +338,10 @@ struct Sched {
     published: HashMap<u64, HashMap<String, (RemoteRef, Option<(usize, NamedOf, MembersOf)>)>>,
     /// [actor-group] What peers have published: (node, name) → identity.
     peer_names: HashMap<(u64, String), RemoteRef>,
+    /// [route-stub] Per local group replica: its member set as the replica
+    /// last mirrored it — what a `route(group)` stub reads on the sender's
+    /// thread, without a hop to the replica.
+    views: HashMap<usize, Vec<usize>>,
     /// [time-timer] Whether the deadline thread is running. Started by the
     /// first `salvo_after`, so a program that never sets a timer has no timer
     /// thread — and one that does has exactly one, never a thread per timer.
@@ -379,6 +383,7 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 protocols: Vec::new(),
                 published: HashMap::new(),
                 peer_names: HashMap::new(),
+                views: HashMap::new(),
                 timer_thread: false,
             }),
             Condvar::new(),
@@ -1604,6 +1609,55 @@ pub fn salvo_pending(addr: usize) -> i32 {
     } else {
         a.user_len as i32
     }
+}
+
+/// [route-stub] The replica `group` mirrors its member set here after every
+/// change; `salvo_view_members` reads it back.
+pub fn salvo_view_set(group: usize, members: &[usize]) {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    s.views.insert(group, members.to_vec());
+}
+
+/// [route-stub] The mirrored members of `group`, in a stable order — by
+/// (node, actor id), the same on every node and both backends, so a keyed
+/// pick lands on the same member everywhere. Empty for a group with no
+/// local replica.
+pub fn salvo_view_members(group: usize) -> Vec<usize> {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    let mut members: Vec<usize> = s.views.get(&group).cloned().unwrap_or_default();
+    let identity = |s: &Sched, addr: usize| {
+        let a = &s.actors[addr];
+        a.remote.unwrap_or(RemoteRef {
+            node: a.node,
+            actor: addr as u64,
+            bits: a.bits,
+        })
+    };
+    members.sort_by_key(|m| {
+        let r = identity(&s, *m);
+        (r.node, r.actor)
+    });
+    members
+}
+
+/// [route-stub] The key hash a `Key`-marked argument reduces to: FNV-1a over
+/// the argument's canonical bytes, identical on both backends.
+pub fn salvo_key_hash(bytes: &[u8]) -> i64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h as i64
+}
+
+/// [route-stub] What a stub does when the pick answers `None`: yields the
+/// thread briefly and asks again. A member joining, or a mailbox draining,
+/// changes the answer; nothing else the sender could do would.
+pub fn salvo_park_briefly() {
+    std::thread::sleep(std::time::Duration::from_millis(1));
 }
 
 /// [remote-backpressure] The credit balance of a proxy — what `pending(addr)`

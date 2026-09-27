@@ -33,9 +33,11 @@ pub fn handler_handle_deps(h: &HandlerDecl, is_actor_effect: impl Fn(&str) -> bo
             // An actor-effect dependency has no owned-handle form (an addr
             // travels as a constructor parameter instead), and a generic
             // effect instance has no `__Mon_E` — either pins the fusion
-            // form like a `local` dep does.
+            // form like a `local` dep does. [effect-generic-decl] Except an
+            // instance whose every argument is an effect (`Pick<Ping>`): that
+            // erases to the monomorphic `__Mon_Pick`, so the handle exists.
             EffectRef::Effect(r) | EffectRef::AnyEffect(r) => {
-                if is_actor_effect(&r.name.name) || !r.args.is_empty() {
+                if is_actor_effect(&r.name.name) || !effect_only_args(r, &is_actor_effect) {
                     return false;
                 }
                 has_deps = true;
@@ -56,6 +58,19 @@ pub fn handler_handle_deps(h: &HandlerDecl, is_actor_effect: impl Fn(&str) -> bo
             _ => None,
         };
         name.is_some_and(|n| !is_actor_effect(n))
+    })
+}
+
+/// [effect-generic-decl] Whether every type argument of `r` names an effect
+/// (an instance that erases to a monomorphic type), `true` for no arguments.
+/// `is_effect` answers for a name; an actor effect counts, since it is the
+/// common argument (`Pick<Ping>`).
+pub fn effect_only_args(r: &salvo_syntax::ast::TypeRef, is_effect: &impl Fn(&str) -> bool) -> bool {
+    r.args.iter().all(|a| match a {
+        salvo_syntax::ast::Type::Named { base, qualifiers } => {
+            qualifiers.is_empty() && base.args.is_empty() && is_effect(&base.name.name)
+        }
+        _ => false,
     })
 }
 

@@ -82,7 +82,7 @@ design.
 
 **Step 1 is complete.**
 
-### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–⑥ ✅ built)
+### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–⑦ ✅ built)
 
 The design round is complete — sixteen decisions, all the user's, taken in five
 rounds on 2026-09-26 and recorded in COMPLETED.md's log ("Actors across
@@ -145,11 +145,18 @@ The layering, bottom up, and the order it is built in (each step runs on
    strong availabilities; `local`/`any` on a fn type is reported once per
    lowering of the type (three times for a parameter), a pre-existing
    duplication.
-7. **`Pick<E>`** — `fn choose(view: ActorGroupView<E>) -> Addr<E>?`, `None`
-   parks — with std handlers `LeastLoaded`, `Sharded` (a `Key` qualifier on a
-   protocol parameter) and `Elected` (`[Leader]`, a std effect a Salvo election
-   or a platform handler serves); the generated **`route(group)` stub**
-   declaring `of any E`, fed by a `View<E>` monitor.
+7. ✅ **`Pick<E>` and the `route(group)` stub — built 2026-09-27**
+   (COMPLETED.md's log, "step ⑦"). [route-stub]: the view as the runtime's
+   mirror of the replica, `LeastLoaded`/`Sharded`/`Elected`, `Leader` with
+   `StaticLeader`, `Key` erased at lowering, the stub generated syntactically.
+   **Left**: consistent hashing for `Sharded` (today `key mod n` over the
+   ordered view, so a join reshuffles most keys); a `[keyed E]` claim for a
+   program that relies on `Sharded`'s per-key ordering; a stub for a group
+   whose replica is on another node (its view is empty and the stub parks —
+   an attach-here is the remedy, but a `resolve`-style remote mirror would
+   lift it); the stub is generated only where the module spells the
+   protocol (a `use route(g)` over a handle typed elsewhere is refused with
+   the fix named).
 8. **`examples/cluster/`** (Raft as the flagship, singleton, map/reduce,
    scatter, hedge) and N-10's user-facing half — the manifest's `version` plus
    a lock file — **which waits on section 4's manifest DECISION.**
@@ -608,6 +615,27 @@ backends**.
   **linearity stays out** (refuse recursion + linearity in one declaration for
   v1); and an `iter fn` over a recursive subject snapshots per field, which is a
   deep copy.
+
+## Open defects
+
+- **`get(map, k) ?: default` on a `Map<K, Int>` does not compile on the Rust
+  backend** (found 2026-09-27, building step ⑦'s demo; Kotlin prints `3 10`).
+  Repro:
+  ```
+  fn main() [use] {
+      use StdOutConsole()
+      let levels: Mut Map<Str, Int> = {}
+      put(levels, "a", 3)
+      let have = get(levels, "a") ?: 10
+      println("${have}")
+  }
+  ```
+  rustc: `if` and `else` have incompatible types — `__pick.unwrap()` is `&i32`
+  (the map's `get` answers `Option<&V>`) and the default is `10`. The list
+  `get` takes the same shape without the error, so the difference is in how
+  the map intrinsic's `proj` answer meets [proj-type]'s "a Copy scalar's
+  `proj` never borrows" in the elvis lowering. Not fixed with step ⑦ (the
+  demo was rewritten around it).
 
 ## Recorded, not scheduled
 

@@ -499,7 +499,8 @@ export intrinsic fn pending<E>(a: Addr<E>) [] -> Int => a
 // for a peer whose hash of the protocol differs: its members are never merged.
 export fn attach<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>>
     => !name, !proto, !nodes {
-    let group = spawn ActorGrouping<E>(name, proto, nodes) on pool(1)
+    let (group, changes) = spawn ActorGrouping<E>(name, proto) on pool(1)
+    nodes.subscribe(changes)
     group.start(copy(group))
     return group
 }
@@ -518,16 +519,23 @@ export fn attach<E>(proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> Addr<
 
 // [actor-group] The std replica. State: members as a list of addrs (an addr
 // has no `hash` yet, so membership is checked by `eq`), the peer replicas, the
-// subscribers.
-export handler ActorGrouping<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn]
-    of ActorGroup<E> {
+// subscribers, and its own addr once `start` has handed it over. Its second
+// face hears the node group: a node's departure withdraws every member it
+// hosted. [route-stub] After every change it mirrors the member set into the
+// runtime (`view_set`), which is what a `route(group)` stub reads on the
+// sender's thread — the replica is behind the view by one message, never in
+// the send path.
+export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
+    of ActorGroup<E>, NodeChanges {
     mailbox { capacity: 64 }
 
     all: Mut List<Addr<E>> = mut_list_of()
     peers: Mut List<Long> = mut_list_of()
     watchers: Mut List<Addr<ActorChanges<E>>> = mut_list_of()
+    self_addr: Addr<ActorGroup<E>>? = None
 
     send fn start(me: Addr<ActorGroup<E>>) => !me {
+        self_addr = copy(me)
         publish_group(copy(name), me)
     }
 
@@ -535,6 +543,7 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeG
         if !admit(all, copy(member)) {
             return
         }
+        mirror(self_addr, all)
         for w in watchers {
             w.joined(copy(member))
         }
@@ -547,8 +556,33 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeG
         if !withdraw(all, copy(member)) {
             return
         }
+        mirror(self_addr, all)
         for w in watchers {
             w.left(copy(member))
+        }
+    }
+
+    send fn joined(n: Node) => !n {}
+
+    // [actor-group] A node that left took its members with it: withdraw
+    // every addr it hosted, telling the subscribers. The runtime has already
+    // killed the proxies, so a send to one is the silent no-op.
+    send fn left(n: Node, why: Str) => !n, !why {
+        let gone: Mut List<Addr<E>> = mut_list_of()
+        for m in all {
+            if eq(node_of(m), n.id) {
+                add(gone, copy(m))
+            }
+        }
+        for m in gone {
+            if withdraw(all, copy(m)) {
+                for w in watchers {
+                    w.left(copy(m))
+                }
+            }
+        }
+        if size(gone) > 0 {
+            mirror(self_addr, all)
         }
     }
 
@@ -582,14 +616,28 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeG
             }
             add(peers, from)
         }
+        let changed = false
         for m in found {
             if admit(all, copy(m)) {
+                changed = true
                 for w in watchers {
                     w.joined(copy(m))
                 }
             }
         }
+        if changed {
+            mirror(self_addr, all)
+        }
     }
+}
+
+// [route-stub] Mirrors [members] into the runtime's view of [group], once the
+// replica knows its own addr.
+fn mirror<E>(group: Addr<ActorGroup<E>>?, members: List<Addr<E>>) [] -> None => group, members {
+    if group is None {
+        return
+    }
+    view_set(copy(group), copy(members))
 }
 
 // Adds an addr to a list unless it is already there; answers whether it was
@@ -632,6 +680,157 @@ fn withdraw<E>(list: Mut List<Addr<E>>, a: Addr<E>) [] -> Bool => list: Mut, !a 
 // [addr-routable] The node an addr lives on — for a log line, and for the
 // group's peer check.
 export intrinsic fn node_of<E>(a: Addr<E>) [] -> Long => a
+
+// ---------------------------------------------------------- the pick kit ----
+
+// [route-stub] The runtime's mirror of a local replica's member set: written
+// by the replica after every change, read by a `route(group)` stub per send.
+// A group with no replica on this node has an empty view.
+export intrinsic fn view_set<E>(group: Addr<ActorGroup<E>>, members: List<Addr<E>>) [] -> None
+    => !group, !members
+export intrinsic fn view_members<E>(group: Addr<ActorGroup<E>>) [] -> List<Addr<E>> => group
+
+// [route-stub] One member as a pick sees it: where it is, how loaded it
+// looks from here ([pending]), whether it is on this node.
+export struct ActorView<E> {
+    addr: Addr<E>,
+    pending: Int,
+    local: Bool
+}
+
+// [route-stub] What a pick chooses from: every member the local replica
+// knows, in a stable order (by node, then actor — the same on every node),
+// and the hash of the send's `Key` argument when the protocol marks one.
+export struct ActorGroupView<E> {
+    actors: List<ActorView<E>>,
+    key: Long? = None
+}
+
+// [route-stub] The policy behind a `route(group)` stub: which member takes
+// this send. `None` means nothing is eligible yet — the stub parks the send
+// and asks again — which is how an empty group, a full group and a group
+// with no leader all wait rather than fail. std ships [LeastLoaded],
+// [Sharded] and [Elected]; a policy of your own is a handler of this.
+export effect Pick<E> {
+    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view
+}
+
+// [route-stub] Marks the parameter of a `send fn` whose value decides the
+// member: `send fn reserve(sku: Key Str, ...)`. A claim about the handle,
+// erased like any qualifier [qual-erasure]; the stub hashes the argument
+// into `ActorGroupView.key`. At most one per member.
+export provenance qualifier Key<T> of T
+
+// [route-stub] The canonical hash of a key argument — over its wire encoding,
+// so both backends agree on the member a key lands on.
+export intrinsic fn key_hash<T>(k: T) [] -> Long => k
+
+// [route-stub] Yields the sender's thread briefly; what a stub does between
+// two picks that answered `None`.
+export intrinsic fn park_briefly() [] -> None
+
+// [route-stub] The stub's whole send path: build the view, ask the policy,
+// park until it answers. Generated stubs call one of these two per member.
+export fn route_to<E>(group: Addr<ActorGroup<E>>) [Pick<E>] -> Addr<E> => group {
+    return route_keyed(group, None)
+}
+
+export fn route_to<E>(group: Addr<ActorGroup<E>>, key: Long) [Pick<E>] -> Addr<E> => group, key {
+    return route_keyed(group, key)
+}
+
+fn route_keyed<E>(group: Addr<ActorGroup<E>>, key: Long?) [Pick<E>] -> Addr<E> => group, key {
+    while true {
+        let members = view_members(copy(group))
+        let actors: Mut List<ActorView<E>> = mut_list_of()
+        for m in members {
+            add(actors, ActorView { addr: copy(m), pending: pending(copy(m)), local: eq(node_of(m), this_node()) })
+        }
+        let picked = choose(ActorGroupView { actors: copy(actors), key: copy(key) })
+        if !(picked is None) {
+            return picked
+        }
+        park_briefly()
+    }
+    // Unreachable: the loop returns or parks.
+    return route_keyed(group, key)
+}
+
+// [route-stub] The default policy: the least loaded member, local members
+// first when [prefer_local] — a hop within the node is cheaper than one
+// across the wire. `None` for an empty view.
+export handler LeastLoaded<E>(prefer_local: Bool) of Pick<E> {
+    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view {
+        let best: ActorView<E>? = None
+        for a in view.actors {
+            if best is None {
+                best = copy(a)
+            } else {
+                let b: ActorView<E> = best
+                // A local member beats a remote one when locality is preferred;
+                // otherwise, or between two of the same locality, the lighter
+                // queue wins.
+                let take = when {
+                    prefer_local && a.local && !b.local { true }
+                    prefer_local && !a.local && b.local { false }
+                    else { a.pending < b.pending }
+                }
+                if take {
+                    best = copy(a)
+                }
+            }
+        }
+        let chosen: ActorView<E> = best ?: return None
+        return copy(chosen.addr)
+    }
+}
+
+// [route-stub] The member that owns the send's key: the view's members are in
+// a stable order on every node, so `key mod n` lands on the same member
+// everywhere. A member joining reshuffles keys (consistent hashing is a
+// recorded follow-up). A send with no key goes to the first member.
+export handler Sharded<E>() of Pick<E> {
+    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view {
+        let n = size(view.actors)
+        if n == 0 {
+            return None
+        }
+        let k = view.key ?: 0L
+        let magnitude = if k < 0L { 0L - k } else { k }
+        let slot = to_int(magnitude % to_long(n))
+        let picked = get(view.actors, slot) ?: return None
+        return copy(picked.addr)
+    }
+}
+
+// [route-stub] Who leads: `None` while an election is in progress. A Salvo
+// election or a platform handler over a lease store serve it alike; std ships
+// [StaticLeader] for a fixed one.
+export effect Leader {
+    fn leader() -> Long?
+}
+
+// [route-stub] The leader fixed by configuration — for a test, or a
+// deployment where one node is the primary by decree.
+export handler StaticLeader(node: Long) of Leader {
+    fn leader() -> Long? {
+        return copy(node)
+    }
+}
+
+// [route-stub] The member the current leader hosts; parks while there is no
+// leader or the leader hosts no member yet.
+export handler Elected<E>() [Leader] of Pick<E> {
+    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view {
+        let l = leader() ?: return None
+        for a in view.actors {
+            if eq(node_of(a.addr), l) {
+                return copy(a.addr)
+            }
+        }
+        return None
+    }
+}
 
 // ---------------------------------------------------------------- host ----
 

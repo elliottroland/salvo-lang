@@ -465,6 +465,10 @@ pub struct Checked {
     /// — never off their own re-derivation (checker and emitter must
     /// agree).
     pub use_kinds: HashMap<Key, UseKind>,
+    /// [route-stub] `use route(group)` sites, mapped to the generated handler
+    /// they construct (`__Route_E`): the emitters build that handler where the
+    /// program wrote `route`.
+    pub route_stubs: HashMap<Key, String>,
     /// [threadsafe-platform] The handlers some `use` statement in the
     /// program constructs, by name. What lets a backend emit a platform
     /// handler's sharing adapter — which names the host class, and so
@@ -7027,7 +7031,58 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return;
             }
         }
-        let Some((id, args, written_type_args)) = self.handler_construction(handler, "use") else {
+        // [route-stub] `use route(group)`: the generated `__Route_E` stub,
+        // for the `E` the group's type names. The expansion appended the
+        // stub to this module for every protocol it spelled; a `use` whose
+        // protocol it never spelled is refused, naming the fix.
+        let construction = if crate::route::is_route_call(handler) {
+            let Expr::Call { args, .. } = handler else { unreachable!() };
+            let group = &args[0];
+            let ty = match self.peek_place_ty(group) {
+                Some(ty) => ty,
+                None => self.check_expr(group, None),
+            };
+            let effect = match addr_effect(&ty) {
+                Some(Ty::Named { name, args }) if name == "ActorGroup" && args.len() == 1 => {
+                    match &args[0] {
+                        Ty::Named { name, args } if args.is_empty() => Some(name.clone()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            let Some(effect) = effect else {
+                if !ty.is_unknown() {
+                    self.error(
+                        group.span(),
+                        format!(
+                            "`route` takes a group handle — an `Addr<ActorGroup<E>>` for a \
+                             non-generic actor effect `E` — and this is `{ty}` [route-stub]"
+                        ),
+                    );
+                }
+                return;
+            };
+            let stub = crate::route::stub_name(&effect);
+            let Some(decl) = self.scope.handlers.get(stub.as_str()).copied() else {
+                self.error(
+                    span,
+                    format!(
+                        "no route stub for `{effect}` in this module: the stub is generated \
+                         where the module names the protocol as a group's — write \
+                         `protocol<{effect}>()` or the type `Addr<ActorGroup<{effect}>>` in \
+                         this module, or route from the module that attached the group \
+                         [route-stub]"
+                    ),
+                );
+                return;
+            };
+            self.out.route_stubs.insert(self.key(span), stub);
+            Some((&decl.name, args.as_slice(), &[][..]))
+        } else {
+            self.handler_construction(handler, "use")
+        };
+        let Some((id, args, written_type_args)) = construction else {
             return;
         };
         let Some((concrete, deps)) =
@@ -7459,7 +7514,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                              the shape for that)",
                             r.name.name
                         ));
-                    } else if !r.args.is_empty() {
+                    } else if !crate::effect_only_args(r, &|n: &str| {
+                        self.scope.effects.contains_key(n)
+                    }) {
                         blockers.push(format!(
                             "its dependency `{}` is a generic effect instance, which \
                              the owned-handle capture does not cover yet",
@@ -15532,6 +15589,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             .collect();
         let mut out: Vec<Qual> = Vec::new();
         for (q, slots) in qualifiers.iter().zip(&slotted) {
+            if self.is_route_key(q) {
+                continue;
+            }
             if let Some(slots) = slots {
                 // [cmp-carry] A qualifier's type arguments are written first
                 // (`Heap<T>(?cmp) List<T>`), its slots after — the same
@@ -16131,8 +16191,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         subst: &HashMap<String, Ty>,
         depth: usize,
     ) -> Vec<Qual> {
-        qualifiers
-            .iter()
+        let kept: Vec<&TypeRef> = qualifiers.iter().filter(|q| !self.is_route_key(q)).collect();
+        kept.into_iter()
             // [proj-type] `proj` is part of the lowered type (user decision
             // 2026-09-12): `proj Str` and `Str` are different types, ordered
             // `Str <: proj Str`, so a borrow inside a union arm or a container
@@ -16182,6 +16242,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             })
             .collect()
+    }
+
+    /// [route-stub] Whether `q` is std `net`'s `Key` — the routing marker on a
+    /// protocol parameter. It is read **syntactically** by the stub generator
+    /// and **erased here**, so the parameter's type is the plain one and a
+    /// caller passes a plain value: `Key` claims nothing about the value, it
+    /// says which argument decides the member.
+    fn is_route_key(&self, q: &TypeRef) -> bool {
+        q.name.name == crate::route::KEY_QUALIFIER
+            && self
+                .scope
+                .name_origins
+                .get(q.name.name.as_str())
+                .is_some_and(|ms| ms.iter().any(|m| m.0.first().map(|s| s.as_str()) == Some("net")))
     }
 
     /// Lowers the base of a named type: substitutions, generic parameters,

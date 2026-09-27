@@ -1898,7 +1898,9 @@ impl<'p> Emitter<'p> {
                     }
                     if self.symbols.structs.contains_key(name.as_str()) {
                         let codec = struct_codec_name(name);
-                        if args.is_empty() {
+                        // [effect-generic-decl] An erased struct's codec is
+                        // monomorphic, whatever instance the type names.
+                        if args.is_empty() || self.erased.is_erased(name) {
                             return codec;
                         }
                         let codecs: Vec<String> =
@@ -5257,6 +5259,14 @@ impl<'p> Emitter<'p> {
                 return String::new();
             }
         };
+        // [route-stub] `use route(group)` constructs the generated stub the
+        // checker chose for the group's protocol.
+        let handler_name = self
+            .checked
+            .route_stubs
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or(handler_name);
         let Some(decl) = self.symbols.handlers.get(handler_name.as_str()) else {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
@@ -5373,8 +5383,16 @@ impl<'p> Emitter<'p> {
         // — the carrier's [kt-effect-fusion] — and Kotlin takes a type
         // argument list whole or not at all, so it is appended here.
         let type_args = match self.checked.use_handler_args.get(&(self.file_idx, span)) {
+            // [effect-generic-decl] An erased handler is monomorphic.
+            Some(_) if self.erased.handlers.contains(&handler_name) && dep_class.is_none() => {
+                String::new()
+            }
             Some(args) if args.iter().all(ty_is_concrete) => {
-                let args = args.clone();
+                let args = if self.erased.handlers.contains(&handler_name) {
+                    Vec::new()
+                } else {
+                    args.clone()
+                };
                 let mut rendered: Vec<String> =
                     args.iter().map(|a| self.kotlin_ty(a)).collect();
                 rendered.extend(dep_class.clone());
@@ -8571,6 +8589,41 @@ impl<'p> Emitter<'p> {
                     self.needs_scheduler = true;
                     let a = self.emit_expr(args[0]);
                     return format!("salvo.SalvoSched.addrIdentity({a}).node");
+                }
+                // [route-stub] The view mirror and the stub's primitives.
+                "view_set" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    let g = self.emit_expr(args[0]);
+                    let m = self.emit_expr(args[1]);
+                    return format!("salvo.SalvoSched.viewSet({g}, {m})");
+                }
+                "view_members" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let g = self.emit_expr(args[0]);
+                    return format!("salvo.SalvoSched.viewMembers({g})");
+                }
+                "key_hash" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let Some(target) = self
+                        .checked
+                        .expr_ty
+                        .get(&(self.file_idx, args[0].span()))
+                        .cloned()
+                        .filter(ty_is_concrete)
+                    else {
+                        self.error("`key_hash` needs an argument of a concrete type");
+                        return "0L".to_string();
+                    };
+                    let codec = self.kotlin_codec_expr(&target);
+                    let k = self.emit_expr(args[0]);
+                    return format!(
+                        "salvo.SalvoSched.keyHash(salvo.salvoEncode({k}, {codec}).toByteArray())"
+                    );
+                }
+                "park_briefly" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "salvo.SalvoSched.parkBriefly()".to_string();
                 }
                 "route_frames" if args.len() == 1 => {
                     self.needs_scheduler = true;

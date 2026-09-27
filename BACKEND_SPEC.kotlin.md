@@ -884,6 +884,12 @@ where Rust had to build the fusion to get the same programs running
   (`__Mon_E(inner)`, `synchronized` forwards) only when the program declares
   a handler `of any E`; the forwards then cover its send members too, since a
   `use`-bound router runs them inline. Without a router, nothing is emitted.
+* [kt-wire] [route-stub] Runtime: `views`, `viewSet`, `viewMembers` (sorted
+  by `(node, actor)`), `keyHash` (FNV-1a 64, identical to Rust's),
+  `parkBriefly`. Intrinsics as in Rust; `key_hash` encodes with the
+  argument's codec and hashes `toByteArray()`. An erased struct's codec is
+  monomorphic (`__Codec_ActorView`, no argument codecs), and an erased
+  handler is constructed without type arguments (`Sharded()`).
 * [kt-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `interface` is emitted as any effect's, and the `use`
   site constructs the host class — `salvo.platform.<M>.H(args)`,

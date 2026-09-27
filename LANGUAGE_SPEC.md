@@ -5494,6 +5494,52 @@ between endpoints and delivers what arrives into the scheduler.
     `NodeGroup`/`Node`/`NodeChanges`/`NodeEndpoint` for the machines,
     `ActorGroup<E>`/`ActorChanges<E>` (and `ActorGroupView<E>`/`ActorView<E>`
     in step ⑦) for the actors; `Addr<E>` keeps its name.
+* [route-stub] **`use route(group)` binds `any E` to whichever member a
+  policy picks, per send.** `group` is an `Addr<ActorGroup<E>>` for a
+  non-generic actor effect `E`; the binding is a handler `of any E` the
+  compiler writes — `__Route_E(group) [Pick<E>] of any E`, one per protocol
+  a module routes, each member `route_to(group[, key_hash(k)])` then a
+  forward to the answer — appended to the module before resolution
+  (`salvo_core::route`) and constructed where the program wrote `route`.
+  It is generated **syntactically**: a module containing `use route(…)` gets
+  a stub for every actor effect it names in a `protocol<X>()` call or an
+  `ActorGroup<X>` type; a `use route(g)` whose protocol the module never
+  spelled is refused, naming that fix. The stub imports what it needs —
+  the kit from `net`, the protocol's own types from their modules.
+  * **`Pick<E>`** is the policy: `fn choose(view: ActorGroupView<E>) ->
+    Addr<E>?`, an ordinary plain effect a `use` binds before `use route`.
+    `None` parks the send — the stub yields and asks again — which is how an
+    empty group, a full group and a group without a leader wait rather than
+    fail. The view: `ActorGroupView<E> { actors: List<ActorView<E>>, key:
+    Long? }`, `ActorView<E> { addr, pending, local }`; members in a stable
+    order (by node, then actor id — the same on every node and both
+    backends), so a keyed pick lands on the same member everywhere.
+  * **The view is the runtime's mirror of the local replica**: the
+    `ActorGrouping<E>` replica writes its member set after every change
+    (`view_set`), the stub reads it on the sender's thread (`view_members`)
+    — behind the replica by one message, never in the send path, and no
+    hop. A group with no replica on this node has an empty view, so its
+    stub parks: `route` a group from the node that attached it.
+  * **`Key`** (`export provenance qualifier Key<T> of T`, std `net`) marks
+    the parameter whose value decides the member: `send fn reserve(sku: Key
+    Str, …)`. Read syntactically by the stub generator, **erased at
+    lowering**, so the parameter's type is the plain one and a caller passes
+    a plain value; at most one per member, refused at the declaration
+    otherwise. The stub hashes the argument's wire encoding (FNV-1a, both
+    backends) into `view.key`.
+  * **std ships three policies**: `LeastLoaded<E>(prefer_local)` — the
+    lightest queue, local members first when asked; `Sharded<E>()` — `key
+    mod n` over the ordered view (a keyless send goes to the first member;
+    consistent hashing is a recorded follow-up); `Elected<E>() [Leader]` —
+    the member on the node `Leader.leader()` names, parking while there is
+    none. `Leader { fn leader() -> Long? }` is a plain effect a Salvo
+    election or a platform handler serves; std ships `StaticLeader(node)`.
+  * A policy's instance `Pick<E>` is a generic effect instance whose only
+    argument is an effect: [effect-generic-decl] erases it to the
+    monomorphic `Pick`, which is why it may be captured as an owned handle
+    where a `Random<Int>` dependency still could not (`effect_only_args`).
+  * The replica now wears `NodeChanges` as a second face: a node's
+    departure withdraws every member it hosted, telling the subscribers.
 * Two emitter facts the module surfaced, both fixed with it: **`send(reply,
   None)` on Rust** boxed an `Option<_>` rustc could not infer, so the box is
   now typed from the token's payload (`Box::<Option<usize>>::new(None)`)

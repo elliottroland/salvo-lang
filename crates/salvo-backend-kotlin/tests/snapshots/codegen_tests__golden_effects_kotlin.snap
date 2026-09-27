@@ -1,6 +1,6 @@
 ---
 source: crates/salvo-backend-kotlin/tests/codegen_tests.rs
-assertion_line: 2041
+assertion_line: 2046
 expression: combined
 ---
 // ===== core/checked.kt =====
@@ -1146,6 +1146,8 @@ object SalvoSched {
     private val published = HashMap<Long, HashMap<String, Published>>()
     /** [actor-group] What peers have published: (node, name) → identity. */
     private val peerNames = HashMap<Pair<Long, String>, SalvoRemoteRef>()
+    /** [route-stub] Per local group replica: its mirrored member set, what a `route(group)` stub reads. */
+    private val views = HashMap<Int, List<Int>>()
     /** Frames staged under the lock, sent once it is released. */
     private val outbox = ThreadLocal.withInitial { mutableListOf<Triple<ByteArray, ByteArray, (ByteArray, ByteArray) -> Unit>>() }
     // [main-pool] Pool 0 exists from the start and belongs to main.
@@ -2267,6 +2269,33 @@ object SalvoSched {
 
     /** [actor-group] [remote-backpressure] `pending(addr)`: queue depth locally, in-flight remotely. */
     fun pending(addr: Int): Int = lock.withLock { val a = actors[addr]; if (a.remote != null) a.granted else a.userLen }
+
+    /** [route-stub] The replica [group] mirrors its member set here after every change. */
+    fun viewSet(group: Int, members: List<Int>) { lock.withLock { views[group] = members.toList() } }
+
+    /** [route-stub] The mirrored members of [group], by (node, actor id) — the same order on every node and both backends. */
+    fun viewMembers(group: Int): List<Int> = lock.withLock {
+        val members = views[group] ?: emptyList()
+        members.sortedWith(compareBy({ identityOf(it).node }, { identityOf(it).actor }))
+    }
+
+    private fun identityOf(addr: Int): SalvoRemoteRef {
+        val a = actors[addr]
+        return a.remote ?: SalvoRemoteRef(a.node, addr.toLong(), a.bits)
+    }
+
+    /** [route-stub] FNV-1a over the key's canonical bytes, identical to Rust's `salvo_key_hash`. */
+    fun keyHash(bytes: ByteArray): Long {
+        var h = -3750763034362895579L // 0xcbf29ce484222325
+        for (b in bytes) {
+            h = h xor (b.toLong() and 0xff)
+            h *= 1099511628211L
+        }
+        return h
+    }
+
+    /** [route-stub] A stub whose pick answered `None` yields briefly and asks again. */
+    fun parkBriefly() { Thread.sleep(1) }
 
     private fun enqueueEvent(sink: Int, msg: Any?) {
         lock.withLock {

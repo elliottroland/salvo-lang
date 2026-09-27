@@ -1026,3 +1026,489 @@ So `iter T` is a type former whose expansion is `Mut <pass>`:
 This is not an always-on qualifier on a value's type: `iter T` *denotes* a
 `Mut`-qualified type, the way `T?` denotes `T | None`. Nothing is gained by a
 value, and nothing can be dropped.
+
+---
+
+# Round 6 (2026-09-27): does this compose?
+
+Short answer: the design does not stand in the way, and `iter T` plus the
+`state` pattern make the **concrete** case read well; the **generic** case
+(a lazy `map`/`filter` over *any* pass) needs two small additions, both
+independent of the redesign and both absent today — which is why ROADMAP §16
+is parked. Nothing here reopens §16's *decision* (composing functions, data
+supplied last); it is the spelling that decision was waiting for.
+
+## What "composition" means here
+
+A stage is a pass that owns another pass and re-emits from it. Two shapes:
+
+```
+// Over a source: mint the inner pass in state. Works under round 5 as written.
+iter fn evens<C>(c: C, ?Iter<C, Int>) -> Emitted Int | Finished {
+    state { inner: iter Int = iter(c) }
+    …                                   // drive `inner`, skip odd ones
+}
+
+// Over a pass: take the position itself.
+iter fn doubled(it: iter Int) -> Emitted Int | Finished {
+    let x = next(it)
+    when x {
+        is Finished { return finished() }
+        is Emitted  { return emitted(x * 2) }
+    }
+}
+
+for n in doubled(evens(xs)) { … }       // xs → evens → doubled, one element at a time
+```
+
+The first stage is §16's "pipeline of functions": nothing is minted until
+`evens(xs)` is called, per drive, so replay is free. The second is what makes
+stages chain.
+
+## What the second shape needs
+
+**1. An `iter fn` parameter may be a pass, moved in.** Today the subject is
+*borrowed* and **read-only** ([iter-fn]: "a `Mut` subject is refused —
+advancing never writes through it"), so an `iter fn` cannot drive what it is
+handed. Rule: a parameter of type `iter T` (or any declared pass type) is
+**consumed** into the hidden struct (`=> !it`) and drivable in the body. A
+pass is a position; the stage owns the position. Non-pass parameters keep
+today's borrow-or-copy tiers.
+
+**2. `iter T` in a parameter is a hoisted generic.** Round 5 refused `iter T`
+in signatures because in a *return* position it is an existential. In a
+*parameter* position it is universal — "any pass emitting `T`" — which is a
+generic, monomorphisable, and the same hoisting `?Iter<C, T>` already does:
+`doubled(it: iter Int)` is `doubled<It>(it: It, ?Yield<It, Int>)` with `It`
+hidden. Refine the rule: **parameter → hoisted generic with its `?Yield`
+spread; return of a plain fn → refused; struct field → refused; `state`
+field → pattern; `iter fn` call type → concrete.**
+
+Two occurrences in one signature (`chain(a: iter T, b: iter T)`) must be
+**two** generics — `chain(iter(xs), reversed(xs))` is the point — where
+inside a *group* `iter T` is one type across the members. State the
+difference: in a group it names the group's pass; in a fn each occurrence is
+its own. A stage that needs two parameters of the *same* pass type writes
+`<It>`.
+
+**3. The generated `next` carries the forwarded implicit.** `doubled`'s hidden
+`__next` calls `next(p.it)` on an opaque `It`, so it needs `?Yield<It, Int>`
+— forwarded from whoever drives it, which a `for` does like any call
+[implicit-forward]. The [group-obligation] match ("parameter types equal,
+positionally") must then **ignore trailing implicit parameters** when
+checking the hidden struct's `: Yield<self, Int>`: implicits are the
+callee's business, resolved at the call, not part of the member's shape. The
+alternative — storing the inner `next` as a fn-valued field, minted with the
+forwarded implicit — is what [rs-stored-implicit] already lowers for keyed
+containers, and avoids touching the obligation check; the implicit-on-`next`
+form is cleaner and keeps the pass a plain struct. Either works; the first
+is recommended.
+
+This is the same gap a **hand-written** generic stage hits today (`struct
+MapPass<It, T, U> : Yield<self, U>` with a `next(p, ?Yield<It, T>)`), so it
+is a §16 prerequisite rather than a cost of this redesign.
+
+## What falls out
+
+- **Pipelines as values.** `let pipeline = c -> doubled(evens(c))` infers a
+  lambda whose return is a concrete anonymous pass; its type cannot be
+  *written*, but it can be passed where a lambda can — `total(xs, iter =
+  pipeline)` fills `?Iter<List<Int>, Int>`'s `iter` by override
+  [implicit-override]. Nothing stores a source until it is called.
+- **`zip`, `chain`, `take`** are `iter fn`s with pass parameters and no
+  hand-written struct: `iter fn zip<A, B>(a: iter A, b: iter B) -> Emitted (A,
+  B) | Finished`, two hoisted generics and two forwarded `next`s — round 4 §6's
+  same-named-implicits test, again first.
+- **Borrowed elements through a stage.** `evens` over a walking pass receives
+  `proj T` and re-emits it; whether the stage's `Emitted` is `proj` of the
+  inner pass (which borrows the list) is the `holds proj(it)` machinery
+  `filter` already uses, not an iteration question.
+
+## What does not fall out
+
+- **A stage over a linear pass** (`Lines`): the hidden struct owns a linear
+  value, so it must itself be `linear` with a generated discharger, and the
+  desugar does none of that. This is §16's "L8 casualty" question; the
+  redesign neither helps nor hurts it, and it should stay parked until the
+  above lands.
+- **Sendability** of a composed pass — §16's last question — is unchanged.
+
+## Decisions this adds
+
+1. An `iter fn` parameter of pass type is consumed and drivable.
+2. `iter T` in a parameter position is a hoisted generic (fresh per
+   occurrence in a fn; shared within a group).
+3. The obligation match ignores trailing implicits (or: store the inner
+   `next` as a field).
+
+## Round 6a: `iter T` as the return type of a plain fn with a body
+
+The case: `core.range`'s pattern — one fully specified constructor and
+overloads that fill in defaults and delegate:
+
+```
+export iter fn range(start: Int, end: Int, step: Int) -> Emitted Int | Finished {
+    state { i: Int = start }
+    …
+}
+export fn range(start: Int, end: Int) -> iter Int { return range(start, end, step_for(start, end)) }
+export fn range(end: Int) -> iter Int { return range(0, end) }
+```
+
+Round 5 refused `iter T` in a return position as an existential. That was
+too coarse: the existential is only a problem where the compiler does **not**
+know the concrete type — a bodiless declaration, a fn *type*, a field. Here
+the body returns `range(start, end, step)`, whose type is one concrete
+anonymous struct, so the annotation can be a **pattern filled from the
+body's returns**, exactly as a `let` annotation is — and the fn's real return
+type, the one callers unify against and `for` drives, is the concrete one.
+Rust's `-> impl Iterator<Item = i32>` is the same device: opaque to the
+reader, concrete to the compiler. There is precedent inside Salvo for
+reading part of a return type off the body already: a return's *lend* is
+inferred [proj-infer].
+
+Refined rule for `iter T` in return position:
+
+- **A fn with a body**: a pattern. Every return path must produce the *same*
+  concrete pass type; two different anonymous passes (`if c { range(3) }
+  else { evens(xs) }`) is an error naming both origins, with the remedy
+  "fold the case into one `iter fn`, or name the pass". Callers see the
+  concrete type; hover and docs print `iter Int`.
+- **A group member**: the associated placeholder, filled per implementation
+  (round 4). Same reading, one level up.
+- **A bodiless fn** (`intrinsic`), an **effect member** (implemented per
+  handler, dispatched through a trait, so no single concrete type exists),
+  a **fn type** (lambda or fn-typed parameter), a **struct field**: refused,
+  with the remedy "name the pass or make the position generic".
+
+Two consequences for `core.range`: the `Range` struct disappears (the
+`iter fn`'s three scalar parameters are the state), and the [mod-export]
+note — `Range` and `next` exported so a private pass would not strand the
+constructors — becomes moot, since the hidden struct and its `next` travel
+with `range`. The ROADMAP item about `core.range` being emitted into every
+program because every program uses the name `next` should shrink with it:
+nothing names that `next` any more.
+
+One thing to check when building: inference from the body means the return
+type is known only after the body is checked, so a recursive `iter Int` fn
+(or a cycle of them) needs either an "opaque until checked" placeholder or a
+refusal naming the cycle. The delegating overloads are not recursive; a
+refusal is fine for the first cut.
+
+---
+
+# Terminology (user decision 2026-09-27): "pass" → "iterator struct"
+
+"Pass" is not specific enough; the type a `next` advances is an **iterator
+struct**. `iter T` then reads as it should — "an iterator of `T`" — and the
+group names line up (`Iter`, `iter fn`, `iter T`, iterator struct).
+
+Sweep when the redesign lands (the term is everywhere the protocol is):
+
+- `docs/language/Passes.md` (title and page), `Iteration.md`,
+  `Implicit-Parameters.md`, `Dependent-Qualifiers.md`, `Linear-Types.md`,
+  `Concurrency.md` where they say "pass"; `README.md`'s iteration bullet;
+  `tools/sync-wiki.sh` afterwards.
+- LANGUAGE_SPEC.md prose, and the labels that carry the word: `[iter-pass]`,
+  `[seq-pass]` — renaming a label means `grep -rn` for every reference in
+  code and tests, per AGENTS.md.
+- Code names: `PassDriver`, `for_drivers`, `expand_pass_fns`, `__Pass_…`
+  (the hidden struct prefix — `__Iter_…` or `__Iterator_…`), and the
+  diagnostics that say "pass" ("a `for` cannot consume a linear pass", "is
+  not iterable … declare `: Yield<self, T>` on it to make it a pass").
+- std comments (`core/iterator.sv`, `list.sv`, `array.sv`, `set.sv`,
+  `map.sv`, `string.sv`, `bytes.sv`, `fs`'s `Lines`), and the names
+  `*Yield` if they are to follow (`ListYield` → `ListIter`? — a separate
+  call; the current names are fine and the user has not asked).
+- ROADMAP.md §16 and COMPLETED.md's prose are not archives (AGENTS.md):
+  update the term there too, with the decision logged.
+
+A *value* of an iterator struct is **an iterator** (user, 2026-09-27) —
+matches `iter T`, and "pass" leaves the vocabulary entirely.
+
+---
+
+# Round 7 (2026-09-27): linearity
+
+Two different questions, and the guess is right on both.
+
+## Linear elements: yes, as today
+
+`emitted<T canbe linear>` already tags a linear element, and a `next` hands
+its element over by value, so an iterator of linear things works now. `iter
+T` adds nothing and needs nothing: the opt-in lives on the type *parameter*
+(`iter fn drain_handles<T canbe linear>(…) -> Emitted T | Finished`), where
+`canbe linear` is already written, and `iter T` with such a `T` is just the
+hidden `It` over that `T`. In `?Iter<C, T>` and `?Yield<It, T>` spreads the
+same holds.
+
+## A linear iterator: `iter T` cannot say it, deliberately
+
+`iter T` denotes "`Mut`, declares `: Yield<self, T>`", and in a *generic*
+position (a parameter, a spread) it is a hidden `It` with **no `canbe
+linear`** and no spelling to add one. That is the right restriction, not a
+gap: a linear iterator has to be **discharged**, and generic code can only
+discharge an opaque `It` if someone hands it the discharger. The language
+already has the honest shape for that — `drain<It canbe linear>(it: Mut It,
+end: (x: It) -> None, ?Yield<It, Int>) => !it =>[end] !x` [linear-generics],
+a consuming callback the caller fills with `close` or `drop`. `iter T` is
+sugar for the *common* case, and the common case has no discharger to
+thread. So:
+
+- `doubled(it: iter Int)` refuses a linear argument, naming the explicit form.
+- `total<C>(c: C, ?Iter<C, Int>)` refuses at resolution when `C`'s `iter`
+  mints a linear iterator ("this position cannot discharge it"), for the same
+  reason.
+
+In a **concrete** position — the type of an `iter fn` call, a return or
+`let` pattern, a `state` field — linearity flows with the concrete type.
+`iter Str` may well *be* linear; the display does not say so, the checker
+knows, and the ordinary rules apply: a `for` refuses a linear *temporary*
+(bind it first) and the owner discharges after the loop.
+
+## What the redesign makes possible: a generated discharger
+
+The interesting case is an **`iter fn` that holds a linear value** — in its
+`state`, or as a consumed iterator parameter of *concrete* type:
+
+```
+iter fn lines(path: Str) [Fs] -> Emitted Str | Finished {
+    state { s: InStream = open_read(path) }
+    …
+}
+let it = lines("a.txt")     // an `iter Str`, linear because its state is
+for line in it { … }
+close(it)                    // generated: closes `s`
+```
+
+Today this is refused at the struct: a field of linear type makes the struct
+a resource, so it must be `linear struct` with a discharger in its own file
+[linear-composite] [linear-group], and the desugar writes neither. It can:
+when a hidden struct holds a linear value whose type is **concrete** and
+whose discharge set has **exactly one** member, generate `linear struct` and
+`fn close(p: __Iter_…) => !p { close(p.s) }` beside it (named after the held
+type's discharger, exported with the `iter fn`). Two held linear values, or a
+discharge set with several members (`stop`/`join`), or a linear value of
+*hidden* type (`state { inner: iter Str = iter(c) }` under a `?Iter<C, Str>`
+spread): refuse at the declaration — "write the iterator struct by hand" —
+which is [linear-composite]'s own "the casualty that remains" (the composed
+linear pass) stated with its boundary.
+
+That settles ROADMAP §16's L8 question as a **partial yes**: a *concrete*
+stage over a *concrete* linear source (`lines`, `upper_lines(path)` holding
+an `InStream`) is one `iter fn` with a generated `close`; a *generic* stage
+over a possibly-linear source stays the explicit `<It canbe linear>` +
+callback form, because nothing else could know how to close it. The
+pipeline-of-functions hope in §16 — "a pipeline holding only functions stores
+no source" — is true of the *pipeline* and false of the *iterator it mints*,
+which is where the obligation lives and where it is discharged.
+
+## Round 7a: no generated discharger (user decision 2026-09-27)
+
+The generated `close` is **rejected**: a discharger would have to be a member
+of the group for the model to stay consistent, and it is not one. An `iter fn`
+whose state would hold a linear value, or that would consume a linear
+iterator, is refused at the declaration with "write the iterator struct by
+hand". Round 7's "what the redesign makes possible" section is superseded by
+this; the analysis of `iter T` and linearity above it stands.
+
+# Summary: every use of `iter T`, and what it stands for
+
+`iter T` is one thing everywhere — **"a `Mut` type declaring `: Yield<self,
+T>`"** — read in whichever way the position allows: as a *placeholder* in a
+group, as a *hidden generic* in a signature, as a *pattern* where there is a
+value to fill it from, and as the *concrete anonymous struct* that an `iter
+fn` mints. Each row gives the sugar and the form a user writes when the
+sugar does not apply (a linear iterator, a struct that must be named, two
+parameters of the same iterator type).
+
+### 1. Group member — the associated placeholder
+
+```
+params Iter<C, T> => iter with next {
+    fn iter(collection: C) -> iter T
+    fn next(iterator: iter T) -> Emitted T | Finished => iterator: Mut
+}
+```
+Desugared: the iterator struct is a **group parameter**.
+```
+params Iter<C, It, T> => iter with next {
+    fn iter(collection: C) -> Mut It
+    fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut
+}
+```
+One `iter T` per group: both members name the same `It`.
+
+### 2. Obligation on a struct
+
+```
+struct Bag : Iter<self, Int>
+```
+Desugared: name the iterator struct in the obligation, and declare it.
+```
+struct Bag : Iter<self, BagIter, Int>
+struct BagIter : Yield<self, Int> canbe Mut { … }
+fn next(p: Mut BagIter) -> Emitted Int | Finished => p: Mut { … }
+fn iter(bag: Bag) -> Mut BagIter { … }
+```
+Satisfied either by those three declarations or by one `iter fn iter(bag:
+Bag) -> Emitted Int | Finished` (row 8).
+
+### 3. Spread in a signature — a hidden generic
+
+```
+fn total<C>(c: C, ?Iter<C, Int>) -> Int
+```
+Desugared: the 2026-09-10 container-shaped combinator, `It` visible.
+```
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int => iter with next
+```
+Inside the body `let p = iter(c)` is `Mut It` either way. A linear iterator
+does not fit this position under either spelling; the linear-capable form is
+row 10.
+
+### 4. Parameter of a fn or `iter fn` — a hidden generic, fresh per occurrence
+
+```
+iter fn doubled(it: iter Int) -> Emitted Int | Finished
+fn first_two(it: iter Int) -> Int
+```
+Desugared:
+```
+iter fn doubled<It>(it: Mut It, ?Yield<It, Int>) -> Emitted Int | Finished   // `it` consumed into the state
+fn first_two<It>(it: Mut It, ?Yield<It, Int>) -> Int => it: Mut               // driven in place
+```
+`chain(a: iter T, b: iter T)` is `chain<A, B>(a: Mut A, b: Mut B, ?Yield<A, T>,
+?Yield<B, T>)` — **two** generics. Two parameters that must be the *same*
+iterator struct are written with one `<It>`; `iter T` cannot say that.
+
+### 5. The type of an `iter fn` call — the concrete anonymous struct
+
+```
+let p = iter(bag)        // p : iter Int
+```
+Desugared: the hand-written struct of row 2, and `let p = iter(bag)` typed
+`Mut BagIter`. The anonymous struct is real (it has the obligation and the
+`next`) and unnameable; `iter Int` is how it prints.
+
+### 6. `let` annotation — a pattern
+
+```
+let p: iter Int = iter(bag)
+```
+Desugared: `let p: Mut BagIter = iter(bag)`, or no annotation. A named
+iterator struct fits the pattern too (`let p: iter Int = iter(xs)` over a
+`ListIter<Int>`); nothing is widened.
+
+### 7. `state` field — a pattern (it has an initializer)
+
+```
+iter fn evens<C>(c: C, ?Iter<C, Int>) -> Emitted Int | Finished {
+    state { inner: iter Int = iter(c) }
+    …
+}
+```
+Desugared: with a concrete source, name the struct — `state { inner: Mut
+ListIter<Int> = iter(xs) }`; with a generic source, the explicit `<It>` of
+row 3 and `state { inner: Mut It = iter(c) }`.
+
+### 8. `iter fn` — the minter, the struct and the `next` in one declaration
+
+```
+iter fn range(start: Int, end: Int, step: Int) -> Emitted Int | Finished {
+    state { i: Int = start }
+    …
+}
+```
+Desugared:
+```
+struct RangeIter : Yield<self, Int> canbe Mut { start: Int, end: Int, step: Int, i: Int }
+fn next(p: Mut RangeIter) -> Emitted Int | Finished => p: Mut { … }   // the body, fields via `p.`
+fn range(start: Int, end: Int, step: Int) -> Mut RangeIter {
+    return Mut RangeIter { start: start, end: end, step: step, i: start }
+}
+```
+Non-scalar parameters are `proj` or owned by the existing tier scan; a
+parameter of iterator type is owned (row 4). Any name, any arity; only the
+one named by an `Iter` obligation is canonical for `for x in c`.
+
+### 9. Return type of a fn with a body — a pattern
+
+```
+fn range(end: Int) -> iter Int { return range(0, end) }
+```
+Desugared: `fn range(end: Int) -> Mut RangeIter { … }` over the hand-written
+struct of row 8. All return paths must produce one concrete iterator struct.
+
+### 10. Linear — always by hand
+
+There is no `iter T` spelling for a linear iterator, and no generated
+discharger. A concrete one is the written-out struct with its death in its
+own file:
+```
+linear struct Lines : Yield<self, Str> canbe Mut { s: InStream, … }
+fn next(l: Mut Lines) [Fs] -> Emitted Str | Finished => l: Mut { … }
+fn lines(path: Str) [Fs] -> Mut Lines { … }
+fn close(l: Lines) [Fs] => !l { close(l.s) }
+```
+Generic code that may receive one takes the discharger as a callback
+[linear-generics]:
+```
+fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) -> Int => !it =>[end] !x
+```
+An `iter fn` whose state would hold a linear value, or whose iterator
+parameter is linear, is refused at the declaration naming this row.
+
+### Refused positions (no sugar; the replacement is named)
+
+| position | why | write instead |
+|---|---|---|
+| return type of a bodiless fn (`intrinsic`) | no body to fill the pattern | the struct's name |
+| effect member return | implemented per handler, one trait type needed | the struct's name |
+| fn *type* (lambda, fn-typed parameter) | a return the callee chooses, existential | `<It>` on the enclosing fn |
+| struct field | existential storage is boxing | the struct's name, or `<It>` on the struct |
+| `Mut iter T` | `Mut` is implied | `iter T` |
+
+---
+
+# Plan step (user decision 2026-09-27): the summary goes into the docs
+
+The "every use of `iter T`" table above becomes a section of the iteration
+docs when the redesign lands — `docs/language/Iteration.md`, or the page that
+replaces `Passes.md` under the new name — rather than staying here. The
+framing the user wants is the one the table already has: **every use of
+`iter T` lowers to something the user could write explicitly**, so the page
+shows the sugar and the written-out form side by side, row by row, and the
+written-out form is the specification. LANGUAGE_SPEC.md gets the rule
+(`[iter-type]` or similar) with the four readings — placeholder, hidden
+generic, pattern, concrete anonymous struct — and points at the page for the
+table; the page carries the examples.
+
+Order within the redesign's plan: after the spec rules and before the std
+rewrite, so the std rewrite can be checked against the page. Then
+`tools/sync-wiki.sh`.
+
+---
+
+# Clarification to row 10 (user, 2026-09-27): linear *elements* are fine
+
+Row 10 is about the **iterator struct** being linear. An iterator of linear
+*elements* — `iter T` with `T canbe linear` — is allowed, because nothing
+about it needs a discharger: `next` hands each element over by value, the
+obligation travels with the element to whoever receives it, and the hidden
+struct holds no linear value between turns (the element is minted and handed
+out in one `next`). `emitted<T canbe linear>` already exists for exactly this.
+
+So the boundary is: **the hidden struct may never be linear** — no linear
+`state` field, no consumed linear iterator parameter, no `proj` of a linear
+subject that would make the struct a resource — and everything else `iter T`
+does is available with `T canbe linear`:
+
+```
+iter fn handles<T canbe linear>(pool: Pool<T>) -> Emitted T | Finished { … }   // fine: each T leaves on its turn
+fn drain<T canbe linear>(it: iter T, end: (x: T) -> None) -> Int =>[end] !x    // fine: iterator not linear, elements are
+```
+
+Row 10's hand-written form is for the struct that owns a resource (`Lines`
+over an `InStream`); the generic form with the `end` callback is for code
+that may receive such a struct. Both unchanged.

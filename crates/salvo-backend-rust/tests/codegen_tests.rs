@@ -18,7 +18,7 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
     }
     let mut modules = Vec::new();
     for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
         let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
         assert!(
             errors.is_empty(),
@@ -27,6 +27,11 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
         );
         modules.push(module);
     }
+    // The drivers' pre-resolution expansions [route-stub] — what `salvo
+    // compile` runs before checking.
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
+    let errors: Vec<_> = expansion.diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "expansion errors: {errors:?}");
     Program {
         files: sources.files,
         modules,
@@ -13557,6 +13562,153 @@ fn rustc_compiles_and_runs_a_router_of_any() {
     }
     let files = generate(&[("main.sv", ANY_ROUTER_DEMO)]);
     run_rust_files(&files, "any-router", ANY_ROUTER_DEMO_OUTPUT);
+}
+
+/// [route-stub] The generated stub with `Sharded`: a `Key`-marked argument
+/// picks the shard, so the same SKU lands on the same member every time.
+const ROUTE_SHARDED_DEMO: &str = r#"import net
+import time
+
+actor effect Inventory {
+    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out
+}
+
+handler Stocking(shard: Str) of Inventory {
+    mailbox { capacity: 32 }
+    served: Int = 0
+    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out {
+        served = served + qty
+        out.send("${shard} took ${sku} (${served} so far)")
+    }
+}
+
+fn checkout(skus: List<Str>) [any Inventory, Console] -> None {
+    for sku in skus {
+        let line = waitfor out: Reply<Str> { reserve(copy(sku), 1, out) }
+        println(line)
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let a = NodeEndpoint { host: "a", port: 1 }
+    let net = spawn MemNetwork() on pool(1)
+    use MemTransport(copy(a), copy(net))
+    let p = pool(1)
+    route_frames(spawn Sending() on p)
+    listen(copy(a), spawn Receiving() on p)
+    add_route(this_node(), copy(a))
+    let nodes = start_group(spawn StaticNodeGroup("shop", copy(a), [copy(a)]) on p)
+    let stock = attach(protocol<Inventory>(), nodes)
+    join(stock, spawn Stocking("s1") on p)
+    join(stock, spawn Stocking("s2") on p)
+
+    use Sharded<Inventory>()
+    use route(stock)
+    checkout(["apple", "pear", "apple", "fig", "pear"])
+}
+"#;
+
+const ROUTE_SHARDED_DEMO_OUTPUT: &str = "s1 took apple (1 so far)\ns2 took pear (1 so far)\ns1 took apple (2 so far)\ns1 took fig (3 so far)\ns2 took pear (2 so far)\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_sharded_route() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ROUTE_SHARDED_DEMO)]);
+    run_rust_files(&files, "route-sharded", ROUTE_SHARDED_DEMO_OUTPUT);
+}
+
+/// [route-stub] `LeastLoaded` (local first) and `Elected` over a two-node
+/// group: the first stub answers from this node's member, the second from the
+/// member on the node `StaticLeader` names.
+const ROUTE_PICKS_DEMO: &str = r#"import net
+import time
+
+actor effect Sequencer {
+    send fn next(out: Reply<Str>) => !out
+}
+
+handler Sequencing(who: Str) of Sequencer {
+    mailbox { capacity: 8 }
+    n: Int = 0
+    send fn next(out: Reply<Str>) => !out {
+        n = n + 1
+        out.send("${who}#${n}")
+    }
+}
+
+actor effect Boot {
+    send fn boot(done: Reply<Addr<Sequencer>>) => !done
+}
+
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [Transport, spawn] of Boot {
+    mailbox { capacity: 1 }
+    send fn boot(done: Reply<Addr<Sequencer>>) => !done {
+        let p = pool(1)
+        route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
+        listen(copy(at), spawn Receiving() on p)
+        add_route(this_node(), copy(at))
+        let nodes = start_group(spawn StaticNodeGroup("ids", copy(at), copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        let seq = attach(protocol<Sequencer>(), nodes)
+        let mine = spawn Sequencing("b") on p
+        join(seq, copy(mine))
+        done.send(mine)
+    }
+}
+
+fn fresh_id() [any Sequencer] -> Str {
+    return waitfor out: Reply<Str> { next(out) }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let a = NodeEndpoint { host: "a", port: 1 }
+    let b = NodeEndpoint { host: "b", port: 1 }
+    let all = [copy(a), copy(b)]
+    let net = spawn MemNetwork() on pool(1)
+    use MemTransport(copy(a), copy(net))
+    let pa = pool(1)
+    route_frames(spawn Sending() on pa)
+    listen(copy(a), spawn Receiving() on pa)
+    add_route(this_node(), copy(a))
+    let nodes = start_group(spawn StaticNodeGroup("ids", copy(a), copy(all)) on pa)
+    let seq = attach(protocol<Sequencer>(), nodes)
+    join(seq, spawn Sequencing("a") on pa)
+
+    let pb = pool_at(new_node(), 1)
+    let booter = spawn Booting(copy(b), copy(all), copy(net)) with MemTransport(copy(b), copy(net)) on pb
+    let remote = waitfor done: Reply<Addr<Sequencer>> { booter.boot(done) }
+    let timer = spawn DefaultTimer() on pool(1)
+    let _t = waitfor f: Reply<Fired> { timer.after(millis(300), f) }
+    let seen = waitfor out: Reply<List<Addr<Sequencer>>> { seq.members(out) }
+    println("members: ${size(seen)}")
+
+    // Least loaded, local first: every id comes from a's member.
+    use LeastLoaded<Sequencer>(true)
+    use route(copy(seq))
+    println("${fresh_id()} ${fresh_id()}")
+
+    // Elected: the leader is b's node, so ids come from b's member.
+    use StaticLeader(node_of(remote))
+    use Elected<Sequencer>()
+    use route(seq)
+    println("${fresh_id()} ${fresh_id()}")
+}
+"#;
+
+const ROUTE_PICKS_DEMO_OUTPUT: &str = "members: 2\na#1 a#2\nb#1 b#2\n";
+
+#[test]
+fn rustc_compiles_and_runs_least_loaded_and_elected_routes() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ROUTE_PICKS_DEMO)]);
+    run_rust_files(&files, "route-picks", ROUTE_PICKS_DEMO_OUTPUT);
 }
 
 /// [actor-group] An `ActorGroup<Ping>` spanning two virtual nodes: a replica

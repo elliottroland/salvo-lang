@@ -170,4 +170,26 @@ pings.subscribe(spawn Noticing("a") on p)               // "a: + a Ping (local: 
 
 `protocol<E>()` is where a protocol that cannot cross a node boundary is refused: if any `send fn` of `E` carries a `noremote` payload, a group of `E` cannot span nodes, and the compiler says so at that call rather than at the first remote send. The type parameter of `ActorGroup<E>` is only ever an effect, so it costs nothing at runtime — `Addr<E>` is one handle whatever `E` is, and every such generic is erased in the generated code.
 
-`pending(addr)` answers how much a member has in front of it — its mailbox depth if it is local, the in-flight count if it is a proxy — which is what a load-aware picker reads; `node_of(addr)` names the host; and two `Addr<E>` compare with `eq`. Picking a member (`Pick<E>`, with the std `LeastLoaded`, `Sharded` and `Elected` handlers) is the next step of this design and not yet in the library.
+`pending(addr)` answers how much a member has in front of it — its mailbox depth if it is local, the in-flight count if it is a proxy — which is what a load-aware picker reads; `node_of(addr)` names the host; and two `Addr<E>` compare with `eq`.
+
+### Routing: `use route(group)` and `Pick<E>`
+
+A program that wants *a* member rather than the set binds the group as the effect itself. `use route(stock)` binds `any Inventory` — each send goes to whichever member a **policy** picks — and the policy is an ordinary handler bound just before it:
+
+```
+actor effect Inventory {
+    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out
+}
+
+fn checkout(skus: List<Str>) [any Inventory, Console] -> None { … }   // `any`: shards are unordered
+
+let stock = attach(protocol<Inventory>(), nodes)
+join(stock, spawn Stocking("s1") on p)
+use Sharded<Inventory>()          // the policy: the member that owns the key…
+use route(stock)                  // …and the stub, binding `any Inventory`
+checkout(["apple", "pear", "apple"])   // "apple" lands on the same shard both times
+```
+
+`route` is a handler the compiler writes for you: one `of any Inventory` whose every member asks `Pick<Inventory>` which member takes this send and forwards to it. `Pick<E>` is a plain effect — `fn choose(view: ActorGroupView<E>) -> Addr<E>?` — over a **view** of the group: every member the local replica knows, with `pending` and `local` beside each, and the hash of the send's `Key` argument when the protocol marks one. `None` parks the send until the answer changes, so an empty group, a full group and a group without a leader all wait rather than fail. The view is a mirror the replica keeps in the runtime, read on the sender's thread: no hop to the replica, and the replica is never in the send path.
+
+std ships three policies. **`LeastLoaded<E>(prefer_local)`** takes the lightest queue, local members first when asked. **`Sharded<E>()`** takes the member that owns the key — `Key` on a parameter says which argument decides, and is erased from the type, so callers pass a plain value — and two sends for the same key land on the same member in order, a stronger guarantee than `any` claims. **`Elected<E>()`** takes the member on the leader's node, where the leader is whatever `Leader.leader()` answers: a Salvo election, a platform handler over a lease store, or `StaticLeader(node)` for a test. A policy of your own is a handler of `Pick<E>`; a policy that must read the message — scatter, hedge, retry — is a handler `of any E` you write, as in the previous section.

@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1590 tests, complete: the toolchain tests are
+cargo test                  # 1594 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,38 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The network sequence, step ⑦ — `Pick<E>` and the generated `route(group)`
+stub (2026-09-27 — built).** One rule, [route-stub]. The kit in std `net`:
+`ActorView<E>`, `ActorGroupView<E>`, `effect Pick<E> { choose }`, the
+policies `LeastLoaded<E>(prefer_local)`, `Sharded<E>()`, `Elected<E>()
+[Leader]`, `effect Leader`, `StaticLeader(node)`, the `Key` marker, and
+`route_to` — the stub's whole send path, an ordinary std fn that builds the
+view, asks the policy and parks on `None`. The stub itself is **generated
+syntactically** (`salvo_core::route`): a module with `use route(…)` gets a
+`__Route_X(group) [Pick<X>] of any X` per protocol it spells, each member
+forwarding to `route_to`'s answer; the checker turns `use route(g)` into a
+construction of that handler once `g`'s type names `X`, and the emitters
+build it where the program wrote `route`. Three design choices worth the
+record: (1) **the view is the runtime's mirror of the local replica**, not a
+`View<E>` monitor actor — the replica calls `view_set` after every change,
+the stub reads `view_members` on the sender's thread; this avoided a
+spawned mirror depending on a generic effect instance, and is where the
+design note said a runtime snapshot would eventually go anyway; (2) **`Key`
+is erased at lowering** (`is_route_key`): a provenance qualifier a caller
+would otherwise have to establish, read only by the generator, so a call
+passes a plain `Str`; (3) **spans past the end of the file** for every
+synthesized node — unique keys for the checker's tables, and a diagnostic
+that escaped would render clamped to the file's last line. Also this step:
+the replica wears `NodeChanges` and withdraws a departed node's members;
+`effect_only_args` lets a `Pick<Ping>` dependency be captured as an owned
+handle (it erases to `__Mon_Pick`), which the shareable-`use` classification
+and the emitters' fusion layer both needed; `while true` lowers to `loop`.
+**1594 tests** (+4: two CLI analyze tests over the real std — the binding
+and its two refusals, the `Key` and no-stub refusals — and two compile-and-
+run cases per backend: `Sharded` by key, `LeastLoaded` then `Elected` over
+two virtual nodes, identical output). **Found, not fixed**: `get(map, k) ?:
+default` on the Rust backend (ROADMAP.md, open defects).
 
 **The network sequence, step ⑥ — `[any E]` / `of any E` (2026-09-26 —
 built).** One rule, [effect-any]: `any` weakens *identity* as `local`
@@ -18895,6 +18927,28 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A synthesized declaration's spans must be unique *and* must not collide
+  with the file's own** (2026-09-27). The `iter fn` precedent takes fresh
+  one-byte spans *inside* the declaration; a generated handler with real
+  bodies needs more spans than any declaration has bytes, and cloning the
+  effect's member signatures would import spans from *another file* that
+  collide with this file's at the same offsets. Spans past the end of the
+  file solve both: `line_col` clamps, so a diagnostic renders on the last
+  line instead of panicking, and the LSP simply finds nothing there.
+- **Erasure has to reach every place an emitter splits an effect instance
+  into base and arguments** (2026-09-27). `rust_ty` dropped an erased
+  effect's arguments, but the fusion layer never calls it for that: it
+  renders `__Has_Pick<Inventory>`, `dyn Pick<Inventory>`, `Sharded::<Inventory>`
+  from `(base, args)` pairs computed in four other helpers
+  (`ty_effect_parts`, `entry_effect_parts`, `handler_dep_effects`,
+  `named_type_parts`) and the `use` turbofish. Grep for every producer of
+  such a pair when a rendering rule changes; the Kotlin codec path had the
+  same hole (`__Codec_ActorView(__c_E)`).
+- **A test harness that skips the drivers' expansion is testing a different
+  compiler** (2026-09-27). The codegen tests built their `Program` with
+  `parse_module` and no `salvo_core::expand`, so the first `route` case
+  failed with "no route stub" while `salvo run` worked. They now do what
+  `salvo compile` does: `parse_module_deferred` + `expand`.
 - **A `deliver` answers when the frame is handed over, not when it is
   read — so a receiver that prints races the sender's own print**
   (2026-09-27). The step-① mem-transport case printed from the receiving

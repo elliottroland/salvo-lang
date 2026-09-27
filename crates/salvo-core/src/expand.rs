@@ -108,6 +108,18 @@ pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
                 suggested_imports: Vec::new(),
             }));
     }
+    // [route-stub] After the per-module expansions: the stubs read the
+    // program's effect declarations, and a module's `use route(…)` may sit
+    // inside an expanded test body.
+    for (file_idx, d) in crate::route::expand_route_stubs(files, modules) {
+        out.diagnostics.push(FileDiagnostic {
+            file: file_idx,
+            severity: d.severity,
+            message: d.message,
+            span: d.span,
+            suggested_imports: Vec::new(),
+        });
+    }
     out
 }
 

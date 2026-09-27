@@ -1730,3 +1730,234 @@ fn structural_member(s: &StructDecl, member: &str) -> FnDecl {
         span,
     }
 }
+
+// ---------------------------------------------------------------------------
+// A read-only walk over every statement and expression of a module, for the
+// expansions that need to *find* something before they generate ([route-stub]
+// looks for `use route(…)` and for `protocol<X>()`). Blocks nested in
+// expressions are walked too; a declaration's body is walked in item order.
+
+/// Calls `on_stmt` for every statement and `on_expr` for every expression in
+/// `module`, outermost first.
+pub fn walk_module(
+    module: &Module,
+    on_stmt: &mut dyn FnMut(&Stmt),
+    on_expr: &mut dyn FnMut(&Expr),
+) {
+    for item in &module.items {
+        match item {
+            Item::Fn(f) => {
+                if let Some(body) = &f.body {
+                    walk_block_with(body, on_stmt, on_expr);
+                }
+            }
+            Item::Handler(h) => {
+                if let Some(m) = &h.mailbox {
+                    walk_expr_with(m, on_stmt, on_expr);
+                }
+                for field in &h.state {
+                    if let Some(d) = &field.default {
+                        walk_expr_with(d, on_stmt, on_expr);
+                    }
+                }
+                for f in &h.fns {
+                    if let Some(body) = &f.body {
+                        walk_block_with(body, on_stmt, on_expr);
+                    }
+                }
+            }
+            Item::Struct(s) => {
+                for field in &s.fields {
+                    if let Some(d) = &field.default {
+                        walk_expr_with(d, on_stmt, on_expr);
+                    }
+                }
+                for f in &s.fns {
+                    if let Some(body) = &f.body {
+                        walk_block_with(body, on_stmt, on_expr);
+                    }
+                }
+            }
+            Item::Test(t) => walk_block_with(&t.body, on_stmt, on_expr),
+            Item::Import(_)
+            | Item::Type(_)
+            | Item::Qualifier(_)
+            | Item::Effect(_)
+            | Item::Params(_)
+            | Item::Refn(_)
+            | Item::Rename(_) => {}
+        }
+    }
+}
+
+fn walk_block_with(block: &Block, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn FnMut(&Expr)) {
+    for stmt in &block.stmts {
+        on_stmt(stmt);
+        match stmt {
+            Stmt::Let { value, .. } => walk_expr_with(value, on_stmt, on_expr),
+            Stmt::Assign { target, value, .. } => {
+                walk_expr_with(target, on_stmt, on_expr);
+                walk_expr_with(value, on_stmt, on_expr);
+            }
+            Stmt::Use { handler, with_items, .. } => {
+                walk_expr_with(handler, on_stmt, on_expr);
+                for item in with_items {
+                    walk_expr_with(item, on_stmt, on_expr);
+                }
+            }
+            Stmt::Rename(_) => {}
+            Stmt::Expr(expr) => walk_expr_with(expr, on_stmt, on_expr),
+        }
+    }
+}
+
+fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn FnMut(&Expr)) {
+    on_expr(expr);
+    let mut e = |x: &Expr| walk_expr_with(x, on_stmt, on_expr);
+    match expr {
+        Expr::For { iterable, body, else_block, .. } => {
+            walk_expr_with(iterable, on_stmt, on_expr);
+            walk_block_with(body, on_stmt, on_expr);
+            if let Some(b) = else_block {
+                walk_block_with(b, on_stmt, on_expr);
+            }
+        }
+        Expr::Lambda { body, .. } => match body {
+            LambdaBody::Expr(inner) => walk_expr_with(inner, on_stmt, on_expr),
+            LambdaBody::Block(block) => walk_block_with(block, on_stmt, on_expr),
+        },
+        Expr::If { branches, else_block, .. } => {
+            for (cond, block) in branches {
+                walk_expr_with(cond, on_stmt, on_expr);
+                walk_block_with(block, on_stmt, on_expr);
+            }
+            if let Some(b) = else_block {
+                walk_block_with(b, on_stmt, on_expr);
+            }
+        }
+        Expr::WhenCond { branches, else_block, .. } => {
+            for (cond, block) in branches {
+                walk_expr_with(cond, on_stmt, on_expr);
+                walk_block_with(block, on_stmt, on_expr);
+            }
+            walk_block_with(else_block, on_stmt, on_expr);
+        }
+        Expr::When { subject, branches, .. } => {
+            walk_expr_with(subject, on_stmt, on_expr);
+            for branch in branches {
+                walk_block_with(&branch.body, on_stmt, on_expr);
+            }
+        }
+        Expr::While { cond, body, else_block, .. } => {
+            walk_expr_with(cond, on_stmt, on_expr);
+            walk_block_with(body, on_stmt, on_expr);
+            if let Some(b) = else_block {
+                walk_block_with(b, on_stmt, on_expr);
+            }
+        }
+        Expr::Try { body, .. } | Expr::WaitFor { body, .. } => walk_block_with(body, on_stmt, on_expr),
+        Expr::Return { value, .. } | Expr::Break { value, .. } => {
+            if let Some(v) = value {
+                e(v);
+            }
+        }
+        Expr::Elvis { subject, rhs, .. } => {
+            e(subject);
+            e(rhs);
+        }
+        Expr::SafeField { base, inner, .. } => {
+            e(base);
+            e(inner);
+        }
+        Expr::Spawn { handler, with_items, pool, .. } => {
+            e(handler);
+            for h in with_items {
+                e(h);
+            }
+            if let Some(p) = pool {
+                e(p);
+            }
+        }
+        Expr::ReplyTo { captures, .. } => {
+            for c in captures {
+                e(c);
+            }
+        }
+        Expr::Call { callee, args, named, .. } => {
+            e(callee);
+            for a in args {
+                e(a);
+            }
+            for a in named {
+                e(&a.value);
+            }
+        }
+        Expr::Binary { lhs, rhs, .. } => {
+            e(lhs);
+            e(rhs);
+        }
+        Expr::Field { base, .. }
+        | Expr::TupleIndex { base, .. }
+        | Expr::NonNull { operand: base, .. }
+        | Expr::IncDec { operand: base, .. }
+        | Expr::Spread { operand: base, .. }
+        | Expr::Unary { operand: base, .. }
+        | Expr::Widen { subject: base, .. }
+        | Expr::Is { subject: base, .. } => e(base),
+        Expr::Assert { cond, message, .. } => {
+            e(cond);
+            if let Some(m) = message {
+                e(m);
+            }
+        }
+        Expr::Unreachable { message, .. } => {
+            if let Some(m) = message {
+                e(m);
+            }
+        }
+        Expr::Index { base, index, .. } => {
+            e(base);
+            e(index);
+        }
+        Expr::ArrayLit { elems, .. } | Expr::SetLit { elems, .. } | Expr::Tuple { elems, .. } => {
+            for x in elems {
+                e(x);
+            }
+        }
+        Expr::MapLit { entries, .. } => {
+            for (k, v) in entries {
+                e(k);
+                e(v);
+            }
+        }
+        Expr::StructLit { fields, .. } => {
+            for field in fields {
+                match &field.kind {
+                    StructLitFieldKind::Named { value, .. } => e(value),
+                    StructLitFieldKind::Spread(value) => e(value),
+                }
+            }
+        }
+        Expr::Str { parts, .. } => {
+            for part in parts {
+                if let StrExprPart::Interp(inner) = part {
+                    e(inner);
+                }
+            }
+        }
+        Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
+            if let Some(b) = base {
+                e(b);
+            }
+        }
+        Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::Bool { .. }
+        | Expr::Char { .. }
+        | Expr::Ident(_)
+        | Expr::Placeholder { .. }
+        | Expr::Continue { .. }
+        | Expr::SelfScoped { .. }
+        | Expr::Error { .. } => {}
+    }
+}

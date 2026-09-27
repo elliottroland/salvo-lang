@@ -1711,6 +1711,17 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   and its send members run inline under the mutex. No `__Mon_E`/`__Share_E`:
   an actor effect's shareable handle stays the addr. Nothing is emitted for
   an actor effect without a router, so existing output is unchanged.
+* [rs-wire] [route-stub] Runtime: `Sched.views` (group actor → members),
+  `salvo_view_set`, `salvo_view_members` (sorted by `(node, actor)`),
+  `salvo_key_hash` (FNV-1a 64 over the wire bytes), `salvo_park_briefly`
+  (1 ms sleep). Intrinsics: `view_set`, `view_members`, `key_hash` (over
+  `salvo_encode`), `park_briefly`. `use route(g)` emits the construction of
+  the checker's `route_stubs[site]` handler exactly as a written `use
+  __Route_E(g)` would. The fusion layer renders an erased effect's traits
+  without arguments everywhere an instance is split into base and args
+  (`ty_effect_parts`, `entry_effect_parts`, `handler_dep_effects`,
+  `named_type_parts`, the `use` turbofish) — `__Has_Pick`, `dyn Pick`,
+  `Sharded::new()`. `while true` lowers to `loop`.
 * [rs-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `trait` is emitted as any effect's, and the `use` site
   constructs the host struct as `crate::platform_<M>::H::new(args)` — `M`

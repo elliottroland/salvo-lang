@@ -4803,6 +4803,11 @@ impl<'p> Emitter<'p> {
             .collect();
         refs.iter()
             .map(|r| {
+                // [effect-generic-decl] An erased effect's instance is
+                // monomorphic in the output.
+                if self.erased.is_erased(&r.name.name) {
+                    return (r.name.name.clone(), Vec::new());
+                }
                 let args: Vec<String> = r.args.iter().map(|a| self.emit_type(a)).collect();
                 (r.name.name.clone(), args)
             })
@@ -4813,6 +4818,9 @@ impl<'p> Emitter<'p> {
     /// (`Random<Int>` -> `("Random", ["i32"])`).
     fn named_type_parts(&mut self, ty: &Type) -> Option<(String, Vec<String>)> {
         match ty {
+            Type::Named { base, .. } if self.erased.is_erased(&base.name.name) => {
+                Some((base.name.name.clone(), Vec::new()))
+            }
             Type::Named { base, .. } => {
                 let name = base.name.name.clone();
                 let args: Vec<Type> = base.args.clone();
@@ -9813,6 +9821,14 @@ impl<'p> Emitter<'p> {
                 return String::new();
             }
         };
+        // [route-stub] `use route(group)` constructs the generated stub the
+        // checker chose for the group's protocol.
+        let handler_name = self
+            .checked
+            .route_stubs
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or(handler_name);
         let Some(decl) = self.symbols.handlers.get(handler_name.as_str()) else {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
@@ -9873,6 +9889,8 @@ impl<'p> Emitter<'p> {
         // type: with no argument to infer from, rustc needs the turbofish
         // (`E0283` otherwise).
         let turbofish = match self.checked.use_handler_args.get(&(self.file_idx, span)) {
+            // [effect-generic-decl] An erased handler is monomorphic.
+            _ if self.erased.handlers.contains(&handler_name) => String::new(),
             Some(args) if args.iter().all(ty_is_concrete) => {
                 let args = args.clone();
                 let rendered: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
@@ -10314,12 +10332,7 @@ impl<'p> Emitter<'p> {
         let mut new_effects: Vec<(String, Vec<String>)> = Vec::new();
         for (i, (checked_ty, _)) in faces.iter().enumerate() {
             let parts = match checked_ty {
-                Some(Ty::Named { name, args }) => {
-                    let name = name.clone();
-                    let args = args.clone();
-                    let rendered: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
-                    Some((name, rendered))
-                }
+                Some(ty @ Ty::Named { .. }) => Some(self.ty_effect_parts(ty)),
                 _ => decl
                     .and_then(|d| d.of.get(i).cloned())
                     .and_then(|of| self.named_type_parts(&of)),
@@ -10606,6 +10619,11 @@ impl<'p> Emitter<'p> {
     fn entry_effect_parts(&mut self, entry: &EffectEntry) -> (String, Vec<String>) {
         if let Some(Ty::Named { name, args }) = &entry.ty {
             let name = name.clone();
+            // [effect-generic-decl] An erased effect is monomorphic: no
+            // arguments on its traits, whatever instance the checker saw.
+            if self.erased.is_erased(&name) {
+                return (name, Vec::new());
+            }
             let args = args.clone();
             let rendered: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
             return (name, rendered);
@@ -10673,6 +10691,11 @@ impl<'p> Emitter<'p> {
                             "{inner_pad}if !({}) {{\n{inner_pad}    break;\n{inner_pad}}}\n",
                             cond_code(c)
                         ));
+                    }
+                    // `while true` is a `loop`: the same thing, without the
+                    // `while_true` lint.
+                    None if matches!(cond.as_ref(), Expr::Bool { value: true, .. }) => {
+                        out.push_str(&format!("{pad}loop {{\n"));
                     }
                     None => {
                         let c = self.emit_expr(cond);
@@ -16335,6 +16358,30 @@ impl<'p> Emitter<'p> {
                     let a = self.emit_read(args[0]);
                     return format!("(crate::scheduler::salvo_addr_identity(({a}).clone()).node as i64)");
                 }
+                // [route-stub] The view mirror and the stub's primitives.
+                "view_set" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    let g = self.emit_read(args[0]);
+                    let m = self.emit_read(args[1]);
+                    return format!("crate::scheduler::salvo_view_set(({g}).clone(), &{m})");
+                }
+                "view_members" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let g = self.emit_read(args[0]);
+                    return format!("crate::scheduler::salvo_view_members(({g}).clone())");
+                }
+                "key_hash" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let k = self.emit_read(args[0]);
+                    return format!(
+                        "crate::scheduler::salvo_key_hash(&crate::wire::salvo_encode(&{k}))"
+                    );
+                }
+                "park_briefly" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "crate::scheduler::salvo_park_briefly()".to_string();
+                }
                 "route_frames" if args.len() == 1 => {
                     self.needs_scheduler = true;
                     self.needs_wire = true;
@@ -18177,6 +18224,8 @@ impl<'p> Emitter<'p> {
     /// The effect base name and rendered type arguments of a checker `Ty`.
     fn ty_effect_parts(&mut self, ty: &Ty) -> (String, Vec<String>) {
         match ty {
+            // [effect-generic-decl] Erased: monomorphic, whatever the instance.
+            Ty::Named { name, .. } if self.erased.is_erased(name) => (name.clone(), Vec::new()),
             Ty::Named { name, args } => {
                 let name = name.clone();
                 let args = args.clone();
