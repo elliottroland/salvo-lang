@@ -1736,8 +1736,10 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   `salvo_send(__a, Box::new(__Priv_H::Init))` right after `salvo_spawn` and
   before the addr is answered. A `use` of an independent handler wraps the
   construction in `{ let mut __h = H::new(…); __h.init(); __h }`; a dependent
-  handler's `init` under a `use` is a codegen error for now — it takes the
-  fused value, which the fusion struct only holds after construction.
+  handler's `init` runs right after the fusion struct is built, with the
+  forwarding impl's own shape — `let __Fx { __outer, __h } = &mut __fx; let
+  mut __deps = __Deps_H { __p: &mut **__outer }; __Impl_H::init(__h, &mut
+  __deps)` — since its `init` takes the fused value like every other member.
   `self@Face` lowers to `self.__addr.expect(…)`; the `watch_peers` and
   `publish_group` intrinsics build `__Priv_{current handler}` variants, since
   the events they register for arrive as the mechanism's own private members.

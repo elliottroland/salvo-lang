@@ -10289,15 +10289,17 @@ impl<'p> Emitter<'p> {
         // until the fusion struct holds the instance — reported rather than
         // emitted wrong [backend-never-wrong].
         if decl.init.is_some() {
-            if self.handler_dep_effects(decl).is_empty() {
+            if self.handler_dep_effects(decl).is_empty() || self.handler_is_handle_dep(decl) {
                 ctor = format!("{{ let mut __h = {ctor}; __h.init(); __h }}");
-            } else {
+            } else if !self.fusion {
                 self.error(format!(
                     "handler `{handler_name}` has an `init` block and declares effect \
-                     dependencies, and the rust backend cannot run its `init` under a `use` \
-                     yet — spawn it, or drop the dependencies"
+                     dependencies, which the rust backend runs under a `use` only in \
+                     fusion mode"
                 ));
             }
+            // A dependent handler's `init` runs after the fusion struct
+            // holds the instance (`emit_fusion_inner`).
         }
         // [rs-monitor] A monitor binding wraps in the per-effect lock
         // adapter. [rs-platform-handler] [threadsafe-platform] A platform
@@ -10853,6 +10855,7 @@ impl<'p> Emitter<'p> {
             Some(expr) => expr.clone(),
             None => format!("{ctor_path}{turbofish}::new({})", arg_code.join(", ")),
         };
+        let has_outer = provider.is_some();
         let fields = match provider {
             Some(p) => format!("__outer: {p}, __h: {held}"),
             None => format!("__h: {held}"),
@@ -10860,6 +10863,20 @@ impl<'p> Emitter<'p> {
         out.push_str(&format!(
             "{pad}let mut {var} = {struct_name} {{ {fields} }};\n"
         ));
+        // [handler-init] A dependent handler's `init` under a `use`: the
+        // fused value exists now, so the call is the forwarding impl's own
+        // shape — the two fields borrowed apart, the deps view over
+        // `__outer`, the `__Impl_H` member on `__h`.
+        if let Some(d) = decl {
+            if d.init.is_some() && !deps.is_empty() && has_outer {
+                let handler_ident = rs_ident(handler_name);
+                out.push_str(&format!(
+                    "{pad}{{ let {struct_name} {{ __outer, __h }} = &mut {var}; \
+                     let mut __deps = __Deps_{handler_ident} {{ __p: &mut **__outer }}; \
+                     __Impl_{handler_ident}::init(__h, &mut __deps); }}\n"
+                ));
+            }
+        }
         // Every effect in scope now threads through the new fusion.
         for entry in self.effect_env.iter_mut() {
             entry.var = var.clone();

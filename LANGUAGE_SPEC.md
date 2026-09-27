@@ -4495,8 +4495,8 @@ docs/language/ remains the source of truth for everything that does.
     enqueues it before handing back the address, so no message anyone sends
     afterwards can overtake it, and the address is already written when it
     runs. **`use`-bound**, it runs inline right after construction, on the
-    caller's thread (the Rust backend cannot yet run a *dependent* handler's
-    `init` under a `use`, and says so [rs-actor]).
+    caller's thread — a dependent handler's after the fused value that
+    carries its dependencies exists [rs-actor].
   * **`self@Face`** is the enclosing handler's own address as one of its
     actor faces, an `Addr<Face>` — legal in `init` and in send members,
     refused outside a handler, for a face the handler lacks, and for a plain

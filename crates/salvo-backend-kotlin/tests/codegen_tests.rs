@@ -9664,6 +9664,15 @@ handler Greeting(name: Str) of Greeter {
     fn greet() -> Str { return "${prefix}${name}" }
 }
 
+effect Clock { fn now() -> Int }
+handler FixedClock(t: Int) of Clock { fn now() -> Int { return copy(t) } }
+// A dependent handler's `init` under a `use`: the dependency is readable.
+handler Stamped(who: Str) [Clock] of Greeter {
+    started_at: Int = 0
+    init { started_at = now() }
+    fn greet() -> Str { return "hello ${who} since ${started_at}" }
+}
+
 fn main() [use, spawn] {
     use StdOutConsole()
     let p = pool(2)
@@ -9675,12 +9684,15 @@ fn main() [use, spawn] {
     println("registered: ${waitfor out: Reply<Int> { reg.count(out) }}")
     use Greeting("world")
     println(greet())
+    use FixedClock(42)
+    use Stamped("x")
+    println(greet())
 }
 "#;
 
 fn kotlinc_compiles_and_runs_handler_init() -> KotlinCase {
     let files = generate_files(&[("main.sv", HANDLER_INIT_DEMO)]);
-    kotlin_case(files, "handler-init", "a (started 1)\nb (started 1)\nregistered: 2\nhello, world\n")
+    kotlin_case(files, "handler-init", "a (started 1)\nb (started 1)\nregistered: 2\nhello, world\nhello x since 42\n")
 }
 
 /// The Rust backend's `ANY_ROUTER_DEMO`, verbatim [effect-any].

@@ -255,10 +255,10 @@ StaticNodeGroup("demo", all) on p`, one addr. The `watch_peers`/
 the events arrive as its own members. One thing stayed where it was: the
 opener, not the replica's `init`, subscribes the replica to the node group —
 sent by the replica it is a `NodeChanges → NodeGroup → NodeChanges` cycle the
-deadlock graph rightly reports, since the node group answers `joined`. The
-Rust backend cannot yet run a *dependent* handler's `init` under a `use`
-(the fused value exists only after the fusion struct holds the instance) and
-says so; spawns are unaffected. **1624 tests** (+3: `init` and `self@Face` in
+deadlock graph rightly reports, since the node group answers `joined`. A
+dependent handler's `init` under a `use` on the Rust backend runs once the
+fusion struct holds the instance, with the forwarding impl's disjoint-field
+borrow (fixed the same evening, after a first cut reported it). **1624 tests** (+3: `init` and `self@Face` in
 the parser, the checker's five refusals, a compile-and-run case per backend
 with a self-registering actor and a plain handler's constructor body). The
 cluster example's output is unchanged.
