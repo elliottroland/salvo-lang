@@ -273,8 +273,15 @@ fun<__Fx> connect__2(__fx: __Fx, me: NodeEndpoint, on: Int): Boolean where __Fx 
     if (salvo.SalvoSched.connected()) {
         return false
     }
-    run { val __out = run { val __h = Sending(__Fx_1(__fx.__fx_Transport)); salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE) }; salvo.SalvoSched.setWire { __ep, __frame -> val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint); if (__to != null) salvo.SalvoSched.sendWire(__out, __Msg_Outbound.SendFrame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec___Msg_Outbound) } }
-    val _listening = __fx.__fx_Transport.listen(me, run { val __h = Receiving(); salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE) })
+    return connect__3(__fx, me, run { val __h = Sending(__Fx_1(__fx.__fx_Transport)); salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE) }, run { val __h = Receiving(); salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE) })
+}
+
+fun<__Fx> connect__3(__fx: __Fx, me: NodeEndpoint, sending: Int, receiving: Int): Boolean where __Fx : __Has_Transport {
+    if (salvo.SalvoSched.connected()) {
+        return false
+    }
+    run { val __out = sending; salvo.SalvoSched.setWire { __ep, __frame -> val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint); if (__to != null) salvo.SalvoSched.sendWire(__out, __Msg_Outbound.SendFrame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec___Msg_Outbound) } }
+    val _listening = __fx.__fx_Transport.listen(me, receiving)
     salvo.SalvoSched.addRoute((NodeId(salvo.SalvoSched.hereNode())).id, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
     return true
 }
@@ -435,7 +442,7 @@ class StaticNodeGroup<__Fx>(private val name: String, private val all: List<Node
     internal val __parked: MutableMap<Long, __Cont_StaticNodeGroup> = mutableMapOf()
 
     override fun join(events: Int) {
-        (if (!(salvo.SalvoSched.connected())) throw AssertionError(("salvo: " + ("a node group starts on a connected node: call connect(me) first") + " at net:338:9")) else Unit)
+        (if (!(salvo.SalvoSched.connected())) throw AssertionError(("salvo: " + ("a node group starts on a connected node: call connect(me) first") + " at net:403:9")) else Unit)
         val me = __fx.__fx_Transport.local_endpoint()
         salvo.SalvoSched.setGroup(name, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
         salvo.SalvoSched.watchPeers(events, { __n, __ep, __t -> __Msg_PeerEvents.Hello(NodeId(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint)!!, __t) }, { __n -> __Msg_PeerEvents.Gone(NodeId(__n)) }, { __ps -> __Msg_PeerEvents.Introduced(__ps.mapNotNull { salvo.salvoDecode(salvo.SalvoBytes(it), __Codec_NodeEndpoint) }) })
@@ -573,7 +580,7 @@ class GossipNodeGroup<__Fx>(private val name: String, private val seeds: List<No
     internal val __parked: MutableMap<Long, __Cont_GossipNodeGroup> = mutableMapOf()
 
     override fun join(events: Int) {
-        (if (!(salvo.SalvoSched.connected())) throw AssertionError(("salvo: " + ("a node group starts on a connected node: call connect(me) first") + " at net:412:9")) else Unit)
+        (if (!(salvo.SalvoSched.connected())) throw AssertionError(("salvo: " + ("a node group starts on a connected node: call connect(me) first") + " at net:477:9")) else Unit)
         val me = __fx.__fx_Transport.local_endpoint()
         salvo.SalvoSched.setGroup(name, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
         salvo.SalvoSched.watchPeers(events, { __n, __ep, __t -> __Msg_PeerEvents.Hello(NodeId(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint)!!, __t) }, { __n -> __Msg_PeerEvents.Gone(NodeId(__n)) }, { __ps -> __Msg_PeerEvents.Introduced(__ps.mapNotNull { salvo.salvoDecode(salvo.SalvoBytes(it), __Codec_NodeEndpoint) }) })

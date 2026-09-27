@@ -923,9 +923,7 @@ class Booting<__Fx>(private val at: NodeEndpoint, private val all: List<NodeEndp
 
     override fun boot(done: salvo.SalvoReply) {
         val p = salvo.SalvoSched.pool(1)
-        run { val __out = run { val __h = Sending(__Fx_6(MemTransport(at, net))); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE) }; salvo.SalvoSched.setWire { __ep, __frame -> val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint); if (__to != null) salvo.SalvoSched.sendWire(__out, __Msg_Outbound.SendFrame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec___Msg_Outbound) } }
-        val _listening = __fx.__fx_Transport.listen(at, run { val __h = Receiving(); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE) })
-        salvo.SalvoSched.addRoute((NodeId(salvo.SalvoSched.hereNode())).id, salvo.salvoEncode(at, __Codec_NodeEndpoint).toByteArray())
+        val _connected = connect__3(__fx, at, run { val __h = Sending(__Fx_6(MemTransport(at, net))); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE) }, run { val __h = Receiving(); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE) })
         val group = node_group(run { val __h = StaticNodeGroup("cluster", all, __Fx_6(MemTransport(at, net))); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); Pair(__a, __a) })
         nodes = group
         val seq = attach__2(Protocol("Sequencer", salvo.main.__PROTO_Sequencer), group)

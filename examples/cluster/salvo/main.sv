@@ -263,12 +263,10 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
         let p = pool(1)
         // A real second node is a second process whose `main` calls
         // `connect(me)`. This in-process double runs on another pool of the
-        // same process, from an actor's member, where the transport it
-        // depends on cannot be handed to a spawn yet (Rust backend), so the
-        // three bindings `connect` makes are written out with `with`.
-        route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
-        let _listening = listen(copy(at), spawn Receiving() on p)
-        add_route(this_node(), copy(at))
+        // same process, from an actor's member, where the transport it depends
+        // on cannot be inherited by a spawn yet (Rust backend) — so the two
+        // wire actors are spawned here `with` it and handed to `connect`.
+        let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
         let group = node_group(spawn StaticNodeGroup("cluster", copy(all)) with MemTransport(copy(at), copy(net)) on p)
         nodes = copy(group)
 

@@ -477,8 +477,15 @@ pub fn connect__2<__Fx: __Has_Transport>(__fx: &mut __Fx, __hs: &__Hs_transport,
     if crate::scheduler::salvo_connected() {
         return false;
     }
-    { let __out = ({ let __h = Sending::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Sending::new(__h, __Prov_Sending { __d0: __hs.transport.clone() })), __DECODE_Sending) }); crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| { if let Some(__to) = crate::wire::salvo_decode::<NodeEndpoint>(__ep) { crate::scheduler::salvo_send_wire(__out, crate::net::__Msg_Outbound::SendFrame(__to, __frame), crate::net::__PROTO_Outbound); } })) };
-    let mut _listening = __Has_Transport::__get_Transport(&mut *__fx).listen(&(me.clone()), ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving) }));
+    return connect__3(&mut *__fx, me, ({ let __h = Sending::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Sending::new(__h, __Prov_Sending { __d0: __hs.transport.clone() })), __DECODE_Sending) }), ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving) }));
+}
+
+pub fn connect__3<__Fx: __Has_Transport>(__fx: &mut __Fx, me: NodeEndpoint, sending: usize, receiving: usize) -> bool {
+    if crate::scheduler::salvo_connected() {
+        return false;
+    }
+    { let __out = sending; crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| { if let Some(__to) = crate::wire::salvo_decode::<NodeEndpoint>(__ep) { crate::scheduler::salvo_send_wire(__out, crate::net::__Msg_Outbound::SendFrame(__to, __frame), crate::net::__PROTO_Outbound); } })) };
+    let mut _listening = __Has_Transport::__get_Transport(&mut *__fx).listen(&(me.clone()), receiving);
     crate::scheduler::salvo_add_route((NodeId { id: crate::scheduler::salvo_here_node() as i64 }).id as u64, crate::wire::salvo_encode(&me));
     return true;
 }
@@ -766,7 +773,7 @@ pub trait __Impl_StaticNodeGroup {
 impl __Impl_StaticNodeGroup for StaticNodeGroup {
 
     fn join<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, events: usize) {
-        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:338:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
+        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:403:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
         let mut me = __Has_Transport::__get_Transport(&mut *__fx).local_endpoint();
         crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
         crate::scheduler::salvo_watch_peers((events).clone(), |__n, __ep, __t| Box::new(crate::net::__Msg_PeerEvents::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(crate::net::__Msg_PeerEvents::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(crate::net::__Msg_PeerEvents::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));
@@ -982,7 +989,7 @@ pub trait __Impl_GossipNodeGroup {
 impl __Impl_GossipNodeGroup for GossipNodeGroup {
 
     fn join<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, events: usize) {
-        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:412:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
+        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:477:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
         let mut me = __Has_Transport::__get_Transport(&mut *__fx).local_endpoint();
         crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
         crate::scheduler::salvo_watch_peers((events).clone(), |__n, __ep, __t| Box::new(crate::net::__Msg_PeerEvents::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(crate::net::__Msg_PeerEvents::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(crate::net::__Msg_PeerEvents::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));

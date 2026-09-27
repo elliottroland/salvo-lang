@@ -9275,9 +9275,7 @@ handler Counting() of Counter {
 // spawned on another node's pool, it sets up that node.
 fn bring_up(at: NodeEndpoint, net: Addr<MemNet>) [Transport, spawn] -> None => at, net {
     let p = pool(1)                         // inherits this node
-    route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
-    listen(copy(at), spawn Receiving() on p)
-    add_route(this_node(), copy(at))
+    let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
 }
 
 actor effect Boot {
@@ -9357,9 +9355,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>, go
     mailbox { capacity: 1 }
     send fn boot(done: Reply<Addr<NodeGroup>>) => !done {
         let p = pool(1)
-        route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
-        listen(copy(at), spawn Receiving() on p)
-        add_route(this_node(), copy(at))
+        let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
         if gossip {
             let group = node_group(spawn GossipNodeGroup("mesh", copy(all)) with MemTransport(copy(at), copy(net)) on p)
             done.send(group)
@@ -9710,9 +9706,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
     mailbox { capacity: 1 }
     send fn boot(done: Reply<Addr<Sequencer>>) => !done {
         let p = pool(1)
-        route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
-        listen(copy(at), spawn Receiving() on p)
-        add_route(this_node(), copy(at))
+        let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
         let nodes = node_group(spawn StaticNodeGroup("ids", copy(all)) with MemTransport(copy(at), copy(net)) on p)
         let seq = attach(protocol<Sequencer>(), nodes)
         let mine = spawn Sequencing("b") on p
@@ -9791,9 +9785,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
     mailbox { capacity: 1 }
     send fn boot(done: Reply<Addr<ActorGroup<Ping>>>) => !done {
         let p = pool(1)
-        route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
-        listen(copy(at), spawn Receiving() on p)
-        add_route(this_node(), copy(at))
+        let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
         let nodes = node_group(spawn StaticNodeGroup("demo", copy(all)) with MemTransport(copy(at), copy(net)) on p)
         let pings = attach(protocol<Ping>(), nodes)
         join(pings, spawn Pinging("b") on p)

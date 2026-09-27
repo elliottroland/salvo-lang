@@ -5553,12 +5553,26 @@ between endpoints and delivers what arrives into the scheduler.
     two actors (default `pool(1)`). It is **idempotent**: `connected()` answers
     whether the current node's outbound side is bound, and `connect` answers
     whether *this call* did the binding (`false` when it was already
-    connected — nothing is rebound, nothing spawned). The three intrinsics
-    underneath are private to `net`. A node group's mechanism does not
-    connect for you: an actor member cannot hand the transport it depends on
-    to a spawn on the Rust backend yet [rs-handle-bundle], so the in-process
-    double's second node writes the three bindings out with `with`; it
-    refuses to start unconnected instead.
+    connected — nothing is rebound, nothing spawned). A third overload,
+    `connect(me, sending: Addr<Outbound>, receiving: Addr<Inbound>)`, takes
+    the two wire actors already spawned — for a node brought up from inside
+    another actor, where the transport cannot be inherited by a spawn on the
+    Rust backend yet [rs-handle-bundle] (the in-process double's second node
+    spawns them `with` its transport). A node group's mechanism does not
+    connect for you, for the same reason; it refuses to start unconnected.
+  * **`net`'s public surface is the layers a program touches** (2026-09-27):
+    the transport effects and handlers, `encode`/`decode`/`protocol`,
+    `NodeId`/`this_node`/`new_node`/`pool_at`/`node_of`, `connect`/
+    `connected`, the readers `credits`/`pending`/`peer_protocol`, the groups
+    and their fns, the pick kit — plus `route_to` and `key_hash`, exported
+    because the generated `route` stubs call them from the program's module.
+    The runtime's own bindings (`add_route`, `route_frames`, `deliver_frame`),
+    the handshake frames (`set_group`, `watch_peers`, `introduce`,
+    `hello_frame`, `leave_group`), the replica's (`publish_group`,
+    `share_members`), the view mirror (`view_set`, `view_members`,
+    `park_briefly`) and `protocol_name`/`protocol_hash` are **private to
+    `net`** [mod-export]; each carries a comment saying what it does and where
+    it sits.
   * **Replies arriving over the wire are decoded by whoever knows the
     answer's type**: an actor's generated `decode_reply` (off its parked
     continuation, when the activation runs), a waiter's decoder registered by

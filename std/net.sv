@@ -1,22 +1,51 @@
-// `net`: the wire under actors across machines — step ① of the network
-// sequence (ROADMAP.md section 2; user decisions 2026-09-26). Rules:
-// [net-transport] (the effect and `Inbound`), [net-host] (`HostTcpTransport`),
-// [net-mem] (`MemNet`/`MemNetwork`/`MemTransport`), [wire-format] and
-// [noremote] (`encode`/`decode`; the encoding itself is fixed in salvo-core's
-// `wire.rs` and implemented in each backend's `wire` runtime), [addr-routable]
-// [addr-capability] [remote-backpressure] (the routing surface: `this_node`,
-// `new_node`, `pool_at`, `add_route`, `route_frames`, `deliver_frame`,
-// `credits`, `Outbound`/`Sending`, `Receiving`).
+// `net`: actors across machines.
 //
-// The design's one-line shape is that **the network enters at the actor
-// group, never at the spawn**: every actor is spawned by the node that hosts
-// it, and what crosses the wire is addresses and messages. This module is the
-// bottom of that stack and knows nothing about groups, nodes or protocols. It
-// moves **frames** — opaque `Bytes` — between **endpoints**, and delivers what
-// arrives into the scheduler as an ordinary message. Everything above it
-// (`NodeGroup`, `ActorGroup<E>`, the codecs) is Salvo written over this.
+// The design has one line: **the network enters at the actor group, never at
+// the spawn.** Every actor is spawned by the node that hosts it; what crosses
+// the wire is addresses and messages, never construction; and a function
+// declaring `[E]` never learns whether `E` is one local handler, an actor on
+// another machine, or a group of a hundred across a fleet.
 //
-// Two halves, deliberately asymmetric:
+// This module is that stack, bottom up. Each layer is ordinary Salvo over the
+// one below, and a program touches only the top three:
+//
+//   1. **The transport** — `Transport` (outbound: `deliver`, `listen`) and
+//      `Inbound` (arriving frames as messages). Bytes between endpoints, at
+//      most once and in order per pair, nothing more. `HostTcpTransport` is
+//      the machine's, the one piece the platform owns; `MemTransport` over a
+//      `MemNetwork` runs any number of virtual nodes in one process.
+//   2. **The wire format** — `encode`/`decode`, the canonical encoding every
+//      type has unless declared `noremote`, and the per-protocol hash two
+//      nodes compare before they speak. Fixed in the compiler, identical on
+//      both backends, so a Kotlin node and a Rust node are peers.
+//   3. **Routing** — an `Addr<E>` that crosses the wire arrives as a proxy
+//      with the same `send`; replies come back over the wire; a mailbox's
+//      `capacity` holds across machines through credits. `NodeId` names a
+//      node; `this_node`, `new_node`, `pool_at` host virtual nodes.
+//      `connect(me)` is the one call that binds the scheduler to the
+//      transport — its outbound actor, its inbound actor, its own route.
+//      Everything the runtime needs underneath (`add_route`, `route_frames`,
+//      `deliver_frame`, the handshake frames) is private to this file: a
+//      program never calls it, and the comments on each say what it does.
+//   4. **Node groups** — `NodeGroup`, the membership of *machines*: a
+//      mechanism (`StaticNodeGroup`, `GossipNodeGroup`) started with
+//      `node_group(...)` on a connected node, answering `members` and
+//      `NodeChanges`. The handshake (group name, endpoint, protocol table)
+//      is the runtime's and common to every mechanism.
+//   5. **Actor groups** — `ActorGroup<E>`, the membership of *actors* of one
+//      protocol across those nodes: `actor_group<E>(nodes)` starts this
+//      node's replica and publishes it by name, `spawn H() on p in group`
+//      joins a member, `members`/`subscribe` read the set. `[any E]` is the
+//      claim a function makes when any member will do.
+//   6. **Picks** — `use route(group)` binds `any E` to whichever member a
+//      `Pick<E>` policy chooses per send: `LeastLoaded`, `Sharded` by a
+//      `Key`-marked argument, `Elected` behind a `Leader`.
+//
+// Rules: [net-transport] [net-host] [net-mem] [wire-format] [noremote]
+// [protocol-hash] [addr-routable] [addr-capability] [remote-backpressure]
+// [net-connect] [node-group] [actor-group] [effect-any] [route-stub].
+//
+// Two halves of the transport, deliberately asymmetric:
 //
 // * **Outbound** is a plain effect, [Transport]: `deliver(to, frame)` is a
 //   call the sender makes on its own thread, and it answers whether the frame
@@ -26,15 +55,13 @@
 //   enters the scheduler is a send. So a node that wants to receive spawns an
 //   actor serving `Inbound` and registers its addr with `listen`; the
 //   transport sends every arriving frame to it. That is the same host→runtime
-//   upcall the timer makes when a deadline fires [time-timer], and it needs
-//   nothing the language does not already have: the host holds an
-//   `Addr<Inbound>` and calls the generated forwarding stub on it.
+//   upcall the timer makes when a deadline fires [time-timer].
 //
-// The platform owns the transport only (user decision 2026-09-26, N-4):
-// [HostTcpTransport] is the host class, declared `threadsafe` because a
-// transport is called from every pool [threadsafe-platform]; [MemTransport] is
-// the pure-Salvo double every later step of the sequence tests on — N virtual
-// endpoints in one process, with the faults a test wants to script.
+// The platform owns the transport only: [HostTcpTransport] is the host
+// class, declared `threadsafe` because a transport is called from every pool
+// [threadsafe-platform]; [MemTransport] is the pure-Salvo double every test
+// runs on — N virtual endpoints in one process, with the faults a test wants
+// to script.
 
 import time.Duration
 
@@ -149,19 +176,33 @@ export intrinsic fn new_node() [spawn] -> NodeId
 // [addr-routable] A pool of [size] workers belonging to [node].
 export intrinsic fn pool_at(node: NodeId, size: Int) [spawn] -> Pool => node, size
 
-// [addr-routable] Where frames for [node] go. Learnt in the handshake by a
-// `NodeGroup` (step ④); until a node has a route its frames wait.
-export intrinsic fn add_route(node: NodeId, at: NodeEndpoint) [] -> None => node, at
+// ---- the runtime's side of the wire (private: `connect` is the program's call)
+//
+// The scheduler does not know how bytes move. It keeps a **routing table**
+// (node → endpoint), and when it has a frame for another node — a message to
+// a proxy, a reply, a credit, a handshake — it looks the node up and hands
+// (endpoint, frame) to whatever the node bound as its **outbound**. When the
+// transport delivers a frame that arrived, the **inbound** side hands the
+// bytes back and the runtime finds the actor, waiter or proxy they are for.
+// These three intrinsics are those bindings; `connect` makes all of them.
+
+// [addr-routable] Records where frames for [node] go. The self-route is
+// written by `connect`; routes to peers are learnt in the node group's
+// handshake. A frame for a node with no route yet waits until one arrives.
+intrinsic fn add_route(node: NodeId, at: NodeEndpoint) [] -> None => node, at
 
 // [addr-routable] Binds the current node's outbound side: every frame the
-// runtime sends is delivered to [out], which puts it on the wire.
-export intrinsic fn route_frames(out: Addr<Outbound>) [] -> None => !out
+// runtime wants sent is queued to [out], whose activation calls
+// `Transport.deliver` — with the scheduler's lock released, which is why it
+// is an actor and not a direct call.
+intrinsic fn route_frames(out: Addr<Outbound>) [] -> None => !out
 
 // [addr-routable] Hands one frame that arrived on the wire to the runtime:
 // a message into an actor's mailbox, a reply to its waiter, a credit to a
-// proxy. Answers whether it was delivered; a frame for an unknown target, with
-// mismatched bits or a malformed payload is dropped, never delivered wrong.
-export intrinsic fn deliver_frame(data: Bytes) [] -> Bool => data
+// proxy, a handshake to the node group. Answers whether it was delivered; a
+// frame for an unknown target, with mismatched bits or a malformed payload is
+// dropped, never delivered wrong.
+intrinsic fn deliver_frame(data: Bytes) [] -> Bool => data
 
 // [remote-backpressure] For an addr that crossed the wire, how many more
 // messages its mailbox has granted room for; `None` for a local actor. What a
@@ -234,8 +275,20 @@ export fn connect(me: NodeEndpoint, on: Pool) [Transport, spawn] -> Bool => !me,
     if connected() {
         return false
     }
-    route_frames(spawn Sending() on on)
-    let _listening = listen(copy(me), spawn Receiving() on on)
+    return connect(me, spawn Sending() on on, spawn Receiving() on on)
+}
+
+// [net-connect] The same three bindings over actors the caller spawned — for
+// a node brought up from inside another actor, where the transport cannot be
+// inherited by a spawn on the Rust backend yet [rs-handle-bundle], so the
+// caller spawns `Sending()`/`Receiving()` itself, `with` the transport.
+export fn connect(me: NodeEndpoint, sending: Addr<Outbound>, receiving: Addr<Inbound>) [Transport] -> Bool
+    => !me, !sending, !receiving {
+    if connected() {
+        return false
+    }
+    route_frames(sending)
+    let _listening = listen(copy(me), receiving)
     add_route(this_node(), me)
     return true
 }
@@ -289,24 +342,36 @@ export actor effect PeerEvents {
     send fn introduced(peers: List<NodeEndpoint>) => !peers
 }
 
+// ---- the handshake (private: a mechanism's tools)
+//
+// Two nodes meet by exchanging HELLO frames: each carries the group's name,
+// the sender's endpoint and its **protocol table** (every actor effect with a
+// wire form, and its hash). The runtime answers a HELLO with an ACK, records
+// the peer's route and table, and tells the node group's mechanism through
+// the `PeerEvents` face it registered. A LEAVE announces departure and kills
+// every proxy of an actor on that node; an INTRO carries endpoints one node
+// tells another about, which is how gossip converges on a full mesh. A
+// mechanism composes these; the frames themselves are the runtime's.
+
 // [node-group] The current node joins group [name], answering at [at]: what
 // its HELLO carries and what a peer's HELLO is checked against — two nodes in
 // groups of different names refuse each other by name at the handshake.
-export intrinsic fn set_group(name: Str, at: NodeEndpoint) [] -> None => name, at
+intrinsic fn set_group(name: Str, at: NodeEndpoint) [] -> None => name, at
 
-// [node-group] Where the current node's peer events go.
-export intrinsic fn watch_peers(sink: Addr<PeerEvents>) [] -> None => !sink
+// [node-group] Where the current node's peer events go: `hello`, `gone` and
+// `introduced` arrive at [sink] as messages.
+intrinsic fn watch_peers(sink: Addr<PeerEvents>) [] -> None => !sink
 
 // [node-group] Tells peer [node] about [peers]: an INTRO frame, which arrives
 // there as `PeerEvents.introduced`.
-export intrinsic fn introduce(node: NodeId, peers: List<NodeEndpoint>) [] -> None => node, peers
+intrinsic fn introduce(node: NodeId, peers: List<NodeEndpoint>) [] -> None => node, peers
 
 // [node-group] The current node's HELLO frame, to be handed to the transport
 // directly: a node with no route yet cannot be sent to any other way.
-export intrinsic fn hello_frame() [] -> Bytes
+intrinsic fn hello_frame() [] -> Bytes
 
 // [node-group] A LEAVE to every peer the current node knows.
-export intrinsic fn leave_group() [] -> None
+intrinsic fn leave_group() [] -> None
 
 // [protocol-hash] A peer's hash for the protocol named [protocol], as its
 // handshake carried it; `None` for an unknown peer or one without the
@@ -537,14 +602,23 @@ export actor effect ActorChanges<E> {
     send fn left(member: Addr<E>) => !member
 }
 
+// ---- the replica's tools (private)
+//
+// An actor group has no home: every node that opens it runs a **replica**,
+// and replicas find each other by **name** — each publishes its addr under
+// the group's name, the runtime sends the names it holds to every peer at the
+// handshake (and to every peer when a name is published later), and a replica
+// hearing of a same-named peer shares its member set with it. Members travel
+// as addresses; nothing is copied or moved.
+
 // [actor-group] Publishes [me] under [name] on the current node and asks to
 // hear, as `ActorGroup.peer`, of every peer node that publishes the same name,
 // and as `ActorGroup.merged` of what those peers share.
-export intrinsic fn publish_group<E>(name: Str, me: Addr<ActorGroup<E>>) [] -> None => name, !me
+intrinsic fn publish_group<E>(name: Str, me: Addr<ActorGroup<E>>) [] -> None => name, !me
 
 // [actor-group] Tells the replica named [name] on peer [node] about [members]:
 // a MEMBERS frame, arriving there as `ActorGroup.merged`.
-export intrinsic fn share_members<E>(name: Str, node: NodeId, members: List<Addr<E>>) [] -> None
+intrinsic fn share_members<E>(name: Str, node: NodeId, members: List<Addr<E>>) [] -> None
     => name, node, members
 
 // [actor-group] [remote-backpressure] How loaded a member looks from here:
@@ -742,12 +816,17 @@ export intrinsic fn node_of<E>(a: Addr<E>) [] -> NodeId => a
 
 // ---------------------------------------------------------- the pick kit ----
 
-// [route-stub] The runtime's mirror of a local replica's member set: written
-// by the replica after every change, read by a `route(group)` stub per send.
-// A group with no replica on this node has an empty view.
-export intrinsic fn view_set<E>(group: Addr<ActorGroup<E>>, members: List<Addr<E>>) [] -> None
+// A pick runs on the sender's thread at every send, so it cannot *ask* the
+// replica (a hop per send is what the stub exists to avoid). It reads a
+// **mirror** the replica keeps in the runtime, written after every change:
+// behind the replica by one message, never in the send path.
+
+// [route-stub] (private) The mirror: written by the replica, read by a
+// `route(group)` stub per send. A group with no replica on this node has an
+// empty view, so its stub parks.
+intrinsic fn view_set<E>(group: Addr<ActorGroup<E>>, members: List<Addr<E>>) [] -> None
     => !group, !members
-export intrinsic fn view_members<E>(group: Addr<ActorGroup<E>>) [] -> List<Addr<E>> => group
+intrinsic fn view_members<E>(group: Addr<ActorGroup<E>>) [] -> List<Addr<E>> => group
 
 // [route-stub] One member as a pick sees it: where it is, how loaded it
 // looks from here ([pending]), whether it is on this node.
@@ -781,15 +860,18 @@ export effect Pick<E> {
 export provenance qualifier Key<T> of T
 
 // [route-stub] The canonical hash of a key argument — over its wire encoding,
-// so both backends agree on the member a key lands on.
+// so both backends agree on the member a key lands on. Exported for the
+// generated `route` stubs, which call it from the program's own module; a
+// program has no reason to.
 export intrinsic fn key_hash<T>(k: T) [] -> Long => k
 
-// [route-stub] Yields the sender's thread briefly; what a stub does between
-// two picks that answered `None`.
-export intrinsic fn park_briefly() [] -> None
+// [route-stub] (private) Yields the sender's thread briefly; what a stub does
+// between two picks that answered `None`.
+intrinsic fn park_briefly() [] -> None
 
 // [route-stub] The stub's whole send path: build the view, ask the policy,
-// park until it answers. Generated stubs call one of these two per member.
+// park until it answers. Exported for the generated `route` stubs, which call
+// one of these two per member from the program's own module.
 export fn route_to<E>(group: Addr<ActorGroup<E>>) [Pick<E>] -> Addr<E> => group {
     return route_keyed(group, None)
 }
@@ -1039,12 +1121,8 @@ fn cut_key(a: NodeEndpoint, b: NodeEndpoint) [] -> Str => a, b {
 }
 
 
-// [protocol-hash] The name of protocol [E], as its declaration spells it: what
-// a group of `E` is keyed by across nodes, and the string `peer_protocol`
-// takes. Written with an explicit type argument, `protocol_name<Ping>()`.
-export intrinsic fn protocol_name<E>() [] -> Str
-
-// [protocol-hash] This program's canonical hash of protocol [E] — the constant
-// the compiler computed [protocol-hash] — for logging, and for comparing with
-// a peer's `peer_protocol` answer.
-export intrinsic fn protocol_hash<E>() [] -> Str
+// [protocol-hash] (private) The name of protocol [E], as its declaration
+// spells it, and this program's canonical hash of it — the two halves of a
+// `Protocol<E>`; `protocol<E>()` is the public reading.
+intrinsic fn protocol_name<E>() [] -> Str
+intrinsic fn protocol_hash<E>() [] -> Str
