@@ -195,6 +195,51 @@ export handler Receiving() of Inbound {
     }
 }
 
+// [net-connect] Whether the current node is connected to the wire: its
+// outbound side bound by [connect]. What makes `connect` idempotent, and what
+// a program asks before it decides to.
+export intrinsic fn connected() [] -> Bool
+
+// [net-connect] Connects the current node to the wire, at endpoint [me]:
+// the three bindings between the scheduler and the `Transport` in scope,
+// which every node needs exactly once before it can reach or be reached by
+// another —
+//
+// 1. **outbound**: a `Sending` actor is spawned and bound with
+//    `route_frames`; every frame the runtime wants on the wire (a message to
+//    a proxy, a reply, a credit, a HELLO) is queued to it, and its
+//    activation calls `Transport.deliver` with the scheduler's lock released;
+// 2. **inbound**: a `Receiving` actor is spawned and registered with
+//    `listen(me, …)`; the transport sends each frame that arrives at [me] to
+//    it, and its activation hands the bytes back to the runtime with
+//    `deliver_frame` — a send being the only way work from a host thread
+//    enters the scheduler;
+// 3. **the self-route**: `add_route(this_node(), me)` records that frames
+//    for *this* node go to [me] — routes to peers are learnt in the node
+//    group's handshake, but a node's own endpoint is something only it knows.
+//
+// Answers whether **this call** connected the node: `false` when it was
+// already connected, in which case nothing is rebound and no actor is
+// spawned. Call it once per node, before [node_group]; the two actors run on
+// `pool(1)`, or on [on] when given. (A node group's mechanism does not connect
+// for you — it runs as an actor, and an actor's member cannot hand the
+// transport it depends on to another spawn on the Rust backend yet
+// [rs-handle-bundle] — but it refuses to start on a node that is not
+// connected, so the order cannot be got wrong silently.)
+export fn connect(me: NodeEndpoint) [Transport, spawn] -> Bool => !me {
+    return connect(me, pool(1))
+}
+
+export fn connect(me: NodeEndpoint, on: Pool) [Transport, spawn] -> Bool => !me, !on {
+    if connected() {
+        return false
+    }
+    route_frames(spawn Sending() on on)
+    let _listening = listen(copy(me), spawn Receiving() on on)
+    add_route(this_node(), me)
+    return true
+}
+
 // ----------------------------------------------------------- node group ----
 
 // [node-group] A member of a node group: the identity the handshake minted and
@@ -268,10 +313,11 @@ export intrinsic fn leave_group() [] -> None
 // protocol. What `attach<E>` compares (step ⑤).
 export intrinsic fn peer_protocol(node: NodeId, protocol: Str) [] -> Str? => node, protocol
 
-// [node-group] Starts a spawned node group: `start_group(spawn StaticNodeGroup(…)
-// on p)` — the three faces a spawn answers, the `join` sent, the `NodeGroup`
-// face answered.
-export fn start_group(faces: (Addr<NodeGroup>, Addr<PeerEvents>)) [] -> Addr<NodeGroup> => !faces {
+// [node-group] Starts a spawned node group: `node_group(spawn StaticNodeGroup(…)
+// on p)` — the two faces a spawn answers, the `join` sent, the `NodeGroup`
+// face answered. The node must be connected first [net-connect]; a mechanism
+// started on a node that is not traps, naming the fix.
+export fn node_group(faces: (Addr<NodeGroup>, Addr<PeerEvents>)) [] -> Addr<NodeGroup> => !faces {
     let (group, events) = faces
     group.join(events)
     return group
@@ -281,7 +327,7 @@ export fn start_group(faces: (Addr<NodeGroup>, Addr<PeerEvents>)) [] -> Addr<Nod
 // mechanism is "say HELLO to each, and report who answers". Death detection
 // is the transport's: a LEAVE, or — once step ④'s follow-up lands — a failed
 // delivery. The double every later step tests on, over `MemTransport`.
-export handler StaticNodeGroup(name: Str, me: NodeEndpoint, all: List<NodeEndpoint>) [Transport, spawn]
+export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, spawn]
     of NodeGroup, PeerEvents {
     mailbox { capacity: 64 }
 
@@ -289,6 +335,9 @@ export handler StaticNodeGroup(name: Str, me: NodeEndpoint, all: List<NodeEndpoi
     watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
 
     send fn join(events: Addr<PeerEvents>) => !events {
+        assert!(connected(), "a node group starts on a connected node: call connect(me) first")
+        // The node's own endpoint is the transport's: one source of truth.
+        let me = local_endpoint()
         set_group(copy(name), copy(me))
         watch_peers(events)
         for e in all {
@@ -351,7 +400,7 @@ export handler StaticNodeGroup(name: Str, me: NodeEndpoint, all: List<NodeEndpoi
 // of seeds. Death is a LEAVE (or, once the failure follow-up lands, a failed
 // delivery). The mechanism most deployments want when the fleet is not fixed;
 // its partition policy is the recorded follow-up.
-export handler GossipNodeGroup(name: Str, me: NodeEndpoint, seeds: List<NodeEndpoint>) [Transport, spawn]
+export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport, spawn]
     of NodeGroup, PeerEvents {
     mailbox { capacity: 64 }
 
@@ -360,10 +409,12 @@ export handler GossipNodeGroup(name: Str, me: NodeEndpoint, seeds: List<NodeEndp
     watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
 
     send fn join(events: Addr<PeerEvents>) => !events {
+        assert!(connected(), "a node group starts on a connected node: call connect(me) first")
+        let me = local_endpoint()
         set_group(copy(name), copy(me))
         watch_peers(events)
         for e in seeds {
-            dial(me, dialed, copy(e))
+            dial(dialed, copy(e))
         }
     }
 
@@ -422,15 +473,15 @@ export handler GossipNodeGroup(name: Str, me: NodeEndpoint, seeds: List<NodeEndp
 
     send fn introduced(peers: List<NodeEndpoint>) => !peers {
         for e in peers {
-            dial(me, dialed, copy(e))
+            dial(dialed, copy(e))
         }
     }
 
 }
 
 // Says HELLO to an endpoint once; the runtime's handshake does the rest.
-fn dial(me: NodeEndpoint, dialed: Mut Set<Str>, e: NodeEndpoint) [Transport] -> None => me, dialed: Mut, !e {
-    if eq(e, me) || contains(dialed, to_str(e)) {
+fn dial(dialed: Mut Set<Str>, e: NodeEndpoint) [Transport] -> None => dialed: Mut, !e {
+    if eq(e, local_endpoint()) || contains(dialed, to_str(e)) {
         return
     }
     add(dialed, to_str(e))

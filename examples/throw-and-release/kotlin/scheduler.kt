@@ -1106,6 +1106,9 @@ object SalvoSched {
     }
 
     /** [addr-routable] Binds the outbound hook of the current node. */
+    /** [net-connect] Whether the current node's outbound hook is bound — what `connect` checks first. */
+    fun connected(): Boolean = lock.withLock { wires.containsKey(pools[currentPool()].node) }
+
     fun setWire(hook: (ByteArray, ByteArray) -> Unit) {
         lock.withLock {
             wires[pools[currentPool()].node] = hook

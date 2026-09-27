@@ -1386,7 +1386,7 @@ pub fn find<__Fx: __Has_Lookup>(__fx: &mut __Fx, key: String) -> String {
     };
 }
 
-pub fn two_ids<__Fx: __Has_Leader + __Has_Console>(__fx: &mut __Fx, __hs: &__Hs_1, seq: usize) {
+pub fn two_ids<__Fx: __Has_Leader + __Has_Console>(__fx: &mut __Fx, __hs: &__Hs_leader, seq: usize) {
     let mut __fx2 = __Fx_two_ids_1 { __outer: &mut *__fx, __h: Elected::new(__hs.leader.clone()) };
     let mut __fx3 = __Fx_two_ids_2 { __outer: &mut __fx2, __h: __Route_Sequencer::new(seq) };
     { let __a1 = &(format!("  {} {}", fresh_id(&mut __fx3), fresh_id(&mut __fx3))); println(&mut __fx3, __a1) };
@@ -1502,9 +1502,9 @@ impl __Impl_Booting for Booting {
     fn boot<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, done: crate::scheduler::SalvoReply) {
         let mut p = crate::scheduler::salvo_pool(((1) as usize));
         { let __out = ({ let __h = Sending::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sending::new(__h, __Prov_Sending { __d0: MemTransport::new(self.at.clone(), self.net.clone()) })), __DECODE_Sending) }); crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| { if let Some(__to) = crate::wire::salvo_decode::<NodeEndpoint>(__ep) { crate::scheduler::salvo_send_wire(__out, crate::net::__Msg_Outbound::SendFrame(__to, __frame), crate::net::__PROTO_Outbound); } })) };
-        __Has_Transport::__get_Transport(&mut *__fx).listen(&(self.at.clone()), ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving) }));
+        let mut _listening = __Has_Transport::__get_Transport(&mut *__fx).listen(&(self.at.clone()), ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving) }));
         crate::scheduler::salvo_add_route((NodeId { id: crate::scheduler::salvo_here_node() as i64 }).id as u64, crate::wire::salvo_encode(&self.at.clone()));
-        let mut group = start_group(({ let __h = StaticNodeGroup::new("cluster".to_string(), self.at.clone(), self.all.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_StaticNodeGroup::new(__h, __Prov_StaticNodeGroup { __d0: MemTransport::new(self.at.clone(), self.net.clone()) })), __DECODE_StaticNodeGroup); (__a, __a) }));
+        let mut group = node_group(({ let __h = StaticNodeGroup::new("cluster".to_string(), self.all.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_StaticNodeGroup::new(__h, __Prov_StaticNodeGroup { __d0: MemTransport::new(self.at.clone(), self.net.clone()) })), __DECODE_StaticNodeGroup); (__a, __a) }));
         self.nodes = Some(group.clone());
         let mut seq = attach__2(Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() }, group.clone());
         let mut mine = ({ let __h = Sequencing::new("b".to_string()); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sequencing::new(__h)), __DECODE_Sequencing) });
@@ -1619,10 +1619,8 @@ pub fn main() {
     let __handle = crate::net::__Mon_Transport::new(Box::new(__bind.clone()));
     let mut __fx2 = __Fx_main_6 { __outer: &mut __fx, __h: __bind };
     let mut p = crate::scheduler::salvo_pool(((2) as usize));
-    { let __out = ({ let __h = Sending::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sending::new(__h, __Prov_Sending { __d0: __handle.clone() })), __DECODE_Sending) }); crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| { if let Some(__to) = crate::wire::salvo_decode::<NodeEndpoint>(__ep) { crate::scheduler::salvo_send_wire(__out, crate::net::__Msg_Outbound::SendFrame(__to, __frame), crate::net::__PROTO_Outbound); } })) };
-    __Has_Transport::__get_Transport(&mut __fx2).listen(&(a.clone()), ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving) }));
-    crate::scheduler::salvo_add_route((NodeId { id: crate::scheduler::salvo_here_node() as i64 }).id as u64, crate::wire::salvo_encode(&a.clone()));
-    let mut nodes = start_group(({ let __h = StaticNodeGroup::new("cluster".to_string(), a.clone(), all.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_StaticNodeGroup::new(__h, __Prov_StaticNodeGroup { __d0: __handle.clone() })), __DECODE_StaticNodeGroup); (__a, __a) }));
+    let mut _connected = connect__2(&mut __fx2, &crate::net::__Hs_transport { transport: __handle.clone() }, a.clone(), p.clone());
+    let mut nodes = node_group(({ let __h = StaticNodeGroup::new("cluster".to_string(), all.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_StaticNodeGroup::new(__h, __Prov_StaticNodeGroup { __d0: __handle.clone() })), __DECODE_StaticNodeGroup); (__a, __a) }));
     let mut seq = attach__2(Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() }, nodes.clone());
     join(&seq, ({ let __h = Sequencing::new("a".to_string()); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sequencing::new(__h)), __DECODE_Sequencing) }));
     let mut stock = attach__2(Protocol { name: "Inventory".to_string(), hash: crate::__PROTO_Inventory.to_string() }, nodes.clone());
@@ -1657,7 +1655,7 @@ pub fn main() {
     let mut __bind2 = LastHost::new(nodes.clone(), a.clone());
     let __handle2 = crate::net::__Mon_Leader::new(Box::new(__bind2.clone()));
     let mut __fx3 = __Fx_main_7 { __outer: &mut __fx2, __h: __bind2 };
-    two_ids(&mut __fx3, &__Hs_1 { leader: __handle2.clone() }, seq.clone());
+    two_ids(&mut __fx3, &crate::__Hs_leader { leader: __handle2.clone() }, seq.clone());
     println(&mut __fx3, &("sharded:".to_string()));
     shop(&mut __fx3, stock);
     println(&mut __fx3, &("scatter:".to_string()));
@@ -1680,7 +1678,7 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(seq, crate::net::__Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<usize>>().expect("the awaited answer")
     }.len() as i32))));
-    two_ids(&mut __fx5, &__Hs_1 { leader: __handle2.clone() }, seq);
+    two_ids(&mut __fx5, &crate::__Hs_leader { leader: __handle2.clone() }, seq);
 }
 
 pub struct __Route_Inventory {
@@ -2115,7 +2113,7 @@ fn __decode_msg___Route_Sequencer(proto: &str, payload: &[u8]) -> Option<crate::
     None
 }
 
-pub struct __Hs_1 {
+pub struct __Hs_leader {
     pub leader: crate::net::__Mon_Leader,
 }
 

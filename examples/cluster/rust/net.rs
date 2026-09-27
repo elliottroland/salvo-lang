@@ -469,6 +469,20 @@ fn __decode_msg_Receiving(proto: &str, payload: &[u8]) -> Option<crate::schedule
     None
 }
 
+pub fn connect<__Fx: __Has_Transport>(__fx: &mut __Fx, __hs: &__Hs_transport, me: NodeEndpoint) -> bool {
+    return connect__2(&mut *__fx, &crate::net::__Hs_transport { transport: __hs.transport.clone() }, me, crate::scheduler::salvo_pool(((1) as usize)));
+}
+
+pub fn connect__2<__Fx: __Has_Transport>(__fx: &mut __Fx, __hs: &__Hs_transport, me: NodeEndpoint, on: usize) -> bool {
+    if crate::scheduler::salvo_connected() {
+        return false;
+    }
+    { let __out = ({ let __h = Sending::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Sending::new(__h, __Prov_Sending { __d0: __hs.transport.clone() })), __DECODE_Sending) }); crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| { if let Some(__to) = crate::wire::salvo_decode::<NodeEndpoint>(__ep) { crate::scheduler::salvo_send_wire(__out, crate::net::__Msg_Outbound::SendFrame(__to, __frame), crate::net::__PROTO_Outbound); } })) };
+    let mut _listening = __Has_Transport::__get_Transport(&mut *__fx).listen(&(me.clone()), ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving) }));
+    crate::scheduler::salvo_add_route((NodeId { id: crate::scheduler::salvo_here_node() as i64 }).id as u64, crate::wire::salvo_encode(&me));
+    return true;
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Node {
     pub id: NodeId,
@@ -692,7 +706,7 @@ impl crate::wire::__Wire for __Msg_PeerEvents {
 /// [protocol-hash] The canonical hash of `PeerEvents`.
 pub const __PROTO_PeerEvents: &str = "4a6e9425119444fb";
 
-pub fn start_group(faces: (usize, usize)) -> usize {
+pub fn node_group(faces: (usize, usize)) -> usize {
     let (mut group, mut events) = faces;
     crate::scheduler::salvo_send_wire(group, crate::net::__Msg_NodeGroup::Join(events), crate::net::__PROTO_NodeGroup);
     return group;
@@ -700,7 +714,6 @@ pub fn start_group(faces: (usize, usize)) -> usize {
 
 pub struct StaticNodeGroup {
     name: String,
-    me: NodeEndpoint,
     all: Vec<NodeEndpoint>,
     known: SalvoMap<NodeId, Node>,
     watchers: Vec<usize>,
@@ -710,10 +723,9 @@ pub struct StaticNodeGroup {
 }
 
 impl StaticNodeGroup {
-    pub fn new(name: String, me: NodeEndpoint, all: Vec<NodeEndpoint>) -> Self {
+    pub fn new(name: String, all: Vec<NodeEndpoint>) -> Self {
         Self {
             name,
-            me,
             all,
             known: SalvoMap::from_entries::<__Hash_hash__NodeId_NodeId, __Eq_eq__NodeId_NodeId, _>(vec![]),
             watchers: vec![],
@@ -754,10 +766,12 @@ pub trait __Impl_StaticNodeGroup {
 impl __Impl_StaticNodeGroup for StaticNodeGroup {
 
     fn join<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, events: usize) {
-        crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&self.me.clone()));
+        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:338:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
+        let mut me = __Has_Transport::__get_Transport(&mut *__fx).local_endpoint();
+        crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
         crate::scheduler::salvo_watch_peers((events).clone(), |__n, __ep, __t| Box::new(crate::net::__Msg_PeerEvents::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(crate::net::__Msg_PeerEvents::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(crate::net::__Msg_PeerEvents::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));
         for e in &self.all {
-            if !eq(e, &self.me) {
+            if !eq(e, &me) {
                 let mut _sent = __Has_Transport::__get_Transport(&mut *__fx).deliver(&(e.clone()), crate::scheduler::salvo_hello_frame());
             }
         }
@@ -914,7 +928,6 @@ fn __decode_msg_StaticNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::sc
 
 pub struct GossipNodeGroup {
     name: String,
-    me: NodeEndpoint,
     seeds: Vec<NodeEndpoint>,
     known: SalvoMap<NodeId, Node>,
     dialed: SalvoSet<String>,
@@ -925,10 +938,9 @@ pub struct GossipNodeGroup {
 }
 
 impl GossipNodeGroup {
-    pub fn new(name: String, me: NodeEndpoint, seeds: Vec<NodeEndpoint>) -> Self {
+    pub fn new(name: String, seeds: Vec<NodeEndpoint>) -> Self {
         Self {
             name,
-            me,
             seeds,
             known: SalvoMap::from_entries::<__Hash_hash__NodeId_NodeId, __Eq_eq__NodeId_NodeId, _>(vec![]),
             dialed: SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]),
@@ -970,10 +982,12 @@ pub trait __Impl_GossipNodeGroup {
 impl __Impl_GossipNodeGroup for GossipNodeGroup {
 
     fn join<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, events: usize) {
-        crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&self.me.clone()));
+        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:412:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
+        let mut me = __Has_Transport::__get_Transport(&mut *__fx).local_endpoint();
+        crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
         crate::scheduler::salvo_watch_peers((events).clone(), |__n, __ep, __t| Box::new(crate::net::__Msg_PeerEvents::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(crate::net::__Msg_PeerEvents::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(crate::net::__Msg_PeerEvents::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));
         for e in &self.seeds {
-            dial(&mut *__fx, &self.me, &mut self.dialed, e.clone());
+            dial(&mut *__fx, &mut self.dialed, e.clone());
         }
     }
 
@@ -1029,7 +1043,7 @@ impl __Impl_GossipNodeGroup for GossipNodeGroup {
 
     fn introduced<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, peers: Vec<NodeEndpoint>) {
         for e in &peers {
-            dial(&mut *__fx, &self.me, &mut self.dialed, e.clone());
+            dial(&mut *__fx, &mut self.dialed, e.clone());
         }
     }
 }
@@ -1139,8 +1153,8 @@ fn __decode_msg_GossipNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::sc
     None
 }
 
-pub fn dial<__Fx: __Has_Transport>(__fx: &mut __Fx, me: &NodeEndpoint, dialed: &mut SalvoSet<String>, e: NodeEndpoint) {
-    if eq(&e, me) || dialed.contains(&to_str__2(&e)) {
+pub fn dial<__Fx: __Has_Transport>(__fx: &mut __Fx, dialed: &mut SalvoSet<String>, e: NodeEndpoint) {
+    if eq(&e, &(__Has_Transport::__get_Transport(&mut *__fx).local_endpoint())) || dialed.contains(&to_str__2(&e)) {
         return;
     }
     dialed.insert(to_str__2(&e));
@@ -2288,6 +2302,10 @@ pub fn hash__3(value: &Node) -> i64 {
 
 pub fn eq__3(a: &Node, b: &Node) -> bool {
     (a == b)
+}
+
+pub struct __Hs_transport {
+    pub transport: crate::net::__Mon_Transport,
 }
 
 pub struct __Hash_hash__NodeId_NodeId;

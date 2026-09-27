@@ -5546,6 +5546,19 @@ between endpoints and delivers what arrives into the scheduler.
     a node's frames go, and `Receiving of Inbound` hands arriving frames to
     `deliver_frame`. A frame for an unknown target, with mismatched bits or a
     malformed payload is **dropped, never delivered wrong**.
+  * [net-connect] **`connect(me) -> Bool`** (2026-09-27) is the three bindings
+    in one call — the outbound actor bound with `route_frames`, the inbound
+    actor registered with `listen(me, …)`, the self-route `add_route(this_node(),
+    me)` — and the one a program writes; `connect(me, on: Pool)` places the
+    two actors (default `pool(1)`). It is **idempotent**: `connected()` answers
+    whether the current node's outbound side is bound, and `connect` answers
+    whether *this call* did the binding (`false` when it was already
+    connected — nothing is rebound, nothing spawned). The three intrinsics
+    underneath are private to `net`. A node group's mechanism does not
+    connect for you: an actor member cannot hand the transport it depends on
+    to a spawn on the Rust backend yet [rs-handle-bundle], so the in-process
+    double's second node writes the three bindings out with `with`; it
+    refuses to start unconnected instead.
   * **Replies arriving over the wire are decoded by whoever knows the
     answer's type**: an actor's generated `decode_reply` (off its parked
     continuation, when the activation runs), a waiter's decoder registered by
@@ -5582,10 +5595,13 @@ between endpoints and delivers what arrives into the scheduler.
   plain handler steering a std actor's algorithm, which meant the algorithm
   *was* the mechanism). `actor effect NodeGroup { join(events), members(out),
   subscribe(w), leave() }`, `NodeChanges { joined(n), left(n, why) }`, `Node {
-  id: Long, at: NodeEndpoint }` — what a mechanism knows *after* contact,
-  where a `NodeEndpoint` is what it knows before. `start_group(spawn H(…) on
+  id: NodeId, at: NodeEndpoint }` — what a mechanism knows *after* contact,
+  where a `NodeEndpoint` is what it knows before. `node_group(spawn H(…) on
   p)` sends the `join` with the `PeerEvents` face a spawn answers (a handler
-  cannot name its own addr).
+  cannot name its own addr). A mechanism learns the node's own endpoint from
+  `Transport.local_endpoint()`, so it is not a constructor parameter, and it
+  **asserts `connected()`** as it starts [net-connect]: a node group on a node
+  that is not on the wire traps, naming `connect(me)`.
   * **The handshake is the runtime's**, common to every mechanism: a HELLO
     frame (group name, the sender's endpoint, its **protocol table** — every
     actor effect with a wire form and its hash, registered by `main`'s
@@ -5606,8 +5622,8 @@ between endpoints and delivers what arrives into the scheduler.
     send cycle on every program importing `net` [actor-deadlock-cycle] — a
     correct warning about an inherent cycle, so the cycle was removed:
     the group serves `PeerEvents` and never sends it.
-  * **std ships two mechanisms**: `StaticNodeGroup(name, me, all)` — every
-    endpoint known up front, a HELLO to each — and `GossipNodeGroup(name, me,
+  * **std ships two mechanisms**: `StaticNodeGroup(name, all)` — every
+    endpoint known up front, a HELLO to each — and `GossipNodeGroup(name,
     seeds)` — a HELLO to the seeds, and on every `hello` the newcomer is
     introduced to everyone known and everyone known to the newcomer, so any
     connected seed set converges on a full mesh (three nodes each seeded with

@@ -173,7 +173,10 @@ pub fn emit_program_reporting(
     // mentions traits from arbitrary modules, so it names them in full
     // rather than importing them.
     let mut effect_paths: HashMap<String, String> = HashMap::new();
-    for unit in program.units() {
+    // [rs-handle-bundle] The same prefix per *file*, for items named by the
+    // module that declares a fn — its handle bundles.
+    let mut module_paths: HashMap<usize, String> = HashMap::new();
+    for (file_idx, unit) in program.units().enumerate() {
         if !emitted_modules.contains(&unit.file.module) {
             continue;
         }
@@ -185,6 +188,7 @@ pub fn emit_program_reporting(
                 None => continue,
             }
         };
+        module_paths.insert(file_idx, prefix.clone());
         for item in &unit.ast.items {
             if let Item::Effect(e) = item {
                 effect_paths.insert(e.name.name.clone(), prefix.clone());
@@ -244,6 +248,7 @@ pub fn emit_program_reporting(
         emitter.generated_imports = generated;
         emitter.root_module = root_module;
         emitter.effect_paths = effect_paths.clone();
+        emitter.module_paths = module_paths.clone();
         emitter.erased = erased.clone();
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
@@ -1406,6 +1411,8 @@ struct Emitter<'p> {
     /// [fn-effects] Absolute crate-path prefix per effect name, for the
     /// generated pass-trait file (which imports nothing).
     effect_paths: HashMap<String, String>,
+    /// [rs-handle-bundle] File index → crate path prefix of its module.
+    module_paths: HashMap<usize, String>,
     /// [effect-generic-decl] The declarations whose generics are erased at
     /// emission; an instance of one renders without its arguments.
     erased: salvo_core::Erased,
@@ -2198,6 +2205,7 @@ impl<'p> Emitter<'p> {
             errors: Vec::new(),
             union_sizes: BTreeSet::new(),
             effect_paths: HashMap::new(),
+            module_paths: HashMap::new(),
             erased: salvo_core::Erased::default(),
             needs_wire: false,
             ret_is_unit: false,
@@ -5279,10 +5287,14 @@ impl<'p> Emitter<'p> {
             .map(|(n, t)| format!("{n}: {t}"))
             .collect();
         let shape_key = shape.join(", ");
+        // [rs-handle-bundle] Named by its **shape**, so a call from another
+        // module can spell it (`crate::net::__Hs_transport`) without seeing
+        // this module's counters; minted once per module that declares a fn
+        // needing it.
+        let name = handle_bundle_name(&fields);
         let name = match self.handle_bundles.get(&shape_key) {
             Some(name) => name.clone(),
             None => {
-                let name = format!("__Hs_{}", self.handle_bundles.len() + 1);
                 self.handle_bundles.insert(shape_key, name.clone());
                 self.generated_items.push(format!(
                     "\npub struct {name} {{\n{}}}\n",
@@ -5346,29 +5358,19 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
-        let shape_key = names.join(", ");
-        let name = match self.handle_bundles.get(&shape_key) {
-            Some(name) => name.clone(),
-            None => {
-                // The callee's own emission mints the struct; a call emitted
-                // first registers the same shape under the same key.
-                let name = format!("__Hs_{}", self.handle_bundles.len() + 1);
-                self.handle_bundles.insert(shape_key, name.clone());
-                let mut decl = String::new();
-                for ty in &needs {
-                    let rendered = self.rust_ty(ty);
-                    let handle_ty = self.handle_type_of(ty);
-                    decl.push_str(&format!(
-                        "    pub {}: {handle_ty},\n",
-                        effect_param_name(&rendered)
-                    ));
-                }
-                self.generated_items
-                    .push(format!("\npub struct {name} {{\n{decl}}}\n"));
-                name
-            }
-        };
-        Some(format!("&{name} {{ {} }}", fields.join(", ")))
+        let _ = names;
+        // [rs-handle-bundle] The callee's module declares the bundle struct
+        // (every fn with handle requirements mints its own module's copy), so
+        // the call names it through that module's path — a call across
+        // modules used to build a same-named struct of its own module and
+        // fail to type-check (found 2026-09-27, `connect` in `net`).
+        let field_names: Vec<(String, String)> = needs
+            .iter()
+            .map(|ty| (effect_param_name(&self.rust_ty(ty)), String::new()))
+            .collect();
+        let name = handle_bundle_name(&field_names);
+        let prefix = self.module_paths.get(&callee.file).cloned().unwrap_or_default();
+        Some(format!("&{prefix}{name} {{ {} }}", fields.join(", ")))
     }
 
     /// [spawn-inherit] [rs-handle-bundle] Where this frame reads the handle
@@ -8331,6 +8333,13 @@ fn private_enum_name(handler: &str) -> String {
 enum ContTarget<'p> {
     Face(&'p EffectDecl, usize),
     Private(&'p FnDecl),
+}
+
+/// [rs-handle-bundle] The name of a handle bundle struct, from its fields'
+/// names in order: `__Hs_transport`, `__Hs_console__transport`.
+fn handle_bundle_name(fields: &[(String, String)]) -> String {
+    let parts: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
+    format!("__Hs_{}", parts.join("__"))
 }
 
 /// [rs-monitor] The clone-box supertrait behind the handle: what lets a
@@ -16735,6 +16744,10 @@ impl<'p> Emitter<'p> {
                 "park_briefly" if args.is_empty() => {
                     self.needs_scheduler = true;
                     return "crate::scheduler::salvo_park_briefly()".to_string();
+                }
+                "connected" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "crate::scheduler::salvo_connected()".to_string();
                 }
                 "route_frames" if args.len() == 1 => {
                     self.needs_scheduler = true;

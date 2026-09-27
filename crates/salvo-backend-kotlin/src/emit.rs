@@ -8840,6 +8840,10 @@ impl<'p> Emitter<'p> {
                     self.needs_scheduler = true;
                     return "salvo.SalvoSched.parkBriefly()".to_string();
                 }
+                "connected" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "salvo.SalvoSched.connected()".to_string();
+                }
                 "route_frames" if args.len() == 1 => {
                     self.needs_scheduler = true;
                     self.needs_wire = true;

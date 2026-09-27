@@ -265,6 +265,20 @@ class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
     }
 }
 
+fun<__Fx> connect(__fx: __Fx, me: NodeEndpoint): Boolean where __Fx : __Has_Transport {
+    return connect__2(__fx, me, salvo.SalvoSched.pool(1))
+}
+
+fun<__Fx> connect__2(__fx: __Fx, me: NodeEndpoint, on: Int): Boolean where __Fx : __Has_Transport {
+    if (salvo.SalvoSched.connected()) {
+        return false
+    }
+    run { val __out = run { val __h = Sending(__Fx_1(__fx.__fx_Transport)); salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE) }; salvo.SalvoSched.setWire { __ep, __frame -> val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint); if (__to != null) salvo.SalvoSched.sendWire(__out, __Msg_Outbound.SendFrame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec___Msg_Outbound) } }
+    val _listening = __fx.__fx_Transport.listen(me, run { val __h = Receiving(); salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE) })
+    salvo.SalvoSched.addRoute((NodeId(salvo.SalvoSched.hereNode())).id, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
+    return true
+}
+
 data class Node(
     val id: NodeId,
     val at: NodeEndpoint,
@@ -407,13 +421,13 @@ object __Codec___Msg_PeerEvents : salvo.WireCodec<__Msg_PeerEvents> {
 /** [protocol-hash] The canonical hash of `PeerEvents`. */
 const val __PROTO_PeerEvents: String = "4a6e9425119444fb"
 
-fun start_group(faces: Pair<Int, Int>): Int {
+fun node_group(faces: Pair<Int, Int>): Int {
     val (group, events) = faces
     salvo.SalvoSched.sendWire(group, __Msg_NodeGroup.Join(events), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
     return group
 }
 
-class StaticNodeGroup<__Fx>(private val name: String, private val me: NodeEndpoint, private val all: List<NodeEndpoint>, private val __fx: __Fx) : NodeGroup, PeerEvents where __Fx : __Has_Transport {
+class StaticNodeGroup<__Fx>(private val name: String, private val all: List<NodeEndpoint>, private val __fx: __Fx) : NodeGroup, PeerEvents where __Fx : __Has_Transport {
     private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__2, ::eq__2).also { __m -> __m.putAll(listOf()) }
     private var watchers: MutableList<Int> = mutableListOf<Int>()
     internal val __mailboxCapacity: Int = 64
@@ -421,6 +435,8 @@ class StaticNodeGroup<__Fx>(private val name: String, private val me: NodeEndpoi
     internal val __parked: MutableMap<Long, __Cont_StaticNodeGroup> = mutableMapOf()
 
     override fun join(events: Int) {
+        (if (!(salvo.SalvoSched.connected())) throw AssertionError(("salvo: " + ("a node group starts on a connected node: call connect(me) first") + " at net:338:9")) else Unit)
+        val me = __fx.__fx_Transport.local_endpoint()
         salvo.SalvoSched.setGroup(name, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
         salvo.SalvoSched.watchPeers(events, { __n, __ep, __t -> __Msg_PeerEvents.Hello(NodeId(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint)!!, __t) }, { __n -> __Msg_PeerEvents.Gone(NodeId(__n)) }, { __ps -> __Msg_PeerEvents.Introduced(__ps.mapNotNull { salvo.salvoDecode(salvo.SalvoBytes(it), __Codec_NodeEndpoint) }) })
         for (e in all) {
@@ -548,7 +564,7 @@ class __Actor_StaticNodeGroup<__Fx>(private val handler: StaticNodeGroup<__Fx>) 
     }
 }
 
-class GossipNodeGroup<__Fx>(private val name: String, private val me: NodeEndpoint, private val seeds: List<NodeEndpoint>, private val __fx: __Fx) : NodeGroup, PeerEvents where __Fx : __Has_Transport {
+class GossipNodeGroup<__Fx>(private val name: String, private val seeds: List<NodeEndpoint>, private val __fx: __Fx) : NodeGroup, PeerEvents where __Fx : __Has_Transport {
     private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__2, ::eq__2).also { __m -> __m.putAll(listOf()) }
     private var dialed: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
     private var watchers: MutableList<Int> = mutableListOf<Int>()
@@ -557,10 +573,12 @@ class GossipNodeGroup<__Fx>(private val name: String, private val me: NodeEndpoi
     internal val __parked: MutableMap<Long, __Cont_GossipNodeGroup> = mutableMapOf()
 
     override fun join(events: Int) {
+        (if (!(salvo.SalvoSched.connected())) throw AssertionError(("salvo: " + ("a node group starts on a connected node: call connect(me) first") + " at net:412:9")) else Unit)
+        val me = __fx.__fx_Transport.local_endpoint()
         salvo.SalvoSched.setGroup(name, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
         salvo.SalvoSched.watchPeers(events, { __n, __ep, __t -> __Msg_PeerEvents.Hello(NodeId(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint)!!, __t) }, { __n -> __Msg_PeerEvents.Gone(NodeId(__n)) }, { __ps -> __Msg_PeerEvents.Introduced(__ps.mapNotNull { salvo.salvoDecode(salvo.SalvoBytes(it), __Codec_NodeEndpoint) }) })
         for (e in seeds) {
-            dial(__fx, me, dialed, e)
+            dial(__fx, dialed, e)
         }
     }
 
@@ -616,7 +634,7 @@ class GossipNodeGroup<__Fx>(private val name: String, private val me: NodeEndpoi
 
     override fun introduced(peers: List<NodeEndpoint>) {
         for (e in peers) {
-            dial(__fx, me, dialed, e)
+            dial(__fx, dialed, e)
         }
     }
 }
@@ -695,8 +713,8 @@ class __Actor_GossipNodeGroup<__Fx>(private val handler: GossipNodeGroup<__Fx>) 
     }
 }
 
-fun<__Fx> dial(__fx: __Fx, me: NodeEndpoint, dialed: MutableSet<String>, e: NodeEndpoint) where __Fx : __Has_Transport {
-    if (eq(e, me) || dialed.contains(to_str__2(e))) {
+fun<__Fx> dial(__fx: __Fx, dialed: MutableSet<String>, e: NodeEndpoint) where __Fx : __Has_Transport {
+    if (eq(e, __fx.__fx_Transport.local_endpoint()) || dialed.contains(to_str__2(e))) {
         return
     }
     dialed.add(to_str__2(e))
@@ -1458,3 +1476,7 @@ fun hash__3(value: Node): Long {
 fun eq__3(a: Node, b: Node): Boolean {
     return a == b
 }
+
+class __Fx_1(
+    override val __fx_Transport: Transport,
+) : __Has_Transport

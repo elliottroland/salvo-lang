@@ -282,7 +282,7 @@ pub fn work<__Fx: __Has_Logger>(__fx: &mut __Fx, step: &String) {
     __Has_Logger::__get_Logger(&mut *__fx).log(step);
 }
 
-pub fn interception<__Fx: __Has_Logger + __Has_Clock>(__fx: &mut __Fx, __hs: &__Hs_1) {
+pub fn interception<__Fx: __Has_Logger + __Has_Clock>(__fx: &mut __Fx, __hs: &__Hs_logger__clock) {
     work(&mut *__fx, &("4. plain".to_string()));
     let mut __bind = Stamped::new(__hs.logger.clone(), __hs.clock.clone());
     let __handle = crate::__Mon_Logger::new(Box::new(__bind.clone()));
@@ -601,7 +601,7 @@ pub fn main() {
     let mut __fx3 = __Fx_main_5 { __outer: &mut __fx2, __h: __bind3 };
     work(&mut __fx3, &("3. logged through the console".to_string()));
     println(&mut __fx3, &("4. interception — each `use` wraps the one before it:".to_string()));
-    interception(&mut __fx3, &__Hs_1 { logger: __handle3.clone(), clock: __handle2.clone() });
+    interception(&mut __fx3, &crate::__Hs_logger__clock { logger: __handle3.clone(), clock: __handle2.clone() });
     println(&mut __fx3, &("5. shadowing is not wrapping:".to_string()));
     scoping(&mut __fx3);
     println(&mut __fx3, &("6. two effects, one member name:".to_string()));
@@ -615,7 +615,7 @@ pub fn main() {
     settings(&mut __fx7);
 }
 
-pub struct __Hs_1 {
+pub struct __Hs_logger__clock {
     pub logger: crate::__Mon_Logger,
     pub clock: crate::__Mon_Clock,
 }

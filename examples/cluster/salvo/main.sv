@@ -261,10 +261,15 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
     nodes: Addr<NodeGroup>? = None
     send fn boot(done: Reply<Addr<Sequencer>>) => !done {
         let p = pool(1)
+        // A real second node is a second process whose `main` calls
+        // `connect(me)`. This in-process double runs on another pool of the
+        // same process, from an actor's member, where the transport it
+        // depends on cannot be handed to a spawn yet (Rust backend), so the
+        // three bindings `connect` makes are written out with `with`.
         route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
-        listen(copy(at), spawn Receiving() on p)
+        let _listening = listen(copy(at), spawn Receiving() on p)
         add_route(this_node(), copy(at))
-        let group = start_group(spawn StaticNodeGroup("cluster", copy(at), copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        let group = node_group(spawn StaticNodeGroup("cluster", copy(all)) with MemTransport(copy(at), copy(net)) on p)
         nodes = copy(group)
 
         let seq = attach(protocol<Sequencer>(), copy(group))
@@ -305,13 +310,12 @@ fn main() [use, spawn] {
     let all = [copy(a), copy(b)]
     let network = spawn MemNetwork() on pool(1)
 
-    // Node a: transport, node group, one member of everything.
+    // Node a: the transport, the wire (`connect`), the node group, one member
+    // of everything.
     use MemTransport(copy(a), copy(network))
     let p = pool(2)
-    route_frames(spawn Sending() on p)
-    listen(copy(a), spawn Receiving() on p)
-    add_route(this_node(), copy(a))
-    let nodes = start_group(spawn StaticNodeGroup("cluster", copy(a), copy(all)) on p)
+    let _connected = connect(copy(a), copy(p))
+    let nodes = node_group(spawn StaticNodeGroup("cluster", copy(all)) on p)
 
     let seq = attach(protocol<Sequencer>(), copy(nodes))
     join(seq, spawn Sequencing("a") on p)

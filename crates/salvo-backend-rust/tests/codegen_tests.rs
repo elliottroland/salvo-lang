@@ -2275,7 +2275,9 @@ fn rustc_compiles_and_runs_spawn_inheritance() {
 
 /// [rs-handle-bundle] The shapes the lift needs: one hidden bundle parameter
 /// after the fused value, built at the call site from the caller's own eager
-/// handles, and read as fields at the capture.
+/// handles, and read as fields at the capture. The bundle struct is named by
+/// its shape and spelled through the callee's module path, so a call across
+/// modules finds the callee's struct (2026-09-27).
 #[test]
 fn a_handle_bundle_threads_signature_supplied_effects() {
     let files = generate(&[("main.sv", SPAWN_INHERIT_DEMO)]);
@@ -2285,11 +2287,11 @@ fn a_handle_bundle_threads_signature_supplied_effects() {
         .unwrap();
     let c = &main.content;
     assert!(
-        c.contains("pub fn interception<__Fx: __Has_Logger + __Has_Clock>(__fx: &mut __Fx, __hs: &__Hs_1)"),
+        c.contains("pub fn interception<__Fx: __Has_Logger + __Has_Clock>(__fx: &mut __Fx, __hs: &__Hs_logger__clock)"),
         "expected one hidden bundle parameter after the fused value:\n{c}"
     );
     assert!(
-        c.contains("pub struct __Hs_1 {") && c.contains("pub logger: crate::__Mon_Logger,"),
+        c.contains("pub struct __Hs_logger__clock {") && c.contains("pub logger: crate::__Mon_Logger,"),
         "expected the generated bundle struct with a handle per effect:\n{c}"
     );
     assert!(
@@ -2297,7 +2299,7 @@ fn a_handle_bundle_threads_signature_supplied_effects() {
         "the capture must read the bundle's fields:\n{c}"
     );
     assert!(
-        c.contains("interception(&mut __fx3, &__Hs_1 {"),
+        c.contains("interception(&mut __fx3, &crate::__Hs_logger__clock {"),
         "the caller must build the bundle from its own handles:\n{c}"
     );
 }
@@ -12959,7 +12961,7 @@ actor effect Counting {
 
 // The receiver records rather than prints: a `deliver` answers as soon as
 // the frame is handed over, so a print here would race main's own.
-handler Receiving(label: Str) of Inbound, Counting {
+handler Tallying(label: Str) of Inbound, Counting {
     mailbox { capacity: 16 }
     seen: Mut List<Str> = []
 
@@ -12991,8 +12993,8 @@ fn main() [use, spawn] {
     let net = spawn MemNetwork() on workers
     use MemTransport(copy(a), copy(net))
 
-    let (in_a, _count_a) = spawn Receiving("a") on workers
-    let (in_b, count_b) = spawn Receiving("b") on workers
+    let (in_a, _count_a) = spawn Tallying("a") on workers
+    let (in_b, count_b) = spawn Tallying("b") on workers
     report("listen a", listen(copy(a), in_a))
     report("listen b", listen(copy(b), in_b))
 
@@ -13343,11 +13345,11 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>, go
         listen(copy(at), spawn Receiving() on p)
         add_route(this_node(), copy(at))
         if gossip {
-            let group = start_group(spawn GossipNodeGroup("mesh", copy(at), copy(all)) with MemTransport(copy(at), copy(net)) on p)
+            let group = node_group(spawn GossipNodeGroup("mesh", copy(all)) with MemTransport(copy(at), copy(net)) on p)
             done.send(group)
             return
         }
-        let group = start_group(spawn StaticNodeGroup("demo", copy(at), copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        let group = node_group(spawn StaticNodeGroup("demo", copy(all)) with MemTransport(copy(at), copy(net)) on p)
         done.send(group)
     }
 }
@@ -13362,10 +13364,8 @@ fn main() [use, spawn] {
     // Node A: this one.
     use MemTransport(copy(a), copy(net))
     let pa = pool(1)
-    route_frames(spawn Sending() on pa)
-    listen(copy(a), spawn Receiving() on pa)
-    add_route(this_node(), copy(a))
-    let group_a = start_group(spawn StaticNodeGroup("demo", copy(a), copy(all)) on pa)
+    let _connected = connect(copy(a), copy(pa))
+    let group_a = node_group(spawn StaticNodeGroup("demo", copy(all)) on pa)
     group_a.subscribe(spawn Announcing("a") on pa)
 
     // Node B: hosted beside it.
@@ -13718,10 +13718,8 @@ fn main() [use, spawn] {
     let net = spawn MemNetwork() on pool(1)
     use MemTransport(copy(a), copy(net))
     let p = pool(1)
-    route_frames(spawn Sending() on p)
-    listen(copy(a), spawn Receiving() on p)
-    add_route(this_node(), copy(a))
-    let nodes = start_group(spawn StaticNodeGroup("shop", copy(a), [copy(a)]) on p)
+    let _connected = connect(copy(a), copy(p))
+    let nodes = node_group(spawn StaticNodeGroup("shop", [copy(a)]) on p)
     let stock = attach(protocol<Inventory>(), nodes)
     join(stock, spawn Stocking("s1") on p)
     join(stock, spawn Stocking("s2") on p)
@@ -13774,7 +13772,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
         route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
         listen(copy(at), spawn Receiving() on p)
         add_route(this_node(), copy(at))
-        let nodes = start_group(spawn StaticNodeGroup("ids", copy(at), copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        let nodes = node_group(spawn StaticNodeGroup("ids", copy(all)) with MemTransport(copy(at), copy(net)) on p)
         let seq = attach(protocol<Sequencer>(), nodes)
         let mine = spawn Sequencing("b") on p
         join(seq, copy(mine))
@@ -13794,10 +13792,8 @@ fn main() [use, spawn] {
     let net = spawn MemNetwork() on pool(1)
     use MemTransport(copy(a), copy(net))
     let pa = pool(1)
-    route_frames(spawn Sending() on pa)
-    listen(copy(a), spawn Receiving() on pa)
-    add_route(this_node(), copy(a))
-    let nodes = start_group(spawn StaticNodeGroup("ids", copy(a), copy(all)) on pa)
+    let _connected = connect(copy(a), copy(pa))
+    let nodes = node_group(spawn StaticNodeGroup("ids", copy(all)) on pa)
     let seq = attach(protocol<Sequencer>(), nodes)
     join(seq, spawn Sequencing("a") on pa)
 
@@ -13868,7 +13864,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
         route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
         listen(copy(at), spawn Receiving() on p)
         add_route(this_node(), copy(at))
-        let nodes = start_group(spawn StaticNodeGroup("demo", copy(at), copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        let nodes = node_group(spawn StaticNodeGroup("demo", copy(all)) with MemTransport(copy(at), copy(net)) on p)
         let pings = attach(protocol<Ping>(), nodes)
         join(pings, spawn Pinging("b") on p)
         done.send(pings)
@@ -13884,10 +13880,8 @@ fn main() [use, spawn] {
 
     use MemTransport(copy(a), copy(net))
     let pa = pool(1)
-    route_frames(spawn Sending() on pa)
-    listen(copy(a), spawn Receiving() on pa)
-    add_route(this_node(), copy(a))
-    let nodes_a = start_group(spawn StaticNodeGroup("demo", copy(a), copy(all)) on pa)
+    let _connected = connect(copy(a), copy(pa))
+    let nodes_a = node_group(spawn StaticNodeGroup("demo", copy(all)) on pa)
     let pings_a = attach(protocol<Ping>(), nodes_a)
     pings_a.subscribe(spawn Noticing("a") on pa)
     join(pings_a, spawn Pinging("a") on pa)

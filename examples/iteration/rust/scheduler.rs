@@ -1495,6 +1495,15 @@ pub fn salvo_add_route(node: u64, endpoint: Vec<u8>) {
     flush_out();
 }
 
+/// [net-connect] Whether the current node's outbound hook is bound — what
+/// `connect` checks before binding, so a second `connect` is a no-op.
+pub fn salvo_connected() -> bool {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    s.wires.contains_key(&node)
+}
+
 /// [addr-routable] Binds the outbound hook of the **current node**: what
 /// turns (encoded endpoint, frame) into a delivery — std's `Outbound` actor
 /// over that node's `Transport`.
