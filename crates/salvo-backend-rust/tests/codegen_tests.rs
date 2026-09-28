@@ -2054,7 +2054,7 @@ fn main() [use] -> None {
 
 const SHAREABLE_CHAIN_OUTPUT: &str = "log: plain\nlog: loud!\nlog: louder!\nshouted 2\n";
 
-/// [effect-handle] [effect-handler-deps] [rs-monitor] The chain end to end:
+/// [effect-handle] [effect-handler-deps] [rs-handle] The chain end to end:
 /// `MemCounter` behind its lock, `PlainLogger` bare with a captured console
 /// handle, `Shout` wrapping the `Logger` registered before it — and the
 /// count proving both `work` calls went through the interceptor and the
@@ -2146,7 +2146,7 @@ fn main() [use, spawn] -> None {
 const SPAWN_INHERIT_OUTPUT: &str =
     "log: plain\nlog: [t=1] stamped\nlog: reported inherited\nlog: [t=99] overridden\n";
 
-/// [spawn-inherit] [with-clause] [rs-handle-bundle] The arc end to end:
+/// [spawn-inherit] [with-clause] [rs-handle] The arc end to end:
 /// a signature-supplied effect captured into a handler (the hidden `__Hs_N`
 /// bundle), a spawn inheriting its dependency from the scope, and a `with`
 /// clause overriding the self-dependency with a private instance.
@@ -2388,7 +2388,7 @@ fn rustc_compiles_and_runs_fusion() {
     );
 }
 
-// [rs-effect-fusion] A dependency *chain* (Audit needs Logger needs
+// [rs-handle] A dependency *chain* (Audit needs Logger needs
 // Console), a `use` inside a loop body, effect calls nested in another
 // call's arguments, and a predicate qualifier whose `qualifies` declares an
 // effect — all through one fused value.
@@ -2472,7 +2472,7 @@ fn rustc_compiles_and_runs_fusion_chain() {
     );
 }
 
-// [rs-effect-fusion] The `use` site and the dependent handler may live in
+// [rs-handle] The `use` site and the dependent handler may live in
 // different modules: the generated `__Impl_H` trait travels with the
 // handler and arrives through the module's glob import [rs-imports].
 const FUSION_LOGGING_MODULE: &str = r#"
@@ -2518,7 +2518,7 @@ fn rustc_compiles_and_runs_cross_module_fusion() {
     run_rust_files(&files, "fusion-cross", "M: from work\nM: from main\n");
 }
 
-// [rs-effect-fusion] Constructor parameters mixing a dependency with plain
+// [rs-handle] Constructor parameters mixing a dependency with plain
 // data, a dependent member calling a fn that does its own `use`, an
 // effect-using lambda passed to an effect-*free* higher-order fn (allowed:
 // the call threads nothing, so nothing aliases), three effects in one
@@ -10525,7 +10525,7 @@ fn an_actor_lowers_to_a_message_enum_and_a_body() {
     );
 }
 
-/// [monitor-handler] [rs-monitor] The monitor spawn (SH-3, user decision
+/// [monitor-handler] [rs-handle] The monitor spawn (SH-3, user decision
 /// 2026-09-19): a **plain** effect's handler shared behind a lock. One
 /// instance serves `main` (use-bound) and a spawned actor (supplied through
 /// the dependency clause), and the output is deterministic because the three
@@ -10589,7 +10589,7 @@ fn rustc_compiles_and_runs_a_monitor() {
     );
 }
 
-/// [rs-monitor] [rs-handle] What the monitor lowering *is*, asserted on the
+/// [rs-handle] What the monitor lowering *is*, asserted on the
 /// generated text: the per-effect handle (`Arc<Mutex<dyn E + Send>>`)
 /// implementing the effect's trait by lock-and-delegate, the spawn building
 /// one with no scheduler call, and the handle passing into the actor's

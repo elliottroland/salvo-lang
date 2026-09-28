@@ -975,12 +975,11 @@ the blanket rule:
   * `^` on a *projection* (`p.result is ^Ok`) is a reported codegen error for
     now: the materialization needs a plain variable to shadow.
 * [fn-effects] [rs-fn-effect-params] A fn type's effects are **leading
-  `&mut dyn Effect` parameters** of the closure: `(s: Str) [Logger] -> Str`
-  renders as `&mut impl FnMut(&mut dyn Logger, &String) -> String`, a lambda
-  as `|logger: &mut dyn Logger, s| …`, and the call passes the instance
-  first. Nothing is captured, which is what lifts the fusion cut above — and
-  a fused value coerces into the `&mut dyn` parameter, so this is
-  fusion-agnostic (verified by hand before implementation).
+  `&mut __Handle_E` parameters** of the closure [rs-handle]: `(s: Str)
+  [Logger] -> Str` renders as `&mut impl FnMut(&mut __Handle_Logger,
+  &String) -> String`, a lambda as `|logger: &mut __Handle_Logger, s| …`, and
+  the call passes the handle first. Nothing is captured, which is what lets
+  the value cross a call that borrows the same effect value.
   * Inside a lambda body an effect resolves to the lambda's *own* parameter:
     the effect environment is searched innermost-first, so a parameter
     shadows the enclosing fn's value rather than capturing it.
@@ -1037,8 +1036,8 @@ the blanket rule:
 * [try] [rs-try-label] `try { ... }` is a **labelled block**
   (`'try_N: { ... }`), not a closure. The sketch's closure
   (`(|| -> ControlFlow<..> { .. })()`) would have to capture the fn's
-  effect parameters and any local the body mutates — the same exclusivity
-  trap the fusion hits; a labelled block captures nothing.
+  effect parameters and any local the body mutates — an exclusivity trap; a
+  labelled block captures nothing.
   * The price is that `?` cannot be used inside a `try` body (it would
     return from the *fn*), so every may-throw call there takes the `match`
     form above and `break`s the label with the outcome's thrown arm. The
@@ -1093,7 +1092,7 @@ the blanket rule:
     convention is both simpler and the only sound choice; the cost is an
     indirect call, which every effect member call already pays.
   * A member's trait method, every handler's implementation of it, the
-    fusion's forwarding impl and the generated host skeleton all render
+    handle's forwarding impl and the generated host skeleton all render
     through the same member-parameter helper, so they cannot disagree.
   * [effect-args-hoisted] An argument that reborrows an implicit the *same*
     call passes is hoisted into a `let` first, or the two borrows overlap
@@ -1184,25 +1183,24 @@ the blanket rule:
   initialized from their declared defaults) + `impl Effect for H`.
   Handler member bodies access ctor params and state through `self.`.
   An `intrinsic handler`'s member bodies come from
-  `intrinsics::handler_member` instead, same shape. A ctor param that is a
-  *dependency* is neither a field nor a `new` parameter, and the trait
-  impl is replaced by a generated one — see [rs-effect-fusion].
+  `intrinsics::handler_member` instead, same shape. A *dependency* is a
+  `__dep_E: __Handle_E` field and a trailing `new` parameter — see
+  [rs-handle].
 * [kt-effect-params]-equivalent: effect dependencies become leading
-  parameters `name: &mut dyn Effect<...>`; effect member calls dispatch
-  through the parameter (`console.print(...)` — auto-reborrow), and
+  parameters `name: &mut __Handle_E<...>` [rs-handle]; effect member calls
+  dispatch through the parameter (`console.print(...)` — auto-reborrow), and
   callee dependencies thread as arguments (`draw(random_int, console)`,
-  with `&mut local` for handlers `use`d in the current scope). **When any
-  handler in the program declares a dependency, all of this changes
-  shape** — see [rs-effect-fusion].
+  with `&mut local` for handlers `use`d in the current scope).
   * [deduce-syntax] **Effect member parameters follow the member's own
     written deduction clause** (2026-09-14): consumed (`=> !s`) is by value,
     kept `Mut` is `&mut T`, kept plain is `&T`, Copy scalars and variadics by
     value. A member has no body to infer from, so [decl-explicit] makes the
     clause mention every non-Copy parameter — the clause *is* the contract.
     One function (`member_param_mode`) answers for the trait method, every
-    handler's implementation, the generated `__Impl_H` trait, the fusion's
-    forwarding impls and the argument rendering at call sites, because a
-    disagreement between any two of them is a rustc type error.
+    handler's implementation, the handle's forwarding impl and the argument
+    rendering at call sites, because a disagreement between any two of them
+    is a rustc type error — and it decides on the *effect's* parameter type,
+    so a `T` position stays `&T` in a handler of `Store<Int>`.
     Member fns with their own generic parameters are a codegen error (`dyn`
     traits cannot have generic methods) [backend-never-wrong].
     * Until 2026-09-14 members used the default kept rule regardless (`&T`
@@ -1213,345 +1211,162 @@ the blanket rule:
   * [effect-member-overload] **An overloaded member name is suffixed**
     (`close`, `close__2`, …) — Rust cannot overload a trait method at all.
     The name comes from `salvo_core::effect_member_name`, so the trait, every
-    handler impl, the fusion's forwarding impls, the host skeletons and the
+    handler impl, the handle's forwarding impl, the host skeletons and the
     call sites cannot disagree, and the Kotlin backend picks the same names.
     A call site emits the overload the *checker* resolved
     (`Checked::effect_member_calls`); no recorded resolution where the name
     is overloaded is a codegen error, never a guess.
 * [effect-use] `use Handler(...)` emits
-  `let mut <name> = Handler::new(args);` and registers `&mut <name>` in
-  the effect environment for the rest of the scope [effect-scope]; ctor
-  arguments are owned (a `use` argument is a move, [deduce-infer]).
-  Handler generics are inferred by rustc from the `new` arguments (the
-  checker already validated the instance, `use_effects`). Under the fusion
-  the local is the *fusion* that owns the handler
-  (`let mut __fx2 = __Fx_main_3 { __outer: &mut __fx, __h: H::new(args) };`)
-  and every effect in scope threads through it from there on
-  ([rs-effect-fusion]).
+  `let mut <name> = __Handle_E::new(Handler::new(args));` and registers
+  `&mut <name>` in the effect environment for the rest of the scope
+  [effect-scope]; ctor arguments are owned (a `use` argument is a move,
+  [deduce-infer]). Handler generics are inferred by rustc from the `new`
+  arguments (the checker already validated the instance, `use_effects`), or
+  spelled as a turbofish where nothing infers them [effect-handler-generics].
+  See [rs-handle].
 * Handler resolution prefers the checker's effect tables
   (`use_effects`/`effect_calls`/`call_effects`) rendered through
   `rust_ty`, with the same string-keyed environment fallback as the
   Kotlin backend (see COMPLETED.md "Emitter effect-environment fallback"
   under architectural facts).
 
-### Effect dependencies via handler fusion [rs-effect-fusion]
+### Every binding is a handle [rs-handle]
 
-**Implemented 2026-09-04; reshaped to the Has-accessor design 2026-09-14**
-(user decision, FILE_SYSTEM.md §5.8.1 — adopted for both backends and
-sequenced before the filesystem work; the single-effect case fuses too, by
-the user's consistency call). A handler may declare a dependency
-([effect-handler-deps]); Rust renders it by *fusing* the handlers of a
-scope into one value. The original strategy decision was "B9, rebuilding,
-no facets in Rust" (2026-09-03/04); COMPLETED.md's E1a holds the decision
-log and the rejected alternatives. Every shape below was verified by
-compiling and running it with `rustc` before the emitter was taught to
-produce it (2026-09-14 for the Has shapes, including two instances of a
-generic effect inherited through one `dyn` provider, and supertrait
-elaboration carrying UFCS through it).
+**Built 2026-09-28** (user decisions of the same day, ROADMAP §2b — *one shape*:
+handles everywhere, fusion removed, `local` removed). It replaces the fusion
+emission of 2026-09-04/14 (`__Fx_N` structs, `__Has_E` accessors, `__Prov_…`
+conjunctions, `__Deps_H`/`__Impl_H` for dependent handlers, `__Prov_H` actor
+providers, `__Hs_…` handle bundles) and the monitor apparatus of 2026-09-19/20
+(`__Mon_E` over `Box<dyn __Share_E>`, `__Lock_E<H>`, `__Arc_H`/`__Shared_H` for
+threadsafe hosts): about 1,850 lines of `emit.rs`, one Rust shape for every
+Salvo declaration. EFFECT_FUSION.md keeps the history.
 
-**The problem.** A dependent handler must reach its dependency when its
-member runs, without the *caller* of that member supplying one. Kotlin
-gets this free (objects alias); Rust does not, because mutable state has
-one usable path at a time and handler members are `&mut self`
-([effect-decl]).
+* **The handle.** Every effect `E` emits, beside its trait, one struct:
 
-**The governing fact** is *borrow duration*, not reachability. A `&mut`
-passed as an argument is a **reborrow** whose lifetime is the call: the
-lender is suspended for exactly that long, then resumes. A whole chain of
-frames may therefore reach one value while only the innermost uses it. A
-borrow *stored* in a struct instead lasts as long as the holder, so it
-overlaps the lender's own later use — `E0499`. Everything below follows
-from putting borrows in the first category.
+  ```rust
+  pub struct __Handle_E {
+      inner: std::sync::Arc<std::sync::Mutex<dyn E + Send>>,
+  }
+  impl Clone for __Handle_E { … }                 // an `Arc` bump
+  impl __Handle_E {
+      pub fn new<__H: E + Send + 'static>(inner: __H) -> Self { … }
+      pub fn share(inner: Arc<Mutex<dyn E + Send>>) -> Self { … }
+  }
+  impl E for __Handle_E {
+      fn member(&mut self, …) -> … { self.inner.lock().unwrap().member(…) }
+  }
+  ```
 
-#### The emission
-
-**Gated program-wide.** If no **reachable** handler declares a dependency,
-nothing here runs and effects thread as one `&mut dyn E` parameter each
-[rs-effects] — existing output is untouched. The switch cannot be per-scope:
-a fn's signature must not depend on which of its callers holds a fusion.
-
-The reachability half arrived with std's filesystem (2026-09-14): std now
-ships a dependent handler (`DefaultFs [RawFs]`), so a declaration-wide gate
-fused every program ever compiled. It is also why that handler lives in
-`fs.host` rather than `fs` [fs-host-split]: the gate reads reachable
-*modules*, so a program that fakes the filesystem with `fs.mem` imports the
-surface and must not be fused by a handler it never registers.
-Emitting a dependent handler with the fusion off is an internal codegen
-error naming the handler, so the two halves cannot silently disagree.
-
-**[proj-infer-fn-type] [rs-proj-lends] An inferred lend ties one lifetime.** A
-fn-typed slot whose return is opaque gets `'c` on its named kept positions and on
-the enclosing parameters they name — one lifetime for all of them, because the
-slot's return type is chosen by the caller and its hidden lifetime must be one
-this signature declares. The render is gated on the enclosing fn *having* that
-parameter: a position naming something else falls back to the elided `&T`, which
-is what stops a `&'c T` no signature declares (the failure std's
-`?copy: (T) -> T` produced the first time the inference was too broad).
-
-**[task-effects] [rs-task] An inherited effect travels as an owned handle.** A
-task's closure is `move` and `'static`, so a `&mut dyn E` from the minting frame
-cannot go in it. What travels is the effect's **`__Mon_E`**, which is `Clone`
-*and* implements the effect's own trait — so no bundle and no new ABI is needed:
-the mint binds `let __e0 = <handle>.clone();` outside the closure and passes
-`__e0.clone()` inside it (cloned rather than moved, because the scheduler's
-callback is a `Fn` and a capture may not be consumed).
-
-A **task body's own** effect parameters are therefore owned handles too
-(`mut console: __Mon_Console`, not `&mut dyn Console`), registered as `is_local`
-so ordinary dispatch inside the body is `&mut param`. That is what lets a task
-mint a task: the nested mint needs a handle to clone, and a borrow would have
-had none. Found by writing the two-level program — the one-level case compiled
-with a borrow and said nothing.
-
-
-**The Has-accessor trait, beside every effect.** In fusion mode
-`emit_effect` emits a second trait next to each effect trait:
-
-```rust
-pub trait __Has_Random<T> {
-    fn __get_Random(&mut self) -> &mut dyn Random<T>;
-}
-```
-
-Generic exactly as the effect is, so one declaration serves every
-instance, and declared in the effect's own file so its identity crosses
-modules through the same globs the effect's does [rs-imports] — no shared
-definitions file. Fused values implement `__Has_E` per effect in scope,
-**never the effect traits themselves**: member names cannot collide on a
-fused value (a future `Fs` and `Net` both wanting `close` was the
-motivating case), and two instances of a generic effect disambiguate with
-the *Has* trait's turbofish rather than by name mangling.
-
-**One fused parameter per fn, one effect included** (uniformity, user
-decision 2026-09-14):
-
-```rust
-pub fn banner<__Fx: __Has_Console + __Has_Logger>(__fx: &mut __Fx) { … }
-```
-
-Generic rather than `dyn` for the same reason as before, now one step
-removed: a fn forwards its fused value to a callee needing a **subset**
-of its effects (`shout(&mut *__fx)`), and a Sized generic satisfies any
-subset of its bounds by monomorphization, where `dyn`-to-`dyn` would need
-upcasting that cannot reach a smaller conjunction. The cost is
-monomorphization per fusion type; it stays finite because fusion structs
-are not generic in their provider (see below).
-
-**Member dispatch is accessor-then-method**:
-`__Has_Random::<i32>::__get_Random(&mut *__fx).next_random(…)` — the UFCS
-turbofish on the Has trait picks the instance, and the member call itself
-is on `&mut dyn Random<i32>`, which is never ambiguous.
-
-**One fusion struct per `use` site**, chained to whatever provided the
-effects already in scope:
-
-```rust
-pub struct __Fx_main_3<'a, __H> {
-    __outer: &'a mut dyn __Has_Console,  // or `dyn __Prov_…` for two or more
-    __h: __H,                            // the handler this `use` registers
-}
-```
-
-* **One `__outer` field**, not one per inherited effect: N reborrows of
-  the same provider would alias. That single field is the only place a
-  fused value needs a *nameable* type, and therefore the only reason
-  provider traits exist:
-  `pub trait __Prov_A_B: __Has_A + __Has_B {} impl<T: __Has_A + __Has_B + ?Sized> __Prov_A_B for T {}`
-  — a conjunction of **Has** traits, emitted per file that needs one,
-  where the blanket impl makes duplication harmless (a fusion built in
-  module `M` satisfies `N::__Prov_A_B` too).
-* The fusion's impls are **Has-accessor impls**: an inherited effect
-  forwards through the provider —
-  `__Has_A::__get_A(&mut *self.__outer)` — which type-checks because
-  supertrait elaboration makes `dyn __Prov_…: __Has_A` hold, and the
-  turbofish keeps two instances of one generic effect apart. An
-  *independent* new handler's accessor returns `&mut self.__h`
-  (bound `__H: Effect`); a *dependent* one returns `self`, because the
-  raw effect impl lives on the fusion (below).
-* **`dyn` in `__outer`** keeps monomorphization finite: a recursive fn
-  that registers a handler and recurses maps its fusion type to itself
-  instead of nesting `__Fx<__Fx<…>>` forever.
-* **Generic over the handler** (`__H`), so a *generic* handler needs no
-  re-derivation of its type arguments: `CyclicRandom::new(vec![…])` infers
-  them, and the fusion's impls bound `__H` by what they need.
-* The fusion **owns** the handler, so there is no separate handler local
-  and no second borrow to manage.
-
-**Chaining, not flat rebuilding.** The 2026-09-04 decision said inner
-scopes rebuild *flat* over the outer scope's handler locals; implementation
-showed that flatness cannot hold and is not what the decision was
-protecting. Two facts forced the change: effects inherited from a fn's
-*parameter* are not handler locals at all (there is only the one fused
-value), and an inner fusion borrowing the same locals as an outer one
-makes the **outer** fusion unusable after the inner block (`E0499`) —
-exactly the case nesting is supposed to allow. Chaining fixes both, keeps
-the property the decision actually wanted (dependency threading is
-identical at every depth: always `&mut **__outer`), and makes lexical
-nesting equal borrow nesting. The price is one dynamic forwarding hop per
-level.
-
-A dependency is therefore *always* reachable through `__outer` and never a
-sibling field: it had to be registered before its dependent
-([effect-handler-deps]), so it is always in the outer set. That is the
-same acyclicity guarantee the strategy rested on, now doing a second job.
-
-**Interception and shadowing** [effect-intercept] [use-no-dup] (2026-09-14).
-A `use` may shadow an earlier registration of the same effect instance, and
-the shadowing handler may be the one that *depends* on that instance. Two
-emission rules follow, and nothing else changes:
-
-* **Exactly one `__Has_E` impl per effect per fusion struct.** The
-  environment is deduplicated innermost-first before the inherited
-  accessors are emitted, and the instance the new handler shadows is
-  skipped — its accessor is the new handler's. Two impls is `E0119`, which
-  is precisely what a shadowing `use` produced before.
-* **The shadowed instance stays in `__outer`.** It remains in the provider
-  trait's conjunction (or *is* the single `__Has_E` the field is typed as),
-  so `__Deps_H{ __p: &mut **__outer }` binds the intercepting handler's
-  dependency to the handler it wraps. That is "binds strictly outward" in
-  emission: the accessor the *body* reaches goes through the provider, while
-  the accessor *callers* reach returns the fusion.
-
-Both shapes were rustc-verified by hand before the emitter learned them
-(the precedent this whole strategy follows), including two-layer
-interception and the outer fusion staying usable after the inner block.
-
-**A forwarded argument may need a deref.** The generated `impl Effect for
-<fusion>` renders its signature from the *effect's* member declaration,
-where a parameter of the effect's own generic type is borrowed (`&T` →
-`&i32`) because nothing is known about a `T` [rs-borrows]; the handler's
-`__Impl_H` member renders from the *handler's* declaration, where the same
-parameter is concrete and a Copy scalar passes by value. The forward
-derefs. Found 2026-09-14 while building interception and pre-dating it —
-any dependent handler of a generic effect instance whose member parameter
-landed on a scalar emitted a raw `E0308`.
-
-**Dependent handlers.** The dependencies are the handler's own effect list
-([effect-handler-deps], 2026-09-14), and neither a struct field nor a `new`
-parameter — the compiler supplies them per call. Rust cannot do what Kotlin
-does and *store* them ([kt-effect-fusion]): a stored `&mut` would borrow the
-fusion for the handler's lifetime, which is the `E0499` the whole strategy is
-built to avoid, and the handler is constructed inside the very struct literal
-that borrows the provider. The per-call adapter is a single reference anyway,
-so there is nothing to amortize. The member bodies
-cannot live in `impl Effect for H` (the trait signature has no room for
-it), so they move into a generated trait:
-
-```rust
-pub trait __Impl_ConsoleLogger {
-    fn log<__Fx: __Has_Console>(&mut self, __fx: &mut __Fx, message: &String);
-}
-impl __Impl_ConsoleLogger for ConsoleLogger { /* the written body */ }
-```
-
-`&mut self` is kept, so `self.state` still works, and the trait is only
-ever a *bound* — never `dyn` — so its methods may be generic.
-Dependencies travel **uniformly** as a Has-bounded Sized generic, one
-dependency included (user decision 2026-09-14: consistency over a special
-case). The Sized value is built by a per-handler adapter over the one
-provider field, implementing each dependency's Has trait by forwarding:
-
-```rust
-pub struct __Deps_CountingAudit<'a, __P: ?Sized> { pub __p: &'a mut __P }
-impl<'a, __P: __Has_Console + ?Sized> __Has_Console for __Deps_CountingAudit<'a, __P> { … }
-```
-
-(`pub __p`, because the adapter is declared beside its handler but
-constructed inside fusion impls in whichever module `use`s it.) The
-fusion's *raw effect impl* for the dependent handler is where the trick
-lands — `&mut self` is destructured into **disjoint field borrows**
-first, so the handler's state and its dependency are two separate
-`&mut`:
-
-```rust
-impl<'a, __H: __Impl_ConsoleLogger> Logger for __Fx_main_3<'a, __H> {
-    fn log(&mut self, message: &String) {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_ConsoleLogger{ __p: &mut **__outer };
-        __Impl_ConsoleLogger::log(__h, &mut __deps, message)
-    }
-}
-```
-
-The dependent handler's Has-accessor then returns `self`: the fusion is
-the `dyn Effect` its own accessor hands out. Independent handlers keep
-today's `impl Effect for H`, and their accessor returns `&mut self.__h`.
-
-**The dyn boundaries.** Two ABIs cannot take a generic fused parameter,
-and each opens by rebuilding a Sized fused value:
-
-* **Platform `main`** keeps one `&mut dyn E` parameter per platform
-  effect — the host constructs one implementation each and calls
-  `salvo_main` with them [rs-platform-entry] — and its body begins with a
-  generated combiner (`__Dyn_main_1<'a>`, one dyn field per effect, a
-  Has impl each) that the rest of the body threads.
-* **Fn values** declare **one** `&mut dyn` provider parameter for their
-  whole effect list — the single effect's Has trait, or a `__Prov_…`
-  conjunction — since two separate reborrows of the caller's one fused
-  value would alias (`E0499`). A lambda's body opens with a combiner
-  over that provider (`__FxDyn_demo_1<'a>`); a named fn passed as a
-  value gets the same combiner inside its adapter closure. The caller
-  threads its fused value into the position by plain unsizing (the
-  blanket impl makes any fused value a provider).
-
-**Identical fusions are one struct** (user decision 2026-09-14). A fusion
-is built under a placeholder name and deduplicated by its text — same
-inherited accessors (emitted in canonical order), same new effect, same
-handler kind — so two fns registering the same handler over the same
-inherited set share one struct and one set of impls, named after whichever
-fn needed it first.
-
-**Arguments that reach the fused value are hoisted** into a temporary:
-
-```rust
-{ let __a1 = &(format!("drew {} at {}", Counter::total(&mut __fx2))); println(&mut __fx2, __a1) }
-```
-
-`fx.a(&fx.b())` is two overlapping `&mut` (`E0499`). With per-effect
-parameters the two receivers were disjoint variables, so this hazard is new
-with the fusion — and it is why the emitter renders such calls as block
-expressions.
-
-**No facets in Rust** (user decision 2026-09-04): each backend leverages
-its own language. Rust has no erasure, so one generic `__Has_Random<T>`
-declaration serves `Random<i32>` and `Random<String>` alike and
-multi-instance generic effects need no mangling. Kotlin's Has interfaces
-are per *instance* instead ([kt-effect-fusion]) — which is also what
-retired the facet design there.
-
-#### Deliberate cuts inside the fusion ([backend-never-wrong])
-
-* ~~A **function value that uses an effect, passed to a callee that needs
-  one too**.~~ **Lifted 2026-09-04** by [fn-effects]: the effect is threaded
-  *into* the value instead of captured, so the closure holds no borrow and
-  the two borrows are of different things. The cut's own test program now
-  compiles and runs. (What it was: a captured borrow stayed alive while the
-  call borrowed the same fused value for its own effects — `E0499` — and
-  hoisting, which rescues every other argument, could not separate them.)
-* A **dependent handler that uses its own generic parameters** in a member
-  signature: the generated `__Impl_H` trait is not generic (the fusion owns
-  the handler behind an opaque `__H` and never derives its type arguments,
-  so it could not supply one). Reported, naming the handler and the
-  parameter. Kotlin accepts *this* one (erasure), so it is a real
-  divergence, and the way to lift it is to derive the handler's arguments at
-  the `use` site by unifying its `of` clause against the checker's instance.
-* A `use` whose **effect instance is still generic** — an effect list generic
-  in the enclosing fn (`fn f<T>() [Random<T>, use]`). The fusion names its
-  effects in impl headers, so an unresolved `T` would be an undeclared type.
-  Lifting this means threading the enclosing fn's generics into the generated
-  items.
-  * `use Relay<Int>()` **is no longer an example**: the written type
-    arguments now bind the handler's generics [effect-handler-generics], so
-    that instance is concrete and the cut does not apply. Until 2026-09-06
-    they were discarded, and because this report fires only on the *fusion*
-    path a single-effect program emitted invalid Rust instead (`E0283`, plus
-    `E0392`).
-* A generated **provider or accessor trait name claimed by two different
-  effect sets**: sanitizing `<`/`,` to `_` is not injective, so an effect
-  literally named `Random_i32` collides with `Random<i32>`. Vanishingly
-  unlikely, but silently reusing the wrong trait would be wrong code.
-
-Both are reported at the `use`/handler that causes them, never mis-emitted.
+  Generic exactly as the effect is (`__Handle_Random<T: 'static>` for
+  `Random<T>`); construction sites name a generic instance's type arguments
+  outright (`__Handle_Random::<i64>::new(…)`, from the checker's resolved
+  instance) rather than asking inference to thread them through the unsize
+  coercion. Emitted for **every** effect, actor effects included (a `use
+  addr` of an actor binds one over the send stub; a router `of any E` is a
+  handler of it like any other), used or not — generated programs allow
+  `dead_code`, and per-effect emission gives the type one identity across
+  modules. Members with their own generics are skipped as the trait skips
+  them. The locator face of a mutable-lending member (`m__loc`, [rs-loc]) is
+  forwarded too: an effect member lends from a *parameter*, never from
+  handler state (it has no `self` to name), so the borrow outlives the guard
+  legitimately.
+* **One implementation** (user decision 2026-09-28): `Arc<Mutex<_>>` for
+  every handler, stateless included — an uncontended lock per member call.
+  The lock-free stateless path (`Arc<H>` with `&self` members) is the
+  recorded optimisation pass, and `threadsafe platform handler` is the
+  declared contract it will read; today the word changes no emission
+  ([threadsafe-platform]: the skeleton prints the contract, the host
+  implements the effect's own `&mut self` trait, and must be `Send`).
+* **A `use` is the handle**: `let mut e = __Handle_E::new(H::new(args, deps…));`
+  and the local *is* what everything downstream receives — no eager handle
+  variable, no fusion local. A multi-face handler is one `Arc<Mutex<H>>` and
+  one handle per face (`let __inst = Arc::new(Mutex::new(H::new(…)));
+  let mut a = __Handle_A::share(__inst.clone()); let mut b =
+  __Handle_B::share(__inst.clone());`), so a **stateful multi-face handler is
+  one lock behind several effect types** — the shape [monitor-handler] used
+  to refuse. `init` runs on the instance before it is wrapped. A `use addr`
+  of a plain effect binds the value itself (an `Addr<E>` *is* `__Handle_E`);
+  of an actor effect, `__Handle_E::new(__Stub_E::new(addr))`.
+* **A fn declaring `[A, B]`** is `fn f(a: &mut __Handle_A, b: &mut
+  __Handle_B, …)`, one parameter per effect **in the order of
+  `Checked::fn_effects`** — inherited effects (from fn-typed parameters,
+  [fn-effects]) first, then the written list — and a call passes `&mut a`
+  for a local or a captured field, the parameter itself (auto-reborrow) for a
+  parameter. The checker's `call_effects` follows the same order, since the
+  emitters pass one argument per entry (the two disagreed until 2026-09-28;
+  fusion had hidden it behind a single fused argument). [effect-args-hoisted]
+  applies per handle: `clock.to_instant(&clock.to_tick(i))` hoists the inner
+  call, as the receiver's `&mut` is live across the argument list.
+* **A dependent handler** ([effect-handler-deps]) holds one `__dep_E:
+  __Handle_E<…>` field per declared dependency, whatever the dependency's
+  kind — plain, actor effect (the field holds a handle over the send stub),
+  or generic instance (`__dep_Store: __Handle_Store<i64>`, or `<T>` for a
+  generic handler: the cut that refused a generic dependent handler is gone)
+  — as trailing `new` parameters in declaration order. Members reach them as
+  `self.__dep_E.member(…)`, a field-granular borrow beside the handler's own
+  state. A `use` clones the scope's handles into `new`
+  (`Stamped::new(logger.clone(), clock.clone())`) whether the effect arrived
+  by a `use` in the same function or through the enclosing *signature*
+  ([spawn-inherit]'s lift needs no bundle: the parameter is the handle); a
+  `with` item is a private instance behind its own handle
+  (`__Handle_Clock::new(FixedClock::new())`). **Interception**
+  ([effect-intercept]) is the same shape: `let mut logger2 =
+  __Handle_Logger::new(Stamped::new(logger.clone()))` — the previous
+  registration's handle is minted before the interceptor is constructed,
+  which is "binds strictly outward" in emission.
+* **A spawn** hands the actor body the same struct: `__Actor_H { handler: H }`
+  with the handler's fields the handles, `__dispatch` calling
+  `E::member(&mut self.handler, …)` for every handler, dependent or not; the
+  clause's items and the inherited dependencies are trailing `new` arguments
+  exactly as at a `use`. A **monitor spawn** answers `__Handle_E::new(H::new(…))`
+  — no scheduler, no mailbox, no pool. A **mixed spawn** answers the handle
+  over the façade (`__Handle_E::new(__Fac_H { __addr, … })`): the façade sits
+  behind the lock like every other instance, and its sync members *wait on
+  the servant while holding it* — recorded as the shape's known cost (a
+  second caller on another thread blocks on the mutex rather than serving
+  its pool; the lock-free stateless pass removes it, the façade being
+  stateless).
+* **A fn value with effects** is `impl FnMut(&mut __Handle_A, …, args)`: a
+  lambda takes each as a typed leading parameter, and the adapter for a named
+  fn forwards the reborrow (`|__fx0: &mut __Handle_Logger, mut __a0|
+  shout(&mut *__fx0, __a0)`), ignoring what the declaration does not need.
+  **A task body** takes its inherited effects as *owned* handles (the mint's
+  closure is `move` and `'static`) and clones them into nested mints.
+* **`main` with a platform effect** ([platform-effect]) takes `&mut
+  __Handle_E` like any fn; the host's `main()` wraps its struct at the one
+  place it constructs it: `crate::salvo_main(&mut
+  crate::__Handle_Telemetry::new(TelemetryHost))`. So a Salvo handler over a
+  platform effect captures it like any dependency (the `DefaultFs [RawFs]`
+  shape with the host's instance arriving through `main` — refused until
+  2026-09-28, there being no handle to mint). `new`'s bound makes a
+  non-`Send` host struct a rustc error at that line.
+* **Fn-typed constructor parameters and state** ([rs-fn-field]): a written
+  fn-typed constructor parameter (`handler Derived(step: (n: Int) -> Int)`)
+  is stored like an implicit — `Box<dyn FnMut(i32) -> i32 + Send>`, arriving
+  as `impl FnMut + Send + 'static`, called `(self.step)(…)` — and a struct's
+  fn-typed field is `Arc<dyn Fn… + Send + Sync>` (it was `Rc`): a Salvo
+  lambda captures by value, so the bounds hold for every value the program
+  can build, and the checker's "holds a function value" unsendability arm
+  no longer applies to handler state (`unshareable_reason`). It still applies
+  to message payloads and task captures (`unsendable_reason`): a fn value in
+  a message has no enum rendering.
+* **The handle is `Clone`, not `Copy`** — unlike the `usize` addr — and the
+  checker treats every `Addr` as freely reusable, so an owned read of a
+  plain-effect addr **clones** (`emit_owned`'s ident arm). `Arc<Mutex<dyn E +
+  Send>>` is `Send + Sync`, which is the sendability the checker promises at
+  a spawn [actor-sendable].
+* **Rust's `Mutex` is not reentrant, and that is unobservable**: a handler's
+  bindings are fixed at construction and its dependencies bind strictly
+  outward/earlier, so no path routes back into its own handle; sibling calls
+  inside a handler are direct self calls under the one acquisition. A
+  poisoned lock (`unwrap`) surfaces as a panic only after another member
+  already panicked, which is the fault boundary's business.
+* **`Addr<E>` for a plain effect lowers to `__Handle_E`** (both type paths —
+  checked `Ty` and written AST — branch on the effect's declared kind); an
+  actor effect's addr stays `usize`. A generic plain effect's addr carries
+  the instantiation (`Addr<Random<Int>>` is `__Handle_Random<i64>`); an
+  uninstantiated mention is refused by arity, a leniency path rather than a
+  rule.
 
 ## Functions and calls
 
@@ -1618,53 +1433,6 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     `crate::platform_<N>::<E>Host`. `module_mod_names` is shared with
     `emit_program` so the skeleton and the mounting cannot disagree on a
     name.
-* [rs-handle-bundle] [spawn-inherit] **The hidden handle bundle**: how a
-  capture over a *signature-supplied* effect gets its handle (user decision
-  2026-09-20 — mechanism A plus a fusion, one parameter however many
-  handles). Where the effect is bound in the same function, the eager handle
-  variable answers ([rs-monitor]); where it arrived through the signature,
-  the fused `__Fx` carries only a `&mut dyn E` — a borrow no clone-box can be
-  made from — so the handle is threaded in as an extra parameter:
-
-  ```rust
-  pub struct __Hs_1 {              // generated per handle-set shape
-      pub logger: __Mon_Logger,
-      pub clock: __Mon_Clock,
-  }
-
-  pub fn interception<__Fx: __Has_Logger + __Has_Clock>(
-      __fx: &mut __Fx,
-      __hs: &__Hs_1,               // one hidden parameter, after the fusion
-  ) {
-      let mut __bind = Stamped::new(__hs.logger.clone(), __hs.clock.clone());
-      …
-  }
-
-  // the caller builds it from the handles it holds
-  interception(&mut __fx3, &__Hs_1 { logger: __handle3.clone(), clock: __handle2.clone() });
-  ```
-
-  * **Deduped per shape**, exactly as the `__Fx_N` fusions are: two fns
-    needing the same handle set share one struct, so a frame can forward its
-    own bundle unchanged (`interception(__fx, __hs)`) where the shapes agree.
-  * **The checker decides who needs one** (`Checked::handle_requirements`,
-    propagated to a fixpoint over `call_edges`), so the parameter appears on
-    exactly the chains that capture — and only on fns whose effect list
-    carries `use`/`spawn`, which is what makes the hidden parameter
-    predictable from the visible signature [spawn-inherit].
-  * **`handle_fields` is per fn**: the places (`__hs.logger`) are saved and
-    restored around each body, since a sibling's bundle field is not in
-    scope. Getting that wrong emits a neighbouring fn's parameter name into
-    `main` — found immediately, but silently plausible.
-  * **A spawn's inherited dependency uses the same two sources**: the child's
-    generated provider (`__Prov_H`) takes the scope's handle, cloned, from
-    the eager variable or the bundle field, so parent and child hold one
-    shared instance [spawn-inherit].
-  * Kotlin needs **none of this** — an object reference already is a handle,
-    so a handle-dep constructor parameter takes the carrier itself
-    [kt-monitor]; the asymmetry is the same one [rs-platform-handler]
-    records.
-
 * [rs-wire] [wire-format] The wire runtime is `runtime/wire.rs`, mounted as
   `crate::wire` when a codec is generated or `encode`/`decode` lowered: a
   `__Wire` trait (`__enc(&self, &mut Vec<u8>)`, `__dec(&mut __Reader) ->
@@ -1713,43 +1481,32 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   the new peer. Intrinsics lowered: `protocol_name`/`protocol_hash`/`protocol`
   (from the per-protocol hash constant), `publish_group`, `share_members`,
   `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
-* [rs-monitor] [effect-any] An actor effect gets **the lock adapter alone**
-  (`__Lock_E<H>`, `emit_lock_adapter`) when the program declares a handler
-  `of any E` — a router bound with `use` is a monitor of an actor effect,
-  and its send members run inline under the mutex. No `__Mon_E`/`__Share_E`:
-  an actor effect's shareable handle stays the addr. Nothing is emitted for
-  an actor effect without a router, so existing output is unchanged.
 * [rs-wire] [route-stub] Runtime: `Sched.views` (group actor → members),
   `salvo_view_set`, `salvo_view_members` (sorted by `(node, actor)`),
   `salvo_key_hash` (FNV-1a 64 over the wire bytes), `salvo_park_briefly`
   (1 ms sleep). Intrinsics: `view_set`, `view_members`, `key_hash` (over
   `salvo_encode`), `park_briefly`. `use route(g)` emits the construction of
   the checker's `route_stubs[site]` handler exactly as a written `use
-  __Route_E(g)` would. The fusion layer renders an erased effect's traits
-  without arguments everywhere an instance is split into base and args
-  (`ty_effect_parts`, `entry_effect_parts`, `handler_dep_effects`,
-  `named_type_parts`, the `use` turbofish) — `__Has_Pick`, `dyn Pick`,
+  __Route_E(g)` would. An erased effect's types render without arguments
+  everywhere an instance is split into base and args (`ty_effect_parts`,
+  `handler_dep_effects`, the `use` turbofish) — `__Handle_Pick`, `dyn Pick`,
   `Sharded::new()`. `while true` lowers to `loop`.
 * [rs-actor] [handler-init] `init` is one more private member: `__Priv_H::Init`,
-  an inherent `fn init(&mut self)` (or an `__Impl_H` method for a dependent
-  handler), dispatched by `__dispatch_priv`. A spawn emits
-  `salvo_send(__a, Box::new(__Priv_H::Init))` right after `salvo_spawn` and
-  before the addr is answered. A `use` of an independent handler wraps the
-  construction in `{ let mut __h = H::new(…); __h.init(); __h }`; a dependent
-  handler's `init` runs right after the fusion struct is built, with the
-  forwarding impl's own shape — `let __Fx { __outer, __h } = &mut __fx; let
-  mut __deps = __Deps_H { __p: &mut **__outer }; __Impl_H::init(__h, &mut
-  __deps)` — since its `init` takes the fused value like every other member.
+  an inherent `fn init(&mut self)`, dispatched by `__dispatch_priv`. A spawn
+  emits `salvo_send(__a, Box::new(__Priv_H::Init))` right after `salvo_spawn`
+  and before the addr is answered. A `use` wraps the construction in `{ let
+  mut __h = H::new(…); __h.init(); __h }` before the handle takes it — a
+  dependent handler's dependencies are its own fields, so `init` is a plain
+  method like every other member [rs-handle].
   `self@Face` lowers to `self.__addr.expect(…)`; the `watch_peers` and
   `publish_group` intrinsics build `__Priv_{current handler}` variants, since
   the events they register for arrive as the mechanism's own private members.
 * [rs-actor] [actor-private-send] A private send member is an **inherent
-  method** on the handler struct (`impl H { fn k(…) }`; a dependent
-  handler's lands in `__Impl_H` with every other member) with owned
+  method** on the handler struct (`impl H { fn k(…) }`) with owned
   parameters (its written clause is all-consumed). `__Priv_H` is the
   handler-keyed enum of its private messages; `__Actor_H::handle` tries it
-  after the faces' enums, `__dispatch_priv` calls the method (or the
-  `__Impl_H` form over `__Deps_H`), `resume` rebuilds a `__Priv_H` for a
+  after the faces' enums, `__dispatch_priv` calls the method, `resume`
+  rebuilds a `__Priv_H` for a
   `ContTarget::Private` variant of `__Cont_H`, and `decode_reply` covers it
   by its answer type. `k@self(…)` builds `__Priv_H::K(payload)`, or the
   method call inline when `__addr` is unset.
@@ -1758,10 +1515,8 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   constructs the host struct as `crate::platform_<M>::H::new(args)` — `M`
   being the module that *declared* the handler
   (`Symbols::handler_modules`), so a std handler works from a customer's
-  `use` unchanged. Under the fusion that expression is the `__h` field's
-  initializer [rs-effect-fusion]; identifiers derived from the handler's
-  name (`__Impl_H`) stay names, never paths — a platform handler has no
-  dependencies, so the dependent shape never applies to one.
+  `use` unchanged, wrapped in the effect's handle like any construction
+  [rs-handle].
   * The skeleton is `pub struct H { p: T, … }` with `impl H { pub fn new(p:
     T, …) -> Self }` and an impl with every member stubbed — of
     `<path>::E` (`&mut self`) for an undeclared handler, of `__Shared_H`
@@ -1778,28 +1533,19 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     of the same crate, so without them the skeleton does not compile — which
     stayed invisible until a `platform handler` whose members trade in more
     than primitives arrived (`HostRawFs`, 2026-09-14).
-  * **Sharing follows the declared contract** [threadsafe-platform] (user
-    decision 2026-09-26). An **undeclared** platform handler classifies as a
-    monitor and its `use` wraps the host in the effect's lock adapter
-    (`__Lock_E::new(H::new(args))`) — as this backend always did, now as a
-    semantic claim mirrored by Kotlin's `__Mon_E` rather than a sharing
-    mechanic Kotlin lacked. A **`threadsafe`** one classifies bare and its
-    declaring module gains two generated items: `pub trait __Shared_H: Send +
-    Sync` — the effect's members with **`&self`** receivers, which the host
-    struct implements — and `pub struct __Arc_H { inner: Arc<H> }`,
-    `Clone` by `Arc` bump, implementing the effect's own `&mut self` trait by
-    forwarding. The `use` site constructs `__Arc_H::new(H::new(args))`, named
-    through the declaring module's path like the module's effects. The host
-    is thereby compiled under shared access: a `RefCell` field no longer
-    compiles, a `Mutex`/`RwLock`/atomic does — the half of the contract
-    rustc checks. A `threadsafe` host of an effect with a mutably lending
-    member is refused (a borrow cannot leave `&self` mutably).
-  * **The skeleton prints the contract** in both shapes: the threadsafe one
-    opens with the signing comment, has no `#[derive(Clone)]`, and
-    implements `<own_path>::__Shared_H` with `&self` receivers; the
-    undeclared one says the compiler serializes the instance and implements
-    `<effect_path>::E` with `&mut self`. Regenerating after toggling the word
-    changes the receivers.
+  * **Sharing follows one shape** [threadsafe-platform] [rs-handle]: a
+    platform handler's `use` wraps the host in the effect's handle
+    (`__Handle_E::new(H::new(args))`) whether or not it is declared
+    `threadsafe` (user decision 2026-09-28; until then a `threadsafe` host
+    got a `&self` twin trait and an `Arc<H>` adapter, an undeclared one the
+    lock adapter). The word is the declared contract the skeleton prints —
+    every member safe to run concurrently — which the lock-free stateless
+    pass will read; the host implements the effect's own `&mut self` trait
+    and must be `Send`.
+  * **The skeleton prints the contract** in both shapes — the threadsafe one
+    opens with the signing comment, the undeclared one says the compiler
+    serializes the instance — and both implement `<effect_path>::E` with
+    `&mut self` receivers.
 * [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
   a bare identifier clones its binding place (whatever its binding
   mode — every generated type derives or is `Clone`, and generic
@@ -2069,85 +1815,9 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   * **The mixed spawn** evaluates ctor args once (`let __cN = …`), clones
     them into the handler, moves them into the façade, reads the mailbox
     bound off the instance, spawns `__Actor_H`, and answers
-    `__Mon_E::new(Box::new(__Fac_H { __addr: __a, … }))` — the façade inside
-    the effect's shareable handle, **not** behind the monitor's lock (a
-    blocked second caller would serve nothing while the first waits inside).
-
-* [rs-monitor] **The monitor lowering** [monitor-handler] (SH-3, built
-  2026-09-19). A plain effect `E` gets a per-effect lock wrapper emitted
-  beside its trait:
-
-  ```rust
-  #[derive(Clone)]
-  pub struct __Mon_E {
-      inner: std::sync::Arc<std::sync::Mutex<dyn E + Send>>,
-  }
-  impl E for __Mon_E {
-      fn member(&mut self, …) -> … { self.inner.lock().unwrap().member(…) }
-  }
-  ```
-
-  * **`Addr<E>` lowers to `__Mon_E`** when `E` is plain (both type paths —
-    checked `Ty` and written AST — branch on the effect's declared kind); an
-    actor effect's addr stays `usize`. A **generic** plain effect's addr
-    carries the instantiation into the wrapper (`Addr<Random<Int>>` is
-    `__Mon_Random<i64>`, 2026-09-20); an uninstantiated mention is refused
-    by arity, a leniency path rather than a rule.
-  * **The handle is clone-boxed** (reworked with [rs-mixed], 2026-09-19):
-    `__Mon_E { inner: Box<dyn __Share_E> }`, where `__Share_E: E + Send` adds
-    `__clone_box` with a blanket impl over `Clone + Send + 'static`
-    (implementing parameter spelled `__H`, which an effect's own generics can
-    never collide with) — so one handle type carries a monitor *or* a mixed
-    handler's façade. The lock is the per-effect adapter `__Lock_E<H>` over
-    `Arc<Mutex<H>>` — the struct itself unbounded, the bounds on the trait
-    impl, where the effect's own generics can join them (the deferred C-4(c)
-    "Arc-where-sent" growth point) — and a monitor spawn is
-    `__Mon_E::new(Box::new(__Lock_E::new(H::new(args))))` — no scheduler, no
-    mailbox, no pool. A bare `use` of a stateful handler emits the same lock
-    wrap at the binding ([effect-handle]); the whole apparatus is **generic
-    exactly as the effect is** (`__Share_Random<T: 'static>`,
-    `__Mon_Random<T: 'static>`, `impl<T: 'static, H: Random<T> + Send>
-    Random<T> for __Lock_Random<H>`), and construction sites name a generic
-    instance's type arguments outright (`__Mon_Random::<i64>::new(…)`, from
-    the checker's resolved instance) rather than asking inference to thread
-    them through the unsize coercion.
-  * **A handle-dep handler** ([effect-handler-deps]'s owned-handles form)
-    gets `__dep_e: __Mon_E` fields and trailing `new` parameters; members
-    emit the independent shape with environment entries at `self.__dep_e`,
-    and `__Mon_E` implements `__Has_E` (`__get_E → self`, emitted under the
-    fusion gate exactly as the `__Has_E` trait itself is — plain mode
-    declares no such trait, so the impl would dangle), which keeps the fused
-    call machinery working with **field-granular borrows** (the E0502 trap
-    otherwise). Bind sites mint an **eager handle variable**
-    (`let __bind = …; let __handle = __Mon_E::new(Box::new(__bind.clone()))`)
-    for effects a later construction in the file captures, because the
-    binding value itself moves into the fusion; `use addr` bindings clone
-    the handle directly. Stateless shareable handler structs and intrinsic
-    structs derive `Clone` (the `__Share_E` blanket impl wants
-    `Clone + Send`); a platform host struct need not — a shared platform
-    binding goes through the lock adapter ([rs-platform-handler]), whose
-    handle-clone is an `Arc` bump.
-  * **The handle is `Clone`, not `Copy`** — unlike the `usize` addr — and the
-    checker treats every `Addr` as freely reusable, so an owned read of a
-    plain-effect addr **clones** (`emit_owned`'s ident arm); a handle bound
-    once shares into any number of spawns and `use`s. `Arc<Mutex<dyn E +
-    Send>>` is `Send + Sync`, which is the sendability the checker promised
-    at the spawn [actor-sendable].
-  * **`use addr` binds the value itself** (it already implements the trait);
-    a plain-effect addr supplied in a spawn's dependency clause passes
-    through as itself, where an actor addr gets the `__Stub_E` send wrapper.
-  * **The wrapper is emitted for every plain effect** beside its trait, used
-    or not — generated programs allow `dead_code`, and per-effect emission
-    is what gives the type one identity across modules (the message enum's
-    reasoning). Members with their own generics are skipped exactly as the
-    trait skips them ([rs-effects] refuses dyn-dispatching them).
-  * **Rust's `Mutex` is not reentrant, and that is unobservable**: a
-    shareable handler's bindings are fixed at construction and its deps bind
-    strictly outward/earlier, so no path routes back into the wrapper;
-    sibling calls inside the handler are direct self calls under the one
-    acquisition. A poisoned lock (`unwrap`) surfaces as a
-    panic only after another member already panicked, which is the fault
-    boundary's business.
+    `__Handle_E::new(__Fac_H { __addr: __a, … })` — the façade behind the
+    effect's handle like every instance [rs-handle], its known cost recorded
+    there.
 
 * [rs-actor] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.rs`
@@ -2164,14 +1834,7 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     variant names.
     * Member invocation lives in **one** place, a private
       `__dispatch(&mut self, msg: __Msg_E)`: `handle` downcasts into it and
-      `resume` rebuilds a call for it. Factoring it out is what keeps a
-      dependent handler's `__Deps_H` view built once [rs-effect-fusion].
-    * `__Proc_H` therefore has **three** renderings of its parameter list when
-      it is generic in dependency instances: bare on the struct and on `new`,
-      with the dependencies' trait bounds on `__dispatch` (which builds the
-      `__Deps_H` view), and with `+ Send + 'static` on the `SalvoProcess` impl
-      (whose supertrait must be proved). Getting the middle one wrong is an
-      `E0277` naming the dependency's trait.
+      `resume` rebuilds a call for it.
   * **The parked-continuation table, and the address, live on the handler.** A
     handler of an `actor effect` carries two generated fields, whichever way it
     is bound — a handler is compiled once:
@@ -2199,13 +1862,10 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     which is what makes the chain possible. `spawn` answers `(__a, __a)`: one
     scheduler index, one mailbox, one tuple element per face, so least authority
     costs nothing at run time.
-    * **The fusion is switched on by a multi-face handler too**
-      (`program_needs_fusion`), for the reason the fusion exists: a fn declaring
-      `[A, B]` takes one `&mut` per effect, and when both are one handler's
-      faces those are two mutable borrows of one local — `E0499`. A fused value
-      carrying a Has-accessor per face borrows once. A multi-face `use` emits
-      one `__Has_E` impl per face onto the one owned instance, and registers one
-      effect entry per face against the same variable.
+    * A multi-face `use` is one `Arc<Mutex<H>>` and one handle per face
+      [rs-handle], so a fn declaring `[A, B]` bound to one handler's two
+      faces borrows two handles of one instance — the E0499 the fusion used
+      to exist for does not arise.
   * **The continuation enum**, `__Cont_H`, emitted beside the **handler** whose
     members it names — the handler, not the effect, because a mint is lexical
     ([effect-handler-multi]: with several faces a handler's members come from
@@ -2221,40 +1881,14 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     gone returns silently), matches the variant, downcasts `value` to the
     trailing parameter's type, and hands a rebuilt
     `__Msg_E::K(captures…, answer)` to `__dispatch`.
-  * **A dependent handler's child owns a flat provider.** A dependent
-    handler's members do not read their dependencies from a scope: they take a
-    fused value, one per member call ([rs-effect-fusion]). A `use` site builds
-    that from the effects around it; a child has no such scope, so `__Proc_H`
-    holds the dependencies itself —
-    `pub struct __Prov_H<__D0, __D1> { pub __d0: __D0, pub __d1: __D1 }`,
-    emitted beside the handler with one **Has-accessor impl per dependency**
-    (`impl<__D0: Log, __D1: Tally> __Has_Log for __Prov_H<…> { … &mut self.__d0 }`),
-    and `__Proc_H<__D0, __D1> { handler, prov }` generic in the instances the
-    spawn supplied. `handle` then does exactly what a fusion's forwarding impl
-    does — build the Sized view over the one provider and call through the
-    dependent-member trait:
-    `let mut __deps = __Deps_H{ __p: &mut self.prov }; __Impl_H::m(&mut self.handler, &mut __deps, args)`.
-    * `__Deps_H` needs nothing new: it is a view over **one** provider
-      ([rs-effect-fusion]), and the flat struct is that provider. The two
-      borrows are of disjoint fields, which is why both are live in one call.
-    * Generic in the instances rather than `Box<dyn D>` for the fusion's own
-      reason: a Sized generic needs no allocation and no indirection, and the
-      instance types are concrete at the spawn. The price is that
-      `SalvoProcess: Send` must be *said* — the impl carries
-      `__D0: Log + Send + 'static` per dependency, where a non-generic body
-      gets `Send` from the auto trait.
-    * The fields are in the handler's **declaration** order, and the clause is
-      in the program's; the checker's matching record is what keeps them
-      straight ([actor-spawn-expr]).
-    * A clause item becomes an instance the same way `use` makes one: a
-      construction is `D::new(args)`, an addr is `__Stub_D::new(addr)`. So a
-      dependency can be a local handler in one program and an actor in the
-      next with no change to the child.
-    * `__Prov_H` is named after the *handler* while the provider **traits** of
-      [rs-effect-fusion] are named after their effect sets (`__Prov_A_B`). Two
-      generated types could therefore collide on a handler named exactly like
-      a sanitized effect set — a duplicate definition, which rustc rejects
-      outright, so it cannot become wrong code.
+  * **A dependent handler's child holds its handles** [rs-handle]: the
+    dependency handles are the handler's own fields, so the actor body is the
+    same struct for every handler (`__Actor_H { handler: H }`), and the spawn
+    passes the clause's instances and the inherited handles as trailing `new`
+    arguments — a construction behind its handle, a plain-effect addr as
+    itself, an actor addr over its send stub — so a dependency can be a local
+    handler in one program and an actor in the next with no change to the
+    child.
   * **The three types erase to scheduler handles**: `Addr<E>` and `Pool` are
     `usize` indices, `Reply<T>` is `crate::scheduler::SalvoReply`. Their Salvo
     type arguments have no rendering — the effect an addr serves and the payload
@@ -2271,9 +1905,8 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     `{ let __h = H::new(args); let __cap = __h.__mailbox_capacity;
     salvo_spawn(P, __cap as usize, Box::new(__Actor_H::new(__h))) }`, whose
     value is the addr — the bound is read off the instance because it is the
-    *handler's* [actor-mailbox], and the child's provider is a second
-    constructor argument when the handler has dependencies
-    (`__Actor_H::new(__h, __Prov_H { __d0: …, __d1: … })`);
+    *handler's* [actor-mailbox], and a dependent handler's handles are
+    trailing arguments of its own `new` [rs-handle];
     `addr.member(args)` →
     `salvo_send(addr, Box::new(__Msg_E::Member(args)))`; `waitfor out: Reply<T>
     { … }` → a block expression that mints a waiter, runs the block, then
@@ -2360,16 +1993,13 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     as activations and `__addr` was written before the body did.
   * **`k@self(args)`** → `match self.__addr { Some(__a) => salvo_send(__a,
     Box::new(__Msg_E::K(args))), None => <inline> }`, where the inline reading
-    is `E::k(self, args)` — or `__Impl_H::k(self, &mut *__fx, args)` for a
-    dependent handler, forwarding the fused value the body already holds
-    [rs-effect-fusion]. One field, both readings [actor-self-send].
+    is `E::k(self, args)`. One field, both readings [actor-self-send].
   * **The forwarding stub**, `__Stub_E`, beside the effect: a struct holding an
     addr that `impl`s the effect trait by sending. `use addr` builds one and
-    binds it exactly as a handler instance is bound — under the fusion too,
-    since `emit_fusion_instance` takes the *expression* that makes the instance
-    and no longer cares which kind it is. That indifference is the point: a
-    handler is compiled once and bound many ways [actor-use-addr]. A spawn
-    clause's addr becomes the same stub, in the child's provider.
+    binds it behind the effect's handle exactly as a handler instance is
+    bound [rs-handle]. That indifference is the point: a handler is compiled
+    once and bound many ways [actor-use-addr]. A spawn clause's addr becomes
+    the same stub, behind a handle in the child's fields.
   * **Still refused** (each a diagnostic, none silent): spawning a **generic**
     handler and a **generic effect** as a protocol.
 
@@ -2386,9 +2016,8 @@ Reported as codegen errors, never silent wrong code:
 * struct literal without an inferable type;
 * referencing the `Any` type in emitted positions;
 * effect member fns with their own generic parameters;
-* a dependent handler using its own generic parameters in a member
-  signature, and a `use` whose effect instance is still generic
-  ([rs-effect-fusion]);
+* a `use` whose effect instance is still generic (an unresolved
+  instantiation has no handle type to name, [rs-handle]);
 * struct destructuring in `for` patterns (same as Kotlin).
 
 Known acceptable divergences (documented, not errors): extra `.clone()`s

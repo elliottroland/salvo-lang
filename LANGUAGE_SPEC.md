@@ -3113,9 +3113,9 @@ Conventions:
   extra handler args. Members must still declare their deductions and
   return type [decl-explicit].
   * Roadmap E1 lifts this for *handlers*, whose dependencies are declared
-    as an effect list on the handler and supplied by the per-scope fusion
-    (user decisions 2026-09-04 and 2026-09-14; mechanism in
-    [rs-effect-fusion] / [kt-effect-fusion]). A *member* declaring its own
+    as an effect list on the handler and captured as handles at construction
+    (user decisions 2026-09-04, 2026-09-14 and 2026-09-28; mechanism in
+    [rs-handle] / [kt-handle]). A *member* declaring its own
     effects stays an error: the dependency belongs to the implementation,
     not the interface.
   * (The `[waitfor]` exception of 2026-09-17 went with the capability's
@@ -3273,40 +3273,24 @@ Conventions:
   * Dependency **cycles need no separate check**: a dependency must already
     be registered when its dependent is, so a cycle cannot be constructed
     in any order (verified both ways). The availability rule *is* the
-    acyclicity guarantee, which is what the fusion emission relies on.
-  * Emission is **one of two forms**, decided per handler declaration by the
-    shared predicate `handler_handle_deps` (`salvo-core`, used verbatim by
-    the checker and both emitters so the shapes cannot disagree):
-    * **Owned handles** (user decision 2026-09-20, [effect-handle]): a
-      plain-face, non-mixed, dep-bearing handler whose declared effects are
-      plain (no `use`, no `spawn`, no actor-effect dep, no
-      generic-effect-instance dep)
-      captures its dependencies as handles **at construction** — fields and
-      trailing constructor arguments, one per dep in declaration order
-      (`Checked::handle_captures` records the resolved instances per
-      construction; the emitters read only this). Such a handler may be
-      bound shareable — the interceptor case: a production `Logger` is
-      stateless-with-deps and shares bare, no `local` anywhere. A
-      **generic** handler works in this form (its dep is a handle field, so
-      no generated trait names the handler's generics — the cut that still
-      stands for the fusion form).
-      * The handle is minted off a **binding in the same function**
-        (the eager handle) **or threaded in by the caller** when
-        the effect arrives through the enclosing *signature*
-        ([spawn-inherit]'s lift, 2026-09-20: a recorded handle requirement,
-        propagated up the call graph, lowered as [rs-handle-bundle]).
-    * **Fusion** ([rs-effect-fusion], [kt-effect-fusion]) for every other
-      dep-bearing handler — which therefore binds `use local` only. Since
-      2026-09-14 in the **Has-accessor** shape on both backends (user
-      decision, adopted from FILE_SYSTEM.md §5.8.1): one fused value per
-      scope carries the registered handlers behind generated per-effect
-      accessor traits/interfaces, so effect members can never collide on it
-      and instances of a generic effect stay apart. Kotlin additionally
-      injects the dependency at construction (objects alias); Rust hands it
-      to the member body from a disjoint borrow of the fusion. Both
-      backends gate the fusion on the same program-wide predicate and run
-      the same programs to the same output. At the fusion layer a `local E`
-      dep threads like any other — dep locality is the checker's business.
+    acyclicity guarantee, which is what the lock discipline relies on.
+  * **Emission is one form** ([effect-handle], user decision 2026-09-28): a
+    dependent handler captures its dependencies as **handles at
+    construction** — fields and trailing constructor arguments, one per dep
+    in declaration order, whatever the dependency's kind (plain, actor
+    effect, generic instance) and however the handler is bound
+    (`Checked::use_deps` / `spawn_deps` record the resolved instances per
+    construction; the emitters read only those). The handle comes from a
+    binding in the same function or from an effect the function received
+    through its own signature — a fn's effect parameter *is* a handle
+    ([spawn-inherit]). A **generic** dependent handler works (its dep is a
+    handle field, so nothing generated has to name the handler's generics).
+    Rust: [rs-handle]; Kotlin: [kt-handle] (an object reference is the
+    handle, `__Mon_E` where a stateful one is shared). The two forms this
+    replaced — owned handles for the shareable default and a per-scope
+    *fusion* threading the dependency per call for every other dependent
+    handler, chosen by `handler_handle_deps` — are recorded in COMPLETED.md
+    and EFFECT_FUSION.md.
 * [effect-fn-deps] A fn's `[E1, E2<T>]` list declares its effect
   dependencies. Calling a fn requires each of its effects to be available
   in the caller (declared or `use`d) — validated by the checker at every
@@ -3370,25 +3354,13 @@ Conventions:
     unification is doing the work.
   * **Nothing in scope** stays an error, now naming both remedies (bind one
     before the spawn — it is then inherited — or supply it in the clause).
-  * **A `local E` dependency cannot be inherited**: it accepts only a
-    scope-local binding, which a child cannot hold. Declare the dependency
-    shareable instead.
-  * **The v1 lexical cut is lifted with it.** A capture used to require the
+  * **The v1 lexical cut is lifted.** A capture used to require the
     dependency to come from a `use` *in the same function*; an effect
-    arriving through the enclosing **signature** now works too, with the
-    handle threaded in by the caller: the checker records a **handle
-    requirement** per fn (`handle_requirements`) and propagates it up the
-    call graph to a fixpoint, gated on the caller supplying that effect from
-    its own signature in turn. Only a fn whose effect list carries `use` or
-    `spawn` can have one (user decision: the visible capability is what
-    admits the hidden parameter), and the lowering is [rs-handle-bundle] —
-    one hidden fused parameter on Rust, nothing at all on Kotlin, where an
-    object reference already *is* a handle [kt-monitor].
-  * Two shapes cannot answer and are errors: a **platform effect** (the host
-    owns that instance and hands it to `main` as a borrow — there is nothing
-    to mint; the remedy is a Salvo handler over it, the `DefaultFs [RawFs]`
-    shape), and a **lambda** body (a fn value's effects are call-only, so
-    no caller could supply a handle).
+    arriving through the enclosing **signature** works too, since every
+    effect parameter is a handle [effect-handle] — a platform effect
+    arriving through `main` and a fn value's effects included (until
+    2026-09-28 those two were refused, and the lift went through a hidden
+    handle-bundle parameter on Rust; see COMPLETED.md).
   * **The deadlock graph is unchanged**: it prices a handler's dependencies
     from its *declaration*, so an inherited dependency carries exactly the
     edges a written one did [actor-deadlock-cycle].
@@ -3514,10 +3486,10 @@ Conventions:
     reads as a special case only because the effect names match.
   * Interception is per **instance** of a generic effect: intercepting
     `Store<Int>` leaves `Store<Str>` with the handler it had.
-  * Emission: the fusion of the shadowing `use` carries exactly *one*
-    accessor per effect — the new handler's — while the shadowed instance
-    stays reachable through the provider the intercepting handler is handed
-    ([rs-effect-fusion], [kt-effect-fusion]).
+  * Emission: the previous registration's handle is captured *before* the
+    interceptor is constructed and bound — `let mut logger2 =
+    __Handle_Logger::new(Stamped::new(logger.clone()))` — which is "binds
+    strictly outward" in emission ([rs-handle], [kt-handle]).
 * [effect-available] Calling an effect member requires an instance of its
   effect in scope; otherwise "no handler for effect" (a spanned checker
   error since M5).
@@ -3984,11 +3956,9 @@ Conventions:
   `handler DefaultFs [RawFs] of Fs`, which mints the tokens, wraps failures
   in `Checked<FsError>` and discharges in Salvo — the host never holds an
   obligation.
-  * The split is load-bearing, not cosmetic, and still is after the move: a
-    *dependent handler* switches the whole program to the fused effect
-    emission ([rs-effect-fusion]/[kt-effect-fusion]) and the gate reads the
-    reachable *modules*, so keeping `DefaultFs` out of `fs` is what keeps a
-    program that fakes the filesystem with `fs.mem` unfused.
+  * The split was load-bearing while the fused emission existed (a dependent
+    handler switched the whole program to it); since 2026-09-28 the emission
+    is one shape and the split is a matter of what a module drags in.
   * `[RawFs]` stays greppable as the audit: nothing but a composition root
     (`use HostRawFs()`) and `DefaultFs` reaches raw handles.
 * [fs-double] `fs.mem` ships **`MemFs of Fs`**: an in-memory filesystem
@@ -4212,8 +4182,8 @@ docs/language/ remains the source of truth for everything that does.
     inline handler (single-threaded, no lock).
   * Calling a plain member *through the addr* (`rng.next()` without a `use`)
     stays refused for now, with the send-member diagnostic; `use` the handle.
-  * Lowering: [rs-monitor] and [kt-monitor] — a per-effect lock wrapper
-    (`__Mon_E`) implementing the effect's trait/interface by
+  * Lowering: [rs-handle] and [kt-monitor] — a per-effect lock wrapper
+    (`__Handle_E` / `__Mon_E`) implementing the effect's trait/interface by
     lock-and-delegate, so every downstream binding and dispatch path is
     unchanged; the checker and both emitters key the `Addr<E>` representation
     on the effect's declared kind. The wrapper is **generic exactly as the
@@ -5534,9 +5504,8 @@ between endpoints and delivers what arrives into the scheduler.
     connected — nothing is rebound, nothing spawned). A third overload,
     `connect(me, sending: Addr<Outbound>, receiving: Addr<Inbound>)`, takes
     the two wire actors already spawned — for a node brought up from inside
-    another actor, where the transport cannot be inherited by a spawn on the
-    Rust backend yet [rs-handle-bundle] (the in-process double's second node
-    spawns them `with` its transport). A node group's mechanism does not
+    another actor (the in-process double's second node spawns them `with`
+    its transport). A node group's mechanism does not
     connect for you, for the same reason; it refuses to start unconnected.
   * **`net`'s public surface is the layers a program touches** (2026-09-27):
     the transport effects and handlers, `encode`/`decode`/`protocol`,
@@ -6349,7 +6318,7 @@ between endpoints and delivers what arrives into the scheduler.
   * A named fn used as a value performs exactly the effects it declares
     (inherited ones included), which is what the variance rule compares.
   * Backends: both **thread** the effects as leading parameters
-    ([rs-effect-fusion]'s cut is lifted by this; [kt-effect-params]).
+    ([rs-handle]; [kt-effect-params]).
     Kotlin erases contracts (aliases throughout; named fns
     pass as `::name` function references, or an adapter lambda when the
     effect lists differ). Rust renders fn parameters

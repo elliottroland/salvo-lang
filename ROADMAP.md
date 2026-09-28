@@ -263,7 +263,26 @@ commit; regenerate `examples/*/{rust,kotlin}` whenever emission changes):
    Rust emitter already handles `UseKind::Bare`/`Monitor`; the only emission
    that disappears is `Local`'s.
 
-② **Rust: handles everywhere, fusion deleted.** In `crates/salvo-backend-
+② ✅ (2026-09-28) **Rust: handles everywhere, fusion deleted.** Landed as
+   planned, plus: the `Pick<A>`/`Pick<B>` erased-sibling refusal was *not*
+   lifted (the handle is `__Handle_Pick` for both, and the emitter's
+   environment resolves by instance — but the two `use route` stubs would
+   still be two handlers of one erased type in one scope, and the cluster
+   example reads fine as two functions; re-examine in step ③ if Kotlin's
+   shape makes it free). Consequences recorded in the spec: the mixed
+   handler's façade sits behind the handle's lock (a second caller on
+   another thread blocks rather than serving its pool — the lock-free
+   stateless pass removes it); a `threadsafe platform handler` emits nothing
+   and the host implements the effect's own `&mut self` trait (`Send`
+   required); fn-typed constructor parameters are `Box<dyn FnMut + Send>`
+   and struct fn fields `Arc<dyn Fn + Send + Sync>`, so a handler holding a
+   lambda shares on both backends; inherited-then-written effect order is
+   now the same on the fn side and the call side (they disagreed, hidden
+   behind the fused argument). Checker: `handle_requirements`/`call_edges`
+   /`require_handle`, the platform-capture, inline-binding and
+   signature-capture refusals, and `EffectAvail.local` are gone;
+   `unsendable_reason` split into message/task (`fn` still refused) and
+   handler-state (`unshareable_reason`, `proj` only). Original plan: In `crates/salvo-backend-
    rust/src/emit.rs`: delete `program_needs_fusion` and the `fusion` flag —
    the plain-mode code path becomes the only one, with `&mut dyn E`
    parameters replaced by `&mut __Handle_E`; delete `emit_fusion_inner`,
