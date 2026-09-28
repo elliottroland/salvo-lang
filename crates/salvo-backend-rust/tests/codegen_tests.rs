@@ -13100,7 +13100,7 @@ fn rustc_compiles_and_runs_two_nodes_over_mem_transport() {
 const NODE_GROUP_DEMO: &str = r#"import net
 import time
 
-handler Announcing(label: Str) [Console] of NodeChanges {
+handler Announcing(label: Str) [Console] of NodeGroupWatcher {
     mailbox { capacity: 32 }
     send fn joined(n: Node) => !n { println("${label}: + ${to_str(n.at)}") }
     send fn left(n: Node, why: Str) => !n, !why { println("${label}: - ${to_str(n.at)} (${why})") }
@@ -13742,7 +13742,7 @@ handler Pinging(who: Str) of Ping {
     send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
 }
 
-handler Noticing(label: Str) [Console] of ActorChanges<Ping> {
+handler Noticing(label: Str) [Console] of ActorGroupWatcher<Ping> {
     mailbox { capacity: 16 }
     send fn joined(member: Addr<Ping>) => !member { println("${label}: + a Ping (local: ${eq(node_of(member), this_node())})") }
     send fn left(member: Addr<Ping>) => !member { println("${label}: - a Ping") }

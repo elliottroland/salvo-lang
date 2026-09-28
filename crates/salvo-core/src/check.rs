@@ -4720,6 +4720,29 @@ impl<'p, 'r> Checker<'p, 'r> {
             // 3. Resolved by name and type among the visible fns.
             match self.resolve_implicit_fn_at(&imp.name, None, &want) {
                 Ok((found, identity)) => {
+                    // [actor-group] [noremote] The position wanted a
+                    // `() -> Protocol<E>` and std's `protocol<E>` intrinsic
+                    // fills it: `E` is concrete here, and this is where a
+                    // protocol that cannot cross a node boundary is refused
+                    // — the crossing site, now that `actor_group` is an
+                    // ordinary fn whose own body never sees `E`.
+                    if self
+                        .fn_decl_by_key(found)
+                        .is_some_and(|d| d.intrinsic && d.name.name == "protocol")
+                    {
+                        if let Ty::Fn { ret, .. } = want.strip_quals() {
+                            if let Ty::Named { name: pn, args } = ret.strip_quals() {
+                                if pn == "Protocol" {
+                                    if let Some(Ty::Named { name: effect, .. }) =
+                                        args.first().map(|a| a.strip_quals())
+                                    {
+                                        let effect = effect.clone();
+                                        self.refuse_noremote_protocol(&effect, callee, span);
+                                    }
+                                }
+                            }
+                        }
+                    }
                     return Some((
                         ImplicitArg::Resolved {
                             name: imp.name.clone(),
@@ -26976,44 +26999,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [actor-group] [noremote] `protocol<E>()` names the protocol a group
         // is of, and a group's members are reached from every node — so this
-        // is the **crossing site** where a protocol with a `noremote` payload
+        // is a **crossing site** where a protocol with a `noremote` payload
         // is refused (user decision 2026-09-26: at the binding, not the
         // declaration; the protocol stays a legal *local* one). The same
-        // predicate the emitters generate codecs from.
-        // `actor_group<E>(…)` is the same site one level up: the std fn
-        // that opens a group calls `protocol<E>()` with a generic `E`, where
-        // the check cannot fire, so it fires here on the written argument.
-        let crossing = (decl.intrinsic && decl.name.name == "protocol" && args.is_empty())
-            || decl.name.name == "actor_group";
-        if crossing {
-            if let Some(ast_ty) = type_args.first() {
-                if let ast::Type::Named { base, .. } = ast_ty {
-                    if let Some(effect) = self.scope.effects.get(base.name.name.as_str()).copied() {
-                        let empty = std::collections::HashMap::new();
-                        for f in effect.fns.iter().filter(|f| f.is_send) {
-                            for p in f.params.iter().filter(|p| !p.implicit) {
-                                let Some(pty) = crate::wire::approx_ty(&p.ty, &empty) else { continue };
-                                if let Some(block) = crate::wire::wire_blocker(self.symbols, &pty) {
-                                    self.error(
-                                        span,
-                                        format!(
-                                            "a group of `{}` cannot span nodes: `{}.{}` takes `{pty}`, and {} — \
-                                             so `{}<{}>()` has nothing to name on the wire. Keep the \
-                                             actor local, or give the payload a wire form [noremote]",
-                                            effect.name.name,
-                                            effect.name.name,
-                                            f.name.name,
-                                            block.describe(),
-                                            decl.name.name,
-                                            effect.name.name
-                                        ),
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
+        // predicate the emitters generate codecs from. The other crossing
+        // site is where the intrinsic fills an implicit `?protocol` — for
+        // `actor_group<Ping>(nodes)` and any fn like it — in
+        // `fill_one_implicit`.
+        if decl.intrinsic && decl.name.name == "protocol" && args.is_empty() {
+            if let Some(ast::Type::Named { base, .. }) = type_args.first() {
+                let effect = base.name.name.clone();
+                self.refuse_noremote_protocol(&effect, "protocol", span);
             }
         }
         // [cmp-carry] An ordering is fixed **at construction**, and a keyed
@@ -27023,6 +27019,40 @@ impl<'p, 'r> Checker<'p, 'r> {
         // shape as [struct-lit-infer] and the empty-literal rule — a value whose
         // type the position decides.
         self.adopt_carried_identity(result, expected)
+    }
+
+    /// [actor-group] [noremote] Refuses naming `effect` as a group's
+    /// protocol when any of its `send fn` payloads has no wire form: a group
+    /// of it could not span nodes, so there is nothing to name on the wire.
+    /// `via` is the call the program wrote (`actor_group`, `protocol`), for
+    /// the diagnostic. Silent for a name that is not an effect in scope —
+    /// the ordinary type errors cover that.
+    fn refuse_noremote_protocol(&mut self, effect: &str, via: &str, span: Span) {
+        let Some(effect) = self.scope.effects.get(effect).copied() else {
+            return;
+        };
+        let empty = std::collections::HashMap::new();
+        for f in effect.fns.iter().filter(|f| f.is_send) {
+            for p in f.params.iter().filter(|p| !p.implicit) {
+                let Some(pty) = crate::wire::approx_ty(&p.ty, &empty) else { continue };
+                if let Some(block) = crate::wire::wire_blocker(self.symbols, &pty) {
+                    self.error(
+                        span,
+                        format!(
+                            "a group of `{}` cannot span nodes: `{}.{}` takes `{pty}`, and {} — \
+                             so `{via}<{}>` has nothing to name on the wire. Keep the \
+                             actor local, or give the payload a wire form [noremote]",
+                            effect.name.name,
+                            effect.name.name,
+                            f.name.name,
+                            block.describe(),
+                            effect.name.name
+                        ),
+                    );
+                    return;
+                }
+            }
+        }
     }
 
     /// [cmp-carry] The call's result, wearing the identities its *position* names

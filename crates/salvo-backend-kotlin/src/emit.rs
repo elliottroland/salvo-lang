@@ -8336,30 +8336,10 @@ impl<'p> Emitter<'p> {
                         "salvo.SalvoSched.introduce(({node}).id, ({peers}).map {{ salvo.salvoEncode(it, {codec}).toByteArray() }})"
                     );
                 }
-                // [protocol-hash] The name and hash of a protocol named as a
-                // type argument.
-                "protocol_name" | "protocol_hash" if args.is_empty() => {
-                    let target = self
-                        .checked
-                        .call_type_args
-                        .get(&(self.file_idx, span))
-                        .and_then(|tys| tys.first().cloned());
-                    let Some(Ty::Named { name: effect, .. }) = target else {
-                        self.error(format!("`{}` needs an effect as its type argument", f.name.name));
-                        return "\"\"".to_string();
-                    };
-                    if f.name.name == "protocol_name" {
-                        return format!("\"{effect}\"");
-                    }
-                    let Some(prefix) = self.effect_paths.get(&effect).cloned() else {
-                        self.error(format!(
-                            "`protocol_hash<{effect}>()`: `{effect}` has no wire form, so no hash"
-                        ));
-                        return "\"\"".to_string();
-                    };
-                    return format!("{prefix}__PROTO_{}", kt_ident(&effect));
-                }
-                // [actor-group] The group surface.
+                // [protocol-hash] [actor-group] `protocol<E>()` written
+                // directly: the literal for the written type argument. The
+                // same intrinsic filling an implicit `?protocol` is rendered
+                // by `emit_implicit_args`, from the resolved position's type.
                 "protocol" if args.is_empty() => {
                     let target = self
                         .checked
@@ -8370,41 +8350,7 @@ impl<'p> Emitter<'p> {
                         self.error("`protocol` needs an effect as its type argument");
                         return "TODO()".to_string();
                     };
-                    let Some(prefix) = self.effect_paths.get(&effect).cloned() else {
-                        self.error(format!(
-                            "`protocol<{effect}>()`: `{effect}` has no wire form, so it cannot be a group's protocol"
-                        ));
-                        return "TODO()".to_string();
-                    };
-                    let st = self.kotlin_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
-                    return format!("{st}(\"{effect}\", {prefix}__PROTO_{})", kt_ident(&effect));
-                }
-                // [actor-group] `actor_group<E>(…)` → `open_group(protocol<E>(), …)`.
-                "actor_group" if args.len() == 1 || args.len() == 2 => {
-                    let target = self
-                        .checked
-                        .call_type_args
-                        .get(&(self.file_idx, span))
-                        .and_then(|tys| tys.first().cloned());
-                    let Some(Ty::Named { name: effect, .. }) = target else {
-                        self.error("`actor_group` needs an effect as its type argument");
-                        return "TODO()".to_string();
-                    };
-                    let Some(prefix) = self.effect_paths.get(&effect).cloned() else {
-                        self.error(format!(
-                            "`actor_group<{effect}>()`: `{effect}` has no wire form, so it cannot be a group's protocol"
-                        ));
-                        return "TODO()".to_string();
-                    };
-                    let st = self.kotlin_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
-                    let literal = format!("{st}(\"{effect}\", {prefix}__PROTO_{})", kt_ident(&effect));
-                    let net = self.effect_paths.get("ActorGroup").cloned().unwrap_or_default();
-                    let rendered: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
-                    return if args.len() == 1 {
-                        format!("{net}open_group({literal}, {})", rendered[0])
-                    } else {
-                        format!("{net}open_named_group({}, {literal}, {})", rendered[0], rendered[1])
-                    };
+                    return self.protocol_literal(&effect, "protocol");
                 }
                 "publish_group" if args.len() == 2 => {
                     self.needs_scheduler = true;
@@ -8943,7 +8889,25 @@ impl<'p> Emitter<'p> {
                             // So the value passed is an adapter lambda whose
                             // body is that lowering — which is what makes
                             // std's `iter` fill an `?Iterable<It, T>`.
-                            if decl.intrinsic {
+                            if decl.intrinsic && decl.name.name == "protocol" {
+                                // [protocol-hash] `protocol<E>` as a value:
+                                // the literal for the `E` the position was
+                                // resolved at — the one intrinsic whose
+                                // lowering reads its type argument, which a
+                                // value has only through its resolved type.
+                                match Self::protocol_position_effect(want) {
+                                    Some(effect) => {
+                                        let literal = self.protocol_literal(&effect, "protocol");
+                                        out.push(format!("{{ {literal} }}"));
+                                    }
+                                    None => {
+                                        self.error(format!(
+                                            "`protocol` fills `?{name}: {want}`, which does not name a concrete effect"
+                                        ));
+                                        out.push("TODO()".to_string());
+                                    }
+                                }
+                            } else if decl.intrinsic {
                                 out.push(self.intrinsic_fn_value(decl));
                             } else {
                                 let target = self.kotlin_fn_name(decl);
@@ -9010,6 +8974,40 @@ impl<'p> Emitter<'p> {
             }
         }
         out
+    }
+
+    /// [protocol-hash] [actor-group] The `Protocol` literal for `effect`:
+    /// its declared name and the compiled-in hash constant [kt-wire]. What
+    /// `protocol<E>()` renders to, written directly or filling an implicit;
+    /// `via` names the form for the diagnostic when `E` has no wire form
+    /// (the checker refuses that first [noremote]; this is the emitter's own
+    /// guard [backend-never-wrong]).
+    fn protocol_literal(&mut self, effect: &str, via: &str) -> String {
+        let Some(prefix) = self.effect_paths.get(effect).cloned() else {
+            self.error(format!(
+                "`{via}<{effect}>`: `{effect}` has no wire form, so it cannot be a group's protocol"
+            ));
+            return "TODO()".to_string();
+        };
+        let st = self.kotlin_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
+        format!("{st}(\"{effect}\", {prefix}__PROTO_{})", kt_ident(effect))
+    }
+
+    /// [implicit-intrinsic] [protocol-hash] The effect an implicit position
+    /// `?protocol: () -> Protocol<E>` was resolved *at*: the position's type
+    /// with the call's arguments substituted names `E` concretely, which is
+    /// what lets the one type-argument-reading intrinsic render itself as a
+    /// value. `None` when the position is not of that shape.
+    fn protocol_position_effect(want: &Ty) -> Option<String> {
+        let Ty::Fn { ret, .. } = want.strip_quals() else { return None };
+        let Ty::Named { name, args } = ret.strip_quals() else { return None };
+        if name != "Protocol" {
+            return None;
+        }
+        match args.first().map(|a| a.strip_quals()) {
+            Some(Ty::Named { name: effect, .. }) => Some(effect.clone()),
+            _ => None,
+        }
     }
 
     /// [implicit-intrinsic] An `intrinsic fn` passed as a *value*: there is    /// no Kotlin function to reference, so the value is an adapter lambda

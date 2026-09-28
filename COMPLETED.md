@@ -135,6 +135,76 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`actor_group` an ordinary fn over an implicit `?protocol`; `protocol<E>()`
+the one type-argument-reading intrinsic; `NodeChanges`/`ActorChanges<E>`
+renamed `NodeGroupWatcher`/`ActorGroupWatcher<E>` (2026-09-28 evening, user
+decisions — built the same session).** The user wanted to shrink the set of
+std functions that are `intrinsic` only because their lowering must *interpret*
+an effect type argument, and proposed modelling the `in` clause's value as a
+plain struct so builders could be ordinary fns. A survey found the surface was
+already small — of every generic intrinsic in std, only `protocol<E>()` (with
+`actor_group<E>` as sugar over it) and `decode<T>` read their type argument;
+`watch<E>`, `credits<E>`, `pending<E>`, `eq<E>` on addrs, `send<T>` are generic
+only to accept any `Addr`/`Reply` and are intrinsic for reaching the runtime —
+and that the struct would not remove the interpretation site but move it into
+a runtime registry and lose the typed `Addr<ActorGroup<E>>` that `members`,
+`subscribe` and `use route` need. The mechanism Salvo already has for "a value
+determined by a type parameter, supplied where it is concrete and forwarded
+through generics as an ordinary parameter" is implicits, so the user chose
+(option C): **`fn actor_group<E>(nodes, ?protocol: () -> Protocol<E>)`**, an
+ordinary fn whose body calls `protocol()`; at `actor_group<Ping>(nodes)` step 3
+of [implicit-resolve] finds the intrinsic `protocol<E>` (the candidate test
+already unified generic candidates against the wanted type, so nothing new was
+needed there), and [implicit-intrinsic] passes it as an adapter closure yielding
+the `Protocol` literal. The implicit stays fn-typed — the user noted the
+alternative (a value-typed implicit) would widen what an implicit is, and the
+`() -> Protocol<E>` shape avoids that at the cost of one `()` in std's body.
+`open_group`/`open_named_group` (what the intrinsic used to lower to) folded
+into the two `actor_group` overloads; the private `protocol_name`/
+`protocol_hash` intrinsics, declared but never called, deleted. The rename came
+out of the user asking why `ActorGrouping` implements `NodeChanges` rather than
+the node group: because `NodeChanges` was the *listener's* protocol (the thing
+`subscribe(w: Addr<NodeChanges>)` is handed), which the name obscured; the
+watcher names say so, and it makes sense that an actor group watches its node
+group. Also confirmed the same session, no change: **`spawn` stays a distinct
+form** after the one-shape round (it chooses where a body runs, answers a
+value, gates the spawn-only handler features, and carries `[spawn]`), and **the
+monitor spawn of a plain-effect handler stays** for now, though inheritance
+covers most of what it was for (recorded below as a question to revisit with
+lock-free scope-local bindings). `encode`/`decode` keep their names: a *frame*
+is the runtime's envelope (`route_frames`, `deliver_frame`), and `encode` is a
+value codec.
+
+*What it took.* Checker: `refuse_noremote_protocol(effect, via, span)`, one
+predicate for both crossing sites — a direct `protocol<E>()` and, in
+`fill_one_implicit` step 3, a resolution to the `protocol` intrinsic, where `E`
+is read off the wanted type's `Protocol<E>` return (so the diagnostic names the
+call the program wrote, `actor_group<Painter>` or its own `open<Painter>`).
+Emitters: `protocol_literal(effect, via)` and `protocol_position_effect(want)`
+on both; the `Resolved` arm renders the literal for the position's `E` before
+the generic `intrinsic_fn_value_body`/`intrinsic_fn_value` path; the
+`actor_group`/`protocol_name`/`protocol_hash` arms deleted. Generated shape:
+Rust `actor_group(group.clone(), &mut || Protocol { name: "Sequencer".to_string(),
+hash: crate::__PROTO_Sequencer.to_string() })`, forwarded as `&mut *protocol`;
+Kotlin `actor_group(group, { Protocol("Sequencer", salvo.main.__PROTO_Sequencer) })`.
+`wire_tests`' mini-std `actor_group` is now the ordinary-fn shape, and a new
+case checks the forwarding path: a program's own `fn open<E>(nodes, ?protocol)`
+calling `actor_group<E>(nodes)` is refused at `open<Painter>` and passes at
+`open<Counter>`. The cluster example's generated code changed (the call sites
+and `net.rs`/`net.kt`); its output did not, on either backend. Test count
+unchanged at **1613** (the new case extends the existing crossing-site test).
+
+*What fell out.* The only intrinsic left that reads a type argument is
+`protocol<E>()`, which no program writes. The pattern generalises: a constant
+of a *written* effect (a name, a hash, a member table) becomes an implicit the
+checker fills from one intrinsic rather than an intrinsic per consumer; and
+`decode<T>` is the same shape for a codec (`?decode: (Bytes) -> T?`), which
+would also turn its emitter-side "needs a concrete type argument" refusal into
+ordinary colouring — recorded in ROADMAP.md, with effect polymorphism (`fn
+run<T, S, E>(t: T, f: (T) [E] -> S) [E] -> S`, which the user has wanted for
+fn-typed parameters) and a revisit of fused effect emission, which the user
+finds more readable and wants back after this.
+
 **The iterator redesign — any-name `iter fn`, `params Iter<C, T>`, the `iter T`
 placeholder, and `for` over a step call (user decisions 2026-09-26/27, built
 2026-09-27).** The user was dissatisfied with how `iter fn` and `Yield`
@@ -453,7 +523,7 @@ StaticNodeGroup("demo", all) on p`, one addr. The `watch_peers`/
 `publish_group` intrinsics build the *current handler's* private enum, since
 the events arrive as its own members. One thing stayed where it was: the
 opener, not the replica's `init`, subscribes the replica to the node group —
-sent by the replica it is a `NodeChanges → NodeGroup → NodeChanges` cycle the
+sent by the replica it is a `NodeGroupWatcher → NodeGroup → NodeGroupWatcher` cycle the
 deadlock graph rightly reports, since the node group answers `joined`. A
 dependent handler's `init` under a `use` on the Rust backend runs once the
 fusion struct holds the instance, with the forwarding impl's disjoint-field
@@ -490,7 +560,8 @@ on p in group`** for `join(group, spawn H() on p)` [actor-group]: `in`, not
 remote spawn — decision 5 of the network round stands). Two emitter facts fell
 out: `actor_group<E>` is an intrinsic lowered per call to `open_group(
 protocol<E>(), …)`, because an erased generic fn cannot produce the protocol
-constant of its written `E`; and a **handle bundle is named by its shape and
+constant of its written `E` (superseded 2026-09-28: an ordinary fn over an
+implicit `?protocol`, see that entry); and a **handle bundle is named by its shape and
 spelled through the callee's module** (`crate::net::__Hs_transport`) — the
 first cross-module call of a fn with handle requirements (`connect` from a
 program) built a same-named struct in the caller's module and failed rustc.
@@ -578,7 +649,7 @@ would otherwise have to establish, read only by the generator, so a call
 passes a plain `Str`; (3) **spans past the end of the file** for every
 synthesized node — unique keys for the checker's tables, and a diagnostic
 that escaped would render clamped to the file's last line. Also this step:
-the replica wears `NodeChanges` and withdraws a departed node's members;
+the replica wears `NodeGroupWatcher` and withdraws a departed node's members;
 `effect_only_args` lets a `Pick<Ping>` dependency be captured as an owned
 handle (it erases to `__Mon_Pick`), which the shareable-`use` classification
 and the emitters' fusion layer both needed; `while true` lowers to `loop`.
@@ -616,7 +687,7 @@ monomorphic, by a fixpoint in `salvo_core::erase` and an erased copy of the
 program both emitters build against — and [actor-group] — `ActorGroup<E>` as
 a std actor effect (`join`/`leave`/`members`/`subscribe` plus the mechanism's
 `peer`/`merged`/`start`), `attach<E>(name?, proto, nodes)` publishing a
-replica by name through NAMED/MEMBERS frames, `ActorChanges<E>`,
+replica by name through NAMED/MEMBERS frames, `ActorGroupWatcher<E>`,
 `protocol<E>()` as the `noremote` crossing site, `pending(addr)`,
 `node_of(addr)`, `eq` on addresses. **1584 tests** (+5: the crossing-site
 refusal and the effect-typed-generic check in `wire_tests`; erasure-to-
@@ -642,7 +713,7 @@ state (name, endpoint, events sink with three builders), the peer protocol
 table, `salvo_set_protocols` registered from `main`'s prologue (both
 emitters), `set_group`, `watch_peers`, `hello_frame`, `leave_group`,
 `peer_protocol`, `introduce`; a LEAVE kills the departed node's proxies and
-fires their watches. std `net`: `Node`, `NodeGroup`, `NodeChanges`,
+fires their watches. std `net`: `Node`, `NodeGroup`, `NodeGroupWatcher`,
 `PeerEvents`, `start_group`, `StaticNodeGroup`, `GossipNodeGroup`.
 
 *What building it settled or found:*
@@ -901,7 +972,7 @@ decisions, each the user's:
 4. **Effect-typed generic parameters on declarations**: effects, handlers and
    structs may take `<E>` standing for an effect when every use is inside
    `Addr<E>` — what `watch<E>` already had for a function [effect-not-data].
-   Forced by `ActorGroup<E>`, `ActorChanges<E>`, `Pick<E>`.
+   Forced by `ActorGroup<E>`, `ActorGroupWatcher<E>`, `Pick<E>`.
 5. **No remote spawn.** The first draft had a node as a `Remote Pool` and
    `spawn H() on node(...)`; the user asked whether it was needed for anything,
    and every use (a node with a GPU, map tasks, singleton failover, scale-out)
@@ -921,7 +992,7 @@ decisions, each the user's:
    pass's answering stub**; mixed handlers bridge meanwhile.
 7. **Failure**: unreachable is dead (Erlang's rule; Akka's `Unreachable` state
    was refused as a state nobody can act on soundly); node departure is
-   `NodeChanges.left(n, why)`; **credit-based back-pressure** across the wire so
+   `NodeGroupWatcher.left(n, why)`; **credit-based back-pressure** across the wire so
    a declared `capacity` stays true and `pending(addr)` for a remote member *is*
    the credit balance; at-most-once, in order per `(sender, target)`. Sends
    never throw (they enqueue); a synchronous remote call throwing belongs to the
@@ -945,7 +1016,7 @@ decisions, each the user's:
    evolve, and "a protocol gains a message" is a new arm.
 10. **Two membership levels, both actors until the sugar pass.** `NodeGroup`
     (members `Node { id, endpoint, build }`; `members`, `subscribe`, `leave`;
-    `NodeChanges`) whose **handlers are the mechanisms** — `GossipNodeGroup
+    `NodeGroupWatcher`) whose **handlers are the mechanisms** — `GossipNodeGroup
     (name, seeds, split)` with the partition policy as its argument,
     `StaticNodeGroup`, `MemNodeGroup`, a shop's `HeartbeatNodeGroup` over a
     `Ddb` platform effect (heartbeat rows with a TTL; no gossip, no split brain
@@ -957,12 +1028,12 @@ decisions, each the user's:
     `ActorGroup<E>` (members `Addr<E>` on any node; one gossiping replica per
     node; `attach<E>(nodes)` with the name defaulting to the effect,
     `attach<E>(name, nodes)` for several groups of one effect; `join(group,
-    addr)`; `ActorChanges<E>`). Both are actors because they must *receive*
+    addr)`; `ActorGroupWatcher<E>`). Both are actors because they must *receive*
     (peer merges, watched members' `Exit`s, transport upcalls) and only an
     actor can; the read-side cost (`members` is a `waitfor`) is the sugar pass's
     to remove. The naming rule: node groups and actor groups visibly distinct
-    (`NodeGroup`/`Node`/`NodeChanges`/`NodeEndpoint` vs `ActorGroup<E>`/
-    `ActorGroupView<E>`/`ActorView<E>`/`ActorChanges<E>`); nothing called plain
+    (`NodeGroup`/`Node`/`NodeGroupWatcher`/`NodeEndpoint` vs `ActorGroup<E>`/
+    `ActorGroupView<E>`/`ActorView<E>`/`ActorGroupWatcher<E>`); nothing called plain
     "group", "cluster", "registry", "discovery" or "seeds".
 11. **Groups are a library kit, not a type**, under the user's guideline
     "a minimal set of tools the user builds from, then convenience for common
@@ -976,7 +1047,7 @@ decisions, each the user's:
     `Elected` (`[Leader]`, a std effect a Salvo election or an etcd/lease
     platform handler serves — nine lines); a generated **`route(group)`
     stub** declaring `of any E`, picking on the sender's thread against a
-    `View<E>` monitor mirrored from `ActorChanges<E>`. Policies that must read
+    `View<E>` monitor mirrored from `ActorGroupWatcher<E>`. Policies that must read
     the message or the replies (scatter, hedge, retry) are per-protocol
     handlers `of any E` — the line between generic pick and protocol-specific
     handler is the line between `Addr<E>` and a handler. `Any` as a handler
@@ -19398,6 +19469,21 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **The return arrow cannot start a continuation line of a signature**
+  (2026-09-28). `fn f(…) [spawn]\n    -> Addr<X> => !a {` fails to parse
+  ("has no body", then "expected item, found `->`"): the signature ends at
+  the effect list when the next line does not continue it, and a leading
+  `->` is not a continuation. Keep `-> T` on the signature line; the
+  deduction clause (`=> …`) is what may wrap, indented with the declaration
+  [deduce-syntax].
+- **An intrinsic that reads its type argument can still be passed as a
+  value — through the position's type** (2026-09-28). A fn value has no
+  type arguments of its own, so `protocol<E>` as an implicit fill looked
+  impossible at first. But the checker records the position's type with the
+  call's arguments substituted (`ImplicitArg::Resolved.want`), and for
+  `?protocol: () -> Protocol<Ping>` that names `Ping`. `copy` already read
+  the same field for its argument's shape [copy-implicit]; the pattern is
+  general for any per-type lowering an implicit position pins.
 - **An argument-order bug can hide behind a fused argument for weeks**
   (2026-09-28). The checker's `call_effects` listed a callee's *inherited*
   effects (from fn-typed parameters) after its written ones, while
@@ -19462,8 +19548,8 @@ snapshot diffs.
   the workaround was the specification of `init` + `self@Face`.
 - **`init` sending to something that sends back is a cycle the graph will
   find** (2026-09-27). The first draft had the replica's `init` call
-  `nodes.subscribe(self@NodeChanges)`; the node group answers `joined` to
-  every subscriber, so that is `NodeChanges → NodeGroup → NodeChanges`, and
+  `nodes.subscribe(self@NodeGroupWatcher)`; the node group answers `joined` to
+  every subscriber, so that is `NodeGroupWatcher → NodeGroup → NodeGroupWatcher`, and
   the checker warned on every program importing `net`. Moving the one send
   to the opener's frame (a plain fn, no node in the graph) resolved it —
   the same shape as the `NodeLink` cycle step ④ removed. When a start-up
@@ -19476,13 +19562,18 @@ snapshot diffs.
   items by their *shape* (`__Hs_transport`) and spell them through the
   declaring module's path; a counter is only safe for items one module both
   declares and uses.
-- **An erased generic fn cannot read a constant of its type argument**
-  (2026-09-27). `actor_group<E>(nodes)` as a plain std fn calling
+- **An erased generic fn cannot read a constant of its type argument — so
+  hand it the constant as a value, via an implicit** (2026-09-27, resolved
+  2026-09-28). `actor_group<E>(nodes)` as a plain std fn calling
   `protocol<E>()` emitted `protocol<E>()` with `E` gone — the emitter needs
-  the *written* effect name to find `__PROTO_Ping`. Anything that must
-  produce a per-`E` constant is an intrinsic lowered at the call site, and
-  the fn it forwards to takes the constant as a value (`open_group(proto,
-  nodes)`).
+  the *written* effect name to find `__PROTO_Ping`. The first fix made
+  `actor_group` an intrinsic lowered at the call site, forwarding to a fn that
+  took the constant as a value. The better one: keep the fn ordinary and
+  declare the constant as an implicit `?protocol: () -> Protocol<E>`; the
+  checker fills it at the concrete call from the one intrinsic that reads its
+  type argument [implicit-resolve] [implicit-intrinsic], and a generic caller
+  forwards it. One intrinsic instead of one per consumer, and the erased body
+  never needs to know `E`.
 - **A mechanism that reads its own endpoint from the transport has one
   source of truth** (2026-09-27). `StaticNodeGroup(name, me, all)` took `me`
   as a parameter and so did `MemTransport(me, net)`; nothing checked they

@@ -148,6 +148,53 @@ statefulness and named after the effect (COMPLETED.md's second 2026-09-28
 entry). What it left open is in "Recorded, not scheduled": lock-free
 scope-local bindings, and the erased-sibling refusal.
 
+### 2c — After `protocol<E>`: fused emission back, effect polymorphism, `decode` as an implicit
+
+The `actor_group`-over-`?protocol` round (COMPLETED.md, 2026-09-28 evening)
+left three follow-ups the user has asked for, in this order.
+
+- **Revisit fused effect emission** (user, 2026-09-28: "I'm happy to revisit
+  the effect fusion — I personally find it more readable — but after the
+  `protocol<E>` work"). §2b chose one handle parameter per effect over the
+  fused `__fx` value for uniformity while the shapes were being settled; with
+  the handle keyed on statefulness and named after the effect, the question
+  is whether a fn declaring `[A, B]` should take one fused parameter again,
+  and what that does to `[any E]`, forwarding into spawns, and the deadlock
+  graph. The shapes that were deleted, and why, are in COMPLETED.md's
+  "One shape for effects" entry — read it before redesigning. **DECISION**
+  on the shape before code.
+- **Effect polymorphism** — `fn run<T, S, E>(t: T, func: (T) [E] -> S) [E]
+  -> S` (user has wanted it for fn-typed parameters; today [fn-effects]
+  makes `run` inherit `Logger` from `func: (T) [Logger] -> S`, but the effect
+  must be *named*, which is why std's `map`/`filter`/`reduce` take pure fn
+  types). Sketch from the 2026-09-28 discussion: a *single* effect variable
+  is cheap under one-shape — `run` never calls a member on `E`, it passes the
+  handle through, so Rust is `fn run<T, S, E>(e: &E, …, func: impl FnMut(&E,
+  T) -> S)` with no trait bound, Kotlin `fun <T, S, E> run(e: E, …)`; the
+  checker treats `E` as opaque in the body ([call-resolve]: `run` cannot
+  perform it, only hand it on). It must **not** be erased — `Console` and
+  `Logger` are different handle structs where every `Addr<E>` is one
+  `usize` — so `salvo_core::erase` needs "occurs in an effect list" as a
+  reason a generic stays. A *row* (`func` performs several unknown effects)
+  is where it gets expensive (no variadic generics on Rust; a bundle struct
+  is the fusion shape again), so start with one variable and see whether std
+  needs the row — `map(xs, x -> println(x))` needs one. To check: `[any E]`
+  with `E` a variable; a lambda with an *inferred* effect set against `[E]`
+  (bind when the set has one element, refuse naming the row otherwise); the
+  deadlock graph prices the concrete instantiation at `run`'s call sites.
+  Interacts with the fusion revisit (a fused value is one parameter whatever
+  the row), so decide the two together. **DECISION**: single variable first,
+  or the row.
+- **`decode<T>` as an implicit** — the other intrinsic whose lowering reads
+  its type argument, and the same shape as `?hash`/`?eq`: `?decode: (Bytes)
+  -> T?` filled by the compiler-derived codec at the concrete call. Worth it
+  beyond surface area: today `decode` in a generic body is refused by the
+  *emitter* ("needs a concrete type argument"), a [backend-never-wrong] soft
+  spot; as an implicit it becomes ordinary colouring ("add `?decode` to your
+  signature"), and Kotlin — which cannot monomorphize — gets the codec passed
+  in, which is its honest lowering anyway. After it, no user-visible
+  intrinsic reads a type argument. Small; do it when `decode` is next touched.
+
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
 Both defects of the 2026-09-25 round are closed — a bare generic struct literal
@@ -631,6 +678,21 @@ backends**.
 
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
+
+- **Whether the monitor spawn of a plain-effect handler stays** (user
+  decision 2026-09-28: keep the split as is for now). `spawn H()` where every
+  face of `H` is a plain effect answers an `Addr<E>` and shares one locked
+  instance [monitor-handler]; it was the only way to share a stateful plain
+  handler between spawns until [effect-handle] made every `use` a handle and
+  [spawn-inherit] hands the scope's bindings to a child. What it still buys
+  is a plain-effect instance as a **first-class value** (storable, sendable
+  in a message, passable in `with`); nothing in std or the examples uses it
+  that way. Options if it is revisited: keep as the addr-producing form (two
+  spellings for one shape, plus the by-name refusals — `on`, multi-face,
+  `mailbox` — that exist to keep it honest); restrict `spawn` to actor
+  effects; or restrict it and give `use` a value form, which folds into the
+  pending `using` rename in [actor-use-addr]. Decide together with lock-free
+  scope-local bindings below, which touches the same shape.
 
 - **A one-off fresh-run failure of `kotlinc_compiles_and_runs_every_case`**
   (2026-09-28, under `SALVO_E2E_FRESH=1 cargo nextest run` with the whole

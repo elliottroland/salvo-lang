@@ -65,7 +65,7 @@ where `answer` is a **private** send member — one no face declares, so nothing
 outside the handler can send to it; `partial` and `first` are the same shape.
 
 **5 — failover.** `b` leaves its node group. Every replica hears it through
-`NodeChanges` and withdraws the members `b` hosted; the election now answers
+`NodeGroupWatcher` and withdraws the members `b` hosted; the election now answers
 `a`; and the singleton's ids come from `a`'s sequencer — with nothing rebound.
 
 **Two policies take turns.** `Pick<Sequencer>` and `Pick<Inventory>` are one

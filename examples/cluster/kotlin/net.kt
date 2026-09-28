@@ -354,50 +354,50 @@ object __Codec___Msg_NodeGroup : salvo.WireCodec<__Msg_NodeGroup> {
 }
 
 /** [protocol-hash] The canonical hash of `NodeGroup`. */
-const val __PROTO_NodeGroup: String = "ffd5bcc19200cc53"
+const val __PROTO_NodeGroup: String = "471318a2c85d1f6d"
 
-interface NodeChanges {
+interface NodeGroupWatcher {
     fun joined(n: Node)
     fun left(n: Node, why: String)
 }
 
-class __Stub_NodeChanges(private val addr: Int) : NodeChanges {
+class __Stub_NodeGroupWatcher(private val addr: Int) : NodeGroupWatcher {
     override fun joined(n: Node) {
-        salvo.SalvoSched.sendWire(addr, __Msg_NodeChanges.Joined(n), __PROTO_NodeChanges, __Codec___Msg_NodeChanges)
+        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
     }
     override fun left(n: Node, why: String) {
-        salvo.SalvoSched.sendWire(addr, __Msg_NodeChanges.Left(n, why), __PROTO_NodeChanges, __Codec___Msg_NodeChanges)
+        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroupWatcher.Left(n, why), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
     }
 }
 
-class __Mon_NodeChanges(private val inner: NodeChanges) : NodeChanges {
+class __Mon_NodeGroupWatcher(private val inner: NodeGroupWatcher) : NodeGroupWatcher {
     override fun joined(n: Node) =
         synchronized(inner) { inner.joined(n) }
     override fun left(n: Node, why: String) =
         synchronized(inner) { inner.left(n, why) }
 }
 
-sealed class __Msg_NodeChanges {
-    class Joined(val n: Node) : __Msg_NodeChanges()
-    class Left(val n: Node, val why: String) : __Msg_NodeChanges()
+sealed class __Msg_NodeGroupWatcher {
+    class Joined(val n: Node) : __Msg_NodeGroupWatcher()
+    class Left(val n: Node, val why: String) : __Msg_NodeGroupWatcher()
 }
 
-object __Codec___Msg_NodeChanges : salvo.WireCodec<__Msg_NodeChanges> {
-    override fun enc(v: __Msg_NodeChanges, out: salvo.WireOut) {
+object __Codec___Msg_NodeGroupWatcher : salvo.WireCodec<__Msg_NodeGroupWatcher> {
+    override fun enc(v: __Msg_NodeGroupWatcher, out: salvo.WireOut) {
         when (v) {
-            is __Msg_NodeChanges.Joined -> { out.u8(0); __Codec_Node.enc(v.n, out) }
-            is __Msg_NodeChanges.Left -> { out.u8(1); __Codec_Node.enc(v.n, out); salvo.StrCodec.enc(v.why, out) }
+            is __Msg_NodeGroupWatcher.Joined -> { out.u8(0); __Codec_Node.enc(v.n, out) }
+            is __Msg_NodeGroupWatcher.Left -> { out.u8(1); __Codec_Node.enc(v.n, out); salvo.StrCodec.enc(v.why, out) }
         }
     }
-    override fun dec(inp: salvo.WireIn): __Msg_NodeChanges = when (inp.u8()) {
-            0 -> __Msg_NodeChanges.Joined(__Codec_Node.dec(inp))
-            1 -> __Msg_NodeChanges.Left(__Codec_Node.dec(inp), salvo.StrCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): __Msg_NodeGroupWatcher = when (inp.u8()) {
+            0 -> __Msg_NodeGroupWatcher.Joined(__Codec_Node.dec(inp))
+            1 -> __Msg_NodeGroupWatcher.Left(__Codec_Node.dec(inp), salvo.StrCodec.dec(inp))
         else -> throw salvo.WireError()
     }
 }
 
-/** [protocol-hash] The canonical hash of `NodeChanges`. */
-const val __PROTO_NodeChanges: String = "db3e0aa5831c2e44"
+/** [protocol-hash] The canonical hash of `NodeGroupWatcher`. */
+const val __PROTO_NodeGroupWatcher: String = "db3e0aa5831c2e44"
 
 class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoint>, private val __dep_Transport: Transport) : NodeGroup {
     private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__2, ::eq__2).also { __m -> __m.putAll(listOf()) }
@@ -432,7 +432,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
         val n = Node(id = node, at = at)
         known.put(node, n)
         for (w in watchers) {
-            salvo.SalvoSched.sendWire(w, __Msg_NodeChanges.Joined(n), __PROTO_NodeChanges, __Codec___Msg_NodeChanges)
+            salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
         }
     }
 
@@ -442,7 +442,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
             return
         }
         for (w in watchers) {
-            salvo.SalvoSched.sendWire(w, __Msg_NodeChanges.Left(n, "left"), __PROTO_NodeChanges, __Codec___Msg_NodeChanges)
+            salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(n, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
         }
     }
 
@@ -583,7 +583,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
         val n = Node(id = node, at = at)
         known.put(node, n)
         for (w in watchers) {
-            salvo.SalvoSched.sendWire(w, __Msg_NodeChanges.Joined(n), __PROTO_NodeChanges, __Codec___Msg_NodeChanges)
+            salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
         }
     }
 
@@ -593,7 +593,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
             return
         }
         for (w in watchers) {
-            salvo.SalvoSched.sendWire(w, __Msg_NodeChanges.Left(n, "left"), __PROTO_NodeChanges, __Codec___Msg_NodeChanges)
+            salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(n, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
         }
     }
 
@@ -771,59 +771,60 @@ object __Codec___Msg_ActorGroup : salvo.WireCodec<__Msg_ActorGroup> {
 }
 
 /** [protocol-hash] The canonical hash of `ActorGroup`. */
-const val __PROTO_ActorGroup: String = "2baf186cc10cfc79"
+const val __PROTO_ActorGroup: String = "d8ddd42c92bfcc7f"
 
-interface ActorChanges {
+interface ActorGroupWatcher {
     fun joined(member: Int)
     fun left(member: Int)
 }
 
-class __Stub_ActorChanges(private val addr: Int) : ActorChanges {
+class __Stub_ActorGroupWatcher(private val addr: Int) : ActorGroupWatcher {
     override fun joined(member: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_ActorChanges.Joined(member), __PROTO_ActorChanges, __Codec___Msg_ActorChanges)
+        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroupWatcher.Joined(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
     }
     override fun left(member: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_ActorChanges.Left(member), __PROTO_ActorChanges, __Codec___Msg_ActorChanges)
+        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroupWatcher.Left(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
     }
 }
 
-class __Mon_ActorChanges(private val inner: ActorChanges) : ActorChanges {
+class __Mon_ActorGroupWatcher(private val inner: ActorGroupWatcher) : ActorGroupWatcher {
     override fun joined(member: Int) =
         synchronized(inner) { inner.joined(member) }
     override fun left(member: Int) =
         synchronized(inner) { inner.left(member) }
 }
 
-sealed class __Msg_ActorChanges {
-    class Joined(val member: Int) : __Msg_ActorChanges()
-    class Left(val member: Int) : __Msg_ActorChanges()
+sealed class __Msg_ActorGroupWatcher {
+    class Joined(val member: Int) : __Msg_ActorGroupWatcher()
+    class Left(val member: Int) : __Msg_ActorGroupWatcher()
 }
 
-object __Codec___Msg_ActorChanges : salvo.WireCodec<__Msg_ActorChanges> {
-    override fun enc(v: __Msg_ActorChanges, out: salvo.WireOut) {
+object __Codec___Msg_ActorGroupWatcher : salvo.WireCodec<__Msg_ActorGroupWatcher> {
+    override fun enc(v: __Msg_ActorGroupWatcher, out: salvo.WireOut) {
         when (v) {
-            is __Msg_ActorChanges.Joined -> { out.u8(0); salvo.AddrCodec.enc(v.member, out) }
-            is __Msg_ActorChanges.Left -> { out.u8(1); salvo.AddrCodec.enc(v.member, out) }
+            is __Msg_ActorGroupWatcher.Joined -> { out.u8(0); salvo.AddrCodec.enc(v.member, out) }
+            is __Msg_ActorGroupWatcher.Left -> { out.u8(1); salvo.AddrCodec.enc(v.member, out) }
         }
     }
-    override fun dec(inp: salvo.WireIn): __Msg_ActorChanges = when (inp.u8()) {
-            0 -> __Msg_ActorChanges.Joined(salvo.AddrCodec.dec(inp))
-            1 -> __Msg_ActorChanges.Left(salvo.AddrCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): __Msg_ActorGroupWatcher = when (inp.u8()) {
+            0 -> __Msg_ActorGroupWatcher.Joined(salvo.AddrCodec.dec(inp))
+            1 -> __Msg_ActorGroupWatcher.Left(salvo.AddrCodec.dec(inp))
         else -> throw salvo.WireError()
     }
 }
 
-/** [protocol-hash] The canonical hash of `ActorChanges`. */
-const val __PROTO_ActorChanges: String = "9fa424e5858bb3bd"
+/** [protocol-hash] The canonical hash of `ActorGroupWatcher`. */
+const val __PROTO_ActorGroupWatcher: String = "9fa424e5858bb3bd"
 
-fun open_group(proto: Protocol, nodes: Int): Int {
+fun actor_group(nodes: Int, protocol: () -> Protocol): Int {
+    val proto = protocol()
     val name = proto.name
-    return open_named_group(name, proto, nodes)
+    return actor_group__2(name, nodes, protocol)
 }
 
-fun open_named_group(name: String, proto: Protocol, nodes: Int): Int {
-    val (group, changes) = run { val __h = ActorGrouping(name, proto); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.pool(1), __h.__mailboxCapacity, __Actor_ActorGrouping(__h), __Actor_ActorGrouping.__DECODE); salvo.SalvoSched.send(__a, __Priv_ActorGrouping.Init); Pair(__a, __a) }
-    salvo.SalvoSched.sendWire(nodes, __Msg_NodeGroup.Subscribe(changes), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
+fun actor_group__2(name: String, nodes: Int, protocol: () -> Protocol): Int {
+    val (group, watcher) = run { val __h = ActorGrouping(name, protocol()); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.pool(1), __h.__mailboxCapacity, __Actor_ActorGrouping(__h), __Actor_ActorGrouping.__DECODE); salvo.SalvoSched.send(__a, __Priv_ActorGrouping.Init); Pair(__a, __a) }
+    salvo.SalvoSched.sendWire(nodes, __Msg_NodeGroup.Subscribe(watcher), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
     return group
 }
 
@@ -831,7 +832,7 @@ fun join(group: Int, member: Int) {
     salvo.SalvoSched.sendWire(group, __Msg_ActorGroup.Join(member), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
 }
 
-class ActorGrouping(private val name: String, private val proto: Protocol) : ActorGroup, NodeChanges {
+class ActorGrouping(private val name: String, private val proto: Protocol) : ActorGroup, NodeGroupWatcher {
     private var all: MutableList<Int> = mutableListOf<Int>()
     private var peers: MutableList<NodeId> = mutableListOf<NodeId>()
     private var watchers: MutableList<Int> = mutableListOf<Int>()
@@ -845,7 +846,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
         }
         mirror(__addr!!, all)
         for (w in watchers) {
-            salvo.SalvoSched.sendWire(w, __Msg_ActorChanges.Joined(member), __PROTO_ActorChanges, __Codec___Msg_ActorChanges)
+            salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Joined(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
         }
         for (p in peers) {
             salvo.SalvoSched.shareMembers(name, (p).id, listOf<Int>(member))
@@ -858,7 +859,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
         }
         mirror(__addr!!, all)
         for (w in watchers) {
-            salvo.SalvoSched.sendWire(w, __Msg_ActorChanges.Left(member), __PROTO_ActorChanges, __Codec___Msg_ActorChanges)
+            salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Left(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
         }
     }
 
@@ -875,7 +876,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
         for (m in gone) {
             if (withdraw(all, m)) {
                 for (w in watchers) {
-                    salvo.SalvoSched.sendWire(w, __Msg_ActorChanges.Left(m), __PROTO_ActorChanges, __Codec___Msg_ActorChanges)
+                    salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Left(m), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
                 }
             }
         }
@@ -917,7 +918,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
             if (admit(all, m)) {
                 changed = true
                 for (w in watchers) {
-                    salvo.SalvoSched.sendWire(w, __Msg_ActorChanges.Joined(m), __PROTO_ActorChanges, __Codec___Msg_ActorChanges)
+                    salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Joined(m), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
                 }
             }
         }
@@ -953,7 +954,7 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
         handler.__addr = ctx.addr
         when (msg) {
             is __Msg_ActorGroup -> __dispatchActorGroup(msg)
-            is __Msg_NodeChanges -> __dispatchNodeChanges(msg)
+            is __Msg_NodeGroupWatcher -> __dispatchNodeGroupWatcher(msg)
             is __Priv_ActorGrouping -> __dispatchPriv(msg)
             else -> error("a message of one of this actor's protocols")
         }
@@ -968,10 +969,10 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
         }
     }
 
-    private fun __dispatchNodeChanges(m: __Msg_NodeChanges) {
+    private fun __dispatchNodeGroupWatcher(m: __Msg_NodeGroupWatcher) {
         when (m) {
-            is __Msg_NodeChanges.Joined -> handler.joined(m.n)
-            is __Msg_NodeChanges.Left -> handler.left(m.n, m.why)
+            is __Msg_NodeGroupWatcher.Joined -> handler.joined(m.n)
+            is __Msg_NodeGroupWatcher.Left -> handler.left(m.n, m.why)
         }
     }
 
@@ -1018,7 +1019,7 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
                 __PROTO_ActorGroup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_ActorGroup)?.let { Pair(true, it) } ?: Pair(false, null)
-                __PROTO_NodeChanges -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_NodeChanges)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_NodeGroupWatcher -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_NodeGroupWatcher)?.let { Pair(true, it) } ?: Pair(false, null)
                 else -> Pair(false, null)
             }
         }

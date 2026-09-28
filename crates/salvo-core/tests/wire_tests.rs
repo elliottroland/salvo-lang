@@ -40,7 +40,10 @@ const STD_NET: &str = concat!(
     "export intrinsic fn protocol<E>() [] -> Protocol<E>\n",
     "export actor effect NodeGroup { send fn leave() }\n",
     "export actor effect ActorGroup<E> { send fn join(member: Addr<E>) => !member }\n",
-    "export intrinsic fn actor_group<E>(nodes: Addr<NodeGroup>) [spawn] -> Int => !nodes\n",
+    // [actor-group] An ordinary fn over an implicit `?protocol`, as std's is:
+    // the intrinsic that fills it is where a noremote `E` is refused.
+    "export fn actor_group<E>(nodes: Addr<NodeGroup>, ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {\n",
+    "    let _p = protocol()\n    return 0\n}\n",
     // The pick kit's shape, enough for the erased-sibling rule [route-stub].
     "export struct ActorGroupView<E> { key: Long? = None }\n",
     "export effect Pick<E> { fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view }\n",
@@ -250,8 +253,11 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
             && errs[0].contains("[noremote]"),
         "expected the crossing-site refusal, got {errs:?}"
     );
-    // [actor-group] The same site one level up: `actor_group<E>(…)`, where a
-    // program actually writes the protocol.
+    // [actor-group] [implicit-resolve] The same site one level up:
+    // `actor_group<E>(…)`, where a program actually writes the protocol. Now
+    // an ordinary fn over `?protocol: () -> Protocol<E>`, so the refusal fires
+    // where the intrinsic `protocol<E>` is resolved to fill it — and names
+    // the call the program wrote.
     let errs = messages(&format!(
         "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
          actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
@@ -259,7 +265,25 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
     ));
     assert_eq!(errs.len(), 1, "{errs:?}");
     assert!(
-        errs[0].contains("a group of `Painter` cannot span nodes") && errs[0].contains("`actor_group<Painter>()`"),
+        errs[0].contains("a group of `Painter` cannot span nodes") && errs[0].contains("`actor_group<Painter>`"),
+        "{errs:?}"
+    );
+    // [implicit-forward] A generic fn of the program's own forwards its
+    // `?protocol` into `actor_group<E>` without resolving anything (nothing
+    // about an opaque `E` is knowable); the refusal lands at *its* concrete
+    // call, and a wire-form protocol passes through the same path.
+    let errs = messages(&format!(
+        "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
+         actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
+         actor effect Counter {{ send fn bump(n: Int) => !n }}\n\
+         fn open<E>(nodes: Addr<NodeGroup>, ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {{\n\
+             return actor_group<E>(nodes)\n}}\n\
+         fn main(a: Addr<NodeGroup>, b: Addr<NodeGroup>) [spawn] -> None {{\n\
+             let _ok = open<Counter>(a)\n    let _bad = open<Painter>(b)\n}}\n"
+    ));
+    assert_eq!(errs.len(), 1, "one refusal, at the concrete `open<Painter>` call: {errs:?}");
+    assert!(
+        errs[0].contains("a group of `Painter` cannot span nodes") && errs[0].contains("`open<Painter>`"),
         "{errs:?}"
     );
 }

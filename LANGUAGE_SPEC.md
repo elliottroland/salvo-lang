@@ -2879,6 +2879,15 @@ Conventions:
   and `iter` names the generated *module* in Rust — E0423). The adapter's
   arguments follow the resolved declaration's own parameter modes, which on
   Rust means a kept struct parameter is borrowed.
+  * **A lowering that reads its type argument reads the position's type
+    instead** (2026-09-28): a fn value has no type arguments of its own, but
+    the checker records the position's type with the call's arguments
+    substituted (`ImplicitArg::Resolved.want`), and for `protocol<E>` filling
+    `?protocol: () -> Protocol<Ping>` that names `Ping` — so the adapter's
+    body is the `Protocol` literal for it [protocol-hash]. `copy` reads the
+    same field for its argument's shape [copy-implicit]. Any other intrinsic
+    whose lowering needs a type argument is a codegen error as a value
+    [backend-never-wrong], not a guess.
 * [implicit-override] `sort(xs, cmp = my_cmp)` supplies one implicit
   parameter by name. Named arguments exist for exactly this — Salvo has no
   general named-argument form — so a name matching no implicit parameter of
@@ -5475,6 +5484,16 @@ between endpoints and delivers what arrives into the scheduler.
   arm it lacks, so compatibility is settled before a byte is read.
   * Generated only for a protocol whose every payload has a wire form; one
     with a `noremote` payload is a legal *local* protocol with no hash.
+  * **As a value**: `struct Protocol<E> { name: Str, hash: Str }` and
+    `intrinsic fn protocol<E>() -> Protocol<E>`, std `net`. The intrinsic is
+    the one lowering that reads its type argument — the constants exist only
+    where `E` is written concretely, since an effect-only generic is erased
+    [effect-generic-decl] — and its job is to be what the checker finds for
+    an implicit `?protocol: () -> Protocol<E>` [implicit-resolve], so a fn
+    generic over the protocol (`actor_group<E>`, or a program's own) holds the
+    constants as a value it was handed [actor-group]. The name and the hash
+    are the struct's fields; there are no separate accessors (the private
+    `protocol_name`/`protocol_hash` were deleted 2026-09-28, unused).
 * [addr-routable] **An `Addr<E>` is a routable identity** (step ③, user
   decisions 2026-09-26): in generated code still a scheduler index, but every
   entry carries the **node** it lives on and its **bits**, so its wire form is
@@ -5532,8 +5551,8 @@ between endpoints and delivers what arrives into the scheduler.
     The runtime's own bindings (`add_route`, `route_frames`, `deliver_frame`),
     the handshake frames (`set_group`, `watch_peers`, `introduce`,
     `hello_frame`, `leave_group`), the replica's (`publish_group`,
-    `share_members`), the view mirror (`view_set`, `view_members`,
-    `park_briefly`) and `protocol_name`/`protocol_hash` are **private to
+    `share_members`) and the view mirror (`view_set`, `view_members`,
+    `park_briefly`) are **private to
     `net`** [mod-export]; each carries a comment saying what it does and where
     it sits.
   * **Replies arriving over the wire are decoded by whoever knows the
@@ -5571,7 +5590,7 @@ between endpoints and delivers what arrives into the scheduler.
   `NodeDiscovery` effect collapsed twice: its `authoritative()` flag was a
   plain handler steering a std actor's algorithm, which meant the algorithm
   *was* the mechanism). `actor effect NodeGroup { members(out), subscribe(w),
-  leave() }`, `NodeChanges { joined(n), left(n, why) }`, `Node { id: NodeId,
+  leave() }`, `NodeGroupWatcher { joined(n), left(n, why) }`, `Node { id: NodeId,
   at: NodeEndpoint }` — what a mechanism knows *after* contact, where a
   `NodeEndpoint` is what it knows before. **A mechanism starts itself** in its
   `init` block [handler-init] (2026-09-27; until then `node_group(spawn H(…))`
@@ -5642,7 +5661,7 @@ between endpoints and delivers what arrives into the scheduler.
     marker type per effect on the Rust side; recorded in ROADMAP.md.
 * [actor-group] **`ActorGroup<E>` is the routable set of `Addr<E>` a program
   spreads over its nodes**, a std actor effect: `join(member)`, `leave(member)`,
-  `members(reply)`, `subscribe(who: Addr<ActorChanges<E>>)`. The replica's
+  `members(reply)`, `subscribe(who: Addr<ActorGroupWatcher<E>>)`. The replica's
   own `peer(node)` and `merged(from, found)` are private members it
   publishes itself for in its `init` (`publish_group(name,
   self@ActorGroup<E>)`) [handler-init]; until 2026-09-27 they were members of
@@ -5659,6 +5678,24 @@ between endpoints and delivers what arrives into the scheduler.
   their member sets, admit a remote member once, and withdraw every member
   hosted on a node that leaves. `join<E>(group, member)` is the ordinary
   send; `members` answers the union as seen locally.
+  * **`actor_group` is an ordinary fn over an implicit** (user decision
+    2026-09-28): `fn actor_group<E>(nodes: Addr<NodeGroup>, ?protocol: () ->
+    Protocol<E>) [spawn]`, its body `spawn ActorGrouping<E>(name,
+    protocol())` and the node-group subscription. The body cannot know `E`'s
+    name or hash — an effect-only generic is erased [effect-generic-decl] —
+    so the value carries them: at `actor_group<Ping>(nodes)` the checker
+    resolves `?protocol` to std's `intrinsic fn protocol<E>() -> Protocol<E>`
+    [implicit-resolve] and the emitters pass it as an adapter closure
+    yielding the literal [implicit-intrinsic]; a generic caller declaring its
+    own `?protocol` forwards it [implicit-forward]. Until then the two
+    overloads were intrinsics lowered per call to `open_group(protocol<E>(),
+    …)` / `open_named_group(name, protocol<E>(), …)`; those two fns are
+    folded in, and the unused private `protocol_name`/`protocol_hash`
+    intrinsics deleted. **`protocol<E>()` is now the only intrinsic whose
+    lowering reads its type argument** (`decode<T>` reads one too, but to
+    pick a codec for a *type*, which is the pattern's other candidate — see
+    ROADMAP.md); a program never needs to write it, and a builder of groups
+    is a plain fn taking `?protocol` or a `Protocol<E>`.
   * **`spawn H(…) on p in group`** (user decision 2026-09-27) joins the spawned
     actor to `group` — the spawn stays local, on its pool, and the clause adds
     the one `join` send. `in`, not `on`: a group is a *place the actor can be
@@ -5675,20 +5712,24 @@ between endpoints and delivers what arrives into the scheduler.
     connects the node if nothing has [net-connect]; `actor_group<E>(nodes)` is about *the actors of one
     protocol across them* — a program opens one per protocol it routes to or
     lists the members of, on every node that hosts or reaches them.
-  * `actor_group<E>(…)` — and `protocol<E>() -> Protocol<E>{name, hash}`
-    underneath it — is the crossing site for `noremote` [noremote]: it refuses
-    when any `send fn` of `E` carries a payload with no wire form — "a group of
-    `E` cannot span nodes" — so an `Addr<E>` that could not be routed is never
-    published. The check reads the written type argument, which is why the
-    protocol is a type argument rather than a value.
+  * **The crossing site for `noremote`** [noremote] is wherever
+    `protocol<E>` is resolved for a concrete `E`: written directly as
+    `protocol<Ping>()`, or filling an implicit `?protocol: () -> Protocol<E>`
+    at a call such as `actor_group<Ping>(nodes)` (or a program's own generic
+    fn that declares the implicit). It refuses when any `send fn` of `E`
+    carries a payload with no wire form — "a group of `E` cannot span nodes",
+    naming the call the program wrote — so an `Addr<E>` that could not be
+    routed is never published. Inside a generic body the implicit is
+    forwarded, not resolved, so the refusal lands at the outermost concrete
+    call, which is where the program named the protocol.
   * `pending(addr) -> Int` answers the mailbox depth of a local actor and the
     in-flight (granted, unacknowledged) count on a proxy
     [remote-backpressure] — what a load-aware picker reads (step ⑦).
   * `eq(a: Addr<E>, b: Addr<E>)` is identity on both backends, so members can
     be compared and deduplicated; `node_of(addr) -> NodeId` answers the host.
   * **Naming**: node groups and actor groups stay visibly distinct —
-    `NodeGroup`/`Node`/`NodeChanges`/`NodeEndpoint` for the machines,
-    `ActorGroup<E>`/`ActorChanges<E>` (and `ActorGroupView<E>`/`ActorView<E>`
+    `NodeGroup`/`Node`/`NodeGroupWatcher`/`NodeEndpoint` for the machines,
+    `ActorGroup<E>`/`ActorGroupWatcher<E>` (and `ActorGroupView<E>`/`ActorView<E>`
     in step ⑦) for the actors; `Addr<E>` keeps its name.
 * [route-stub] **`use route(group)` binds `any E` to whichever member a
   policy picks, per send.** `group` is an `Addr<ActorGroup<E>>` for a
@@ -5698,7 +5739,8 @@ between endpoints and delivers what arrives into the scheduler.
   forward to the answer — appended to the module before resolution
   (`salvo_core::route`) and constructed where the program wrote `route`.
   It is generated **syntactically**: a module containing `use route(…)` gets
-  a stub for every actor effect it names in a `protocol<X>()` call or an
+  a stub for every actor effect it names in an `actor_group<X>(…)` or
+  `protocol<X>()` call or an
   `ActorGroup<X>` type; a `use route(g)` whose protocol the module never
   spelled is refused, naming that fix. The stub imports what it needs —
   the kit from `net`, the protocol's own types from their modules.
@@ -5734,7 +5776,7 @@ between endpoints and delivers what arrives into the scheduler.
     argument is an effect: [effect-generic-decl] erases it to the
     monomorphic `Pick`, which is why it may be captured as an owned handle
     where a `Random<Int>` dependency still could not (`effect_only_args`).
-  * The replica now wears `NodeChanges` as a second face: a node's
+  * The replica now wears `NodeGroupWatcher` as a second face: a node's
     departure withdraws every member it hosted, telling the subscribers.
 * Two emitter facts the module surfaced, both fixed with it: **`send(reply,
   None)` on Rust** boxed an `Option<_>` rustc could not infer, so the box is

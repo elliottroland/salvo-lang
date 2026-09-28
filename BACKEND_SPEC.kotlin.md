@@ -798,7 +798,11 @@ nothing but the monitor.
   `published`/`peerNames`, frames NAMED (8) and MEMBERS (9),
   `publish(name, addr, sink, named, members)`, `shareMembers(name, to,
   members)`, `pending(addr)` — byte-identical frames to Rust's. Intrinsics
-  lowered as in Rust; `eq(Addr, Addr)` is `==` on the `Int` handle.
+  lowered as in Rust; `eq(Addr, Addr)` is `==` on the `Int` handle;
+  `protocol<E>()` is `Protocol("E", <prefix>__PROTO_E)`, and as the fill of
+  an implicit `?protocol` the lambda `{ Protocol("E", …) }` for the resolved
+  position's `E` [implicit-intrinsic] (`actor_group` itself is ordinary Salvo
+  since 2026-09-28 [actor-group]).
 * [kt-monitor] [effect-any] An actor effect gets the monitor class
   (`__Mon_E(inner)`, `synchronized` forwards) only when the program declares
   a handler `of any E`; the forwards then cover its send members too, since a

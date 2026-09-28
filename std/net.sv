@@ -30,8 +30,10 @@
 //      on each say what it does.
 //   4. **Node groups** — `NodeGroup`, the membership of *machines*: a
 //      mechanism (`StaticNodeGroup`, `GossipNodeGroup`) spawned on a node
-//      with a `Transport` in scope, answering `members` and `NodeChanges`. The handshake (group name, endpoint, protocol table)
-//      is the runtime's and common to every mechanism.
+//      with a `Transport` in scope, answering `members` and telling every
+//      `NodeGroupWatcher` who subscribed. The handshake (group name,
+//      endpoint, protocol table) is the runtime's and common to every
+//      mechanism.
 //   5. **Actor groups** — `ActorGroup<E>`, the membership of *actors* of one
 //      protocol across those nodes: `actor_group<E>(nodes)` starts this
 //      node's replica and publishes it by name, `spawn H() on p in group`
@@ -300,14 +302,14 @@ export actor effect NodeGroup {
     // Everyone this node currently knows, itself excluded.
     send fn members(out: Reply<List<Node>>) => !out
     // Hear about arrivals and departures.
-    send fn subscribe(w: Addr<NodeChanges>) => !w
+    send fn subscribe(w: Addr<NodeGroupWatcher>) => !w
     // Tell every peer this node is going, and stop.
     send fn leave()
 }
 
 // [node-group] What a subscriber hears. [why] on a departure is `"left"` for
 // an announced one, or the mechanism's account of an unannounced one.
-export actor effect NodeChanges {
+export actor effect NodeGroupWatcher {
     send fn joined(n: Node) => !n
     send fn left(n: Node, why: Str) => !n, !why
 }
@@ -365,7 +367,7 @@ export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, s
     mailbox { capacity: 64 }
 
     known: Mut Map<NodeId, Node> = mut_map_of()
-    watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
+    watchers: Mut List<Addr<NodeGroupWatcher>> = mut_list_of()
 
     // The mechanism starts itself: `init` is the first activation, and
     // `self@NodeGroup` is where the runtime's peer events go. [net-connect] It
@@ -395,7 +397,7 @@ export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, s
         out.send(all_known)
     }
 
-    send fn subscribe(w: Addr<NodeChanges>) => !w {
+    send fn subscribe(w: Addr<NodeGroupWatcher>) => !w {
         add(watchers, w)
     }
 
@@ -443,7 +445,7 @@ export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport,
 
     known: Mut Map<NodeId, Node> = mut_map_of()
     dialed: Mut Set<Str> = mut_set_of()
-    watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
+    watchers: Mut List<Addr<NodeGroupWatcher>> = mut_list_of()
 
     init {
         let me = local_endpoint()
@@ -466,7 +468,7 @@ export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport,
         out.send(all_known)
     }
 
-    send fn subscribe(w: Addr<NodeChanges>) => !w {
+    send fn subscribe(w: Addr<NodeGroupWatcher>) => !w {
         add(watchers, w)
     }
 
@@ -529,14 +531,25 @@ fn dial(dialed: Mut Set<Str>, e: NodeEndpoint) [Transport] -> None => dialed: Mu
 
 // [protocol-hash] A protocol named as a value: what a replica is told which
 // effect a group is of, so a peer whose hash for it differs is refused before
-// any message is exchanged. Built by [protocol], never by hand; `E` types the
-// value and is erased in the output [effect-generic-decl].
+// any message is exchanged. `E` types the value and is erased in the output
+// [effect-generic-decl]; the value carries what erasure drops, which is how
+// a generic fn (`actor_group<E>`) gets to hold the name and hash of an `E`
+// it cannot see.
 export struct Protocol<E> {
     name: Str,
     hash: Str
 }
 
-// [protocol-hash] The protocol [E], as a value: `protocol<Counter>()`.
+// [protocol-hash] [implicit-intrinsic] The protocol [E], as a value. The
+// **one** intrinsic that reads its type argument: an effect-only generic is
+// erased in the output, so the name and hash of `E` exist only where `E` is
+// written concretely, and this is the function the checker finds for an
+// implicit `?protocol: () -> Protocol<E>` once the call's `E` is known
+// [implicit-resolve] — passed as an adapter closure whose body is the
+// literal, exactly as std's `iter` fills an `?Iterable`. A program never
+// needs to write `protocol<Ping>()` itself: it writes `actor_group<Ping>(…)`
+// and the implicit is filled. Resolving it for an `E` whose payloads have no
+// wire form is refused [noremote]: a group of `E` could not span nodes.
 export intrinsic fn protocol<E>() [] -> Protocol<E>
 
 // [actor-group] Membership of **actors of one protocol**, across every node
@@ -556,11 +569,11 @@ export actor effect ActorGroup<E> {
     // Every member known to this replica, across nodes.
     send fn members(out: Reply<List<Addr<E>>>) => !out
     // Hear about arrivals and departures.
-    send fn subscribe(w: Addr<ActorChanges<E>>) => !w
+    send fn subscribe(w: Addr<ActorGroupWatcher<E>>) => !w
 }
 
 // [actor-group] What a subscriber hears.
-export actor effect ActorChanges<E> {
+export actor effect ActorGroupWatcher<E> {
     send fn joined(member: Addr<E>) => !member
     send fn left(member: Addr<E>) => !member
 }
@@ -605,33 +618,30 @@ export intrinsic fn pending<E>(a: Addr<E>) [] -> Int => a
 // is about the **actors of one protocol** across them, and a program opens
 // one per protocol it routes to or lists the members of.
 //
-// An intrinsic rather than a fn: the protocol's name and hash are constants
-// of the *written* `E`, and an effect-only generic is erased in the output
-// [effect-generic-decl], so only the call site can produce them. Each backend
-// lowers the call to `open_group(protocol<E>(), nodes)`.
-export intrinsic fn actor_group<E>(nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>> => !nodes
-
-// [actor-group] Several groups of one protocol, told apart by [name].
-export intrinsic fn actor_group<E>(name: Str, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>>
-    => !name, !nodes
-
-// [actor-group] What `actor_group<E>` lowers to (exported for the generated
-// call, which is made from the program's own module): the replica, spawned,
-// subscribed to the node group, started.
-export fn open_group<E>(proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>> => !proto, !nodes {
+// An ordinary fn: the protocol's name and hash are constants of the *written*
+// `E`, and an effect-only generic is erased in the output
+// [effect-generic-decl], so this body cannot produce them — the implicit
+// [protocol] is filled at the call, where `E` is concrete, with the one
+// intrinsic that reads its type argument [protocol-hash] [implicit-resolve].
+// A generic caller forwards its own `?protocol` [implicit-forward], as with
+// any implicit.
+export fn actor_group<E>(nodes: Addr<NodeGroup>, ?protocol: () -> Protocol<E>) [spawn] -> Addr<ActorGroup<E>>
+    => !nodes {
+    let proto = protocol()
     let name = copy(proto.name)
-    return open_named_group(name, proto, nodes)
+    return actor_group<E>(name, nodes)
 }
 
-export fn open_named_group<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>>
-    => !name, !proto, !nodes {
-    // The subscription is sent from here rather than from the replica's
-    // `init`: sent by the replica it would be a `NodeChanges → NodeGroup →
-    // NodeChanges` edge in the deadlock graph [actor-deadlock-cycle] — a real
-    // one, since the node group sends `joined` back — and sent from the
-    // opener's frame it is not.
-    let (group, changes) = spawn ActorGrouping<E>(name, proto) on pool(1)
-    nodes.subscribe(changes)
+// [actor-group] Several groups of one protocol, told apart by [name]. The
+// subscription to the node group is sent from here rather than from the
+// replica's `init`: sent by the replica it would be a `NodeGroupWatcher →
+// NodeGroup → NodeGroupWatcher` edge in the deadlock graph
+// [actor-deadlock-cycle] — a real one, since the node group sends `joined`
+// back — and sent from the opener's frame it is not.
+export fn actor_group<E>(name: Str, nodes: Addr<NodeGroup>, ?protocol: () -> Protocol<E>) [spawn] -> Addr<ActorGroup<E>>
+    => !name, !nodes {
+    let (group, watcher) = spawn ActorGrouping<E>(name, protocol()) on pool(1)
+    nodes.subscribe(watcher)
     return group
 }
 
@@ -649,12 +659,12 @@ export fn join<E>(group: Addr<ActorGroup<E>>, member: Addr<E>) [] -> None => gro
 // sender's thread — the replica is behind the view by one message, never in
 // the send path.
 export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
-    of ActorGroup<E>, NodeChanges {
+    of ActorGroup<E>, NodeGroupWatcher {
     mailbox { capacity: 64 }
 
     all: Mut List<Addr<E>> = mut_list_of()
     peers: Mut List<NodeId> = mut_list_of()
-    watchers: Mut List<Addr<ActorChanges<E>>> = mut_list_of()
+    watchers: Mut List<Addr<ActorGroupWatcher<E>>> = mut_list_of()
 
     // The replica starts itself: it publishes its `ActorGroup<E>` face by
     // name, so the replicas other nodes open under the same name find it.
@@ -713,7 +723,7 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
         out.send(copy(all))
     }
 
-    send fn subscribe(w: Addr<ActorChanges<E>>) => !w {
+    send fn subscribe(w: Addr<ActorGroupWatcher<E>>) => !w {
         add(watchers, w)
     }
 
@@ -1106,9 +1116,3 @@ fn cut_key(a: NodeEndpoint, b: NodeEndpoint) [] -> Str => a, b {
     return "${to_str(a)}>${to_str(b)}"
 }
 
-
-// [protocol-hash] (private) The name of protocol [E], as its declaration
-// spells it, and this program's canonical hash of it — the two halves of a
-// `Protocol<E>`; `protocol<E>()` is the public reading.
-intrinsic fn protocol_name<E>() [] -> Str
-intrinsic fn protocol_hash<E>() [] -> Str

@@ -655,95 +655,95 @@ impl crate::wire::__Wire for __Msg_NodeGroup {
 }
 
 /// [protocol-hash] The canonical hash of `NodeGroup`.
-pub const __PROTO_NodeGroup: &str = "ffd5bcc19200cc53";
+pub const __PROTO_NodeGroup: &str = "471318a2c85d1f6d";
 
-pub trait __Stateless_NodeChanges: Send + Sync {
+pub trait __Stateless_NodeGroupWatcher: Send + Sync {
     fn joined(&self, n: Node);
     fn left(&self, n: Node, why: String);
 }
 
-pub trait __Stateful_NodeChanges: Send {
+pub trait __Stateful_NodeGroupWatcher: Send {
     fn joined(&mut self, n: Node);
     fn left(&mut self, n: Node, why: String);
 }
 
-pub struct __Stub_NodeChanges {
+pub struct __Stub_NodeGroupWatcher {
     addr: usize,
 }
 
-impl __Stub_NodeChanges {
+impl __Stub_NodeGroupWatcher {
     pub fn new(addr: usize) -> Self {
         Self { addr }
     }
 }
 
-impl __Stateless_NodeChanges for __Stub_NodeChanges {
+impl __Stateless_NodeGroupWatcher for __Stub_NodeGroupWatcher {
     fn joined(&self, n: Node) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeChanges::Joined(n), crate::net::__PROTO_NodeChanges);
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroupWatcher::Joined(n), crate::net::__PROTO_NodeGroupWatcher);
     }
     fn left(&self, n: Node, why: String) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeChanges::Left(n, why), crate::net::__PROTO_NodeChanges);
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroupWatcher::Left(n, why), crate::net::__PROTO_NodeGroupWatcher);
     }
 }
 
-pub struct NodeChanges {
-    inner: __Inner_NodeChanges,
+pub struct NodeGroupWatcher {
+    inner: __Inner_NodeGroupWatcher,
 }
 
-pub enum __Inner_NodeChanges {
-    Shared(std::sync::Arc<dyn __Stateless_NodeChanges>),
-    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_NodeChanges>>),
+pub enum __Inner_NodeGroupWatcher {
+    Shared(std::sync::Arc<dyn __Stateless_NodeGroupWatcher>),
+    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_NodeGroupWatcher>>),
 }
 
-impl Clone for NodeChanges {
+impl Clone for NodeGroupWatcher {
     fn clone(&self) -> Self {
         Self { inner: match &self.inner {
-            __Inner_NodeChanges::Shared(h) => __Inner_NodeChanges::Shared(h.clone()),
-            __Inner_NodeChanges::Locked(h) => __Inner_NodeChanges::Locked(h.clone()),
+            __Inner_NodeGroupWatcher::Shared(h) => __Inner_NodeGroupWatcher::Shared(h.clone()),
+            __Inner_NodeGroupWatcher::Locked(h) => __Inner_NodeGroupWatcher::Locked(h.clone()),
         } }
     }
 }
 
-impl NodeChanges {
-    pub fn shared<__H: __Stateless_NodeChanges + 'static>(inner: __H) -> Self {
-        Self { inner: __Inner_NodeChanges::Shared(std::sync::Arc::new(inner)) }
+impl NodeGroupWatcher {
+    pub fn shared<__H: __Stateless_NodeGroupWatcher + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_NodeGroupWatcher::Shared(std::sync::Arc::new(inner)) }
     }
-    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_NodeChanges>) -> Self {
-        Self { inner: __Inner_NodeChanges::Shared(inner) }
+    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_NodeGroupWatcher>) -> Self {
+        Self { inner: __Inner_NodeGroupWatcher::Shared(inner) }
     }
-    pub fn locked<__H: __Stateful_NodeChanges + 'static>(inner: __H) -> Self {
-        Self { inner: __Inner_NodeChanges::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
+    pub fn locked<__H: __Stateful_NodeGroupWatcher + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_NodeGroupWatcher::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
     }
-    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_NodeChanges>>) -> Self {
-        Self { inner: __Inner_NodeChanges::Locked(inner) }
+    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_NodeGroupWatcher>>) -> Self {
+        Self { inner: __Inner_NodeGroupWatcher::Locked(inner) }
     }
     pub fn joined(&self, n: Node) {
         match &self.inner {
-            __Inner_NodeChanges::Shared(h) => h.joined(n),
-            __Inner_NodeChanges::Locked(h) => h.lock().unwrap().joined(n),
+            __Inner_NodeGroupWatcher::Shared(h) => h.joined(n),
+            __Inner_NodeGroupWatcher::Locked(h) => h.lock().unwrap().joined(n),
         }
     }
     pub fn left(&self, n: Node, why: String) {
         match &self.inner {
-            __Inner_NodeChanges::Shared(h) => h.left(n, why),
-            __Inner_NodeChanges::Locked(h) => h.lock().unwrap().left(n, why),
+            __Inner_NodeGroupWatcher::Shared(h) => h.left(n, why),
+            __Inner_NodeGroupWatcher::Locked(h) => h.lock().unwrap().left(n, why),
         }
     }
 }
 
-pub enum __Msg_NodeChanges {
+pub enum __Msg_NodeGroupWatcher {
     Joined(Node),
     Left(Node, String),
 }
 
-impl crate::wire::__Wire for __Msg_NodeChanges {
+impl crate::wire::__Wire for __Msg_NodeGroupWatcher {
     fn __enc(&self, out: &mut Vec<u8>) {
         match self {
-            __Msg_NodeChanges::Joined(__p0) => {
+            __Msg_NodeGroupWatcher::Joined(__p0) => {
                 out.push(0);
                 crate::wire::__Wire::__enc(__p0, out);
             }
-            __Msg_NodeChanges::Left(__p0, __p1) => {
+            __Msg_NodeGroupWatcher::Left(__p0, __p1) => {
                 out.push(1);
                 crate::wire::__Wire::__enc(__p0, out);
                 crate::wire::__Wire::__enc(__p1, out);
@@ -752,15 +752,15 @@ impl crate::wire::__Wire for __Msg_NodeChanges {
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
         match r.u8()? {
-            0 => Some(__Msg_NodeChanges::Joined(crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_NodeChanges::Left(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            0 => Some(__Msg_NodeGroupWatcher::Joined(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_NodeGroupWatcher::Left(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
             _ => None,
         }
     }
 }
 
-/// [protocol-hash] The canonical hash of `NodeChanges`.
-pub const __PROTO_NodeChanges: &str = "db3e0aa5831c2e44";
+/// [protocol-hash] The canonical hash of `NodeGroupWatcher`.
+pub const __PROTO_NodeGroupWatcher: &str = "db3e0aa5831c2e44";
 
 pub struct StaticNodeGroup {
     name: String,
@@ -831,7 +831,7 @@ impl StaticNodeGroup {
         let mut n = Node { id: node.clone(), at: at };
         self.known.insert(node, n.clone());
         for w in &self.watchers {
-            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeChanges::Joined(n.clone()), crate::net::__PROTO_NodeChanges);
+            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Joined(n.clone()), crate::net::__PROTO_NodeGroupWatcher);
         }
     }
 
@@ -841,7 +841,7 @@ impl StaticNodeGroup {
             return;
         }
         for w in &self.watchers {
-            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeChanges::Left(n.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeChanges);
+            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Left(n.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeGroupWatcher);
         }
     }
 
@@ -1020,7 +1020,7 @@ impl GossipNodeGroup {
         let mut n = Node { id: node.clone(), at: at };
         self.known.insert(node, n.clone());
         for w in &self.watchers {
-            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeChanges::Joined(n.clone()), crate::net::__PROTO_NodeChanges);
+            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Joined(n.clone()), crate::net::__PROTO_NodeGroupWatcher);
         }
     }
 
@@ -1030,7 +1030,7 @@ impl GossipNodeGroup {
             return;
         }
         for w in &self.watchers {
-            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeChanges::Left(n.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeChanges);
+            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Left(n.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeGroupWatcher);
         }
     }
 
@@ -1296,95 +1296,95 @@ impl crate::wire::__Wire for __Msg_ActorGroup {
 }
 
 /// [protocol-hash] The canonical hash of `ActorGroup`.
-pub const __PROTO_ActorGroup: &str = "2baf186cc10cfc79";
+pub const __PROTO_ActorGroup: &str = "d8ddd42c92bfcc7f";
 
-pub trait __Stateless_ActorChanges: Send + Sync {
+pub trait __Stateless_ActorGroupWatcher: Send + Sync {
     fn joined(&self, member: usize);
     fn left(&self, member: usize);
 }
 
-pub trait __Stateful_ActorChanges: Send {
+pub trait __Stateful_ActorGroupWatcher: Send {
     fn joined(&mut self, member: usize);
     fn left(&mut self, member: usize);
 }
 
-pub struct __Stub_ActorChanges {
+pub struct __Stub_ActorGroupWatcher {
     addr: usize,
 }
 
-impl __Stub_ActorChanges {
+impl __Stub_ActorGroupWatcher {
     pub fn new(addr: usize) -> Self {
         Self { addr }
     }
 }
 
-impl __Stateless_ActorChanges for __Stub_ActorChanges {
+impl __Stateless_ActorGroupWatcher for __Stub_ActorGroupWatcher {
     fn joined(&self, member: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorChanges::Joined(member), crate::net::__PROTO_ActorChanges);
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroupWatcher::Joined(member), crate::net::__PROTO_ActorGroupWatcher);
     }
     fn left(&self, member: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorChanges::Left(member), crate::net::__PROTO_ActorChanges);
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroupWatcher::Left(member), crate::net::__PROTO_ActorGroupWatcher);
     }
 }
 
-pub struct ActorChanges {
-    inner: __Inner_ActorChanges,
+pub struct ActorGroupWatcher {
+    inner: __Inner_ActorGroupWatcher,
 }
 
-pub enum __Inner_ActorChanges {
-    Shared(std::sync::Arc<dyn __Stateless_ActorChanges>),
-    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_ActorChanges>>),
+pub enum __Inner_ActorGroupWatcher {
+    Shared(std::sync::Arc<dyn __Stateless_ActorGroupWatcher>),
+    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_ActorGroupWatcher>>),
 }
 
-impl Clone for ActorChanges {
+impl Clone for ActorGroupWatcher {
     fn clone(&self) -> Self {
         Self { inner: match &self.inner {
-            __Inner_ActorChanges::Shared(h) => __Inner_ActorChanges::Shared(h.clone()),
-            __Inner_ActorChanges::Locked(h) => __Inner_ActorChanges::Locked(h.clone()),
+            __Inner_ActorGroupWatcher::Shared(h) => __Inner_ActorGroupWatcher::Shared(h.clone()),
+            __Inner_ActorGroupWatcher::Locked(h) => __Inner_ActorGroupWatcher::Locked(h.clone()),
         } }
     }
 }
 
-impl ActorChanges {
-    pub fn shared<__H: __Stateless_ActorChanges + 'static>(inner: __H) -> Self {
-        Self { inner: __Inner_ActorChanges::Shared(std::sync::Arc::new(inner)) }
+impl ActorGroupWatcher {
+    pub fn shared<__H: __Stateless_ActorGroupWatcher + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_ActorGroupWatcher::Shared(std::sync::Arc::new(inner)) }
     }
-    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_ActorChanges>) -> Self {
-        Self { inner: __Inner_ActorChanges::Shared(inner) }
+    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_ActorGroupWatcher>) -> Self {
+        Self { inner: __Inner_ActorGroupWatcher::Shared(inner) }
     }
-    pub fn locked<__H: __Stateful_ActorChanges + 'static>(inner: __H) -> Self {
-        Self { inner: __Inner_ActorChanges::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
+    pub fn locked<__H: __Stateful_ActorGroupWatcher + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_ActorGroupWatcher::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
     }
-    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_ActorChanges>>) -> Self {
-        Self { inner: __Inner_ActorChanges::Locked(inner) }
+    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_ActorGroupWatcher>>) -> Self {
+        Self { inner: __Inner_ActorGroupWatcher::Locked(inner) }
     }
     pub fn joined(&self, member: usize) {
         match &self.inner {
-            __Inner_ActorChanges::Shared(h) => h.joined(member),
-            __Inner_ActorChanges::Locked(h) => h.lock().unwrap().joined(member),
+            __Inner_ActorGroupWatcher::Shared(h) => h.joined(member),
+            __Inner_ActorGroupWatcher::Locked(h) => h.lock().unwrap().joined(member),
         }
     }
     pub fn left(&self, member: usize) {
         match &self.inner {
-            __Inner_ActorChanges::Shared(h) => h.left(member),
-            __Inner_ActorChanges::Locked(h) => h.lock().unwrap().left(member),
+            __Inner_ActorGroupWatcher::Shared(h) => h.left(member),
+            __Inner_ActorGroupWatcher::Locked(h) => h.lock().unwrap().left(member),
         }
     }
 }
 
-pub enum __Msg_ActorChanges {
+pub enum __Msg_ActorGroupWatcher {
     Joined(usize),
     Left(usize),
 }
 
-impl crate::wire::__Wire for __Msg_ActorChanges {
+impl crate::wire::__Wire for __Msg_ActorGroupWatcher {
     fn __enc(&self, out: &mut Vec<u8>) {
         match self {
-            __Msg_ActorChanges::Joined(__p0) => {
+            __Msg_ActorGroupWatcher::Joined(__p0) => {
                 out.push(0);
                 crate::wire::__Wire::__enc(__p0, out);
             }
-            __Msg_ActorChanges::Left(__p0) => {
+            __Msg_ActorGroupWatcher::Left(__p0) => {
                 out.push(1);
                 crate::wire::__Wire::__enc(__p0, out);
             }
@@ -1392,24 +1392,25 @@ impl crate::wire::__Wire for __Msg_ActorChanges {
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
         match r.u8()? {
-            0 => Some(__Msg_ActorChanges::Joined(crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_ActorChanges::Left(crate::wire::__Wire::__dec(r)?)),
+            0 => Some(__Msg_ActorGroupWatcher::Joined(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_ActorGroupWatcher::Left(crate::wire::__Wire::__dec(r)?)),
             _ => None,
         }
     }
 }
 
-/// [protocol-hash] The canonical hash of `ActorChanges`.
-pub const __PROTO_ActorChanges: &str = "9fa424e5858bb3bd";
+/// [protocol-hash] The canonical hash of `ActorGroupWatcher`.
+pub const __PROTO_ActorGroupWatcher: &str = "9fa424e5858bb3bd";
 
-pub fn open_group(proto: Protocol, nodes: usize) -> usize {
+pub fn actor_group(nodes: usize, protocol: &mut dyn FnMut() -> Protocol) -> usize {
+    let mut proto = protocol();
     let mut name = proto.name.clone();
-    return open_named_group(name, proto, nodes);
+    return actor_group__2(name, nodes, &mut *protocol);
 }
 
-pub fn open_named_group(name: String, proto: Protocol, nodes: usize) -> usize {
-    let (mut group, mut changes) = ({ let __h = ActorGrouping::new(name, proto); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_pool(((1) as usize)), __cap as usize, Box::new(__Actor_ActorGrouping::new(__h)), __DECODE_ActorGrouping); crate::scheduler::salvo_send(__a, Box::new(__Priv_ActorGrouping::Init)); (__a, __a) });
-    crate::scheduler::salvo_send_wire(nodes, crate::net::__Msg_NodeGroup::Subscribe(changes), crate::net::__PROTO_NodeGroup);
+pub fn actor_group__2(name: String, nodes: usize, protocol: &mut dyn FnMut() -> Protocol) -> usize {
+    let (mut group, mut watcher) = ({ let __h = ActorGrouping::new(name, protocol()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_pool(((1) as usize)), __cap as usize, Box::new(__Actor_ActorGrouping::new(__h)), __DECODE_ActorGrouping); crate::scheduler::salvo_send(__a, Box::new(__Priv_ActorGrouping::Init)); (__a, __a) });
+    crate::scheduler::salvo_send_wire(nodes, crate::net::__Msg_NodeGroup::Subscribe(watcher), crate::net::__PROTO_NodeGroup);
     return group;
 }
 
@@ -1451,7 +1452,7 @@ impl crate::net::__Stateful_ActorGroup for ActorGrouping {
         }
         mirror(&(self.__addr.expect("a handler naming its own address runs as an actor")), &self.all);
         for w in &self.watchers {
-            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorChanges::Joined(member.clone()), crate::net::__PROTO_ActorChanges);
+            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Joined(member.clone()), crate::net::__PROTO_ActorGroupWatcher);
         }
         for p in &self.peers {
             crate::scheduler::salvo_share_members(&self.name.clone(), (p.clone()).id as u64, &vec![member.clone()]);
@@ -1464,7 +1465,7 @@ impl crate::net::__Stateful_ActorGroup for ActorGrouping {
         }
         mirror(&(self.__addr.expect("a handler naming its own address runs as an actor")), &self.all);
         for w in &self.watchers {
-            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorChanges::Left(member.clone()), crate::net::__PROTO_ActorChanges);
+            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Left(member.clone()), crate::net::__PROTO_ActorGroupWatcher);
         }
     }
 
@@ -1477,7 +1478,7 @@ impl crate::net::__Stateful_ActorGroup for ActorGrouping {
     }
 }
 
-impl crate::net::__Stateful_NodeChanges for ActorGrouping {
+impl crate::net::__Stateful_NodeGroupWatcher for ActorGrouping {
 
     fn joined(&mut self, n: Node) {
     }
@@ -1492,7 +1493,7 @@ impl crate::net::__Stateful_NodeChanges for ActorGrouping {
         for m in &gone {
             if withdraw(&mut self.all, m.clone()) {
                 for w in &self.watchers {
-                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorChanges::Left(m.clone()), crate::net::__PROTO_ActorChanges);
+                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Left(m.clone()), crate::net::__PROTO_ActorGroupWatcher);
                 }
             }
         }
@@ -1533,7 +1534,7 @@ impl ActorGrouping {
             if admit(&mut self.all, m.clone()) {
                 changed = true;
                 for w in &self.watchers {
-                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorChanges::Joined(m.clone()), crate::net::__PROTO_ActorChanges);
+                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Joined(m.clone()), crate::net::__PROTO_ActorGroupWatcher);
                 }
             }
         }
@@ -1579,10 +1580,10 @@ impl __Actor_ActorGrouping {
             crate::net::__Msg_ActorGroup::Subscribe(w) => crate::net::__Stateful_ActorGroup::subscribe(&mut self.handler, w),
         }
     }
-    fn __dispatch_NodeChanges(&mut self, msg: crate::net::__Msg_NodeChanges) {
+    fn __dispatch_NodeGroupWatcher(&mut self, msg: crate::net::__Msg_NodeGroupWatcher) {
         match msg {
-            crate::net::__Msg_NodeChanges::Joined(n) => crate::net::__Stateful_NodeChanges::joined(&mut self.handler, n),
-            crate::net::__Msg_NodeChanges::Left(n, why) => crate::net::__Stateful_NodeChanges::left(&mut self.handler, n, why),
+            crate::net::__Msg_NodeGroupWatcher::Joined(n) => crate::net::__Stateful_NodeGroupWatcher::joined(&mut self.handler, n),
+            crate::net::__Msg_NodeGroupWatcher::Left(n, why) => crate::net::__Stateful_NodeGroupWatcher::left(&mut self.handler, n, why),
         }
     }
     fn __dispatch_priv(&mut self, msg: __Priv_ActorGrouping) {
@@ -1601,8 +1602,8 @@ impl crate::scheduler::SalvoActor for __Actor_ActorGrouping {
             Ok(__m) => return self.__dispatch_ActorGroup(*__m),
             Err(__m) => __m,
         };
-        let msg = match msg.downcast::<crate::net::__Msg_NodeChanges>() {
-            Ok(__m) => return self.__dispatch_NodeChanges(*__m),
+        let msg = match msg.downcast::<crate::net::__Msg_NodeGroupWatcher>() {
+            Ok(__m) => return self.__dispatch_NodeGroupWatcher(*__m),
             Err(__m) => __m,
         };
         let msg = match msg.downcast::<__Priv_ActorGrouping>() {
@@ -1623,8 +1624,8 @@ impl crate::scheduler::SalvoActor for __Actor_ActorGrouping {
             __Cont_ActorGrouping::Leave => self.__dispatch_ActorGroup(crate::net::__Msg_ActorGroup::Leave(*value.downcast::<usize>().expect("the awaited answer"))),
             __Cont_ActorGrouping::Members => self.__dispatch_ActorGroup(crate::net::__Msg_ActorGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
             __Cont_ActorGrouping::Subscribe => self.__dispatch_ActorGroup(crate::net::__Msg_ActorGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_ActorGrouping::Joined => self.__dispatch_NodeChanges(crate::net::__Msg_NodeChanges::Joined(*value.downcast::<Node>().expect("the awaited answer"))),
-            __Cont_ActorGrouping::Left(n) => self.__dispatch_NodeChanges(crate::net::__Msg_NodeChanges::Left(n, *value.downcast::<String>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Joined => self.__dispatch_NodeGroupWatcher(crate::net::__Msg_NodeGroupWatcher::Joined(*value.downcast::<Node>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Left(n) => self.__dispatch_NodeGroupWatcher(crate::net::__Msg_NodeGroupWatcher::Left(n, *value.downcast::<String>().expect("the awaited answer"))),
             __Cont_ActorGrouping::Peer => self.__dispatch_priv(__Priv_ActorGrouping::Peer(*value.downcast::<NodeId>().expect("the awaited answer"))),
             __Cont_ActorGrouping::Merged(from) => self.__dispatch_priv(__Priv_ActorGrouping::Merged(from, *value.downcast::<Vec<usize>>().expect("the awaited answer"))),
         }
@@ -1650,8 +1651,8 @@ fn __decode_msg_ActorGrouping(proto: &str, payload: &[u8]) -> Option<crate::sche
             return crate::wire::salvo_decode::<crate::net::__Msg_ActorGroup>(payload)
                 .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
         }
-        if proto == crate::net::__PROTO_NodeChanges {
-            return crate::wire::salvo_decode::<crate::net::__Msg_NodeChanges>(payload)
+        if proto == crate::net::__PROTO_NodeGroupWatcher {
+            return crate::wire::salvo_decode::<crate::net::__Msg_NodeGroupWatcher>(payload)
                 .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
         }
     None

@@ -15048,32 +15048,10 @@ impl<'p> Emitter<'p> {
                          &({peers}).iter().map(|__p| crate::wire::salvo_encode(__p)).collect::<Vec<_>>())"
                     );
                 }
-                // [protocol-hash] The name and hash of a protocol named as a
-                // type argument: `protocol_name<Ping>()` is a string literal,
-                // `protocol_hash<Ping>()` the compiled-in constant.
-                "protocol_name" | "protocol_hash" if args.is_empty() => {
-                    let target = self
-                        .checked
-                        .call_type_args
-                        .get(&(self.file_idx, span))
-                        .and_then(|tys| tys.first().cloned());
-                    let Some(Ty::Named { name: effect, .. }) = target else {
-                        self.error(format!("`{}` needs an effect as its type argument", f.name.name));
-                        return "String::new()".to_string();
-                    };
-                    if f.name.name == "protocol_name" {
-                        return format!("\"{effect}\".to_string()");
-                    }
-                    if !self.checked.protocol_hashes.contains_key(&effect) || !self.effect_paths.contains_key(&effect) {
-                        self.error(format!(
-                            "`protocol_hash<{effect}>()`: `{effect}` has no wire form, so no hash"
-                        ));
-                        return "String::new()".to_string();
-                    }
-                    let proto = self.effect_path(&effect, &protocol_const_name(&effect));
-                    return format!("{proto}.to_string()");
-                }
-                // [actor-group] The group surface.
+                // [protocol-hash] [actor-group] `protocol<E>()` written
+                // directly: the literal for the written type argument. The
+                // same intrinsic filling an implicit `?protocol` is rendered
+                // by `emit_implicit_args`, from the resolved position's type.
                 "protocol" if args.is_empty() => {
                     let target = self
                         .checked
@@ -15084,44 +15062,7 @@ impl<'p> Emitter<'p> {
                         self.error("`protocol` needs an effect as its type argument");
                         return "todo!()".to_string();
                     };
-                    if !self.checked.protocol_hashes.contains_key(&effect) || !self.effect_paths.contains_key(&effect) {
-                        self.error(format!(
-                            "`protocol<{effect}>()`: `{effect}` has no wire form, so it cannot be a group's protocol"
-                        ));
-                        return "todo!()".to_string();
-                    }
-                    let proto = self.effect_path(&effect, &protocol_const_name(&effect));
-                    let st = self.rust_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
-                    return format!("{st} {{ name: \"{effect}\".to_string(), hash: {proto}.to_string() }}");
-                }
-                // [actor-group] `actor_group<E>(…)` → `open_group(protocol<E>(), …)`:
-                // the protocol literal is the call site's to make.
-                "actor_group" if args.len() == 1 || args.len() == 2 => {
-                    let target = self
-                        .checked
-                        .call_type_args
-                        .get(&(self.file_idx, span))
-                        .and_then(|tys| tys.first().cloned());
-                    let Some(Ty::Named { name: effect, .. }) = target else {
-                        self.error("`actor_group` needs an effect as its type argument");
-                        return "todo!()".to_string();
-                    };
-                    if !self.checked.protocol_hashes.contains_key(&effect) || !self.effect_paths.contains_key(&effect) {
-                        self.error(format!(
-                            "`actor_group<{effect}>()`: `{effect}` has no wire form, so it cannot be a group's protocol"
-                        ));
-                        return "todo!()".to_string();
-                    }
-                    let proto = self.effect_path(&effect, &protocol_const_name(&effect));
-                    let st = self.rust_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
-                    let literal = format!("{st} {{ name: \"{effect}\".to_string(), hash: {proto}.to_string() }}");
-                    let net = self.effect_path("ActorGroup", "");
-                    let rendered: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
-                    return if args.len() == 1 {
-                        format!("{net}open_group({literal}, {})", rendered[0])
-                    } else {
-                        format!("{net}open_named_group({}, {literal}, {})", rendered[0], rendered[1])
-                    };
+                    return self.protocol_literal(&effect, "protocol");
                 }
                 "publish_group" if args.len() == 2 => {
                     self.needs_scheduler = true;
@@ -15860,6 +15801,41 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// [protocol-hash] [actor-group] The `Protocol` literal for `effect`:
+    /// its declared name and the compiled-in hash constant [rs-wire]. What
+    /// `protocol<E>()` renders to, written directly or filling an implicit;
+    /// `via` names the form for the diagnostic when `E` has no wire form
+    /// (the checker refuses that first [noremote]; this is the emitter's own
+    /// guard [backend-never-wrong]).
+    fn protocol_literal(&mut self, effect: &str, via: &str) -> String {
+        if !self.checked.protocol_hashes.contains_key(effect) || !self.effect_paths.contains_key(effect) {
+            self.error(format!(
+                "`{via}<{effect}>`: `{effect}` has no wire form, so it cannot be a group's protocol"
+            ));
+            return "todo!()".to_string();
+        }
+        let proto = self.effect_path(effect, &protocol_const_name(effect));
+        let st = self.rust_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
+        format!("{st} {{ name: \"{effect}\".to_string(), hash: {proto}.to_string() }}")
+    }
+
+    /// [implicit-intrinsic] [protocol-hash] The effect an implicit position
+    /// `?protocol: () -> Protocol<E>` was resolved *at*: the position's type
+    /// with the call's arguments substituted names `E` concretely, which is
+    /// what lets the one type-argument-reading intrinsic render itself as a
+    /// value. `None` when the position is not of that shape.
+    fn protocol_position_effect(want: &Ty) -> Option<String> {
+        let Ty::Fn { ret, .. } = want.strip_quals() else { return None };
+        let Ty::Named { name, args } = ret.strip_quals() else { return None };
+        if name != "Protocol" {
+            return None;
+        }
+        match args.first().map(|a| a.strip_quals()) {
+            Some(Ty::Named { name: effect, .. }) => Some(effect.clone()),
+            _ => None,
+        }
+    }
+
     /// [implicit-intrinsic] The body of the adapter closure an `intrinsic
     /// fn` becomes when it is passed as a *value*: the intrinsic's own
     /// lowering, applied to the closure's parameters. A lowering with no
@@ -16012,7 +15988,7 @@ impl<'p> Emitter<'p> {
                         out.push(self.forwarded_implicit(name, span));
                     }
                 }
-                salvo_core::ImplicitArg::Resolved { name, key, .. } => {
+                salvo_core::ImplicitArg::Resolved { name, key, want } => {
                     match self.fn_by_key(*key) {
                         Some(decl) => {
                             let fixed: Vec<&Param> =
@@ -16099,6 +16075,21 @@ impl<'p> Emitter<'p> {
                                     params[0].clone()
                                 } else {
                                     format!("{}.clone()", params[0])
+                                }
+                            } else if decl.intrinsic && decl.name.name == "protocol" {
+                                // [protocol-hash] `protocol<E>` as a value:
+                                // the literal for the `E` the position was
+                                // resolved at — the one intrinsic whose
+                                // lowering reads its type argument, which a
+                                // value has only through its resolved type.
+                                match Self::protocol_position_effect(want) {
+                                    Some(effect) => self.protocol_literal(&effect, "protocol"),
+                                    None => {
+                                        self.error(format!(
+                                            "`protocol` fills `?{name}: {want}`, which does not name a concrete effect"
+                                        ));
+                                        "todo!()".to_string()
+                                    }
                                 }
                             } else if decl.intrinsic {
                                 self.intrinsic_fn_value_body(decl, &params)

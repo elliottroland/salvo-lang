@@ -1501,9 +1501,16 @@ facts worth knowing") and keeps the history ("One shape for effects").
   sink, named, members)`, `salvo_share_members(name, to, members)`,
   `salvo_pending(addr)` (queue depth locally, `granted` on a proxy; GRANT
   decrements it). The handshake ACK/HELLO path sends every published name to
-  the new peer. Intrinsics lowered: `protocol_name`/`protocol_hash`/`protocol`
-  (from the per-protocol hash constant), `publish_group`, `share_members`,
+  the new peer. Intrinsics lowered: `protocol<E>()` — the `Protocol { name,
+  hash }` literal from the per-protocol hash constant, for the written type
+  argument at a direct call and for the **resolved position's** `E` when it
+  fills an implicit `?protocol: () -> Protocol<E>` (`emit_implicit_args`
+  reads `ImplicitArg::Resolved.want`; the adapter is `&mut || Protocol {
+  … }`, a generic caller forwards `&mut *protocol`) [implicit-intrinsic] —
+  `publish_group`, `share_members`,
   `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
+  `actor_group<E>` is ordinary Salvo since 2026-09-28 [actor-group] (two
+  overloads, `actor_group` and `actor_group__2` in the output).
 * [rs-wire] [route-stub] Runtime: `Sched.views` (group actor → members),
   `salvo_view_set`, `salvo_view_members` (sorted by `(node, actor)`),
   `salvo_key_hash` (FNV-1a 64 over the wire bytes), `salvo_park_briefly`
