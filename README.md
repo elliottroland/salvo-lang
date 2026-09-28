@@ -176,7 +176,11 @@ fn main() [use] {
   *value* that performs an effect declares it in its type
   (`(s: Str) [Logger] -> Str`), and the effect is supplied by whoever calls
   the value — so a higher-order function inherits its callback's effects
-  and needs no annotation of its own.
+  and needs no annotation of its own. Underneath there is **one shape**:
+  every binding is a handle, and a fn's `[A, B]` is one parameter per effect
+  on both backends — a dependent handler holds its dependencies, a spawn
+  inherits them, a task captures them, and nothing has to be annotated to
+  cross a thread.
 - **Actors**: an **actor** is an effect handler bound asynchronously — `spawn`
   instead of `use`. An `actor effect` declares the protocol (`send fn` members,
   which enqueue and answer nothing), a handler of it is ordinary Salvo, and

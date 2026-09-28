@@ -230,30 +230,83 @@ taking an `iter T` parameter (a stage — needs the generated `next` to carry
 forwarded implicits and the obligation match to ignore them).
 
 **One shape for effects — handles everywhere, fusion removed, `local`
-removed (2026-09-28, user decisions; the sequence is ROADMAP.md §2b, not yet
-built).** EFFECT_FUSION.md surveyed how an effect binding reaches code on
-both backends: Rust had two modes (plain, fusion) and three shapes for a
-dependent handler (owned handles, the `__Impl_H` fusion form, the actor
-provider), chosen by predicates invisible in the source, each with its own
-generated types; Kotlin had one shape because references alias. The user
-chose uniformity over performance while the language is being designed:
-every binding is a handle (`__Handle_E`, `Arc`-shared, locked when
-stateful); a fn takes one handle per declared effect rather than a fused
-value — the user likes the fused syntax and chose the plainer output; and
-`local` (`use local`, `[local E]`) is removed in the same sequence, since
-with one shape it selects nothing. Accepted consequences: a stateful handler
-captured by two spawns is shared state (Kotlin's behaviour already), and a
-member that lends `&mut` into a handler's state becomes a checker error
-(no std effect has one). Also decided the same morning: **one handle
-implementation** (`Arc<Mutex<H>>` for every handler, stateless included;
-Kotlin wraps every `use` in `__Mon_E` for parity), `threadsafe platform
-handler` kept as a declared contract with no emission until the lock-free
-pass, and fn-typed handler parameters/state emitted `+ Send` so stored
-lambdas stay legal. Lock-free scope-local bindings and lock-free stateless
-handlers return as optimisation items once the shapes settle.
-The alternatives weighed (fusion everywhere; keep both shapes and close the
-gaps; make `[E]`/`[local E]` the stated rule) are in EFFECT_FUSION.md §4 for
-the record.
+removed (2026-09-28, user decisions — built the same day, four commits).**
+EFFECT_FUSION.md's survey (2026-09-27) found that Rust had two modes for the
+same source (plain, fusion) and three shapes for a dependent handler (owned
+handles, the `__Impl_H` fusion form, the actor provider), chosen by predicates
+invisible in the source, each with its own generated types; Kotlin had one
+shape because references alias. The user chose uniformity over performance
+while the language is being designed, in three calls: **every binding is a
+handle**; **no fusion on either backend** — a fn declaring `[A, B]` takes one
+parameter per effect (the user likes the fused syntax and chose the plainer
+output); and **`local` is removed** (`use local`, `[local E]`), since with one
+shape it selects nothing. Two more the same morning: **one handle
+implementation** — `Arc<Mutex<dyn E + Send>>` for every handler, stateless
+included, Kotlin wrapping every `use` in `__Mon_E` for parity — and
+**`threadsafe platform handler` kept as a declared contract that emits
+nothing** until the lock-free pass; and fn-typed handler parameters/state
+emitted `+ Send` so a handler holding a lambda shares. Accepted consequences:
+a stateful handler captured by two spawns is shared state (Kotlin's behaviour
+already); a mixed handler's façade sits behind the handle's lock and its sync
+members wait on the servant while holding it (a second caller on another
+thread blocks rather than serving its pool — the lock-free stateless pass
+removes it, the façade being stateless).
+
+*What it took.* ① The surface: `EffectRef::LocalEffect` and `Stmt::Use.local`
+deleted, the `local`/`any` combination check with them; the checker's call-site
+"requires a shareable E" rule and every `local`-shaped refusal; 16 std sites and
+~90 test fixtures respelled; `[effect-local]`/`[use-local]` became one rule,
+[effect-handle]. ② Rust: `__Handle_E { inner: Arc<Mutex<dyn E + Send>> }` with
+`new`/`share`, emitted for every effect (actor effects included — `use addr`
+wraps the send stub); `use` → `let mut e = __Handle_E::new(H::new(args,
+deps.clone()…))`; a multi-face `use` one `Arc<Mutex<H>>` and a `share` per face;
+fn parameters `&mut __Handle_E` in `fn_effects` order; a dependent handler's
+deps as `__dep_E: __Handle_E<…>` fields for every kind of dependency; the actor
+body `__Actor_H { handler: H }` for every handler; the platform `main` wrapping
+the host struct once; fn-typed fields `Arc<dyn Fn + Send + Sync>` and fn-typed
+constructor parameters `Box<dyn FnMut + Send>`. Deleted: `program_needs_fusion`,
+`emit_fusion_inner/instance`, `emit_forward_impl`, `emit_deps_adapter`,
+`emit_dependent_members`, `prov_trait`, `emit_has_impl`, `handle_bundle_*`,
+`spawn_provider`, `emit_host_arc_adapter`, `__Share_E`/`__Lock_E`/`__Arc_H`/
+`__Shared_H`, `FnStyle::DepMember*` — about 1,850 lines. ③ Kotlin: `private val
+__dep_E: E` per dependency, `fun f(a: A, b: B, …)`, `__Mon_E` on every `use`
+(one instance and a monitor per face for a multi-face handler), the actor class
+non-generic, `fx.kt`/`__Has_E`/`__One_E`/`__Fx_N`/`<__Fx>` deleted — about 450
+lines. With both emitters on one shape the checker lost `UseKind`/`use_kinds`,
+`classify_shareable_use` and its blocker list, `handler_handle_deps`,
+`handle_captures`, `handle_requirements`/`call_edges`/`require_handle`,
+`EffectAvail.local`, and the platform-capture, inline-binding and
+signature-capture refusals; `unsendable_reason` split into the message/task
+rule (a fn value still has no wire or enum form) and `unshareable_reason` for
+handler state (`proj` only). Specs: [rs-handle] replaces [rs-effect-fusion]/
+[rs-monitor]/[rs-handle-bundle], [kt-handle] replaces [kt-effect-fusion];
+EFFECT_FUSION.md rewritten around the one shape with §4 as the history.
+
+*What fell out.* **Gaps closed by the shape**: a generic dependent handler
+(`Twice<T> [Store<T>]`) compiles and runs on both backends (a codegen error
+before); a `with` clause works on any dependent handler; a platform effect
+arriving through `main`'s signature is captured like any dependency (the
+`DefaultFs [RawFs]` shape with the host's instance from `main`); a spawn
+inherits an actor-face handler bound inline; a handler holding a function value
+shares (`spawn Derived(n -> n + 1)`); an actor member's dependency is a handle
+it can hand to a spawn, so `net`'s `[rs-handle-bundle]` gap is gone. **Found
+under the fused argument**: the checker's `call_effects` listed inherited
+effects *after* the written ones while `fn_effects` (and the emitted signature)
+listed them first — invisible while one fused argument carried the set, an
+argument-order bug the moment there was one parameter per effect; fixed on the
+checker side. **Emitted-shape decisions worth knowing**: a handler member's
+parameter mode is decided on the *effect's* parameter type (a `T` position is
+`&T` in the trait whatever the instantiation, so `keep(value: Int)` implementing
+`Store<Int>`'s `keep(value: T)` takes `&i32`); the locator face (`m__loc`) of a
+mutable-lending effect member is forwarded by the handle, since an effect member
+lends from a parameter, never from handler state; [effect-args-hoisted] applies
+per handle (`clock.to_instant(&clock.to_tick(i))` hoists the inner call). **Not
+lifted**: the `Pick<A>`/`Pick<B>` erased-sibling refusal — two erased instances
+are still two handlers of one type in one scope, and the cluster example reads
+fine as two functions. **1613 tests** (−2 net: the `local` tests deleted, the
+fusion-shape tests replaced by `[rs-handle]`/`[kt-handle]` shape tests, one new
+kotlinc case). The examples' outputs are unchanged; their generated code is
+regenerated on both backends and `fx.kt` is gone from `examples/*/kotlin/`.
 
 **`init { … }` and `self@Face` (2026-09-27, user decision — built).** The
 user read `node_group()` — a helper whose whole body was `group.join(events)`
@@ -17974,7 +18027,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1615)
+## Test inventory (all green: 1613)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -18025,12 +18078,14 @@ cache, with per-test timings.
   ones (the operators at a struct, a `Str` and a generic; the
   unconstrained-generic refusal and its remedy; equality opt-in at a struct and
   at a generic; `canbe hashed`/`canbe ordered` naming their replacement; and the
-  same-base-type rule) + 21 shareable/monitor/with-clause tests (`tests/monitor_tests.rs`
-  [use-local] [effect-local] [monitor-handler]: the monitor-spawn six plus the
-  2026-09-20 ten — classification both ways, the call-site rule both ways, the
-  opt-out named, `local`-dep pinning, the fusion-pinning dep blockers, the
-  generic-monitor acceptance, the lexical capture cut, the local-dep-binding
-  refusal, and the `Pinger's lock → Ponger's lock` cycle report) + 7 module-visibility tests
+  same-base-type rule) + 16 monitor/handle/with-clause tests (`tests/monitor_tests.rs`
+  [effect-handle] [monitor-handler]: the monitor-spawn six, the bare `use` of a
+  stateful handler as a monitor, dependencies of every shape binding with a
+  plain `use`, the generic-monitor acceptance, a stored function value shared,
+  a platform effect captured through `main`'s signature, and the `Pinger's
+  lock → Ponger's lock` cycle report; the 2026-09-20 `local` tests — the
+  call-site rule, the opt-out, the pinning blockers, the capture cuts — went
+  with `local` on 2026-09-28) + 7 module-visibility tests
   (`tests/export_tests.rs` [mod-export]: an exported declaration crossing while
   a private one does not — its own module reaching both — the private-name
   diagnostic naming the module and the fix, that name *not* being offered as an
@@ -18935,8 +18990,10 @@ cache, with per-test timings.
   and run, the same read off the generated source with the two
   clone-then-mutate spellings asserted *absent*, and the borrowed-parameter
   refusal), spawn-inheritance end to end and the
-  handle-bundle shapes ([spawn-inherit], [rs-handle-bundle]), the shareable interceptor chain and the
-  generic handle-dep handler ([use-local], 2026-09-20), and sixteen [rs-actor] tests (the first
+  [rs-handle] shapes (one handle parameter per effect, a dependent handler as one
+  struct with handle fields, a dependent spawn handing the actor its handles,
+  the monitor as the effect's handle, `threadsafe` emission-neutral), the
+  interceptor chain and the generic dependent handler, and sixteen [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -19177,6 +19234,50 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **An argument-order bug can hide behind a fused argument for weeks**
+  (2026-09-28). The checker's `call_effects` listed a callee's *inherited*
+  effects (from fn-typed parameters) after its written ones, while
+  `fn_effects` — and the emitted signature — listed them first. With one fused
+  value carrying the whole set nothing could tell; the moment a fn took one
+  parameter per effect, `run_it(console, logger, …)` called `run_it(logger,
+  console, …)` and rustc caught the type mismatch. Whenever two tables are
+  meant to agree position by position, test the positions, not just the sets.
+- **A handler member's parameter mode is the effect's, not the handler's**
+  (2026-09-28). `handler Twice [Store<Int>] of Store<Int> { fn keep(value:
+  Int) … }` implements `Store<T>`'s `fn keep(value: T)`; the trait method
+  takes `&T` (a generic position is never Copy), so the handler's `keep` must
+  take `&i32` even though `Int` is Copy in its own right. `member_param_mode`
+  decides on the *effect member's* parameter type (`FnStyle::HandlerMember`
+  looks the matching effect parameter up by position). Under the fusion the
+  same mismatch existed but only in `__Impl_H`, which nothing checked against
+  a trait.
+- **Deleting a `match` arm from an enum you still construct elsewhere is
+  safe; deleting a *doc comment* by walking back from a fn is not** (2026-09-28).
+  A helper that removed a method by walking back over `///` lines ate the doc
+  comment *and* the adjacent free fn `trait_type` when the two were separated
+  by nothing but its own comment. Delete by exact text, or assert what the
+  deleted span begins with.
+- **Rust's `Mutex` guard and a lending member**: an effect member that lends
+  a `Mut` view from a *parameter* (`fn lease(es: List<Mut E>) -> (proj(es)
+  Mut E)?`) forwards through a handle fine — the borrow is of the argument,
+  not of the guard — so the `[rs-loc]` locator face (`m__loc`) is forwarded
+  too, or the handle's trait impl is incomplete (E0046). A member lending from
+  handler *state* has no `self` to name in an effect declaration, so the
+  refusal ROADMAP §2b planned for it never had a program to fire on.
+- **A stateless handler behind a lock is still a lock** (2026-09-28). The
+  one-shape decision puts every handler behind `Arc<Mutex<_>>` /
+  `synchronized`, including `StdOutConsole`. Uncontended it is ~20ns on Rust
+  and a biased lock on the JVM; the cost that matters is the **mixed
+  handler's façade**, whose sync member waits on the servant while holding
+  the mutex, so a second caller on another thread blocks instead of serving
+  its pool. Recorded in [rs-handle] and ROADMAP's "Recorded, not scheduled";
+  the lock-free stateless path removes it.
+- **A `+ Send` bound on a boxed fn is free for Salvo** because a lambda
+  captures by value, and nothing a Salvo program can build is `!Send` — so
+  `Box<dyn FnMut + Send>` for a handler's fn-typed parameter and `Arc<dyn Fn +
+  Send + Sync>` for a struct's fn field cost no refusal. Until 2026-09-28 the
+  checker refused a handler holding a lambda as "unsendable"; the refusal was
+  about Rust's `Rc`, not about Salvo.
 - **A helper that exists to pass an actor its own address is a missing
   feature, not a helper** (2026-09-27). `node_group()`, `ActorGroup.start`
   and the opener's `subscribe` were three copies of the same handshake, each

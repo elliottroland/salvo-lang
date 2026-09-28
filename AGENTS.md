@@ -56,6 +56,7 @@ which rules are in play and where they live in the code*.
 | `ROADMAP.md` | What is left, as one sequence: steps, open defects, decisions, and the parked tail | Always |
 | `COMPLETED.md` | The record: decision log, milestone history, abandoned options, closed defects, test inventory, gotchas | Always |
 | `AGENTS.md` | This file — how to work on the repo | Always |
+| `EFFECT_FUSION.md` | How an effect binding reaches code on both backends — the one shape (handles everywhere), with the history of what it replaced | When touching `use`/`spawn`/handler emission or the effect environment in either emitter |
 | `examples/README.md` | The worked examples: layout, how to regenerate them, and the conventions they must keep | When adding or touching an example, or when a language change invalidates one |
 | `README.md` | Public-facing overview and quick start | Rarely (keep in sync on user-visible changes) |
 

@@ -143,7 +143,7 @@ fn main() [use, spawn] {
 
 The two halves are deliberately asymmetric. **Outbound** is a plain effect, `Transport`: `deliver(to, frame)` is a call on the sender's thread that answers whether the frame was handed to the wire — `Ok` means accepted, never that the far side has it. **Inbound** is an *actor* effect: bytes arrive on a thread the host owns, and the only way work from a foreign thread enters the scheduler is a send. So a node that wants to receive spawns an actor serving `Inbound` and registers its addr with `listen`, and the transport sends every arriving frame to it. Delivery is at most once and in order per pair of endpoints, and nothing more; anything stronger is a protocol over this.
 
-The transport is the one piece of the network the platform owns. `HostTcpTransport` is the machine's, a **`threadsafe` platform handler** ([Backends](Backends.md)): it is reached from every pool at once, so the host synchronizes itself and the compiler shares it with no lock. Its listener also tells the scheduler that an outside source of work is open, so a program waiting for a frame is neither idle nor deadlocked while the wire may still deliver one.
+The transport is the one piece of the network the platform owns. `HostTcpTransport` is the machine's, a **`threadsafe` platform handler** ([Backends](Backends.md)): it is reached from every pool at once, and the word is its promise that it synchronizes itself (today the compiler still serializes it behind the effect's handle, like every handler). Its listener also tells the scheduler that an outside source of work is open, so a program waiting for a frame is neither idle nor deadlocked while the wire may still deliver one.
 
 `MemTransport` is the in-memory transport: one `MemNetwork` actor that many virtual nodes share — with `partition`, `heal` and `kill` as its members, so a test scripts the faults — and one `MemTransport(me, net)` per node. Everything above the wire runs on it exactly as on TCP, in one process.
 
@@ -209,7 +209,7 @@ fn tally(items: List<Int>) [Resizer] -> Int { … }         // needs ONE Resizer
 handler RoundRobin(members: List<Addr<Resizer>>) of any Resizer { … }   // forwards; promises no order
 ```
 
-Bare `[E]` keeps the strong meaning, so binding a group where `[Resizer]` is required is an error at the call, and a program written before groups existed cannot be broken by binding one under it. `[any E]` accepts every binding — a single instance is a group of one — and is viral downward like `local`. The full rule is in [Effects and handlers](Effects-and-Handlers.md#many-instances-any-e-and-of-any-e).
+Bare `[E]` keeps the strong meaning, so binding a group where `[Resizer]` is required is an error at the call, and a program written before groups existed cannot be broken by binding one under it. `[any E]` accepts every binding — a single instance is a group of one — and is viral downward. The full rule is in [Effects and handlers](Effects-and-Handlers.md#many-instances-any-e-and-of-any-e).
 
 ### Routing: `use route(group)` and `Pick<E>`
 

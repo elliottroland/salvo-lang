@@ -42,10 +42,11 @@ and field narrowing, deductions with refinements, the iterator reduction to
 `next` (with any-name `iter fn`, `Iter` for sources and the `iter T`
 placeholder — the 2026-09-27 redesign), the collections, the filesystem, actors (spawn, send, park, watch,
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
-group borrowing, the testing framework, the comparison/hashing capabilities, and
-the wire under actors across machines (`net`, step ① of the network sequence).
+group borrowing, the testing framework, the comparison/hashing capabilities,
+actors across machines (`net`, the whole network sequence), and one shape for
+effects on both backends (every binding a handle, no fusion, no `local`).
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1615 tests green.
+targets and the output they print. 1613 tests green.
 
 ## The sequence
 
@@ -138,240 +139,14 @@ deadlock graph is per program, so a wait cycle closing through a handler in
 *another* program of the same node group is invisible — the same shape as the
 "over types, not instances" gap, same deferred remedy.
 
-### 2b — One shape for effects: handles everywhere, fusion removed, `local` removed (user decisions 2026-09-28; **next**)
+### 2b — ✅ One shape for effects (complete 2026-09-28)
 
-**The decision** (user, 2026-09-28, after reading EFFECT_FUSION.md): while
-the language is still being designed, a *uniform* emission with fewer edge
-cases is worth a performance hit; smarter per-case emissions are a later
-optimisation pass. Three calls, all the user's:
-
-1. **Every binding is a handle** (EFFECT_FUSION.md §4, Option 1). A `use`
-   makes one value, `__Handle_E`, and everything downstream — a fn's effect
-   parameter, a dependent handler's dependency, a spawn's or task's capture,
-   a fn value's effect — is that value or a clone of it. The three Rust
-   shapes for a dependent handler (owned handles / `__Impl_H` fusion form /
-   actor provider) become one: the handler holds a `__Handle_E` field per
-   dependency, whether it is `use`d or spawned.
-2. **No fusion, on either backend.** A fn declaring `[A, B]` takes one
-   parameter **per effect, in declaration order** — the "plain mode" shape
-   Rust already has, typed by handles — not one fused value. Fusion's two
-   reasons (a dependent handler's members had no room for their dependencies;
-   two faces of one handler bound to a fn declaring both is E0499) are both
-   answered by handles (a field; two clones of one `Arc`). The user likes
-   the fused syntax but chose the simpler, more legible output.
-3. **`local` is removed** — `use local H()` and `[local E]` — in the same
-   sequence. With one shape it selects nothing: every binding is shareable
-   and every dependency is captured. A lock-free scope-local binding returns
-   as a ROADMAP item when the shapes have settled (see "Recorded, not
-   scheduled").
-
-Two consequences the user accepted as decisions: a **stateful handler
-captured by two spawns is now shared state** (an `Arc<Mutex<H>>` cloned
-twice — Kotlin's behaviour already, since references alias; today the
-checker refuses the capture of a local binding, and that refusal goes); and
-**interception** (`handler Stamped [Logger] of Logger`) holds a handle to
-the previous Logger rather than borrowing the scope — same behaviour, one
-mechanism.
-
-**The handle**, per backend. Chosen by the handler's *statefulness*, which
-is visible in its declaration (`state` fields; a platform handler without
-`threadsafe` counts as stateful):
-
-| handler | Rust `__Handle_E` holds | Kotlin |
-|---|---|---|
-| stateless, or `threadsafe platform` | `Arc<H>` behind `Box<dyn __Share_E>`; members `&self` for a threadsafe host, else a clone per call is *not* done — the handler is called through `&mut` on a `Mutex`-free path only when stateless is provable: **decide** whether stateless handlers use `Arc<H>` + interior-mutability-free `&mut` via `Arc::get_mut` fallback, or simply share the `Mutex` path too (simplest; uncontended lock) | the instance itself |
-| stateful | `Arc<Mutex<H>>` (today's `__Lock_E`) | `__Mon_E` (`synchronized`) |
-
-**Decided (user, 2026-09-28)**: one implementation — `Arc<Mutex<H>>` for
-*every* handler, stateless included (an uncontended lock per member call),
-with the lock-free stateless path deferred to the optimisation pass. So
-`__Handle_E` is one struct per effect with one impl; `__Share_E`, `__Lock_E`
-and `__Arc_H` are all deleted. Kotlin does the same for parity: every `use`
-wraps in `__Mon_E` (`synchronized`), stateless or not — harmless, and it
-keeps "one shape" true on both backends. Two consequences of "one impl":
-
-- **`threadsafe platform handler`** becomes emission-neutral (the host is
-  behind the same mutex as everything else; the `&self` twin trait
-  `__Shared_H` and the `__Arc_H` adapter go). **Decided (user, 2026-09-28)**:
-  keep the word as the declared contract `salvo platform generate` prints,
-  emit nothing for it; it earns its keep in the lock-free pass.
-- **A handler holding a function value** (`handler Derived(step: (n: Int) ->
-  Int) of Random`) is today refused for a shareable binding — a Rust
-  `Box<dyn FnMut>` is not `Send` — and is `use local`-only. With `local`
-  gone it could not be bound at all. **Decided (user, 2026-09-28)**: fn-typed
-  constructor parameters and state fields emit as `Box<dyn FnMut(…) + Send>`
-  (Salvo lambdas capture by value, so the bound holds), and the "holds a
-  function value" arm of `unsendable_reason` is deleted. Stored lambdas then
-  work everywhere, on both backends.
-
-**The one thing a handle cannot do**: a member that lends `&mut` into the
-handler's state ([rs-loc] "wholesale-lending", `fn_type_lends_mut`) cannot
-be behind a `Mutex` guard. Today such a handler is `use local`-only; with
-`local` gone it is a **checker error** at the declaration ("a member lends
-into the handler's state, which a handle cannot give — answer a copy, or
-take a closure"). Surveyed 2026-09-28: **no std effect has such a member**
-(`Fs`, `Console`, `Clock`, `Ticker`, `Random`, `Transport`, `Pick`, `Leader`,
-`RawFs`, `Throw` — none lends), so this only ever affects user code, and the
-rustc E0515 the emitter special-cased becomes a Salvo diagnostic.
-
-**The sequence** (commit after each step, short messages; full
-`cargo test` warm and `SALVO_E2E_FRESH=1 cargo nextest run` before each
-commit; regenerate `examples/*/{rust,kotlin}` whenever emission changes):
-
-① ✅ (2026-09-28, commit follows) **Remove `local`.** Landed as planned,
-   with the emitters unchanged: the checker's `UseKind::Local` survives as
-   the *transitional* "inline" classification (the fusion emission, chosen
-   silently for the shapes the handle emission does not cover yet — actor-face
-   handlers, actor-effect/generic-instance deps, `use`/`spawn` capabilities,
-   unsendable state, several stateful faces), `EffectAvail.local` marks
-   inline availabilities (inline `use`, lambda/inherited effects), and the
-   capture refusals stay with transitional wording. Steps ②/③ delete all of
-   it. Deleted for good: the surface, the call-site rule, `[effect-local]`
-   /`[use-local]` (now `[effect-handle]`), the `local`/`any` combination
-   check, the fusion-shape tests (`fusion_shapes`, `handler_dependencies_fuse`,
-   `interception_shapes`, the Kotlin pair, `generic_dependent_handler_is_a_
-   codegen_error`) — replaced by `[rs-handle]`/`[kt-handle]` shape tests in
-   ②/③. Two tests carry transitional assertions to flip in ②:
-   `a_handler_may_depend_on_a_platform_effect` (a platform effect through
-   `main`'s signature, captured by a dependent handler) and
-   `a_spawn_cannot_inherit_an_inline_binding`. Original plan: Parser: `use local` and `[local E]` become parse
-   errors naming the removal (no dual acceptance — the language just stops
-   having it); `EffectRef::LocalEffect` deleted; `Stmt::Use.local` deleted;
-   the `local`/`any` "do not combine" check goes with it; tm-grammar entries
-   in `crates/salvo-cli/src/lang.rs` removed and regenerated. Checker:
-   `UseKind` collapses to one (or is deleted: every `use` is a handle),
-   `classify_shareable_use` and its blockers deleted except the new
-   lending-member refusal, `EffectAvail.local` deleted, the call-site
-   "requires a shareable E" rule deleted, the spawn-capture-of-local refusal
-   deleted, `handler_handle_deps` deleted (every dependent handler holds
-   handles), `check_local_send_member`'s "pins the fusion form" comments
-   cleaned; `require_handle`/`Checked.handle_requirements` (the checker half
-   of handle bundles, 12 sites) deleted. **Order caution**: `salvo_core::
-   handler_handle_deps` is called by *both* emitters (Kotlin ×4) — delete it
-   with its last caller in step ③, or delete every caller in this step.
-   Parser AST snapshots change wholesale (`Stmt::Use.local` is gone). std: the 16 `[local E]` / `use local` sites (`fs.sv` ×14,
-   `console.sv`, `time.sv`) become bare. Tests: ~90 fixture sites
-   (`codegen_tests.rs` ×60, `monitor_tests.rs` ×18, others); the
-   `a_local_binding_satisfies_only_local_requirements` family and the
-   "cannot be bound shareable" tests are deleted, not rewritten.
-   `examples/linearity/` has two sites. Docs: `Effects-and-Handlers.md`
-   "Shareable by default" section rewritten as "Every binding is a handle";
-   `[effect-local]`/`[use-local]` in LANGUAGE_SPEC.md become one paragraph
-   pointing at the record; the label references in code (`grep -rn
-   '\[use-local\]\|\[effect-local\]'` — ~60) retargeted to the new rule
-   `[effect-handle]`. *This step can land with the emitters unchanged*: the
-   Rust emitter already handles `UseKind::Bare`/`Monitor`; the only emission
-   that disappears is `Local`'s.
-
-② ✅ (2026-09-28) **Rust: handles everywhere, fusion deleted.** Landed as
-   planned, plus: the `Pick<A>`/`Pick<B>` erased-sibling refusal was *not*
-   lifted (the handle is `__Handle_Pick` for both, and the emitter's
-   environment resolves by instance — but the two `use route` stubs would
-   still be two handlers of one erased type in one scope, and the cluster
-   example reads fine as two functions; re-examine in step ③ if Kotlin's
-   shape makes it free). Consequences recorded in the spec: the mixed
-   handler's façade sits behind the handle's lock (a second caller on
-   another thread blocks rather than serving its pool — the lock-free
-   stateless pass removes it); a `threadsafe platform handler` emits nothing
-   and the host implements the effect's own `&mut self` trait (`Send`
-   required); fn-typed constructor parameters are `Box<dyn FnMut + Send>`
-   and struct fn fields `Arc<dyn Fn + Send + Sync>`, so a handler holding a
-   lambda shares on both backends; inherited-then-written effect order is
-   now the same on the fn side and the call side (they disagreed, hidden
-   behind the fused argument). Checker: `handle_requirements`/`call_edges`
-   /`require_handle`, the platform-capture, inline-binding and
-   signature-capture refusals, and `EffectAvail.local` are gone;
-   `unsendable_reason` split into message/task (`fn` still refused) and
-   handler-state (`unshareable_reason`, `proj` only). Original plan: In `crates/salvo-backend-
-   rust/src/emit.rs`: delete `program_needs_fusion` and the `fusion` flag —
-   the plain-mode code path becomes the only one, with `&mut dyn E`
-   parameters replaced by `&mut __Handle_E`; delete `emit_fusion_inner`,
-   `emit_fusion_instance`, `emit_forward_impl`, `emit_deps_adapter`,
-   `emit_dependent_members` (`__Impl_H`), `__Deps_H`, `prov_trait`,
-   `__FxDyn`, `handle_bundle_param`/`handle_bundle_arg` and
-   `Checked.handle_requirements`, the actor `__Prov_H` provider (the actor
-   body holds `handler: H` whose fields are the handles — `__dispatch`
-   calls `self.handler.k(args)` for every handler, dependent or not), the
-   `__Has_E` traits and `emit_has_impl`. A dependent handler is emitted as
-   today's shape A for every handler: `struct H { __dep_E: __Handle_E, … }`,
-   `new(…, __dep_E)`, members read `self.__dep_E.member(…)`. A `use` is
-   `let mut e = __Handle_E::new(H::new(args, deps…))` with the deps cloned
-   from the handles in scope. A fn declaring `[A, B]` is `fn f(a: &mut
-   __Handle_A, b: &mut __Handle_B, …)`; a call passes `&mut a, &mut b`
-   (locals) or `&mut self.__dep_A` (inside a handler). A fn value with
-   effects is `impl FnMut(&mut __Handle_A, …)`. A spawn clones the handles
-   into `H::new`; a task's closure captures clones; `replyto` unchanged.
-   Goldens: all five Rust goldens change; accept after reading the diff.
-   `BACKEND_SPEC.rust.md`: `[rs-effect-fusion]`, `[rs-monitor]`,
-   `[rs-handle-bundle]` replaced by one `[rs-handle]` section. **Also in
-   this step**: `Addr<E>` for a *plain* effect (a monitor spawn
-   [monitor-handler]) *is* `__Handle_E` — the spawn just answers the
-   handle, and `use addr` binds it; the `[rs-loc]` locator faces on
-   *effect members* (`__loc` twins, `mark_loc_forwards` for members) go
-   with the lending-member refusal — the fn-level locator variant stays;
-   `[effect-intercept]` gains the emission-order sentence (the previous
-   registration's handle is minted *before* the interceptor is constructed,
-   which is "binds strictly outward" in emission). **Re-examine, possibly
-   lift**: the "one scope, one instance of an erased effect" refusal
-   (`Pick<A>` beside `Pick<B>`, [effect-generic-decl]) existed because two
-   `__Has_Pick` impls collided on one fusion struct; with per-effect
-   parameters they are two locals of one type, resolved by instance, so the
-   refusal is probably unnecessary — test it, and if it lifts, restore
-   `examples/cluster/`'s `two_ids`/`shop` to inline blocks and delete the
-   `two_erased_instances_cannot_share_a_scope` test.
-
-③ ✅ (2026-09-28) **Kotlin: fusion deleted, per-effect parameters.** Landed
-   as planned: `fx.kt`, `__Has_E`, `__One_E`, `__Fx_N`, the `<__Fx>` carrier
-   and its `where` bounds are gone; a dependent handler takes `private val
-   __dep_E: E` per dependency; every `use` wraps in `__Mon_E` (emitted for
-   every effect), a multi-face `use` one instance with a monitor per face;
-   `threadsafe` is emission-neutral here too. With both emitters on one
-   shape the checker's `UseKind`/`use_kinds`/`classify_shareable_use`/
-   `handler_handle_deps`/`handle_captures` are deleted, `with` on a `use`
-   of any dependent handler is accepted, and the generic dependent handler
-   (`Twice<T> [Store<T>]`) compiles and runs on both backends (new kotlinc
-   case). Original plan: The gate and
-   `fx.kt` go; a fn declaring `[A, B]` is `fun f(a: A, b: B, …)` (the JVM
-   reference is the handle; `__Mon_E` wraps a stateful one exactly as now);
-   a dependent handler takes one constructor argument per dependency typed
-   by the effect interface (`class Stamped(private val __dep_Logger: Logger,
-   …)`), the `<__Fx>` carrier type parameter goes, `__Actor_H` is no longer
-   generic; every `use` wraps in `__Mon_E`; `handler_handle_deps` and its
-   callers deleted here if not in ①. `[kt-effect-fusion]` replaced by
-   `[kt-handle]`. Both backends'
-   output for `EFFECT_FUSION.md`'s examples should now read the same modulo
-   syntax.
-
-④ **Records.** COMPLETED.md: the log entry (this decision, what it took,
-   the lending-member refusal, the shared-state consequence), the test
-   count, gotchas (the ones that fall out of deleting ~3,000 lines will be
-   about what depended on fusion unexpectedly). `EFFECT_FUSION.md` rewritten
-   from "three shapes and four options" to "the one shape", keeping §4 as a
-   short history of why. LANGUAGE_SPEC.md: `[effect-handle]` stated once,
-   `[effect-handler-deps]`/`[spawn-inherit]`/`[with-clause]`/
-   `[monitor-handler]` sub-bullets that mention capture rules simplified.
-   `docs/language/Effects-and-Handlers.md` and `Concurrency.md` swept for
-   `local`, "fusion", "monitor spawn" wording. README feature bullet.
-   `tools/sync-wiki.sh`. Delete this section; add to "Recorded, not
-   scheduled": *lock-free scope-local bindings* (the optimisation pass:
-   `Rc<RefCell<H>>` or a borrow for a binding no spawn captures — the
-   checker already knows which bindings are captured, `handle_captures`),
-   and *lock-free stateless handlers* if the recommendation above was taken.
-
-**Size**: two to three days. Step ① is the largest sweep but mechanical;
-step ② is the deletion of most of the fusion machinery and the rewrite of
-`emit_use`/`emit_spawn`/fn signatures around one handle type; step ③ is
-small. The tests that matter most are the compile-and-run cases on both
-backends (`kotlinc_compiles_and_runs_every_case` and its Rust twins), which
-exercise every shape: interception (`effects/` example), multi-face
-handlers, monitors, dependent actors (`Counting [Clock]`), tasks capturing
-effects, `init` on a dependent handler, the whole of `net`.
-
-**What a new agent should read first**: this section; EFFECT_FUSION.md
-(the shapes being removed, with real output); COMPLETED.md's 2026-09-20
-"shareable by default" entry and its gotchas (what `local` was for, so its
-removal is understood); `[rs-effect-fusion]` and `[rs-monitor]` in
-BACKEND_SPEC.rust.md; `[kt-effect-fusion]` in BACKEND_SPEC.kotlin.md.
+Built in four commits the day it was decided; the record — the decision, what
+it took, what fell out, the gotchas — is COMPLETED.md's "One shape for effects"
+entry, the shape itself is EFFECT_FUSION.md, and the rules are [effect-handle],
+[rs-handle], [kt-handle]. What it left open is in "Recorded, not scheduled":
+the lock-free optimisation pass (scope-local bindings, stateless handlers,
+the mixed façade), and the erased-sibling refusal.
 
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
@@ -856,6 +631,36 @@ backends**.
 
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
+
+- **The lock-free pass over the one shape** (2026-09-28, the optimisation
+  the one-shape decision explicitly deferred). Three items, all emission-only
+  and all invisible to a Salvo program:
+  - *Lock-free stateless handlers*: a handler with no `state` and no
+    `threadsafe`-less platform host needs no `Mutex`/`synchronized` — an
+    `Arc<H>` with `&self` members (Rust) or the raw reference (Kotlin) would
+    do, the shape Rust's `__Arc_H` adapter had for `threadsafe` hosts until
+    2026-09-28. `threadsafe platform handler` is the declared contract this
+    pass reads for a host; a Salvo handler's statelessness is visible in its
+    declaration. Removes the one recorded cost of the shape that matters: the
+    **mixed handler's façade** (stateless) waiting on its servant while holding
+    the handle's lock, which blocks a second caller instead of letting it serve
+    its pool ([rs-handle]).
+  - *Lock-free scope-local bindings*: a `use` whose binding no spawn, task or
+    dependent handler captures — the checker knows, `use_deps`/`spawn_deps`/
+    `task_mint_effects` are the capture sites — could be an `Rc<RefCell<H>>`
+    or a plain `&mut` on Rust, paying a borrow flag or nothing instead of a
+    mutex. This is what `use local` used to select by hand.
+  - *Eager handle cloning*: `Stamped::new(logger.clone(), clock.clone())`
+    bumps two `Arc`s per `use`; fine, noted.
+- **The erased-sibling refusal** (`Pick<A>` beside `Pick<B>` in one scope,
+  [effect-generic-decl]) was kept through the one-shape change. Its original
+  reason — two `__Has_Pick` impls colliding on one fusion struct — is gone,
+  and the emitters resolve a call by instance, so lifting it is probably a
+  matter of deleting `refuse_erased_sibling` and its test and restoring
+  `examples/cluster/`'s `two_ids`/`shop` to inline blocks. Left because the
+  two erased handles are still two handlers of one *type* in one scope
+  (`__Handle_Pick`), and the cluster example reads fine as two functions;
+  try it when the example next changes.
 
 - **Unify the mixed servant with private send members** (2026-09-27). A mixed
   handler's servant emits a handler-keyed `__Msg_H` and calls its members

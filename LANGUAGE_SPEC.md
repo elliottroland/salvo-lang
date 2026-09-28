@@ -3316,19 +3316,15 @@ Conventions:
     instance instead of the registration already in scope. Acyclicity is
     untouched — a fresh construction cannot point back at the handler being
     registered.
-  * **`use local H with …` is legal**: the clause chooses *which instance*,
-    which is orthogonal to the binding's locality.
   * Refused, each by name: an item the handler does not depend on (supplied
     for nothing); a **multi-face** handler as an item (the clause builds one
     instance per item, so the second face has nowhere to go — bind it with
     its own `use` and name the addr); an item with **dependencies of its
     own** (a clause item has no scope to resolve them from — register it
-    before this one instead); a `with` on a `use` of an **existing handle**
-    (its dependencies were settled where it was built); and a `with` on a
-    handler whose dependencies take the **fusion** form (actor-effect or
-    generic-instance deps, transitionally), which threads per call from the
-    scope's fused value and has no slot for a private instance — both
-    remaining cuts are recorded in ROADMAP.
+    before this one instead); and a `with` on a `use` of an **existing
+    handle** (its dependencies were settled where it was built). The refusal
+    of a `with` on a handler with an actor-effect or generic-instance
+    dependency went with the fused emission (2026-09-28).
   * `with` is a keyword already — the qualifier-compatibility clause spells
     it (`qualifier Q of T with A`) — and the two positions cannot be
     confused: one follows a qualifier's `of` type, the other a `use`/`spawn`
@@ -4168,18 +4164,18 @@ docs/language/ remains the source of truth for everything that does.
     cycle through a held lock is reported before it runs, naming the locks.
   * **Refused with it, each by name**: an `on` clause (members run on the
     callers' threads — there is nothing to place); more than one plain
-    face *when stateful* (one lock behind several effect types has no
-    backend representation yet); unsendable constructor parameters or state
-    fields [actor-sendable] (the instance crosses to every thread that
-    binds the handle); and a `mailbox` slot, refused at the declaration
-    already (a plain-face handler has no queue to bound [actor-mailbox]).
+    face on a *spawn* (the spawn answers one `Addr<E>`; a `use` of the same
+    handler binds every face over one lock, [effect-handle]); a `proj`-holding
+    constructor parameter or state field [actor-sendable] (the instance
+    crosses to every thread that binds the handle — a stored *function
+    value* is fine since 2026-09-28, both backends storing it in a form that
+    crosses); and a `mailbox` slot, refused at the declaration already (a
+    plain-face handler has no queue to bound [actor-mailbox]).
   * **Serialization without a servant**: members are mutually excluded by the
     lock, not serialized by a mailbox — two handle holders' calls interleave
     per member, and there is no arrival order, no gate, no death, nothing to
     `watch`. A member calling a sibling member runs within one acquisition on
     both backends (a direct self-call underneath).
-  * **Both binding forms remain**: the same handler `use local`-bound is the
-    inline handler (single-threaded, no lock).
   * Calling a plain member *through the addr* (`rng.next()` without a `use`)
     stays refused for now, with the send-member diagnostic; `use` the handle.
   * Lowering: [rs-handle] and [kt-monitor] — a per-effect lock wrapper
@@ -4816,7 +4812,7 @@ docs/language/ remains the source of truth for everything that does.
     effect in a scope, in one line — parsed as a `use` whose handler is a
     spawn expression, so the spawn machinery and the addr binding each do
     their own half and the emitters need nothing new. The `on` clause is the
-    marker (without it, `use H(args)` keeps its scope-local meaning); a
+    marker (without it, `use H(args)` is the in-scope handle binding); a
     multi-face handler is refused by name (one binding cannot split the
     tuple); and a dependency clause does not fit the sugar yet — it arrives
     with the `using` rename, which unambiguates the two `use`s.
@@ -5100,7 +5096,7 @@ docs/language/ remains the source of truth for everything that does.
     the dependency declaration — the seam where the binding is chosen — and
     names the three ways out: answer without reaching the peer, respell the
     consulting call as a send plus a continuation, or bind a handler of the
-    effect that does not wait (a monitor, or a scope-local `use`). Over
+    effect that does not wait (a monitor, or a non-mixed handler). Over
     types, not instances, like every edge here: a program that binds a
     non-mixed handler everywhere still gets the edge if a mixed one exists.
   * An ordinary **send** is a *back-pressure* edge: it blocks while the

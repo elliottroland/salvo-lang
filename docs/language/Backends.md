@@ -143,16 +143,14 @@ Three restrictions, each following from the implementation not being Salvo's:
 
 ### The thread-safety contract: `threadsafe`
 
-A `use` of a platform handler binds shareable like any handler's, and the instance may be reached from every thread of the program. Whether that is safe is a fact about the *host class*, which the compiler cannot see — so the declaration states it:
+A `use` of a platform handler is a handle like any handler's, and the instance may be reached from every thread of the program. Whether that is safe without a lock is a fact about the *host class*, which the compiler cannot see — so the declaration states it:
 
 ```
 threadsafe platform handler HostTcpTransport(port: Int) of Transport
 platform handler HostRawFs of RawFs
 ```
 
-**Without the word, the compiler serializes the instance** — every member runs under one lock, on both backends — so a host that keeps plain fields and never thought about threads works identically everywhere and pays only the lock. `HostRawFs` is written that way. **With `threadsafe`, the host promises it may be entered concurrently** (it synchronizes internally, or holds nothing that needs it) and the compiler shares the raw instance with no lock. On Rust the promise is half-checked: the host's members take `&self`, so a field that is not `Sync` does not compile; on Kotlin the host is trusted.
-
-`salvo platform generate` prints whichever contract the declaration made into the skeleton it writes, so the person implementing the host signs what the compiler assumes — and regenerating after adding or removing the word changes the skeleton's shape (the Rust receivers switch between `&self` and `&mut self`).
+**The compiler serializes every instance today** — every member runs under one lock, on both backends, `threadsafe` or not (one shape for every handler, 2026-09-28) — so a host that keeps plain fields and never thought about threads works identically everywhere and pays only the lock. `HostRawFs` is written that way. **With `threadsafe`, the host promises it may be entered concurrently** (it synchronizes internally, or holds nothing that needs it). The word changes nothing yet; it is the declared contract a later, lock-free emission will read, and `salvo platform generate` prints whichever contract the declaration made into the skeleton it writes, so the person implementing the host signs it. On Rust the host must be `Send`; on Kotlin it is trusted.
 
 The two forms answer different questions. Use a `platform effect` when the *capability* is the host's and the program is a guest in the host's process — the host constructs everything and owns `main`. Use a `platform handler` when the capability is the language's, several implementations exist, and one of them is host code: a real filesystem beside an in-memory one, a host clock beside a fake, an S3-backed store beside a local directory. The standard library uses the second form itself, and ships its host classes the same way — under `std`'s own `platform/` tree, one file per backend.
 
@@ -162,7 +160,7 @@ The two forms answer different questions. Use a `platform effect` when the *capa
 
 * When `None` is the only return type of a function, it should be translated to `Unit`.
 * The backend should define generic union type wrappers using a sealed interface. If the larger union type is of size N, then the backend should define union types for each number from 1 to N. The qualifier checks then reduce down to checking which of the sealed types a value results in.
-* Effects and handlers can map to interfaces and implementations of those interfaces. The effects are passed to a function as the first arguments of that function, and all uses of those effects is mapped to the relevant parameter name.
+* Effects and handlers map to interfaces and implementations of those interfaces. The effects a function declares are its first parameters, typed by the interfaces, and every use of an effect in the body is a call on the relevant parameter. A `use` wraps the handler in the effect's `synchronized` monitor (`__Mon_E`), so a stateful handler is safe to hand to a spawn; a dependent handler takes its dependencies as trailing constructor parameters.
 * `Mut Str` maps to `StringBuilder`, which — unlike `MutableList<T>` — is *not* a subtype of the immutable form, so dropping the `Mut` emits `.toString()`. `copy` of a `Mut Str` is `StringBuilder(sb)`, not the identity.
 * `Byte` maps to `UByte`, not to Kotlin's signed `Byte`: an octet has to print and compare the same on both backends, and a signed byte would render 255 as `-1` where Rust's `u8` renders `255`.
 * `Bytes` and `Mut Bytes` both map to one **shipped runtime class** (`salvo.SalvoBytes`, emitted per program that names the type): a growable byte array with structural `equals`/`hashCode` and an `iterator()`. Neither stdlib shape would do — `List<UByte>` boxes every element, and `UByteArray` is fixed-size *and* is not a `List<T>`, so generic code could not take one. Rust needs no such class: `Bytes` is a `Vec<u8>`.
@@ -172,6 +170,6 @@ The two forms answer different questions. Use a `platform effect` when the *capa
 * When `None` is the only return type of a function, the return type is omitted (`()`).
 * `T?` maps to a physical `Option<T>`; union types map to generated enums (`Union2<T1, T2>` with one variant per non-`None` arm).
 * Deductions determine ownership: a parameter that appears in a function's deductions is passed by reference (`&T`, or `&mut T` when its declared type carries `Mut`), while a parameter omitted from the deductions is moved (passed by value) — the calling code no longer has access to it in Salvo, so the move is always legal. Copy scalar types are always passed by value.
-* Effects map to traits with `&mut self` methods; effect dependencies become leading `&mut dyn` parameters, and `use` instantiates a handler into a local that is threaded as `&mut local`.
+* Effects map to traits with `&mut self` methods. Every effect gets a **handle** type, `__Handle_E` (an `Arc<Mutex<dyn E + Send>>` implementing the trait by lock-and-forward), and every binding is one: `use` makes `let mut e = __Handle_E::new(H::new(…))`, a fn declaring `[A, B]` takes `&mut __Handle_A, &mut __Handle_B`, a dependent handler holds `__dep_E: __Handle_E` fields, and a spawn or a task clones the handles it inherits.
 * `Str` and `Mut Str` are both `String`, so dropping a `Mut` emits nothing. String indexes are *characters*, not bytes, on both backends, so the lowerings convert where Rust counts bytes.
 * See BACKEND_SPEC.rust.md for the full rules.
