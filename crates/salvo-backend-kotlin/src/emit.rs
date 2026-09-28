@@ -668,7 +668,7 @@ fn module_produces_code(module: &Module) -> bool {
     module.items.iter().any(|item| match item {
         Item::Struct(_) | Item::Effect(_) => true,
         Item::Handler(_) => true,
-        Item::Fn(f) => f.body.is_some() || f.structural,
+        Item::Fn(f) => f.body.is_some(),
         Item::Qualifier(q) => q.fns.iter().any(|f| f.body.is_some()),
         _ => false,
     })
@@ -1385,7 +1385,7 @@ impl<'p> Emitter<'p> {
                 // constructs, so nothing callable is emitted for it.
                 // [cmp-auto] A structural member has no body and is still
                 // emitted: its body is the host's own operation.
-                Item::Fn(f) if f.body.is_some() || f.structural => {
+                Item::Fn(f) if f.body.is_some() => {
                     body.push_str(&self.emit_fn(f))
                 }
                 Item::Qualifier(q) => body.push_str(&self.emit_qualifier(q)),
@@ -1504,32 +1504,6 @@ impl<'p> Emitter<'p> {
             self.generics = saved;
             return format!("\nclass {declared_name}{generics}\n");
         }
-        // [col-hashed-ordered] [kt-ordered] An ordered struct needs a real
-        // `Comparable`: a Kotlin data class gets `equals`/`hashCode` for free
-        // but *not* comparison, so `p < q` would be an unresolved
-        // `compareTo`. The order is lexicographic by field declaration order,
-        // which is the language's rule and matches Rust's derived `Ord`.
-        // [cmp-auto] An `auto fn cmp@T` is what asks for a real `Comparable`:
-        // the generated `cmp@T` is defined in terms of this `compareTo`
-        // [kt-cmp-groups]. Asked of the *declaration*, not of an obligation
-        // clause — `auto` is a modifier on the function now (user decision
-        // 2026-09-22), so a struct may generate a `cmp` with no clause at all.
-        let ordered = self.program.has_auto_member(&s.name.name, "cmp");
-        let self_ty = format!(
-            "{declared_name}{}",
-            if s.generics.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    "<{}>",
-                    s.generics
-                        .iter()
-                        .map(|g| g.name.clone())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            }
-        );
         let mut out = format!("\ndata class {declared_name}{generics}(\n");
         for field in &s.fields {
             let kw = if is_mut { "var" } else { "val" };
@@ -1560,52 +1534,7 @@ impl<'p> Emitter<'p> {
         // barred from `: auto Hashed<self>` [col-hashed-ordered], so it never
         // reaches a hash table where the (NaN-only) inconsistency could
         // matter.
-        if ordered {
-            // Comparison first, then the float-aware equality if it is also
-            // needed — both live in the same class body.
-            out.push_str(&format!(") : Comparable<{self_ty}> {{\n"));
-            out.push_str(&format!(
-                "    override fun compareTo(other: {self_ty}): Int {{\n"
-            ));
-            // [kt-ordered] Through the runtime helper rather than
-            // `field.compareTo(...)`: Salvo says a `List` or a tuple is
-            // orderable when its elements are, and neither is `Comparable`
-            // on the JVM [col-hashed-ordered].
-            self.needs_compare = true;
-            for field in &s.fields {
-                let name = kt_ident(&field.name.name);
-                out.push_str(&format!(
-                    "        run {{ val __c = salvo.__salvoCompare({name}, other.{name}); if (__c != 0) return __c }}\n"
-                ));
-            }
-            out.push_str("        return 0\n    }\n");
-            if self.struct_has_float_field(s) {
-                let star_args = if s.generics.is_empty() {
-                    String::new()
-                } else {
-                    format!(
-                        "<{}>",
-                        s.generics.iter().map(|_| "*").collect::<Vec<_>>().join(", ")
-                    )
-                };
-                let comparisons: Vec<String> = s
-                    .fields
-                    .iter()
-                    .map(|f| {
-                        let name = kt_ident(&f.name.name);
-                        format!("{name} == other.{name}")
-                    })
-                    .collect();
-                out.push_str("    override fun equals(other: Any?): Boolean {\n");
-                out.push_str("        if (this === other) return true\n");
-                out.push_str(&format!(
-                    "        if (other !is {declared_name}{star_args}) return false\n"
-                ));
-                out.push_str(&format!("        return {}\n", comparisons.join(" && ")));
-                out.push_str("    }\n");
-            }
-            out.push_str("}\n");
-        } else if self.struct_has_float_field(s) {
+        if self.struct_has_float_field(s) {
             let star_args = if s.generics.is_empty() {
                 String::new()
             } else {
@@ -3135,46 +3064,6 @@ impl<'p> Emitter<'p> {
         self.emit_fn_inner(f, "fun", 0, true)
     }
 
-    /// [cmp-auto] [kt-cmp-groups] A canonical generated by a `default`
-    /// obligation: the host's own operation, wrapped in the fn the rest of the
-    /// compiler resolved, so nothing else in the backend learns that `default`
-    /// exists.
-    ///
-    /// `cmp` goes through the runtime comparator rather than `compareTo`
-    /// directly, for the reason every ordering on this backend does: a `List`
-    /// or a tuple field is not `Comparable` on the JVM, and `String.compareTo`
-    /// is the wrong order [kt-ordered]. The struct's own generated `compareTo`
-    /// is what it lands on, which is what keeps this member and the type's
-    /// ordering the same thing.
-    fn emit_structural_fn(&mut self, f: &FnDecl) -> String {
-        let member = f.name.name.clone();
-        let param = f.params.first().cloned();
-        let Some(param) = param else {
-            self.error(format!("internal: structural `{member}` has no parameter"));
-            return String::new();
-        };
-        let saved = self.enter_generics(&f.generics);
-        let generics = self.emit_generic_params(&f.generics);
-        let ty = self.emit_type(&param.ty);
-        self.generics = saved;
-        let name = self.kotlin_fn_name(f);
-        match member.as_str() {
-            "cmp" => {
-                self.needs_compare = true;
-                format!(
-                    "\nfun {generics}{name}(a: {ty}, b: {ty}): Int {{\n    return salvo.__salvoCompare(a, b)\n}}\n"
-                )
-            }
-            "eq" => format!(
-                "\nfun {generics}{name}(a: {ty}, b: {ty}): Boolean {{\n    return a == b\n}}\n"
-            ),
-            // [cmp-hash-values] This host's digest; Rust's is its own.
-            _ => format!(
-                "\nfun {generics}{name}(value: {ty}): Long {{\n    return value.hashCode().toLong()\n}}\n"
-            ),
-        }
-    }
-
     /// A predicate qualifier's functions (`qualifies`) become top-level
     /// Kotlin functions named `{Qualifier}_{fn}` (qualifiers themselves are
     /// erased; only the predicates survive as code).
@@ -3200,11 +3089,6 @@ impl<'p> Emitter<'p> {
     /// Emits a function declaration. `top_level` functions get effect
     /// parameters; handler methods (`override fun`) do not.
     fn emit_fn_inner(&mut self, f: &FnDecl, kw: &str, indent: usize, top_level: bool) -> String {
-        // [cmp-auto] A generated structural member has no body to emit: its
-        // body *is* the host's own operation.
-        if f.structural {
-            return self.emit_structural_fn(f);
-        }
         let Some(body) = &f.body else {
             return String::new();
         };
@@ -3411,18 +3295,6 @@ impl<'p> Emitter<'p> {
     /// natively.
     fn apply_interp_to_str(&mut self, expr: &Expr, code: String) -> String {
         let key = (self.file_idx, expr.span());
-        // [interp-struct] A struct with no `to_str` of its own renders
-        // field-wise, in the language's format rather than the JVM's
-        // `toString` (a data class prints `Person(name=ann)`).
-        if let Some(name) = self.checked.interp_struct.get(&key).cloned() {
-            if let Some(fields) = self.struct_field_names(&name) {
-                let inner: Vec<String> = fields
-                    .iter()
-                    .map(|f| format!("{f}: ${{{code}.{}}}", kt_ident(f)))
-                    .collect();
-                return format!("\"{name} {{ {} }}\"", inner.join(", "));
-            }
-        }
         let Some(fn_key) = self.checked.interp_to_str.get(&key).copied() else {
             return code;
         };
@@ -3453,22 +3325,6 @@ impl<'p> Emitter<'p> {
         format!("{}({code})", self.kotlin_fn_name(decl))
     }
 
-
-    /// [interp-struct] The field names of a declared struct, in order.
-    fn struct_field_names(&self, name: &str) -> Option<Vec<String>> {
-        for module in self.program.modules.iter() {
-            for item in &module.items {
-                if let Item::Struct(decl) = item {
-                    if decl.name.name == name {
-                        return Some(
-                            decl.fields.iter().map(|f| f.name.name.clone()).collect(),
-                        );
-                    }
-                }
-            }
-        }
-        None
-    }
 
     /// The generated Kotlin imports of one file [kt-imports]: a wildcard
     /// import per foreign emitted module whose names the file uses, plus
@@ -3600,7 +3456,7 @@ impl<'p> Emitter<'p> {
             // without this, three `auto Eq` structs would all emit `eq`.
             Some(o) if o.len() > 1 => o
                 .iter()
-                .filter(|f| f.body.is_some() || f.structural)
+                .filter(|f| f.body.is_some())
                 .copied()
                 .collect(),
             _ => return kt_ident(&name),
@@ -4354,6 +4210,8 @@ impl<'p> Emitter<'p> {
             // [fn-rename] Erased: a rename is a compile-time name for an
             // overload the call sites already resolved [fn-overload-scope].
             Stmt::Rename(_) => String::new(),
+            // [comptime-inline] Gone before emission.
+            Stmt::Comp(_) => String::new(),
             Stmt::Let {
                 pattern,
                 ty,
@@ -9777,6 +9635,8 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
                 match &f.kind {
                     StructLitFieldKind::Named { value, .. } => collect_mutated_expr(value, out),
                     StructLitFieldKind::Spread(e) => collect_mutated_expr(e, out),
+                    // [comptime-inline] Gone before emission.
+                    StructLitFieldKind::InlineFor { .. } => {}
                 }
             }
         }
@@ -9979,6 +9839,8 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
                 match &f.kind {
                     StructLitFieldKind::Named { value, .. } => collect_declared_expr(value, out),
                     StructLitFieldKind::Spread(e) => collect_declared_expr(e, out),
+                    // [comptime-inline] Gone before emission.
+                    StructLitFieldKind::InlineFor { .. } => {}
                 }
             }
         }
