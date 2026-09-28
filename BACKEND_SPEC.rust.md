@@ -1239,7 +1239,8 @@ emission of 2026-09-04/14 (`__Fx_N` structs, `__Has_E` accessors, `__Prov_…`
 conjunctions, `__Deps_H`/`__Impl_H` for dependent handlers, `__Prov_H` actor
 providers, `__Hs_…` handle bundles) and the monitor apparatus of 2026-09-19/20
 (`__Mon_E` over `Box<dyn __Share_E>`, `__Lock_E<H>`, `__Arc_H`/`__Shared_H` for
-threadsafe hosts). EFFECT_FUSION.md shows the shape and keeps the history.
+threadsafe hosts). COMPLETED.md shows the shape (under "Current architectural
+facts worth knowing") and keeps the history ("One shape for effects").
 
 * **An effect emits two traits and a handle.** The traits are what handlers
   implement, and their names are the mangled ones; the handle **carries the

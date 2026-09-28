@@ -273,7 +273,7 @@ dependency wrapped when stateful. **Deadlock graph**: `H's lock` nodes for
 stateful plain handlers only (a stateless handler's members run on the caller's
 thread with nothing held, so the caller's edges already price them). Specs:
 [rs-handle], [kt-handle], [effect-handle], [threadsafe-platform] rewritten;
-EFFECT_FUSION.md §2–3; Backends.md and Effects-and-Handlers.md.
+Backends.md and Effects-and-Handlers.md.
 
 *What fell out.* The two costs the morning recorded for a later pass are gone
 the same day: no lock around a stateless handler, none around the façade, none
@@ -286,7 +286,7 @@ backends, outputs unchanged.
 
 **One shape for effects — handles everywhere, fusion removed, `local`
 removed (2026-09-28, user decisions — built the same day, four commits).**
-EFFECT_FUSION.md's survey (2026-09-27) found that Rust had two modes for the
+The 2026-09-27 survey (EFFECT_FUSION.md, since folded in here) found that Rust had two modes for the
 same source (plain, fusion) and three shapes for a dependent handler (owned
 handles, the `__Impl_H` fusion form, the actor provider), chosen by predicates
 invisible in the source, each with its own generated types; Kotlin had one
@@ -335,7 +335,56 @@ signature-capture refusals; `unsendable_reason` split into the message/task
 rule (a fn value still has no wire or enum form) and `unshareable_reason` for
 handler state (`proj` only). Specs: [rs-handle] replaces [rs-effect-fusion]/
 [rs-monitor]/[rs-handle-bundle], [kt-handle] replaces [kt-effect-fusion];
-EFFECT_FUSION.md rewritten around the one shape with §4 as the history.
+EFFECT_FUSION.md was rewritten around the one shape, then folded into this
+file (the architectural facts, and the history above) and deleted.
+
+*What it replaced — the shapes, for the record.* Until 2026-09-28 the Rust
+backend had **two emission modes for the same source**, chosen per program by
+`program_needs_fusion` (fusion on iff some reachable handler declared an effect
+dependency or implemented several effects), and under fusion **three shapes for
+a dependent handler**. *Plain mode*: one `&mut dyn E` parameter per effect —
+the shape everyone would write by hand; it could not express a handler needing
+an effect inside its members (no room in the trait signature) nor two faces of
+one handler bound to a fn declaring both (`&mut h, &mut h` is E0499), which is
+what fusion existed for. *Fusion mode* (2026-09-04, reshaped to the
+Has-accessor design 2026-09-14): every fn declaring effects took one generic
+`__fx: &mut __Fx` bounded by per-effect accessor traits `__Has_E` and read each
+effect by UFCS; each `use` built a fusion struct `__Fx_main_N { __outer: &mut
+dyn __Prov_…, __h: H }` chained to the previous one, with `__Prov_A_B`
+conjunction traits naming "everything so far"; Kotlin mirrored it flatly
+(`__Fx_N` classes, `__Has_E` interfaces in `fx.kt`). *Shape A — owned handles*
+(`handler_handle_deps`, 2026-09-20): a plain-face handler whose deps were all
+bare `[E]` held `__dep_E: __Mon_E` fields minted off "eager handle" variables;
+spawnable and shareable, at the cost that the captured instance was a clone-box
+(`Box<dyn __Share_E>` — a copy for a stateless handler, an `Arc` bump through
+`__Lock_E<H>` for a stateful one). *Shape B — the fusion form* (`__Impl_H` +
+`__Deps_H`): for a `local E`, actor-effect or generic-instance dependency the
+member bodies moved into a generated trait taking the fused value per call, the
+fusion struct forwarding through a disjoint borrow of `__outer`; exact
+interception, no clones, but unspawnable and unshareable. *Shape C — the actor
+provider* (`__Prov_H<__D0, …>`): a spawned dependent handler owned a flat struct
+of dependency instances and the dispatcher built the `__Deps_H` view over it per
+activation. *Handle bundles* (`__Hs_…`): a capture over a signature-supplied
+effect had only `&mut __Fx`, so the checker recorded a handle requirement per
+fn, propagated it up the call graph, and Rust threaded a hidden bundle
+parameter — and an actor's member had neither source, which is why `net`'s
+`connect` could not be called from a node group's `init`. *The language half*:
+`use local H()` and `[local E]` (2026-09-20) distinguished a scope-local,
+lock-free, uncapturable binding from the shareable default, with a viral
+call-site rule and a list of handler shapes that *required* `use local`.
+
+*Options weighed (the 2026-09-27 survey, EFFECT_FUSION.md at the time):*
+(1) handles everywhere — make shape A the only shape; (2) fusion everywhere —
+make shape B the only shape, keeping providers and bundles; (3) keep both,
+close the gaps (let the provider hand out handles; rename `__Mon_E` →
+`__Handle_E`, `__Prov_…` → `__All_…`; comment each handler with its form);
+(4) make the A/B choice the `[E]`/`[local E]` distinction the language already
+had, so the emission is derivable from the signature. The survey recommended
+(3) then (4); the user chose (1), extended to both backends and to `local`'s
+removal, on the grounds that while the language is still being designed a
+uniform emission with fewer edge cases is worth a performance hit and smarter
+per-case emissions are an optimisation pass — which then had one shape to
+optimise, and did so the same afternoon (statefulness, next entry up).
 
 *What fell out.* **Gaps closed by the shape**: a generic dependent handler
 (`Twice<T> [Store<T>]`) compiles and runs on both backends (a codegen error
@@ -13124,6 +13173,50 @@ by faithful emission. Rule [fn-contract]:
   loop lowering shape). When a lowering rule changes, check both crates —
   and the checker, which must agree with them on the ident-unwrap
   predicates (`maybe_coerce`'s "effective repr").
+- **How an effect binding reaches code — the one shape** (2026-09-28,
+  [effect-handle]; the two lowerings are [rs-handle] and [kt-handle]). Every
+  binding of an effect is a **handle**; the handle's one question about a
+  handler is whether it is **stateful** (`salvo_core::handler_is_stateful`:
+  a `state` field, a `replyto` mint, a fn-typed constructor parameter, a
+  platform handler without `threadsafe`), read by both emitters and the
+  deadlock graph. Side by side, for `handler Stamped [Logger, Clock] of
+  Logger` used inside `fn interception() [Logger, Clock, use]`:
+
+  ```rust
+  // Rust: the handle carries the effect's name; handlers implement a mangled trait.
+  pub struct Logger { inner: __Inner_Logger }              // Shared(Arc<dyn __Stateless_Logger>)
+                                                            // | Locked(Arc<Mutex<dyn __Stateful_Logger>>)
+  pub struct Stamped { __dep_Logger: Logger, __dep_Clock: Clock }
+  impl __Stateless_Logger for Stamped { fn log(&self, m: &String) { … self.__dep_Clock.now() … } }
+  pub fn interception(logger: &Logger, clock: &Clock) {
+      let logger2 = Logger::shared(Stamped::new(logger.clone(), clock.clone()));
+      work(&logger2, …);
+  }
+  ```
+  ```kotlin
+  // Kotlin: the interface is the handle; a stateful binding is wrapped in __Mon_E.
+  class Stamped(private val __dep_Logger: Logger, private val __dep_Clock: Clock) : Logger { … }
+  fun interception(logger: Logger, clock: Clock) {
+      val logger2: Logger = Stamped(logger, clock)          // __Mon_Logger(…) if Stamped had state
+      work(logger2, …)
+  }
+  ```
+
+  A fn declaring `[A, B]` takes one parameter per effect in `fn_effects`
+  order (inherited first, then written — `call_effects` agrees position by
+  position); a dependent handler holds `__dep_E` fields, whatever the
+  dependency's kind; a spawn passes the clause's instances and the inherited
+  handles as trailing `new` arguments and the actor body is `__Actor_H {
+  handler: H }` for every handler; interception is capturing the previous
+  handle before binding the new one; a `with` item is a private instance
+  behind its own handle; a monitor spawn answers `E::locked(H::new(…))` /
+  `__Mon_E(H(…))`; the send stub and the mixed façade are stateless, so a
+  bound addr's send blocks only on the mailbox and a façade's wait holds no
+  lock. Nothing about a program chooses among emissions; this is the only
+  one. (EFFECT_FUSION.md, the 2026-09-27 survey and then the description of
+  this shape, was folded in here and deleted on 2026-09-28 at the user's
+  request; the shapes it replaced are in the "One shape for effects" log
+  entry.)
 
 ## Defects found and closed
 

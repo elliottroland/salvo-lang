@@ -3290,7 +3290,7 @@ Conventions:
     replaced — owned handles for the shareable default and a per-scope
     *fusion* threading the dependency per call for every other dependent
     handler, chosen by `handler_handle_deps` — are recorded in COMPLETED.md
-    and EFFECT_FUSION.md.
+    ("One shape for effects").
 * [effect-fn-deps] A fn's `[E1, E2<T>]` list declares its effect
   dependencies. Calling a fn requires each of its effects to be available
   in the caller (declared or `use`d) — validated by the checker at every

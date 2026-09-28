@@ -577,8 +577,8 @@ on both backends: handles everywhere, fusion removed, `local` removed). It
 replaces the fused emission of 2026-09-04/14 (`fx.kt` with its `__Has_E`
 accessor interfaces and `__One_E` adapters, the per-file `__Fx_N` carrier
 classes, the `<__Fx>` type parameter on dependent handlers and their actors,
-the `where __Fx : __Has_…` bounds on fused fns). EFFECT_FUSION.md keeps the
-history. On the JVM an object reference *is* a handle, so the shape costs
+the `where __Fx : __Has_…` bounds on fused fns). COMPLETED.md's "One shape for
+effects" entry keeps the history. On the JVM an object reference *is* a handle, so the shape costs
 nothing but the monitor.
 
 * **A fn declaring `[A, B]`** is `fun f(a: A, b: B, …)`: one parameter per

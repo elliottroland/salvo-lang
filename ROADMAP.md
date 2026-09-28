@@ -142,9 +142,10 @@ deadlock graph is per program, so a wait cycle closing through a handler in
 ### 2b — ✅ One shape for effects (complete 2026-09-28)
 
 Built in four commits the day it was decided; the record — the decision, what
-it took, what fell out, the gotchas — is COMPLETED.md's "One shape for effects"
-entry, the shape itself is EFFECT_FUSION.md, and the rules are [effect-handle],
-[rs-handle], [kt-handle]. The same afternoon the handle was keyed on
+it took, what fell out, the shapes it replaced, the gotchas — is COMPLETED.md's
+"One shape for effects" entry, the shape itself is under "Current architectural
+facts worth knowing" there, and the rules are [effect-handle], [rs-handle],
+[kt-handle]. The same afternoon the handle was keyed on
 statefulness and named after the effect (COMPLETED.md's second 2026-09-28
 entry). What it left open is in "Recorded, not scheduled": lock-free
 scope-local bindings, and the erased-sibling refusal.
@@ -637,11 +638,31 @@ several are "revisit only if a customer appears".
   lock-free pass the one-shape decision deferred; the stateless half landed
   the same afternoon — a stateless handler, the send stub and the mixed façade
   hold no lock, [rs-handle]/[kt-handle]). A *stateful* `use` whose binding no
-  spawn, task or dependent handler captures — the checker knows, `use_deps`/
-  `spawn_deps`/`task_mint_effects` are the capture sites — could be an
-  `Rc<RefCell<H>>` or a plain `&mut` on Rust and a raw reference on Kotlin,
-  paying a borrow flag or nothing instead of a mutex. This is what `use local`
-  used to select by hand. Emission-only, invisible to a program.
+  spawn, task or dependent handler captures could skip the mutex; this is
+  what `use local` used to select by hand. Emission-only, invisible to a
+  program. The design, so it need not be re-derived:
+  - *The callee never notices.* `draw() [Random]` is `fn draw(random:
+    &Random)` and `random.next()` matches on the handle's arm at runtime, so
+    a lock-free binding is one more arm (`Local(…)`) chosen at the `use`
+    site; `draw` compiles unchanged, and the invariant that a fn's signature
+    never depends on its callers holds.
+  - *"Nothing captures it" is transitive.* The binding is live across every
+    fn reachable from the scope, any of which may spawn a handler inheriting
+    `[Random]` or mint a task capturing it. So the property is a call-graph
+    fixpoint over the capture sites the checker already records (`use_deps`,
+    `spawn_deps`, `task_mint_effects`) — the shape the deleted
+    `handle_requirements`/`call_edges` propagation had.
+  - *The handle must stay `Send + Sync`.* Spawns clone handles across
+    threads and `Random` is one type for every binding, so a
+    `Local(Rc<RefCell<H>>)` arm would make every `Random` `!Send`. The
+    options are an `unsafe impl Send` on the local arm's wrapper justified by
+    the checker's proof that a `Local` handle never reaches a spawn (a user
+    call — unsafe resting on a static analysis), or a lighter single-thread
+    lock. On Kotlin none of this arises: skip `__Mon_E`, bind raw.
+  - *Why parked*: the saving is an uncontended mutex per call on stateful,
+    never-shared bindings; the cost is a whole-program analysis plus either
+    an unsafe assertion or a new lock flavour. Build it when a program shows
+    that mutex mattering.
 - **Eager handle cloning**: `Stamped::new(logger.clone(), clock.clone())`
   bumps two `Arc`s per `use`; fine, noted.
 - **The erased-sibling refusal** (`Pick<A>` beside `Pick<B>` in one scope,
