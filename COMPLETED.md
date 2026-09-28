@@ -229,6 +229,27 @@ built, recorded in ROADMAP.md §16: an `iter fn` over a *generic* source or
 taking an `iter T` parameter (a stage — needs the generated `next` to carry
 forwarded implicits and the obligation match to ignore them).
 
+**One shape for effects — handles everywhere, fusion removed, `local`
+removed (2026-09-28, user decisions; the sequence is ROADMAP.md §2b, not yet
+built).** EFFECT_FUSION.md surveyed how an effect binding reaches code on
+both backends: Rust had two modes (plain, fusion) and three shapes for a
+dependent handler (owned handles, the `__Impl_H` fusion form, the actor
+provider), chosen by predicates invisible in the source, each with its own
+generated types; Kotlin had one shape because references alias. The user
+chose uniformity over performance while the language is being designed:
+every binding is a handle (`__Handle_E`, `Arc`-shared, locked when
+stateful); a fn takes one handle per declared effect rather than a fused
+value — the user likes the fused syntax and chose the plainer output; and
+`local` (`use local`, `[local E]`) is removed in the same sequence, since
+with one shape it selects nothing. Accepted consequences: a stateful handler
+captured by two spawns is shared state (Kotlin's behaviour already), and a
+member that lends `&mut` into a handler's state becomes a checker error
+(no std effect has one). Lock-free scope-local bindings and lock-free
+stateless handlers return as optimisation items once the shapes settle.
+The alternatives weighed (fusion everywhere; keep both shapes and close the
+gaps; make `[E]`/`[local E]` the stated rule) are in EFFECT_FUSION.md §4 for
+the record.
+
 **`init { … }` and `self@Face` (2026-09-27, user decision — built).** The
 user read `node_group()` — a helper whose whole body was `group.join(events)`
 — and asked why a mechanism needed the workaround. Root cause: a handler

@@ -1,9 +1,15 @@
 # EFFECT_FUSION.md — how effects reach code, on both backends
 
+**Decided 2026-09-28** (user): Option 1 of §4, extended — handles everywhere,
+**no fusion on either backend**, one parameter per declared effect, and
+`local` removed. The build sequence is ROADMAP.md §2b. This document stays as
+the description of what is being replaced until step ④ rewrites it around the
+one shape; §§1–3 are accurate for the code at commit `289d89a`.
+
 A survey (2026-09-27) of every way an effect binding travels from a `use` (or
 a `spawn`) to the code that performs the effect, with the generated code each
 backend emits for it, and a discussion of how the Rust experience could be
-unified. Nothing here is decided; the last section is options and trade-offs.
+unified.
 Every snippet below is real output of `salvo compile` at commit `289d89a`,
 trimmed of blank lines and comments.
 
