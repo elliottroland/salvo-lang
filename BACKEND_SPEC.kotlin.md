@@ -131,8 +131,7 @@ Conventions:
 * [op-promote] Kotlin's own operator set covers the mixed widths
   (`Long.plus(Int)`, `Int.compareTo(Long)`, `Float.times(Double)`), so
   checker-recorded promotions emit **nothing** here — the table exists
-  for Rust ([rs-effect-fusion]'s sibling divergence: mechanism differs,
-  behaviour agrees).
+  for Rust (mechanism differs, behaviour agrees).
 * [lit-adopt] An adopted literal renders at its **checked** type — `1L`,
   `3.0`, `0.5f` — because Kotlin adopts less than Salvo does (a bare `1`
   initializes a `Long` `val` but does not conform to a `Long`
@@ -452,7 +451,7 @@ Conventions:
     generated once per program into `throwsignal.kt` (package `salvo`), like the
     union wrappers.
   * A file that throws therefore **imports `salvo.*`**, the same way a file
-    using a union wrapper or a fusion accessor does. Nothing exercised this
+    using a union wrapper does. Nothing exercised this
     until `std.test`'s assertions (2026-09-23): every throwing module before
     them also used a union, which supplied the import by accident, so a
     module that only throws emitted an unresolved `ThrowSignal`.
@@ -571,160 +570,73 @@ Conventions:
     unchecked contexts (see COMPLETED.md "Emitter effect-environment
     fallback" under architectural facts).
 
-### Effect dependencies [kt-effect-fusion]
+### Every binding is a handle [kt-handle]
 
-**Dependency injection implemented 2026-09-04; the fusion proper (one
-fused value per scope) implemented 2026-09-14** with the Has-accessor
-design (user decision, FILE_SYSTEM.md §5.8.1 — adopted for both backends;
-single-effect fns fuse too, by the user's consistency call). Kotlin needs
-far less than Rust here because objects alias: a handler can simply
-**hold** its dependency, and dependency hiding is an ordinary field read —
-where Rust had to build the fusion to get the same programs running
-([rs-effect-fusion]).
+**Built 2026-09-28** (user decisions of the same day, ROADMAP §2b — *one shape*
+on both backends: handles everywhere, fusion removed, `local` removed). It
+replaces the fused emission of 2026-09-04/14 (`fx.kt` with its `__Has_E`
+accessor interfaces and `__One_E` adapters, the per-file `__Fx_N` carrier
+classes, the `<__Fx>` type parameter on dependent handlers and their actors,
+the `where __Fx : __Has_…` bounds on fused fns). EFFECT_FUSION.md keeps the
+history. On the JVM an object reference *is* a handle, so the shape costs
+nothing but the monitor.
 
-* **Gated program-wide, on the same predicate as Rust**: any **reachable**
-  handler declaring an effect dependency switches the whole program;
-  otherwise effects thread as one handler parameter each [kt-effect-params]
-  and nothing below is emitted. The predicate is *syntactic* since
-  2026-09-14 — a non-empty effect list on a handler [effect-handler-deps],
-  in a module the program reaches [mod-used-only] — and it must stay
-  identical to [rs-effect-fusion]'s, or the two backends stop running the
-  same programs through the same shapes (a stale gate here emitted handler
-  carriers into an un-fused program: caught the same day).
-  * The reachability half arrived with std's filesystem (2026-09-14): std
-    now *ships* a dependent handler, so a declaration-wide gate fused every
-    program in existence. It is also why that handler lives in `fs.host`
-    rather than `fs` [fs-host-split]: the gate reads reachable *modules*, so a
-    program faking the filesystem with `fs.mem` would otherwise be fused by a
-    handler it never registers.
-  * A dependent handler cannot be emitted with the fusion off (it is an
-    internal codegen error naming the handler), which is the other half of
-    why the split is structural rather than tidiness.
-* [task-effects] [kt-task] An inherited effect is a captured `val`: the mint
-  binds the handler outside the lambda (`val __e0 = console;`) and passes it as
-  the leading argument, so the task runs with the handler registered at the
-  mint. A task body's signature is unchanged — a JVM reference is already a
-  shareable handle [kt-monitor], which is the whole of why this backend needed
-  one line where Rust needed an owned-handle convention.
-* [effect-handler-deps] A handler's dependencies emit as **one stored fused
-  value**, built at the `use` site and held for the handler's lifetime (user
-  decision 2026-09-14):
-  `class ConsoleLogger<__Fx>(private val __fx: __Fx) : Logger where __Fx :
-  __Has_Console`, registered as `ConsoleLogger(__Fx_1(__fx.__fx_Console))`.
-  The carrier is a **bounded type parameter**, not one of the generated
-  `__Fx_N` classes: those are minted per *file*, so naming one in the class's
-  signature left a handler declared in another module unconstructable — found
-  2026-09-14 by std's `DefaultFs [RawFs]`, whose `use` site lives in the
-  program (two files' carriers of the same shape are different types with the
-  same name). A generic *handler* with dependencies therefore takes one more
-  type argument than Salvo wrote, and the `use` site appends the carrier
-  class to its written list, since Kotlin takes a type-argument list whole or
-  not at all. Member bodies resolve a
-  dependency to a property of that field (`__fx.__fx_Console`) — an
-  `override` signature must match the interface, so nothing can arrive as a
-  parameter — and pass the field itself to a fused callee. It replaced a
-  field per dependency plus a combiner rebuilt **per member call**: a handler
-  holds its environment for its lifetime, so there was nothing to rebuild.
-  The field name is the emitter's (`__fx`), since the dependencies are
-  unnamed in Salvo.
-* The carrier goes **after** the written constructor arguments, so those keep
-  the positions the source wrote. Callers of the outer effect never mention
-  any of it.
-* **Has-accessor interfaces, per effect *instance***, generated once per
-  program into `fx.kt` (root `salvo` package, wildcard-importing every
-  emitted module):
-
-  ```kotlin
-  interface __Has_Logger     { val __fx_Logger: Logger }
-  interface __Has_Random_Int { val __fx_Random_Int: Random<Int> }
-  ```
-
-  Per instance rather than per declaration because erasure forbids one
-  class implementing `__Has_Random<Int>` **and** `__Has_Random<Double>` —
-  the exact constraint that motivated the (now retired) facet design.
-  Fused values implement the Has interfaces, never the effect interfaces,
-  so member names cannot collide on them and instances stay apart by
-  *property* (`fx.__fx_Random_Int.next_random()`).
-* **One fused parameter per fn, one effect included**, behind a
-  multi-bounded generic — which erasure makes a single emitted function:
-
-  ```kotlin
-  fun<__Fx> banner(__fx: __Fx) where __Fx : __Has_Console, __Fx : __Has_Logger { … }
-  ```
-
-  Subset forwarding is generic instantiation (`shout(__fx)`); member
-  dispatch reads the property (`__fx.__fx_Logger.log(…)`).
-* **One class per effect *set*, not per site** (user decision
-  2026-09-14): fused classes are emitted under a canonical ordering of
-  their effects and deduplicated by text, so a program that fuses
-  `{Console, Logger}` in six places gets one class. The property names are
-  derived from the effect instance, not from position, so only the
-  *constructor argument order* follows the canonical order. Before this,
-  the effects example emitted 15 classes where 9 were distinct.
-* A fused class **cannot be generic**: an effect instance that still
-  mentions a type parameter is reported (`an effect set fused here is still
-  generic`), which is the same cut [rs-effect-fusion] states. Until
-  2026-09-14 it leaked out as a kotlinc "unresolved reference 'T'".
-* **Nested `use` scopes rebuild flat** (user decision): one generated
-  class per `use` site with an `override val` per effect in scope —
-  inherited ones initialized from their current expressions (objects
-  alias, so aliasing is free), the new one from the handler constructor:
-
-  ```kotlin
-  class __Fx_3(
-      override val __fx_Console: Console,
-      override val __fx_Logger: Logger,
-  ) : __Has_Console, __Has_Logger
-  // use ConsoleLogger() ⇒
-  val __fx2 = __Fx_3(__fx.__fx_Console, ConsoleLogger(__fx.__fx_Console))
-  ```
-
-  Rust could not keep flatness — see [rs-effect-fusion], where inner
-  scopes chain through a single provider field — but Kotlin has no borrow
-  analysis to satisfy, so the flat form stands here. **The environment
-  restore at scope exit is a full clone**, not a depth truncation: a
-  `use` *rebases* the enclosing entries onto its fused value, and that
-  mutation must roll back with the scope (found the hard way, 2026-09-14).
-* **Interception and shadowing** [effect-intercept] [use-no-dup]
-  (2026-09-14) need no new machinery here — a dependency is a constructor
-  field, so an intercepting handler is constructed with the property of the
-  *previous* fused value (`Loud(__fx4.__fx_Greeter)`), which is the outward
-  binding — but they did force the **lookups**: resolution reads the
-  environment innermost-first with shadowed entries hidden, and repeats of
-  one instance are shadowing rather than the "ambiguous effect call" error
-  ([effect-disambiguation] keeps that for *different* instances of a generic
-  effect). Reading the environment as a set instead made the shadowed
-  handler answer calls the inner one owned — the same program printed the
-  outer greeting on Kotlin and the inner one on Rust, a silent divergence
-  rather than a diagnostic. The fused class itself was already right: it
-  carries one property per *instance*, so a shadowed effect is not a second
-  field.
-* **The dyn boundaries** keep per-effect values and open with a combiner
-  (a fused class with no new handler): **platform `main`** keeps one
-  parameter per platform effect (the host ABI [kt-platform-host]);
-  **fn values** keep per-effect leading parameters in their *type*
-  (`(Logger, String) -> String`) — Kotlin's nominal typing has no blanket
-  impls, so no provider interface could cover subsets — and a lambda's
-  body opens by combining them (`val __fx = __Fx_5(logger)`), while a
-  named fn passed as a value is **always adapted** when effectful, the
-  carrier built inline: `{ __fx0: Logger, __a0 -> shout(__Fx_6(__fx0), __a0) }`
-  (a bare `::shout` reference can no longer match the per-effect ABI,
-  since the declaration takes `__Fx`).
-* Threading into a *fused callee* collapses the per-effect arguments to
-  the one carrier (`work(__fx)`); threading into a *fn value* stays
-  per-effect (`f(__fx.__fx_Logger, s)`). Each environment entry records
-  both: the handler expression and the carrier.
-* [kt-effect-facets] **Retired 2026-09-14, never implemented.** The facet
-  design (a generated non-generic interface per instance of a generic
-  effect, with the instance mangled into the *member* names) existed on
-  paper for the day one class had to implement two instances of a generic
-  effect — which only a fused class does, and the fusion had not been
-  built. The per-instance Has interfaces above are that day's actual
-  answer: the instance lands in the *interface and property* name instead
-  of the member names, the effect interface stays generic and untouched,
-  and handlers never notice. The 2026-09-04 "facets are Kotlin-only"
-  user decision survives as: per-instance accessor interfaces are
-  Kotlin-only, Rust's accessor trait stays generic ([rs-effect-fusion]).
+* **A fn declaring `[A, B]`** is `fun f(a: A, b: B, …)`: one parameter per
+  effect, typed by the effect's interface, **in the order of
+  `Checked::fn_effects`** — inherited effects (from fn-typed parameters,
+  [fn-effects]) first, then the written list; a call passes the bindings in
+  scope (`draw(random_int, random_string, console)`). The Rust backend's
+  parameter list is the same list with `&mut __Handle_E` types [rs-handle],
+  so the two backends' output reads the same modulo syntax.
+* **A `use` is the effect's monitor**: `val e: E = __Mon_E(H(args, deps…))`
+  for every handler, stateless or not (one implementation, user decision
+  2026-09-28: a `synchronized` block per member call, uncontended in the
+  common case; the lock-free stateless path is the optimisation pass). The
+  `__Mon_E` class is emitted for **every** effect, actor effects included
+  (`use addr` of an actor wraps the send stub; a router `of any E` is a
+  handler of it like any other) — see [kt-monitor] for the class itself. A
+  `use addr` of a plain effect binds the value: an `Addr<E>` of a plain
+  effect is already the effect's monitor. `init` runs on the instance
+  (`H(…).also { it.init() }`) before it is wrapped.
+* **A multi-face handler** is built once into a local and each face gets its
+  own monitor over it — `val __h = H(…); val a: A = __Mon_A(__h); val b: B =
+  __Mon_B(__h)` — so a stateful multi-face handler is one lock behind several
+  interfaces (`synchronized(inner)` locks the same object), the shape
+  [monitor-handler] used to refuse.
+* **A dependent handler** ([effect-handler-deps]) takes **one trailing
+  constructor parameter per dependency**, typed by the effect's interface
+  and named by the emitter — `class Stamped(private val __dep_Logger: Logger,
+  private val __dep_Clock: Clock) : Logger` — in declaration order, whatever
+  the dependency's kind (plain, actor effect through its send stub, generic
+  instance: `__dep_Store_T: Store<T>`, so a **generic dependent handler**
+  works, the cut the fused emission stated is gone). Members reach a
+  dependency through its field and pass it to callees declaring the effect.
+  The `use` passes the scope's bindings (`Stamped(logger, clock)`) whether
+  the effect arrived by a `use` or through the enclosing signature; a `with`
+  item is a private instance constructed in place. **Interception**
+  ([effect-intercept]): `val logger2: Logger = __Mon_Logger(Stamped(logger))`
+  — the previous registration is captured before the interceptor is bound.
+* **A spawn** passes the clause's instances and the inherited bindings as the
+  same trailing arguments (`Counting(Recording(), __Stub_Tally(tally))`), and
+  the actor class is `class __Actor_H(private val handler: H)` for every
+  handler — not generic in a carrier. A monitor spawn answers `__Mon_E(H(…))`;
+  a mixed spawn answers the façade (`__Fac_H`), which is stateless and needs
+  no monitor of its own.
+* **A fn value with effects** is `(A, B, args) -> R`: a lambda takes each
+  effect as a typed leading parameter, a named fn declaring exactly the type's
+  effects passes as `::name`, and a pure fn gets an adapter that drops the
+  threaded effects (`{ __fx0: Logger, __a0 -> plain(__a0) }`). A **task body**
+  takes its inherited effects as parameters and the mint captures the
+  bindings in scope.
+* **`main` with a platform effect** ([platform-effect]) takes the host's
+  instance as a parameter like any fn; the host's `main()` constructs it and
+  calls `salvoMain(TelemetryHost())`. A `threadsafe platform handler`
+  changes no emission [threadsafe-platform]: the `use` wraps the host in
+  `__Mon_E` either way, and the word is the declared contract the skeleton
+  prints.
+* **`fx.kt` is no longer emitted**: a program's Kotlin output is its modules
+  plus the runtime files it needs (`unions.kt`, `tuples.kt`, `throwsignal.kt`,
+  the scheduler and wire files).
 
 ## Functions
 
@@ -908,9 +820,8 @@ where Rust had to build the fusion to get the same programs running
   fully qualified, because the host package is nobody's generated import and
   a `use` may sit in any module. `M` is the module that *declared* the
   handler, from `Symbols::handler_modules`, so std's handlers work from a
-  customer's `use` unchanged. Under the fusion this is just the constructor
-  expression a fused class is built with [kt-effect-fusion], so nothing else
-  in the emission knows the form exists.
+  customer's `use` unchanged, wrapped in the effect's monitor like any
+  construction [kt-handle].
   * The skeleton is `class H(private val p: T, …) : E` with every member
     `override`n and stubbed — named after the *handler*, since the `use` site
     names it, and taking the handler's declared constructor parameters.
@@ -923,20 +834,16 @@ where Rust had to build the fusion to get the same programs running
     `HostRawFs` (2026-09-14), whose members return `Union2<Long, Union8<…>>`
     — a skeleton that does not compile is a skeleton that fails at its one
     job.
-  * **Sharing follows the declared contract** [threadsafe-platform] (user
-    decision 2026-09-26). An **undeclared** platform handler classifies as a
-    monitor and its `use` wraps the host in the effect's `synchronized`
-    wrapper — `__Mon_E(salvo.platform.M.H(args))` — so the instance is
-    serialized here exactly as Rust's lock adapter serializes it there, and
-    a host that did not claim safety cannot race on this backend any more.
-    A **`threadsafe`** one classifies bare and binds the raw instance: a JVM
-    reference is already the shared handle, so nothing else is generated
-    (Rust needs an `Arc` adapter and a `&self` twin trait for the same
-    binding, [rs-platform-handler]). The Kotlin host stays on trust — no
-    compiler check of the contract exists on this backend.
+  * **Sharing follows one shape** [threadsafe-platform] [kt-handle]: a
+    platform handler's `use` wraps the host in the effect's monitor —
+    `__Mon_E(salvo.platform.M.H(args))` — whether or not it is declared
+    `threadsafe` (user decision 2026-09-28; until then a `threadsafe` host
+    bound raw). The word is the declared contract the skeleton prints, which
+    the lock-free stateless pass will read; the Kotlin host stays on trust —
+    no compiler check of the contract exists on this backend.
   * **The skeleton prints the contract** in both shapes above the class: the
-    threadsafe one says there is no lock and names what synchronization the
-    host owes; the undeclared one says the compiler serializes the instance.
+    threadsafe one names what synchronization the host owes; the undeclared
+    one says the compiler serializes the instance.
 * [kt-copy] `copy(x)` lowers type-directedly:
   * *identity* (emits just the argument) when the type is transitively
     immutable — scalars, `Str`, `None`, non-`Mut` lists of immutable
@@ -1208,29 +1115,16 @@ where Rust had to build the fusion to get the same programs running
     2026-09-20); an uninstantiated mention is refused by arity, a leniency
     path rather than a rule.
   * **A monitor spawn** is `__Mon_E(H(args))` — no scheduler, no mailbox, no
-    pool. A bare `use` of a stateful handler wraps the construction the same
-    way at the binding ([effect-handle]). JVM references make the handle freely
+    pool. Every `use` wraps the construction the same way at the binding
+    ([kt-handle]). JVM references make the handle freely
     shareable with no clone machinery (the Rust half carries an `Arc`). The
     wrapper is **generic exactly as the effect is**
     (`class __Mon_Random<T>(private val inner: Random<T>) : Random<T>`,
     2026-09-20), with the instantiation inferred from the construction.
-  * **A handle-dep handler** ([effect-handler-deps]'s owned-handles form)
-    takes its dependencies as trailing constructor parameters typed as the
-    dep's **Has-accessor interface** (`__Has_E` — stable per-effect
-    identity, unlike the per-file `__Fx_N` classes); the `use` site passes
-    its fused carrier, and member environment entries read `__dep_e`
-    properties so fn-typed calls thread.
-    * [with-clause] A **private instance** from a `with` clause is not a
-      carrier, so it goes through the **one-instance adapter** emitted beside
-      each accessor interface in `fx.kt`:
-      `class __One_E(private val __e: E) : __Has_E { override val __fx_E get() = __e }`,
-      used as `Stamped(__One_Greeter(Formal()), …)`. One tiny class per
-      effect, inert where unused.
-    * [spawn-inherit] A capture over a **signature-supplied** effect needs
-      nothing extra here: the carrier's property *is* the handle, so the
-      Kotlin emission was unchanged by the lift that gave Rust its hidden
-      bundle parameter [rs-handle-bundle]. Likewise a spawn's inherited
-      dependency is the scope's own instance, looked up by effect type.
+  * **A dependent handler** takes its dependencies as trailing constructor
+    parameters typed by the effect's interface [kt-handle]; a `with` item is
+    a private instance constructed in place, and a spawn's inherited
+    dependency is the scope's own instance, looked up by effect type.
   * **`use addr` binds the value itself**; a plain-effect addr in a spawn's
     dependency clause passes through as itself, where an actor addr gets the
     `__Stub_E` send wrapper.
@@ -1242,9 +1136,10 @@ where Rust had to build the fusion to get the same programs running
     forwarded generically, exactly as the interface declares them
     [effect-member-generics] — Kotlin has no dyn-dispatch restriction to
     mirror, so the wrapper implements the whole interface.
-  * **Emitted for every plain effect** beside its interface, used
-    or not: an unused wrapper is an inert class kotlinc accepts quietly, and
-    per-effect emission gives the type one identity across files.
+  * **Emitted for every effect** beside its interface, actor effects
+    included, used or not: an unused wrapper is an inert class kotlinc
+    accepts quietly, and per-effect emission gives the type one identity
+    across files.
 
 * [kt-actor] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.kt`
@@ -1287,12 +1182,10 @@ where Rust had to build the fusion to get the same programs running
     bare `__dispatch`), and `spawn` answers `Pair(__a, __a)` / `Triple(…)` — one
     scheduler id under each protocol's type. More than three faces is the
     generated `SalvoTupleN` [kt-tuple-class], like any other tuple that arity.
-    * A multi-face `use` binds one instance under every face: the fused class
-      gets a property per face, all initialized from **one** construction
-      hoisted into a `val` (pushing the constructor call per face would build
-      one handler per face, each with its own state), and the non-fused form
-      drops the type annotation, since the val's own class satisfies every
-      interface.
+    * A multi-face `use` binds one instance under every face: **one**
+      construction hoisted into a `val`, and a monitor per face over it
+      [kt-handle] (pushing the constructor call per face would build one
+      handler per face, each with its own state).
   * **The continuation class**, `sealed class __Cont_H`, emitted beside the
     **handler** whose members it names — the handler, not the effect, because a
     mint is lexical ([effect-handler-multi]): one subclass per send member with
@@ -1304,28 +1197,15 @@ where Rust had to build the fusion to get the same programs running
     (`handler.__parked.remove(slot) ?: return` — a reply whose continuation is
     gone runs nothing), `when`s over the subclass, casts `value` to the
     trailing parameter's type, and calls the member.
-  * **A dependent handler's process is generic in the same carrier the handler
-    stores.** A dependent handler holds its environment as a bounded type
-    parameter (`class Counting<__Fx>(private val __fx: __Fx) : Counter where
-    __Fx : __Has_Log` [kt-effect-fusion]), so the actor repeats it:
-    `class __Proc_Counting<__Fx>(private val handler: Counting<__Fx>) :
-    salvo.SalvoProcess where __Fx : __Has_Log, __Fx : __Has_Tally`. Nothing is
-    threaded per activation and no provider is generated — where Rust has to
-    own one and rebuild the view per member call ([rs-actor]), Kotlin's
-    objects alias, so the handler already holds everything.
-    * The **spawn site** builds the carrier, exactly as a `use` site does:
-      `emit_fx_class` over the handler's declared dependencies, instantiated
-      with the clause's instances and passed as the handler's trailing `__fx`
-      argument — `__Proc_Counting(Counting(__Fx_2(Recording(), __Stub_Tally(tally))))`.
-      A construction is `D(args)`, an addr is `__Stub_D(addr)`.
-    * The carrier's constructor takes its effects in the fused class's
-      canonical order, which is neither the handler's declaration order nor the
-      program's clause order; the checker's clause-to-dependency matching
-      resolves the second, `emit_fx_class` the first ([actor-spawn-expr]).
-    * Kotlin infers `__Fx` at the spawn from the constructor argument, so no
-      type-argument list is written — unlike the `use` path, which appends the
-      carrier class for a *generic* handler because Kotlin takes such a list
-      whole or not at all. A generic handler is refused as an actor anyway.
+  * **A dependent handler's actor is the same class as any other's**
+    [kt-handle]: the handler holds its dependencies as fields, so
+    `class __Actor_Counting(private val handler: Counting)` is not generic
+    and nothing is threaded per activation. The **spawn site** passes the
+    clause's instances as trailing constructor arguments in the handler's
+    declaration order (`Counting(Recording(), __Stub_Tally(tally))`; a
+    construction is `D(args)`, an addr is `__Stub_D(addr)`), the checker's
+    clause-to-dependency matching resolving the order ([actor-spawn-expr]).
+    A generic handler is refused as an actor.
   * **The three types erase to scheduler handles**: `Addr<E>` and `Pool` are
     `Int` ids, `Reply<T>` is `salvo.SalvoReply` — and the runtime speaks the same
     word (`SalvoSched.send(addr, …)`, `SalvoCtx.addr`), as the Rust mirror does; the Salvo type arguments have
@@ -1407,15 +1287,12 @@ where Rust had to build the fusion to get the same programs running
     changed with this slice, mirroring the Rust runtime and `waiter()`, because
     generated code keys `__parked` by the slot.
   * **`k@self(args)`** → `run { val __a = __addr; if (__a != null)
-    SalvoSched.send(__a, __Msg_E.K(args)) else this.k(args) }`. Kotlin needs no
-    fusion care in the inline reading that Rust needed: a member call on `this`
-    reaches the handler's dependencies through the stored carrier
-    [kt-effect-fusion].
+    SalvoSched.send(__a, __Msg_E.K(args)) else this.k(args) }`.
   * **The forwarding stub**, `class __Stub_E(private val addr: Int) : E`,
     beside the effect: `use addr` builds one and binds it through the same path
     a handler instance takes (`bind_effect_instance`, extracted for exactly
-    this), fusion included [actor-use-addr]. A spawn clause's addr becomes the
-    same stub, inside the child's carrier.
+    this) [actor-use-addr]. A spawn clause's addr becomes the same stub, a
+    trailing argument of the child's constructor.
   * **Still refused**, matching the Rust backend one for one: a generic
     handler and a generic effect as a protocol.
   * Pool threads are **daemon** threads, which is what makes "the program ends

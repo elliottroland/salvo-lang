@@ -1,6 +1,5 @@
 package salvo.main
 
-import salvo.*
 import salvo.core.actor.*
 import salvo.core.console.*
 import salvo.core.list.*
@@ -21,6 +20,13 @@ class __Stub_Counter(private val addr: Int) : Counter {
     override fun total(out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
     }
+}
+
+class __Mon_Counter(private val inner: Counter) : Counter {
+    override fun bump(n: Int) =
+        synchronized(inner) { inner.bump(n) }
+    override fun total(out: salvo.SalvoReply) =
+        synchronized(inner) { inner.total(out) }
 }
 
 sealed class __Msg_Counter {
@@ -121,6 +127,13 @@ class __Stub_Ledger(private val addr: Int) : Ledger {
     }
 }
 
+class __Mon_Ledger(private val inner: Ledger) : Ledger {
+    override fun report(label: String, out: salvo.SalvoReply) =
+        synchronized(inner) { inner.report(label, out) }
+    override fun reported(label: String, out: salvo.SalvoReply, total: Int) =
+        synchronized(inner) { inner.reported(label, out, total) }
+}
+
 sealed class __Msg_Ledger {
     class Report(val label: String, val out: salvo.SalvoReply) : __Msg_Ledger()
     class Reported(val label: String, val out: salvo.SalvoReply, val total: Int) : __Msg_Ledger()
@@ -143,13 +156,13 @@ object __Codec___Msg_Ledger : salvo.WireCodec<__Msg_Ledger> {
 /** [protocol-hash] The canonical hash of `Ledger`. */
 const val __PROTO_Ledger: String = "4a99401c8b66babf"
 
-class Bookkeeping<__Fx>(private val __fx: __Fx) : Ledger where __Fx : __Has_Counter {
+class Bookkeeping(private val __dep_Counter: Counter) : Ledger {
     internal val __mailboxCapacity: Int = 4
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Bookkeeping> = mutableMapOf()
 
     override fun report(label: String, out: salvo.SalvoReply) {
-        __fx.__fx_Counter.total(run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Bookkeeping.Reported(label, out); __r })
+        __dep_Counter.total(run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Bookkeeping.Reported(label, out); __r })
     }
 
     override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
@@ -162,7 +175,7 @@ sealed class __Cont_Bookkeeping {
     class Reported(val label: String, val out: salvo.SalvoReply) : __Cont_Bookkeeping()
 }
 
-class __Actor_Bookkeeping<__Fx>(private val handler: Bookkeeping<__Fx>) : salvo.SalvoActor where __Fx : __Has_Counter {
+class __Actor_Bookkeeping(private val handler: Bookkeeping) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         __dispatch(msg as __Msg_Ledger)
@@ -220,6 +233,15 @@ class __Stub_Desk(private val addr: Int) : Desk {
     override fun close_up(reason: String) {
         salvo.SalvoSched.sendWire(addr, __Msg_Desk.CloseUp(reason), __PROTO_Desk, __Codec___Msg_Desk)
     }
+}
+
+class __Mon_Desk(private val inner: Desk) : Desk {
+    override fun ticket(out: salvo.SalvoReply) =
+        synchronized(inner) { inner.ticket(out) }
+    override fun serve(name: String) =
+        synchronized(inner) { inner.serve(name) }
+    override fun close_up(reason: String) =
+        synchronized(inner) { inner.close_up(reason) }
 }
 
 sealed class __Msg_Desk {
@@ -336,6 +358,11 @@ class __Stub_Fragile(private val addr: Int) : Fragile {
     }
 }
 
+class __Mon_Fragile(private val inner: Fragile) : Fragile {
+    override fun crash() =
+        synchronized(inner) { inner.crash() }
+}
+
 sealed class __Msg_Fragile {
     class Crash() : __Msg_Fragile()
 }
@@ -402,7 +429,7 @@ fun report_line(counter: Int, label: String, out: salvo.SalvoReply) {
 
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Counter", salvo.main.__PROTO_Counter), Pair("Desk", salvo.main.__PROTO_Desk), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Fragile", salvo.main.__PROTO_Fragile), Pair("Ledger", salvo.main.__PROTO_Ledger)))
-    val __fx = __Fx_1(StdOutConsole())
+    val console: Console = __Mon_Console(StdOutConsole())
     val workers = salvo.SalvoSched.pool(2)
     val counter = run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
     salvo.SalvoSched.sendWire(counter, __Msg_Counter.Bump(2), __PROTO_Counter, __Codec___Msg_Counter)
@@ -413,15 +440,15 @@ fun main() {
         salvo.SalvoSched.sendWire(counter, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
-    println(__fx, "1. counter total is $sum")
-    val ledger = run { val __h = Bookkeeping(__Fx_2(__Stub_Counter(counter))); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Bookkeeping(__h), __Actor_Bookkeeping.__DECODE); __a }
+    println(console, "1. counter total is $sum")
+    val ledger = run { val __h = Bookkeeping(__Stub_Counter(counter)); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Bookkeeping(__h), __Actor_Bookkeeping.__DECODE); __a }
     val line = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
         salvo.SalvoSched.sendWire(ledger, __Msg_Ledger.Report("counter", out), __PROTO_Ledger, __Codec___Msg_Ledger)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
-    println(__fx, "3. ledger says $line")
+    println(console, "3. ledger says $line")
     val desk = run { val __h = Desking(8); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Desking(__h), __Actor_Desking.__DECODE); __a }
     val first = run {
         val (a, __wid) = salvo.SalvoSched.waiter()
@@ -435,10 +462,10 @@ fun main() {
             salvo.SalvoSched.sendWire(desk, __Msg_Desk.CloseUp("end of day"), __PROTO_Desk, __Codec___Msg_Desk)
             salvo.SalvoSched.awaitReply(__wid) as String
         }
-        println(__fx, "4. second waiter got: $second")
+        println(console, "4. second waiter got: $second")
         salvo.SalvoSched.awaitReply(__wid) as String
     }
-    println(__fx, "4. first waiter got: $first")
+    println(console, "4. first waiter got: $first")
     val fragile = run { val __h = Breaking(); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Breaking(__h), __Actor_Breaking.__DECODE); __a }
     val exit = run {
         val (gone, __wid) = salvo.SalvoSched.waiter()
@@ -447,18 +474,18 @@ fun main() {
         salvo.SalvoSched.sendWire(fragile, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
         salvo.SalvoSched.awaitReply(__wid) as Exit
     }
-    println(__fx, "5. it died with a reason: ${exit.reason.length > 0}")
+    println(console, "5. it died with a reason: ${exit.reason.length > 0}")
     salvo.SalvoSched.sendWire(fragile, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
-    val __fx2 = __Fx_3(__fx.__fx_Console, Counting())
-    __fx2.__fx_Counter.bump(4)
-    __fx2.__fx_Counter.bump(5)
+    val counter2: Counter = __Mon_Counter(Counting())
+    counter2.bump(4)
+    counter2.bump(5)
     val inline = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
-        __fx2.__fx_Counter.total(out)
+        counter2.total(out)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
-    println(__fx2, "6. inline total is $inline")
+    println(console, "6. inline total is $inline")
     val mine = run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.currentPool(), __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
     salvo.SalvoSched.sendWire(mine, __Msg_Counter.Bump(6), __PROTO_Counter, __Codec___Msg_Counter)
     val local = run {
@@ -467,26 +494,13 @@ fun main() {
         salvo.SalvoSched.sendWire(mine, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
-    println(__fx2, "7. the main pool's own actor totalled $local")
+    println(console, "7. the main pool's own actor totalled $local")
     val line8 = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
         report_line(mine, "the counter", out)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
-    println(__fx2, "8. $line8")
-    println(__fx2, "done")
+    println(console, "8. $line8")
+    println(console, "done")
 }
-
-class __Fx_1(
-    override val __fx_Console: Console,
-) : __Has_Console
-
-class __Fx_2(
-    override val __fx_Counter: Counter,
-) : __Has_Counter
-
-class __Fx_3(
-    override val __fx_Console: Console,
-    override val __fx_Counter: Counter,
-) : __Has_Console, __Has_Counter

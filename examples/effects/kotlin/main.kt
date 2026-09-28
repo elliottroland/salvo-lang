@@ -1,6 +1,5 @@
 package salvo.main
 
-import salvo.*
 import salvo.core.console.*
 import salvo.core.string.*
 
@@ -22,13 +21,13 @@ class TickingClock : Clock {
     }
 }
 
-fun<__Fx> stamp(__fx: __Fx, label: String) where __Fx : __Has_Clock, __Fx : __Has_Console {
-    val t = __fx.__fx_Clock.now()
-    banner(__fx, "$label at t=$t")
+fun stamp(clock: Clock, console: Console, label: String) {
+    val t = clock.now()
+    banner(console, "$label at t=$t")
 }
 
-fun<__Fx> banner(__fx: __Fx, text: String) where __Fx : __Has_Console {
-    println(__fx, "   $text")
+fun banner(console: Console, text: String) {
+    println(console, "   $text")
 }
 
 interface Logger {
@@ -40,7 +39,7 @@ class __Mon_Logger(private val inner: Logger) : Logger {
         synchronized(inner) { inner.log(message) }
 }
 
-class PlainLogger(private val __dep_Console: __Has_Console) : Logger {
+class PlainLogger(private val __dep_Console: Console) : Logger {
 
     override fun log(message: String) {
         println(__dep_Console, "   $message")
@@ -53,42 +52,42 @@ class QuietLogger : Logger {
     }
 }
 
-class Stamped(private val __dep_Logger: __Has_Logger, private val __dep_Clock: __Has_Clock) : Logger {
+class Stamped(private val __dep_Logger: Logger, private val __dep_Clock: Clock) : Logger {
 
     override fun log(message: String) {
-        __dep_Logger.__fx_Logger.log("[t=${__dep_Clock.__fx_Clock.now()}] $message")
+        __dep_Logger.log("[t=${__dep_Clock.now()}] $message")
     }
 }
 
-class Numbered(private val __dep_Logger: __Has_Logger) : Logger {
+class Numbered(private val __dep_Logger: Logger) : Logger {
     private var seen: Int = 0
 
     override fun log(message: String) {
         seen = seen + 1
-        __dep_Logger.__fx_Logger.log("#$seen $message")
+        __dep_Logger.log("#$seen $message")
     }
 }
 
-fun<__Fx> work(__fx: __Fx, step: String) where __Fx : __Has_Logger {
-    __fx.__fx_Logger.log(step)
+fun work(logger: Logger, step: String) {
+    logger.log(step)
 }
 
-fun<__Fx> interception(__fx: __Fx) where __Fx : __Has_Logger, __Fx : __Has_Clock {
-    work(__fx, "4. plain")
-    val __fx2 = __Fx_1(__fx.__fx_Clock, Stamped(__fx, __fx))
-    work(__fx2, "4. stamped")
-    val __fx3 = __Fx_1(__fx2.__fx_Clock, __Mon_Logger(Numbered(__fx2)))
-    work(__fx3, "4. numbered, then stamped")
-    work(__fx3, "4. and again")
+fun interception(logger: Logger, clock: Clock) {
+    work(logger, "4. plain")
+    val logger2: Logger = __Mon_Logger(Stamped(logger, clock))
+    work(logger2, "4. stamped")
+    val logger3: Logger = __Mon_Logger(Numbered(logger2))
+    work(logger3, "4. numbered, then stamped")
+    work(logger3, "4. and again")
 }
 
-fun<__Fx> scoping(__fx: __Fx) where __Fx : __Has_Logger {
-    work(__fx, "5. before the block")
+fun scoping(logger: Logger) {
+    work(logger, "5. before the block")
     if (true) {
-        val __fx2 = __Fx_2(QuietLogger())
-        work(__fx2, "5. this line is swallowed")
+        val logger2: Logger = __Mon_Logger(QuietLogger())
+        work(logger2, "5. this line is swallowed")
     }
-    work(__fx, "5. after the block, logging again")
+    work(logger, "5. after the block, logging again")
 }
 
 interface Audit {
@@ -109,27 +108,27 @@ class __Mon_Metrics(private val inner: Metrics) : Metrics {
         synchronized(inner) { inner.record(what) }
 }
 
-class ConsoleAudit(private val __dep_Console: __Has_Console) : Audit {
+class ConsoleAudit(private val __dep_Console: Console) : Audit {
 
     override fun record(what: String) {
         println(__dep_Console, "   audit: $what")
     }
 }
 
-class ConsoleMetrics(private val __dep_Console: __Has_Console) : Metrics {
+class ConsoleMetrics(private val __dep_Console: Console) : Metrics {
 
     override fun record(what: String) {
         println(__dep_Console, "   metric: $what")
     }
 }
 
-fun<__Fx> audit_only(__fx: __Fx, what: String) where __Fx : __Has_Audit {
-    __fx.__fx_Audit.record(what)
+fun audit_only(audit: Audit, what: String) {
+    audit.record(what)
 }
 
-fun<__Fx> audit_and_measure(__fx: __Fx, what: String) where __Fx : __Has_Audit, __Fx : __Has_Metrics {
-    __fx.__fx_Audit.record(what)
-    __fx.__fx_Metrics.record(what)
+fun audit_and_measure(audit: Audit, metrics: Metrics, what: String) {
+    audit.record(what)
+    metrics.record(what)
 }
 
 interface Setting<T> {
@@ -148,90 +147,32 @@ class Fixed<T>(private val value: T) : Setting<T> {
     }
 }
 
-fun<__Fx> settings(__fx: __Fx) where __Fx : __Has_Setting_Int, __Fx : __Has_Setting_String, __Fx : __Has_Console {
-    val retries: Int = __fx.__fx_Setting_Int.setting({ __i0 -> __i0 })
-    val region = __fx.__fx_Setting_String.setting({ __i0 -> __i0 })
-    println(__fx, "   retries=$retries region=$region")
+fun settings(setting_int: Setting<Int>, setting_string: Setting<String>, console: Console) {
+    val retries: Int = setting_int.setting({ __i0 -> __i0 })
+    val region = setting_string.setting({ __i0 -> __i0 })
+    println(console, "   retries=$retries region=$region")
 }
 
 fun main() {
-    val __fx = __Fx_3(StdOutConsole())
-    val __fx2 = __Fx_4(__Mon_Clock(TickingClock()), __fx.__fx_Console)
-    println(__fx2, "1. the clock reads ${__fx2.__fx_Clock.now()}, then ${__fx2.__fx_Clock.now()}")
-    println(__fx2, "2. two effects in one signature:")
-    stamp(__fx2, "2. a labelled moment")
-    println(__fx2, "3. a logger whose handler needs the console:")
-    val __fx3 = __Fx_5(__fx2.__fx_Clock, __fx2.__fx_Console, PlainLogger(__fx2))
-    work(__fx3, "3. logged through the console")
-    println(__fx3, "4. interception — each `use` wraps the one before it:")
-    interception(__fx3)
-    println(__fx3, "5. shadowing is not wrapping:")
-    scoping(__fx3)
-    println(__fx3, "6. two effects, one member name:")
-    val __fx4 = __Fx_6(ConsoleAudit(__fx3), __fx3.__fx_Clock, __fx3.__fx_Console, __fx3.__fx_Logger)
-    audit_only(__fx4, "6. audited only")
-    val __fx5 = __Fx_7(__fx4.__fx_Audit, __fx4.__fx_Clock, __fx4.__fx_Console, __fx4.__fx_Logger, ConsoleMetrics(__fx4))
-    audit_and_measure(__fx5, "6. audited and measured")
-    println(__fx5, "7. two instances of one generic effect:")
-    val __fx6 = __Fx_8(__fx5.__fx_Audit, __fx5.__fx_Clock, __fx5.__fx_Console, __fx5.__fx_Logger, __fx5.__fx_Metrics, Fixed<Int>(3))
-    val __fx7 = __Fx_9(__fx6.__fx_Audit, __fx6.__fx_Clock, __fx6.__fx_Console, __fx6.__fx_Logger, __fx6.__fx_Metrics, __fx6.__fx_Setting_Int, Fixed<String>("eu-west-1"))
-    settings(__fx7)
+    val console: Console = __Mon_Console(StdOutConsole())
+    val clock: Clock = __Mon_Clock(TickingClock())
+    println(console, "1. the clock reads ${clock.now()}, then ${clock.now()}")
+    println(console, "2. two effects in one signature:")
+    stamp(clock, console, "2. a labelled moment")
+    println(console, "3. a logger whose handler needs the console:")
+    val logger: Logger = __Mon_Logger(PlainLogger(console))
+    work(logger, "3. logged through the console")
+    println(console, "4. interception — each `use` wraps the one before it:")
+    interception(logger, clock)
+    println(console, "5. shadowing is not wrapping:")
+    scoping(logger)
+    println(console, "6. two effects, one member name:")
+    val audit: Audit = __Mon_Audit(ConsoleAudit(console))
+    audit_only(audit, "6. audited only")
+    val metrics: Metrics = __Mon_Metrics(ConsoleMetrics(console))
+    audit_and_measure(audit, metrics, "6. audited and measured")
+    println(console, "7. two instances of one generic effect:")
+    val setting_int: Setting<Int> = __Mon_Setting(Fixed<Int>(3))
+    val setting_string: Setting<String> = __Mon_Setting(Fixed<String>("eu-west-1"))
+    settings(setting_int, setting_string, console)
 }
-
-class __Fx_1(
-    override val __fx_Clock: Clock,
-    override val __fx_Logger: Logger,
-) : __Has_Clock, __Has_Logger
-
-class __Fx_2(
-    override val __fx_Logger: Logger,
-) : __Has_Logger
-
-class __Fx_3(
-    override val __fx_Console: Console,
-) : __Has_Console
-
-class __Fx_4(
-    override val __fx_Clock: Clock,
-    override val __fx_Console: Console,
-) : __Has_Clock, __Has_Console
-
-class __Fx_5(
-    override val __fx_Clock: Clock,
-    override val __fx_Console: Console,
-    override val __fx_Logger: Logger,
-) : __Has_Clock, __Has_Console, __Has_Logger
-
-class __Fx_6(
-    override val __fx_Audit: Audit,
-    override val __fx_Clock: Clock,
-    override val __fx_Console: Console,
-    override val __fx_Logger: Logger,
-) : __Has_Audit, __Has_Clock, __Has_Console, __Has_Logger
-
-class __Fx_7(
-    override val __fx_Audit: Audit,
-    override val __fx_Clock: Clock,
-    override val __fx_Console: Console,
-    override val __fx_Logger: Logger,
-    override val __fx_Metrics: Metrics,
-) : __Has_Audit, __Has_Clock, __Has_Console, __Has_Logger, __Has_Metrics
-
-class __Fx_8(
-    override val __fx_Audit: Audit,
-    override val __fx_Clock: Clock,
-    override val __fx_Console: Console,
-    override val __fx_Logger: Logger,
-    override val __fx_Metrics: Metrics,
-    override val __fx_Setting_Int: Setting<Int>,
-) : __Has_Audit, __Has_Clock, __Has_Console, __Has_Logger, __Has_Metrics, __Has_Setting_Int
-
-class __Fx_9(
-    override val __fx_Audit: Audit,
-    override val __fx_Clock: Clock,
-    override val __fx_Console: Console,
-    override val __fx_Logger: Logger,
-    override val __fx_Metrics: Metrics,
-    override val __fx_Setting_Int: Setting<Int>,
-    override val __fx_Setting_String: Setting<String>,
-) : __Has_Audit, __Has_Clock, __Has_Console, __Has_Logger, __Has_Metrics, __Has_Setting_Int, __Has_Setting_String

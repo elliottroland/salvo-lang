@@ -2200,27 +2200,59 @@ export fn main() [use] -> None {
     );
 }
 
-// [kt-effect-fusion] A generic effect instance cannot be a fused class's
-// property: the class has no type parameters, so this is reported rather
-// than emitted as an undeclared name (Rust states the same cut). Until
-// 2026-09-14 it leaked out as a kotlinc "unresolved reference 'T'".
+/// [kt-handle] [effect-handler-deps] A **generic dependent handler**
+/// (`Twice<T> [Store<T>]`) is an ordinary class with a `__dep_Store: Store<T>`
+/// field: nothing generated has to name the handler's generics, so the cut
+/// the fused emission stated ("an effect set fused here is still generic")
+/// is gone (2026-09-28). Same program and output on the Rust backend.
+const GENERIC_DEPENDENT_HANDLER_DEMO: &str = "\
+effect Store<T> {
+    fn keep(value: T) -> Str => value
+}
+
+handler MemStore<T> of Store<T> {
+    fn keep(value: T) -> Str => value {
+        return \"kept\"
+    }
+}
+
+handler Twice<T> [Store<T>] of Store<T> {
+    fn keep(value: T) -> Str => value {
+        return \"${keep(value)} twice\"
+    }
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    use MemStore<Int>()
+    use Twice<Int>()
+    println(keep(3))
+}
+";
+
 #[test]
-fn a_generic_dependency_is_refused() {
-    let errors = expect_errors(
-        "effect Store<T> {\n    fn keep(value: T) -> Str => value\n}\n\n\
-         handler MemStore<T> of Store<T> {\n    \
-         fn keep(value: T) -> Str => value {\n        return \"kept\"\n    }\n}\n\n\
-         handler Twice<T> [Store<T>] of Store<T> {\n    \
-         fn keep(value: T) -> Str => value {\n        return \"twice\"\n    }\n}\n\n\
-         fn main() [use] -> None {\n    use MemStore<Int>()\n    \
-         use Twice<Int>()\n}\n",
+fn a_generic_dependent_handler_holds_a_typed_dependency_field() {
+    let program = build_program(&[("main.sv", GENERIC_DEPENDENT_HANDLER_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files.iter().find(|f| f.rel_path.ends_with("main.kt")).unwrap().content;
+    assert!(
+        main.contains("class Twice<T>(private val __dep_Store_T: Store<T>) : Store<T>"),
+        "expected the dependency as a typed field:\n{main}"
     );
     assert!(
-        errors
-            .iter()
-            .any(|e| e.contains("an effect set fused here is still generic")),
-        "unexpected errors: {errors:?}"
+        main.contains("__Mon_Store(Twice<Int>(store_int))"),
+        "expected the `use` to pass the scope's binding and wrap in the monitor:\n{main}"
     );
+}
+
+fn kotlinc_compiles_and_runs_a_generic_dependent_handler() -> KotlinCase {
+    let program = build_program(&[("main.sv", GENERIC_DEPENDENT_HANDLER_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "generic-dependent-handler", "kept twice\n")
 }
 
 // [effect-available]
@@ -4514,6 +4546,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_implicit_parameters,
     kotlinc_compiles_and_runs_effect_member_implicits,
     kotlinc_compiles_and_runs_a_generic_handler,
+    kotlinc_compiles_and_runs_a_generic_dependent_handler,
     kotlinc_compiles_and_runs_a_refined_program,
     kotlinc_runs_the_most_specific_overload,
     kotlinc_compiles_and_runs_strings,
@@ -8142,13 +8175,11 @@ fn main() [use] -> None {
 
 const FN_EFFECTS_STDOUT: &str = "LOG: in lambda x\ndone x\nLOG: shouting one\none!\ntwo.\n";
 
-/// [fn-effects] Kotlin threads the effect as a leading closure parameter
-/// too, rather than capturing it — one mechanism on both backends. The
-/// fn-value ABI stays per-effect even under the fusion (nominal typing has
-/// no blanket impls), and the lambda body opens by combining its effect
-/// parameters into the fused carrier [kt-effect-fusion]. A named fn is
-/// always adapted: an effectful one gets the carrier built inline, a pure
-/// one ignores the threaded effect (the variance rule).
+/// [fn-effects] [kt-handle] Kotlin threads the effect as a leading closure
+/// parameter too, rather than capturing it — one mechanism on both backends.
+/// A named fn declaring exactly the type's effects passes as a reference;
+/// a pure one gets an adapter that ignores the threaded effect (the
+/// variance rule).
 #[test]
 fn fn_type_effects_thread_into_lambdas() {
     let program = build_program(&[("main.sv", FN_EFFECTS_DEMO)]);
@@ -8159,26 +8190,25 @@ fn fn_type_effects_thread_into_lambdas() {
         .iter()
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
-    // The inherited effect fuses `run_it`'s own signature; the fn *type*
-    // keeps the per-effect parameter.
+    // The inherited effect is `run_it`'s own leading parameter; the fn
+    // *type* carries the per-effect parameter too.
     assert!(
         main.content
-            .contains("run_it(__fx: __Fx, f: (Logger, String) -> String"),
-        "expected the fused signature with a per-effect fn type:\n{}",
+            .contains("run_it(logger: Logger, f: (Logger, String) -> String"),
+        "expected the per-effect signature and fn type:\n{}",
         main.content
     );
-    // The lambda takes the effect rather than capturing it, and combines
-    // it into a fused carrier.
+    // The lambda takes the effect rather than capturing it.
     assert!(
         main.content.contains(": Logger, s ->"),
         "expected the effect as a leading lambda parameter:\n{}",
         main.content
     );
-    // Named fns are adapted: the effectful one gets an inline carrier, the
-    // pure one drops the threaded effect.
+    // Named fns: the effectful one passes as a reference, the pure one is
+    // adapted to drop the threaded effect.
     assert!(
-        main.content.contains("shout(__Fx_"),
-        "expected the effectful named fn to receive an inline carrier:\n{}",
+        main.content.contains("run_it(logger, ::shout,"),
+        "expected the effectful named fn as a reference:\n{}",
         main.content
     );
     assert!(
@@ -8859,12 +8889,13 @@ fn generate_threadsafe_platform_handler_demo_with(
     })
 }
 
-/// [threadsafe-platform] [kt-platform-handler] A **`threadsafe`** platform
-/// handler binds the raw host instance — no `__Mon_E` — and its skeleton
-/// prints the contract the implementer signs. The undeclared skeleton says
-/// what the compiler does instead.
+/// [threadsafe-platform] [kt-handle] A **`threadsafe`** platform handler
+/// binds behind the effect's monitor exactly as an undeclared one (user
+/// decision 2026-09-28: the word is the declared contract, emission-neutral);
+/// its skeleton prints the contract the implementer signs, and the undeclared
+/// skeleton says what the compiler does.
 #[test]
-fn a_threadsafe_platform_handler_binds_raw_and_its_skeleton_prints_the_contract() {
+fn a_threadsafe_platform_handler_binds_like_any_other_and_its_skeleton_prints_the_contract() {
     let skeleton = threadsafe_platform_handler_skeleton();
     let files = generate_threadsafe_platform_handler_demo_with(&skeleton.content);
     let main = files
@@ -8873,13 +8904,12 @@ fn a_threadsafe_platform_handler_binds_raw_and_its_skeleton_prints_the_contract(
         .expect("main.kt should be generated");
     let src = &main.content;
     assert!(
-        src.contains("salvo.platform.main.HostRawClock(35)")
-            && !src.contains("__Mon_RawClock(salvo.platform.main.HostRawClock(35))"),
-        "a threadsafe host binds raw, got:\n{src}"
+        src.contains("__Mon_RawClock(salvo.platform.main.HostRawClock(35))"),
+        "a threadsafe host binds behind the monitor like any handler, got:\n{src}"
     );
     for expected in [
         "`threadsafe platform handler HostRawClock` — THE CONTRACT YOU ARE SIGNING",
-        "NO\n// lock around it",
+        "safe to run concurrently",
         "class HostRawClock(private val offset: Int) : RawClock {",
         "[threadsafe-platform]",
     ] {
@@ -10210,8 +10240,8 @@ fn a_generic_handler_is_constructed_at_its_type() {
         .expect("main.kt emitted")
         .content;
     for expected in [
-        "val show_int: Show<Int> = Plain<Int>()",
-        "val tag_int: Tag<Int> = Prefixed<Int>(\"p\")",
+        "val show_int: Show<Int> = __Mon_Show(Plain<Int>())",
+        "val tag_int: Tag<Int> = __Mon_Tag(Prefixed<Int>(\"p\"))",
     ] {
         assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
     }
@@ -12316,14 +12346,12 @@ fn fs_program() -> String {
     FS_PROGRAM.replace("__DIR__", &dir.to_string_lossy())
 }
 
-/// [kt-platform-handler] [effect-handle] [effect-handler-deps] What the layering
+/// [kt-platform-handler] [effect-handle] [kt-handle] What the layering
 /// emits: the effect interfaces, no class for the platform handler, and
-/// `DefaultFs` capturing its dependency as an **owned handle at
-/// construction** — a constructor parameter typed as the dep's Has-accessor
-/// interface, whose per-effect identity is what lets a std handler be
-/// constructed from a program (per-file `__Fx_N` classes could not).
+/// `DefaultFs` capturing its dependency as a **field typed by the effect's
+/// interface** — the JVM reference is the handle.
 #[test]
-fn the_fs_surface_emits_a_host_seam_and_a_generic_carrier() {
+fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
     let files = generate_files(&[("main.sv", &fs_program())]);
     let surface = &files
         .iter()
@@ -12337,7 +12365,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_generic_carrier() {
     // [effect-available] One overload set: the pass's discharger is a *fn*
     // named `close`, beside the two members of that name.
     assert!(
-        surface.contains("fun<__Fx> close(__fx: __Fx, p: Lines)"),
+        surface.contains("fun close(fs: Fs, p: Lines)"),
         "expected the pass discharger as a fn named `close` in:\n{surface}"
     );
     // The host seam is its own module [mod-used-only]: a program that never
@@ -12350,7 +12378,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_generic_carrier() {
     for expected in [
         "interface RawFs {",
         "fun raw_close_read(handle: Long)",
-        "class DefaultFs(private val __dep_RawFs: __Has_RawFs) : Fs",
+        "class DefaultFs(private val __dep_RawFs: RawFs) : Fs",
     ] {
         assert!(host.contains(expected), "expected `{expected}` in:\n{host}");
     }
@@ -12365,7 +12393,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_generic_carrier() {
         .expect("main.kt");
     assert!(
         main.content
-            .contains("salvo.platform.fs.host.HostRawFs()"),
+            .contains("__Mon_RawFs(salvo.platform.fs.host.HostRawFs())"),
         "expected the shipped host class at the `use` site, got:\n{}",
         main.content
     );
@@ -14163,13 +14191,13 @@ fn kotlinc_compiles_and_runs_a_dependent_spawn() -> KotlinCase {
     )
 }
 
-/// [kt-actor] [kt-effect-fusion] The shape: the actor is generic in the
-/// **same carrier** the handler stores, and the spawn site builds one of the
-/// generated `__Fx_N` classes out of its clause — a construction for one
-/// dependency, a forwarding stub for the addr. Kotlin needs no provider of its
-/// own, because the handler already holds the carrier.
+/// [kt-actor] [kt-handle] The shape: the handler holds its dependencies as
+/// fields typed by the effect interfaces, the actor class is the same for
+/// every handler, and the spawn site passes the clause's instances as
+/// trailing constructor arguments — a construction for one dependency, a
+/// forwarding stub for the addr.
 #[test]
-fn a_dependent_spawn_builds_the_childs_carrier() {
+fn a_dependent_spawn_hands_the_child_its_dependencies() {
     let files = generate_dep_spawn_demo();
     let main = files
         .iter()
@@ -14177,18 +14205,19 @@ fn a_dependent_spawn_builds_the_childs_carrier() {
         .expect("main.kt");
     let text = &main.content;
     assert!(
-        text.contains(
-            "class __Actor_Counting<__Fx>(private val handler: Counting<__Fx>) : \
-             salvo.SalvoActor where __Fx : __Has_Log, __Fx : __Has_Tally"
-        ),
-        "the actor class does not carry the handler's carrier:\n{text}"
+        text.contains("class Counting(private val __dep_Log: Log, private val __dep_Tally: Tally) : Counter"),
+        "the dependencies are fields:\n{text}"
+    );
+    assert!(
+        text.contains("class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor"),
+        "the actor class is not generic:\n{text}"
     );
     // [actor-mailbox] The instance is built into a local first, so the spawn can
     // read the bound off it before handing it over.
     assert!(
-        text.contains("val __h = Counting(__Fx_2(Recording(), __Stub_Tally(tally)))")
+        text.contains("val __h = Counting(Recording(), __Stub_Tally(tally))")
             && text.contains("__h.__mailboxCapacity, __Actor_Counting(__h)"),
-        "the spawn does not build the carrier from its clause, or does not read the \
+        "the spawn does not pass the clause's instances, or does not read the \
          handler's mailbox:\n{text}"
     );
 }

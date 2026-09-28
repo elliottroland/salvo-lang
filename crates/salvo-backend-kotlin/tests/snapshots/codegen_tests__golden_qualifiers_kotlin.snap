@@ -1,6 +1,5 @@
 ---
 source: crates/salvo-backend-kotlin/tests/codegen_tests.rs
-assertion_line: 521
 expression: combined
 ---
 // ===== core/checked.kt =====
@@ -476,7 +475,7 @@ fun check(console: Console, n: Int) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
-    val console: Console = StdOutConsole()
+    val console: Console = __Mon_Console(StdOutConsole())
     describe(console, Person(name = "Roland", surname = "Elliott", age = 36))
     describe(console, Person(name = "Anon", age = 3))
     check(console, 5)

@@ -7601,8 +7601,8 @@ replaced the working document TESTING.md).
   * Neither the effect nor its members may be generic. A generic member is
     already a loud codegen error on Rust [effect-member-generics], and a
     generic *effect* would need the host to implement one interface per
-    instantiation — Kotlin's facets exist for that [kt-effect-fusion] and
-    Rust has no equivalent, so it is refused at the declaration rather than
+    instantiation — Kotlin's interfaces could carry that and Rust's traits
+    could not, so it is refused at the declaration rather than
     at codegen [backend-never-wrong].
   * `platform` takes `effect` or `handler` [platform-handler]; the parse
     error names both forms rather than reporting a bare "expected item". A

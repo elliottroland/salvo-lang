@@ -91,27 +91,23 @@ between.
 Worth a look, because effects are the feature whose lowering is least obvious:
 
 - **Kotlin** (`kotlin/main.kt`): effects become interfaces, handlers classes. A
-  dependent handler captures its dependencies as **owned handles at
-  construction** — `class Stamped(private val __dep_Logger: __Has_Logger,
-  private val __dep_Clock: __Has_Clock)` — built where the handler is
-  registered, out of nothing but object references, and the member bodies read
-  those fields rather than rebuilding anything per call. On the JVM a
-  reference *is* a handle, so that is the whole mechanism.
-- **Rust** (`rust/main.rs`): the same capture needs a real handle type
-  (`__Mon_Logger`, an `Arc`-backed clone-box), so a function that registers a
-  dependent handler over effects *it* received takes one extra hidden
-  parameter — `interception(__fx: &mut __Fx, __hs: &__Hs_1)`, a small
-  generated bundle of the handles it has to pass on. Its caller builds the
-  bundle from the handles its own `use` sites minted. Beyond that, effects
-  become traits, and because a `&mut` cannot be in two places, each `use`
-  builds a small generated *fusion* struct that owns the new handler and
-  chains to the previous one through `__outer`. A fn needing effects takes one
-  generic fused parameter bounded by generated accessor traits
-  (`__Has_Logger`), never by the effect traits — which is why
-  two effects sharing a member name can never collide there. An intercepting
-  fusion carries exactly one `__Has_Logger` impl, its own, while the handler it
-  wraps stays reachable through `__outer`: that is section 4's outward binding,
-  spelled in borrows.
+  dependent handler holds its dependencies as **fields typed by the effect's
+  interface** — `class Stamped(private val __dep_Logger: Logger, private val
+  __dep_Clock: Clock)` — passed where the handler is registered, and every
+  `use` wraps the instance in the effect's `synchronized` monitor
+  (`val logger: Logger = __Mon_Logger(Stamped(logger, clock))`). On the JVM a
+  reference is a handle, so that is the whole mechanism; the monitor is what
+  makes a stateful handler safe to hand to a spawn.
+- **Rust** (`rust/main.rs`): the same shape with a real handle type. Every
+  effect gets a `__Handle_E` — an `Arc<Mutex<dyn E + Send>>` implementing the
+  effect's trait by lock-and-forward — and every binding *is* one: `let mut
+  logger2 = __Handle_Logger::new(Stamped::new(logger.clone(), clock.clone()))`.
+  A fn declaring `[Logger, Clock]` takes `&mut __Handle_Logger, &mut
+  __Handle_Clock`, a dependent handler holds `__dep_Logger: __Handle_Logger`
+  fields, and interception is a handler capturing the *previous* handle
+  before it is bound — section 4's outward binding, spelled as a clone. (Until
+  2026-09-28 Rust built a generated *fusion* struct per `use` and threaded one
+  fused value; the one shape replaced it.)
 
 Both files are generated code, checked in unedited, and they print the same
 bytes — `expected.txt`.

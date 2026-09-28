@@ -77,7 +77,7 @@ fun handle__Fresh(request: Request): String {
 }
 
 fun main() {
-    val console: Console = StdOutConsole()
+    val console: Console = __Mon_Console(StdOutConsole())
     val xs: MutableList<Int> = mutableListOf<Int>()
     xs.add(3)
     println(console, "1. head after add: ${head(xs)}")

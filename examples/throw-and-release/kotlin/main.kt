@@ -97,7 +97,7 @@ fun report(console: Console, label: String, config: String) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
-    val console: Console = StdOutConsole()
+    val console: Console = __Mon_Console(StdOutConsole())
     val small = read_size(console, "notes.txt", 3)
     println(console, "1. read $small")
     val clamped = read_size(console, "notes.txt", 99)

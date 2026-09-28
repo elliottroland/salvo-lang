@@ -1,6 +1,5 @@
 package salvo.time
 
-import salvo.*
 import salvo.core.actor.*
 import salvo.core.array.*
 import salvo.core.bytes.*
@@ -209,8 +208,8 @@ class __Mon_Clock(private val inner: Clock) : Clock {
         synchronized(inner) { inner.to_tick(at) }
 }
 
-fun<__Fx> elapsed(__fx: __Fx, since: Tick): Duration where __Fx : __Has_Ticker {
-    return between__2(since, __fx.__fx_Ticker.tick())
+fun elapsed(ticker: Ticker, since: Tick): Duration {
+    return between__2(since, ticker.tick())
 }
 
 class DefaultTicker : Ticker {
@@ -256,6 +255,11 @@ class __Stub_Timer(private val addr: Int) : Timer {
     override fun after(wait: Duration, done: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Timer.After(wait, done), __PROTO_Timer, __Codec___Msg_Timer)
     }
+}
+
+class __Mon_Timer(private val inner: Timer) : Timer {
+    override fun after(wait: Duration, done: salvo.SalvoReply) =
+        synchronized(inner) { inner.after(wait, done) }
 }
 
 sealed class __Msg_Timer {
@@ -338,6 +342,11 @@ class __Stub_TimerCtl(private val addr: Int) : TimerCtl {
     override fun advance(by: Duration) {
         salvo.SalvoSched.sendWire(addr, __Msg_TimerCtl.Advance(by), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
     }
+}
+
+class __Mon_TimerCtl(private val inner: TimerCtl) : TimerCtl {
+    override fun advance(by: Duration) =
+        synchronized(inner) { inner.advance(by) }
 }
 
 sealed class __Msg_TimerCtl {

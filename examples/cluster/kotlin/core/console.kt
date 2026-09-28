@@ -1,6 +1,5 @@
 package salvo.core.console
 
-import salvo.*
 import salvo.core.string.*
 
 interface Console {
@@ -18,7 +17,7 @@ class StdOutConsole : Console {
     }
 }
 
-fun<__Fx> println(__fx: __Fx, message: String) where __Fx : __Has_Console {
-    __fx.__fx_Console.print(message)
-    __fx.__fx_Console.print("\n")
+fun println(console: Console, message: String) {
+    console.print(message)
+    console.print("\n")
 }

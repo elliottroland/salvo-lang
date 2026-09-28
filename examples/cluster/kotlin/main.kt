@@ -1,6 +1,5 @@
 package salvo.main
 
-import salvo.*
 import salvo.core.actor.*
 import salvo.core.array.*
 import salvo.core.bytes.*
@@ -515,6 +514,11 @@ class __Stub_Gather(private val addr: Int) : Gather {
     }
 }
 
+class __Mon_Gather(private val inner: Gather) : Gather {
+    override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) =
+        synchronized(inner) { inner.scatter(word, members, out) }
+}
+
 sealed class __Msg_Gather {
     class Scatter(val word: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Gather()
 }
@@ -696,6 +700,11 @@ class __Stub_Race(private val addr: Int) : Race {
     }
 }
 
+class __Mon_Race(private val inner: Race) : Race {
+    override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) =
+        synchronized(inner) { inner.race(key, members, out) }
+}
+
 sealed class __Msg_Race {
     class Race(val key: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Race()
 }
@@ -822,61 +831,61 @@ class LastHost(private val nodes: Int, private val me: NodeEndpoint) : Leader {
     }
 }
 
-fun<__Fx> fresh_id(__fx: __Fx): String where __Fx : __Has_Sequencer {
+fun fresh_id(sequencer: Sequencer): String {
     return run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
-        __fx.__fx_Sequencer.next(out)
+        sequencer.next(out)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
 }
 
-fun<__Fx> checkout(__fx: __Fx, skus: List<String>) where __Fx : __Has_Inventory, __Fx : __Has_Console {
+fun checkout(inventory: Inventory, console: Console, skus: List<String>) {
     val shards: MutableList<String> = mutableListOf<String>()
     for (sku in skus) {
         val answer = run {
             val (out, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
-            __fx.__fx_Inventory.reserve(sku, 1, out)
+            inventory.reserve(sku, 1, out)
             salvo.SalvoSched.awaitReply(__wid) as String
         }
         val parts = answer.split(":")
         shards.add((parts.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:217:26")))
-        println(__fx, "  $sku: ${(parts.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:218:30"))} reserved on its shard so far")
+        println(console, "  $sku: ${(parts.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:218:30"))} reserved on its shard so far")
     }
-    println(__fx, "  apple and apple on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:220:51"))) == ((shards.getOrNull(2) ?: throw AssertionError("salvo: value is absent at main:220:68"))))}")
-    println(__fx, "  apple and fig on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:221:49"))) == ((shards.getOrNull(3) ?: throw AssertionError("salvo: value is absent at main:221:66"))))}")
-    println(__fx, "  apple and pear on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:222:50"))) == ((shards.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:222:67"))))}")
+    println(console, "  apple and apple on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:220:51"))) == ((shards.getOrNull(2) ?: throw AssertionError("salvo: value is absent at main:220:68"))))}")
+    println(console, "  apple and fig on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:221:49"))) == ((shards.getOrNull(3) ?: throw AssertionError("salvo: value is absent at main:221:66"))))}")
+    println(console, "  apple and pear on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:222:50"))) == ((shards.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:222:67"))))}")
 }
 
-fun<__Fx> count(__fx: __Fx, word: String): Int where __Fx : __Has_Search {
+fun count(search: Search, word: String): Int {
     return run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
-        __fx.__fx_Search.query(word, out)
+        search.query(word, out)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
 }
 
-fun<__Fx> find(__fx: __Fx, key: String): String where __Fx : __Has_Lookup {
+fun find(lookup: Lookup, key: String): String {
     return run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
-        __fx.__fx_Lookup.lookup(key, out)
+        lookup.lookup(key, out)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
 }
 
-fun<__Fx> two_ids(__fx: __Fx, seq: Int) where __Fx : __Has_Leader, __Fx : __Has_Console {
-    val __fx2 = __Fx_1(__fx.__fx_Console, __fx.__fx_Leader, Elected(__fx))
-    val __fx3 = __Fx_3(__fx2.__fx_Console, __fx2.__fx_Leader, __fx2.__fx_Pick, __Route_Sequencer(seq, __Fx_2(__fx2.__fx_Pick)))
-    println(__fx3, "  ${fresh_id(__fx3)} ${fresh_id(__fx3)}")
+fun two_ids(leader: Leader, console: Console, seq: Int) {
+    val pick: Pick = __Mon_Pick(Elected(leader))
+    val sequencer: Sequencer = __Mon_Sequencer(__Route_Sequencer(seq, pick))
+    println(console, "  ${fresh_id(sequencer)} ${fresh_id(sequencer)}")
 }
 
-fun<__Fx> shop(__fx: __Fx, stock: Int) where __Fx : __Has_Console {
-    val __fx2 = __Fx_4(__fx.__fx_Console, Sharded())
-    val __fx3 = __Fx_5(__fx2.__fx_Console, __Route_Inventory(stock, __Fx_2(__fx2.__fx_Pick)), __fx2.__fx_Pick)
-    checkout(__fx3, listOf<String>("apple", "pear", "apple", "fig", "pear"))
+fun shop(console: Console, stock: Int) {
+    val pick: Pick = __Mon_Pick(Sharded())
+    val inventory: Inventory = __Mon_Inventory(__Route_Inventory(stock, pick))
+    checkout(inventory, console, listOf<String>("apple", "pear", "apple", "fig", "pear"))
 }
 
 interface Boot {
@@ -891,6 +900,13 @@ class __Stub_Boot(private val addr: Int) : Boot {
     override fun stop(done: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Boot.Stop(done), __PROTO_Boot, __Codec___Msg_Boot)
     }
+}
+
+class __Mon_Boot(private val inner: Boot) : Boot {
+    override fun boot(done: salvo.SalvoReply) =
+        synchronized(inner) { inner.boot(done) }
+    override fun stop(done: salvo.SalvoReply) =
+        synchronized(inner) { inner.stop(done) }
 }
 
 sealed class __Msg_Boot {
@@ -915,7 +931,7 @@ object __Codec___Msg_Boot : salvo.WireCodec<__Msg_Boot> {
 /** [protocol-hash] The canonical hash of `Boot`. */
 const val __PROTO_Boot: String = "4b15e647d0ca92a7"
 
-class Booting<__Fx>(private val at: NodeEndpoint, private val all: List<NodeEndpoint>, private val net: Int, private val __fx: __Fx) : Boot where __Fx : __Has_Transport {
+class Booting(private val at: NodeEndpoint, private val all: List<NodeEndpoint>, private val net: Int, private val __dep_Transport: Transport) : Boot {
     private var nodes: Int? = null
     internal val __mailboxCapacity: Int = 2
     internal var __addr: Int? = null
@@ -923,8 +939,8 @@ class Booting<__Fx>(private val at: NodeEndpoint, private val all: List<NodeEndp
 
     override fun boot(done: salvo.SalvoReply) {
         val p = salvo.SalvoSched.pool(1)
-        val _connected = connect__3(__fx, at, run { val __h = Sending(__Fx_6(MemTransport(at, net))); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE); __a }, run { val __h = Receiving(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE); __a })
-        val group = run { val __h = StaticNodeGroup("cluster", all, __Fx_6(MemTransport(at, net))); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, __Priv_StaticNodeGroup.Init); __a }
+        val _connected = connect__3(__dep_Transport, at, run { val __h = Sending(MemTransport(at, net)); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE); __a }, run { val __h = Receiving(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE); __a })
+        val group = run { val __h = StaticNodeGroup("cluster", all, MemTransport(at, net)); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, __Priv_StaticNodeGroup.Init); __a }
         nodes = group
         val seq = salvo.net.open_group(Protocol("Sequencer", salvo.main.__PROTO_Sequencer), group)
         val mine = run { val __spawned = run { val __h = Sequencing("b"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); __a }; salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
@@ -952,7 +968,7 @@ sealed class __Cont_Booting {
     class Stop() : __Cont_Booting()
 }
 
-class __Actor_Booting<__Fx>(private val handler: Booting<__Fx>) : salvo.SalvoActor where __Fx : __Has_Transport {
+class __Actor_Booting(private val handler: Booting) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         __dispatch(msg as __Msg_Boot)
@@ -1005,15 +1021,15 @@ fun settle(timer: Int) {
 
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("ActorChanges", salvo.net.__PROTO_ActorChanges), Pair("ActorGroup", salvo.net.__PROTO_ActorGroup), Pair("Boot", salvo.main.__PROTO_Boot), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Gather", salvo.main.__PROTO_Gather), Pair("Inbound", salvo.net.__PROTO_Inbound), Pair("Inventory", salvo.main.__PROTO_Inventory), Pair("Lookup", salvo.main.__PROTO_Lookup), Pair("MemNet", salvo.net.__PROTO_MemNet), Pair("NodeChanges", salvo.net.__PROTO_NodeChanges), Pair("NodeGroup", salvo.net.__PROTO_NodeGroup), Pair("Outbound", salvo.net.__PROTO_Outbound), Pair("Race", salvo.main.__PROTO_Race), Pair("Search", salvo.main.__PROTO_Search), Pair("Sequencer", salvo.main.__PROTO_Sequencer), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl)))
-    val __fx = __Fx_7(StdOutConsole())
+    val console: Console = __Mon_Console(StdOutConsole())
     val a = NodeEndpoint(host = "a", port = 1)
     val b = NodeEndpoint(host = "b", port = 1)
     val all = listOf<NodeEndpoint>(a, b)
     val network = run { val __h = MemNetwork(); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.pool(1), __h.__mailboxCapacity, __Actor_MemNetwork(__h), __Actor_MemNetwork.__DECODE); __a }
-    val __fx2 = __Fx_8(__fx.__fx_Console, MemTransport(a, network))
+    val transport: Transport = __Mon_Transport(MemTransport(a, network))
     val p = salvo.SalvoSched.pool(2)
-    val _connected = connect__2(__fx2, a, p)
-    val nodes = run { val __h = StaticNodeGroup("cluster", all, __Fx_6(__fx2.__fx_Transport)); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, __Priv_StaticNodeGroup.Init); __a }
+    val _connected = connect__2(transport, a, p)
+    val nodes = run { val __h = StaticNodeGroup("cluster", all, transport); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, __Priv_StaticNodeGroup.Init); __a }
     val seq = salvo.net.open_group(Protocol("Sequencer", salvo.main.__PROTO_Sequencer), nodes)
     run { val __spawned = run { val __h = Sequencing("a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); __a }; salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
     val stock = salvo.net.open_group(Protocol("Inventory", salvo.main.__PROTO_Inventory), nodes)
@@ -1023,7 +1039,7 @@ fun main() {
     val looks = salvo.net.open_group(Protocol("Lookup", salvo.main.__PROTO_Lookup), nodes)
     run { val __spawned = run { val __h = Looking("a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Looking(__h), __Actor_Looking.__DECODE); __a }; salvo.SalvoSched.sendWire(looks, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
     val pb = salvo.SalvoSched.poolAt((NodeId(salvo.SalvoSched.newNode())).id, 1)
-    val booter = run { val __h = Booting(b, all, network, __Fx_6(MemTransport(b, network))); val __a = salvo.SalvoSched.spawn(pb, __h.__mailboxCapacity, __Actor_Booting(__h), __Actor_Booting.__DECODE); __a }
+    val booter = run { val __h = Booting(b, all, network, MemTransport(b, network)); val __a = salvo.SalvoSched.spawn(pb, __h.__mailboxCapacity, __Actor_Booting(__h), __Actor_Booting.__DECODE); __a }
     val remote_seq = run {
         val (done, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.AddrCodec) })
@@ -1038,23 +1054,23 @@ fun main() {
         salvo.SalvoSched.sendWire(nodes, __Msg_NodeGroup.Members(out), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Node>
     }
-    println(__fx2, "nodes: ${members.size + 1}, sequencers: ${run {
+    println(console, "nodes: ${members.size + 1}, sequencers: ${run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
         salvo.SalvoSched.sendWire(seq, __Msg_ActorGroup.Members(out), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Int>
     }.size}")
-    println(__fx2, "singleton (b's sequencer is remote: ${!eq__2(NodeId(salvo.SalvoSched.addrIdentity(remote_seq).node), NodeId(salvo.SalvoSched.hereNode()))}):")
-    val __fx3 = __Fx_9(__fx2.__fx_Console, LastHost(nodes, a), __fx2.__fx_Transport)
-    two_ids(__fx3, seq)
-    println(__fx3, "sharded:")
-    shop(__fx3, stock)
-    println(__fx3, "scatter:")
-    val __fx4 = __Fx_10(__fx3.__fx_Console, __fx3.__fx_Leader, Scattering(index, run { val __h = Gathering(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Gathering(__h), __Actor_Gathering.__DECODE); __a }), __fx3.__fx_Transport)
-    println(__fx4, "  salvo: ${count(__fx4, "salvo")}, actors: ${count(__fx4, "actors")}, none: ${count(__fx4, "none")}")
-    println(__fx4, "hedge:")
-    val __fx5 = __Fx_11(__fx4.__fx_Console, __fx4.__fx_Leader, Hedging(looks, run { val __h = Racing(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Racing(__h), __Actor_Racing.__DECODE); __a }), __fx4.__fx_Search, __fx4.__fx_Transport)
-    println(__fx5, "  ${find(__fx5, "k1")}")
+    println(console, "singleton (b's sequencer is remote: ${!eq__2(NodeId(salvo.SalvoSched.addrIdentity(remote_seq).node), NodeId(salvo.SalvoSched.hereNode()))}):")
+    val leader: Leader = __Mon_Leader(LastHost(nodes, a))
+    two_ids(leader, console, seq)
+    println(console, "sharded:")
+    shop(console, stock)
+    println(console, "scatter:")
+    val search: Search = __Mon_Search(Scattering(index, run { val __h = Gathering(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Gathering(__h), __Actor_Gathering.__DECODE); __a }))
+    println(console, "  salvo: ${count(search, "salvo")}, actors: ${count(search, "actors")}, none: ${count(search, "none")}")
+    println(console, "hedge:")
+    val lookup: Lookup = __Mon_Lookup(Hedging(looks, run { val __h = Racing(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Racing(__h), __Actor_Racing.__DECODE); __a }))
+    println(console, "  ${find(lookup, "k1")}")
     val _stopped = run {
         val (done, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.BoolCodec) })
@@ -1062,23 +1078,23 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as Boolean
     }
     settle(timer)
-    println(__fx5, "after b left:")
-    println(__fx5, "  sequencers: ${run {
+    println(console, "after b left:")
+    println(console, "  sequencers: ${run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
         salvo.SalvoSched.sendWire(seq, __Msg_ActorGroup.Members(out), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Int>
     }.size}")
-    two_ids(__fx5, seq)
+    two_ids(leader, console, seq)
 }
 
-class __Route_Inventory<__Fx>(private val group: Int, private val __fx: __Fx) : Inventory where __Fx : __Has_Pick {
+class __Route_Inventory(private val group: Int, private val __dep_Pick: Pick) : Inventory {
     internal val __mailboxCapacity: Int = 1
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont___Route_Inventory> = mutableMapOf()
 
     override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
-        val __target = route_to__2(__fx, group, salvo.SalvoSched.keyHash(salvo.salvoEncode(sku, salvo.StrCodec).toByteArray()))
+        val __target = route_to__2(__dep_Pick, group, salvo.SalvoSched.keyHash(salvo.salvoEncode(sku, salvo.StrCodec).toByteArray()))
         salvo.SalvoSched.sendWire(__target, __Msg_Inventory.Reserve(sku, qty, out), __PROTO_Inventory, __Codec___Msg_Inventory)
     }
 }
@@ -1087,7 +1103,7 @@ sealed class __Cont___Route_Inventory {
     class Reserve(val sku: String, val qty: Int) : __Cont___Route_Inventory()
 }
 
-class __Actor___Route_Inventory<__Fx>(private val handler: __Route_Inventory<__Fx>) : salvo.SalvoActor where __Fx : __Has_Pick {
+class __Actor___Route_Inventory(private val handler: __Route_Inventory) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         __dispatch(msg as __Msg_Inventory)
@@ -1126,13 +1142,13 @@ class __Actor___Route_Inventory<__Fx>(private val handler: __Route_Inventory<__F
     }
 }
 
-class __Route_Lookup<__Fx>(private val group: Int, private val __fx: __Fx) : Lookup where __Fx : __Has_Pick {
+class __Route_Lookup(private val group: Int, private val __dep_Pick: Pick) : Lookup {
     internal val __mailboxCapacity: Int = 1
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont___Route_Lookup> = mutableMapOf()
 
     override fun lookup(key: String, out: salvo.SalvoReply) {
-        val __target = route_to(__fx, group)
+        val __target = route_to(__dep_Pick, group)
         salvo.SalvoSched.sendWire(__target, __Msg_Lookup.Lookup(key, out), __PROTO_Lookup, __Codec___Msg_Lookup)
     }
 }
@@ -1141,7 +1157,7 @@ sealed class __Cont___Route_Lookup {
     class Lookup(val key: String) : __Cont___Route_Lookup()
 }
 
-class __Actor___Route_Lookup<__Fx>(private val handler: __Route_Lookup<__Fx>) : salvo.SalvoActor where __Fx : __Has_Pick {
+class __Actor___Route_Lookup(private val handler: __Route_Lookup) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         __dispatch(msg as __Msg_Lookup)
@@ -1180,13 +1196,13 @@ class __Actor___Route_Lookup<__Fx>(private val handler: __Route_Lookup<__Fx>) : 
     }
 }
 
-class __Route_Search<__Fx>(private val group: Int, private val __fx: __Fx) : Search where __Fx : __Has_Pick {
+class __Route_Search(private val group: Int, private val __dep_Pick: Pick) : Search {
     internal val __mailboxCapacity: Int = 1
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont___Route_Search> = mutableMapOf()
 
     override fun query(word: String, out: salvo.SalvoReply) {
-        val __target = route_to(__fx, group)
+        val __target = route_to(__dep_Pick, group)
         salvo.SalvoSched.sendWire(__target, __Msg_Search.Query(word, out), __PROTO_Search, __Codec___Msg_Search)
     }
 }
@@ -1195,7 +1211,7 @@ sealed class __Cont___Route_Search {
     class Query(val word: String) : __Cont___Route_Search()
 }
 
-class __Actor___Route_Search<__Fx>(private val handler: __Route_Search<__Fx>) : salvo.SalvoActor where __Fx : __Has_Pick {
+class __Actor___Route_Search(private val handler: __Route_Search) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         __dispatch(msg as __Msg_Search)
@@ -1234,13 +1250,13 @@ class __Actor___Route_Search<__Fx>(private val handler: __Route_Search<__Fx>) : 
     }
 }
 
-class __Route_Sequencer<__Fx>(private val group: Int, private val __fx: __Fx) : Sequencer where __Fx : __Has_Pick {
+class __Route_Sequencer(private val group: Int, private val __dep_Pick: Pick) : Sequencer {
     internal val __mailboxCapacity: Int = 1
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont___Route_Sequencer> = mutableMapOf()
 
     override fun next(out: salvo.SalvoReply) {
-        val __target = route_to(__fx, group)
+        val __target = route_to(__dep_Pick, group)
         salvo.SalvoSched.sendWire(__target, __Msg_Sequencer.Next(out), __PROTO_Sequencer, __Codec___Msg_Sequencer)
     }
 }
@@ -1249,7 +1265,7 @@ sealed class __Cont___Route_Sequencer {
     class Next() : __Cont___Route_Sequencer()
 }
 
-class __Actor___Route_Sequencer<__Fx>(private val handler: __Route_Sequencer<__Fx>) : salvo.SalvoActor where __Fx : __Has_Pick {
+class __Actor___Route_Sequencer(private val handler: __Route_Sequencer) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         __dispatch(msg as __Msg_Sequencer)
@@ -1287,65 +1303,3 @@ class __Actor___Route_Sequencer<__Fx>(private val handler: __Route_Sequencer<__F
         }
     }
 }
-
-class __Fx_1(
-    override val __fx_Console: Console,
-    override val __fx_Leader: Leader,
-    override val __fx_Pick: Pick,
-) : __Has_Console, __Has_Leader, __Has_Pick
-
-class __Fx_2(
-    override val __fx_Pick: Pick,
-) : __Has_Pick
-
-class __Fx_3(
-    override val __fx_Console: Console,
-    override val __fx_Leader: Leader,
-    override val __fx_Pick: Pick,
-    override val __fx_Sequencer: Sequencer,
-) : __Has_Console, __Has_Leader, __Has_Pick, __Has_Sequencer
-
-class __Fx_4(
-    override val __fx_Console: Console,
-    override val __fx_Pick: Pick,
-) : __Has_Console, __Has_Pick
-
-class __Fx_5(
-    override val __fx_Console: Console,
-    override val __fx_Inventory: Inventory,
-    override val __fx_Pick: Pick,
-) : __Has_Console, __Has_Inventory, __Has_Pick
-
-class __Fx_6(
-    override val __fx_Transport: Transport,
-) : __Has_Transport
-
-class __Fx_7(
-    override val __fx_Console: Console,
-) : __Has_Console
-
-class __Fx_8(
-    override val __fx_Console: Console,
-    override val __fx_Transport: Transport,
-) : __Has_Console, __Has_Transport
-
-class __Fx_9(
-    override val __fx_Console: Console,
-    override val __fx_Leader: Leader,
-    override val __fx_Transport: Transport,
-) : __Has_Console, __Has_Leader, __Has_Transport
-
-class __Fx_10(
-    override val __fx_Console: Console,
-    override val __fx_Leader: Leader,
-    override val __fx_Search: Search,
-    override val __fx_Transport: Transport,
-) : __Has_Console, __Has_Leader, __Has_Search, __Has_Transport
-
-class __Fx_11(
-    override val __fx_Console: Console,
-    override val __fx_Leader: Leader,
-    override val __fx_Lookup: Lookup,
-    override val __fx_Search: Search,
-    override val __fx_Transport: Transport,
-) : __Has_Console, __Has_Leader, __Has_Lookup, __Has_Search, __Has_Transport

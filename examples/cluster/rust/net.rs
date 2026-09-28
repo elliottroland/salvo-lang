@@ -704,7 +704,7 @@ impl NodeGroup for StaticNodeGroup {
 impl StaticNodeGroup {
 
     fn init(&mut self) {
-        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:384:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
+        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:382:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
         let mut me = self.__dep_Transport.local_endpoint();
         crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
         crate::scheduler::salvo_watch_peers((self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __ep, __t| Box::new(__Priv_StaticNodeGroup::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(__Priv_StaticNodeGroup::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(__Priv_StaticNodeGroup::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));
@@ -885,7 +885,7 @@ impl NodeGroup for GossipNodeGroup {
 impl GossipNodeGroup {
 
     fn init(&mut self) {
-        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:458:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
+        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:456:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
         let mut me = self.__dep_Transport.local_endpoint();
         crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
         crate::scheduler::salvo_watch_peers((self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __ep, __t| Box::new(__Priv_GossipNodeGroup::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(__Priv_GossipNodeGroup::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(__Priv_GossipNodeGroup::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));

@@ -33,158 +33,158 @@ fun kind_name(kind: Union8<NotFound, PermissionDenied, AlreadyExists, NotADirect
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun<__Fx> workflow(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console {
-    val wrote = write_str(__fx, "notes.txt", "alpha\nbeta\ngamma\n")
+fun workflow(fs: Fs, console: Console) {
+    val wrote = write_str(fs, "notes.txt", "alpha\nbeta\ngamma\n")
     when (wrote) {
         is U2_1<*, *> -> {
-            println(__fx, "wrote ${(wrote.value as Long)} bytes")
+            println(console, "wrote ${(wrote.value as Long)} bytes")
         }
         is U2_2<*, *> -> {
-            println(__fx, "write failed: ${kind_name(detach((wrote.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "write failed: ${kind_name(detach((wrote.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val text = read_to_str(__fx, "notes.txt")
+    val text = read_to_str(fs, "notes.txt")
     when (text) {
         is U2_1<*, *> -> {
-            println(__fx, "read back ${(text.value as String).toByteArray(Charsets.UTF_8).size.toLong()} bytes")
+            println(console, "read back ${(text.value as String).toByteArray(Charsets.UTF_8).size.toLong()} bytes")
         }
         is U2_2<*, *> -> {
-            println(__fx, "read failed: ${kind_name(detach((text.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "read failed: ${kind_name(detach((text.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val opened = __fx.__fx_Fs.open_read("notes.txt")
+    val opened = fs.open_read("notes.txt")
     when (opened) {
         is U2_1<*, *> -> {
             val p = lines((opened.value as InStream))
             while (true) {
-                val __loop1_step = next__13(__fx, p)
+                val __loop1_step = next__13(fs, p)
                 if (__loop1_step !is U2_1<String, Finished>) { break }
                 val line = __loop1_step.value
-                println(__fx, "line: $line")
+                println(console, "line: $line")
             }
-            val closed = close(__fx, p)
+            val closed = close(fs, p)
             if (closed is U2_2<*, *>) {
-                println(__fx, "close failed: ${kind_name(detach((closed.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                println(console, "close failed: ${kind_name(detach((closed.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
             }
         }
         is U2_2<*, *> -> {
-            println(__fx, "open failed: ${kind_name(detach((opened.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "open failed: ${kind_name(detach((opened.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val out = __fx.__fx_Fs.open_append("notes.txt")
+    val out = fs.open_append("notes.txt")
     when (out) {
         is U2_1<*, *> -> {
             val w: OutStream = (out.value as OutStream)
-            val at = __fx.__fx_Fs.position__2(w)
-            val n = __fx.__fx_Fs.write_line(w, "delta")
-            println(__fx, "appended $n bytes at offset $at")
-            val shut = __fx.__fx_Fs.close__2(w)
+            val at = fs.position__2(w)
+            val n = fs.write_line(w, "delta")
+            println(console, "appended $n bytes at offset $at")
+            val shut = fs.close__2(w)
             if (shut is U2_2<*, *>) {
-                println(__fx, "close failed: ${kind_name(detach((shut.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                println(console, "close failed: ${kind_name(detach((shut.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
             }
-            val resumed = __fx.__fx_Fs.open_read_at("notes.txt", at)
+            val resumed = fs.open_read_at("notes.txt", at)
             when (resumed) {
                 is U2_1<*, *> -> {
                     val s: InStream = (resumed.value as InStream)
-                    val line = __fx.__fx_Fs.read_line(s)
+                    val line = fs.read_line(s)
                     when {
                         line != null -> {
-                            println(__fx, "at $at: $line")
+                            println(console, "at $at: $line")
                         }
                         else -> {
-                            println(__fx, "at $at: end of file")
+                            println(console, "at $at: end of file")
                         }
                     }
-                    val done = __fx.__fx_Fs.close(s)
+                    val done = fs.close(s)
                     if (done is U2_2<*, *>) {
-                        println(__fx, "close failed: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                        println(console, "close failed: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
                     }
                 }
                 is U2_2<*, *> -> {
-                    println(__fx, "reopen failed: ${kind_name(detach((resumed.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                    println(console, "reopen failed: ${kind_name(detach((resumed.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
                 }
             }
         }
         is U2_2<*, *> -> {
-            println(__fx, "append failed: ${kind_name(detach((out.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "append failed: ${kind_name(detach((out.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val bin = __fx.__fx_Fs.open_write("raw.bin")
+    val bin = fs.open_write("raw.bin")
     when (bin) {
         is U2_1<*, *> -> {
             val w: OutStream = (bin.value as OutStream)
             val data = salvo.SalvoBytes.of(arrayOf<UByte>((0).toUByte(), (255).toUByte(), (200).toUByte()))
-            val n = __fx.__fx_Fs.write_bytes(w, data)
-            val m = __fx.__fx_Fs.write(w, "hé")
-            println(__fx, "wrote $n raw bytes and $m encoded")
-            val shut = __fx.__fx_Fs.close__2(w)
+            val n = fs.write_bytes(w, data)
+            val m = fs.write(w, "hé")
+            println(console, "wrote $n raw bytes and $m encoded")
+            val shut = fs.close__2(w)
             if (shut is U2_2<*, *>) {
-                println(__fx, "close failed: ${kind_name(detach((shut.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                println(console, "close failed: ${kind_name(detach((shut.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
             }
         }
         is U2_2<*, *> -> {
-            println(__fx, "raw open failed: ${kind_name(detach((bin.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "raw open failed: ${kind_name(detach((bin.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val raw = __fx.__fx_Fs.open_read("raw.bin")
+    val raw = fs.open_read("raw.bin")
     when (raw) {
         is U2_1<*, *> -> {
             val s: InStream = (raw.value as InStream)
-            val head = __fx.__fx_Fs.read_bytes(s, 3)
+            val head = fs.read_bytes(s, 3)
             when (head) {
                 is U2_1<*, *> -> {
-                    println(__fx, "first three: ${(head.value as salvo.SalvoBytes).toString()} = ${(head.value as salvo.SalvoBytes).toHex()}")
+                    println(console, "first three: ${(head.value as salvo.SalvoBytes).toString()} = ${(head.value as salvo.SalvoBytes).toHex()}")
                 }
                 is U2_2<*, *> -> {
-                    println(__fx, "byte read failed: ${kind_name(detach((head.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                    println(console, "byte read failed: ${kind_name(detach((head.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
                 }
             }
-            val tail = __fx.__fx_Fs.read_all(s)
+            val tail = fs.read_all(s)
             when (tail) {
                 is U2_1<*, *> -> {
-                    println(__fx, "the rest, as text: ${(tail.value as String)}")
+                    println(console, "the rest, as text: ${(tail.value as String)}")
                 }
                 is U2_2<*, *> -> {
-                    println(__fx, "decode failed: ${kind_name(detach((tail.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                    println(console, "decode failed: ${kind_name(detach((tail.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
                 }
             }
-            val done = __fx.__fx_Fs.close(s)
+            val done = fs.close(s)
             if (done is U2_2<*, *>) {
-                println(__fx, "close failed: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                println(console, "close failed: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
             }
         }
         is U2_2<*, *> -> {
-            println(__fx, "raw read failed: ${kind_name(detach((raw.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "raw read failed: ${kind_name(detach((raw.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val split = __fx.__fx_Fs.open_read_at("raw.bin", 5L)
+    val split = fs.open_read_at("raw.bin", 5L)
     when (split) {
         is U2_1<*, *> -> {
             val s: InStream = (split.value as InStream)
-            val broken = __fx.__fx_Fs.read_all(s)
+            val broken = fs.read_all(s)
             when (broken) {
                 is U2_1<*, *> -> {
-                    println(__fx, "unexpected: ${(broken.value as String)} decoded")
+                    println(console, "unexpected: ${(broken.value as String)} decoded")
                 }
                 is U2_2<*, *> -> {
-                    println(__fx, "mid-character: ${kind_name(detach((broken.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                    println(console, "mid-character: ${kind_name(detach((broken.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
                 }
             }
-            val done = __fx.__fx_Fs.close(s)
+            val done = fs.close(s)
             when (done) {
                 is U2_1<*, *> -> {
-                    println(__fx, "unexpected: the failure was not recorded")
+                    println(console, "unexpected: the failure was not recorded")
                 }
                 is U2_2<*, *> -> {
-                    println(__fx, "and again at close: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                    println(console, "and again at close: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
                 }
             }
         }
         is U2_2<*, *> -> {
-            println(__fx, "split open failed: ${kind_name(detach((split.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "split open failed: ${kind_name(detach((split.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val held = __fx.__fx_Fs.open_read("raw.bin")
+    val held = fs.open_read("raw.bin")
     when (held) {
         is U2_1<*, *> -> {
             val s: InStream = (held.value as InStream)
@@ -194,7 +194,7 @@ fun<__Fx> workflow(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console {
             var reading = true
             while (reading) {
                 buf.clear()
-                val got = __fx.__fx_Fs.read_to(s, buf, 4)
+                val got = fs.read_to(s, buf, 4)
                 when (got) {
                     is U2_1<*, *> -> {
                         val n: Int = (got.value as Int)
@@ -206,22 +206,22 @@ fun<__Fx> workflow(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console {
                         }
                     }
                     is U2_2<*, *> -> {
-                        println(__fx, "fill failed: ${kind_name(detach((got.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                        println(console, "fill failed: ${kind_name(detach((got.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
                         reading = false
                     }
                 }
             }
-            println(__fx, "filled $moved bytes in $steps reads, one buffer")
-            val done = __fx.__fx_Fs.close(s)
+            println(console, "filled $moved bytes in $steps reads, one buffer")
+            val done = fs.close(s)
             if (done is U2_2<*, *>) {
-                println(__fx, "close failed: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                println(console, "close failed: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
             }
         }
         is U2_2<*, *> -> {
-            println(__fx, "fill open failed: ${kind_name(detach((held.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "fill open failed: ${kind_name(detach((held.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val lined = __fx.__fx_Fs.open_read("notes.txt")
+    val lined = fs.open_read("notes.txt")
     when (lined) {
         is U2_1<*, *> -> {
             val s: InStream = (lined.value as InStream)
@@ -230,7 +230,7 @@ fun<__Fx> workflow(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console {
             var reading = true
             while (reading) {
                 line.clear()
-                if (__fx.__fx_Fs.read_line_to(s, line)) {
+                if (fs.read_line_to(s, line)) {
                     if (line.toString().length > longest) {
                         longest = line.toString().length
                     }
@@ -238,163 +238,148 @@ fun<__Fx> workflow(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console {
                     reading = false
                 }
             }
-            println(__fx, "longest line: $longest characters")
-            val done = __fx.__fx_Fs.close(s)
+            println(console, "longest line: $longest characters")
+            val done = fs.close(s)
             if (done is U2_2<*, *>) {
-                println(__fx, "close failed: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                println(console, "close failed: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
             }
         }
         is U2_2<*, *> -> {
-            println(__fx, "lines open failed: ${kind_name(detach((lined.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "lines open failed: ${kind_name(detach((lined.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val ch = open_chunks(__fx, "raw.bin", 4)
+    val ch = open_chunks(fs, "raw.bin", 4)
     when (ch) {
         is U2_1<*, *> -> {
             val p = (ch.value as Chunks)
             var seen = 0
             while (true) {
-                val __loop2_step = next__14(__fx, p)
+                val __loop2_step = next__14(fs, p)
                 if (__loop2_step !is U2_1<salvo.SalvoBytes, Finished>) { break }
                 val chunk = __loop2_step.value
                 seen = seen + chunk.size
             }
-            println(__fx, "chunks saw $seen bytes")
-            val done = close__2(__fx, p)
+            println(console, "chunks saw $seen bytes")
+            val done = close__2(fs, p)
             if (done is U2_2<*, *>) {
-                println(__fx, "close failed: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+                println(console, "close failed: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
             }
         }
         is U2_2<*, *> -> {
-            println(__fx, "chunks failed: ${kind_name(detach((ch.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "chunks failed: ${kind_name(detach((ch.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val copied = copy_file(__fx, "notes.txt", "notes-copy.txt")
+    val copied = copy_file(fs, "notes.txt", "notes-copy.txt")
     when (copied) {
         is U2_1<*, *> -> {
-            println(__fx, "copied ${(copied.value as Long)} bytes")
+            println(console, "copied ${(copied.value as Long)} bytes")
         }
         is U2_2<*, *> -> {
-            println(__fx, "copy failed: ${kind_name(detach((copied.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "copy failed: ${kind_name(detach((copied.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val whole = read_to_bytes(__fx, "raw.bin")
+    val whole = read_to_bytes(fs, "raw.bin")
     when (whole) {
         is U2_1<*, *> -> {
-            println(__fx, "raw.bin is ${(whole.value as salvo.SalvoBytes).size} bytes: ${(whole.value as salvo.SalvoBytes).toHex()}")
+            println(console, "raw.bin is ${(whole.value as salvo.SalvoBytes).size} bytes: ${(whole.value as salvo.SalvoBytes).toHex()}")
         }
         is U2_2<*, *> -> {
-            println(__fx, "byte read failed: ${kind_name(detach((whole.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "byte read failed: ${kind_name(detach((whole.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
     val failures: MutableList<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> = mutableListOf<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>()
-    val missing = read_to_str(__fx, "nope.txt")
+    val missing = read_to_str(fs, "nope.txt")
     when (missing) {
         is U2_1<*, *> -> {
-            println(__fx, "unexpected: ${(missing.value as String)}")
+            println(console, "unexpected: ${(missing.value as String)}")
         }
         is U2_2<*, *> -> {
             failures.add(detach((missing.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))
         }
     }
-    val not_a_dir = __fx.__fx_Fs.list_dir("notes.txt")
+    val not_a_dir = fs.list_dir("notes.txt")
     when (not_a_dir) {
         is U2_1<*, *> -> {
-            println(__fx, "unexpected: ${(not_a_dir.value as List<String>).joinToString(", ", "[", "]")}")
+            println(console, "unexpected: ${(not_a_dir.value as List<String>).joinToString(", ", "[", "]")}")
         }
         is U2_2<*, *> -> {
             failures.add(detach((not_a_dir.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))
         }
     }
-    println(__fx, "failures: ${failures.size}")
+    println(console, "failures: ${failures.size}")
     for (kind in failures) {
-        println(__fx, "  ${kind_name(kind)}")
+        println(console, "  ${kind_name(kind)}")
     }
     for (name in listOf<String>("notes.txt", "notes-copy.txt", "raw.bin")) {
-        val gone = __fx.__fx_Fs.delete(name)
+        val gone = fs.delete(name)
         if (gone is U2_2<*, *>) {
-            println(__fx, "delete failed: ${kind_name(detach((gone.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "delete failed: ${kind_name(detach((gone.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    println(__fx, "cleaned up")
+    println(console, "cleaned up")
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun<__Fx> sandbox_edges(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console {
-    val inside = write_str(__fx, "sub/../probe.txt", "inside\n")
+fun sandbox_edges(fs: Fs, console: Console) {
+    val inside = write_str(fs, "sub/../probe.txt", "inside\n")
     when (inside) {
         is U2_1<*, *> -> {
-            println(__fx, "through `..`: wrote ${(inside.value as Long)} bytes")
+            println(console, "through `..`: wrote ${(inside.value as Long)} bytes")
         }
         is U2_2<*, *> -> {
-            println(__fx, "through `..`: ${kind_name(detach((inside.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "through `..`: ${kind_name(detach((inside.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val up = read_to_str(__fx, "../secret.txt")
+    val up = read_to_str(fs, "../secret.txt")
     when (up) {
         is U2_1<*, *> -> {
-            println(__fx, "unexpected: read outside the sandbox")
+            println(console, "unexpected: read outside the sandbox")
         }
         is U2_2<*, *> -> {
-            println(__fx, "climbing out: ${kind_name(detach((up.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "climbing out: ${kind_name(detach((up.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
-    val absolute = read_to_str(__fx, "/etc/hosts")
+    val absolute = read_to_str(fs, "/etc/hosts")
     when (absolute) {
         is U2_1<*, *> -> {
-            println(__fx, "unexpected: an absolute path resolved")
+            println(console, "unexpected: an absolute path resolved")
         }
         is U2_2<*, *> -> {
-            println(__fx, "absolute path: ${kind_name(detach((absolute.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+            println(console, "absolute path: ${kind_name(detach((absolute.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         }
     }
     val probe = "probe.txt"
-    println(__fx, "probe still there: ${__fx.__fx_Fs.exists(probe)}")
-    val gone = __fx.__fx_Fs.delete(probe)
+    println(console, "probe still there: ${fs.exists(probe)}")
+    val gone = fs.delete(probe)
     if (gone is U2_2<*, *>) {
-        println(__fx, "delete failed: ${kind_name(detach((gone.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+        println(console, "delete failed: ${kind_name(detach((gone.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
     }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
-    val __fx = __Fx_1(StdOutConsole())
-    val __fx2 = __Fx_2(__fx.__fx_Console, __Mon_RawFs(salvo.platform.fs.host.HostRawFs()))
-    val __fx3 = __Fx_3(__fx2.__fx_Console, DefaultFs(__fx2), __fx2.__fx_RawFs)
+    val console: Console = __Mon_Console(StdOutConsole())
+    val raw_fs: RawFs = __Mon_RawFs(salvo.platform.fs.host.HostRawFs())
+    val fs: Fs = __Mon_Fs(DefaultFs(raw_fs))
     val root = "tmp/files-example"
-    val made = __fx3.__fx_Fs.create_dirs(root)
+    val made = fs.create_dirs(root)
     if (made is U2_2<*, *>) {
-        println(__fx3, "cannot create the working directory: ${kind_name(detach((made.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+        println(console, "cannot create the working directory: ${kind_name(detach((made.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
         return
     }
-    println(__fx3, "-- the real filesystem, scoped to one directory --")
+    println(console, "-- the real filesystem, scoped to one directory --")
     if (true) {
-        val __fx4 = __Fx_3(__fx3.__fx_Console, RestrictedFs(root, __fx3), __fx3.__fx_RawFs)
-        workflow(__fx4)
-        sandbox_edges(__fx4)
+        val fs2: Fs = __Mon_Fs(RestrictedFs(root, fs))
+        workflow(fs2, console)
+        sandbox_edges(fs2, console)
     }
-    val gone = __fx3.__fx_Fs.delete(root)
+    val gone = fs.delete(root)
     if (gone is U2_2<*, *>) {
-        println(__fx3, "cleanup failed: ${kind_name(detach((gone.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
+        println(console, "cleanup failed: ${kind_name(detach((gone.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")
     }
-    println(__fx3, "-- the same code, with no disk at all --")
+    println(console, "-- the same code, with no disk at all --")
     if (true) {
-        val __fx5 = __Fx_3(__fx3.__fx_Console, __Mon_Fs(MemFs()), __fx3.__fx_RawFs)
-        workflow(__fx5)
+        val fs3: Fs = __Mon_Fs(MemFs())
+        workflow(fs3, console)
     }
 }
-
-class __Fx_1(
-    override val __fx_Console: Console,
-) : __Has_Console
-
-class __Fx_2(
-    override val __fx_Console: Console,
-    override val __fx_RawFs: RawFs,
-) : __Has_Console, __Has_RawFs
-
-class __Fx_3(
-    override val __fx_Console: Console,
-    override val __fx_Fs: Fs,
-    override val __fx_RawFs: RawFs,
-) : __Has_Console, __Has_Fs, __Has_RawFs

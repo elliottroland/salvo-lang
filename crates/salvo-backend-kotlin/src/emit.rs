@@ -2235,29 +2235,27 @@ impl<'p> Emitter<'p> {
             format!("({})", params.join(", "))
         };
         // [threadsafe-platform] [kt-platform-handler] The contract, printed
-        // where the implementer signs it. Kotlin shares an object reference
-        // either way; what differs is whether the compiler wraps the
-        // instance in the effect's `synchronized` monitor (`__Mon_E`) — it
-        // does unless the declaration says `threadsafe`.
+        // where the implementer signs it. Since 2026-09-28 (one shape,
+        // [kt-handle]) the word changes no emission: every instance is bound
+        // behind the effect's `synchronized` monitor (`__Mon_E`); the word
+        // is the declared contract a later, lock-free emission will read.
         let contract = if h.threadsafe {
             format!(
                 "\n// `threadsafe platform handler {}` — THE CONTRACT YOU ARE SIGNING:\n\
-                 // this instance is shared across every thread of the program with NO\n\
-                 // lock around it. Every member below may run concurrently with every\n\
-                 // other, so any mutable state needs its own synchronization\n\
-                 // (`ConcurrentHashMap`, atomics, `synchronized` blocks of your own). If\n\
-                 // the host cannot promise that, delete `threadsafe` from the Salvo\n\
-                 // declaration: the compiler then serializes the instance for you\n\
-                 // [threadsafe-platform].\n",
+                 // every member below is safe to run concurrently with every other, so\n\
+                 // any mutable state has its own synchronization (`ConcurrentHashMap`,\n\
+                 // atomics, `synchronized` blocks of your own). Today the compiler still\n\
+                 // serializes the instance behind the effect's monitor; the contract is\n\
+                 // what lets a later emission drop the lock [threadsafe-platform].\n",
                 h.name.name
             )
         } else {
             format!(
                 "\n// `platform handler {}` — the compiler SERIALIZES this instance: every\n\
                  // member runs under one `synchronized` monitor on both backends, so\n\
-                 // plain fields are fine. If the host synchronizes internally and wants\n\
-                 // to run concurrently, declare it `threadsafe platform handler` in\n\
-                 // Salvo and regenerate [threadsafe-platform].\n",
+                 // plain fields are fine. If the host synchronizes internally, declare\n\
+                 // it `threadsafe platform handler` in Salvo to say so\n\
+                 // [threadsafe-platform].\n",
                 h.name.name
             )
         };

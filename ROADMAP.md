@@ -320,7 +320,17 @@ commit; regenerate `examples/*/{rust,kotlin}` whenever emission changes):
    `examples/cluster/`'s `two_ids`/`shop` to inline blocks and delete the
    `two_erased_instances_cannot_share_a_scope` test.
 
-③ **Kotlin: fusion deleted, per-effect parameters.** The gate and
+③ ✅ (2026-09-28) **Kotlin: fusion deleted, per-effect parameters.** Landed
+   as planned: `fx.kt`, `__Has_E`, `__One_E`, `__Fx_N`, the `<__Fx>` carrier
+   and its `where` bounds are gone; a dependent handler takes `private val
+   __dep_E: E` per dependency; every `use` wraps in `__Mon_E` (emitted for
+   every effect), a multi-face `use` one instance with a monitor per face;
+   `threadsafe` is emission-neutral here too. With both emitters on one
+   shape the checker's `UseKind`/`use_kinds`/`classify_shareable_use`/
+   `handler_handle_deps`/`handle_captures` are deleted, `with` on a `use`
+   of any dependent handler is accepted, and the generic dependent handler
+   (`Twice<T> [Store<T>]`) compiles and runs on both backends (new kotlinc
+   case). Original plan: The gate and
    `fx.kt` go; a fn declaring `[A, B]` is `fun f(a: A, b: B, …)` (the JVM
    reference is the handle; `__Mon_E` wraps a stateful one exactly as now);
    a dependent handler takes one constructor argument per dependency typed

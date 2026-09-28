@@ -1,6 +1,5 @@
 package salvo.main
 
-import salvo.*
 import salvo.core.actor.*
 import salvo.core.console.*
 import salvo.core.list.*
@@ -15,8 +14,8 @@ fun verdict(started: Tick, at: Tick, budget: Duration): String {
     return "in time, ${to_str__5(minus(budget, took))} to spare"
 }
 
-fun<__Fx> overdue(__fx: __Fx, started: Tick, budget: Duration): Boolean where __Fx : __Has_Ticker {
-    return cmp__2(elapsed(__fx, started), budget) > 0
+fun overdue(ticker: Ticker, started: Tick, budget: Duration): Boolean {
+    return cmp__2(elapsed(ticker, started), budget) > 0
 }
 
 class SteppingTicker(private val step: Duration) : Ticker {
@@ -42,6 +41,13 @@ class __Stub_Session(private val addr: Int) : Session {
     }
 }
 
+class __Mon_Session(private val inner: Session) : Session {
+    override fun open(started: Tick, budget: Duration, out: salvo.SalvoReply) =
+        synchronized(inner) { inner.open(started, budget, out) }
+    override fun expire(started: Tick, budget: Duration, out: salvo.SalvoReply, f: Fired) =
+        synchronized(inner) { inner.expire(started, budget, out, f) }
+}
+
 sealed class __Msg_Session {
     class Open(val started: Tick, val budget: Duration, val out: salvo.SalvoReply) : __Msg_Session()
     class Expire(val started: Tick, val budget: Duration, val out: salvo.SalvoReply, val f: Fired) : __Msg_Session()
@@ -64,13 +70,13 @@ object __Codec___Msg_Session : salvo.WireCodec<__Msg_Session> {
 /** [protocol-hash] The canonical hash of `Session`. */
 const val __PROTO_Session: String = "7ed70285b7e6568c"
 
-class Sessions<__Fx>(private val __fx: __Fx) : Session where __Fx : __Has_Timer {
+class Sessions(private val __dep_Timer: Timer) : Session {
     internal val __mailboxCapacity: Int = 8
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Sessions> = mutableMapOf()
 
     override fun open(started: Tick, budget: Duration, out: salvo.SalvoReply) {
-        __fx.__fx_Timer.after(plus(budget, seconds(1L)), run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Sessions.Expire(started, budget, out); __r })
+        __dep_Timer.after(plus(budget, seconds(1L)), run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Sessions.Expire(started, budget, out); __r })
     }
 
     override fun expire(started: Tick, budget: Duration, out: salvo.SalvoReply, f: Fired) {
@@ -83,7 +89,7 @@ sealed class __Cont_Sessions {
     class Expire(val started: Tick, val budget: Duration, val out: salvo.SalvoReply) : __Cont_Sessions()
 }
 
-class __Actor_Sessions<__Fx>(private val handler: Sessions<__Fx>) : salvo.SalvoActor where __Fx : __Has_Timer {
+class __Actor_Sessions(private val handler: Sessions) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         __dispatch(msg as __Msg_Session)
@@ -152,6 +158,13 @@ class __Stub_Sleeper(private val addr: Int) : Sleeper {
     }
 }
 
+class __Mon_Sleeper(private val inner: Sleeper) : Sleeper {
+    override fun nap(wait: Duration, out: salvo.SalvoReply) =
+        synchronized(inner) { inner.nap(wait, out) }
+    override fun woke(started: Tick, out: salvo.SalvoReply, f: Fired) =
+        synchronized(inner) { inner.woke(started, out, f) }
+}
+
 sealed class __Msg_Sleeper {
     class Nap(val wait: Duration, val out: salvo.SalvoReply) : __Msg_Sleeper()
     class Woke(val started: Tick, val out: salvo.SalvoReply, val f: Fired) : __Msg_Sleeper()
@@ -174,17 +187,17 @@ object __Codec___Msg_Sleeper : salvo.WireCodec<__Msg_Sleeper> {
 /** [protocol-hash] The canonical hash of `Sleeper`. */
 const val __PROTO_Sleeper: String = "2385b53950dcbd9c"
 
-class Napping<__Fx>(private val __fx: __Fx) : Sleeper where __Fx : __Has_Timer, __Fx : __Has_Ticker {
+class Napping(private val __dep_Timer: Timer, private val __dep_Ticker: Ticker) : Sleeper {
     internal val __mailboxCapacity: Int = 8
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Napping> = mutableMapOf()
 
     override fun nap(wait: Duration, out: salvo.SalvoReply) {
-        __fx.__fx_Timer.after(wait, run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Napping.Woke(__fx.__fx_Ticker.tick(), out); __r })
+        __dep_Timer.after(wait, run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Napping.Woke(__dep_Ticker.tick(), out); __r })
     }
 
     override fun woke(started: Tick, out: salvo.SalvoReply, f: Fired) {
-        salvo.SalvoSched.replyWire(out, "napped ${to_str__5(elapsed(__fx, started))}", salvo.StrCodec)
+        salvo.SalvoSched.replyWire(out, "napped ${to_str__5(elapsed(__dep_Ticker, started))}", salvo.StrCodec)
     }
 }
 
@@ -193,7 +206,7 @@ sealed class __Cont_Napping {
     class Woke(val started: Tick, val out: salvo.SalvoReply) : __Cont_Napping()
 }
 
-class __Actor_Napping<__Fx>(private val handler: Napping<__Fx>) : salvo.SalvoActor where __Fx : __Has_Timer, __Fx : __Has_Ticker {
+class __Actor_Napping(private val handler: Napping) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         __dispatch(msg as __Msg_Sleeper)
@@ -237,23 +250,23 @@ class __Actor_Napping<__Fx>(private val handler: Napping<__Fx>) : salvo.SalvoAct
 
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Session", salvo.main.__PROTO_Session), Pair("Sleeper", salvo.main.__PROTO_Sleeper), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl)))
-    val __fx = __Fx_1(StdOutConsole())
+    val console: Console = __Mon_Console(StdOutConsole())
     val budget = millis(1500L)
-    println(__fx, "budget ${to_str__5(budget)}, doubled ${to_str__5(times(budget, 2L))}, in millis ${to_millis(budget)}")
+    println(console, "budget ${to_str__5(budget)}, doubled ${to_str__5(times(budget, 2L))}, in millis ${to_millis(budget)}")
     val stamp = epoch_milli(1700000000000L)
-    println(__fx, "stamp ${to_epoch_second(stamp)}s, a minute later ${to_epoch_second(plus__2(stamp, minutes(1L)))}s")
-    val __fx2 = __Fx_2(__Mon_Clock(DefaultClock()), __fx.__fx_Console)
-    val __fx3 = __Fx_3(__fx2.__fx_Clock, __fx2.__fx_Console, DefaultTicker())
-    println(__fx3, "wall clock is set: ${to_epoch_second(__fx3.__fx_Clock.now()) > 1600000000}")
-    val __fx4 = __Fx_3(__fx3.__fx_Clock, __fx3.__fx_Console, __Mon_Ticker(SteppingTicker(millis(500L))))
-    val started = __fx4.__fx_Ticker.tick()
-    println(__fx4, "overdue after one more read: ${overdue(__fx4, started, budget)}")
-    println(__fx4, "overdue after three: ${overdue(__fx4, started, budget)} ${overdue(__fx4, started, budget)} ${overdue(__fx4, started, budget)}")
-    println(__fx4, verdict(Tick(nanos = 0L), Tick(nanos = 1000000000L), budget))
-    println(__fx4, verdict(Tick(nanos = 0L), Tick(nanos = 2000000000L), budget))
+    println(console, "stamp ${to_epoch_second(stamp)}s, a minute later ${to_epoch_second(plus__2(stamp, minutes(1L)))}s")
+    val clock: Clock = __Mon_Clock(DefaultClock())
+    val ticker: Ticker = __Mon_Ticker(DefaultTicker())
+    println(console, "wall clock is set: ${to_epoch_second(clock.now()) > 1600000000}")
+    val ticker2: Ticker = __Mon_Ticker(SteppingTicker(millis(500L)))
+    val started = ticker2.tick()
+    println(console, "overdue after one more read: ${overdue(ticker2, started, budget)}")
+    println(console, "overdue after three: ${overdue(ticker2, started, budget)} ${overdue(ticker2, started, budget)} ${overdue(ticker2, started, budget)}")
+    println(console, verdict(Tick(nanos = 0L), Tick(nanos = 1000000000L), budget))
+    println(console, verdict(Tick(nanos = 0L), Tick(nanos = 2000000000L), budget))
     val p = salvo.SalvoSched.pool(1)
     val (timer, ctl) = run { val __h = ManualTime(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_ManualTime(__h), __Actor_ManualTime.__DECODE); Pair(__a, __a) }
-    val sessions = run { val __h = Sessions(__Fx_4(__Stub_Timer(timer))); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sessions(__h), __Actor_Sessions.__DECODE); __a }
+    val sessions = run { val __h = Sessions(__Stub_Timer(timer)); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sessions(__h), __Actor_Sessions.__DECODE); __a }
     val outcome = run {
         val (answer, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
@@ -267,8 +280,8 @@ fun main() {
         salvo.SalvoSched.sendWire(ctl, __Msg_TimerCtl.Advance(millis(2500L)), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
-    println(__fx4, "session: $outcome")
-    val sleeper = run { val __h = Napping(__Fx_5(TestTicker(timer), __Stub_Timer(timer))); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Napping(__h), __Actor_Napping.__DECODE); __a }
+    println(console, "session: $outcome")
+    val sleeper = run { val __h = Napping(__Stub_Timer(timer), TestTicker(timer)); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Napping(__h), __Actor_Napping.__DECODE); __a }
     val napped = run {
         val (answer, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
@@ -282,29 +295,5 @@ fun main() {
         salvo.SalvoSched.sendWire(ctl, __Msg_TimerCtl.Advance(seconds(2L)), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
-    println(__fx4, napped)
+    println(console, napped)
 }
-
-class __Fx_1(
-    override val __fx_Console: Console,
-) : __Has_Console
-
-class __Fx_2(
-    override val __fx_Clock: Clock,
-    override val __fx_Console: Console,
-) : __Has_Clock, __Has_Console
-
-class __Fx_3(
-    override val __fx_Clock: Clock,
-    override val __fx_Console: Console,
-    override val __fx_Ticker: Ticker,
-) : __Has_Clock, __Has_Console, __Has_Ticker
-
-class __Fx_4(
-    override val __fx_Timer: Timer,
-) : __Has_Timer
-
-class __Fx_5(
-    override val __fx_Ticker: Ticker,
-    override val __fx_Timer: Timer,
-) : __Has_Ticker, __Has_Timer

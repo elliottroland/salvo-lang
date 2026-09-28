@@ -3699,9 +3699,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Neither the effect nor its members may be generic. A generic member
     /// is already a loud codegen error on the Rust backend
     /// ([effect-member-generics]), and a generic *effect* would need the
-    /// host to implement one interface per instantiation — Kotlin's facets
-    /// exist for exactly that ([kt-effect-fusion]) and Rust has no
-    /// equivalent, so an instance the compiler cannot pin is refused here
+    /// host to implement one interface per instantiation — Kotlin's
+    /// interfaces could carry that and Rust's traits could not, so an
+    /// instance the compiler cannot pin is refused here
     /// rather than at codegen [backend-never-wrong].
     fn check_platform_effect(&mut self, e: &'p EffectDecl) {
         if !e.platform {

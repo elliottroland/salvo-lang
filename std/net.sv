@@ -263,10 +263,9 @@ export intrinsic fn connected() [] -> Bool
 // already connected, in which case nothing is rebound and no actor is
 // spawned. Call it once per node, before [node_group]; the two actors run on
 // `pool(1)`, or on [on] when given. (A node group's mechanism does not connect
-// for you — it runs as an actor, and an actor's member cannot hand the
-// transport it depends on to another spawn on the Rust backend yet
-// [rs-handle-bundle] — but it refuses to start on a node that is not
-// connected, so the order cannot be got wrong silently.)
+// for you — connecting is the node's business, and the mechanism refuses to
+// start on a node that is not connected, so the order cannot be got wrong
+// silently.)
 export fn connect(me: NodeEndpoint) [Transport, spawn] -> Bool => !me {
     return connect(me, pool(1))
 }
@@ -279,9 +278,8 @@ export fn connect(me: NodeEndpoint, on: Pool) [Transport, spawn] -> Bool => !me,
 }
 
 // [net-connect] The same three bindings over actors the caller spawned — for
-// a node brought up from inside another actor, where the transport cannot be
-// inherited by a spawn on the Rust backend yet [rs-handle-bundle], so the
-// caller spawns `Sending()`/`Receiving()` itself, `with` the transport.
+// a caller that wants to place or supply the two wire actors itself
+// (`spawn Sending() with SomeTransport() on p`).
 export fn connect(me: NodeEndpoint, sending: Addr<Outbound>, receiving: Addr<Inbound>) [Transport] -> Bool
     => !me, !sending, !receiving {
     if connected() {

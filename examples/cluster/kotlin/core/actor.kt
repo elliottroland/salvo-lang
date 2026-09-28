@@ -34,6 +34,11 @@ class __Stub_Faults(private val addr: Int) : Faults {
     }
 }
 
+class __Mon_Faults(private val inner: Faults) : Faults {
+    override fun faulted(fault: Fault) =
+        synchronized(inner) { inner.faulted(fault) }
+}
+
 sealed class __Msg_Faults {
     class Faulted(val fault: Fault) : __Msg_Faults()
 }
