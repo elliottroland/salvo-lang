@@ -9,12 +9,7 @@ import salvo.core.string.*
 
 data class Duration(
     val nanos: Long,
-) : Comparable<Duration> {
-    override fun compareTo(other: Duration): Int {
-        run { val __c = salvo.__salvoCompare(nanos, other.nanos); if (__c != 0) return __c }
-        return 0
-    }
-}
+)
 
 object __Codec_Duration : salvo.WireCodec<Duration> {
     override fun enc(v: Duration, out: salvo.WireOut) {
@@ -25,12 +20,7 @@ object __Codec_Duration : salvo.WireCodec<Duration> {
 
 data class Instant(
     val nanos: Long,
-) : Comparable<Instant> {
-    override fun compareTo(other: Instant): Int {
-        run { val __c = salvo.__salvoCompare(nanos, other.nanos); if (__c != 0) return __c }
-        return 0
-    }
-}
+)
 
 object __Codec_Instant : salvo.WireCodec<Instant> {
     override fun enc(v: Instant, out: salvo.WireOut) {
@@ -41,12 +31,7 @@ object __Codec_Instant : salvo.WireCodec<Instant> {
 
 data class Tick(
     val nanos: Long,
-) : Comparable<Tick> {
-    override fun compareTo(other: Tick): Int {
-        run { val __c = salvo.__salvoCompare(nanos, other.nanos); if (__c != 0) return __c }
-        return 0
-    }
-}
+)
 
 object __Codec_Tick : salvo.WireCodec<Tick> {
     override fun enc(v: Tick, out: salvo.WireOut) {
@@ -479,37 +464,64 @@ fun earliest_due(deadlines: List<Long>, target: Long): Int? {
 }
 
 fun cmp__2(a: Duration, b: Duration): Int {
-    return salvo.__salvoCompare(a, b)
+    val c__c1 = (a.nanos).compareTo(b.nanos)
+    if (c__c1 != 0) {
+        return c__c1
+    }
+    return 0
 }
 
 fun hash__4(value: Duration): Long {
-    return value.hashCode().toLong()
+    var h = 17L
+    h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
+    return h
 }
 
 fun eq__4(a: Duration, b: Duration): Boolean {
-    return a == b
+    if (!((a.nanos) == (b.nanos))) {
+        return false
+    }
+    return true
 }
 
 fun cmp__3(a: Instant, b: Instant): Int {
-    return salvo.__salvoCompare(a, b)
+    val c__c1 = (a.nanos).compareTo(b.nanos)
+    if (c__c1 != 0) {
+        return c__c1
+    }
+    return 0
 }
 
 fun hash__5(value: Instant): Long {
-    return value.hashCode().toLong()
+    var h = 17L
+    h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
+    return h
 }
 
 fun eq__5(a: Instant, b: Instant): Boolean {
-    return a == b
+    if (!((a.nanos) == (b.nanos))) {
+        return false
+    }
+    return true
 }
 
 fun cmp__4(a: Tick, b: Tick): Int {
-    return salvo.__salvoCompare(a, b)
+    val c__c1 = (a.nanos).compareTo(b.nanos)
+    if (c__c1 != 0) {
+        return c__c1
+    }
+    return 0
 }
 
 fun hash__6(value: Tick): Long {
-    return value.hashCode().toLong()
+    var h = 17L
+    h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
+    return h
 }
 
 fun eq__6(a: Tick, b: Tick): Boolean {
-    return a == b
+    if (!((a.nanos) == (b.nanos))) {
+        return false
+    }
+    return true
 }

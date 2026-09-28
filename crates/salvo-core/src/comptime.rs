@@ -194,6 +194,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Vec<(usi
                 // names are looked up directly.
                 let site = f.compfn.as_ref().map(|c| c.span).unwrap_or(f.span);
                 let mut ex = Expander::new(&world, None, site, &mut virtual_next);
+                ex.params = f.params.clone();
                 let mut body = f.body.take();
                 if let Some(b) = &mut body {
                     ex.expand_block(b);
@@ -271,7 +272,6 @@ struct Target {
     kind: CompKind,
     ty: Type,
     generics: Vec<String>,
-    fields: Vec<FieldDecl>,
     canbe: Vec<String>,
 }
 
@@ -313,7 +313,6 @@ impl World {
                 kind: CompKind::Struct,
                 ty: Self::simple_named(name, s.name.span),
                 generics: s.generics.iter().map(|g| g.name.clone()).collect(),
-                fields: s.fields.clone(),
                 canbe: s.auto_qualifiers.iter().map(|q| q.name.name.clone()).collect(),
             });
         }
@@ -330,7 +329,6 @@ impl World {
                 kind: CompKind::Union,
                 ty: Self::simple_named(name, t.name.span),
                 generics: t.generics.iter().map(|g| g.name.clone()).collect(),
-                fields: vec![],
                 canbe: t.auto_qualifiers.iter().map(|q| q.name.name.clone()).collect(),
             });
         }
@@ -811,6 +809,15 @@ impl Remap {
         Remap { min, base }
     }
 
+    fn fresh_for_type_ref(t: &mut TypeRef, virtual_next: &mut u32) -> Remap {
+        let mut b = Bounds { min: u32::MAX, max: 0 };
+        visit_mut::walk_type_ref(&mut b, t);
+        let (min, max) = if b.min == u32::MAX { (0, 0) } else { (b.min, b.max) };
+        let base = *virtual_next;
+        *virtual_next = base + (max.saturating_sub(min)) + 2;
+        Remap { min, base }
+    }
+
     fn region_end(&self, max: u32) -> u32 {
         self.base + (max - self.min) + 1
     }
@@ -877,6 +884,9 @@ struct Binding {
     decl_span: Span,
     label: String,
     is_arm: bool,
+    /// The struct the field belongs to (for a field binder): what a
+    /// `field.name == "…"` is checked against.
+    owner: Option<String>,
 }
 
 /// The body rewriter: unrolls, selects, refuses, and substitutes.
@@ -886,6 +896,8 @@ struct Expander<'w> {
     /// compfn.
     bound: Option<(String, Target)>,
     env: Vec<(String, Binding)>,
+    /// The fn's parameters, for a concrete compfn's `inline when` over one.
+    params: Vec<Param>,
     site: Span,
     virtual_next: &'w mut u32,
     regions: Vec<StampRegion>,
@@ -899,6 +911,7 @@ impl<'w> Expander<'w> {
             world,
             bound,
             env: Vec::new(),
+            params: Vec::new(),
             site,
             virtual_next,
             regions: Vec::new(),
@@ -979,6 +992,7 @@ impl<'w> Expander<'w> {
                         first: i == 0,
                         last: i + 1 == n,
                         is_arm: true,
+                        owner: None,
                     })
                     .collect(),
             );
@@ -1004,6 +1018,7 @@ impl<'w> Expander<'w> {
                     decl_span: f.span,
                     label: format!("{type_name}.{}: {}", f.name.name, f.ty),
                     is_arm: false,
+                    owner: Some(type_name.clone()),
                 })
                 .collect(),
         )
@@ -1047,10 +1062,10 @@ impl<'w> Expander<'w> {
                 };
                 // A name no field has is a mistake at the template, caught at
                 // the first instantiation.
-                if !b.is_arm {
-                    if let Some(t) = self.bound.as_ref().map(|(_, t)| t.clone()) {
-                        if t.kind == CompKind::Struct && !t.fields.iter().any(|f| f.name.name == *lit) {
-                            self.error(*span, format!("`{}` has no field `{lit}` [comptime-inline]", t.name));
+                if let Some(owner) = &b.owner {
+                    if let Some(st) = self.world.structs.get(owner) {
+                        if !st.fields.iter().any(|f| f.name.name == *lit) {
+                            self.error(*span, format!("`{owner}` has no field `{lit}` [comptime-inline]"));
                             return None;
                         }
                     }
@@ -1200,7 +1215,11 @@ impl<'w> Expander<'w> {
                         let b = field.name.trim_start_matches('[').trim_end_matches(']').to_string();
                         self.binding(&b).map(|b| b.ty.clone())
                     }
-                    Expr::Ident(_) => self.bound.as_ref().map(|(_, t)| t.ty.clone()),
+                    Expr::Ident(id) => match &self.bound {
+                        Some((_, t)) => Some(t.ty.clone()),
+                        // A concrete compfn: the parameter's written type.
+                        None => self.params.iter().find(|p| p.name.name == id.name).map(|p| p.ty.clone()),
+                    },
                     _ => None,
                 };
                 let Some(subject_ty) = subject_ty else {
@@ -1216,7 +1235,7 @@ impl<'w> Expander<'w> {
                 let n = arms.len();
                 let mut branches = Vec::new();
                 for (i, arm) in arms.iter().enumerate() {
-                    let Some(check) = arm_check(arm) else {
+                    let Some(mut check) = arm_check(arm) else {
                         self.error(span, format!("arm `{arm}` of `{}` cannot be dispatched on: only a named arm can be tested with `is` [comptime-inline]", self.world.normalized(&subject_ty)));
                         return;
                     };
@@ -1229,9 +1248,17 @@ impl<'w> Expander<'w> {
                         decl_span: arm.span(),
                         label: format!("{} arm `{}`", self.world.normalized(&subject_ty), arm),
                         is_arm: true,
+                        owner: None,
                     };
                     let body = self.copy(&body, &binder.name, &b);
-                    let bspan = body.span;
+                    // The check's spans come from the union's declaration; two
+                    // stamps at one union would key the checker's `is` tables on
+                    // the same node, so each copy gets its own.
+                    for c in &mut check {
+                        let mut remap = Remap::fresh_for_type_ref(c, self.virtual_next);
+                        visit_mut::walk_type_ref(&mut remap, c);
+                    }
+                    let bspan = self.fresh_span();
                     branches.push(WhenBranch {
                         check,
                         binding: None,

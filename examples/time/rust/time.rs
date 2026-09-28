@@ -763,43 +763,64 @@ pub fn earliest_due(deadlines: &Vec<i64>, target: i64) -> Option<i32> {
 }
 
 pub fn cmp__2(a: &Duration, b: &Duration) -> i32 {
-    (Ord::cmp(a, b) as i32)
+    let mut c__c1 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
+    if c__c1 != 0 {
+        return c__c1;
+    }
+    return 0;
 }
 
 pub fn hash__4(value: &Duration) -> i64 {
-    let mut __h = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(value, &mut __h);
-    (std::hash::Hasher::finish(&__h) as i64)
+    let mut h = 17i64;
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    return h;
 }
 
 pub fn eq__4(a: &Duration, b: &Duration) -> bool {
-    (a == b)
+    if !((a.nanos) == (b.nanos)) {
+        return false;
+    }
+    return true;
 }
 
 pub fn cmp__3(a: &Instant, b: &Instant) -> i32 {
-    (Ord::cmp(a, b) as i32)
+    let mut c__c1 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
+    if c__c1 != 0 {
+        return c__c1;
+    }
+    return 0;
 }
 
 pub fn hash__5(value: &Instant) -> i64 {
-    let mut __h = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(value, &mut __h);
-    (std::hash::Hasher::finish(&__h) as i64)
+    let mut h = 17i64;
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    return h;
 }
 
 pub fn eq__5(a: &Instant, b: &Instant) -> bool {
-    (a == b)
+    if !((a.nanos) == (b.nanos)) {
+        return false;
+    }
+    return true;
 }
 
 pub fn cmp__4(a: &Tick, b: &Tick) -> i32 {
-    (Ord::cmp(a, b) as i32)
+    let mut c__c1 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
+    if c__c1 != 0 {
+        return c__c1;
+    }
+    return 0;
 }
 
 pub fn hash__6(value: &Tick) -> i64 {
-    let mut __h = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(value, &mut __h);
-    (std::hash::Hasher::finish(&__h) as i64)
+    let mut h = 17i64;
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    return h;
 }
 
 pub fn eq__6(a: &Tick, b: &Tick) -> bool {
-    (a == b)
+    if !((a.nanos) == (b.nanos)) {
+        return false;
+    }
+    return true;
 }

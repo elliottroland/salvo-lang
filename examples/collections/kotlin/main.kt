@@ -12,13 +12,7 @@ import salvo.core.string.*
 data class Point(
     val x: Int,
     val y: Int,
-) : Comparable<Point> {
-    override fun compareTo(other: Point): Int {
-        run { val __c = salvo.__salvoCompare(x, other.x); if (__c != 0) return __c }
-        run { val __c = salvo.__salvoCompare(y, other.y); if (__c != 0) return __c }
-        return 0
-    }
-}
+)
 
 object __Codec_Point : salvo.WireCodec<Point> {
     override fun enc(v: Point, out: salvo.WireOut) {
@@ -144,17 +138,37 @@ fun main() {
 }
 
 fun cmp__5(a: Point, b: Point): Int {
-    return salvo.__salvoCompare(a, b)
+    val c__c1 = (a.x).compareTo(b.x)
+    if (c__c1 != 0) {
+        return c__c1
+    }
+    val c__c2 = (a.y).compareTo(b.y)
+    if (c__c2 != 0) {
+        return c__c2
+    }
+    return 0
 }
 
 fun hash__7(value: Point): Long {
-    return value.hashCode().toLong()
+    var h = 17L
+    h = ((h) * 31L + ((value.x).hashCode().toLong()))
+    h = ((h) * 31L + ((value.y).hashCode().toLong()))
+    return h
 }
 
 fun eq__7(a: Point, b: Point): Boolean {
-    return a == b
+    if (!((a.x) == (b.x))) {
+        return false
+    }
+    if (!((a.y) == (b.y))) {
+        return false
+    }
+    return true
 }
 
 fun eq__8(a: Note, b: Note): Boolean {
-    return a == b
+    if (!((a.text) == (b.text))) {
+        return false
+    }
+    return true
 }

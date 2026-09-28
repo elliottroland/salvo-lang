@@ -2363,37 +2363,62 @@ pub fn cut_key(a: &NodeEndpoint, b: &NodeEndpoint) -> String {
 }
 
 pub fn cmp(a: &NodeEndpoint, b: &NodeEndpoint) -> i32 {
-    (Ord::cmp(a, b) as i32)
+    let mut c__c1 = (Ord::cmp(&a.host[..], &b.host[..]) as i32);
+    if c__c1 != 0 {
+        return c__c1;
+    }
+    let mut c__c2 = (Ord::cmp(&(a.port), &(b.port)) as i32);
+    if c__c2 != 0 {
+        return c__c2;
+    }
+    return 0;
 }
 
 pub fn hash(value: &NodeEndpoint) -> i64 {
-    let mut __h = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(value, &mut __h);
-    (std::hash::Hasher::finish(&__h) as i64)
+    let mut h = 17i64;
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.host[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.port), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    return h;
 }
 
 pub fn eq(a: &NodeEndpoint, b: &NodeEndpoint) -> bool {
-    (a == b)
+    if !(&a.host[..] == &b.host[..]) {
+        return false;
+    }
+    if !((a.port) == (b.port)) {
+        return false;
+    }
+    return true;
 }
 
 pub fn hash__2(value: &NodeId) -> i64 {
-    let mut __h = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(value, &mut __h);
-    (std::hash::Hasher::finish(&__h) as i64)
+    let mut h = 17i64;
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.id), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    return h;
 }
 
 pub fn eq__2(a: &NodeId, b: &NodeId) -> bool {
-    (a == b)
+    if !((a.id) == (b.id)) {
+        return false;
+    }
+    return true;
 }
 
 pub fn hash__3(value: &Node) -> i64 {
-    let mut __h = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(value, &mut __h);
-    (std::hash::Hasher::finish(&__h) as i64)
+    let mut h = 17i64;
+    h = ((h).wrapping_mul(31).wrapping_add(hash__2(&value.id)));
+    h = ((h).wrapping_mul(31).wrapping_add(hash(&value.at)));
+    return h;
 }
 
 pub fn eq__3(a: &Node, b: &Node) -> bool {
-    (a == b)
+    if !eq__2(&a.id, &b.id) {
+        return false;
+    }
+    if !eq(&a.at, &b.at) {
+        return false;
+    }
+    return true;
 }
 
 pub struct __Hash_hash__NodeId_NodeId;

@@ -2963,18 +2963,22 @@ struct Point : Ordered<self> by auto, Hashed<self> by auto {
     y: Int
 }
 
-// [cmp-auto] The **function-level** form, with no obligation clause at all:
-// `auto` is a modifier on the declaration, so this is what the clause above is
-// sugar for — and it is what a backend's derive hangs on.
+// [fn-by] The **function-level** form, with no obligation clause at all: one
+// member stamped from `core.auto`, declared on the type by being inside it.
 struct Tag {
     label: Str
 
     fn eq(a: Tag, b: Tag) [] -> Bool => a, b by auto
 }
 
-// A generic struct's generated members are generic too.
-struct Box<T> : Eq<self> by auto {
+// A generic struct is not stamped at yet (COMPTIME.md 12.3): its `eq` is
+// written by hand, with the implicit the copy would have needed.
+struct Box<T> : Eq<self> {
     item: T
+}
+
+fn eq<T>(a: Box<T>, b: Box<T>, ?Eq<T>) [] -> Bool => a, b {
+    return eq(a.item, b.item)
 }
 
 fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
@@ -3015,6 +3019,72 @@ fn main() [use] {
         files,
         "auto-members",
         "cmp <=>\neq false true\nhash agrees true\nothers true false\nsmaller 2\n",
+    )
+}
+
+/// [comptime-bound] [obligation-by] [fn-by] [comptime-inline] The comptime
+/// round's first slice, end to end — source and expected stdout **verbatim**
+/// the Rust backend's `rustc_compiles_and_runs_comptime`, which is the parity
+/// claim: the stamped bodies are the same Salvo on both backends.
+fn kotlinc_compiles_and_runs_comptime() -> KotlinCase {
+    let src = r#"
+struct Point : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto {
+    x: Int,
+    y: Int
+}
+
+struct Manual { note: Str }
+struct Imported { feed: Str, n: Int }
+type Source = Manual | Imported | None : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto
+
+fn cmp(a: Manual, b: Manual) -> Int => a, b { return cmp(a.note, b.note) }
+fn eq(a: Manual, b: Manual) -> Bool => a, b { return eq(a.note, b.note) }
+fn hash(v: Manual) -> Long => v { return hash(v.note) }
+fn to_str(v: Manual) -> Str => v { return "Manual(${v.note})" }
+
+struct Imported2 : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto { feed: Str, n: Int }
+fn cmp(a: Imported, b: Imported) -> Int => a, b { return cmp(a.n, b.n) }
+fn eq(a: Imported, b: Imported) -> Bool => a, b { return eq(a.n, b.n) }
+fn hash(v: Imported) -> Long => v { return hash(v.n) }
+fn to_str(v: Imported) -> Str => v { return "Imported(${v.feed}, ${v.n})" }
+
+struct Reading : Hashed<self> {
+    sensor: Str,
+    value: Int
+
+    fn hash(r: Reading) -> Long by auto
+    fn eq(a: Reading, b: Reading) -> Bool => a, b { return a.sensor == b.sensor }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let p = Point { x: 1, y: 2 }
+    let q = Point { x: 1, y: 3 }
+    println("${p}")
+    println("cmp: ${cmp(p, q)} ${cmp(q, p)} ${cmp(p, p)}")
+    println("eq: ${p == q} ${p == Point { x: 1, y: 2 }}")
+    println("hash agrees: ${hash(p) == hash(Point { x: 1, y: 2 })}")
+    let s: Set<Point> = set_of(p, q, Point { x: 1, y: 2 })
+    println("set size: ${size(s)}")
+    let a: Source = Manual { note: "m" }
+    let b: Source = Imported { feed: "f", n: 3 }
+    let c: Source = None
+    println("${to_str(a)} ${to_str(b)} ${to_str(c)}")
+    println("union cmp: ${cmp(a, b)} ${cmp(b, a)} ${cmp(a, a)} ${cmp(c, a)}")
+    println("union eq: ${eq(a, b)} ${eq(a, Manual { note: "m" })} ${eq(c, c)}")
+    println("union hash: ${hash(a) == hash(Manual { note: "m" })}")
+    println("${Imported2 { feed: "x", n: 1 }}")
+    println("reading: ${hash(Reading { sensor: "s", value: 1 }) == hash(Reading { sensor: "s", value: 1 })}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "comptime",
+        "Point { x: 1, y: 2 }\ncmp: -1 1 0\neq: false true\nhash agrees: true\nset size: 2\nManual(m) Imported(f, 3) None\nunion cmp: -1 1 0 1\nunion eq: false true true\nunion hash: true\nImported2 { feed: x, n: 1 }\nreading: true\n",
     )
 }
 
@@ -3759,7 +3829,7 @@ fn kotlinc_compiles_and_runs_a_generic_keyed_container() -> KotlinCase {
 /// natively — it *is* Kotlin's rule (user decision 2026-09-25) — so this side
 /// is the reference and the Rust side was changed to match it.
 const FLOAT_TEXT_DEMO: &str = r#"
-struct Point {
+struct Point : ToStr<self> by auto {
     x: Double,
     ratio: Float
 }
@@ -4379,6 +4449,7 @@ fn kotlinc_compiles_and_runs_placeholder_loops() -> KotlinCase {
 }
 
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_comptime,
     kotlinc_compiles_and_runs_placeholder_loops,
     kotlinc_compiles_and_runs_a_held_identity,
     kotlinc_compiles_and_runs_a_mixed_identity,

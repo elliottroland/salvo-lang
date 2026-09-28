@@ -1379,3 +1379,165 @@ fn probe(a: A, b: B) [] -> Bool => a, b {
         "expected the same-type rule, got: {errs:?}"
     );
 }
+
+// ===== [comptime-inline] [comptime-refuse] [comptime-instantiate] the comptime forms =====
+
+/// [comptime-inline] Every comptime construct belongs inside a `compfn`; in an
+/// ordinary fn each is a parse error naming the scope.
+#[test]
+fn comptime_syntax_outside_a_compfn_is_refused() {
+    for src in [
+        "fn f(p: Int) -> Int => p {\n    inline for x in Int.fields { }\n    return p\n}\n",
+        "fn f(p: Int) -> Int => p {\n    refuse \"no\"\n    return p\n}\n",
+        "struct P { x: Int }\nfn f(p: P) -> Int => p {\n    return p.[x]\n}\n",
+    ] {
+        let (_, diags) = salvo_syntax::parse_module(src);
+        assert!(
+            diags.iter().any(|d| d.message.contains("belongs inside a `compfn`")),
+            "expected the scope to be named for {src:?}: {diags:?}"
+        );
+    }
+}
+
+/// [comptime-inline] An `inline when` over a type is exhaustive over the kinds
+/// unless an `else` closes it, so a kind a compfn did not consider is an error
+/// — the evolution guard (comptime round 3).
+#[test]
+fn an_inline_when_over_kinds_is_exhaustive() {
+    let errs = errors(
+        r#"
+compfn describe<struct T>(v: T) [] -> Int => v {
+    let n = 0
+    inline for field in T.fields {
+        inline when field.type {
+            is struct { n = n + 1 }
+        }
+    }
+    return n
+}
+
+struct P : Counted<self> by describe {
+    x: Int
+}
+
+params Counted<T> {
+    fn describe(v: T) -> Int
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("does not consider every kind") && e.contains("`union`")),
+        "expected the missing kinds to be named: {errs:?}"
+    );
+
+    // With `else`, or with every kind, it stamps.
+    let ok = errors(
+        r#"
+compfn describe<struct T>(v: T) [] -> Int => v {
+    let n = 0
+    inline for field in T.fields {
+        inline when field.type {
+            is struct { n = n + 1 }
+            is union { n = n + 2 }
+            is tuple { n = n + 3 }
+            is fn { n = n + 4 }
+            is opaque { n = n + 5 }
+        }
+    }
+    return n
+}
+
+struct P : Counted<self> by describe {
+    x: Int
+}
+
+params Counted<T> {
+    fn describe(v: T) -> Int
+}
+"#,
+    );
+    assert!(ok.is_empty(), "unexpected errors: {ok:?}");
+}
+
+/// [comptime-refuse] A `refuse` is an error at the `by` site, in the caller's
+/// terms, naming the type.
+#[test]
+fn a_refuse_lands_at_the_by_site() {
+    let errs = errors(
+        r#"
+compfn tag<struct T>(v: T) [] -> Int => v {
+    inline if T canbe Mut {
+        refuse "no tags for a mutable ${T.name}"
+    }
+    return 1
+}
+
+params Tagged<T> {
+    fn tag(v: T) -> Int
+}
+
+struct P : Tagged<self> by tag canbe Mut {
+    x: Int
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("`P` refused: no tags for a mutable P")),
+        "expected the refusal with the name substituted: {errs:?}"
+    );
+}
+
+/// [comptime-instantiate] A concrete `compfn` (no bound) is its own single
+/// instantiation, declared where a fn is — the one-field-by-hand case
+/// (comptime round 2, 12.1), with `field.name == "…"` selecting it.
+#[test]
+fn a_concrete_compfn_is_its_own_instantiation() {
+    let errs = errors(
+        r#"
+struct Reading : Ordered<self> {
+    sensor: Str,
+    value: Int
+
+    compfn cmp(a: Reading, b: Reading) [] -> Int => a, b {
+        inline for field in Reading.fields {
+            inline if field.name == "value" {
+                let c = cmp(b.value, a.value)
+                if c != 0 { return c }
+            } else {
+                let c = cmp(a.[field], b.[field])
+                if c != 0 { return c }
+            }
+        }
+        return 0
+    }
+}
+
+fn probe(a: Reading, b: Reading) [] -> Bool => a, b {
+    return a < b
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+
+    // A field no struct has is caught at the declaration.
+    let errs = errors(
+        r#"
+struct Reading : Ordered<self> {
+    sensor: Str
+
+    compfn cmp(a: Reading, b: Reading) [] -> Int => a, b {
+        inline for field in Reading.fields {
+            inline if field.name == "valeu" {
+                return 0
+            }
+        }
+        return 0
+    }
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("has no field `valeu`")),
+        "expected the misspelling to be caught: {errs:?}"
+    );
+}

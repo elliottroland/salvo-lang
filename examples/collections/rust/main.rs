@@ -171,19 +171,37 @@ pub fn main() {
 }
 
 pub fn cmp__5(a: &Point, b: &Point) -> i32 {
-    (Ord::cmp(a, b) as i32)
+    let mut c__c1 = (Ord::cmp(&(a.x), &(b.x)) as i32);
+    if c__c1 != 0 {
+        return c__c1;
+    }
+    let mut c__c2 = (Ord::cmp(&(a.y), &(b.y)) as i32);
+    if c__c2 != 0 {
+        return c__c2;
+    }
+    return 0;
 }
 
 pub fn hash__7(value: &Point) -> i64 {
-    let mut __h = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(value, &mut __h);
-    (std::hash::Hasher::finish(&__h) as i64)
+    let mut h = 17i64;
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.x), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.y), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    return h;
 }
 
 pub fn eq__7(a: &Point, b: &Point) -> bool {
-    (a == b)
+    if !((a.x) == (b.x)) {
+        return false;
+    }
+    if !((a.y) == (b.y)) {
+        return false;
+    }
+    return true;
 }
 
 pub fn eq__8(a: &Note, b: &Note) -> bool {
-    (a == b)
+    if !(&a.text[..] == &b.text[..]) {
+        return false;
+    }
+    return true;
 }

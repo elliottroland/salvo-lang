@@ -5309,18 +5309,22 @@ struct Point : Ordered<self> by auto, Hashed<self> by auto {
     y: Int
 }
 
-// [cmp-auto] The **function-level** form, with no obligation clause at all:
-// `auto` is a modifier on the declaration, so this is what the clause above is
-// sugar for — and it is what a backend's derive hangs on.
+// [fn-by] The **function-level** form, with no obligation clause at all: one
+// member stamped from `core.auto`, declared on the type by being inside it.
 struct Tag {
     label: Str
 
     fn eq(a: Tag, b: Tag) [] -> Bool => a, b by auto
 }
 
-// A generic struct's generated members are generic too.
-struct Box<T> : Eq<self> by auto {
+// A generic struct is not stamped at yet (COMPTIME.md 12.3): its `eq` is
+// written by hand, with the implicit the copy would have needed.
+struct Box<T> : Eq<self> {
     item: T
+}
+
+fn eq<T>(a: Box<T>, b: Box<T>, ?Eq<T>) [] -> Bool => a, b {
+    return eq(a.item, b.item)
 }
 
 fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
@@ -5357,8 +5361,10 @@ fn main() [use] {
 pub const AUTO_OUTPUT: &str =
     "cmp <=>\neq false true\nhash agrees true\nothers true false\nsmaller 2\n";
 
-/// The lowering: the generated member stands on the derive, and the derive is
-/// what the `default` clause asks for.
+/// [obligation-by] The lowering: a stamped member is an **ordinary Rust fn**
+/// whose body is the unrolled Salvo — a `cmp` per field, in declaration order —
+/// and the struct keeps the host derives a keyed container over a `List<Point>`
+/// still stands on [col-hashed-ordered].
 #[test]
 fn default_obligations_lower_to_the_hosts_derives() {
     let files = generate(&[("main.sv", AUTO_DEMO)]);
@@ -5368,17 +5374,18 @@ fn default_obligations_lower_to_the_hosts_derives() {
         .expect("main.rs")
         .content;
     for expected in [
-        // `auto Ordered` + `auto Hashed` ask for exactly the derives
-        // the `default` clauses ask for.
+        // A struct with a `hash` and a `cmp` keeps the host derives for the
+        // containers that reach them structurally.
         "#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]\npub struct Point",
-        // The generated members are ordinary Rust fns over the derive.
-        "(Ord::cmp(a, b) as i32)",
-        "std::hash::DefaultHasher::new()",
-        // A generic struct's member carries the bound its derive carries.
+        // The stamped body is field-wise Salvo: one per-field `cmp`, then `0`.
+        "return 0;",
+        // The hand-written generic `eq` takes its implicit.
         "pub fn eq__",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
+    // No structural member is lowered to the host's derived operation any more.
+    assert!(!src.contains("(Ord::cmp(a, b) as i32)"), "{src}");
 }
 
 #[test]
@@ -5389,6 +5396,76 @@ fn rustc_compiles_and_runs_auto_members() {
     }
     let files = generate(&[("main.sv", AUTO_DEMO)]);
     run_rust_files(&files, "auto_members", AUTO_OUTPUT);
+}
+
+/// [comptime-bound] [obligation-by] [fn-by] [comptime-inline] The comptime
+/// round's first slice, end to end: `by auto` on a struct and on a **named
+/// union** (`type Source = … : Ordered<self> by auto`), the function form
+/// mixing a stamped `hash` with a hand-written `eq`, and `ToStr<self> by auto`
+/// rendering the literal's shape. The union bodies dispatch with `inline when`
+/// over the arms, `None` included. Source and expected stdout are **verbatim**
+/// the Kotlin backend's `kotlinc_compiles_and_runs_comptime`.
+pub const COMPTIME_DEMO: &str = r#"
+struct Point : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto {
+    x: Int,
+    y: Int
+}
+
+struct Manual { note: Str }
+struct Imported { feed: Str, n: Int }
+type Source = Manual | Imported | None : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto
+
+fn cmp(a: Manual, b: Manual) -> Int => a, b { return cmp(a.note, b.note) }
+fn eq(a: Manual, b: Manual) -> Bool => a, b { return eq(a.note, b.note) }
+fn hash(v: Manual) -> Long => v { return hash(v.note) }
+fn to_str(v: Manual) -> Str => v { return "Manual(${v.note})" }
+
+struct Imported2 : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto { feed: Str, n: Int }
+fn cmp(a: Imported, b: Imported) -> Int => a, b { return cmp(a.n, b.n) }
+fn eq(a: Imported, b: Imported) -> Bool => a, b { return eq(a.n, b.n) }
+fn hash(v: Imported) -> Long => v { return hash(v.n) }
+fn to_str(v: Imported) -> Str => v { return "Imported(${v.feed}, ${v.n})" }
+
+struct Reading : Hashed<self> {
+    sensor: Str,
+    value: Int
+
+    fn hash(r: Reading) -> Long by auto
+    fn eq(a: Reading, b: Reading) -> Bool => a, b { return a.sensor == b.sensor }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let p = Point { x: 1, y: 2 }
+    let q = Point { x: 1, y: 3 }
+    println("${p}")
+    println("cmp: ${cmp(p, q)} ${cmp(q, p)} ${cmp(p, p)}")
+    println("eq: ${p == q} ${p == Point { x: 1, y: 2 }}")
+    println("hash agrees: ${hash(p) == hash(Point { x: 1, y: 2 })}")
+    let s: Set<Point> = set_of(p, q, Point { x: 1, y: 2 })
+    println("set size: ${size(s)}")
+    let a: Source = Manual { note: "m" }
+    let b: Source = Imported { feed: "f", n: 3 }
+    let c: Source = None
+    println("${to_str(a)} ${to_str(b)} ${to_str(c)}")
+    println("union cmp: ${cmp(a, b)} ${cmp(b, a)} ${cmp(a, a)} ${cmp(c, a)}")
+    println("union eq: ${eq(a, b)} ${eq(a, Manual { note: "m" })} ${eq(c, c)}")
+    println("union hash: ${hash(a) == hash(Manual { note: "m" })}")
+    println("${Imported2 { feed: "x", n: 1 }}")
+    println("reading: ${hash(Reading { sensor: "s", value: 1 }) == hash(Reading { sensor: "s", value: 1 })}")
+}
+"#;
+
+pub const COMPTIME_OUTPUT: &str = "Point { x: 1, y: 2 }\ncmp: -1 1 0\neq: false true\nhash agrees: true\nset size: 2\nManual(m) Imported(f, 3) None\nunion cmp: -1 1 0 1\nunion eq: false true true\nunion hash: true\nImported2 { feed: x, n: 1 }\nreading: true\n";
+
+#[test]
+fn rustc_compiles_and_runs_comptime() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", COMPTIME_DEMO)]);
+    run_rust_files(&files, "comptime", COMPTIME_OUTPUT);
 }
 
 /// [op-order] [op-equality] The **operators** through the groups: `a < b` is
@@ -14857,22 +14934,20 @@ fn rustc_compiles_and_runs_a_generic_keyed_container() {
 /// [backend-never-wrong]. Accepted deliberately (user, 2026-09-26): the lift
 /// is ROADMAP's "Recursive implicit resolution".
 #[test]
-fn a_tuple_key_is_refused_by_name() {
-    // A tuple has no declared identity, so a keyed container over one cannot
-    // resolve its capability. (Comparing tuples never worked either — the same
-    // gap.) The *generic-body* limitation this test used to name alongside it
-    // was lowered on 2026-09-26 [rs-stored-implicit]; see
-    // `a_generic_body_builds_every_keyed_container` below.
-    let errs = expect_errors(
+fn a_tuple_key_resolves_the_structural_identity() {
+    // [col-hashed-ordered] **Interim** (2026-09-28): a tuple or a list key
+    // resolves the structural host identity `core.compare` declares for it,
+    // so this container builds — the same on both backends for scalar
+    // elements. What is still not consulted is an element struct's *own*
+    // `cmp` inside a tuple; std owning these waits on ROADMAP §6.
+    let files = generate(&[(
+        "main.sv",
         "fn main() [use] -> None {\n    \
          use StdOutConsole()\n    \
-         let ns: SortedSet<(Int, Int)> = sorted_set_of((1, 2))\n    \
+         let ns: SortedSet<(Int, Int)> = sorted_set_of((1, 2), (1, 2), (0, 5))\n    \
          println(\"${size(ns)}\")\n}\n",
-    );
-    assert!(
-        errs.iter().any(|e| e.contains("no `cmp` fits")),
-        "a tuple key must be refused by name: {errs:?}"
-    );
+    )]);
+    assert!(!files.is_empty());
 }
 
 /// [cmp-carry] [rs-stored-implicit] A keyed container built inside a **generic**
@@ -15024,7 +15099,7 @@ fn rustc_compiles_and_runs_after_the_reachability_narrowing() {
 /// struct rendered field-wise [interp-struct], a list, an explicit `to_str`, a
 /// nested list, and a map *value* — every path where a float becomes text.
 const FLOAT_TEXT_DEMO: &str = r#"
-struct Point {
+struct Point : ToStr<self> by auto {
     x: Double,
     ratio: Float
 }

@@ -8353,7 +8353,7 @@ impl<'p> Emitter<'p> {
             // [cmp-groups] The canonical `cmp(Str, Str)` goes through the same
             // comparator, for the same reason: `String.compareTo` is UTF-16
             // code-unit order where Salvo's `Str` order is code point.
-            if f.name.name == "cmp" && recv == Some("Str") {
+            if f.name.name == "cmp" && matches!(recv, Some("Str" | "List" | "()")) {
                 self.needs_compare = true;
             }
             // [time-types] [kt-time] The two clock readings live in their own
@@ -8886,7 +8886,7 @@ impl<'p> Emitter<'p> {
         // runtime file of its own, exactly as a direct call to it would:
         // `cmp(Str, Str)` is `__salvoCompare`, and an adapter is the one place
         // a program can reach it without ever calling `cmp` directly.
-        if decl.name.name == "cmp" && recv == Some("Str") {
+        if decl.name.name == "cmp" && matches!(recv, Some("Str" | "List" | "()")) {
             self.needs_compare = true;
         }
         match crate::intrinsics::fn_call(&decl.name.name, recv, &params, &[], None, None) {

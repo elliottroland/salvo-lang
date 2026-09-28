@@ -68,7 +68,10 @@ export compfn to_str<struct T>(value: T) [] -> Str => value {
         } else {
             append(out, ", ")
         }
-        append(out, "${field.name}: ${to_str(value.[field])}")
+        // Interpolated rather than `to_str(…)`: interpolation is what knows
+        // how every type renders — the scalars natively, a float by Salvo's
+        // rule [interp-float], a struct by its own `to_str` [interp-to-str].
+        append(out, "${field.name}: ${value.[field]}")
     }
     append(out, " }")
     return out
@@ -140,6 +143,8 @@ export compfn to_str<union T>(value: T) [] -> Str => value {
             inline if arm.type is None {
                 return "None"
             } else {
+                // The arm's own `to_str`, by ordinary overload ranking (the
+                // arm is more specific than the union).
                 return to_str(value)
             }
         }

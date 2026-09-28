@@ -16,13 +16,7 @@ import salvo.time.*
 data class NodeEndpoint(
     val host: String,
     val port: Int,
-) : Comparable<NodeEndpoint> {
-    override fun compareTo(other: NodeEndpoint): Int {
-        run { val __c = salvo.__salvoCompare(host, other.host); if (__c != 0) return __c }
-        run { val __c = salvo.__salvoCompare(port, other.port); if (__c != 0) return __c }
-        return 0
-    }
-}
+)
 
 object __Codec_NodeEndpoint : salvo.WireCodec<NodeEndpoint> {
     override fun enc(v: NodeEndpoint, out: salvo.WireOut) {
@@ -1446,29 +1440,60 @@ fun cut_key(a: NodeEndpoint, b: NodeEndpoint): String {
 }
 
 fun cmp(a: NodeEndpoint, b: NodeEndpoint): Int {
-    return salvo.__salvoCompare(a, b)
+    val c__c1 = salvo.__salvoCompare(a.host, b.host)
+    if (c__c1 != 0) {
+        return c__c1
+    }
+    val c__c2 = (a.port).compareTo(b.port)
+    if (c__c2 != 0) {
+        return c__c2
+    }
+    return 0
 }
 
 fun hash(value: NodeEndpoint): Long {
-    return value.hashCode().toLong()
+    var h = 17L
+    h = ((h) * 31L + ((value.host).hashCode().toLong()))
+    h = ((h) * 31L + ((value.port).hashCode().toLong()))
+    return h
 }
 
 fun eq(a: NodeEndpoint, b: NodeEndpoint): Boolean {
-    return a == b
+    if (!((a.host) == (b.host))) {
+        return false
+    }
+    if (!((a.port) == (b.port))) {
+        return false
+    }
+    return true
 }
 
 fun hash__2(value: NodeId): Long {
-    return value.hashCode().toLong()
+    var h = 17L
+    h = ((h) * 31L + ((value.id).hashCode().toLong()))
+    return h
 }
 
 fun eq__2(a: NodeId, b: NodeId): Boolean {
-    return a == b
+    if (!((a.id) == (b.id))) {
+        return false
+    }
+    return true
 }
 
 fun hash__3(value: Node): Long {
-    return value.hashCode().toLong()
+    var h = 17L
+    h = ((h) * 31L + (hash__2(value.id)))
+    h = ((h) * 31L + (hash(value.at)))
+    return h
 }
 
 fun eq__3(a: Node, b: Node): Boolean {
-    return a == b
+    if (!eq__2(a.id, b.id)) {
+        return false
+    }
+    if (!eq(a.at, b.at)) {
+        return false
+    }
+    return true
 }
