@@ -244,8 +244,13 @@ value — the user likes the fused syntax and chose the plainer output; and
 with one shape it selects nothing. Accepted consequences: a stateful handler
 captured by two spawns is shared state (Kotlin's behaviour already), and a
 member that lends `&mut` into a handler's state becomes a checker error
-(no std effect has one). Lock-free scope-local bindings and lock-free
-stateless handlers return as optimisation items once the shapes settle.
+(no std effect has one). Also decided the same morning: **one handle
+implementation** (`Arc<Mutex<H>>` for every handler, stateless included;
+Kotlin wraps every `use` in `__Mon_E` for parity), `threadsafe platform
+handler` kept as a declared contract with no emission until the lock-free
+pass, and fn-typed handler parameters/state emitted `+ Send` so stored
+lambdas stay legal. Lock-free scope-local bindings and lock-free stateless
+handlers return as optimisation items once the shapes settle.
 The alternatives weighed (fusion everywhere; keep both shapes and close the
 gaps; make `[E]`/`[local E]` the stated rule) are in EFFECT_FUSION.md §4 for
 the record.

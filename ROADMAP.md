@@ -192,17 +192,17 @@ keeps "one shape" true on both backends. Two consequences of "one impl":
 
 - **`threadsafe platform handler`** becomes emission-neutral (the host is
   behind the same mutex as everything else; the `&self` twin trait
-  `__Shared_H` and the `__Arc_H` adapter go). Recommendation: keep the word
-  as the declared contract `salvo platform generate` prints, emit nothing
-  for it; revisit with the lock-free pass, which is where it earns its keep.
+  `__Shared_H` and the `__Arc_H` adapter go). **Decided (user, 2026-09-28)**:
+  keep the word as the declared contract `salvo platform generate` prints,
+  emit nothing for it; it earns its keep in the lock-free pass.
 - **A handler holding a function value** (`handler Derived(step: (n: Int) ->
   Int) of Random`) is today refused for a shareable binding — a Rust
   `Box<dyn FnMut>` is not `Send` — and is `use local`-only. With `local`
-  gone it could not be bound at all. Recommendation: fn-typed constructor
-  parameters and state fields emit as `Box<dyn FnMut(…) + Send>` (Salvo
-  lambdas capture by value, so the bound holds), and the "holds a function
-  value" arm of `unsendable_reason` is deleted. Stored lambdas then work
-  everywhere, on both backends.
+  gone it could not be bound at all. **Decided (user, 2026-09-28)**: fn-typed
+  constructor parameters and state fields emit as `Box<dyn FnMut(…) + Send>`
+  (Salvo lambdas capture by value, so the bound holds), and the "holds a
+  function value" arm of `unsendable_reason` is deleted. Stored lambdas then
+  work everywhere, on both backends.
 
 **The one thing a handle cannot do**: a member that lends `&mut` into the
 handler's state ([rs-loc] "wholesale-lending", `fn_type_lends_mut`) cannot
