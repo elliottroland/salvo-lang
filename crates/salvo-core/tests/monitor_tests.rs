@@ -509,6 +509,52 @@ fn main() [use] {
     );
 }
 
+/// [effect-handle] [actor-deadlock-cycle] The same shape with **stateless**
+/// handlers holds no lock: a stateless handler's members run on the caller's
+/// thread with nothing shared held, so there is no `H's lock` node and no
+/// cycle to report (2026-09-28: the graph's lock nodes follow the same
+/// statefulness predicate the emitters key the handle's lock on).
+#[test]
+fn stateless_handlers_hold_no_lock_in_the_graph() {
+    let errs = errors(
+        "\
+effect Ping {
+    fn ping() -> Int
+}
+
+effect Pong {
+    fn pong() -> Int
+}
+
+handler BasePing of Ping {
+    fn ping() -> Int { return 1 }
+}
+
+handler BasePong of Pong {
+    fn pong() -> Int { return 2 }
+}
+
+handler Pinger [Pong] of Ping {
+    fn ping() -> Int { return pong() + 1 }
+}
+
+handler Ponger [Ping] of Pong {
+    fn pong() -> Int { return ping() + 1 }
+}
+
+fn main() [use] {
+    use BasePing()
+    use BasePong()
+    use Pinger()
+    use Ponger()
+    let got = pong()
+    let sink = got
+}
+",
+    );
+    assert!(errs.is_empty(), "expected no lock cycle for stateless handlers: {errs:?}");
+}
+
 // ===== spawn-inheritance and the `with` clause (2026-09-20) =====
 
 /// [spawn-inherit] [with-clause] A **partial** clause (user decision

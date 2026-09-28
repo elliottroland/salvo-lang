@@ -1302,8 +1302,8 @@ fn check_once<'p>(
     // sends a warning. Last, because it reads what this round's checking
     // recorded (`actor_gates`, `actor_sends`) — and inside the round, so its
     // diagnostics land with the round whose diagnostics are kept.
-    crate::deadlock::check(program, symbols, &mut out);
     out.parking_handlers = parking_handlers.clone();
+    crate::deadlock::check(program, symbols, &mut out);
     out
 }
 

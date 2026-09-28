@@ -196,13 +196,17 @@ fn build(
     //
     // [effect-handle] [monitor-handler] And, since shareable-by-default (user
     // decision 2026-09-20, option (b): waits under a lock are priced, not
-    // refused), the **shareable plain handlers worth a node of their own**:
-    // a plain-face, no-send-member handler that declares dependencies or
-    // waits. Its callers run its members on their own threads — under the
-    // lock when it is stateful — so what its members can wait on becomes an
-    // edge, and a handler depending on its effect may park in it (an
-    // occupancy edge in). A pure monitor (no deps, no waits) adds nothing
-    // and gets no node.
+    // refused), the **stateful plain handlers worth a node of their own**:
+    // a plain-face, no-send-member, *stateful* handler
+    // (`crate::handler_is_stateful` — the same predicate the emitters key
+    // the handle's lock on) that declares dependencies or waits. Its
+    // callers run its members on their own threads under its lock, so what
+    // its members can wait on or send to becomes an edge held while the
+    // lock is, and a handler depending on its effect may park in it (an
+    // occupancy edge in). A stateless handler's members run on the caller's
+    // thread with nothing held, so the caller's own edges already price
+    // them; a pure monitor (no deps, no waits) adds nothing. Neither gets a
+    // node.
     let mut mixed_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut monitor_like: Vec<(usize, &ast::HandlerDecl)> = Vec::new();
     let mut monitor_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -217,6 +221,13 @@ fn build(
                 continue;
             }
             if !h.fns.iter().any(|f| f.is_send) {
+                let stateful = crate::handler_is_stateful(
+                    h,
+                    out.parking_handlers.contains(h.name.name.as_str()),
+                );
+                if !stateful {
+                    continue;
+                }
                 let has_deps = h
                     .effects
                     .iter()
