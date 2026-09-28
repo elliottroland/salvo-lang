@@ -3696,8 +3696,10 @@ impl<'p> Emitter<'p> {
             // built it. Called as `(self.copy)(…)`.
             // [rs-handle] `+ Send`: the handler sits behind a handle that
             // crosses threads, and a Salvo lambda captures by value, so the
-            // bound holds for every adapter the checker resolves.
-            let ty = if p.implicit {
+            // bound holds for every adapter the checker resolves. A written
+            // fn-typed constructor parameter (`handler Derived(step: (n: Int)
+            // -> Int)`) is stored the same way (user decision 2026-09-28).
+            let ty = if p.implicit || matches!(p.ty, Type::Fn { .. }) {
                 let rendered = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
                 format!("Box<dyn {} + Send>", rendered.trim_start_matches("impl "))
             } else {
@@ -3792,7 +3794,7 @@ impl<'p> Emitter<'p> {
                 let ty = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
                 // [copy-implicit] The adapter arrives as `impl FnMut + Send +
                 // 'static` and is boxed into the field.
-                let ty = if p.implicit {
+                let ty = if p.implicit || matches!(p.ty, Type::Fn { .. }) {
                     format!("{ty} + Send + 'static")
                 } else {
                     ty
@@ -3811,7 +3813,7 @@ impl<'p> Emitter<'p> {
             ctor_params.join(", ")
         ));
         for p in &own {
-            if p.implicit {
+            if p.implicit || matches!(p.ty, Type::Fn { .. }) {
                 out.push_str(&format!(
                     "            {}: Box::new({}),\n",
                     rs_ident(&p.name.name),
@@ -14490,8 +14492,11 @@ impl<'p> Emitter<'p> {
         all.extend(arg_code);
         let generics = self.emit_call_type_args(type_args);
         // [iter-fn] A callback that is a field of the generated pass
-        // needs parentheses: `self.f(..)` would be a method call.
-        let callee = if self.gen_fields.contains(name) {
+        // needs parentheses: `self.f(..)` would be a method call — and so
+        // does a handler's fn-typed constructor parameter, a `self` field.
+        let callee = if self.gen_fields.contains(name)
+            || matches!(self.bindings.get(name), Some(BindKind::SelfField))
+        {
             format!("(self.{})", rs_ident(name))
         } else {
             rs_ident(name)

@@ -3407,22 +3407,31 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.generics = inner;
     }
 
-    /// [actor-sendable] Why a value of this type may not cross a seam, or
-    /// `None` when it may (user decision 2026-09-15, C-4(a) as the structural
-    /// rule). Two kinds of contents are refused, both because the *other* side
-    /// could never own what it received:
+    /// [actor-sendable] Why a value of this type may not cross a seam **as a
+    /// message or a task capture**, or `None` when it may (user decision
+    /// 2026-09-15, C-4(a) as the structural rule). Two kinds of contents are
+    /// refused, both because the *other* side could never own what it
+    /// received:
     ///
-    /// * a **function-typed** field or component — a callback is shared, and
-    ///   the Rust backend holds one in an `Rc`, which is not `Send`
-    ///   [rs-fn-field];
+    /// * a **function-typed** field or component — a message payload of fn
+    ///   type has no wire and no enum rendering yet (C-4(c) is the recorded
+    ///   growth point for when sent closures become real);
     /// * a **`proj` view** — a borrow of a value the sender still owns.
-    ///
-    /// `Arc`-where-sent inference is the recorded growth point (C-4(c)) for
-    /// when sent closures become real; until then the answer is a diagnostic.
     fn unsendable_reason(&self, ty: &Ty) -> Option<&'static str> {
         if self.ty_holds_fn(ty, 0) {
             return Some("it holds a function value, which is shared rather than owned");
         }
+        self.unshareable_reason(ty)
+    }
+
+    /// [effect-handle] [actor-sendable] Why a **handler's** constructor
+    /// parameter or state field may not sit behind a handle, or `None` when
+    /// it may. A function value is fine here (user decision 2026-09-28): a
+    /// Salvo lambda captures by value, and both backends store a handler's
+    /// callback in a form that crosses threads (`Box<dyn FnMut + Send>` /
+    /// `Arc<dyn Fn + Send + Sync>` on Rust [rs-fn-field]). What stays refused
+    /// is a `proj` view — a borrow of a value the scope still owns.
+    fn unshareable_reason(&self, ty: &Ty) -> Option<&'static str> {
         if self.ty_holds_proj(ty) {
             return Some("it holds a `proj` view, which borrows the sender's value");
         }
@@ -7670,13 +7679,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         let saved = self.enter_generics(&decl.generics);
         for p in &decl.params {
             let ty = self.lower_type(&p.ty);
-            if self.unsendable_reason(&ty).is_some() {
+            if self.unshareable_reason(&ty).is_some() {
                 inline = true;
             }
         }
         for field in &decl.state {
             let ty = self.lower_type(&field.ty);
-            if self.unsendable_reason(&ty).is_some() {
+            if self.unshareable_reason(&ty).is_some() {
                 inline = true;
             }
         }
@@ -13157,7 +13166,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // parameters and state fields alike.
         for p in &decl.params {
             let ty = self.lower_type(&p.ty);
-            if let Some(why) = self.unsendable_reason(&ty) {
+            if let Some(why) = self.unshareable_reason(&ty) {
                 self.error(
                     span,
                     format!(
@@ -13171,7 +13180,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         for field in &decl.state {
             let ty = self.lower_type(&field.ty);
-            if let Some(why) = self.unsendable_reason(&ty) {
+            if let Some(why) = self.unshareable_reason(&ty) {
                 self.error(
                     span,
                     format!(

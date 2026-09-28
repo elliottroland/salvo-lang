@@ -216,19 +216,6 @@ fn main() [use, spawn] {
     );
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
-",
-    );
-    let diag = errs
-        .iter()
-        .find(|m| m.contains("inherits `Log` from this scope"))
-        .unwrap_or_else(|| panic!("expected the inline-binding refusal: {errs:?}"));
-    assert!(
-        diag.contains("binding here is inline")
-            && diag.contains("spawn the handler of `Log`")
-            && diag.contains("`with SomeHandler()`"),
-        "the diagnostic must name both remedies: {diag}"
-    );
-}
 
 /// Supplying something the handler does not depend on is a mistake, not
 /// generosity: the reader believes it is being used.

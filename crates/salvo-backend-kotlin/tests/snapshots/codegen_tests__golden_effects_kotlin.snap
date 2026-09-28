@@ -1,6 +1,5 @@
 ---
 source: crates/salvo-backend-kotlin/tests/codegen_tests.rs
-assertion_line: 2050
 expression: combined
 ---
 // ===== core/checked.kt =====
@@ -449,8 +448,8 @@ fun lucky_number(random_int: Random<Int>): Int {
 
 fun main() {
     val console: Console = StdOutConsole()
-    val random_int: Random<Int> = CyclicRandom<Int>(listOf<Int>(10, 20, 30), { __i0 -> __i0 })
-    val random_string: Random<String> = CyclicRandom<String>(listOf<String>("a", "b"), { __i0 -> __i0 })
+    val random_int: Random<Int> = __Mon_Random(CyclicRandom<Int>(listOf<Int>(10, 20, 30), { __i0 -> __i0 }))
+    val random_string: Random<String> = __Mon_Random(CyclicRandom<String>(listOf<String>("a", "b"), { __i0 -> __i0 }))
     draw(random_int, random_string, console)
     draw(random_int, random_string, console)
     println(console, "lucky: ${random_int.next_random()}")

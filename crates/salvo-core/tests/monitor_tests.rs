@@ -251,11 +251,14 @@ fn main() [use, spawn] {
     );
 }
 
-/// [actor-sendable] The instance crosses to every thread that binds the
-/// handle, so a fn-typed constructor parameter — shared, not owned — is
-/// refused by name at the spawn.
+/// [effect-handle] [actor-sendable] A handler holding a **function value**
+/// shares like any other (user decision 2026-09-28): a Salvo lambda captures
+/// by value, and both backends store a handler's callback in a form that
+/// crosses threads — so `Derived(step: (n: Int) -> Int)` is spawned as a
+/// monitor and `use`d alike. (Until then it was refused as unsendable; what
+/// stays refused is a `proj` view, below.)
 #[test]
-fn a_monitor_spawn_refuses_unsendable_state() {
+fn a_monitor_spawn_shares_a_stored_function_value() {
     let errs = errors(
         "\
 handler Derived(step: (n: Int) -> Int) of Random {
@@ -269,16 +272,12 @@ handler Derived(step: (n: Int) -> Int) of Random {
 
 fn main() [use, spawn] {
     let rng = spawn Derived(n -> n + 1)
+    use Derived(n -> n + 2)
     let ok = next()
 }
 ",
     );
-    assert!(
-        errs.iter().any(|m| m.contains("cannot be shared")
-            && m.contains("step")
-            && m.contains("must be sendable")),
-        "expected the sendability refusal: {errs:?}"
-    );
+    assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
 // ===== every binding is a handle [effect-handle] =====

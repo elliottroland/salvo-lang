@@ -2066,10 +2066,10 @@ fn effects_resolve_through_checker_tables() {
     // nothing to infer from.
     assert!(main
         .content
-        .contains("val random_int: Random<Int> = CyclicRandom<Int>(listOf<Int>(10, 20, 30), { __i0 -> __i0 })"));
+        .contains("val random_int: Random<Int> = __Mon_Random(CyclicRandom<Int>(listOf<Int>(10, 20, 30), { __i0 -> __i0 }))"));
     assert!(main
         .content
-        .contains("val random_string: Random<String> = CyclicRandom<String>(listOf<String>(\"a\", \"b\"), { __i0 -> __i0 })"));
+        .contains("val random_string: Random<String> = __Mon_Random(CyclicRandom<String>(listOf<String>(\"a\", \"b\"), { __i0 -> __i0 }))"));
     // Callee effect dependencies are threaded in declaration order.
     assert!(main
         .content
@@ -7580,7 +7580,7 @@ fn aliased_effect_types_resolve_to_the_same_handler() {
     // parameter and its call site must agree with it.
     assert!(
         main.content.contains(
-            "val random_int: Random<Int> = CyclicRandom<Int>(listOf<Int>(7, 8), { __i0 -> __i0 })"
+            "val random_int: Random<Int> = __Mon_Random(CyclicRandom<Int>(listOf<Int>(7, 8), { __i0 -> __i0 }))"
         ),
         "unexpected use lowering in:\n{}",
         main.content
