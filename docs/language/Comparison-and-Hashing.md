@@ -92,61 +92,70 @@ You need the selector exactly when two `cmp`s fit: ambiguity is always refused
 rather than resolved by scope (see [Functions](Functions.md)).
 
 For the everyday case — compare the fields, in order — you do not write the
-bodies at all. `auto` asks the compiler for them:
+bodies at all. `by auto` **stamps** them from the standard library's
+compile-time functions:
 
 ```
-struct Point {
-    x: Int,
-    y: Int
-
-    auto fn cmp(a: Point, b: Point) -> Int
-    auto fn eq(a: Point, b: Point) -> Bool
-    auto fn hash(value: Point) -> Long
-}
+struct Point : Ordered<self> by auto, Hashed<self> by auto { x: Int, y: Int }
 ```
 
-An `auto fn` has no body: the compiler writes one from the fields. Ordering is
-lexicographic by field declaration order (so field order is significant), and
-everything generated is structural, so a generated `cmp`, `eq` and `hash` agree
-with each other by construction.
+`by X` on an obligation says where the members come from: `X` is a module
+holding a `compfn` per member (`auto` is `core.auto`, nameable without an
+import because it is in `core`), and each is instantiated at this type. What
+comes out is an ordinary function declared on `Point` — `cmp@Point` names it,
+it travels with the type, and its body is the per-field comparison you would
+have written: lexicographic by field declaration order (so field order is
+significant), with `cmp`, `eq` and `hash` walking the same fields so they agree
+by construction.
 
-On an obligation clause, `auto` is shorthand for exactly those declarations —
-one per member of the group:
+The same clause works on a **named union**, written after the alias:
 
 ```
-struct Point : auto Ordered<self>, auto Hashed<self> { x: Int, y: Int }
+struct Manual { note: Str }
+struct Imported { feed: Str, n: Int }
+export type Source = Manual | Imported : Ordered<self> by auto, Hashed<self> by auto
 ```
 
-The point of `auto` being a modifier on the function is that a type can mix.
-Suppose `Person` should be ordered by name, with equality meaning "same rank":
+Arms order by their declared position, and two values in one arm by that
+arm's own `cmp` — so each arm has to have one.
+
+`by` also works on one function, keeping its full signature, which is how a
+type mixes. Suppose `Person` should hash by all its fields, with equality
+meaning "same age":
 
 ```
 struct Person : Hashed<self> {
     name: Str,
     age: Int
 
-    auto fn cmp(a: Person, b: Person) -> Int
-    auto fn hash(value: Person) -> Long
+    fn hash(value: Person) -> Long by auto
 
-    fn eq(a: Person, b: Person) -> Bool {
-        return cmp(a, b) == 0
+    fn eq(a: Person, b: Person) -> Bool => a, b {
+        return a.age == b.age
     }
 }
 ```
 
-`auto Hashed<self>` is not available here, because it would generate the `eq`
-this type writes by hand — and a bare `: Hashed<self>` is still the promise,
-checked at the declaration, that a `hash` and an `eq` exist.
+`: Hashed<self> by auto` is not what you want here, because it would stamp the
+`eq` this type writes by hand — and a bare `: Hashed<self>` is still the
+promise, checked at the declaration, that a `hash` and an `eq` exist.
 
-The compiler can write `cmp`, `eq` and `hash`, and says so if you write `auto`
-on anything else. An `auto fn` names its type with `@`, because that is where
-the fields come from. A field it cannot compare (a `Double`, a function) is an
-error at the declaration, where the mistake is, not at a distant
-`SortedSet<Point>`; so is a `canbe Mut` struct, which could change while a
-collection holds it.
+What a stamped body needs of the type is checked where the type is declared,
+and the error lands on the field it is about: a `Double` field has no `cmp`,
+so `: Ordered<self> by auto` on a struct holding one reports
+`in `cmp` from `auto` for `Reading.value: Double`: no matching overload for
+`cmp(Double, Double)`` at that field, not at a distant `SortedSet<Reading>`.
+A `canbe Mut` struct is **refused** by `core.auto`'s `hash` — a value that can
+change while a collection holds it corrupts the collection — and the refusal
+lands at the clause.
 
-Writing a member by hand *and* asking for it with `auto` is a duplicate: keep
-one.
+Writing a member by hand *and* stamping it is a duplicate: keep one.
+
+Nothing is stamped unless you ask. A struct with no `cmp` cannot be compared,
+one with no `to_str` does not interpolate, and being in `core` only means
+`auto` can be named — so a type says `: ToStr<self> by auto` to print in its
+literal's shape. How a `compfn` is written, for a convention of your own, is
+[Compile-time functions](Compile-Time-Functions.md).
 
 A *generic* function has to ask, because nothing about an opaque `T` is
 knowable:

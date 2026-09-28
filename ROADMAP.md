@@ -43,10 +43,13 @@ and field narrowing, deductions with refinements, the iterator reduction to
 placeholder — the 2026-09-27 redesign), the collections, the filesystem, actors (spawn, send, park, watch,
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
 group borrowing, the testing framework, the comparison/hashing capabilities,
-actors across machines (`net`, the whole network sequence), and one shape for
-effects on both backends (every binding a handle, no fusion, no `local`).
+actors across machines (`net`, the whole network sequence), one shape for
+effects on both backends (every binding a handle, no fusion, no `local`), and
+the first comptime slice (`compfn` and `by auto`, replacing `auto`: the
+structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
+struct or the arms of any union).
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1613 tests green.
+targets and the output they print. 1619 tests green.
 
 ## The sequence
 
@@ -195,6 +198,70 @@ left three follow-ups the user has asked for, in this order.
   in, which is its honest lowering anyway. After it, no user-visible
   intrinsic reads a type argument. Small; do it when `decode` is next touched.
 
+### 2c — Comptime, the rest of the decided design (first slice built 2026-09-28)
+
+Seven rounds of user decisions (2026-09-28; COMPLETED.md's log, "Comptime, first
+slice") and the first slice built the
+same day: `compfn` with `<struct T>`/`<union T>` bounds and concrete compfns,
+`by X` on obligation clauses (structs and `type` declarations) and on fn
+declarations, `inline for`/`inline if`/`inline when` (kinds `struct`, `union`,
+`tuple`, `fn`, `opaque` = `basic` | `generic`), `v.[field]`, `[field]:` in a
+literal, `refuse`, `T.name`/`field.name`/`field.type`/`field.index`/
+`field.first`/`field.last`, `core.auto` with `cmp`/`eq`/`hash`/`to_str` for
+structs and unions, `auto` deleted, [interp-struct] made opt-in. What the
+decided design still owes, in build order:
+
+- **Implicits on stamped fns for generic structs** (ROADMAP §2c, decided
+  "from the start", built as a refusal with the remedy named). `struct
+  Wrapper<T> : Ordered<self> by auto { value: T }`: a copy meeting an opaque
+  `T` **records a need** instead of failing; the stamped signature gains
+  `?Ordered<T>` (deduplicated by name and type); and [group-obligation]'s match
+  **ignores trailing implicit parameters** — the relaxation section 16 needs
+  too, and the third customer is the obligation clause on `intrinsic type`
+  below. The principle it rests on is [deduce-infer]'s: a fact inferred from
+  the body, printed by the language server. `Checked<T>`'s `to_str` waits on it
+  [checked-type].
+- **Obligation clauses on `intrinsic type`** (decided).
+  Parsed today, not swept: `intrinsic type List<T> canbe Mut : Hashed<self>,
+  Ordered<self>, ToStr<self>` with the container identities written **in
+  Salvo** in `core.list`/`core.set`/`core.map` (`fn eq<T>(a: List<T>, b:
+  List<T>, ?Eq<T>)`), the scalars keeping their `intrinsic fn`s and declaring
+  them (`intrinsic type Int : Ordered<self>, Hashed<self>, ToStr<self>`), and
+  `ToStr<self>` on `List` rendering each element with its own `to_str`. Needs
+  the relaxation above and recursive implicit resolution (section 6). Until
+  then the **interim** structural `cmp`/`eq`/`hash` intrinsics over `List` and
+  2-/3-tuples in `core.compare` stand in — they relaxed the recorded "tuple key
+  refused by name" limitation on both backends, and an element struct's *own*
+  `cmp` is still not consulted inside a list (the Rust backend keeps
+  `Hash`/`Ord` derives on structs that have the functions for exactly this).
+  Landing it deletes those intrinsics and the conditional derives.
+- **`by` at a call** (ROADMAP §2c, decided): `mut_set_of(hash by auto, eq
+  by auto)` stamps the implicit at the type the call binds — a third `by` site,
+  emitted in the calling module once per (compfn, type), paired by
+  [implicit-with], printed as the stamped root. The only way a tuple gets an
+  identity, and the missing-tuple-identity diagnostic should name it meanwhile.
+- **Typed implicit overrides** (ROADMAP §2c, decided): `to_str(xs,
+  to_str: (Person) -> Str = short_name)` — an override keyed by name *and type*,
+  consumed at whichever level of a resolution chain it fits (unused: error),
+  also the spelling for two same-named implicits at different types; makes the
+  carried identity a **tree** printed only where a level is not the canonical
+  default (section 6's decision 3). Needs section 6.
+- **`field.default`** (a compile-time optional of the declared `= expr`), for
+  the codec slice's `from_json` — recorded, unbuilt.
+- **The `json` module** (`Json` union per SERDE.md SD-1, `to_json`/`from_json`
+  compfns spelled `by json`, tag rules per SD-4) — waits on SERDE.md's SD-1 and
+  SD-4 decisions and on section 6 for container fields.
+- **Docs**: a `Compile-Time-Functions.md` page exists; LANGUAGE_SPEC has
+  `[comptime-*]`, `[obligation-by]`, `[fn-by]`. COMPTIME.md was deleted with the
+  rounds in COMPLETED.md's log; SERDE.md's SD-3 carries a superseding note.
+
+Known and recorded: two `to_str` overloads that both fit a *narrowed* value
+(`to_str(Manual)` beside a stamped `to_str(Source)` where `value: Source` is
+narrowed to `Manual`) make `${value}` ambiguous at the interpolation while
+`to_str(value)` resolves by [fn-overload-rank]; the compfn bodies therefore call
+`to_str(value)` rather than interpolating an arm. Pre-existing
+[implicit-resolve] locality, not a comptime defect.
+
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
 Both defects of the 2026-09-25 round are closed — a bare generic struct literal
@@ -297,35 +364,47 @@ log for the round itself).
   semantics [effect-intercept], and a fn-typed local shadowing a name outright is
   the caller's explicit choice).
 
-### 6 — Recursive implicit resolution, so a tuple can have a `cmp`
+### 6 — Recursive implicit resolution (decided 2026-09-28, not built)
 
-[col-hashed-ordered] says "a `List` or a tuple qualifies exactly when its elements
-do, comparing lexicographically", and that is true of the two *backends* rather
-than of the language: `core.compare` declares `cmp` for the intrinsic scalars
-only. It cannot declare one for a tuple, because
-`cmp<A, B>(a: (A, B), b: (A, B)) -> Int` needs `?Ordered<A>, ?Ordered<B>` and
-[implicit-resolve] **skips a candidate that itself needs implicits**.
+[implicit-resolve] **skips a candidate that itself needs implicits**, so
+`fn eq<T>(a: List<T>, b: List<T>, ?Eq<T>)` can never be what a `Set<List<Person>>`
+resolves, and the container identities have to be structural host intrinsics
+(the interim ones `core.compare` carries since 2026-09-28, see section 2c). The
+lift has two halves: resolution — `resolve_implicit_fn_at`'s one-line skip
+becomes a recursive resolution — and emission — a filled implicit that itself
+needs implicits is handed its own, so `ImplicitArg::Resolved` needs nested
+arguments and both backends' adapter closures pass them. The second is the
+larger.
 
-This is the accepted limitation behind the keyed containers: a keyed container over
-a **tuple or list** is refused by name (user decision 2026-09-26 — "I'm ok with the
-limitation today"). Lifting it has two halves, and the second is the larger:
+**The six decisions, all made** (user, 2026-09-28, comptime rounds 3–7;
+COMPLETED.md's comptime entry holds the argument):
 
-1. **Resolution** — `resolve_implicit_fn_at`'s one-line skip becomes a recursive
-   resolution with a depth cap and a cycle refusal. Contained.
-2. **Emission** — a filled implicit that *itself* needs implicits has to be handed
-   its own, so `ImplicitArg::Resolved` needs nested arguments and both backends'
-   adapter closures have to pass them (`cmp((A, B))` calling `cmp(A)`/`cmp(B)`).
-   `implicit_args` records no nesting today, so this is where the work is.
+1. A candidate whose own implicits cannot be filled is **an error naming the
+   chain** (`cmp for (Int, Foo) needs cmp for Foo: none in scope`) unless
+   another candidate resolves fully, in which case that one wins — never a
+   silent non-candidate (SFINAE).
+2. **Depth cap 8**, worded "resolution of `cmp` for `<type>` nests more than 8
+   levels deep; pass `cmp = …` explicitly"; a chain that needs itself is refused
+   at once as a cycle, with the chain printed.
+3. **The carried identity is a tree** [cmp-carry], compared as one — two sets
+   over `(Int, Person)` keyed by different `Person` hashes are different types —
+   and **printed only where a level is not the canonical default**, so
+   `Set<List<Person>>` prints bare in the ordinary case and as
+   `Set<List<Person>>(hash@List(id_hash), eq@List(same_id))` when the user
+   wrote the leaf. (Round 6 reversed the earlier "canonical by construction"
+   choice once the typed override below could produce a non-canonical leaf.)
+4. **`with` pairing propagates** [implicit-with]: `Hashed<(A, B)>` fills
+   `Hashed<A>` as a pair; half a pair at any level is the existing error.
+5. **std owns container identity**, in Salvo, via obligation clauses on
+   `intrinsic type` (section 2c); the interim intrinsics and the Rust
+   backend's conditional derives are deleted when it lands, and `xs == ys` on
+   two `List<Person>` then consults `Person`'s declared `eq`.
+6. Recursion applies **everywhere resolution runs**: calls, picks,
+   interpolation's `to_str` lookup, and the copies inside a compfn.
 
-The cheaper alternative, with its cost stated: declare the tuple and `List<T>`
-`cmp`/`eq`/`hash` as **intrinsics**, which is what the backends already do
-structurally. No recursion needed, and it *documents* the status quo — but it
-freezes it: an element type's own declared identity would be ignored inside a
-tuple or list key. That is already true; declaring it makes it look intended.
-
-Two recorded items wait on the same lift: `expect_eq` on a generic container
-cannot resolve a `to_str` [interp-to-str], and property testing's `?generate`
-(step 8) needs it.
+Waiting on it: `Checked<T>`'s `to_str` [checked-type], `expect_eq` on a generic
+container [interp-to-str], property testing's `?generate`, section 2c's
+`intrinsic type` clauses, typed overrides and `json` over container fields.
 
 ### 7 — Qualifiers are droppable, then variance
 
@@ -643,6 +722,17 @@ dead residue of the deleted `yield fn` origin machinery is still in the tree
 arms). Rename and delete in one change, cutting by function rather than by
 region (the 2026-09-10 lesson).
 
+**Riding along, decided 2026-09-28 (comptime rounds 3 and 7):** two implicits of
+**one name at different types** — `fn say_hello<T, S>(it: T | S, ?to_str: (T) ->
+Str, ?to_str: (S) -> Str)` — are legal (the "two implicits named `iter` at
+different types" this section already anticipates); the **override spelling** is
+the typed one section 2c lists (`to_str: (Person) -> Str = f`), with two of the
+same name *and* type being one binding [cmp-binder]; what is left to decide is
+the **interpolation lowering** — `${it}` with `it: T | S` becomes a `when` over
+the union's arms choosing the implicit per arm, which a union value's runtime arm
+index permits [union-arm-identity] — and whether [interp-to-str] extends to one
+`to_str` per arm.
+
 ### 17 — Recursive types (DECISION, end of the queue)
 
 Investigated 2026-09-12; nothing needs it, and List-mediated recursion covers its
@@ -693,6 +783,14 @@ several are "revisit only if a customer appears".
   effects; or restrict it and give `use` a value form, which folds into the
   pending `using` rename in [actor-use-addr]. Decide together with lock-free
   scope-local bindings below, which touches the same shape.
+
+- **Implicit compfn resolution** (2026-09-28, comptime round 5, punted): an
+  implicit that finds no candidate for a tuple could stamp `core.auto`'s compfn
+  without being asked, making `mut_set_of()` over a tuple work bare. Deferred
+  because it is the one place a compfn would apply without a `by`, which round
+  1 decided against for everything else; the remedy `hash by auto, eq by auto`
+  at the call (section 2c) is one line, and the missing-identity diagnostic
+  should name it.
 
 - **A one-off fresh-run failure of `kotlinc_compiles_and_runs_every_case`**
   (2026-09-28, under `SALVO_E2E_FRESH=1 cargo nextest run` with the whole

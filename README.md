@@ -120,9 +120,14 @@ fn main() [use] {
   every backend**, so a program's output does not depend on the target it
   was compiled for. Comparison is a **capability**, not a built-in: `a == b` is
   `eq(a, b)` and `a < b` is `cmp(a, b) < 0`, so equality is opt-in and a type
-  joins in by declaring the function — `: auto Hashed<self>` generates `hash`
-  and `eq`, `: auto Ordered<self>` a `cmp` too, checked where they are
-  declared. A structure that *stays* ordered names the ordering it holds as a
+  joins in by declaring the function — `: Hashed<self> by auto` stamps `hash`
+  and `eq`, `: Ordered<self> by auto` a `cmp` too, checked where they are
+  declared. What `by auto` stamps is a **`compfn`** in the standard library: a
+  function written once over the fields of any struct or the arms of any union
+  (`inline for field in T.fields { … }`) and instantiated at your type, so the
+  next structural function is a module rather than a compiler change — and
+  nothing is stamped unless a type asks, so `: ToStr<self> by auto` is how a
+  struct prints in its literal's shape. A structure that *stays* ordered names the ordering it holds as a
   type argument (`Heap<T>(?cmp: (T, T) -> Int)`), so a heap built under one
   ordering is a different type from one built under another and the two refuse
   to mix — and a claim does the same, so a `Sorted` list is searched by the

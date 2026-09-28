@@ -252,21 +252,20 @@ Conventions:
     `PartialEq` is IEEE, the opposite on both counts. Salvo owns the
     semantics [col-equality], and `==` on statically-`Double` operands is
     IEEE, so comparing the fields that way makes the backends agree.
-  * `hashCode` is left to the data class: a float-bearing struct is barred
-    from `: auto Hashed<self>`, so it never reaches a hash table where the
-    (NaN-only) inconsistency could be observed.
-* [kt-ordered] A struct declaring `: auto Ordered<self>` [cmp-auto] emits
-  `: Comparable<Self>` with a generated `compareTo`, lexicographic by field
-  declaration order. A data class gets `equals`/`hashCode` for free but *not*
-  comparison, so the generated `cmp@T` would otherwise have no `compareTo` to
-  reach. (The clause replaced `canbe ordered`, which the ordering round
-  deleted.)
-  * Each field is compared through `salvo.__salvoCompare` (runtime file
-    `compare.kt`, emitted only when something needs it) rather than
-    `field.compareTo(...)`: Salvo says a `List` or a tuple is orderable when
-    its elements are [col-hashed-ordered], and neither `List` nor `Pair`
-    is `Comparable` on the JVM. The helper recurses for those and defers to
-    `Comparable` for everything else.
+  * `hashCode` is left to the data class: a float-bearing struct has no
+    `hash` (`core.auto`'s fails at the float field), so it never reaches a
+    hash table where the (NaN-only) inconsistency could be observed.
+* [kt-ordered] **A struct's `cmp` is a Salvo fn** — stamped by `: Ordered<self>
+  by auto` [obligation-by] or written by hand — emitted as an ordinary Kotlin
+  fn over its fields, so a data class no longer gains a generated
+  `Comparable`/`compareTo` (comptime rounds, 2026-09-28; the `auto`-driven
+  `compareTo` is deleted). What is left of the host's ordering is the runtime
+  comparator, `salvo.__salvoCompare` (runtime file `compare.kt`, emitted only
+  when something needs it): the interim structural `cmp` over a `List` or a
+  tuple [col-hashed-ordered] and `cmp(Str, Str)` reach it, since neither
+  `List` nor `Pair` is `Comparable` on the JVM and `String.compareTo` is the
+  wrong order. It recurses through lists and tuples, compares strings by code
+  point, and defers to `Comparable` otherwise.
 * [struct-spread] `P {...p, f: v}` emits as `p.copy(f = v)`. The shallow
   copy aliases `Mut` fields where Rust deep-clones, which is
   unobservable because the checker consumes the spread base
@@ -992,10 +991,10 @@ nothing but the monitor.
   is code-point order. It recurses through lists (lexicographically, a
   shorter prefix ordering first), `Pair` and `Triple`, compares strings by
   code point, and defers to `Comparable` otherwise.
-  * It is emitted when a module declares a struct with
-    `: auto Ordered<self>` or builds a sorted collection, and the sorted
-    constructors pass it as an explicit `Comparator` rather than relying on
-    natural ordering.
+  * It is emitted when a module builds a sorted collection, or calls (or
+    passes as an implicit) the `cmp` of a `Str`, a `List` or a tuple; the
+    sorted constructors pass it as an explicit `Comparator` rather than
+    relying on natural ordering.
   * [kt-cmp-groups] [cmp-groups] The canonical `cmp(Str, Str)` reaches it too,
     and for the same reason — so the file is also emitted when that overload
     is called *or* passed as an implicit's adapter, which is the one way a
@@ -1006,14 +1005,13 @@ nothing but the monitor.
     `hashCode().toLong()`.
     * [cmp-hash-values] That last one is this host's digest and not Rust's,
       deliberately: only the agreement with `eq` crosses the backends.
-  * [cmp-auto] A member **generated** by a `default` obligation is emitted as
-    an ordinary Kotlin fn over what this backend already produces for the
-    `canbe` opt-ins: `fun cmp__n(a: Point, b: Point): Int =
-    salvo.__salvoCompare(a, b)` (landing on the struct's generated `compareTo`,
-    which `auto Ordered<self>` is what asks for), `a == b` for `eq` (the data
-    class's `equals`, float-aware where a field needs it [kt-float-eq]), and
-    `value.hashCode().toLong()` for `hash`. A generic struct's member is generic;
-    no bounds are needed here, since `__salvoCompare` takes `Any?`.
+  * [obligation-by] A member **stamped** by a `by` clause is an ordinary Kotlin
+    fn whose body is the unrolled Salvo — `fun cmp__n(a: Point, b: Point): Int`
+    comparing `a.x` with `b.x`, then `a.y` with `b.y` — so nothing in this
+    backend knows the member was not written by hand. The interim structural
+    identities of a `List` or a tuple [col-hashed-ordered] lower to
+    `__salvoCompare`, `==` and `hashCode().toLong()`; `mix_hash` to the
+    wrapping `seed * 31L + value`.
 * [kt-mailbox] [actor-mailbox] **The mailbox bound is a generated property**,
   `internal val __mailboxCapacity: Int`, initialised from the slot's expression
   where a constructor parameter is in scope for free. The spawn reads it off the

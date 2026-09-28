@@ -219,16 +219,16 @@ Conventions:
     `?to_str` would fix it and is not built: `resolve_implicit_fn` skips
     candidates that themselves take implicits, and `implicit_args` is keyed
     by *call* spans, which an interpolation does not have.
-* [interp-struct] A **struct** with no `to_str` of its own interpolates
-  when every field is natively renderable (user request 2026-09-11),
-  rendering `Person { name: ann, age: 3 }` — Salvo's struct-literal shape,
-  identical on both backends. Deliberately *not* Rust's `Debug` or a
-  Kotlin data class's `toString`, which disagree with each other.
-  * An explicit `to_str` always wins: the derivation is the fallback.
-  * A field that itself needs a `to_str` is **not** followed — the
-    derivation is for the simple cases, and the diagnostic asks for a
-    `to_str` instead. Generic structs are excluded (their field types would
-    need substituting).
+* [interp-struct] **A struct interpolates by opting in** (user decision
+  2026-09-28, comptime round 1, replacing the 2026-09-11 default-on
+  derivation): `struct Person : ToStr<self> by auto { … }` stamps the
+  field-wise `to_str` from `core.auto` — `Person { name: ann, age: 3 }`,
+  Salvo's struct-literal shape, identical on both backends and deliberately not
+  Rust's `Debug` or a data class's `toString`. With no `to_str` at all, `${p}`
+  is an error naming the clause as the remedy. The stamped body interpolates
+  each field, so a field of any type that itself renders — a scalar, a float
+  by [interp-float], a nested struct with its own opt-in — renders inside it,
+  where the old derivation stopped at natively renderable fields.
 * [type-tuple] `(A, B, C)` is a tuple type; tuples can be destructured in
   `let` and indexed by position ([expr-tuple-index]).
   * **Any arity** (2026-09-18). Rust's tuples are native; Kotlin has `Pair`
@@ -937,7 +937,7 @@ Conventions:
     encoding units — so the Kotlin comparator compares code points.
 * [col-equality] **Equality is a capability**: `a == b` is `eq(a, b)`, so a
   struct supports `==` and `!=` exactly when an `eq` for it is in scope —
-  generated with `: auto Eq<self>` [cmp-auto], or hand-written and
+  stamped with `: Eq<self> by auto` [obligation-by], or hand-written and
   declared on the type [fn-attached]. That **overturns** the 2026-09-12 decision that
   every struct compares structurally (user decision 2026-09-21): the operator
   now resolves like any call [op-equality], and a type with no `eq` says so.
@@ -949,7 +949,8 @@ Conventions:
     handle. State, provenance and `Mut` alike.
   * A **fn-typed field bars the *structural* `eq`**: `Rc<dyn Fn>` has none on
     Rust and Kotlin would compare by reference, so no answer exists that both
-    backends can give — `: auto Eq<self>` is refused, naming the field. It no
+    backends can give — `: Eq<self> by auto` fails at the copy for that field,
+    naming it [comptime-instantiate]. It no
     longer bars the *struct*, which is the capability decision 6 opened: declare
     an `eq` that ignores the field and the type is comparable (and hashable,
     with a `hash` to match).
@@ -973,25 +974,31 @@ Conventions:
   `SortedSet` element or a `SortedMap` key. `canbe hashed` and `canbe ordered`
   are **deleted** (user decision 2026-09-21) — the opt-in became the
   implementation, since there was never anything a declaration could opt into
-  beyond having an ordering. `: auto Hashed<self>` / `: auto Ordered<self>`
-  generate the structural ones [cmp-auto] and are **validated where they are
-  written**, so the error names the field rather than surfacing at a distant
-  `Set<Point>`:
-  * the struct may not be `canbe Mut` — a value that can change while a
-    collection holds it corrupts the collection's lookup or order, which is
-    the classic silent-corruption bug made a compile error;
-  * every field must itself be hashable / orderable. `Int`, `Long`, `Str`,
-    `Char` and `Bool` are both; `Double`/`Float` are **neither** (Rust's
-    `f64` is not `Eq`, `Hash` or `Ord`) while `: auto Eq<self>` on a struct
-    holding one still works; a nested struct must have the same members; a
-    `List` or a tuple qualifies exactly when its elements do (user decision
-    2026-09-12), ordering **lexicographically**, with a shorter list that is
-    a prefix comparing less.
+  beyond having an ordering. `: Hashed<self> by auto` / `: Ordered<self> by
+  auto` stamp the structural ones [obligation-by], and what a stamped body
+  needs of the type is checked where the type is declared, so the error names
+  the field rather than surfacing at a distant `Set<Point>`:
+  * `core.auto`'s `hash` **refuses** a `canbe Mut` struct [comptime-refuse] — a
+    value that can change while a collection holds it corrupts the collection's
+    lookup or order, which is the classic silent-corruption bug made a compile
+    error;
+  * every field must itself have the capability, by ordinary resolution in the
+    unrolled copy: `Int`, `Long`, `Str`, `Char` and `Bool` have all three;
+    `Double`/`Float` have `eq` and neither `cmp` nor `hash` (Rust's `f64` is not
+    `Eq`, `Hash` or `Ord`), so `: Eq<self> by auto` on a struct holding one
+    works and `: Hashed<self> by auto` reports the field; a nested struct must
+    have its own; a **`List` or a tuple** resolves the structural host identity
+    `core.compare` declares for it — **interim** (2026-09-28): the host compares
+    the container's elements structurally, so an element struct's *own* `cmp`
+    is not consulted inside a list, and std owning these in Salvo waits on
+    recursive implicit resolution (ROADMAP §6). Ordering is
+    lexicographic, with a shorter list that is a prefix comparing less.
   * Ordering of a struct is lexicographic **by field declaration order**,
-    which makes field order semantically significant. Rust derives it;
-    Kotlin generates a `Comparable` with a `compareTo` that goes through a
-    runtime helper, since a `List` and a `Pair` are not `Comparable` on the
-    JVM [kt-ordered].
+    which makes field order semantically significant: the stamped `cmp` is one
+    per-field `cmp` in that order. The Rust backend keeps `#[derive(Hash, Ord)]`
+    on a struct that has the functions and whose fields all derive, for the
+    container identities above to reach; Kotlin's containers go through the
+    runtime comparator [kt-ordered].
   * A type variable is *not* checked at the declaration: like
     [linear-generics], the instantiation is where the key rule bites, which
     keeps generic code over keyed collections writable.
@@ -1835,8 +1842,8 @@ Conventions:
     code point, on both backends, which is what `cmp(Str, Str)` promises and
     the JVM's `<` does not), a struct orders when it has a `cmp`, and a tuple,
     a container or a fn value orders when someone declares one. With none in
-    scope the operator is an error naming the remedy — `fn cmp@T(…)`, or
-    `: auto Ordered<self>`.
+    scope the operator is an error naming the remedy — a `cmp` inside the
+    type's body, or `: Ordered<self> by auto`.
   * **At a generic `T`** the only candidate is an enclosing implicit parameter
     [implicit-forward], so a comparison in generic code publishes the
     capability in the signature (`?Ordered<T>`). Comparing an unconstrained `T`
@@ -2718,9 +2725,14 @@ Conventions:
   a struct declaration: `linear struct Lines : Yield<self, Str> canbe Mut { … }`
   — a `:` clause between the generics and `canbe`, comma-separated, each
   entry a group name with type arguments (user decisions 2026-09-08,
-  roadmap R1). Where `?Group<T>` asks the *call site* to supply the members,
-  `: Group<T>` promises they exist for this type, and the promise is checked
-  **at the struct**:
+  roadmap R1), optionally with `by X` naming where the members are stamped from
+  [obligation-by]. **A `type` declaration carries the clause too**, written
+  last (`type Source = A | B : ToStr<self> by auto`, `intrinsic type List<T>
+  canbe Mut : Hashed<self>` — comptime round 2, R-1): a named union opts in
+  like a struct, and its fulfilments attach to it the same way [fn-attached].
+  Where `?Group<T>` asks the *call site* to supply the members, `: Group<T>`
+  promises they exist for this type, and the promise is checked **at the
+  declaration**:
   * the name must be a visible `params` group (a type or qualifier there is
     a position mistake with its own hint), with the group's arity;
   * the same group twice is an error;
@@ -3683,72 +3695,150 @@ Conventions:
     declared in `core.basic` and `cmp(Int, Int)` in `core.compare`, so neither
     route is available — and `core.*` is implicitly visible everywhere, which
     is the travelling that attachment exists to provide.
-* [cmp-auto] **`auto` asks the compiler for a structural implementation**, and
-  it is a modifier on the **function** (user decisions 2026-09-21 for the
-  mechanism, 2026-09-22 for the form):
+* [obligation-by] **`by X` on an obligation clause stamps every member of the
+  group from `X`'s `compfn`s** (user decisions 2026-09-28, the comptime
+  rounds; replaces `auto`, which is deleted from the grammar):
 
   ```
-  struct Person {
+  struct Point : Ordered<self> by auto, Hashed<self> by auto { x: Int, y: Int }
+  export type Source = Manual | Imported : ToStr<self> by auto
+  ```
+
+  `X` is a **module**, matched by path suffix so `by auto` reaches `core.auto`
+  with no import (being in `core` means nameable, nothing more), or a `compfn`
+  named directly [fn-by]. For each member of the group the compfn of that name
+  **and of the type's kind** (`<struct T>` for a struct, `<union T>` for a
+  named union) is instantiated at the type, and the result is an ordinary fn
+  **declared on the type** [fn-attached]: it travels with it, `cmp@Point`
+  names it, `?cmp` resolves to it by default, and it carries the type's own
+  `export`.
+  * **Nothing applies on its own.** A struct with no `cmp` cannot be compared,
+    and a struct with no `to_str` does not interpolate; the clause is the one
+    line that opts in, and the diagnostic at a bare `${p}` names it.
+  * A `type` declaration carries the clause too, **after** the alias — which is
+    how a **named union** opts in (comptime round 2, R-1). A free union
+    (`Str | Int`, every `T?`) has no declaration and no functions of its own;
+    a compfn over a struct reaches its arms through the field
+    [comptime-inline].
+  * The clause's argument is `self` [group-self]; two groups asking for the
+    same member (`Eq<self> by auto, Hashed<self> by auto`) ask for one
+    declaration.
+  * **Where the stamping fails** — a field with no `cmp` in scope, a `refuse`
+    — the error lands at the *field* the copy was for, prefixed with what was
+    being stamped [comptime-instantiate]. A hand-written member of the same
+    shape beside a stamped one is the ordinary duplicate
+    [fn-overload-duplicate], with the clause named as the half to delete.
+  * The clause without `by` is only a promise, checked at the declaration
+    [group-obligation]: what satisfies it may be a stamped fn (`fn cmp(…) by
+    auto` in the body) or a hand-written one, which is how a type mixes the
+    two.
+  * **Generic structs are not stamped at yet** (ROADMAP §2c, deferred):
+    the copy for a field of type `T` would need an implicit. Refused at the
+    clause with the hand-written form named (`fn eq<T>(a: Box<T>, b: Box<T>,
+    ?Eq<T>)`).
+  * **Lowering**: a stamped fn is emitted as an ordinary fn whose body is the
+    unrolled Salvo — a `cmp` per field, in declaration order. No structural
+    member is lowered to a host derive any more. The Rust backend still
+    derives `Hash`/`Ord` for a struct that *has* a `hash`/`cmp` and whose every
+    field derives, because a `List<Point>` or `(Int, Point)` **key** reaches
+    the element through the host's structural container identity
+    [col-hashed-ordered] (interim, until ROADMAP §6).
+* [fn-by] **`by X` on a fn declaration stamps that one member**, keeping the
+  full written signature [decl-explicit]:
+
+  ```
+  struct Person : Hashed<self> {
       name: Str,
       age: Int
 
-      auto fn cmp(a: Person, b: Person) -> Int
-      auto fn hash(value: Person) -> Long
+      fn hash(value: Person) -> Long by auto
+      fn eq(a: Person, b: Person) -> Bool { return a.age == b.age }
   }
   ```
 
-  …and `: auto Ordered<self>, auto Hashed<self>` on the declaration is the
-  shorthand for exactly that [fn-attached].
-
-  A bodiless declaration whose body the compiler writes from the type's fields —
-  the third legal bodiless form, after `intrinsic` [intrinsic-fn] and an effect
-  member. `auto Group<self>` on an obligation clause is **sugar** for one such
-  declaration per member of the group, so the two spellings produce the very same
-  item and nothing downstream distinguishes them.
-  * **What the function level buys** is what the clause could not express: *some*
-    members generated and others written by hand. A `Person` ordered by name
-    whose equality is "same rank" writes `auto fn cmp@Person` beside
-    `fn eq@Person { return cmp(a, b) == 0 }`, which is a bundle-shaped promise
-    no single clause can make.
-  * **Only the members the compiler can write**: `cmp`, `eq`, `hash`. `auto` on
-    any other name is an error naming those three, and `auto Group<self>` is an
-    error unless *every* member of the group has a generator — the word would
-    otherwise promise an implementation nothing provides.
-  * **An `auto fn` is declared on a type** [fn-attached]: the generator reads the
-    fields of the type it is scoped to, so a bodiless `auto fn cmp(…)` has
-    nothing to read and says so. The type must be a visible `struct` for the same
-    reason.
-  * **Its signature is the group member's**, over the scoped type — two
-    parameters for `cmp` and `eq`, one for `hash`, answering `Int`/`Bool`/`Long`
-    — and a mismatch is an error rather than a body written for a shape nobody
-    agreed to.
-  * **The obligation clause without `auto` is only a promise**, checked at the
-    declaration [group-obligation]: what satisfies it may be an `auto fn` or an
-    ordinary one. `: Ordered<self>` with no `cmp` anywhere is the ordinary
-    unsatisfied-obligation error.
-  * **Generated members are `@`-scoped canonicals** and carry the struct's own
-    `export` — the visibility an inner declaration always takes [fn-attached].
-  * **A hand-written member of the same shape beside a generated one is the
-    ordinary duplicate** [fn-overload-duplicate]: remove the `auto`, or delete
-    the fn.
-  * **What the generator needs of the type**, checked at the `auto fn` (and so at
-    the clause, for an expansion, since the expansion's spans point at the
-    struct): the struct may not be `canbe Mut` for `cmp` or `hash` — a value that
-    changed while a collection held it would corrupt the collection — and every
-    field must be orderable/hashable/comparable, the [col-hashed-ordered] rules,
-    reported at the declaration rather than at a distant `Set<Point>`. A type
-    variable is not checked here; the instantiation is where the key rule bites.
-  * **Lowering is by author, not by spelling**: an `auto` member *is* the host's
-    derived operation (`#[derive(PartialOrd, Ord)]` / `Hash` on Rust, the
-    generated `compareTo` and the data class's `equals`/`hashCode` on Kotlin), so
-    a generated member and the type's own ordering cannot disagree. Each backend
-    therefore asks *which members are `auto`* — not what the obligation clause
-    says, which since 2026-09-22 answers a different question.
-  * **The generator map is the compiler's, and it is one table**
-    (`salvo_syntax::auto_members`): the desugar pass expands a clause from it and
-    the checker tests a member against it. It duplicates what `core.compare`
-    declares because the expansion runs per module, before any cross-module
-    visibility exists — so the two must be kept in step by hand.
+  The type stamped at is the **first parameter's** (a struct or a declared
+  union); the written parameter types and return type must equal the
+  instantiation's, positionally, and a mismatch names which. A body beside
+  `by` is a parse error. The declaration attaches as any inner fn or
+  fulfilment does [fn-attached]. `by` is contextual: it closes a type
+  sequence, since a type or qualifier is uppercase by rule [name-casing].
+* [comptime-bound] **`compfn` is a compile-time function**: the one scope the
+  comptime syntax is legal in, and **not callable** — a generic compfn exists
+  only to be instantiated by `by`, and the expansion removes it before
+  resolution (COMPLETED.md's comptime entry, decision 2). Its type parameter carries a **kind bound**,
+  `compfn cmp<struct T>(a: T, b: T) -> Int` or `<union T>`, at most one, and a
+  module's same-named compfns of different kinds are the overloads a `by` picks
+  between by the target's kind. A `compfn` **with no bound** is concrete — its
+  own single instantiation — and is declared where a fn is (in a struct body
+  or at top level), which is the one-field-by-hand case (comptime round 2,
+  12.1). Like an `intrinsic fn` it writes its effect list, deductions and
+  return type; an instantiation reached by implicit resolution must be
+  effect-free [implicit-fn-only]. `core.auto` holds `cmp`, `eq`, `hash` and
+  `to_str` for structs and unions; a user module may hold its own, reached by
+  `by mymodule`.
+* [comptime-fields] **What a compfn may know about a type**: `T.fields` (a
+  struct's fields, in declaration order) and `T.arms` (a named union's
+  declared arms, `None` included, in declaration order [union-arm-identity]) as
+  the sequences an `inline for` walks; `T.name` as a `Str` literal; and, for a
+  binder, `field.name` (`Str` literal), `field.type` (usable wherever a type is
+  written inside the body), `field.index`, `field.first`, `field.last`, and
+  the same on an arm binder. `T` is the bound parameter, or the concrete type
+  a concrete compfn names (`Reading.fields`); `field.type.arms` reaches a
+  union field's arms. Nothing else is exposed: no attached functions, no
+  qualifiers on the value, no defaults yet (`field.default` is recorded for
+  the codec slice).
+* [comptime-inline] **The comptime constructs**, each written with `inline`
+  (one rule: comptime constructs say `inline`; the user's call, round 3):
+  * `inline for field in T.fields { … }` — one copy of the body per field, each
+    checked with `field.type` concrete; locals a copy declares are renamed so
+    two copies in one block do not redeclare [var-no-shadow].
+  * `inline if <cond> { … } else { … }` — kept or dropped per instantiation;
+    the dropped branch is never checked. Conditions: `X is <kind>`, `X is
+    <Type>` (equality up to alias expansion, qualifiers erased), `X canbe Mut`,
+    `field.name == "literal"` (a name no field has is an error at the
+    declaration), `field.first`/`field.last`, `x.index == y.index` and its
+    orderings, and `!` of any.
+  * `inline when field.type { is struct { … } is union { … } is tuple { … } is
+    fn { … } is opaque { … } }` — a kind dispatch over a type, **exhaustive**
+    over the kinds unless an `else` closes it, so that a kind added to the
+    language is an error in every compfn that did not consider it. `opaque`
+    matches either of its halves, `basic` (a type declared `intrinsic type`)
+    and `generic` (a type parameter of the struct being stamped), the way `is
+    Person` matches both arms of `Surname Person | Person`.
+  * `inline when value { [arm] { … } }` — a dispatch over a **union value**
+    (a field read `v.[field]`, or a parameter of the bound or written type):
+    the one written arm is stamped once per declared arm with `value` narrowed
+    to `arm.type`, producing an ordinary exhaustive `when` [when-exhaustive].
+  * Every form is legal only inside a `compfn`; elsewhere it is a parse error
+    naming the scope. An interpolation inside a compfn body may read the
+    comptime forms like the body around it.
+* [comptime-access] **`v.[field]`** reads the field an enclosing `inline for`
+  is at (the binder in brackets), rewritten by the expansion to `v.name`;
+  **`[field]: expr`** is the same entry in a struct literal, and `inline for
+  field in T.fields { [field]: … }` inside a literal produces one entry per
+  field — how a compfn builds a `T`, exhaustively by construction (parsed and
+  expanded; its first customer is the codec slice).
+* [comptime-refuse] **`refuse "…"`** is an error at the instantiation site
+  (the `by`), in the caller's terms: the literal text with `${T.name}`-style
+  names substituted, prefixed "`P` refused:". Legal only inside a compfn.
+  `core.auto`'s `hash` refuses a `canbe Mut` struct this way, which is the rule
+  `canbe hashed` used to carry and the compiler used to check.
+* [comptime-instantiate] **Instantiation is concrete and happens at a `by`
+  site only** — an obligation clause or a fn declaration (a third site, an
+  implicit override `eq by auto` at a call, is decided and deferred; ROADMAP
+  §2c). One specialization per (compfn, type), pushed into the target's
+  module beside the type on both backends. The expansion runs over the whole
+  source set before resolution (`salvo_core::comptime`), so a `by auto` in any
+  file reads `core.auto` and the target's declaration.
+  * **Spans**: every node of a stamped body is given a synthetic span **past
+    the end of the file**, one fresh region per unrolled copy, so the checker's
+    span-keyed side tables never see two copies as one node. The `Stamp` on
+    the fn records the regions; the checker redirects a diagnostic inside one
+    to the field or arm the copy was for and prefixes it — "in `cmp` from
+    `auto` for `Point.y: Double`: no matching overload for `cmp(Double,
+    Double)`" at the field declaration.
+  * A stamped fn is an ordinary `FnDecl` for everything downstream:
+    resolution, the duplicate check, mangling, export, both emitters.
 * [cmp-carry] A structure that **holds** an ordering (or a hash, or an
   equality) names it as a **fn-valued type argument**, fixed at construction
   (user decision 2026-09-21, the ordering round's decision 1). The identity lands *in
@@ -5191,7 +5281,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
   `Instant` (a point on the wall clock, nanoseconds since the Unix epoch) and
   `Tick` (a point on the monotonic clock, from an arbitrary origin). Each is a
   plain std struct with a single `nanos: Long` field,
-  `: auto Ordered<self>, auto Hashed<self>` [cmp-auto].
+  `: Ordered<self> by auto, Hashed<self> by auto` [obligation-by].
   * **One field, deliberately.** Struct equality is structural
     [col-equality] and fields are public, so a `{secs, nanos}` pair would make
     non-canonical values constructible — `{secs: 1, nanos: 0}` and `{secs: 0,
@@ -5506,7 +5596,7 @@ between endpoints and delivers what arrives into the scheduler.
   unchanged. `Addr<E>` has a wire form exactly when `E` has one (a proxy is
   only good for sends that can be framed), `Reply<T>` when `T` has one.
   * **`NodeId`** (2026-09-27) is the identity of a node as a Salvo struct
-    (`struct NodeId : auto Hashed<self> { id: Long }`), answered by
+    (`struct NodeId : Hashed<self> by auto { id: Long }`), answered by
     `this_node()`/`new_node()`/`node_of(addr)` and taken by `pool_at`,
     `Node.id`, `Leader.leader() -> NodeId?` and the mechanisms' members. It
     has a wire form because it is compared across machines; a raw `Long` no

@@ -78,14 +78,20 @@ println("at ${point}")     // uses the `to_str` above
 
 Without one, the compiler says so rather than letting the backend fail. The standard library renders a list this way — `"${list_of(1, 2, 3)}"` gives `[1, 2, 3]` — and a `Mut Str` needs nothing special, since it drops its `Mut` first.
 
-**A struct interpolates by default when every field does.** With no `to_str` of its own, a struct whose fields are all scalars or strings renders in the shape its literal has:
+**A struct interpolates by opting in.** `: ToStr<self> by auto` stamps a
+`to_str` that renders the struct in the shape its literal has, identical on
+both backends:
 
 ```
-struct Person { name: Str, age: Int }
+struct Person : ToStr<self> by auto { name: Str, age: Int }
 println("${Person {name: "ann", age: 3}}")    // Person { name: ann, age: 3 }
 ```
 
-An explicit `to_str` always wins, and a struct with a field that itself needs one is not derived — write the `to_str` instead. The format is the language's own on purpose: leaving it to each target would print different text on the JVM than in Rust.
+Each field is interpolated in turn, so a nested struct renders with its own
+`to_str` — and needs one, or the error lands on that field. A `to_str` written
+by hand is the other way in. The format is the language's own on purpose:
+leaving it to each target would print different text on the JVM than in Rust.
+How `by auto` works is [Compile-time functions](Compile-Time-Functions.md).
 
 **Declaring the obligation is optional.** A type may say `: ToStr<self>`, which does not change how interpolation works — it checks at the declaration that a matching `to_str` exists, so the mistake surfaces where the type is defined rather than where it is printed.
 

@@ -5317,7 +5317,7 @@ struct Tag {
     fn eq(a: Tag, b: Tag) [] -> Bool => a, b by auto
 }
 
-// A generic struct is not stamped at yet (COMPTIME.md 12.3): its `eq` is
+// A generic struct is not stamped at yet (ROADMAP §2c): its `eq` is
 // written by hand, with the implicit the copy would have needed.
 struct Box<T> : Eq<self> {
     item: T

@@ -117,7 +117,7 @@ export intrinsic fn hash(value: Str) [] -> Long => value
 // over a struct holding one resolves. What this does *not* do is consult an
 // element's own declared identity inside the container (a `List<Person>`
 // compares by `Person`'s fields, not its `eq`); std owning these in Salvo
-// waits on recursive implicit resolution (COMPTIME.md 15.1, ROADMAP §6).
+// waits on recursive implicit resolution (ROADMAP §2c/§6).
 export intrinsic fn cmp<T>(a: List<T>, b: List<T>) [] -> Int => a, b
 export intrinsic fn eq<T>(a: List<T>, b: List<T>) [] -> Bool => a, b
 export intrinsic fn hash<T>(value: List<T>) [] -> Long => value

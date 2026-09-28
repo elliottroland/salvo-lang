@@ -466,11 +466,13 @@ derives them mechanically:
 * **Generic bounds.** Every generic parameter gets a `Clone` bound
   (`<T: Clone>`) — the owned-rendering rule may clone values of generic
   type. Structs additionally `#[derive(Clone, Debug, PartialEq)]` — `PartialEq`
-  unconditionally, since it is what the generated `eq` stands on and costs
-  nothing where Salvo refuses `==` anyway [col-equality] — plus `Eq` and `Hash`
-  for `: auto Hashed<self>`, and `Eq, PartialOrd, Ord` for
-  `: auto Ordered<self>` [cmp-auto] (the `canbe hashed`/`canbe ordered`
-  opt-ins those replaced are gone). A struct with a fn-typed field derives only `Clone`:
+  unconditionally, since it costs nothing where Salvo refuses `==` anyway
+  [col-equality] — plus `Eq` and `Hash` for a struct that *has* a `hash`, and
+  `Eq, PartialOrd, Ord` for one that has a `cmp` (stamped or hand-written
+  [obligation-by]), **when every field derives**: the interim structural
+  identity of a `List<Point>` or `(Int, Point)` key reaches the element's
+  derive rather than its Salvo fn [col-hashed-ordered], so the derive is what a
+  container over it stands on. A struct with a fn-typed field derives only `Clone`:
   `Rc<dyn Fn>` has neither `Debug` nor equality [rs-fn-field].
   Generated union enums derive `PartialEq` too, conditionally on their
   payloads, so a struct holding one can derive its own.
@@ -1147,16 +1149,15 @@ the blanket rule:
   its own `Ord`, delegating to `T`'s). `eq` is `==`. A `Str` is compared and
   hashed as `str` (`&s[..]`), which is byte-wise UTF-8 and therefore
   code-point order [kt-ordered] — no runtime helper needed on this side.
-  * [cmp-auto] A member **generated** by a `default` obligation is emitted as
-    an ordinary Rust fn over the *derive*: `pub fn cmp__n(a: &Point, b: &Point)
-    -> i32 { (Ord::cmp(a, b) as i32) }`, with `#[derive(PartialOrd, Ord)]` /
-    `Hash` on the struct — the derives the `default` clause asks for, which is
-    what makes the generated member and the type's own ordering the same
-    thing. A generic struct's member carries the bound its
-    derive carries (`<T: Clone + Ord>`). Calls, adapter closures and
-    `cmp = cmp@Point` values all reach it as a named fn, so nothing else in the
-    backend learns that `default` exists — and it takes part in overload
-    mangling like any other body-bearing fn.
+  * [obligation-by] A member **stamped** by a `by` clause is an ordinary Rust fn
+    whose body is the unrolled Salvo: `pub fn cmp__n(a: &Point, b: &Point) ->
+    i32` compares `a.x` with `b.x`, then `a.y` with `b.y`, then answers `0`.
+    Calls, adapter closures and `cmp = cmp@Point` values all reach it as a
+    named fn, so nothing in this backend learns the member was not written by
+    hand — and it takes part in overload mangling like any other body-bearing
+    fn. The interim structural identities of a `List` or a tuple
+    [col-hashed-ordered] lower to `Ord::cmp`, `==` and a `DefaultHasher` over
+    the host value; `mix_hash` to `wrapping_mul(31).wrapping_add(...)`.
   * [cmp-hash-values] `hash` is a block expression holding its own
     `std::hash::DefaultHasher`: `{ let mut __h = …; Hash::hash(&v, &mut __h);
     Hasher::finish(&__h) as i64 }`. One hasher per call, so a `hash` nested

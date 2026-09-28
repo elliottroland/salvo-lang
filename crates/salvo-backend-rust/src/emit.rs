@@ -2803,8 +2803,8 @@ impl<'p> Emitter<'p> {
         // `(Int, Point)` as a **key** hashes and orders through the host's
         // structural `Vec`/tuple implementations, which reach the element's
         // derive rather than its Salvo fn. Interim until std owns container
-        // identity through recursive implicit resolution (COMPTIME.md 15.1,
-        // ROADMAP §6); the host's structural order agrees with the stamped
+        // identity through recursive implicit resolution (ROADMAP §2c and
+        // §6); the host's structural order agrees with the stamped
         // one by construction (both are field-wise in declaration order).
         let hashed = self.struct_has_capability(s, "hash") && self.struct_derivable(s, 0);
         let ordered = self.struct_has_capability(s, "cmp") && self.struct_derivable(s, 0);

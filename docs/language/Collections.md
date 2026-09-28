@@ -62,13 +62,13 @@ for name in iter(ages) {
 Not every type can be a key. A key has to be hashable, which for now means one of `Int`, `Long`, `Str`, `Char` and `Bool` — `Double` and `Float` are deliberately excluded, since floating-point equality would not mean the same thing on both backends. A struct joins in by *having the functions*:
 
 ```
-struct Point : auto Ordered<self>, auto Hashed<self> {
+struct Point : Ordered<self> by auto, Hashed<self> by auto {
     x: Int,
     y: Int
 }
 ```
 
-`auto Hashed<self>` generates the `hash` and `eq` that make it a `Set` element and a `Map` key; `auto Ordered<self>` generates the `cmp` that gives it `<`, `<=`, `>` and `>=` and makes it a key of the sorted collections. Both are checked where they are written: the struct may not be `canbe Mut` (a value that changed while a collection held it would corrupt that collection), and every field has to qualify too. A `List` or a tuple qualifies exactly when its elements do, comparing lexicographically. See [Comparison, equality and hashing](Comparison-and-Hashing.md) for the whole story, including hand-written implementations.
+`Hashed<self> by auto` stamps the `hash` and `eq` that make it a `Set` element and a `Map` key; `Ordered<self> by auto` stamps the `cmp` that gives it `<`, `<=`, `>` and `>=` and makes it a key of the sorted collections. Both are checked where they are written: a `canbe Mut` struct is refused (a value that changed while a collection held it would corrupt that collection), and every field has to have the capability too, reported at the field. A `List` or a tuple qualifies when its elements do, comparing lexicographically. See [Comparison, equality and hashing](Comparison-and-Hashing.md) for the whole story, including hand-written implementations, and [Compile-time functions](Compile-Time-Functions.md) for what `by auto` stamps.
 
 **Equality is opt-in, and compares field by field when generated:**
 

@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
+assertion_line: 106
 expression: "parse_clean(&std_core(\"compare.sv\"))"
 ---
 Module {

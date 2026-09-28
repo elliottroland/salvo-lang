@@ -485,6 +485,16 @@ the price is the sweep and a token on every ordinary construction.
 
 ## 5. SD-3 — The derived codec, and how a hand-written one takes over
 
+> **Superseded in part (2026-09-28).** The comptime rounds (COMPLETED.md's log, "Comptime, first slice") adopted this section's *shape-changing alternative*:
+> `auto` is gone, the structural functions are `compfn`s in `core.auto` asked
+> for with `by auto`, and the JSON pair is to be `compfn to_json<struct T>` /
+> `from_json` in a `json` module spelled `by json` (ROADMAP §2c). Option A's
+> "grow `auto`" is no longer available; Option B (the record layer) stands as
+> the customization pattern, and the `Json` value type of SD-1 is the
+> prerequisite the module waits on. Read the options below as the argument
+> trail.
+
+
 **Question.** Most fields map one-to-one; writing `put(item, "age", n(age))`
 twenty times is the part serde and kotlinx remove. Should the compiler derive
 the codec, and if so how does the author customize it without attributes?

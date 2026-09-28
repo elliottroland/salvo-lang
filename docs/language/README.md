@@ -47,7 +47,8 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 | [Lambdas and Variadics](Lambdas-and-Variadics.md) | function values and variadic arguments |
 | [Iteration](Iteration.md) | `Yield`, and `params` groups as a capability bundle |
 | [Iterators](Iterators.md) | how `for` really works: an iterator struct, its `next`, `iter fn`, sources and `iter T` |
-| [Comparison and Hashing](Comparison-and-Hashing.md) | equality, ordering and hashing as declared capabilities |
+| [Comparison and Hashing](Comparison-and-Hashing.md) | equality, ordering and hashing as declared capabilities, and `by auto` |
+| [Compile-Time Functions](Compile-Time-Functions.md) | `compfn` and `by`: the structural implementations written once, over the fields of any struct or the arms of any union |
 
 ### Guarantees
 

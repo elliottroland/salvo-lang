@@ -229,8 +229,8 @@ pub fn fn_call(
         // and orders through the host's structural implementations, which
         // reach an element struct's derive (kept for exactly this, see
         // `emit_struct`) rather than its Salvo fn. Until std owns container
-        // identity through recursive implicit resolution (COMPTIME.md 15.1,
-        // ROADMAP §6), so an element's *declared* `cmp` is not consulted inside
+        // identity through recursive implicit resolution (ROADMAP §2c and
+        // §6), so an element's *declared* `cmp` is not consulted inside
         // a list — the limitation §6 records.
         ("cmp", Some("List" | "()")) => {
             format!("(Ord::cmp(&({}), &({})) as i32)", a(0), a(1))

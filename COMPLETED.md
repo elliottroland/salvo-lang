@@ -135,6 +135,141 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Comptime, first slice — `compfn` and `by auto` replace `auto` (2026-09-28,
+user decisions in seven rounds, built the same day).** The structural
+`cmp`/`eq`/`hash`/`to_str` are **std functions written once over the fields of
+any struct or the arms of any union**, and a type asks for a copy with one word:
+`struct Point : Ordered<self> by auto, Hashed<self> by auto`. **1619 tests**
+(+6), warning-free, fresh Kotlin driver green. the rounds' argument trail is this entry and ROADMAP §2c/§6/§16; SERDE.md's SD-3 (which assumed `auto`
+would grow) is superseded by this.
+
+*The decisions (each the user's):*
+
+1. **Design against structs and unions from the start**, so the surface is not
+   fitted to one kind.
+2. **`compfn`**, a new declaration kind — deliberately ambiguous between
+   "compiled" and "comptime" — is the scope the comptime syntax is legal in and
+   is **not callable**: a generic one exists only to be instantiated by `by`,
+   and the expansion removes it before resolution. Consequence: every
+   instantiation is at a `by` site, and the resolution change the design doc's
+   CT-3 priced (a concrete call admitting a comptime candidate) was never
+   needed; generic code reaches the capability through implicits, the
+   colouring it already has.
+3. **Spelling**: kinds before names, `<struct T>` / `<union T>`; `T.fields`,
+   `T.arms`, `T.name`; lower-case projections `field.name`, `field.type`,
+   `field.index`, `field.first`, `field.last`; `v.[field]` to read and
+   `[field]:` to build; `inline for` / `inline if` / `inline when` (one rule:
+   comptime constructs say `inline`); `refuse "…"`.
+4. **Nothing auto-applies, `core` included.** Being in `core` means nameable
+   without an import and nothing more, so the builders live in `core.auto` and
+   the spelling everywhere is `by auto`. [interp-struct]'s default-on
+   derivation is **deleted**: a struct prints in its literal's shape by
+   declaring `: ToStr<self> by auto`, and the diagnostic at a bare `${p}` names
+   the clause. `auto` leaves the grammar (`auto fn`, `: auto G<self>` are parse
+   errors naming the replacement).
+5. **`by X` in both forms**: on an obligation clause (every member looked up
+   in `X` by name and kind) and on a fn declaration with its full signature
+   [decl-explicit]; `X` a module (matched by path suffix) or a compfn named
+   directly. Attachment is the language's existing one — declared inside the
+   type or as a fulfilment [fn-attached].
+6. **Named unions opt in through an obligation clause on a `type` declaration**,
+   written after the alias (`type Source = A | B : ToStr<self> by auto`). A free
+   union (`Str | Int`, every `T?`) has no functions of its own; a compfn reaches
+   its arms through the field. `T.arms` includes the `None` arm.
+7. **The kind `when` is exhaustive** — `struct`, `union`, `tuple`, `fn`,
+   `opaque` — unless an `else` closes it, so a kind added to the language breaks
+   every compfn that did not consider it rather than silently skipping it.
+   `opaque` matches either of its halves, `basic` (declared `intrinsic type`)
+   and `generic` (a type parameter of the struct being stamped); `intrinsic` as
+   the word was refused because Salvo also has `intrinsic fn`, `plain` because
+   it reads as "unqualified".
+8. **A concrete compfn** (no bound) is its own single instantiation, declared
+   where a fn is — the one-field-by-hand case (`compfn cmp(a: Reading, b:
+   Reading)` with `inline if field.name == "value"`), where a per-field
+   override list on `by` was refused as SERDE SD-3's partial-auto by another
+   door. A misspelled field name is caught at the declaration.
+9. **`inline when v { [arm] { … } }`** dispatches a union value: the one written
+   arm stamped per declared arm, `v` narrowed inside, an ordinary exhaustive
+   `when` out.
+10. **Implicits on stamped fns for generic structs, from the start** (12.3):
+    decided, not built — shipped as a refusal naming the hand-written remedy,
+    since the [group-obligation] relaxation it needs is ROADMAP §16's too.
+11. **Obligation clauses on `intrinsic type`**, std owning container identity in
+    Salvo (15.1): decided, not built; parsed. The interim is below.
+12. **`eq by auto` at a call** (15.2), **typed implicit overrides** consumed
+    down a resolution chain (16–17), the six **recursive implicit resolution**
+    decisions (§6: error naming the chain, cap 8, tree identity elided at
+    canonical levels, `with` propagating, std-owned containers, everywhere) and
+    the **same-name implicits** item: all decided, recorded in ROADMAP §2c, §6
+    and §16.
+
+*What landed.* `salvo-syntax`: `FnDecl.compfn`/`by`/`stamped`,
+`Obligation.by`, `TypeDecl.obligations`, `Stmt::Comp` (`CompStmt`, `CompCond`,
+`CompTy`, `CompSeq`, `TypeKindWord`, `KindArm`), `StructLitFieldKind::InlineFor`;
+the parser's `in_compfn` scope flag, `parse_compfn`/`parse_by`/
+`parse_obligations`/`parse_inline`/`parse_comp_cond`; `binder.type` in a type
+position carried as a dotted name; a mutable pre-order visitor
+(`visit_mut.rs`) exhaustive over the AST. `salvo-core/comptime.rs`: the
+expansion over the whole source set before resolution — `World` (compfns,
+structs, types, groups), `Stamper` (`stamp_whole` for clause sites,
+`stamp_into` for fn declarations, with the signature check), `Expander`
+(unroll, select, refuse, substitute; kind classification; alias-expanded type
+equality); stamped copies get **synthetic spans past the end of the file**, one
+fresh region per copy, and the checker's `error()` redirects a diagnostic in a
+region to the field or arm it was for with the prefix "in `cmp` from `auto` for
+`Point.y: Double`:". Generic compfns are removed; a concrete one is expanded in
+place. Checker: `check_obligations` generalised to `check_obligation_list` over
+structs and type declarations, the alias `self` lowered as a written type; the
+`auto` checks and [interp-struct]'s derivation deleted. Resolver: attachment by
+fulfilment extended to `type` declarations. Emitters: `emit_structural_fn` and
+the `has_auto_member` derive coupling deleted; Kotlin's `auto`-driven
+`Comparable`/`compareTo` gone. std: `core/auto.sv` (eight compfns), `mix_hash`
+(the wrapping fold, `wrapping_mul` on Rust where written arithmetic trapped in
+debug), `: auto G<self>` → `: G<self> by auto` at six sites, `FLOAT_TEXT_DEMO`
+gains `: ToStr<self> by auto`. Tests: an e2e case on both backends with
+identical output (struct + named union, hand/stamped mix, `to_str`); checker
+tests for `refuse`, exhaustive kinds, concrete compfn, out-of-scope syntax; the
+core harnesses now run `salvo_core::expand` and load a `core.auto` prelude.
+Docs: `Compile-Time-Functions.md`; LANGUAGE_SPEC `[comptime-bound]`
+`[comptime-fields]` `[comptime-inline]` `[comptime-access]` `[comptime-refuse]`
+`[comptime-instantiate]` `[obligation-by]` `[fn-by]`, `[cmp-auto]` deleted,
+`[interp-struct]`/`[col-hashed-ordered]`/`[group-obligation]` rewritten; both
+backend specs.
+
+*What building it settled or found:*
+
+* **An interim for container identity.** `by auto` over a struct with a
+  `List<Int>` or `(Str, Int)` field resolves `cmp`/`eq`/`hash` at that field,
+  and nothing declared them: `core.compare` now declares **structural host
+  intrinsics** over `List<T>` and 2-/3-tuples, both backends lowering to the
+  host's `Ord`/`==`/hash (Kotlin through `__salvoCompare`). That relaxed the
+  recorded "tuple key refused by name" limitation (`SortedSet<(Int, Int)>`
+  builds, identically on both) while keeping §6's caveat — an element struct's
+  own `cmp` is not consulted inside a list — and the Rust backend keeps
+  `Hash`/`Ord` derives on structs that *have* the functions and whose fields
+  derive, since a `List<Point>` key reaches the element through them. All of
+  it is deleted when std owns the containers (ROADMAP §2c/§6).
+* **A union `to_str` compfn calls `to_str(value)` rather than interpolating
+  the arm.** With `value: Source` narrowed to `Manual`, `${value}` sees two
+  `to_str`s that fit (the arm's, and the stamped union one) and
+  [implicit-resolve] refuses the ambiguity, while the call resolves by
+  [fn-overload-rank]. Pre-existing locality of implicit resolution, recorded.
+* **The `by` word closes a type sequence**: `-> Long by auto` parsed `by` as a
+  qualifier until `parse_type_atom` learned the contextual word ends it,
+  which [name-casing] makes safe (types and qualifiers are uppercase).
+* **Interpolations parse in a sub-parser** that had to inherit the compfn
+  scope, or `"${field.name}: ${value.[field]}"` was refused inside a compfn.
+* **The stamped `when` arms need fresh spans too**: two stamps at one union
+  would key the checker's `is` tables on the declaration's arm spans; each
+  copy's checks are remapped like its body.
+* **Diagnostics through the region table read well.** "in `hash` from `auto`
+  for `Reading.value: Double`: no matching overload for `hash(Double)`" at the
+  field is what the design asked for, and the redirect is one function on
+  `error()` — the checker never learned what a compfn is.
+* Deferred from the slice and listed in ROADMAP §2c: `field.default`, `by` at
+  a call, typed overrides, generic-struct stamping, `intrinsic type` clauses,
+  the `json` module.
+
 **`actor_group` an ordinary fn over an implicit `?protocol`; `protocol<E>()`
 the one type-argument-reading intrinsic; `NodeChanges`/`ActorChanges<E>`
 renamed `NodeGroupWatcher`/`ActorGroupWatcher<E>` (2026-09-28 evening, user
@@ -4500,8 +4635,11 @@ struct.
   generated canonical, a hand-written one, `Str` ordering and a generic.
 
 **Ordering round, step 3b — `default` obligations generate the structural
-implementations (2026-09-21, night).** `struct Point : auto Ordered<self>,
-auto Hashed<self>` [cmp-auto] writes `cmp@Point`, `hash@Point` *and*
+implementations (2026-09-21, night).** *(Superseded 2026-09-28: `auto` is
+gone and the structural implementations are `compfn`s in `core.auto`, asked for
+with `: Ordered<self> by auto`; the `auto` spellings in this and the following
+entries are historical — see the comptime entry at the top of the log.)*
+`struct Point : auto Ordered<self>, auto Hashed<self>` [cmp-auto] writes `cmp@Point`, `hash@Point` *and*
 `eq@Point` — decision 7's "the `default` forms bring `eq` with them", which is
 what makes the generated bundle consistent by construction where a hand-written
 pair could only be trusted.
@@ -19468,6 +19606,24 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A stamped copy's spans must be synthetic, and each copy's own**
+  (2026-09-28). The checker's side tables are keyed by span, so two unrolled
+  copies of one `inline for` body sharing the template's spans overwrite each
+  other's `expr_ty`/`coerce`/`is` entries — the `iter fn` lesson again, at
+  scale. `comptime.rs` remaps every span of a copy into a fresh region **past
+  the end of the file**, records the regions on the fn's `Stamp`, and the
+  checker's `error()` redirects a span in a region to the field or arm the copy
+  was for. A span below the file length inside a stamped fn is a written one
+  (the `by` declaration's signature) and is left alone.
+- **`by` is contextual and closes a type**: a lowercase word after a type in a
+  return position or an obligation clause is the stamping clause, never a
+  qualifier; `parse_type_atom`'s qualifier loop stops at it. Anything that
+  parses types after which a clause may follow has to know.
+- **The interpolation sub-parser inherits no state by default** (2026-09-28):
+  `parse_interpolated_expr` builds a fresh `Parser`, so a flag like
+  `in_compfn` has to be handed across explicitly or `${v.[field]}` is refused
+  inside a compfn while `v.[field]` outside the string is fine.
 
 - **The return arrow cannot start a continuation line of a signature**
   (2026-09-28). `fn f(…) [spawn]\n    -> Addr<X> => !a {` fails to parse

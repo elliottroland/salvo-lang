@@ -1,7 +1,7 @@
 //! [comptime-instantiate] The comptime expansion: every `by` site stamps a
 //! `compfn` at a concrete type, and every comptime construct in the copy is
 //! unrolled, selected or refused, leaving an ordinary fn with an ordinary body
-//! (user decisions 2026-09-28, COMPTIME.md rounds 1–7).
+//! (user decisions 2026-09-28, the comptime rounds; COMPLETED.md's log).
 //!
 //! Runs before resolution, over the whole source set, because a `by auto` in
 //! any file reads `core.auto`'s compfns and the target type's declaration,
@@ -587,7 +587,7 @@ impl<'w> Stamper<'w> {
             format!(
                 "`{}` is generic, and stamping `{}` at a generic type is not supported yet: \
                  the copy for a field of type `{}` would need an implicit for it — write \
-                 the fulfilment by hand, with `?{}<{}>` (COMPTIME.md 12.3)",
+                 the fulfilment by hand, with `?{}<{}>` (ROADMAP §2c)",
                 self.target.name,
                 self.template.name.name,
                 self.target.generics[0],

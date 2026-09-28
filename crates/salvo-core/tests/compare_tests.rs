@@ -1192,7 +1192,7 @@ struct Point : Eq<self> by auto {
     );
 }
 
-/// [obligation-by] A generic struct is **not** stamped at yet (COMPTIME.md 12.3,
+/// [obligation-by] A generic struct is **not** stamped at yet (ROADMAP §2c,
 /// deferred): the copy for a field of type `T` would need an implicit, and the
 /// refusal names the hand-written form that declares one.
 #[test]
@@ -1489,7 +1489,7 @@ struct P : Tagged<self> by tag canbe Mut {
 
 /// [comptime-instantiate] A concrete `compfn` (no bound) is its own single
 /// instantiation, declared where a fn is — the one-field-by-hand case
-/// (comptime round 2, 12.1), with `field.name == "…"` selecting it.
+/// (comptime round 2), with `field.name == "…"` selecting it.
 #[test]
 fn a_concrete_compfn_is_its_own_instantiation() {
     let errs = errors(
