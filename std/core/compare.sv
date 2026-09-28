@@ -110,3 +110,9 @@ export intrinsic fn hash(value: Byte) [] -> Long => value
 export intrinsic fn hash(value: Char) [] -> Long => value
 export intrinsic fn hash(value: Bool) [] -> Long => value
 export intrinsic fn hash(value: Str) [] -> Long => value
+
+// The fold a structural `hash` combines its fields' digests with, **wrapping**
+// on both backends: `seed * 31 + value` where written arithmetic would trap
+// in a Rust debug build and wrap on the JVM. What `core.auto`'s `hash` calls
+// per field; a hand-written `hash` may use it too.
+export intrinsic fn mix_hash(seed: Long, value: Long) [] -> Long => seed, value

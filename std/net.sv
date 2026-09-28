@@ -75,7 +75,7 @@ import time.Duration
 // Distinct from a `Node`, which the network sequence's step ④ mints *after*
 // a handshake and which carries an identity and a build — an endpoint says
 // nothing about who answers there.
-export struct NodeEndpoint : auto Ordered<self>, auto Hashed<self> {
+export struct NodeEndpoint : Ordered<self> by auto, Hashed<self> by auto {
     host: Str,
     port: Int
 }
@@ -160,7 +160,7 @@ export intrinsic fn decode<T>(data: Bytes) [] -> T? => data
 // with overwhelming probability, and compared everywhere — a proxy's home,
 // a `Node` in a group, the leader an election answers — so it has a wire
 // form: an `Addr` that crosses the wire is `(node, actor, bits)`.
-export struct NodeId : auto Hashed<self> {
+export struct NodeId : Hashed<self> by auto {
     id: Long
 }
 
@@ -289,7 +289,7 @@ export fn connect(me: NodeEndpoint, on: Pool) [Transport, spawn] -> Bool => !me,
 // [node-group] A member of a node group: the identity the handshake minted and
 // the endpoint it answers at. What a mechanism knows *after* contact; a
 // `NodeEndpoint` is what it knows before.
-export struct Node : auto Hashed<self> {
+export struct Node : Hashed<self> by auto {
     id: NodeId,
     at: NodeEndpoint
 }

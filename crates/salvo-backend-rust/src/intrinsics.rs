@@ -225,6 +225,14 @@ pub fn fn_call(
              (std::hash::Hasher::finish(&__h) as i64) }}",
             a(0)
         ),
+        // [cmp-hash-values] Folding one digest into another, wrapping: what a
+        // structural `hash` combines its fields with. Written arithmetic
+        // would trap here in a debug build, where the JVM wraps.
+        ("mix_hash", Some("Long")) => format!(
+            "(({}).wrapping_mul(31).wrapping_add({}))",
+            a(0),
+            a(1)
+        ),
         // core.actor ---------------------------------------------------
         // [actor-replyto] [rs-actor] Answering a request: the token is
         // consumed, and the payload crosses the seam as the runtime's untyped

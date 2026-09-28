@@ -2912,9 +2912,41 @@ impl<'p, 'r> Checker<'p, 'r> {
             // than inside the group, which is what keeps the group ordinary:
             // its members mention only their own parameters, so the very same
             // group also spreads as `?Group<...>` implicits [implicit-group].
-            let self_ty = Ty::Named {
-                name: name.name.clone(),
-                args: generics.iter().map(|g| Ty::Var(g.name.clone())).collect(),
+            // Lowered as a written type would be, so a `type` alias's `self`
+            // is the union it names — which is what a fulfilment's parameter
+            // lowers to as well.
+            let self_ty = {
+                let written = ast::Type::Named {
+                    qualifiers: vec![],
+                    base: ast::TypeRef {
+                        name: name.clone(),
+                        args: generics
+                            .iter()
+                            .map(|g| ast::Type::Named {
+                                qualifiers: vec![],
+                                base: ast::TypeRef {
+                                    name: g.clone(),
+                                    args: vec![],
+                                    value_args: vec![],
+                                    from: vec![],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: g.span,
+                                },
+                            })
+                            .collect(),
+                        value_args: vec![],
+                        from: vec![],
+                        at: None,
+                        binder: false,
+                        established: false,
+                        alias: None,
+                        span: name.span,
+                    },
+                };
+                self.lower_type(&written)
             };
             for a in &ob.args {
                 if !is_self_ref(a) {

@@ -3034,6 +3034,12 @@ impl<'s> Parser<'s> {
             {
                 break;
             }
+            // [fn-by] [obligation-by] `-> Long by auto`, `: Ordered<self> by
+            // auto`: the clause word closes the type. It cannot be a type or a
+            // qualifier, which are uppercase by rule [name-casing].
+            if !established && self.at_word(BY_WORD) {
+                break;
+            }
             let mut r = self.parse_type_ref()?;
             r.established = established;
             refs.push(r);
@@ -6085,7 +6091,7 @@ impl<'s> Parser<'s> {
             .map(|part| match part {
                 StrPart::Text(text) => StrExprPart::Text(text),
                 StrPart::Interp { source, offset } => {
-                    let (expr, diags) = parse_interpolated_expr(&source, offset);
+                    let (expr, diags) = parse_interpolated_expr(&source, offset, self.in_compfn);
                     self.diagnostics.extend(diags);
                     StrExprPart::Interp(Box::new(expr))
                 }
@@ -6096,7 +6102,7 @@ impl<'s> Parser<'s> {
 
 /// Parses a `${...}` fragment as an expression, shifting all spans by
 /// `offset` so they point back into the original file.
-fn parse_interpolated_expr(source: &str, offset: u32) -> (Expr, Vec<Diagnostic>) {
+fn parse_interpolated_expr(source: &str, offset: u32, in_compfn: bool) -> (Expr, Vec<Diagnostic>) {
     let lexed = lexer::lex(source);
     let mut diagnostics = lexed.diagnostics;
     let tokens: Vec<Token> = lexed
@@ -6113,6 +6119,9 @@ fn parse_interpolated_expr(source: &str, offset: u32) -> (Expr, Vec<Diagnostic>)
     // Interpolations hold expressions, never declarations, so they carry
     // no docs.
     let mut parser = Parser::new(source, tokens, Vec::new());
+    // [comptime-inline] An interpolation inside a compfn body may read
+    // `value.[field]` or `field.name` like the body around it.
+    parser.in_compfn = in_compfn;
     let expr = parser.parse_expr().unwrap_or(Expr::Error {
         span: Span::new(offset, offset + source.len() as u32),
     });
