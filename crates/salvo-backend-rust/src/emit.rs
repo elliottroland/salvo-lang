@@ -173,7 +173,7 @@ pub fn emit_program_reporting(
     // mentions traits from arbitrary modules, so it names them in full
     // rather than importing them.
     let mut effect_paths: HashMap<String, String> = HashMap::new();
-    // [rs-handle-bundle] The same prefix per *file*, for items named by the
+    // [rs-handle] The same prefix per *file*, for items named by the
     // module that declares a fn — its handle bundles.
     let mut module_paths: HashMap<usize, String> = HashMap::new();
     for (file_idx, unit) in program.units().enumerate() {
@@ -216,9 +216,6 @@ pub fn emit_program_reporting(
     // [time-types] And for the two clock readings, when a program reads time.
     let mut needs_time = false;
     let mut needs_wire = false;
-    // [rs-effect-fusion] The fusion switch is program-wide: a fn's
-    // signature cannot depend on which of its callers happens to hold a
-    // fusion, so either every effect site fuses or none does.
     for (file_idx, unit) in program.units().enumerate() {
         if !reachable.contains(&unit.file.module) || !module_produces_code(unit.ast) {
             continue;
@@ -1193,8 +1190,9 @@ struct EffectEntry {
     /// that a later construction in the same fn captures as a dependency:
     /// `let __handle_N = __Handle_E::new(Box::new(binding.clone()))`, emitted
     /// at the bind site because the binding value itself moves into the
-    /// fusion. `None` when nothing captures the effect, or the binding is
-    /// local.
+    /// fusion. Since 2026-09-28 ([rs-handle]) every binding *is* a handle,
+    /// so this is the variable itself (or the field path) and a capture is
+    /// `.clone()` of it.
     handle_var: Option<String>,
 }
 
@@ -1365,7 +1363,7 @@ struct Emitter<'p> {
     /// [fn-effects] Absolute crate-path prefix per effect name, for the
     /// generated pass-trait file (which imports nothing).
     effect_paths: HashMap<String, String>,
-    /// [rs-handle-bundle] File index → crate path prefix of its module.
+    /// [rs-handle] File index → crate path prefix of its module.
     module_paths: HashMap<usize, String>,
     /// [effect-generic-decl] The declarations whose generics are erased at
     /// emission; an instance of one renders without its arguments.
@@ -1378,8 +1376,6 @@ struct Emitter<'p> {
     /// returned *value*'s type — `return None` in an `Option`-returning fn is
     /// `return None;` and correct.
     ret_is_unit: bool,
-    /// [rs-effect-fusion] Program-wide: some handler declares an effect
-    /// dependency, so every effect site threads one *fused* value.
     /// Items generated for this file beside the module body (e.g. the
     /// `__Dyn` combiners of a fn value), appended after it.
     generated_items: Vec<String>,
@@ -1393,7 +1389,7 @@ struct Emitter<'p> {
     /// handler constructs a *host* struct, so the companion defining it has
     /// to exist. Collected per file and checked once, program-wide.
     platform_hosts: BTreeSet<ModulePath>,
-    /// Hoisted-temporary counter for the current fn [rs-effect-fusion].
+    /// Hoisted-temporary counter for the current fn [effect-args-hoisted].
     hoist_id: usize,
     /// The fn currently being emitted, for readable generated names.
     current_fn: String,
@@ -2671,7 +2667,7 @@ impl<'p> Emitter<'p> {
             }
         }
         out.push_str(&body);
-        // [rs-effect-fusion] Generated items go last: they are plain items
+        // Generated items go last: they are plain items
         // and Rust has no ordering requirement, so nothing above needs to
         // know they exist.
         for item in std::mem::take(&mut self.generated_items) {
@@ -3588,7 +3584,7 @@ impl<'p> Emitter<'p> {
     /// and phase 4's `Fs` is built out of exactly those members.
     ///
     /// The same function answers for the trait method, every handler's
-    /// implementation, the fusion's forwarding impls and the argument
+    /// implementation, the handle's forwarding impl and the argument
     /// rendering at call sites, because a disagreement between any two of
     /// them is a rustc type error rather than something Salvo would notice.
     fn member_param_mode(&mut self, member: &FnDecl, p: &Param) -> ParamMode {
@@ -3663,12 +3659,9 @@ impl<'p> Emitter<'p> {
         if h.platform {
             return String::new();
         }
-        // [effect-handler-deps] Dependencies are the handler's own effect
-        // list. For the **fusion** form the compiler supplies them per call,
-        // so they are neither fields nor `new` parameters; for the
-        // **handle-dep** form ([effect-handle], user decision 2026-09-20) they
-        // are owned handles captured at construction — fields and trailing
-        // `new` parameters, one per dep in declaration order.
+        // [effect-handler-deps] [rs-handle] Dependencies are the handler's
+        // own effect list, captured as handles at construction — fields and
+        // trailing `new` parameters, one per dep in declaration order.
         let deps: Vec<(String, Vec<String>)> = self.handler_dep_effects(h);
         let handle_dep = self.handler_is_handle_dep(h);
         let saved = self.enter_generics(&h.generics);
@@ -3682,11 +3675,9 @@ impl<'p> Emitter<'p> {
         // Struct: own ctor params + state fields.
         //
         // [effect-handle] A **stateless shareable** handler derives `Clone`: a
-        // seam turns the binding into a handle by boxing a clone (the
-        // `__Share_E` blanket impl wants `Clone + Send`), and a stateless
-        // clone is observationally the instance itself. Handle-dep fields
-        // are `__Handle_E` (Clone by construction), data params are Salvo
-        // types (Clone throughout).
+        // stateless clone is observationally the instance itself. Handle
+        // fields are `__Handle_E` (Clone by construction), data params are
+        // Salvo types (Clone throughout).
         let shareable_stateless = h.state.is_empty()
             && !h.params.iter().any(|p| p.implicit)
             && !h.fns.iter().any(|f| f.is_send)
@@ -4022,9 +4013,7 @@ impl<'p> Emitter<'p> {
         out.push_str(&format!("\nimpl {proc_name} {{\n"));
         // [rs-actor] Member invocation lives in **one** place per protocol:
         // `handle` downcasts a message into it, `resume` rebuilds one from a
-        // parked continuation plus the answer that just arrived. Factoring it
-        // out is what keeps a dependent handler's `__Deps_H` view built once
-        // [rs-effect-fusion].
+        // parked continuation plus the answer that just arrived.
         for ((effect, list), (msg_path, trait_path, dispatch)) in sends.iter().zip(&dispatchers) {
             out.push_str(&format!(
                 "    fn {dispatch}(&mut self, msg: {msg_path}) {{\n"
@@ -4056,7 +4045,7 @@ impl<'p> Emitter<'p> {
             out.push_str("        }\n    }\n");
         }
         // [actor-private-send] The private dispatcher: an inherent method
-        // call (or the `__Impl_H` form for a dependent handler), no trait.
+        // call, no trait.
         if !privates.is_empty() {
             out.push_str(&format!("    fn __dispatch_priv(&mut self, msg: {priv_enum}) {{\n"));
             out.push_str("        match msg {\n");
@@ -4425,8 +4414,6 @@ impl<'p> Emitter<'p> {
             .iter()
             .flatten()
             .filter_map(|e| match e {
-                // [effect-handle] Dep locality is the checker's business; at
-                // the fusion layer a `local E` dep threads like any other.
                 EffectRef::Effect(r) | EffectRef::AnyEffect(r) => Some(r.clone()),
                 EffectRef::Use(_) => None,
                 // [actor-spawn-effect] A capability, not an effect type: no
@@ -4633,7 +4620,7 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [rs-handle-bundle] The rendered handle type of an effect instance:
+    /// [rs-handle] The rendered handle type of an effect instance:
     /// the effect's `__Handle_E`, at its instantiation.
     fn handle_type_of(&mut self, ty: &Ty) -> String {
         let (base, args) = self.ty_effect_parts(ty);
@@ -5009,10 +4996,8 @@ impl<'p> Emitter<'p> {
         let saved_fn = std::mem::replace(&mut self.current_fn, f.name.name.clone());
         let saved_hoist = std::mem::replace(&mut self.hoist_id, 0);
 
-        // Handler members see ctor params and state as `self.` fields. A
-        // dependency is not a field at all under the fusion
-        // [rs-effect-fusion]: it arrives as the fused parameter, and it has
-        // no name in the source either [effect-handler-deps].
+        // Handler members see ctor params and state as `self.` fields, and
+        // dependencies as `self.__dep_E` handle fields [effect-handler-deps].
         let handler_of_style = match style {
             FnStyle::HandlerMember(h) => Some(h),
             _ => None,
@@ -5084,7 +5069,6 @@ impl<'p> Emitter<'p> {
         // Effect dependencies become leading parameters [rs-effects] [rs-handle],
         // sourced from the checker's lowered effect list when available
         // (checker-`Ty` keys; the AST rendering is the unchecked fallback).
-        let body_prelude = String::new();
         if (!is_main || self.declares_platform_effect(f)) && handler_of_style.is_none() {
             let checked_effects: Option<Vec<Ty>> = self
                 .checked
@@ -5802,10 +5786,6 @@ impl<'p> Emitter<'p> {
         let saved_loop_floors = std::mem::take(&mut self.loop_splice_floors);
 
         {
-            // [rs-effect-fusion] A dyn-boundary fn (platform `main`) opens
-            // by combining its `&mut dyn` parameters into the fused value
-            // the rest of the body threads.
-            out.push_str(&body_prelude);
             // [protocol-hash] [node-group] `main` opens by telling the
             // scheduler this program's protocol table — every actor effect
             // with a wire form and its hash — which is what a handshake
@@ -6188,11 +6168,7 @@ impl<'p> Emitter<'p> {
 
     /// [fn-effects] The leading parameters a fn type's effects contribute.
     /// Plain mode: one `&mut dyn Effect` each, in declaration order. Fusion
-    /// mode: **one** `&mut dyn` provider for the whole set — the single
-    /// effect's Has trait, or a `__Prov_…` conjunction of Has traits — since
-    /// two separate reborrows of the caller's one fused value would alias
-    /// (`E0499`). The lambda side rebuilds a Sized fused value from it
-    /// ([rs-effect-fusion]).
+    /// [rs-handle]: one `&mut __Handle_E` each, in declaration order.
     fn fn_type_effect_params(&mut self, effects: Option<&[EffectRef]>) -> Vec<String> {
         let mut rendered: Vec<String> = Vec::new();
         for eff in effects.into_iter().flatten() {
@@ -6248,7 +6224,7 @@ impl<'p> Emitter<'p> {
                 return self.emit_type(&substituted);
             }
         }
-        // [monitor-handler] [rs-monitor] A plain effect's addr is the effect's
+        // [monitor-handler] [rs-handle] A plain effect's addr is the effect's
         // lock wrapper, not a scheduler index — decided on the *written* type
         // here, before the argument is rendered away.
         if name == "Addr" && args.len() == 1 {
@@ -6288,9 +6264,8 @@ impl<'p> Emitter<'p> {
     /// Maps a named type to Rust: intrinsic types [backend-intrinsic], or
     /// pass-through [type-unknown-lenient].
     fn emit_named_parts(&mut self, name: &str, arg_strs: &[String]) -> String {
-        // [rs-effect-fusion] Inside a forwarding impl for an instantiated
-        // effect, the effect's own type parameters render as the instance's
-        // arguments (`T` -> `i32` for `Random<i32>`).
+        // The effect's own type parameters render as the instance's
+        // arguments (`T` -> `i32` for `Random<i32>`) where one is in force.
         if arg_strs.is_empty() {
             if let Some(rendered) = self.type_subst.get(name) {
                 return rendered.clone();
@@ -6773,7 +6748,7 @@ impl<'p> Emitter<'p> {
                     .cloned()
                     .collect();
                 let args = &args;
-                // [monitor-handler] [rs-monitor] A plain effect's addr is the
+                // [monitor-handler] [rs-handle] A plain effect's addr is the
                 // effect's lock wrapper, not a scheduler index.
                 if name == "Addr" && args.len() == 1 {
                     if let Ty::Named { name: effect, args: eff_args } = args[0].strip_quals() {
@@ -6896,7 +6871,7 @@ impl<'p> Emitter<'p> {
         )
     }
 
-    /// [monitor-handler] [rs-monitor] Whether a type is the `Addr` of a
+    /// [monitor-handler] [rs-handle] Whether a type is the `Addr` of a
     /// **plain** effect — a shared monitor's handle, which lowers to the
     /// effect's `__Handle_E` lock wrapper rather than to the scheduler's
     /// `usize` index.
@@ -6916,7 +6891,7 @@ impl<'p> Emitter<'p> {
             .is_some_and(|e| !e.is_actor)
     }
 
-    /// [monitor-handler] [rs-monitor] The rendering of `Addr<E>` for a plain
+    /// [monitor-handler] [rs-handle] The rendering of `Addr<E>` for a plain
     /// effect `E`: the `__Handle_E` wrapper, generic exactly as the effect is —
     /// `Addr<Random<Int>>` is `__Handle_Random<i64>` — so the instantiation the
     /// addr's own type argument carries is the wrapper's.
@@ -7385,11 +7360,11 @@ fn trait_type(name: &str, args: &[String]) -> String {
     }
 }
 
-/// [monitor-handler] [rs-monitor] The lock wrapper of a **plain** effect:
-/// `__Handle_Random`, the effect implemented by locking a shared instance and
-/// delegating — what an `Addr<Random>` *is* in Rust, and what a monitor
-/// spawn answers. Per effect, like the send stub: a holder knows only the
-/// effect the handle serves.
+/// [effect-handle] [rs-handle] The handle of an effect: `__Handle_Random`,
+/// the effect implemented by locking a shared instance and delegating —
+/// what every binding of `Random` is in Rust, what an `Addr<Random>` *is*,
+/// and what a monitor spawn answers. Per effect, like the send stub: a
+/// holder knows only the effect the handle serves.
 fn monitor_struct_name(effect: &str) -> String {
     format!("__Handle_{}", rs_ident(effect))
 }
@@ -7511,9 +7486,8 @@ impl<'p> Emitter<'p> {
 
     fn emit_block_stmts(&mut self, block: &Block, indent: usize, ctx: StmtCtx) -> String {
         let mut out = String::new();
-        // [rs-effect-fusion] Save the whole environment, not just its
-        // depth: a `use` inside the block *rewrites* the outer entries to
-        // thread through the inner fusion, which dies with the block.
+        // Save the whole environment, not just its depth: a `use` inside
+        // the block shadows outer entries for the block's duration.
         let saved_env = self.effect_env.clone();
         // [rs-exit-splice] Splices registered inside this block run when it
         // ends.
@@ -8391,7 +8365,7 @@ impl<'p> Emitter<'p> {
             ));
             return "todo!()".to_string();
         }
-        // [monitor-handler] [rs-monitor] Every face a plain effect: the
+        // [monitor-handler] [rs-handle] Every face a plain effect: the
         // **monitor spawn** — no mailbox, no scheduler, no pool. One shared
         // instance behind a lock, handed out as the effect's `__Handle_E`
         // wrapper. The checker restricted the handler (single face, no
@@ -8466,7 +8440,7 @@ impl<'p> Emitter<'p> {
                     fac_fields.join(", ")
                 );
             }
-            // [monitor-handler] [rs-monitor] The monitor spawn: the handler
+            // [monitor-handler] [rs-handle] The monitor spawn: the handler
             // behind the per-effect lock adapter, boxed into the handle.
             // [effect-handle] Its captured dependency handles follow the written
             // arguments, cloned off the eager handle variables their
@@ -9083,10 +9057,8 @@ impl<'p> Emitter<'p> {
             return String::new();
         };
         // [effect-handle] The binding kind, decided by the checker (shareable by
-        // default, user decision 2026-09-20): a monitor binds lock-shaped
-        // from birth — `__Lock_E::new(H::new(args))`, at the concrete type,
-        // so local calls pay the lock and nothing else — and a stateless
-        // handler binds bare. `use local` keeps the pre-2026-09-20 emission.
+        // default, user decision 2026-09-20; transitional — the Rust
+        // emission binds every kind as the handle since 2026-09-28).
         let kind = self
             .checked
             .use_kinds
@@ -9185,9 +9157,7 @@ impl<'p> Emitter<'p> {
                 None => arg_code.push("todo!()".to_string()),
             }
         }
-        // The construction, wrapped for a monitor binding ([effect-handle]
-        // [rs-monitor]: the per-effect lock adapter at its concrete type, so
-        // local calls pay the lock and nothing else).
+        // The construction; the handle wraps it below.
         let mut ctor = format!(
             "{}{turbofish}::new({})",
             self.handler_ctor_path(&handler_name, decl),
@@ -9277,7 +9247,7 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// [with-clause] [rs-monitor] A written `with` item as the **handle** the
+    /// [with-clause] [rs-handle] A written `with` item as the **handle** the
     /// depending handler captures: a handler construction becomes a private
     /// instance boxed into the effect's `__Handle_E` (the same shape a binding's
     /// eager handle takes, so the field type is unchanged), and an `Addr`
@@ -10942,7 +10912,7 @@ impl<'p> Emitter<'p> {
                     Some(BindKind::SelfField) | Some(BindKind::ElemMut) if !copy => {
                         format!("{place}.clone()")
                     }
-                    // [monitor-handler] [rs-monitor] A plain effect's addr is
+                    // [monitor-handler] [rs-handle] A plain effect's addr is
                     // a lock-wrapper value (`Arc`-backed), not a `Copy` index:
                     // an owned read clones the handle, so a handle bound once
                     // can be shared into any number of spawns and `use`s —
@@ -11817,7 +11787,7 @@ impl<'p> Emitter<'p> {
         // travels is the **owned handle**, the effect's `__Handle_E`, which is
         // `Clone` and implements the effect's own trait — so `&mut` of it *is*
         // the `&mut dyn E` the target's signature asks for, with no bundle and
-        // no signature change [rs-handle-bundle]. Bound outside the closure so
+        // no signature change [rs-handle]. Bound outside the closure so
         // the handle is the one registered at the mint.
         let inherited = self
             .checked
@@ -11894,10 +11864,6 @@ impl<'p> Emitter<'p> {
     /// * `__addr` absent — the instance was bound with `use`, so the send is
     ///   the ordinary inline member call a local binding of a send protocol
     ///   already makes.
-    ///
-    /// A dependent handler's members live in `__Impl_H` and take the fused
-    /// value, so the inline reading forwards the one the body already holds
-    /// [rs-effect-fusion].
     fn emit_self_send(&mut self, member: &str, args: &[Expr]) -> String {
         self.needs_scheduler = true;
         let Some(handler) = self.current_handler.clone() else {
@@ -12277,7 +12243,6 @@ impl<'p> Emitter<'p> {
         // [rs-handle] One `&mut __Handle_E` per effect the fn type declares.
         let mut effect_params: Vec<String> = Vec::new();
         let mut effect_args: Vec<(String, String)> = Vec::new();
-        let fx_prelude = String::new();
         for eff in exp_effects.iter().flatten() {
             if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
                 let rendered = self.emit_type_ref(r);
@@ -12327,9 +12292,6 @@ impl<'p> Emitter<'p> {
             })
             .map(|(i, _)| format!("let __a{i} = *__a{i}; "))
             .collect();
-        // [rs-effect-fusion] The combiner binding opens the adapter body,
-        // before the peels.
-        let peels = format!("{fx_prelude}{peels}");
         let fwd: Vec<String> = decl
             .params
             .iter()
@@ -13201,9 +13163,8 @@ impl<'p> Emitter<'p> {
     /// as the block's value. `indent` is the column its statements sit at.
     fn emit_value_block(&mut self, block: &Block, indent: usize) -> String {
         let mut out = String::new();
-        // [rs-effect-fusion] Save the whole environment, not just its
-        // depth: a `use` inside the block *rewrites* the outer entries to
-        // thread through the inner fusion, which dies with the block.
+        // Save the whole environment, not just its depth: a `use` inside
+        // the block shadows outer entries for the block's duration.
         let saved_env = self.effect_env.clone();
         let splice_floor = self.exit_splices.len();
         // [rs-exit-splice] Splices run *after* the block's value
@@ -13664,9 +13625,8 @@ impl<'p> Emitter<'p> {
     fn emit_loop_body_value(&mut self, block: &Block, result: &str, join_optional: bool) -> String {
         self.loop_optional.insert(result.to_string(), join_optional);
         let mut out = String::new();
-        // [rs-effect-fusion] Save the whole environment, not just its
-        // depth: a `use` inside the block *rewrites* the outer entries to
-        // thread through the inner fusion, which dies with the block.
+        // Save the whole environment, not just its depth: a `use` inside
+        // the block shadows outer entries for the block's duration.
         let saved_env = self.effect_env.clone();
         let splice_floor = self.exit_splices.len();
         let n = block.stmts.len();
@@ -13745,7 +13705,7 @@ impl<'p> Emitter<'p> {
             .collect();
         // [fn-effects] The effects a call of this value performs arrive as
         // *leading parameters*, not captures: that is what keeps the closure
-        // from holding a borrow across an effectful call [rs-effect-fusion].
+        // from holding a borrow across an effectful call [rs-handle].
         let lambda_effects: Vec<Ty> = self
             .checked
             .lambda_effects
@@ -13756,7 +13716,6 @@ impl<'p> Emitter<'p> {
         let mut param_list: Vec<String> = Vec::new();
         // [rs-handle] The value's type declares one `&mut __Handle_E` per
         // effect, and the lambda takes each as a typed leading parameter.
-        let fx_prelude = String::new();
         {
             for ty in &lambda_effects {
                 let rendered = self.rust_ty(ty);
@@ -13844,9 +13803,6 @@ impl<'p> Emitter<'p> {
                 format!("let {name} = *{name}; ")
             })
             .collect();
-        // [rs-effect-fusion] The fused-combiner binding opens the body,
-        // before the peels, exactly like a dyn-boundary fn's prelude.
-        let peels = format!("{fx_prelude}{peels}");
         let out = match body {
             LambdaBody::Expr(expr) => {
                 let expr_code = self.emit_expr(expr);
@@ -14278,11 +14234,8 @@ impl<'p> Emitter<'p> {
         span: Span,
     ) -> String {
         // 1. Effect member call: dispatch through the handler in scope
-        // [rs-effects] ([effect-disambiguation], `effect_calls`). Under the
-        // fusion one value implements every effect in scope, so dispatch is
-        // UFCS: plain method syntax would be ambiguous between two effects
-        // with a same-named member, and between two instances of a generic
-        // effect [rs-effect-fusion].
+        // [rs-effects] ([effect-disambiguation], `effect_calls`): a method
+        // call on the handle the instance is bound to.
         // [call-resolve] ...unless the checker resolved this callee to a
         // fn-typed **local**, which outranks any same-named declaration.
         // `effect_of_fn` is program-wide and knows nothing of scopes, so
@@ -14547,10 +14500,8 @@ impl<'p> Emitter<'p> {
     }
 
     /// [fn-effects] The effect arguments a fn-value call threads, from the
-    /// instances the checker resolved for it. Under the fusion the value's
-    /// type declares **one** `&mut dyn` provider parameter
-    /// ([`Self::fn_type_effect_params`]), so the per-effect expressions —
-    /// all reborrows of the same fused value — collapse to one, and the
+    /// instances the checker resolved for it: one handle reborrow per
+    /// declared effect ([`Self::fn_type_effect_params`]), and the
     /// Sized fused value unsizes into the provider `dyn`.
     fn fn_value_effect_args(&mut self, span: Span) -> Vec<String> {
         let effects: Vec<Ty> = self
@@ -16464,8 +16415,7 @@ impl<'p> Emitter<'p> {
     /// effectful call's arguments does not borrow the same `&mut dyn`
     /// parameter twice (`E0499`) — a shape Kotlin accepts and Rust rejects.
     /// `threaded` is the call's own effect-argument code; `None` means every
-    /// effect in scope (the fusion's single value, or a constructor whose
-    /// arguments reach the provider).
+    /// effect in scope.
     fn hoist_effect_args(
         &mut self,
         threaded: Option<&[String]>,
@@ -16720,10 +16670,8 @@ impl<'p> Emitter<'p> {
     }
 
     /// The expression a member call dispatches through for an effect
-    /// instance (local handler variables and `&mut dyn` parameters both
-    /// auto-reborrow on method calls) [rs-effects]. Under the fusion,
-    /// dispatch is UFCS, so the receiver is spelled out as an explicit
-    /// reborrow [rs-effect-fusion].
+    /// instance (local handle variables and `&mut __Handle_E` parameters
+    /// both auto-reborrow on method calls) [rs-effects] [rs-handle].
     fn member_dispatch_by_ty(&mut self, ty: &Ty) -> String {
         match self.effect_entry_by_ty(ty) {
             Some(entry) => self.entry_recv(&entry),
@@ -17247,7 +17195,7 @@ fn effect_param_name(effect_ty: &str) -> String {
 }
 
 /// A rendered type turned into an identifier fragment for a generated
-/// name (`Random<i32>` -> `Random_i32`) [rs-effect-fusion].
+/// name (`Random<i32>` -> `Random_i32`).
 fn sanitize_ident(text: &str) -> String {
     let mut out = String::new();
     for c in text.chars() {
