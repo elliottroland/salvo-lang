@@ -1,0 +1,816 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+assertion_line: 97
+expression: "parse_clean(&std_core(\"iterator.sv\"))"
+---
+Module {
+    items: [
+        Qualifier(
+            QualifierDecl {
+                docs: [
+                    "[qual-constructive] The element arm of a `next` result. A qualifier rather",
+                    "than a struct so the element keeps its own type — `Emitted Int` *is* an",
+                    "`Int`, tagged — and so a sequence of optionals still has a distinguishable",
+                    "end: `Emitted None | Finished` has two arms where `None | None` would",
+                    "have one. Erased in generated code [qual-erasure].",
+                ],
+                exported: true,
+                intrinsic: false,
+                subject: Provenance,
+                name: Ident {
+                    name: "Emitted",
+                    span: 1217..1224,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 1225..1226,
+                    },
+                ],
+                fn_slots: [],
+                value_slots: [],
+                of: Named {
+                    qualifiers: [],
+                    base: TypeRef {
+                        name: Ident {
+                            name: "T",
+                            span: 1231..1232,
+                        },
+                        args: [],
+                        value_args: [],
+                        from: [],
+                        at: None,
+                        binder: false,
+                        established: false,
+                        alias: None,
+                        span: 1231..1232,
+                    },
+                },
+                with: [],
+                field_overrides: [],
+                fns: [],
+                refns: [],
+                has_body: false,
+                span: 1207..1232,
+            },
+        ),
+        Struct(
+            StructDecl {
+                docs: [
+                    "The end arm. A fieldless struct rather than a qualifier because there is",
+                    "nothing for it to qualify: it carries no element, and reusing `None` would",
+                    "say \"absent\" where the claim is \"the sequence ended\".",
+                ],
+                exported: true,
+                name: Ident {
+                    name: "Finished",
+                    span: 1459..1467,
+                },
+                generics: [],
+                generic_canbe: [],
+                obligations: [],
+                auto_qualifiers: [],
+                fields: [],
+                fns: [],
+                linear: false,
+                noremote: false,
+                span: 1452..1470,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[qual-ctor-fn] Tags a value as the element arm. The value is moved into the",
+                    "result, so nothing is kept ([] deductions); linear values may be tagged,",
+                    "since the obligation travels with them [linear-generics].",
+                ],
+                exported: true,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "emitted",
+                    span: 1698..1705,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 1706..1707,
+                    },
+                ],
+                generic_canbe: [
+                    (
+                        Ident {
+                            name: "T",
+                            span: 1706..1707,
+                        },
+                        TypeRef {
+                            name: Ident {
+                                name: "linear",
+                                span: 1714..1720,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1714..1720,
+                        },
+                    ),
+                ],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1722..1727,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 1729..1730,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1729..1730,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1722..1730,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "T",
+                                span: 1747..1748,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1747..1748,
+                        },
+                    },
+                ),
+                constructs: Some(
+                    TypeRef {
+                        name: Ident {
+                            name: "Emitted",
+                            span: 1739..1746,
+                        },
+                        args: [],
+                        value_args: [],
+                        from: [],
+                        at: None,
+                        binder: false,
+                        established: false,
+                        alias: None,
+                        span: 1739..1746,
+                    },
+                ),
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "value",
+                                                span: 1762..1767,
+                                            },
+                                        ),
+                                    ),
+                                    span: 1755..1767,
+                                },
+                            ),
+                        ],
+                        span: 1749..1769,
+                    },
+                ),
+                span: 1695..1769,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The end of a sequence.",
+                ],
+                exported: true,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "finished",
+                    span: 1807..1815,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Finished",
+                                span: 1824..1832,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1824..1832,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        StructLit {
+                                            ty: Some(
+                                                Named {
+                                                    qualifiers: [],
+                                                    base: TypeRef {
+                                                        name: Ident {
+                                                            name: "Finished",
+                                                            span: 1846..1854,
+                                                        },
+                                                        args: [],
+                                                        value_args: [],
+                                                        from: [],
+                                                        at: None,
+                                                        binder: false,
+                                                        established: false,
+                                                        alias: None,
+                                                        span: 1846..1854,
+                                                    },
+                                                },
+                                            ),
+                                            fields: [],
+                                            span: 1846..1857,
+                                        },
+                                    ),
+                                    span: 1839..1857,
+                                },
+                            ),
+                        ],
+                        span: 1833..1859,
+                    },
+                ),
+                span: 1804..1859,
+            },
+        ),
+        Params(
+            ParamsDecl {
+                docs: [
+                    "[iter-protocol] [group-obligation] What an **iterator struct** is: a type",
+                    "that declares `: Yield<self, T>`, tied to iteration by its `next`. The",
+                    "obligation is checked at the declaring struct — a misspelled or missing",
+                    "`next` is an error where the promise is written, not a puzzling \"not",
+                    "iterable\" at some loop — and `for` reads the declaration rather than",
+                    "scanning overloads.",
+                    "",
+                    "The state comes *first* and the element second, and the state is an",
+                    "ordinary type parameter rather than a magic `Self`: that is what keeps this",
+                    "an ordinary group, so the same declaration also spreads as",
+                    "`?Yield<It, T>` implicit parameters — which is how a generic combinator",
+                    "reaches a source iterator's `next` [implicit-group]. At an obligation the",
+                    "declaring type is written `self` [group-self].",
+                    "",
+                    "The state is taken as `Mut`: advancing an iterator is a mutation of its",
+                    "position. An iterator that *walks* data emits borrows of it — it declares",
+                    "`: Yield<self, proj T>` and its `next` returns `Emitted (proj(p) T)`",
+                    "[yield-proj] — so reading through it copies nothing and whoever *stores* an",
+                    "element says `copy` [copy-opt-in]; one that *computes* its elements",
+                    "declares `: Yield<self, T>` and owns them. A reading combinator's",
+                    "`?Yield<It, T>` accepts either. A group emits nothing on any backend",
+                    "[implicit-group].",
+                ],
+                exported: true,
+                name: Ident {
+                    name: "Yield",
+                    span: 3234..3239,
+                },
+                generics: [
+                    Ident {
+                        name: "It",
+                        span: 3240..3242,
+                    },
+                    Ident {
+                        name: "T",
+                        span: 3244..3245,
+                    },
+                ],
+                fns: [
+                    FnDecl {
+                        docs: [],
+                        exported: false,
+                        intrinsic: false,
+                        is_iter: false,
+                        iter_state: [],
+                        is_send: false,
+                        name: Ident {
+                            name: "next",
+                            span: 3256..3260,
+                        },
+                        scoped_to: None,
+                        compfn: None,
+                        by: None,
+                        stamped: None,
+                        generics: [],
+                        generic_canbe: [],
+                        derived_return: None,
+                        params: [
+                            Param {
+                                name: Ident {
+                                    name: "it",
+                                    span: 3261..3263,
+                                },
+                                ty: Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Mut",
+                                                span: 3265..3268,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 3265..3268,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "It",
+                                            span: 3269..3271,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 3269..3271,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                span: 3261..3271,
+                            },
+                        ],
+                        implicit_groups: [],
+                        effects: None,
+                        deductions: Some(
+                            [
+                                Deduction {
+                                    target: Param {
+                                        name: Ident {
+                                            name: "it",
+                                            span: 3300..3302,
+                                        },
+                                        path: [],
+                                    },
+                                    kind: Exhaustive {
+                                        quals: [
+                                            TypeRef {
+                                                name: Ident {
+                                                    name: "Mut",
+                                                    span: 3304..3307,
+                                                },
+                                                args: [],
+                                                value_args: [],
+                                                from: [],
+                                                at: None,
+                                                binder: false,
+                                                established: false,
+                                                alias: None,
+                                                span: 3304..3307,
+                                            },
+                                        ],
+                                        reapplied: [],
+                                    },
+                                    span: 3300..3307,
+                                },
+                            ],
+                        ),
+                        return_type: Some(
+                            Union {
+                                arms: [
+                                    Named {
+                                        qualifiers: [
+                                            TypeRef {
+                                                name: Ident {
+                                                    name: "Emitted",
+                                                    span: 3276..3283,
+                                                },
+                                                args: [],
+                                                value_args: [],
+                                                from: [],
+                                                at: None,
+                                                binder: false,
+                                                established: false,
+                                                alias: None,
+                                                span: 3276..3283,
+                                            },
+                                        ],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 3284..3285,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 3284..3285,
+                                        },
+                                    },
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "Finished",
+                                                span: 3288..3296,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 3288..3296,
+                                        },
+                                    },
+                                ],
+                                span: 3276..3296,
+                            },
+                        ),
+                        constructs: None,
+                        body: None,
+                        span: 3253..3296,
+                    },
+                ],
+                deductions: [],
+                span: 3227..3309,
+            },
+        ),
+        Params(
+            ParamsDecl {
+                docs: [
+                    "[iter-group] [iter-type] What a **source** is: a type an `iter` mints an",
+                    "iterator from. `iter T` is the placeholder for that iterator — \"a `Mut` type",
+                    "declaring `: Yield<self, T>`\" — one type across both members, so the second",
+                    "member is `Yield`'s `next` over it: the two groups are one protocol stated",
+                    "from two sides. The pair is filled **together** (`iter with next`): a caller",
+                    "may override the minter, never the step alone, since the step belongs to",
+                    "whatever the minter answers [implicit-with].",
+                    "",
+                    "A type joins by declaring `: Iter<self, T>` and either an `iter fn iter(s:",
+                    "self) -> Emitted T | Finished` — the compiler writes the struct and both",
+                    "members — or a fn `iter` of its own returning an iterator struct. Declaring",
+                    "both `: Iter` and `: Yield` on one type is refused: `for x in s` would have",
+                    "two answers.",
+                    "",
+                    "Spread as `?Iter<C, T>`, the group brings in `iter: (C) -> iter T` and",
+                    "`next: (iter T) -> Emitted T | Finished` over a **hidden** type parameter",
+                    "for the iterator struct, so a combinator over a generic *source* writes",
+                    "`for x in c` and the loop mints with the one and drives with the other.",
+                ],
+                exported: true,
+                name: Ident {
+                    name: "Iter",
+                    span: 4485..4489,
+                },
+                generics: [
+                    Ident {
+                        name: "C",
+                        span: 4490..4491,
+                    },
+                    Ident {
+                        name: "T",
+                        span: 4493..4494,
+                    },
+                ],
+                fns: [
+                    FnDecl {
+                        docs: [],
+                        exported: false,
+                        intrinsic: false,
+                        is_iter: false,
+                        iter_state: [],
+                        is_send: false,
+                        name: Ident {
+                            name: "iter",
+                            span: 4523..4527,
+                        },
+                        scoped_to: None,
+                        compfn: None,
+                        by: None,
+                        stamped: None,
+                        generics: [],
+                        generic_canbe: [],
+                        derived_return: None,
+                        params: [
+                            Param {
+                                name: Ident {
+                                    name: "collection",
+                                    span: 4528..4538,
+                                },
+                                ty: Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "C",
+                                            span: 4540..4541,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 4540..4541,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                span: 4528..4541,
+                            },
+                        ],
+                        implicit_groups: [],
+                        effects: None,
+                        deductions: None,
+                        return_type: Some(
+                            Named {
+                                qualifiers: [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "iter",
+                                            span: 4546..4550,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 4546..4550,
+                                    },
+                                ],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "T",
+                                        span: 4551..4552,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 4551..4552,
+                                },
+                            },
+                        ),
+                        constructs: None,
+                        body: None,
+                        span: 4520..4552,
+                    },
+                    FnDecl {
+                        docs: [],
+                        exported: false,
+                        intrinsic: false,
+                        is_iter: false,
+                        iter_state: [],
+                        is_send: false,
+                        name: Ident {
+                            name: "next",
+                            span: 4560..4564,
+                        },
+                        scoped_to: None,
+                        compfn: None,
+                        by: None,
+                        stamped: None,
+                        generics: [],
+                        generic_canbe: [],
+                        derived_return: None,
+                        params: [
+                            Param {
+                                name: Ident {
+                                    name: "iterator",
+                                    span: 4565..4573,
+                                },
+                                ty: Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "iter",
+                                                span: 4575..4579,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 4575..4579,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 4580..4581,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 4580..4581,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                span: 4565..4581,
+                            },
+                        ],
+                        implicit_groups: [],
+                        effects: None,
+                        deductions: Some(
+                            [
+                                Deduction {
+                                    target: Param {
+                                        name: Ident {
+                                            name: "iterator",
+                                            span: 4610..4618,
+                                        },
+                                        path: [],
+                                    },
+                                    kind: Exhaustive {
+                                        quals: [
+                                            TypeRef {
+                                                name: Ident {
+                                                    name: "Mut",
+                                                    span: 4620..4623,
+                                                },
+                                                args: [],
+                                                value_args: [],
+                                                from: [],
+                                                at: None,
+                                                binder: false,
+                                                established: false,
+                                                alias: None,
+                                                span: 4620..4623,
+                                            },
+                                        ],
+                                        reapplied: [],
+                                    },
+                                    span: 4610..4623,
+                                },
+                            ],
+                        ),
+                        return_type: Some(
+                            Union {
+                                arms: [
+                                    Named {
+                                        qualifiers: [
+                                            TypeRef {
+                                                name: Ident {
+                                                    name: "Emitted",
+                                                    span: 4586..4593,
+                                                },
+                                                args: [],
+                                                value_args: [],
+                                                from: [],
+                                                at: None,
+                                                binder: false,
+                                                established: false,
+                                                alias: None,
+                                                span: 4586..4593,
+                                            },
+                                        ],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 4594..4595,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 4594..4595,
+                                        },
+                                    },
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "Finished",
+                                                span: 4598..4606,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 4598..4606,
+                                        },
+                                    },
+                                ],
+                                span: 4586..4606,
+                            },
+                        ),
+                        constructs: None,
+                        body: None,
+                        span: 4557..4606,
+                    },
+                ],
+                deductions: [
+                    Deduction {
+                        target: Param {
+                            name: Ident {
+                                name: "iter",
+                                span: 4499..4503,
+                            },
+                            path: [],
+                        },
+                        kind: With {
+                            others: [
+                                Ident {
+                                    name: "next",
+                                    span: 4509..4513,
+                                },
+                            ],
+                        },
+                        span: 4499..4513,
+                    },
+                ],
+                span: 4478..4625,
+            },
+        ),
+    ],
+}

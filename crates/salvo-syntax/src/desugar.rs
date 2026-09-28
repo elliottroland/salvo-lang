@@ -101,11 +101,10 @@ pub fn expand_iter_fns_with(
     extern_structs: &[StructDecl],
     groups: &[ParamsDecl],
 ) -> Vec<Diagnostic> {
-    // [cmp-auto] The other desugaring, run here because this is the one
+    // [fn-attached] The struct-body hoist, run here because this is the one
     // entry point every consumer of a parsed module already calls — so no path
-    // can forget it. It needs no declarations but the module's own: a `default`
-    // obligation and the type it is written on are the same declaration.
-    expand_auto_obligations(module);
+    // can forget it.
+    hoist_struct_fns(module);
     // [iter-type] The placeholder's hidden-generic readings, on every fn —
     // after the struct-body fns are hoisted, so they are covered too.
     hoist_iter_types(module, groups);
@@ -661,7 +660,7 @@ fn expand(
         generic_canbe: Vec::new(),
         generics: f.generics.clone(),
         obligations: vec![Obligation {
-            auto: false,
+            by: None,
             group: TypeRef {
                 at: None,
                 binder: false,
@@ -723,7 +722,9 @@ fn expand(
             span: mint_span,
         },
         scoped_to: None,
-        structural: false,
+        compfn: None,
+        by: None,
+        stamped: None,
         generics: f.generics.clone(),
         generic_canbe: f.generic_canbe.clone(),
         derived_return: None,
@@ -846,7 +847,9 @@ fn expand(
         // [fn-attached] An `iter fn` is never `@`-scoped: the form declares an
         // iterator, and the generated halves inherit its plain name.
         scoped_to: None,
-        structural: false,
+        compfn: None,
+        by: None,
+        stamped: None,
         generics: f.generics.clone(),
         generic_canbe: f.generic_canbe.clone(),
         derived_return: next_return.as_ref().and_then(crate::parser::first_proj_source),
@@ -1199,7 +1202,9 @@ fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
             span,
         },
         scoped_to: None,
-        structural: false,
+        compfn: None,
+        by: None,
+        stamped: None,
         generics: Vec::new(),
         generic_canbe: Vec::new(),
         derived_return: None,
@@ -1328,6 +1333,9 @@ impl Rewrite {
             Stmt::Use { handler, .. } => self.expr(handler),
             Stmt::Rename(_) => {}
             Stmt::Expr(expr) => self.expr(expr),
+            // [comptime-inline] Gone before this walk runs (a compfn is
+            // never an `iter fn`).
+            Stmt::Comp(_) => {}
         }
     }
 
@@ -1444,6 +1452,7 @@ impl Rewrite {
                     match &mut field.kind {
                         StructLitFieldKind::Named { value, .. } => self.expr(value),
                         StructLitFieldKind::Spread(value) => self.expr(value),
+                        StructLitFieldKind::InlineFor { .. } => {}
                     }
                 }
             }
@@ -1636,6 +1645,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 Stmt::Use { handler, .. } => walk_expr(handler, reserved, out),
                 Stmt::Rename(_) => {}
                 Stmt::Expr(expr) => walk_expr(expr, reserved, out),
+                Stmt::Comp(_) => {}
             }
         }
     }
@@ -1798,6 +1808,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                             walk_expr(value, reserved, out)
                         }
                         StructLitFieldKind::Spread(value) => walk_expr(value, reserved, out),
+                        StructLitFieldKind::InlineFor { .. } => {}
                     }
                 }
             }
@@ -1985,82 +1996,17 @@ fn rename_value_arg_root(ty: &mut Type, old: &str, new: &str) {
     }
 }
 
-// ===== [cmp-auto] `auto` obligations and `auto fn` =====
+// ===== [fn-attached] struct-body fns =====
 
-/// [cmp-auto] The capability groups the compiler can generate, and the members
-/// each one asks for — the expansion of `: auto Group<self>` into one bodiless
-/// `auto fn` per member.
-///
-/// It duplicates what `core.compare` declares, and has to: this pass runs per
-/// module, before any cross-module visibility exists, so the group's own member
-/// list is not available here. **Keep the two in step** — the checker reads this
-/// same table for its "can the compiler generate this member" test, so the
-/// compiler cannot disagree with itself, only with std.
-///
-/// `Hashed` **brings `eq` with it** (user decision 2026-09-22): a hash
-/// container buckets by `hash` and confirms by `eq`, so the pair is the unit and
-/// a `hash` without its `eq` is useless. `Ordered` does **not**: no sorted
-/// container consults equality — both hosts collapse by the comparator — so an
-/// `eq` there would be a member nothing reads.
-const AUTO_GROUPS: [(&str, &[&str]); 3] = [
-    ("Ordered", &["cmp"]),
-    ("Eq", &["eq"]),
-    ("Hashed", &["hash", "eq"]),
-];
-
-/// [cmp-auto] The members `auto Group<self>` generates, if the compiler has a
-/// generator for that group at all.
-pub fn auto_members(group: &str) -> Option<&'static [&'static str]> {
-    AUTO_GROUPS
-        .iter()
-        .find(|(g, _)| *g == group)
-        .map(|(_, ms)| *ms)
-}
-
-/// [cmp-auto] Whether the compiler can write this member's body — the whole
-/// list, which is what an `auto fn` of another name is refused against.
-pub fn is_auto_member(member: &str) -> bool {
-    AUTO_GROUPS.iter().any(|(_, ms)| ms.contains(&member))
-}
-
-/// [cmp-auto] Every member the compiler can generate, for a diagnostic that
-/// names them.
-pub fn auto_member_names() -> Vec<&'static str> {
-    let mut out: Vec<&'static str> = Vec::new();
-    for (_, ms) in AUTO_GROUPS {
-        for m in ms {
-            if !out.contains(m) {
-                out.push(m);
-            }
-        }
-    }
-    out
-}
-
-/// [cmp-auto] Expands every `: auto Group<self>` into the `auto fn`
-/// declarations it is sugar for: one `@`-scoped fn per member
-/// [fn-attached], bodiless and marked `structural`, which each backend lowers
-/// to the host's own derived comparison, equality or hash.
-///
-/// Done here, beside the `iter fn` expansion and for the same three reasons:
-/// nothing downstream learns the form exists (the expansions are ordinary
-/// overloads, so resolution, implicit filling, the canonical rules and the
-/// duplicate check all apply unchanged), a hand-written member colliding with a
-/// generated one *is* the ordinary duplicate error, and the emitters need no
-/// notion of an obligation clause — only of a structural fn.
-///
-/// The written `auto fn` form needs no expansion at all: it *is* what this
-/// produces, which is why the clause is sugar rather than a second mechanism.
-///
-/// An `auto` on a group with no generator expands to nothing; the checker
-/// reports it, naming the members it can write.
-pub fn expand_auto_obligations(module: &mut Module) {
+/// [fn-attached] Hoists every fn written inside a struct body to module level,
+/// attached to the type and carrying its visibility. Hoisted rather than kept
+/// nested because it *is* an ordinary top-level function in every other
+/// respect — it overloads, it is called bare or with dot notation, and it
+/// takes part in ranking. A `by` declaration [fn-by] and a concrete `compfn`
+/// [comptime-bound] in the body travel the same way; the comptime expansion
+/// finds them at module level afterwards.
+pub fn hoist_struct_fns(module: &mut Module) {
     let mut generated: Vec<Item> = Vec::new();
-    // [fn-attached] A fn written inside a struct body is hoisted to module
-    // level, attached to the type and carrying its visibility. Hoisted rather
-    // than kept nested because it *is* an ordinary top-level function in every
-    // other respect — it overloads, it is called bare or with dot notation, and
-    // it takes part in ranking.
     for item in &mut module.items {
         let Item::Struct(s) = item else { continue };
         let (exported, name) = (s.exported, s.name.clone());
@@ -2070,144 +2016,7 @@ pub fn expand_auto_obligations(module: &mut Module) {
             generated.push(Item::Fn(f));
         }
     }
-    for item in &module.items {
-        let Item::Struct(s) = item else { continue };
-        let mut members: Vec<&str> = Vec::new();
-        for ob in &s.obligations {
-            if !ob.auto {
-                continue;
-            }
-            // `self` is what the generator writes the signature over; an
-            // `auto` naming someone else's type is the checker's error.
-            if !ob
-                .group
-                .args
-                .iter()
-                .all(|a| matches!(a, Type::Named { base, .. } if base.name.name == "self"))
-            {
-                continue;
-            }
-            // [cmp-auto] Two groups asking for the same member ask for one
-            // declaration, not two: `auto Eq<self>` beside `auto Hashed<self>`
-            // is one `eq`, the same merge an overlapping spread gets.
-            if let Some(ms) = auto_members(&ob.group.name.name) {
-                for m in ms {
-                    if !members.contains(m) {
-                        members.push(m);
-                    }
-                }
-            }
-        }
-        for member in members {
-            generated.push(Item::Fn(structural_member(s, member)));
-        }
-    }
     module.items.extend(generated);
-}
-
-/// One generated canonical: `fn cmp@Point(a: Point, b: Point) [] -> Int => a, b`.
-///
-/// Spans point at the struct's own name, so a duplicate or an ineligible field
-/// is reported where the `default` was written rather than at an invisible
-/// declaration.
-fn structural_member(s: &StructDecl, member: &str) -> FnDecl {
-    let span = s.name.span;
-    let self_ty = Type::Named {
-        qualifiers: vec![],
-        base: TypeRef {
-            at: None,
-            binder: false,
-            established: false,
-            alias: None,
-            value_args: Vec::new(),
-            name: s.name.clone(),
-            args: s
-                .generics
-                .iter()
-                .map(|g| Type::Named {
-                    qualifiers: vec![],
-                    base: type_ref(&g.name, span),
-                })
-                .collect(),
-            from: Vec::new(),
-            span,
-        },
-    };
-    let param = |name: &str| Param {
-        name: Ident {
-            name: name.to_string(),
-            span,
-        },
-        ty: self_ty.clone(),
-        variadic: false,
-        implicit: false,
-        span,
-    };
-    let keep = |name: &str| Deduction {
-        target: DeductionTarget::Param {
-            name: Ident {
-                name: name.to_string(),
-                span,
-            },
-            path: Vec::new(),
-        },
-        kind: DeductionKind::KeepAll,
-        span,
-    };
-    // Every member *keeps* its parameters: comparing or hashing a value reads
-    // it [fn-contract], which is also the contract the group's member declares.
-    let (params, deductions, ret) = match member {
-        "hash" => (
-            vec![param("value")],
-            vec![keep("value")],
-            Some("Long"),
-        ),
-        "eq" => (
-            vec![param("a"), param("b")],
-            vec![keep("a"), keep("b")],
-            Some("Bool"),
-        ),
-        _ => (
-            vec![param("a"), param("b")],
-            vec![keep("a"), keep("b")],
-            Some("Int"),
-        ),
-    };
-    FnDecl {
-        docs: vec![format!(
-            "The structural `{member}` for [{}], generated from its `auto` \
-             obligation [cmp-auto].",
-            s.name.name
-        )],
-        // [mod-export] A generated canonical carries the struct's own
-        // visibility, which is also what [fn-attached]'s export-match rule
-        // demands of a hand-written one.
-        exported: s.exported,
-        intrinsic: false,
-        is_iter: false,
-        is_send: false,
-        iter_state: vec![],
-        name: Ident {
-            name: member.to_string(),
-            span,
-        },
-        scoped_to: Some(s.name.clone()),
-        structural: true,
-        generics: s.generics.clone(),
-        generic_canbe: Vec::new(),
-        derived_return: None,
-        params,
-        implicit_groups: vec![],
-        effects: Some(vec![]),
-        deductions: Some(deductions),
-        return_type: ret.map(|r| Type::Named {
-            qualifiers: vec![],
-            base: type_ref(r, span),
-        }),
-        constructs: None,
-        body: None,
-        span,
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2286,6 +2095,28 @@ fn walk_block_with(block: &Block, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut 
             }
             Stmt::Rename(_) => {}
             Stmt::Expr(expr) => walk_expr_with(expr, on_stmt, on_expr),
+            // [comptime-inline] The comptime forms carry blocks of their own;
+            // walked so a read-only scan sees inside a `compfn` too.
+            Stmt::Comp(c) => match c {
+                CompStmt::For { body, .. } | CompStmt::WhenArms { body, .. } => {
+                    walk_block_with(body, on_stmt, on_expr)
+                }
+                CompStmt::If { then, else_, .. } => {
+                    walk_block_with(then, on_stmt, on_expr);
+                    if let Some(b) = else_ {
+                        walk_block_with(b, on_stmt, on_expr);
+                    }
+                }
+                CompStmt::WhenKind { arms, else_, .. } => {
+                    for arm in arms {
+                        walk_block_with(&arm.body, on_stmt, on_expr);
+                    }
+                    if let Some(b) = else_ {
+                        walk_block_with(b, on_stmt, on_expr);
+                    }
+                }
+                CompStmt::Refuse { message, .. } => walk_expr_with(message, on_stmt, on_expr),
+            },
         }
     }
 }
@@ -2414,6 +2245,13 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
                 match &field.kind {
                     StructLitFieldKind::Named { value, .. } => e(value),
                     StructLitFieldKind::Spread(value) => e(value),
+                    StructLitFieldKind::InlineFor { entries, .. } => {
+                        for entry in entries {
+                            if let StructLitFieldKind::Named { value, .. } = &entry.kind {
+                                e(value);
+                            }
+                        }
+                    }
                 }
             }
         }

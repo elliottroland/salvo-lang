@@ -1,0 +1,2453 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+assertion_line: 61
+expression: "parse_clean(&std_core(\"basic.sv\"))"
+---
+Module {
+    items: [
+        Type(
+            TypeDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                linear: false,
+                noremote: false,
+                name: Ident {
+                    name: "Byte",
+                    span: 22..26,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                auto_qualifiers: [],
+                alias: None,
+                obligations: [],
+                span: 17..26,
+            },
+        ),
+        Type(
+            TypeDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                linear: false,
+                noremote: false,
+                name: Ident {
+                    name: "Int",
+                    span: 49..52,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                auto_qualifiers: [],
+                alias: None,
+                obligations: [],
+                span: 44..52,
+            },
+        ),
+        Type(
+            TypeDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                linear: false,
+                noremote: false,
+                name: Ident {
+                    name: "Long",
+                    span: 75..79,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                auto_qualifiers: [],
+                alias: None,
+                obligations: [],
+                span: 70..79,
+            },
+        ),
+        Type(
+            TypeDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                linear: false,
+                noremote: false,
+                name: Ident {
+                    name: "Float",
+                    span: 102..107,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                auto_qualifiers: [],
+                alias: None,
+                obligations: [],
+                span: 97..107,
+            },
+        ),
+        Type(
+            TypeDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                linear: false,
+                noremote: false,
+                name: Ident {
+                    name: "Double",
+                    span: 130..136,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                auto_qualifiers: [],
+                alias: None,
+                obligations: [],
+                span: 125..136,
+            },
+        ),
+        Type(
+            TypeDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                linear: false,
+                noremote: false,
+                name: Ident {
+                    name: "Char",
+                    span: 159..163,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                auto_qualifiers: [],
+                alias: None,
+                obligations: [],
+                span: 154..163,
+            },
+        ),
+        Type(
+            TypeDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                linear: false,
+                noremote: false,
+                name: Ident {
+                    name: "Bool",
+                    span: 186..190,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                auto_qualifiers: [],
+                alias: None,
+                obligations: [],
+                span: 181..190,
+            },
+        ),
+        Type(
+            TypeDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                linear: false,
+                noremote: false,
+                name: Ident {
+                    name: "Any",
+                    span: 213..216,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                auto_qualifiers: [],
+                alias: None,
+                obligations: [],
+                span: 208..216,
+            },
+        ),
+        Type(
+            TypeDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                linear: false,
+                noremote: false,
+                name: Ident {
+                    name: "Never",
+                    span: 239..244,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                auto_qualifiers: [],
+                alias: None,
+                obligations: [],
+                span: 234..244,
+            },
+        ),
+        Type(
+            TypeDecl {
+                docs: [],
+                exported: true,
+                intrinsic: false,
+                linear: false,
+                noremote: false,
+                name: Ident {
+                    name: "Number",
+                    span: 258..264,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                auto_qualifiers: [],
+                alias: Some(
+                    Union {
+                        arms: [
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Int",
+                                        span: 267..270,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 267..270,
+                                },
+                            },
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Long",
+                                        span: 273..277,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 273..277,
+                                },
+                            },
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Double",
+                                        span: 280..286,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 280..286,
+                                },
+                            },
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Float",
+                                        span: 289..294,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 289..294,
+                                },
+                            },
+                        ],
+                        span: 267..294,
+                    },
+                ),
+                obligations: [],
+                span: 253..294,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[op-convert] The explicit numeric conversions the operators point at",
+                    "where they refuse to mix classes ([op-arith]: `Int + Double` is an",
+                    "error naming `to_double`). Truncating conversions truncate toward zero",
+                    "and saturate at the target's bounds, identically on both backends;",
+                    "`to_int(Long)` keeps the low 32 bits (both backends' `toInt()`/`as i32`",
+                    "semantics).",
+                ],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_int",
+                    span: 692..698,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 699..704,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Long",
+                                    span: 706..710,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 706..710,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 699..710,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 725..730,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 725..730,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Int",
+                                span: 718..721,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 718..721,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 689..721,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_int",
+                    span: 751..757,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 758..763,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Double",
+                                    span: 765..771,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 765..771,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 758..771,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 786..791,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 786..791,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Int",
+                                span: 779..782,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 779..782,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 748..782,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_int",
+                    span: 812..818,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 819..824,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Float",
+                                    span: 826..831,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 826..831,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 819..831,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 846..851,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 846..851,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Int",
+                                span: 839..842,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 839..842,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 809..842,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_long",
+                    span: 872..879,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 880..885,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 887..890,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 887..890,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 880..890,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 906..911,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 906..911,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Long",
+                                span: 898..902,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 898..902,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 869..902,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_long",
+                    span: 932..939,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 940..945,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Double",
+                                    span: 947..953,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 947..953,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 940..953,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 969..974,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 969..974,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Long",
+                                span: 961..965,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 961..965,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 929..965,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_long",
+                    span: 995..1002,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1003..1008,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Float",
+                                    span: 1010..1015,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1010..1015,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1003..1015,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 1031..1036,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1031..1036,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Long",
+                                span: 1023..1027,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1023..1027,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 992..1027,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_double",
+                    span: 1057..1066,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1067..1072,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 1074..1077,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1074..1077,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1067..1077,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 1095..1100,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1095..1100,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Double",
+                                span: 1085..1091,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1085..1091,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1054..1091,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_double",
+                    span: 1121..1130,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1131..1136,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Long",
+                                    span: 1138..1142,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1138..1142,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1131..1142,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 1160..1165,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1160..1165,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Double",
+                                span: 1150..1156,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1150..1156,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1118..1156,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_double",
+                    span: 1186..1195,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1196..1201,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Float",
+                                    span: 1203..1208,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1203..1208,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1196..1208,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 1226..1231,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1226..1231,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Double",
+                                span: 1216..1222,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1216..1222,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1183..1222,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_float",
+                    span: 1252..1260,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1261..1266,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 1268..1271,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1268..1271,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1261..1271,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 1288..1293,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1288..1293,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Float",
+                                span: 1279..1284,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1279..1284,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1249..1284,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_float",
+                    span: 1314..1322,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1323..1328,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Long",
+                                    span: 1330..1334,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1330..1334,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1323..1334,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 1351..1356,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1351..1356,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Float",
+                                span: 1342..1347,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1342..1347,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1311..1347,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_float",
+                    span: 1377..1385,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1386..1391,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Double",
+                                    span: 1393..1399,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1393..1399,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1386..1399,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 1416..1421,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1416..1421,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Float",
+                                span: 1407..1412,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1407..1412,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1374..1412,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[byte-value] A `Byte` is an **unsigned** 0..255 octet on both backends, and",
+                    "it is not operator-numeric: these two conversions are the whole of its",
+                    "arithmetic surface, so a byte is turned into an `Int`, computed with, and",
+                    "turned back. `to_byte` keeps the low 8 bits (300 is 44, -1 is 255), which",
+                    "is what both backends' truncation does.",
+                ],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_byte",
+                    span: 1793..1800,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1801..1806,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 1808..1811,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1808..1811,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1801..1811,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 1827..1832,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1827..1832,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Byte",
+                                span: 1819..1823,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1819..1823,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1790..1823,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_int",
+                    span: 1853..1859,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1860..1865,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Byte",
+                                    span: 1867..1871,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1867..1871,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1860..1871,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 1886..1891,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1886..1891,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Int",
+                                span: 1879..1882,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1879..1882,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1850..1882,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[intrinsic-fn] [copy-fn] Duplicates a value: the argument is kept",
+                    "untouched (with all its qualifiers) and the result is a fresh,",
+                    "independent value with no fate links to the source. Implemented by",
+                    "each backend directly (Kotlin: identity for transitively immutable",
+                    "types, a real copy for Mut-capable ones; Rust: `.clone()`).",
+                ],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "copy",
+                    span: 2251..2255,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 2256..2257,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 2259..2264,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "proj",
+                                        span: 2266..2270,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 2266..2270,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 2271..2272,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 2271..2272,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2259..2272,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 2285..2290,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2285..2290,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "T",
+                                span: 2280..2281,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 2280..2281,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2248..2281,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[linear-group] [linear-discard] What **linear** means: a type declares",
+                    "itself with the `linear struct` modifier, and its obligation — use the",
+                    "value exactly once, ending in a discharge — is discharged by any fn",
+                    "declared in the *type's own file* that consumes a parameter of it (its",
+                    "**dischargers**: `close` for a file, `stop`/`join` for a thread,",
+                    "`remove(cache, handle)` for a pooled handle). A `linear struct` with no",
+                    "discharger is an error at the struct: the obligation would have no",
+                    "legal death.",
+                    "",
+                    "`discard` is the obligation's **terminal**: inside a discharger — and",
+                    "only there — `discard(value)` ends the obligation. Everywhere else,",
+                    "dropping a handle is exactly the leak linearity exists to prevent, and",
+                    "a discharger's own body must terminate the obligation on every path",
+                    "(a `discard`, or a forward into another consuming fn).",
+                ],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "discard",
+                    span: 3192..3199,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 3200..3201,
+                    },
+                ],
+                generic_canbe: [
+                    (
+                        Ident {
+                            name: "T",
+                            span: 3200..3201,
+                        },
+                        TypeRef {
+                            name: Ident {
+                                name: "linear",
+                                span: 3208..3214,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 3208..3214,
+                        },
+                    ),
+                ],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 3216..3221,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 3223..3224,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 3223..3224,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3216..3224,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 3241..3246,
+                                },
+                                path: [],
+                            },
+                            kind: Moved,
+                            span: 3240..3246,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 3232..3236,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 3232..3236,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3189..3236,
+            },
+        ),
+        Params(
+            ParamsDecl {
+                docs: [
+                    "[interp-to-str] The obligation \"this type has a text form\". Declaring",
+                    "`: ToStr<self>` on a type is a *convenience*: it does not enable",
+                    "interpolation — a `to_str` in scope does that, resolved at the",
+                    "interpolation site — but it validates at the declaration that one exists,",
+                    "which is where the mistake is easier to see (user decision 2026-09-11).",
+                ],
+                exported: true,
+                name: Ident {
+                    name: "ToStr",
+                    span: 3625..3630,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 3631..3632,
+                    },
+                ],
+                fns: [
+                    FnDecl {
+                        docs: [],
+                        exported: false,
+                        intrinsic: false,
+                        is_iter: false,
+                        iter_state: [],
+                        is_send: false,
+                        name: Ident {
+                            name: "to_str",
+                            span: 3643..3649,
+                        },
+                        scoped_to: None,
+                        compfn: None,
+                        by: None,
+                        stamped: None,
+                        generics: [],
+                        generic_canbe: [],
+                        derived_return: None,
+                        params: [
+                            Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 3650..3655,
+                                },
+                                ty: Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 3657..3658,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 3657..3658,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                span: 3650..3658,
+                            },
+                        ],
+                        implicit_groups: [],
+                        effects: None,
+                        deductions: None,
+                        return_type: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 3663..3666,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 3663..3666,
+                                },
+                            },
+                        ),
+                        constructs: None,
+                        body: None,
+                        span: 3640..3666,
+                    },
+                ],
+                deductions: [],
+                span: 3618..3668,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[interp-to-str] The text form of the scalars, as *functions*.",
+                    "",
+                    "Interpolation renders these natively and needs none of them; a **`?ToStr<T>`",
+                    "implicit** does, because resolution looks for a function",
+                    "[implicit-resolve] — so without these, `expect_eq(count, 3)` could not",
+                    "render an `Int` (added 2026-09-23 with the test surface, user decision: std",
+                    "grows what the framework needs).",
+                    "",
+                    "`Double` and `Float` are deliberately absent: the two hosts disagree about",
+                    "how a whole float prints (`1.0` on the JVM, `1` on Rust), so a text form for",
+                    "them is a parity decision rather than a lowering, and no test needs one yet.",
+                ],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_str",
+                    span: 4330..4336,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 4337..4342,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 4344..4347,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 4344..4347,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 4337..4347,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 4362..4367,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 4362..4367,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 4355..4358,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 4355..4358,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 4327..4358,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_str",
+                    span: 4388..4394,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 4395..4400,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Long",
+                                    span: 4402..4406,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 4402..4406,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 4395..4406,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 4421..4426,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 4421..4426,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 4414..4417,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 4414..4417,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 4385..4417,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_str",
+                    span: 4447..4453,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 4454..4459,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Byte",
+                                    span: 4461..4465,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 4461..4465,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 4454..4465,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 4480..4485,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 4480..4485,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 4473..4476,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 4473..4476,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 4444..4476,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_str",
+                    span: 4506..4512,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 4513..4518,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Char",
+                                    span: 4520..4524,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 4520..4524,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 4513..4524,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 4539..4544,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 4539..4544,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 4532..4535,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 4532..4535,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 4503..4535,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_str",
+                    span: 4565..4571,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 4572..4577,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bool",
+                                    span: 4579..4583,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 4579..4583,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 4572..4583,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 4598..4603,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 4598..4603,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 4591..4594,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 4591..4594,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 4562..4594,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_str",
+                    span: 4624..4630,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 4631..4636,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 4638..4641,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 4638..4641,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 4631..4641,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 4656..4661,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 4656..4661,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 4649..4652,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 4649..4652,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 4621..4652,
+            },
+        ),
+    ],
+}
