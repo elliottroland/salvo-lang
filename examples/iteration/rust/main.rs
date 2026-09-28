@@ -47,7 +47,7 @@ use crate::core_string::*;
 use crate::seq::*;
 use crate::unions::*;
 
-pub fn describe_container(console: &mut dyn Console, xs: &Vec<i32>) {
+pub fn describe_container(console: &mut crate::core_console::__Handle_Console, xs: &Vec<i32>) {
     let mut sum = 0;
     for n in xs {
         sum = sum + *n;
@@ -104,7 +104,7 @@ pub fn skip(p: &mut Countdown) -> Union2<i32, Finished> {
     return Union2::<i32, Finished>::U1(emitted(now));
 }
 
-pub fn take(console: &mut dyn Console, p: &mut Countdown, count: i32) {
+pub fn take(console: &mut crate::core_console::__Handle_Console, p: &mut Countdown, count: i32) {
     let mut seen = 0;
     while let Union2::U1(mut n) = next__15(p) {
         println(console, &(format!("2. got {}", n)));
@@ -215,7 +215,7 @@ pub fn fibs(count: i32) -> __Iter_fibs_Int {
     return __Iter_fibs_Int { count: count, a: 0, b: 1, made: 0 };
 }
 
-pub fn next__18(console: &mut dyn Console, __p: &mut __Iter_fibs_Int) -> Union2<i32, Finished> {
+pub fn next__18(console: &mut crate::core_console::__Handle_Console, __p: &mut __Iter_fibs_Int) -> Union2<i32, Finished> {
     if __p.made >= __p.count {
         println(console, &("3. finished".to_string()));
         return Union2::<i32, Finished>::U2(finished());
@@ -282,7 +282,7 @@ pub fn first__2<__It0: Clone>(it: &mut __It0, next: &mut dyn FnMut(&mut __It0) -
 }
 
 pub fn main() {
-    let mut console = StdOutConsole::new();
+    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
     let mut xs = vec![1, 2, 3, 4];
     describe_container(&mut console, &xs);
     let mut p = countdown(5);

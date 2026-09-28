@@ -5,67 +5,28 @@ pub trait Console {
     fn print(&mut self, message: &String);
 }
 
-pub trait __Has_Console {
-    fn __get_Console(&mut self) -> &mut dyn Console;
+pub struct __Handle_Console {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Console + Send>>,
 }
 
-pub trait __Share_Console: Console + Send {
-    fn __clone_box(&self) -> Box<dyn __Share_Console>;
-}
-
-impl<__H: Console + Clone + Send + 'static> __Share_Console for __H {
-    fn __clone_box(&self) -> Box<dyn __Share_Console> {
-        Box::new(self.clone())
-    }
-}
-
-pub struct __Mon_Console {
-    inner: Box<dyn __Share_Console>,
-}
-
-impl Clone for __Mon_Console {
-    fn clone(&self) -> Self {
-        Self { inner: self.inner.__clone_box() }
-    }
-}
-
-impl __Mon_Console {
-    pub fn new(inner: Box<dyn __Share_Console>) -> Self {
-        Self { inner }
-    }
-}
-
-impl Console for __Mon_Console {
-    fn print(&mut self, message: &String) {
-        self.inner.print(message)
-    }
-}
-
-pub struct __Lock_Console<H> {
-    inner: std::sync::Arc<std::sync::Mutex<H>>,
-}
-
-impl<H> Clone for __Lock_Console<H> {
+impl Clone for __Handle_Console {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H> __Lock_Console<H> {
-    pub fn new(inner: H) -> Self {
+impl __Handle_Console {
+    pub fn new<__H: Console + Send + 'static>(inner: __H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
     }
-}
-
-impl<H: Console + Send> Console for __Lock_Console<H> {
-    fn print(&mut self, message: &String) {
-        self.inner.lock().unwrap().print(message)
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Console + Send>>) -> Self {
+        Self { inner }
     }
 }
 
-impl __Has_Console for __Mon_Console {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        self
+impl Console for __Handle_Console {
+    fn print(&mut self, message: &String) {
+        self.inner.lock().unwrap().print(message)
     }
 }
 
@@ -85,7 +46,7 @@ impl Console for StdOutConsole {
     }
 }
 
-pub fn println<__Fx: __Has_Console>(__fx: &mut __Fx, message: &String) {
-    __Has_Console::__get_Console(&mut *__fx).print(message);
-    __Has_Console::__get_Console(&mut *__fx).print(&("\n".to_string()));
+pub fn println(console: &mut crate::core_console::__Handle_Console, message: &String) {
+    console.print(message);
+    console.print(&("\n".to_string()));
 }

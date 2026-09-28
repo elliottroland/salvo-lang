@@ -60,17 +60,17 @@ impl crate::wire::__Wire for FileHandle {
     }
 }
 
-pub fn open_file(console: &mut dyn Console, name: String) -> FileHandle {
+pub fn open_file(console: &mut crate::core_console::__Handle_Console, name: String) -> FileHandle {
     println(console, &(format!("1. open {}", name)));
     return FileHandle { name: name };
 }
 
-pub fn close__3(console: &mut dyn Console, handle: FileHandle) {
+pub fn close__3(console: &mut crate::core_console::__Handle_Console, handle: FileHandle) {
     println(console, &(format!("1. close {}", handle.name.clone())));
     drop(handle);
 }
 
-pub fn read_size(console: &mut dyn Console, name: String, want: i32) -> i32 {
+pub fn read_size(console: &mut crate::core_console::__Handle_Console, name: String, want: i32) -> i32 {
     let mut there_is = (name.chars().count() as i32);
     let mut handle = open_file(console, name);
     if want > there_is {
@@ -98,7 +98,7 @@ pub fn port_of(config: &String) -> ControlFlow<String, i32> {
     return ControlFlow::Continue(port * 1);
 }
 
-pub fn port_from_file(console: &mut dyn Console, name: String, text: &String) -> ControlFlow<String, i32> {
+pub fn port_from_file(console: &mut crate::core_console::__Handle_Console, name: String, text: &String) -> ControlFlow<String, i32> {
     let mut handle = open_file(console, name);
     let mut from = handle.name.clone();
     close__3(console, handle);
@@ -117,7 +117,7 @@ pub fn strict_port(text: &String) -> ControlFlow<Union2<String, i32>, i32> {
     return ControlFlow::Continue(n.unwrap());
 }
 
-pub fn report(console: &mut dyn Console, label: &String, config: &String) {
+pub fn report(console: &mut crate::core_console::__Handle_Console, label: &String, config: &String) {
     let mut outcome = 'try_1: {
         Union2::<i32, String>::U1(match port_of(config) { ControlFlow::Continue(__v) => __v, ControlFlow::Break(__m) => break 'try_1 Union2::<i32, String>::U2(__m) })
     };
@@ -132,7 +132,7 @@ pub fn report(console: &mut dyn Console, label: &String, config: &String) {
 }
 
 pub fn main() {
-    let mut console = StdOutConsole::new();
+    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
     let mut small = read_size(&mut console, "notes.txt".to_string(), 3);
     println(&mut console, &(format!("1. read {}", small)));
     let mut clamped = read_size(&mut console, "notes.txt".to_string(), 99);

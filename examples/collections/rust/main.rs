@@ -82,7 +82,7 @@ pub fn count_unique(xs: &Vec<i32>) -> i32 {
 }
 
 pub fn main() {
-    let mut console = StdOutConsole::new();
+    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
     let mut primes = vec![2, 3, 5, 7];
     let mut vowels = SalvoSet::from_elements::<HostHash, HostEq, _>(vec!["a".to_string(), "e".to_string(), "i".to_string(), "o".to_string(), "u".to_string()]);
     let mut ages = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![("ada".to_string(), 36), ("grace".to_string(), 45)]);

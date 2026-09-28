@@ -37,10 +37,6 @@ pub trait Faults {
     fn faulted(&mut self, fault: Fault);
 }
 
-pub trait __Has_Faults {
-    fn __get_Faults(&mut self) -> &mut dyn Faults;
-}
-
 pub struct __Stub_Faults {
     addr: usize,
 }
@@ -54,6 +50,31 @@ impl __Stub_Faults {
 impl Faults for __Stub_Faults {
     fn faulted(&mut self, fault: Fault) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Faults::Faulted(fault), crate::core_actor::__PROTO_Faults);
+    }
+}
+
+pub struct __Handle_Faults {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Faults + Send>>,
+}
+
+impl Clone for __Handle_Faults {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Faults {
+    pub fn new<__H: Faults + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Faults + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Faults for __Handle_Faults {
+    fn faulted(&mut self, fault: Fault) {
+        self.inner.lock().unwrap().faulted(fault)
     }
 }
 

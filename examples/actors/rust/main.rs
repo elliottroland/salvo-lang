@@ -45,10 +45,6 @@ pub trait Counter {
     fn total(&mut self, out: crate::scheduler::SalvoReply);
 }
 
-pub trait __Has_Counter {
-    fn __get_Counter(&mut self) -> &mut dyn Counter;
-}
-
 pub struct __Stub_Counter {
     addr: usize,
 }
@@ -65,6 +61,34 @@ impl Counter for __Stub_Counter {
     }
     fn total(&mut self, out: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Counter::Total(out), crate::__PROTO_Counter);
+    }
+}
+
+pub struct __Handle_Counter {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Counter + Send>>,
+}
+
+impl Clone for __Handle_Counter {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Counter {
+    pub fn new<__H: Counter + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Counter + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Counter for __Handle_Counter {
+    fn bump(&mut self, n: i32) {
+        self.inner.lock().unwrap().bump(n)
+    }
+    fn total(&mut self, out: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().total(out)
     }
 }
 
@@ -191,10 +215,6 @@ pub trait Ledger {
     fn reported(&mut self, label: String, out: crate::scheduler::SalvoReply, total: i32);
 }
 
-pub trait __Has_Ledger {
-    fn __get_Ledger(&mut self) -> &mut dyn Ledger;
-}
-
 pub struct __Stub_Ledger {
     addr: usize,
 }
@@ -211,6 +231,34 @@ impl Ledger for __Stub_Ledger {
     }
     fn reported(&mut self, label: String, out: crate::scheduler::SalvoReply, total: i32) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Ledger::Reported(label, out, total), crate::__PROTO_Ledger);
+    }
+}
+
+pub struct __Handle_Ledger {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Ledger + Send>>,
+}
+
+impl Clone for __Handle_Ledger {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Ledger {
+    pub fn new<__H: Ledger + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Ledger + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Ledger for __Handle_Ledger {
+    fn report(&mut self, label: String, out: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().report(label, out)
+    }
+    fn reported(&mut self, label: String, out: crate::scheduler::SalvoReply, total: i32) {
+        self.inner.lock().unwrap().reported(label, out, total)
     }
 }
 
@@ -248,14 +296,16 @@ impl crate::wire::__Wire for __Msg_Ledger {
 pub const __PROTO_Ledger: &str = "4a99401c8b66babf";
 
 pub struct Bookkeeping {
+    __dep_Counter: crate::__Handle_Counter,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Bookkeeping>,
 }
 
 impl Bookkeeping {
-    pub fn new() -> Self {
+    pub fn new(__dep_Counter: crate::__Handle_Counter) -> Self {
         Self {
+            __dep_Counter,
             __mailbox_capacity: 4,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -263,30 +313,13 @@ impl Bookkeeping {
     }
 }
 
-pub struct __Deps_Bookkeeping<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl Ledger for Bookkeeping {
 
-impl<'a, __P: __Has_Counter + ?Sized> __Has_Counter for __Deps_Bookkeeping<'a, __P> {
-    fn __get_Counter(&mut self) -> &mut dyn Counter {
-        __Has_Counter::__get_Counter(&mut *self.__p)
-    }
-}
-
-pub trait __Impl_Bookkeeping {
-
-    fn report<__Fx: __Has_Counter>(&mut self, __fx: &mut __Fx, label: String, out: crate::scheduler::SalvoReply);
-
-    fn reported<__Fx: __Has_Counter>(&mut self, __fx: &mut __Fx, label: String, out: crate::scheduler::SalvoReply, total: i32);
-}
-
-impl __Impl_Bookkeeping for Bookkeeping {
-
-    fn report<__Fx: __Has_Counter>(&mut self, __fx: &mut __Fx, label: String, out: crate::scheduler::SalvoReply) {
-        __Has_Counter::__get_Counter(&mut *__fx).total({ let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Bookkeeping::Reported(label, out)); __r });
+    fn report(&mut self, label: String, out: crate::scheduler::SalvoReply) {
+        self.__dep_Counter.total({ let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Bookkeeping::Reported(label, out)); __r });
     }
 
-    fn reported<__Fx: __Has_Counter>(&mut self, __fx: &mut __Fx, label: String, out: crate::scheduler::SalvoReply, total: i32) {
+    fn reported(&mut self, label: String, out: crate::scheduler::SalvoReply, total: i32) {
         crate::scheduler::salvo_reply_wire::<String>(out, format!("{}={}", label, total));
     }
 }
@@ -296,38 +329,26 @@ pub enum __Cont_Bookkeeping {
     Reported(String, crate::scheduler::SalvoReply),
 }
 
-pub struct __Prov_Bookkeeping<__D0> {
-    pub __d0: __D0,
-}
-
-impl<__D0: Counter> __Has_Counter for __Prov_Bookkeeping<__D0> {
-    fn __get_Counter(&mut self) -> &mut dyn Counter {
-        &mut self.__d0
-    }
-}
-
-pub struct __Actor_Bookkeeping<__D0> {
+pub struct __Actor_Bookkeeping {
     handler: Bookkeeping,
-    prov: __Prov_Bookkeeping<__D0>,
 }
 
-impl<__D0> __Actor_Bookkeeping<__D0> {
-    pub fn new(handler: Bookkeeping, prov: __Prov_Bookkeeping<__D0>) -> Self {
-        Self { handler, prov }
+impl __Actor_Bookkeeping {
+    pub fn new(handler: Bookkeeping) -> Self {
+        Self { handler }
     }
 }
 
-impl<__D0: Counter> __Actor_Bookkeeping<__D0> {
+impl __Actor_Bookkeeping {
     fn __dispatch(&mut self, msg: crate::__Msg_Ledger) {
-        let mut __deps = __Deps_Bookkeeping{ __p: &mut self.prov };
         match msg {
-            crate::__Msg_Ledger::Report(label, out) => __Impl_Bookkeeping::report(&mut self.handler, &mut __deps, label, out),
-            crate::__Msg_Ledger::Reported(label, out, total) => __Impl_Bookkeeping::reported(&mut self.handler, &mut __deps, label, out, total),
+            crate::__Msg_Ledger::Report(label, out) => crate::Ledger::report(&mut self.handler, label, out),
+            crate::__Msg_Ledger::Reported(label, out, total) => crate::Ledger::reported(&mut self.handler, label, out, total),
         }
     }
 }
 
-impl<__D0: Counter + Send + 'static> crate::scheduler::SalvoActor for __Actor_Bookkeeping<__D0> {
+impl crate::scheduler::SalvoActor for __Actor_Bookkeeping {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Ledger>().expect("message of this protocol");
@@ -368,10 +389,6 @@ pub trait Desk {
     fn close_up(&mut self, reason: String);
 }
 
-pub trait __Has_Desk {
-    fn __get_Desk(&mut self) -> &mut dyn Desk;
-}
-
 pub struct __Stub_Desk {
     addr: usize,
 }
@@ -391,6 +408,37 @@ impl Desk for __Stub_Desk {
     }
     fn close_up(&mut self, reason: String) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Desk::CloseUp(reason), crate::__PROTO_Desk);
+    }
+}
+
+pub struct __Handle_Desk {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Desk + Send>>,
+}
+
+impl Clone for __Handle_Desk {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Desk {
+    pub fn new<__H: Desk + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Desk + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Desk for __Handle_Desk {
+    fn ticket(&mut self, out: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().ticket(out)
+    }
+    fn serve(&mut self, name: String) {
+        self.inner.lock().unwrap().serve(name)
+    }
+    fn close_up(&mut self, reason: String) {
+        self.inner.lock().unwrap().close_up(reason)
     }
 }
 
@@ -541,10 +589,6 @@ pub trait Fragile {
     fn crash(&mut self);
 }
 
-pub trait __Has_Fragile {
-    fn __get_Fragile(&mut self) -> &mut dyn Fragile;
-}
-
 pub struct __Stub_Fragile {
     addr: usize,
 }
@@ -558,6 +602,31 @@ impl __Stub_Fragile {
 impl Fragile for __Stub_Fragile {
     fn crash(&mut self) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Fragile::Crash, crate::__PROTO_Fragile);
+    }
+}
+
+pub struct __Handle_Fragile {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Fragile + Send>>,
+}
+
+impl Clone for __Handle_Fragile {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Fragile {
+    pub fn new<__H: Fragile + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Fragile + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Fragile for __Handle_Fragile {
+    fn crash(&mut self) {
+        self.inner.lock().unwrap().crash()
     }
 }
 
@@ -654,7 +723,7 @@ pub fn report_line(counter: usize, label: String, out: crate::scheduler::SalvoRe
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Counter".to_string(), crate::__PROTO_Counter.to_string()), ("Desk".to_string(), crate::__PROTO_Desk.to_string()), ("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Fragile".to_string(), crate::__PROTO_Fragile.to_string()), ("Ledger".to_string(), crate::__PROTO_Ledger.to_string())]);
-    let mut __fx = __Fx_main_1 { __h: StdOutConsole::new() };
+    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
     let mut workers = crate::scheduler::salvo_pool(((2) as usize));
     let mut counter = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Counting::new(__h)), __DECODE_Counting); __a });
     crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Bump(2), crate::__PROTO_Counter);
@@ -665,15 +734,15 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Total(out), crate::__PROTO_Counter);
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
-    println(&mut __fx, &(format!("1. counter total is {}", sum)));
-    let mut ledger = ({ let __h = Bookkeeping::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Bookkeeping::new(__h, __Prov_Bookkeeping { __d0: __Stub_Counter::new(counter) })), __DECODE_Bookkeeping); __a });
+    println(&mut console, &(format!("1. counter total is {}", sum)));
+    let mut ledger = ({ let __h = Bookkeeping::new(crate::__Handle_Counter::new(__Stub_Counter::new(counter))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Bookkeeping::new(__h)), __DECODE_Bookkeeping); __a });
     let mut line = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(ledger, crate::__Msg_Ledger::Report("counter".to_string(), out), crate::__PROTO_Ledger);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    println(&mut __fx, &(format!("3. ledger says {}", line)));
+    println(&mut console, &(format!("3. ledger says {}", line)));
     let mut desk = ({ let __h = Desking::new(8); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Desking::new(__h)), __DECODE_Desking); __a });
     let mut first = {
         let (mut a, __wid) = crate::scheduler::salvo_waiter();
@@ -687,10 +756,10 @@ pub fn main() {
             crate::scheduler::salvo_send_wire(desk, crate::__Msg_Desk::CloseUp("end of day".to_string()), crate::__PROTO_Desk);
             *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
         };
-        println(&mut __fx, &(format!("4. second waiter got: {}", second)));
+        println(&mut console, &(format!("4. second waiter got: {}", second)));
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    println(&mut __fx, &(format!("4. first waiter got: {}", first)));
+    println(&mut console, &(format!("4. first waiter got: {}", first)));
     let mut fragile = ({ let __h = Breaking::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Breaking::new(__h)), __DECODE_Breaking); __a });
     let mut exit = {
         let (mut gone, __wid) = crate::scheduler::salvo_waiter();
@@ -699,18 +768,18 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(fragile, crate::__Msg_Fragile::Crash, crate::__PROTO_Fragile);
         *crate::scheduler::salvo_wait(__wid).downcast::<Exit>().expect("the awaited answer")
     };
-    println(&mut __fx, &(format!("5. it died with a reason: {}", (exit.reason.chars().count() as i32) > 0)));
+    println(&mut console, &(format!("5. it died with a reason: {}", (exit.reason.chars().count() as i32) > 0)));
     crate::scheduler::salvo_send_wire(fragile, crate::__Msg_Fragile::Crash, crate::__PROTO_Fragile);
-    let mut __fx2 = __Fx_main_2 { __outer: &mut __fx, __h: Counting::new() };
-    __Has_Counter::__get_Counter(&mut __fx2).bump(4);
-    __Has_Counter::__get_Counter(&mut __fx2).bump(5);
+    let mut counter2 = crate::__Handle_Counter::new(Counting::new());
+    counter2.bump(4);
+    counter2.bump(5);
     let mut inline = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
-        __Has_Counter::__get_Counter(&mut __fx2).total(out);
+        counter2.total(out);
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
-    println(&mut __fx2, &(format!("6. inline total is {}", inline)));
+    println(&mut console, &(format!("6. inline total is {}", inline)));
     let mut mine = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_current_pool(), __cap as usize, Box::new(__Actor_Counting::new(__h)), __DECODE_Counting); __a });
     crate::scheduler::salvo_send_wire(mine, crate::__Msg_Counter::Bump(6), crate::__PROTO_Counter);
     let mut local = {
@@ -719,40 +788,13 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(mine, crate::__Msg_Counter::Total(out), crate::__PROTO_Counter);
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
-    println(&mut __fx2, &(format!("7. the main pool's own actor totalled {}", local)));
+    println(&mut console, &(format!("7. the main pool's own actor totalled {}", local)));
     let mut line8 = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
         report_line(mine, "the counter".to_string(), out);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    println(&mut __fx2, &(format!("8. {}", line8)));
-    println(&mut __fx2, &("done".to_string()));
-}
-
-pub struct __Fx_main_1<__H> {
-    __h: __H,
-}
-
-impl<__H: Console> __Has_Console for __Fx_main_1<__H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        &mut self.__h
-    }
-}
-
-pub struct __Fx_main_2<'a, __H> {
-    __outer: &'a mut dyn __Has_Console,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Console for __Fx_main_2<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: Counter> __Has_Counter for __Fx_main_2<'a, __H> {
-    fn __get_Counter(&mut self) -> &mut dyn Counter {
-        &mut self.__h
-    }
+    println(&mut console, &(format!("8. {}", line8)));
+    println(&mut console, &("done".to_string()));
 }

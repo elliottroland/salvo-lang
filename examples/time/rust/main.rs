@@ -47,8 +47,8 @@ pub fn verdict(started: &Tick, at: &Tick, budget: &Duration) -> String {
     return format!("in time, {} to spare", to_str__5(&minus(budget, &took)));
 }
 
-pub fn overdue<__Fx: __Has_Ticker>(__fx: &mut __Fx, started: &Tick, budget: &Duration) -> bool {
-    return cmp__2(&(elapsed(&mut *__fx, started)), budget) > 0;
+pub fn overdue(ticker: &mut crate::time::__Handle_Ticker, started: &Tick, budget: &Duration) -> bool {
+    return cmp__2(&(elapsed(ticker, started)), budget) > 0;
 }
 
 pub struct SteppingTicker {
@@ -78,10 +78,6 @@ pub trait Session {
     fn expire(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired);
 }
 
-pub trait __Has_Session {
-    fn __get_Session(&mut self) -> &mut dyn Session;
-}
-
 pub struct __Stub_Session {
     addr: usize,
 }
@@ -98,6 +94,34 @@ impl Session for __Stub_Session {
     }
     fn expire(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Session::Expire(started, budget, out, f), crate::__PROTO_Session);
+    }
+}
+
+pub struct __Handle_Session {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Session + Send>>,
+}
+
+impl Clone for __Handle_Session {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Session {
+    pub fn new<__H: Session + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Session + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Session for __Handle_Session {
+    fn open(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().open(started, budget, out)
+    }
+    fn expire(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired) {
+        self.inner.lock().unwrap().expire(started, budget, out, f)
     }
 }
 
@@ -137,14 +161,16 @@ impl crate::wire::__Wire for __Msg_Session {
 pub const __PROTO_Session: &str = "7ed70285b7e6568c";
 
 pub struct Sessions {
+    __dep_Timer: crate::time::__Handle_Timer,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Sessions>,
 }
 
 impl Sessions {
-    pub fn new() -> Self {
+    pub fn new(__dep_Timer: crate::time::__Handle_Timer) -> Self {
         Self {
+            __dep_Timer,
             __mailbox_capacity: 8,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -152,30 +178,13 @@ impl Sessions {
     }
 }
 
-pub struct __Deps_Sessions<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl Session for Sessions {
 
-impl<'a, __P: __Has_Timer + ?Sized> __Has_Timer for __Deps_Sessions<'a, __P> {
-    fn __get_Timer(&mut self) -> &mut dyn Timer {
-        __Has_Timer::__get_Timer(&mut *self.__p)
-    }
-}
-
-pub trait __Impl_Sessions {
-
-    fn open<__Fx: __Has_Timer>(&mut self, __fx: &mut __Fx, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply);
-
-    fn expire<__Fx: __Has_Timer>(&mut self, __fx: &mut __Fx, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired);
-}
-
-impl __Impl_Sessions for Sessions {
-
-    fn open<__Fx: __Has_Timer>(&mut self, __fx: &mut __Fx, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply) {
-        __Has_Timer::__get_Timer(&mut *__fx).after(plus(&budget, &(seconds(1i64))), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Sessions::Expire(started, budget, out)); __r });
+    fn open(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply) {
+        self.__dep_Timer.after(plus(&budget, &(seconds(1i64))), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Sessions::Expire(started, budget, out)); __r });
     }
 
-    fn expire<__Fx: __Has_Timer>(&mut self, __fx: &mut __Fx, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired) {
+    fn expire(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired) {
         crate::scheduler::salvo_reply_wire::<String>(out, verdict(&started, &f.at, &budget));
     }
 }
@@ -185,38 +194,26 @@ pub enum __Cont_Sessions {
     Expire(Tick, Duration, crate::scheduler::SalvoReply),
 }
 
-pub struct __Prov_Sessions<__D0> {
-    pub __d0: __D0,
-}
-
-impl<__D0: Timer> __Has_Timer for __Prov_Sessions<__D0> {
-    fn __get_Timer(&mut self) -> &mut dyn Timer {
-        &mut self.__d0
-    }
-}
-
-pub struct __Actor_Sessions<__D0> {
+pub struct __Actor_Sessions {
     handler: Sessions,
-    prov: __Prov_Sessions<__D0>,
 }
 
-impl<__D0> __Actor_Sessions<__D0> {
-    pub fn new(handler: Sessions, prov: __Prov_Sessions<__D0>) -> Self {
-        Self { handler, prov }
+impl __Actor_Sessions {
+    pub fn new(handler: Sessions) -> Self {
+        Self { handler }
     }
 }
 
-impl<__D0: Timer> __Actor_Sessions<__D0> {
+impl __Actor_Sessions {
     fn __dispatch(&mut self, msg: crate::__Msg_Session) {
-        let mut __deps = __Deps_Sessions{ __p: &mut self.prov };
         match msg {
-            crate::__Msg_Session::Open(started, budget, out) => __Impl_Sessions::open(&mut self.handler, &mut __deps, started, budget, out),
-            crate::__Msg_Session::Expire(started, budget, out, f) => __Impl_Sessions::expire(&mut self.handler, &mut __deps, started, budget, out, f),
+            crate::__Msg_Session::Open(started, budget, out) => crate::Session::open(&mut self.handler, started, budget, out),
+            crate::__Msg_Session::Expire(started, budget, out, f) => crate::Session::expire(&mut self.handler, started, budget, out, f),
         }
     }
 }
 
-impl<__D0: Timer + Send + 'static> crate::scheduler::SalvoActor for __Actor_Sessions<__D0> {
+impl crate::scheduler::SalvoActor for __Actor_Sessions {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Session>().expect("message of this protocol");
@@ -282,10 +279,6 @@ pub trait Sleeper {
     fn woke(&mut self, started: Tick, out: crate::scheduler::SalvoReply, f: Fired);
 }
 
-pub trait __Has_Sleeper {
-    fn __get_Sleeper(&mut self) -> &mut dyn Sleeper;
-}
-
 pub struct __Stub_Sleeper {
     addr: usize,
 }
@@ -302,6 +295,34 @@ impl Sleeper for __Stub_Sleeper {
     }
     fn woke(&mut self, started: Tick, out: crate::scheduler::SalvoReply, f: Fired) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Sleeper::Woke(started, out, f), crate::__PROTO_Sleeper);
+    }
+}
+
+pub struct __Handle_Sleeper {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Sleeper + Send>>,
+}
+
+impl Clone for __Handle_Sleeper {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Sleeper {
+    pub fn new<__H: Sleeper + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Sleeper + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Sleeper for __Handle_Sleeper {
+    fn nap(&mut self, wait: Duration, out: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().nap(wait, out)
+    }
+    fn woke(&mut self, started: Tick, out: crate::scheduler::SalvoReply, f: Fired) {
+        self.inner.lock().unwrap().woke(started, out, f)
     }
 }
 
@@ -339,14 +360,18 @@ impl crate::wire::__Wire for __Msg_Sleeper {
 pub const __PROTO_Sleeper: &str = "2385b53950dcbd9c";
 
 pub struct Napping {
+    __dep_Timer: crate::time::__Handle_Timer,
+    __dep_Ticker: crate::time::__Handle_Ticker,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Napping>,
 }
 
 impl Napping {
-    pub fn new() -> Self {
+    pub fn new(__dep_Timer: crate::time::__Handle_Timer, __dep_Ticker: crate::time::__Handle_Ticker) -> Self {
         Self {
+            __dep_Timer,
+            __dep_Ticker,
             __mailbox_capacity: 8,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -354,37 +379,14 @@ impl Napping {
     }
 }
 
-pub struct __Deps_Napping<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl Sleeper for Napping {
 
-impl<'a, __P: __Has_Timer + ?Sized> __Has_Timer for __Deps_Napping<'a, __P> {
-    fn __get_Timer(&mut self) -> &mut dyn Timer {
-        __Has_Timer::__get_Timer(&mut *self.__p)
-    }
-}
-
-impl<'a, __P: __Has_Ticker + ?Sized> __Has_Ticker for __Deps_Napping<'a, __P> {
-    fn __get_Ticker(&mut self) -> &mut dyn Ticker {
-        __Has_Ticker::__get_Ticker(&mut *self.__p)
-    }
-}
-
-pub trait __Impl_Napping {
-
-    fn nap<__Fx: __Has_Timer + __Has_Ticker>(&mut self, __fx: &mut __Fx, wait: Duration, out: crate::scheduler::SalvoReply);
-
-    fn woke<__Fx: __Has_Timer + __Has_Ticker>(&mut self, __fx: &mut __Fx, started: Tick, out: crate::scheduler::SalvoReply, f: Fired);
-}
-
-impl __Impl_Napping for Napping {
-
-    fn nap<__Fx: __Has_Timer + __Has_Ticker>(&mut self, __fx: &mut __Fx, wait: Duration, out: crate::scheduler::SalvoReply) {
-        { let __a1 = { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Napping::Woke(__Has_Ticker::__get_Ticker(&mut *__fx).tick(), out)); __r }; __Has_Timer::__get_Timer(&mut *__fx).after(wait, __a1) };
+    fn nap(&mut self, wait: Duration, out: crate::scheduler::SalvoReply) {
+        self.__dep_Timer.after(wait, { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Napping::Woke(self.__dep_Ticker.tick(), out)); __r });
     }
 
-    fn woke<__Fx: __Has_Timer + __Has_Ticker>(&mut self, __fx: &mut __Fx, started: Tick, out: crate::scheduler::SalvoReply, f: Fired) {
-        crate::scheduler::salvo_reply_wire::<String>(out, format!("napped {}", to_str__5(&elapsed(&mut *__fx, &started))));
+    fn woke(&mut self, started: Tick, out: crate::scheduler::SalvoReply, f: Fired) {
+        crate::scheduler::salvo_reply_wire::<String>(out, format!("napped {}", to_str__5(&elapsed(&mut self.__dep_Ticker, &started))));
     }
 }
 
@@ -393,45 +395,26 @@ pub enum __Cont_Napping {
     Woke(Tick, crate::scheduler::SalvoReply),
 }
 
-pub struct __Prov_Napping<__D0, __D1> {
-    pub __d0: __D0,
-    pub __d1: __D1,
-}
-
-impl<__D0: Timer, __D1: Ticker> __Has_Timer for __Prov_Napping<__D0, __D1> {
-    fn __get_Timer(&mut self) -> &mut dyn Timer {
-        &mut self.__d0
-    }
-}
-
-impl<__D0: Timer, __D1: Ticker> __Has_Ticker for __Prov_Napping<__D0, __D1> {
-    fn __get_Ticker(&mut self) -> &mut dyn Ticker {
-        &mut self.__d1
-    }
-}
-
-pub struct __Actor_Napping<__D0, __D1> {
+pub struct __Actor_Napping {
     handler: Napping,
-    prov: __Prov_Napping<__D0, __D1>,
 }
 
-impl<__D0, __D1> __Actor_Napping<__D0, __D1> {
-    pub fn new(handler: Napping, prov: __Prov_Napping<__D0, __D1>) -> Self {
-        Self { handler, prov }
+impl __Actor_Napping {
+    pub fn new(handler: Napping) -> Self {
+        Self { handler }
     }
 }
 
-impl<__D0: Timer, __D1: Ticker> __Actor_Napping<__D0, __D1> {
+impl __Actor_Napping {
     fn __dispatch(&mut self, msg: crate::__Msg_Sleeper) {
-        let mut __deps = __Deps_Napping{ __p: &mut self.prov };
         match msg {
-            crate::__Msg_Sleeper::Nap(wait, out) => __Impl_Napping::nap(&mut self.handler, &mut __deps, wait, out),
-            crate::__Msg_Sleeper::Woke(started, out, f) => __Impl_Napping::woke(&mut self.handler, &mut __deps, started, out, f),
+            crate::__Msg_Sleeper::Nap(wait, out) => crate::Sleeper::nap(&mut self.handler, wait, out),
+            crate::__Msg_Sleeper::Woke(started, out, f) => crate::Sleeper::woke(&mut self.handler, started, out, f),
         }
     }
 }
 
-impl<__D0: Timer + Send + 'static, __D1: Ticker + Send + 'static> crate::scheduler::SalvoActor for __Actor_Napping<__D0, __D1> {
+impl crate::scheduler::SalvoActor for __Actor_Napping {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Sleeper>().expect("message of this protocol");
@@ -468,23 +451,23 @@ fn __decode_msg_Napping(proto: &str, payload: &[u8]) -> Option<crate::scheduler:
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Session".to_string(), crate::__PROTO_Session.to_string()), ("Sleeper".to_string(), crate::__PROTO_Sleeper.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string())]);
-    let mut __fx = __Fx_main_1 { __h: StdOutConsole::new() };
+    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
     let mut budget = millis(1500i64);
-    println(&mut __fx, &(format!("budget {}, doubled {}, in millis {}", to_str__5(&budget), to_str__5(&times(&budget, 2i64)), to_millis(&budget))));
+    println(&mut console, &(format!("budget {}, doubled {}, in millis {}", to_str__5(&budget), to_str__5(&times(&budget, 2i64)), to_millis(&budget))));
     let mut stamp = epoch_milli(1700000000000i64);
-    println(&mut __fx, &(format!("stamp {}s, a minute later {}s", to_epoch_second(&stamp), to_epoch_second(&(plus__2(&stamp, &(minutes(1i64))))))));
-    let mut __fx2 = __Fx_main_2 { __outer: &mut __fx, __h: crate::time::__Lock_Clock::new(DefaultClock::new()) };
-    let mut __fx3 = __Fx_main_3 { __outer: &mut __fx2, __h: DefaultTicker::new() };
-    { let __a1 = &(format!("wall clock is set: {}", to_epoch_second(&(__Has_Clock::__get_Clock(&mut __fx3).now())) > ((1600000000) as i64))); println(&mut __fx3, __a1) };
-    let mut __fx4 = __Fx_main_4 { __outer: &mut __fx3, __h: crate::time::__Lock_Ticker::new(SteppingTicker::new(millis(500i64))) };
-    let mut started = __Has_Ticker::__get_Ticker(&mut __fx4).tick();
-    { let __a2 = &(format!("overdue after one more read: {}", overdue(&mut __fx4, &started, &budget))); println(&mut __fx4, __a2) };
-    { let __a3 = &(format!("overdue after three: {} {} {}", overdue(&mut __fx4, &started, &budget), overdue(&mut __fx4, &started, &budget), overdue(&mut __fx4, &started, &budget))); println(&mut __fx4, __a3) };
-    println(&mut __fx4, &(verdict(&(Tick { nanos: 0i64 }), &(Tick { nanos: 1000000000i64 }), &budget)));
-    println(&mut __fx4, &(verdict(&(Tick { nanos: 0i64 }), &(Tick { nanos: 2000000000i64 }), &budget)));
+    println(&mut console, &(format!("stamp {}s, a minute later {}s", to_epoch_second(&stamp), to_epoch_second(&(plus__2(&stamp, &(minutes(1i64))))))));
+    let mut clock = crate::time::__Handle_Clock::new(DefaultClock::new());
+    let mut ticker = crate::time::__Handle_Ticker::new(DefaultTicker::new());
+    println(&mut console, &(format!("wall clock is set: {}", to_epoch_second(&(clock.now())) > ((1600000000) as i64))));
+    let mut ticker2 = crate::time::__Handle_Ticker::new(SteppingTicker::new(millis(500i64)));
+    let mut started = ticker2.tick();
+    println(&mut console, &(format!("overdue after one more read: {}", overdue(&mut ticker2, &started, &budget))));
+    println(&mut console, &(format!("overdue after three: {} {} {}", overdue(&mut ticker2, &started, &budget), overdue(&mut ticker2, &started, &budget), overdue(&mut ticker2, &started, &budget))));
+    println(&mut console, &(verdict(&(Tick { nanos: 0i64 }), &(Tick { nanos: 1000000000i64 }), &budget)));
+    println(&mut console, &(verdict(&(Tick { nanos: 0i64 }), &(Tick { nanos: 2000000000i64 }), &budget)));
     let mut p = crate::scheduler::salvo_pool(((1) as usize));
     let (mut timer, mut ctl) = ({ let __h = ManualTime::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_ManualTime::new(__h)), __DECODE_ManualTime); (__a, __a) });
-    let mut sessions = ({ let __h = Sessions::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sessions::new(__h, __Prov_Sessions { __d0: __Stub_Timer::new(timer) })), __DECODE_Sessions); __a });
+    let mut sessions = ({ let __h = Sessions::new(crate::time::__Handle_Timer::new(__Stub_Timer::new(timer))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sessions::new(__h)), __DECODE_Sessions); __a });
     let mut outcome = {
         let (mut answer, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
@@ -498,8 +481,8 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(ctl, crate::time::__Msg_TimerCtl::Advance(millis(2500i64)), crate::time::__PROTO_TimerCtl);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    println(&mut __fx4, &(format!("session: {}", outcome)));
-    let mut sleeper = ({ let __h = Napping::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, Box::new(__Actor_Napping::new(__h, __Prov_Napping { __d0: __Stub_Timer::new(timer), __d1: TestTicker::new(timer) })), __DECODE_Napping); __a });
+    println(&mut console, &(format!("session: {}", outcome)));
+    let mut sleeper = ({ let __h = Napping::new(crate::time::__Handle_Timer::new(__Stub_Timer::new(timer)), crate::time::__Handle_Ticker::new(TestTicker::new(timer))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, Box::new(__Actor_Napping::new(__h)), __DECODE_Napping); __a });
     let mut napped = {
         let (mut answer, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
@@ -513,84 +496,5 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(ctl, crate::time::__Msg_TimerCtl::Advance(seconds(2i64)), crate::time::__PROTO_TimerCtl);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    println(&mut __fx4, &napped);
-}
-
-pub struct __Fx_main_1<__H> {
-    __h: __H,
-}
-
-impl<__H: Console> __Has_Console for __Fx_main_1<__H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        &mut self.__h
-    }
-}
-
-pub struct __Fx_main_2<'a, __H> {
-    __outer: &'a mut dyn __Has_Console,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Console for __Fx_main_2<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: Clock> __Has_Clock for __Fx_main_2<'a, __H> {
-    fn __get_Clock(&mut self) -> &mut dyn Clock {
-        &mut self.__h
-    }
-}
-
-pub trait __Prov_Clock_Console: __Has_Clock + __Has_Console {}
-impl<T: __Has_Clock + __Has_Console + ?Sized> __Prov_Clock_Console for T {}
-
-pub struct __Fx_main_3<'a, __H> {
-    __outer: &'a mut dyn __Prov_Clock_Console,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Clock for __Fx_main_3<'a, __H> {
-    fn __get_Clock(&mut self) -> &mut dyn Clock {
-        __Has_Clock::__get_Clock(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Console for __Fx_main_3<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: Ticker> __Has_Ticker for __Fx_main_3<'a, __H> {
-    fn __get_Ticker(&mut self) -> &mut dyn Ticker {
-        &mut self.__h
-    }
-}
-
-pub trait __Prov_Clock_Console_Ticker: __Has_Clock + __Has_Console + __Has_Ticker {}
-impl<T: __Has_Clock + __Has_Console + __Has_Ticker + ?Sized> __Prov_Clock_Console_Ticker for T {}
-
-pub struct __Fx_main_4<'a, __H> {
-    __outer: &'a mut dyn __Prov_Clock_Console_Ticker,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Clock for __Fx_main_4<'a, __H> {
-    fn __get_Clock(&mut self) -> &mut dyn Clock {
-        __Has_Clock::__get_Clock(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Console for __Fx_main_4<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: Ticker> __Has_Ticker for __Fx_main_4<'a, __H> {
-    fn __get_Ticker(&mut self) -> &mut dyn Ticker {
-        &mut self.__h
-    }
+    println(&mut console, &napped);
 }

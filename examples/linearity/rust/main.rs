@@ -56,54 +56,54 @@ impl crate::wire::__Wire for Ticket {
     }
 }
 
-pub fn issue(console: &mut dyn Console, id: i32, seat: String) -> Ticket {
+pub fn issue(console: &mut crate::core_console::__Handle_Console, id: i32, seat: String) -> Ticket {
     println(console, &(format!("1. issued #{} for {}", id, seat)));
     return Ticket { id: id, seat: seat };
 }
 
-pub fn redeem(console: &mut dyn Console, ticket: Ticket) {
+pub fn redeem(console: &mut crate::core_console::__Handle_Console, ticket: Ticket) {
     println(console, &(format!("1. redeemed #{}", ticket.id)));
     drop(ticket);
 }
 
-pub fn one_use(console: &mut dyn Console) {
+pub fn one_use(console: &mut crate::core_console::__Handle_Console) {
     let mut ticket = issue(console, 1, "12A".to_string());
     redeem(console, ticket);
     println(console, &("2. gone after one use".to_string()));
 }
 
-pub fn describe(console: &mut dyn Console, ticket: &Ticket) {
+pub fn describe(console: &mut crate::core_console::__Handle_Console, ticket: &Ticket) {
     println(console, &(format!("3. still holding #{} ({})", ticket.id, ticket.seat.clone())));
 }
 
-pub fn borrow_then_use(console: &mut dyn Console) {
+pub fn borrow_then_use(console: &mut crate::core_console::__Handle_Console) {
     let mut ticket = issue(console, 2, "3C".to_string());
     describe(console, &ticket);
     describe(console, &ticket);
     redeem(console, ticket);
 }
 
-pub fn read_a_field(console: &mut dyn Console) {
+pub fn read_a_field(console: &mut crate::core_console::__Handle_Console) {
     let mut ticket = issue(console, 3, "1A".to_string());
     let mut seat = &ticket.seat;
     println(console, &(format!("4. read {}, and #{} is still owed", seat.clone(), ticket.id)));
     redeem(console, ticket);
 }
 
-pub fn hand_over<T: Clone>(console: &mut dyn Console, value: T, to: impl FnOnce(&mut dyn Console, T)) {
+pub fn hand_over<T: Clone>(console: &mut crate::core_console::__Handle_Console, value: T, to: impl FnOnce(&mut crate::core_console::__Handle_Console, T)) {
     to(console, value);
 }
 
-pub fn generic_handoff(console: &mut dyn Console) {
+pub fn generic_handoff(console: &mut crate::core_console::__Handle_Console) {
     let mut ticket = issue(console, 4, "9B".to_string());
-    hand_over(console, ticket, |console2: &mut dyn Console, t| redeem(console2, t));
+    hand_over(console, ticket, |console2: &mut crate::core_console::__Handle_Console, t| redeem(console2, t));
 }
 
 pub fn scrap(ticket: Ticket) {
     drop(ticket);
 }
 
-pub fn a_queue_of_tickets(console: &mut dyn Console) {
+pub fn a_queue_of_tickets(console: &mut crate::core_console::__Handle_Console) {
     let mut queue: Vec<Ticket> = vec![];
     queue.push(issue(console, 5, "2B".to_string()));
     queue.push(issue(console, 6, "2C".to_string()));
@@ -129,7 +129,7 @@ pub fn a_queue_of_tickets(console: &mut dyn Console) {
 }
 
 pub fn main() {
-    let mut console = StdOutConsole::new();
+    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
     one_use(&mut console);
     borrow_then_use(&mut console);
     read_a_field(&mut console);

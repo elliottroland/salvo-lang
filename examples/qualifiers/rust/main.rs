@@ -112,7 +112,7 @@ pub fn handle__Fresh(request: &Request) -> String {
 }
 
 pub fn main() {
-    let mut console = StdOutConsole::new();
+    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
     let mut xs: Vec<i32> = vec![];
     xs.push(3);
     println(&mut console, &(format!("1. head after add: {}", head(&xs))));

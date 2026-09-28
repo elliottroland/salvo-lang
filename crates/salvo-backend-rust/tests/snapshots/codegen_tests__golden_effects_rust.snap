@@ -1,6 +1,5 @@
 ---
 source: crates/salvo-backend-rust/tests/codegen_tests.rs
-assertion_line: 583
 expression: combined
 ---
 // ===== core/checked.rs =====
@@ -31,55 +30,26 @@ pub trait Console {
     fn print(&mut self, message: &String);
 }
 
-pub trait __Share_Console: Console + Send {
-    fn __clone_box(&self) -> Box<dyn __Share_Console>;
+pub struct __Handle_Console {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Console + Send>>,
 }
 
-impl<__H: Console + Clone + Send + 'static> __Share_Console for __H {
-    fn __clone_box(&self) -> Box<dyn __Share_Console> {
-        Box::new(self.clone())
-    }
-}
-
-pub struct __Mon_Console {
-    inner: Box<dyn __Share_Console>,
-}
-
-impl Clone for __Mon_Console {
-    fn clone(&self) -> Self {
-        Self { inner: self.inner.__clone_box() }
-    }
-}
-
-impl __Mon_Console {
-    pub fn new(inner: Box<dyn __Share_Console>) -> Self {
-        Self { inner }
-    }
-}
-
-impl Console for __Mon_Console {
-    fn print(&mut self, message: &String) {
-        self.inner.print(message)
-    }
-}
-
-pub struct __Lock_Console<H> {
-    inner: std::sync::Arc<std::sync::Mutex<H>>,
-}
-
-impl<H> Clone for __Lock_Console<H> {
+impl Clone for __Handle_Console {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H> __Lock_Console<H> {
-    pub fn new(inner: H) -> Self {
+impl __Handle_Console {
+    pub fn new<__H: Console + Send + 'static>(inner: __H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Console + Send>>) -> Self {
+        Self { inner }
     }
 }
 
-impl<H: Console + Send> Console for __Lock_Console<H> {
+impl Console for __Handle_Console {
     fn print(&mut self, message: &String) {
         self.inner.lock().unwrap().print(message)
     }
@@ -101,7 +71,7 @@ impl Console for StdOutConsole {
     }
 }
 
-pub fn println(console: &mut dyn Console, message: &String) {
+pub fn println(console: &mut crate::core_console::__Handle_Console, message: &String) {
     console.print(message);
     console.print(&("\n".to_string()));
 }
@@ -531,55 +501,26 @@ pub trait Random<T> {
     fn next_random(&mut self) -> T;
 }
 
-pub trait __Share_Random<T: 'static>: Random<T> + Send {
-    fn __clone_box(&self) -> Box<dyn __Share_Random<T>>;
+pub struct __Handle_Random<T: 'static> {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Random<T> + Send>>,
 }
 
-impl<T: 'static, __H: Random<T> + Clone + Send + 'static> __Share_Random<T> for __H {
-    fn __clone_box(&self) -> Box<dyn __Share_Random<T>> {
-        Box::new(self.clone())
-    }
-}
-
-pub struct __Mon_Random<T: 'static> {
-    inner: Box<dyn __Share_Random<T>>,
-}
-
-impl<T: 'static> Clone for __Mon_Random<T> {
-    fn clone(&self) -> Self {
-        Self { inner: self.inner.__clone_box() }
-    }
-}
-
-impl<T: 'static> __Mon_Random<T> {
-    pub fn new(inner: Box<dyn __Share_Random<T>>) -> Self {
-        Self { inner }
-    }
-}
-
-impl<T: 'static> Random<T> for __Mon_Random<T> {
-    fn next_random(&mut self) -> T {
-        self.inner.next_random()
-    }
-}
-
-pub struct __Lock_Random<H> {
-    inner: std::sync::Arc<std::sync::Mutex<H>>,
-}
-
-impl<H> Clone for __Lock_Random<H> {
+impl<T: 'static> Clone for __Handle_Random<T> {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H> __Lock_Random<H> {
-    pub fn new(inner: H) -> Self {
+impl<T: 'static> __Handle_Random<T> {
+    pub fn new<__H: Random<T> + Send + 'static>(inner: __H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Random<T> + Send>>) -> Self {
+        Self { inner }
     }
 }
 
-impl<T: 'static, H: Random<T> + Send> Random<T> for __Lock_Random<H> {
+impl<T: 'static> Random<T> for __Handle_Random<T> {
     fn next_random(&mut self) -> T {
         self.inner.lock().unwrap().next_random()
     }
@@ -587,12 +528,12 @@ impl<T: 'static, H: Random<T> + Send> Random<T> for __Lock_Random<H> {
 
 pub struct CyclicRandom<T: Clone + 'static> {
     values: Vec<T>,
-    copy: Box<dyn FnMut(&T) -> T>,
+    copy: Box<dyn FnMut(&T) -> T + Send>,
     i: i32,
 }
 
 impl<T: Clone + 'static> CyclicRandom<T> {
-    pub fn new(values: Vec<T>, copy: impl FnMut(&T) -> T + 'static) -> Self {
+    pub fn new(values: Vec<T>, copy: impl FnMut(&T) -> T + Send + 'static) -> Self {
         Self {
             values,
             copy: Box::new(copy),
@@ -610,20 +551,20 @@ impl<T: Clone + 'static> Random<T> for CyclicRandom<T> {
     }
 }
 
-pub fn draw(random_i32: &mut dyn Random<i32>, random_string: &mut dyn Random<String>, console: &mut dyn Console) {
+pub fn draw(random_i32: &mut crate::__Handle_Random<i32>, random_string: &mut crate::__Handle_Random<String>, console: &mut crate::core_console::__Handle_Console) {
     let mut n: i32 = random_i32.next_random();
     let mut s: String = random_string.next_random();
     println(console, &(format!("{}: {}", s, n)));
 }
 
-pub fn lucky_number(random_i32: &mut dyn Random<i32>) -> i32 {
+pub fn lucky_number(random_i32: &mut crate::__Handle_Random<i32>) -> i32 {
     return random_i32.next_random();
 }
 
 pub fn main() {
-    let mut console = StdOutConsole::new();
-    let mut random_i32 = CyclicRandom::<i32>::new(vec![10, 20, 30], move |__i0| __i0.clone());
-    let mut random_string = CyclicRandom::<String>::new(vec!["a".to_string(), "b".to_string()], move |__i0| __i0.clone());
+    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
+    let mut random_i32 = crate::__Handle_Random::<i32>::new(CyclicRandom::<i32>::new(vec![10, 20, 30], move |__i0| __i0.clone()));
+    let mut random_string = crate::__Handle_Random::<String>::new(CyclicRandom::<String>::new(vec!["a".to_string(), "b".to_string()], move |__i0| __i0.clone()));
     draw(&mut random_i32, &mut random_string, &mut console);
     draw(&mut random_i32, &mut random_string, &mut console);
     println(&mut console, &(format!("lucky: {}", random_i32.next_random())));

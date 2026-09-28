@@ -181,7 +181,7 @@ pub fn hoist(camp: &mut Camp, banner: String) {
 }
 
 pub fn main() {
-    let mut console = StdOutConsole::new();
+    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
     let mut roster: Vec<Fighter> = vec![Fighter { name: "Ada".to_string(), hp: 30, energy: 4 }, Fighter { name: "Bo".to_string(), hp: 8, energy: 9 }];
     let mut ada = named(&roster, &("Ada".to_string())).unwrap();
     println(&mut console, &(format!("1. found {}, hp {}", ada.name.clone(), ada.hp)));

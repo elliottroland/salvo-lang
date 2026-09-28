@@ -27640,12 +27640,30 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [effect-any] An inherited requirement carries no strength of
             // its own (a fn type cannot say `any`), so it is the strong one
             // unless the callee's written list weakened it above — the
-            // written entry comes first and wins the dedupe.
+            // written entry wins the dedupe.
+            //
+            // **Order**: inherited requirements come *first*, as they do in
+            // the callee's own environment (`check_effect_list`) and so in
+            // `fn_effects` — the emitters pass one argument per entry, so
+            // the two lists must agree position by position.
+            let mut inherited: Vec<(Ty, bool)> = Vec::new();
             for p in &decl.params {
                 for ty in self.inherited_fn_effects(&p.ty) {
-                    if !wants.iter().any(|(w, _)| *w == ty) {
-                        wants.push((ty, false));
+                    if !inherited.iter().any(|(w, _)| *w == ty) {
+                        inherited.push((ty, false));
                     }
+                }
+            }
+            let written = std::mem::take(&mut wants);
+            for (ty, any) in &written {
+                if let Some(slot) = inherited.iter_mut().find(|(w, _)| w == ty) {
+                    slot.1 = *any;
+                }
+            }
+            wants = inherited;
+            for (ty, any) in written {
+                if !wants.iter().any(|(w, _)| *w == ty) {
+                    wants.push((ty, any));
                 }
             }
             self.generics = saved;

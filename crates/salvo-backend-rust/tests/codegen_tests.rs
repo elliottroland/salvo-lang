@@ -597,18 +597,18 @@ fn effects_lower_to_traits_and_mut_dyn_params() {
     assert!(main
         .content
         .contains("impl<T: Clone + 'static> Random<T> for CyclicRandom<T>"));
-    // Effect deps as leading `&mut dyn` parameters.
+    // [rs-handle] Effect deps as leading `&mut __Handle_E` parameters.
     assert!(main.content.contains(
-        "pub fn draw(random_i32: &mut dyn Random<i32>, random_string: &mut dyn Random<String>, console: &mut dyn Console)"
+        "pub fn draw(random_i32: &mut crate::__Handle_Random<i32>, random_string: &mut crate::__Handle_Random<String>, console: &mut crate::core_console::__Handle_Console)"
     ));
-    // `use` instantiates handlers into `let mut` locals.
+    // `use` instantiates handlers into `let mut` locals holding the handle.
     assert!(main
         .content
-        .contains("let mut console = StdOutConsole::new();"));
+        .contains("let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());"));
     assert!(// [effect-handler-generics] The handler is constructed *at* a type — the
     // turbofish is written even where rustc could have inferred it, since a
     // stateless generic handler gives it nothing to infer from.
-    main.content.contains("let mut random_i32 = CyclicRandom::<i32>::new(vec![10, 20, 30], move |__i0| __i0.clone());"));
+    main.content.contains("let mut random_i32 = crate::__Handle_Random::<i32>::new(CyclicRandom::<i32>::new(vec![10, 20, 30], move |__i0| __i0.clone()));"));
     // Threading and expected-type disambiguation.
     assert!(main
         .content
@@ -1392,7 +1392,7 @@ fn once_fn_params_emit_fnonce() {
         .expect("main.rs emitted");
     assert!(
         main.content.contains(
-            "pub fn run_once(console: &mut dyn Console, f: impl FnOnce(&mut dyn Console))"
+            "pub fn run_once(console: &mut crate::core_console::__Handle_Console, f: impl FnOnce(&mut crate::core_console::__Handle_Console))"
         ),
         "generated:\n{}",
         main.content
@@ -1842,11 +1842,10 @@ fn main() [use] -> None {
 }
 "#;
 
-/// [rs-effect-fusion] The gate is program-wide but *narrow*: a program
-/// where no handler declares a dependency keeps the per-effect `&mut dyn`
-/// parameters, so nothing about existing output changes.
+/// [rs-handle] One parameter per declared effect, in declaration order,
+/// typed by the effect's handle — the only shape there is.
 #[test]
-fn programs_without_handler_dependencies_do_not_fuse() {
+fn a_fn_takes_one_handle_per_declared_effect() {
     let files = generate(&[("main.sv", NO_DEPS_DEMO)]);
     let main = files
         .iter()
@@ -1854,8 +1853,8 @@ fn programs_without_handler_dependencies_do_not_fuse() {
         .unwrap();
     let c = &main.content;
     assert!(
-        c.contains("pub fn work(logger: &mut dyn Logger, console: &mut dyn Console)"),
-        "expected one `&mut dyn` parameter per effect:\n{c}"
+        c.contains("pub fn work(logger: &mut crate::__Handle_Logger, console: &mut crate::core_console::__Handle_Console)"),
+        "expected one handle parameter per effect:\n{c}"
     );
     assert!(
         !c.contains("__Fx_") && !c.contains("__Prov_") && !c.contains("__Has_"),
@@ -2162,13 +2161,14 @@ fn rustc_compiles_and_runs_spawn_inheritance() {
     run_rust_files(&files, "spawn-inherit", SPAWN_INHERIT_OUTPUT);
 }
 
-/// [rs-handle-bundle] The shapes the lift needs: one hidden bundle parameter
-/// after the fused value, built at the call site from the caller's own eager
-/// handles, and read as fields at the capture. The bundle struct is named by
-/// its shape and spelled through the callee's module path, so a call across
-/// modules finds the callee's struct (2026-09-27).
+/// [rs-handle] [spawn-inherit] The one shape (user decision 2026-09-28): a fn
+/// declaring `[Logger, Clock]` takes one `&mut __Handle_E` per effect, a
+/// dependent handler captures clones of them (`Stamped::new(logger.clone(),
+/// clock.clone())`) whether the effect arrived through the signature or a
+/// `use`, a `with` item is a private instance behind its own handle, and the
+/// caller passes `&mut` of its own handles — no bundles, no fused value.
 #[test]
-fn a_handle_bundle_threads_signature_supplied_effects() {
+fn signature_supplied_effects_are_handles() {
     let files = generate(&[("main.sv", SPAWN_INHERIT_DEMO)]);
     let main = files
         .iter()
@@ -2176,20 +2176,24 @@ fn a_handle_bundle_threads_signature_supplied_effects() {
         .unwrap();
     let c = &main.content;
     assert!(
-        c.contains("pub fn interception<__Fx: __Has_Logger + __Has_Clock>(__fx: &mut __Fx, __hs: &__Hs_logger__clock)"),
-        "expected one hidden bundle parameter after the fused value:\n{c}"
+        c.contains("pub fn interception(logger: &mut crate::__Handle_Logger, clock: &mut crate::__Handle_Clock)"),
+        "expected one handle parameter per declared effect:\n{c}"
     );
     assert!(
-        c.contains("pub struct __Hs_logger__clock {") && c.contains("pub logger: crate::__Handle_Logger,"),
-        "expected the generated bundle struct with a handle per effect:\n{c}"
+        c.contains("crate::__Handle_Logger::new(Stamped::new(logger.clone(), clock.clone()))"),
+        "the capture must clone the handles in scope:\n{c}"
     );
     assert!(
-        c.contains("Stamped::new(__hs.logger.clone(), __hs.clock.clone())"),
-        "the capture must read the bundle's fields:\n{c}"
+        c.contains("Stamped::new(logger.clone(), crate::__Handle_Clock::new(FixedClock::new()))"),
+        "a `with` item is a private instance behind its own handle:\n{c}"
     );
     assert!(
-        c.contains("interception(&mut __fx3, &crate::__Hs_logger__clock {"),
-        "the caller must build the bundle from its own handles:\n{c}"
+        c.contains("interception(&mut logger, &mut clock);"),
+        "the caller passes its handles:\n{c}"
+    );
+    assert!(
+        !c.contains("__Hs_") && !c.contains("__Fx") && !c.contains("__Has_"),
+        "no bundle, fused value or accessor trait remains:\n{c}"
     );
 }
 
@@ -2226,11 +2230,11 @@ fn main() [use] -> None {
     run_rust_files(&files, "generic-handle-dep", "relayed\nok\n");
 }
 
-/// [rs-effect-fusion] Identical fusions are **one** struct (user decision
-/// 2026-09-14): two fns registering the same handler over the same inherited
-/// set were emitting a struct and a full set of impls each.
+/// [rs-handle] A dependent handler is one struct with a handle field per
+/// dependency; a `use` of it anywhere is `__Handle_E::new(H::new(deps…))`
+/// — nothing per site is generated.
 #[test]
-fn identical_fusions_are_one_struct() {
+fn a_dependent_handler_is_one_struct_however_often_it_is_used() {
     let src = r#"
 export effect Logger {
     fn log(m: Str) -> None => m
@@ -2265,19 +2269,23 @@ export fn main() [use] -> None {
         .unwrap();
     let c = &main.content;
     assert_eq!(
-        c.matches("pub struct __Fx_").count(),
-        2,
-        "expected one fusion struct per *shape* — one for each `use` site \
-         shape, not one per site:\n{c}"
+        c.matches("pub struct PlainLogger {").count(),
+        1,
+        "one struct for the handler:\n{c}"
+    );
+    assert!(
+        c.contains("__dep_Console: crate::core_console::__Handle_Console,"),
+        "the dependency is a handle field:\n{c}"
     );
     assert_eq!(
-        c.matches("__Fx_first_1 { __outer:").count(),
+        c.matches("crate::__Handle_Logger::new(PlainLogger::new(console.clone()))").count(),
         2,
-        "both fns should construct the shared struct:\n{c}"
+        "both fns construct the handler from their own handle:\n{c}"
     );
+    assert!(!c.contains("__Fx_"), "nothing per `use` site is generated:\n{c}");
 }
 
-// ===== the fusion in anger [rs-effect-fusion] =====
+// ===== dependent handlers in anger [rs-handle] =====
 // Handler state behind a dependency, a *two*-dependency handler whose
 // second dependency is another handler's effect, a fn needing two effects
 // calling one needing a subset, nested `use` scopes with the outer one used
@@ -2648,13 +2656,11 @@ export fn main() [use] -> None {
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
-    // The effect arrives as a parameter of the closure, not a capture —
-    // under the fusion, as the single `dyn` provider the closure combines
-    // into a Sized fused value [rs-effect-fusion].
+    // The effect arrives as a parameter of the closure, not a capture: the
+    // effect's handle, typed on the lambda's leading parameter [rs-handle].
     assert!(
-        main.content.contains(": &mut dyn __Has_Logger,")
-            && main.content.contains("{ __outer: __prov }"),
-        "expected the effect threaded into the closure as a Has provider:\n{}",
+        main.content.contains(": &mut crate::__Handle_Logger, "),
+        "expected the effect threaded into the closure as a handle:\n{}",
         main.content
     );
     run_rust_files(&files, "fn-effects", "LOG: in lambda x\ndone x\n");
@@ -3494,7 +3500,7 @@ fn throw_lowers_to_controlflow() {
         .unwrap();
     assert!(
         main.content.contains(
-            "pub fn parse(console: &mut dyn Console, line: String) -> ControlFlow<String, i32>"
+            "pub fn parse(console: &mut crate::core_console::__Handle_Console, line: String) -> ControlFlow<String, i32>"
         ),
         "expected a ControlFlow return shape in:\n{}",
         main.content
@@ -3626,11 +3632,11 @@ fn main() [use] -> None {
 
 const FN_EFFECTS_STDOUT: &str = "LOG: in lambda x\ndone x\nLOG: shouting one\none!\ntwo.\n";
 
-/// [fn-effects] The effect is a leading parameter of the closure type, so
-/// nothing is captured — which is what lets the value cross a call that
-/// borrows the same effect value (the lifted fusion cut). Under the fusion
-/// it is the single `&mut dyn` Has-provider [rs-effect-fusion]; the lambda
-/// and the named-fn adapter rebuild a Sized fused value from it.
+/// [fn-effects] [rs-handle] The effect is a leading `&mut __Handle_E`
+/// parameter of the closure type, so nothing is captured — which is what
+/// lets the value cross a call that borrows the same effect value. The
+/// lambda takes it as a typed parameter and the named-fn adapter forwards
+/// the reborrow to a declaration that needs it (`shout`).
 #[test]
 fn fn_type_effects_thread_into_closures() {
     let files = generate(&[("main.sv", FN_EFFECTS_DEMO)]);
@@ -3640,22 +3646,18 @@ fn fn_type_effects_thread_into_closures() {
         .expect("main.rs emitted");
     assert!(
         main.content
-            .contains("f: &mut impl FnMut(&mut dyn __Has_Logger, &String) -> String"),
-        "expected the Has provider in the closure type:\n{}",
+            .contains("f: &mut impl FnMut(&mut crate::__Handle_Logger, &String) -> String"),
+        "expected the handle in the closure type:\n{}",
         main.content
     );
     assert!(
-        main.content.contains(": &mut dyn __Has_Logger,")
-            && main.content.contains("{ __outer: __prov }"),
-        "expected the provider as a leading closure parameter, combined in \
-         the body:\n{}",
+        main.content.contains("|logger2: &mut crate::__Handle_Logger, s|"),
+        "expected the handle as a leading closure parameter:\n{}",
         main.content
     );
-    // The adapter for a named fn: takes the expected provider, rebuilds a
-    // fused value for a declaration that needs it (`shout`).
     assert!(
-        main.content.contains("shout(&mut __fx"),
-        "expected the named-fn adapter to forward a fused value:\n{}",
+        main.content.contains("|__fx0: &mut crate::__Handle_Logger, mut __a0| shout(&mut *__fx0, __a0)"),
+        "expected the named-fn adapter to forward the handle:\n{}",
         main.content
     );
     assert!(
@@ -4032,11 +4034,11 @@ fn platform_effect_emits_a_trait_and_a_host_entry() {
         "a platform effect must not emit a handler struct:\n{src}"
     );
     assert!(
-        src.contains("pub fn salvo_main(telemetry: &mut __Handle_Telemetry)"),
+        src.contains("pub fn salvo_main(telemetry: &mut crate::__Handle_Telemetry)"),
         "expected the renamed entry point, got:\n{src}"
     );
     assert!(
-        src.contains("pub fn work(telemetry: &mut __Handle_Telemetry, n: i32) -> i32"),
+        src.contains("pub fn work(telemetry: &mut crate::__Handle_Telemetry, n: i32) -> i32"),
         "expected the effect threaded into `work`, got:\n{src}"
     );
     // [platform-tree] [rs-platform-host] Rust wants `fn main` in the crate
@@ -5778,9 +5780,10 @@ pub const FN_FIELD_OUTPUT: &str = "n 6\nn 4\nn 2\ndone\n";
 
 /// [rs-fn-field] The representation: an `Rc<dyn Fn…>` field, `#[derive(Clone)]`
 /// without `Debug` (a `dyn Fn` has none), a hand-written `Debug` printing the
-/// callback as `<fn>`, and `Rc::new` at the store.
+/// callback as `<fn>`, and `Arc::new` at the store ([rs-handle]: `Arc<dyn Fn
+/// + Send + Sync>` since 2026-09-28, so a callback may be handler state).
 #[test]
-fn a_function_in_a_struct_field_is_an_rc_dyn_fn() {
+fn a_function_in_a_struct_field_is_an_arc_dyn_fn() {
     let files = generate(&[("main.sv", FN_FIELD_DEMO)]);
     let main = files
         .iter()
@@ -5788,8 +5791,8 @@ fn a_function_in_a_struct_field_is_an_rc_dyn_fn() {
         .expect("main.rs emitted");
     assert!(
         main.content
-            .contains("pub f: std::rc::Rc<dyn Fn(i32) -> i32>,"),
-        "expected an Rc<dyn Fn> field, got:\n{}",
+            .contains("pub f: std::sync::Arc<dyn Fn(i32) -> i32 + Send + Sync>,"),
+        "expected an Arc<dyn Fn> field, got:\n{}",
         main.content
     );
     assert!(
@@ -5803,8 +5806,8 @@ fn a_function_in_a_struct_field_is_an_rc_dyn_fn() {
         main.content
     );
     assert!(
-        main.content.contains("f: std::rc::Rc::new(twice)"),
-        "expected the store to wrap in Rc::new, got:\n{}",
+        main.content.contains("f: std::sync::Arc::new(twice)"),
+        "expected the store to wrap in Arc::new, got:\n{}",
         main.content
     );
 }
@@ -6847,9 +6850,9 @@ fn a_generic_handler_is_constructed_at_its_type() {
         .content;
     for expected in [
         // The turbofish, from the written type argument alone...
-        "let mut show_i32 = Plain::<i32>::new();",
+        "let mut show_i32 = crate::__Handle_Show::<i32>::new(Plain::<i32>::new());",
         // ...and where a constructor argument could also have bound it.
-        "let mut tag_i32 = Prefixed::<i32>::new(\"p\".to_string());",
+        "let mut tag_i32 = crate::__Handle_Tag::<i32>::new(Prefixed::<i32>::new(\"p\".to_string()));",
         // A type parameter no field mentions needs `PhantomData`, or the
         // struct itself does not compile (`E0392`).
         "__phantom_T: std::marker::PhantomData<T>,",
@@ -10016,7 +10019,7 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
         // [effect-available] One overload set: the pass's discharger is a
         // *fn* named `close`, beside the two members of that name, and the
         // program calls both.
-        "pub fn close<__Fx: __Has_Fs>(__fx: &mut __Fx, p: Lines)",
+        "pub fn close(fs: &mut crate::fs::__Handle_Fs, p: Lines)",
     ] {
         assert!(
             surface.contains(expected),
@@ -10586,37 +10589,31 @@ fn rustc_compiles_and_runs_a_monitor() {
     );
 }
 
-/// [rs-monitor] What the monitor lowering *is*, asserted on the generated
-/// text: the per-effect lock wrapper implementing the effect's trait, the
-/// spawn building `Arc<Mutex<…>>` with no scheduler call, and the handle
-/// passing into the actor's dependency clause as itself (cloned, not
-/// stub-wrapped).
+/// [rs-monitor] [rs-handle] What the monitor lowering *is*, asserted on the
+/// generated text: the per-effect handle (`Arc<Mutex<dyn E + Send>>`)
+/// implementing the effect's trait by lock-and-delegate, the spawn building
+/// one with no scheduler call, and the handle passing into the actor's
+/// dependency clause as itself (cloned, not stub-wrapped).
 #[test]
-fn a_monitor_lowers_to_a_lock_wrapper() {
+fn a_monitor_lowers_to_the_effects_handle() {
     let files = generate_monitor_demo();
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs");
     assert!(
-        main.content.contains("pub struct __Handle_Random {"),
-        "the lock wrapper is missing:\n{}",
+        main.content.contains("pub struct __Handle_Random {\n    inner: std::sync::Arc<std::sync::Mutex<dyn Random + Send>>,"),
+        "the handle is missing:\n{}",
         main.content
     );
     assert!(
         main.content.contains("impl Random for __Handle_Random {"),
-        "the wrapper does not implement the effect:\n{}",
+        "the handle does not implement the effect:\n{}",
         main.content
     );
     assert!(
-        main.content
-            .contains("__Handle_Random::new(Box::new(__Lock_Random::new("),
+        main.content.contains("crate::__Handle_Random::new(CyclicRandom::new("),
         "the monitor spawn is missing:\n{}",
-        main.content
-    );
-    assert!(
-        main.content.contains("pub trait __Share_Random: Random + Send {"),
-        "the clone-box supertrait is missing:\n{}",
         main.content
     );
     assert!(
@@ -10625,8 +10622,8 @@ fn a_monitor_lowers_to_a_lock_wrapper() {
         main.content
     );
     assert!(
-        !main.content.contains("__Stub_Random"),
-        "a plain effect must not get a send stub:\n{}",
+        !main.content.contains("__Stub_Random") && !main.content.contains("__Lock_") && !main.content.contains("__Share_"),
+        "a plain effect gets the handle and nothing else:\n{}",
         main.content
     );
 }
@@ -10915,7 +10912,7 @@ fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
     );
     assert!(
         main.content
-            .contains("__Handle_Random::new(Box::new(__Fac_CyclicRandom {"),
+            .contains("__Handle_Random::new(__Fac_CyclicRandom {"),
         "the mixed spawn does not answer the handle over the façade:\n{}",
         main.content
     );
@@ -11024,13 +11021,13 @@ fn rustc_compiles_and_runs_a_dependent_spawn() {
     run_rust_files(&files, "dep-spawn", DEP_SPAWN_OUTPUT);
 }
 
-/// [rs-actor] [rs-effect-fusion] The shape a dependent spawn lowers to: a
-/// **flat provider** owning one dependency instance per declared dependency,
-/// implementing each one's Has-accessor trait; a process generic in those
-/// instances; and a `handle` that builds the same `__Deps_H` view a fusion's
-/// forwarding impl builds, over the provider instead of over `__outer`.
+/// [rs-actor] [rs-handle] The shape a dependent spawn lowers to: the same
+/// handler struct a `use` builds, its dependencies handle fields filled from
+/// the clause — a construction behind its handle for `Log`, the send stub
+/// behind its handle for the `Addr<Tally>` — and an actor body that owns the
+/// instance and dispatches onto its members; no provider, no view.
 #[test]
-fn a_dependent_spawn_lowers_to_a_flat_provider() {
+fn a_dependent_spawn_hands_the_actor_its_handles() {
     let files = generate_dep_spawn_demo();
     let main = files
         .iter()
@@ -11038,35 +11035,29 @@ fn a_dependent_spawn_lowers_to_a_flat_provider() {
         .expect("main.rs");
     let text = &main.content;
     assert!(
-        text.contains("pub struct __Prov_Counting<__D0, __D1> {"),
-        "the flat provider is missing:\n{text}"
+        text.contains("__dep_Log: crate::__Handle_Log,")
+            && text.contains("__dep_Tally: crate::__Handle_Tally,"),
+        "the dependencies are handle fields:\n{text}"
     );
     assert!(
-        text.contains("impl<__D0: Log, __D1: Tally> __Has_Log for __Prov_Counting<__D0, __D1>")
-            && text.contains(
-                "impl<__D0: Log, __D1: Tally> __Has_Tally for __Prov_Counting<__D0, __D1>"
-            ),
-        "the provider's Has-accessor impls are missing:\n{text}"
+        text.contains("self.__dep_Log.note(") && text.contains("self.__dep_Tally.tick(n)"),
+        "members reach their dependencies through the fields:\n{text}"
     );
     assert!(
-        text.contains("prov: __Prov_Counting<__D0, __D1>,"),
-        "the process does not own its provider:\n{text}"
+        text.contains("Box::new(__Actor_Counting::new(__h))")
+            && text.contains("crate::Counter::bump(&mut self.handler, n)"),
+        "the actor body owns the handler and dispatches onto it:\n{text}"
     );
-    assert!(
-        text.contains("let mut __deps = __Deps_Counting{ __p: &mut self.prov };"),
-        "the activation does not build the deps view:\n{text}"
-    );
-    assert!(
-        text.contains("__Impl_Counting::bump(&mut self.handler, &mut __deps, n)"),
-        "the dispatch does not go through the dependent-member trait:\n{text}"
-    );
-    // The clause's two kinds, in the handler's declaration order: a
-    // construction for `Log`, a forwarding stub for the `Addr<Tally>`.
+    // The clause's two kinds, in the handler's declaration order.
     assert!(
         text.contains(
-            "__Prov_Counting { __d0: Recording::new(), __d1: __Stub_Tally::new(tally) }"
+            "Counting::new(crate::__Handle_Log::new(Recording::new()), crate::__Handle_Tally::new(__Stub_Tally::new(tally)))"
         ),
-        "the spawn does not build the provider from its clause:\n{text}"
+        "the spawn does not build the handles from its clause:\n{text}"
+    );
+    assert!(
+        !text.contains("__Prov_") && !text.contains("__Deps_") && !text.contains("__Impl_"),
+        "no provider machinery remains:\n{text}"
     );
 }
 

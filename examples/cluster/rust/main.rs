@@ -63,10 +63,6 @@ pub trait Sequencer {
     fn next(&mut self, out: crate::scheduler::SalvoReply);
 }
 
-pub trait __Has_Sequencer {
-    fn __get_Sequencer(&mut self) -> &mut dyn Sequencer;
-}
-
 pub struct __Stub_Sequencer {
     addr: usize,
 }
@@ -83,23 +79,26 @@ impl Sequencer for __Stub_Sequencer {
     }
 }
 
-pub struct __Lock_Sequencer<H> {
-    inner: std::sync::Arc<std::sync::Mutex<H>>,
+pub struct __Handle_Sequencer {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Sequencer + Send>>,
 }
 
-impl<H> Clone for __Lock_Sequencer<H> {
+impl Clone for __Handle_Sequencer {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H> __Lock_Sequencer<H> {
-    pub fn new(inner: H) -> Self {
+impl __Handle_Sequencer {
+    pub fn new<__H: Sequencer + Send + 'static>(inner: __H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Sequencer + Send>>) -> Self {
+        Self { inner }
     }
 }
 
-impl<H: Sequencer + Send> Sequencer for __Lock_Sequencer<H> {
+impl Sequencer for __Handle_Sequencer {
     fn next(&mut self, out: crate::scheduler::SalvoReply) {
         self.inner.lock().unwrap().next(out)
     }
@@ -133,10 +132,6 @@ pub trait Inventory {
     fn reserve(&mut self, sku: String, qty: i32, out: crate::scheduler::SalvoReply);
 }
 
-pub trait __Has_Inventory {
-    fn __get_Inventory(&mut self) -> &mut dyn Inventory;
-}
-
 pub struct __Stub_Inventory {
     addr: usize,
 }
@@ -153,23 +148,26 @@ impl Inventory for __Stub_Inventory {
     }
 }
 
-pub struct __Lock_Inventory<H> {
-    inner: std::sync::Arc<std::sync::Mutex<H>>,
+pub struct __Handle_Inventory {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Inventory + Send>>,
 }
 
-impl<H> Clone for __Lock_Inventory<H> {
+impl Clone for __Handle_Inventory {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H> __Lock_Inventory<H> {
-    pub fn new(inner: H) -> Self {
+impl __Handle_Inventory {
+    pub fn new<__H: Inventory + Send + 'static>(inner: __H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Inventory + Send>>) -> Self {
+        Self { inner }
     }
 }
 
-impl<H: Inventory + Send> Inventory for __Lock_Inventory<H> {
+impl Inventory for __Handle_Inventory {
     fn reserve(&mut self, sku: String, qty: i32, out: crate::scheduler::SalvoReply) {
         self.inner.lock().unwrap().reserve(sku, qty, out)
     }
@@ -205,10 +203,6 @@ pub trait Search {
     fn query(&mut self, word: String, out: crate::scheduler::SalvoReply);
 }
 
-pub trait __Has_Search {
-    fn __get_Search(&mut self) -> &mut dyn Search;
-}
-
 pub struct __Stub_Search {
     addr: usize,
 }
@@ -225,23 +219,26 @@ impl Search for __Stub_Search {
     }
 }
 
-pub struct __Lock_Search<H> {
-    inner: std::sync::Arc<std::sync::Mutex<H>>,
+pub struct __Handle_Search {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Search + Send>>,
 }
 
-impl<H> Clone for __Lock_Search<H> {
+impl Clone for __Handle_Search {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H> __Lock_Search<H> {
-    pub fn new(inner: H) -> Self {
+impl __Handle_Search {
+    pub fn new<__H: Search + Send + 'static>(inner: __H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Search + Send>>) -> Self {
+        Self { inner }
     }
 }
 
-impl<H: Search + Send> Search for __Lock_Search<H> {
+impl Search for __Handle_Search {
     fn query(&mut self, word: String, out: crate::scheduler::SalvoReply) {
         self.inner.lock().unwrap().query(word, out)
     }
@@ -276,10 +273,6 @@ pub trait Lookup {
     fn lookup(&mut self, key: String, out: crate::scheduler::SalvoReply);
 }
 
-pub trait __Has_Lookup {
-    fn __get_Lookup(&mut self) -> &mut dyn Lookup;
-}
-
 pub struct __Stub_Lookup {
     addr: usize,
 }
@@ -296,23 +289,26 @@ impl Lookup for __Stub_Lookup {
     }
 }
 
-pub struct __Lock_Lookup<H> {
-    inner: std::sync::Arc<std::sync::Mutex<H>>,
+pub struct __Handle_Lookup {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Lookup + Send>>,
 }
 
-impl<H> Clone for __Lock_Lookup<H> {
+impl Clone for __Handle_Lookup {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H> __Lock_Lookup<H> {
-    pub fn new(inner: H) -> Self {
+impl __Handle_Lookup {
+    pub fn new<__H: Lookup + Send + 'static>(inner: __H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Lookup + Send>>) -> Self {
+        Self { inner }
     }
 }
 
-impl<H: Lookup + Send> Lookup for __Lock_Lookup<H> {
+impl Lookup for __Handle_Lookup {
     fn lookup(&mut self, key: String, out: crate::scheduler::SalvoReply) {
         self.inner.lock().unwrap().lookup(key, out)
     }
@@ -876,10 +872,6 @@ pub trait Gather {
     fn scatter(&mut self, word: String, members: Vec<usize>, out: crate::scheduler::SalvoReply);
 }
 
-pub trait __Has_Gather {
-    fn __get_Gather(&mut self) -> &mut dyn Gather;
-}
-
 pub struct __Stub_Gather {
     addr: usize,
 }
@@ -893,6 +885,31 @@ impl __Stub_Gather {
 impl Gather for __Stub_Gather {
     fn scatter(&mut self, word: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Gather::Scatter(word, members, out), crate::__PROTO_Gather);
+    }
+}
+
+pub struct __Handle_Gather {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Gather + Send>>,
+}
+
+impl Clone for __Handle_Gather {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Gather {
+    pub fn new<__H: Gather + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Gather + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Gather for __Handle_Gather {
+    fn scatter(&mut self, word: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().scatter(word, members, out)
     }
 }
 
@@ -1141,10 +1158,6 @@ pub trait Race {
     fn race(&mut self, key: String, members: Vec<usize>, out: crate::scheduler::SalvoReply);
 }
 
-pub trait __Has_Race {
-    fn __get_Race(&mut self) -> &mut dyn Race;
-}
-
 pub struct __Stub_Race {
     addr: usize,
 }
@@ -1158,6 +1171,31 @@ impl __Stub_Race {
 impl Race for __Stub_Race {
     fn race(&mut self, key: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Race::Race(key, members, out), crate::__PROTO_Race);
+    }
+}
+
+pub struct __Handle_Race {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Race + Send>>,
+}
+
+impl Clone for __Handle_Race {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Race {
+    pub fn new<__H: Race + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Race + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Race for __Handle_Race {
+    fn race(&mut self, key: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().race(key, members, out)
     }
 }
 
@@ -1341,70 +1379,66 @@ impl Leader for LastHost {
     }
 }
 
-pub fn fresh_id<__Fx: __Has_Sequencer>(__fx: &mut __Fx) -> String {
+pub fn fresh_id(sequencer: &mut crate::__Handle_Sequencer) -> String {
     return {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
-        __Has_Sequencer::__get_Sequencer(&mut *__fx).next(out);
+        sequencer.next(out);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
 }
 
-pub fn checkout<__Fx: __Has_Inventory + __Has_Console>(__fx: &mut __Fx, skus: &Vec<String>) {
+pub fn checkout(inventory: &mut crate::__Handle_Inventory, console: &mut crate::core_console::__Handle_Console, skus: &Vec<String>) {
     let mut shards: Vec<String> = vec![];
     for sku in skus {
         let mut answer = {
             let (mut out, __wid) = crate::scheduler::salvo_waiter();
             crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
-            __Has_Inventory::__get_Inventory(&mut *__fx).reserve(sku.clone(), 1, out);
+            inventory.reserve(sku.clone(), 1, out);
             *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
         };
         let mut parts = answer.split(&":".to_string()[..]).map(|__p| __p.to_string()).collect::<Vec<String>>();
         shards.push(parts.get((0) as i64 as usize).expect("salvo: value is absent at main:217:26").clone());
-        println(&mut *__fx, &(format!("  {}: {} reserved on its shard so far", sku.clone(), parts.get((1) as i64 as usize).expect("salvo: value is absent at main:218:30"))));
+        println(console, &(format!("  {}: {} reserved on its shard so far", sku.clone(), parts.get((1) as i64 as usize).expect("salvo: value is absent at main:218:30"))));
     }
-    println(&mut *__fx, &(format!("  apple and apple on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:220:51")[..] == &shards.get((2) as i64 as usize).expect("salvo: value is absent at main:220:68")[..]))));
-    println(&mut *__fx, &(format!("  apple and fig on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:221:49")[..] == &shards.get((3) as i64 as usize).expect("salvo: value is absent at main:221:66")[..]))));
-    println(&mut *__fx, &(format!("  apple and pear on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:222:50")[..] == &shards.get((1) as i64 as usize).expect("salvo: value is absent at main:222:67")[..]))));
+    println(console, &(format!("  apple and apple on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:220:51")[..] == &shards.get((2) as i64 as usize).expect("salvo: value is absent at main:220:68")[..]))));
+    println(console, &(format!("  apple and fig on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:221:49")[..] == &shards.get((3) as i64 as usize).expect("salvo: value is absent at main:221:66")[..]))));
+    println(console, &(format!("  apple and pear on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:222:50")[..] == &shards.get((1) as i64 as usize).expect("salvo: value is absent at main:222:67")[..]))));
 }
 
-pub fn count<__Fx: __Has_Search>(__fx: &mut __Fx, word: String) -> i32 {
+pub fn count(search: &mut crate::__Handle_Search, word: String) -> i32 {
     return {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
-        __Has_Search::__get_Search(&mut *__fx).query(word, out);
+        search.query(word, out);
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
 }
 
-pub fn find<__Fx: __Has_Lookup>(__fx: &mut __Fx, key: String) -> String {
+pub fn find(lookup: &mut crate::__Handle_Lookup, key: String) -> String {
     return {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
-        __Has_Lookup::__get_Lookup(&mut *__fx).lookup(key, out);
+        lookup.lookup(key, out);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
 }
 
-pub fn two_ids<__Fx: __Has_Leader + __Has_Console>(__fx: &mut __Fx, __hs: &__Hs_leader, seq: usize) {
-    let mut __fx2 = __Fx_two_ids_1 { __outer: &mut *__fx, __h: Elected::new(__hs.leader.clone()) };
-    let mut __fx3 = __Fx_two_ids_2 { __outer: &mut __fx2, __h: __Route_Sequencer::new(seq) };
-    { let __a1 = &(format!("  {} {}", fresh_id(&mut __fx3), fresh_id(&mut __fx3))); println(&mut __fx3, __a1) };
+pub fn two_ids(leader: &mut crate::net::__Handle_Leader, console: &mut crate::core_console::__Handle_Console, seq: usize) {
+    let mut pick = crate::net::__Handle_Pick::new(Elected::new(leader.clone()));
+    let mut sequencer = crate::__Handle_Sequencer::new(__Route_Sequencer::new(seq, pick.clone()));
+    println(console, &(format!("  {} {}", fresh_id(&mut sequencer), fresh_id(&mut sequencer))));
 }
 
-pub fn shop<__Fx: __Has_Console>(__fx: &mut __Fx, stock: usize) {
-    let mut __fx2 = __Fx_shop_3 { __outer: &mut *__fx, __h: Sharded::new() };
-    let mut __fx3 = __Fx_shop_4 { __outer: &mut __fx2, __h: __Route_Inventory::new(stock) };
-    checkout(&mut __fx3, &(vec!["apple".to_string(), "pear".to_string(), "apple".to_string(), "fig".to_string(), "pear".to_string()]));
+pub fn shop(console: &mut crate::core_console::__Handle_Console, stock: usize) {
+    let mut pick = crate::net::__Handle_Pick::new(Sharded::new());
+    let mut inventory = crate::__Handle_Inventory::new(__Route_Inventory::new(stock, pick.clone()));
+    checkout(&mut inventory, console, &(vec!["apple".to_string(), "pear".to_string(), "apple".to_string(), "fig".to_string(), "pear".to_string()]));
 }
 
 pub trait Boot {
     fn boot(&mut self, done: crate::scheduler::SalvoReply);
     fn stop(&mut self, done: crate::scheduler::SalvoReply);
-}
-
-pub trait __Has_Boot {
-    fn __get_Boot(&mut self) -> &mut dyn Boot;
 }
 
 pub struct __Stub_Boot {
@@ -1423,6 +1457,34 @@ impl Boot for __Stub_Boot {
     }
     fn stop(&mut self, done: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Boot::Stop(done), crate::__PROTO_Boot);
+    }
+}
+
+pub struct __Handle_Boot {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Boot + Send>>,
+}
+
+impl Clone for __Handle_Boot {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Boot {
+    pub fn new<__H: Boot + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Boot + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Boot for __Handle_Boot {
+    fn boot(&mut self, done: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().boot(done)
+    }
+    fn stop(&mut self, done: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().stop(done)
     }
 }
 
@@ -1461,18 +1523,20 @@ pub struct Booting {
     all: Vec<NodeEndpoint>,
     net: usize,
     nodes: Option<usize>,
+    __dep_Transport: crate::net::__Handle_Transport,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Booting>,
 }
 
 impl Booting {
-    pub fn new(at: NodeEndpoint, all: Vec<NodeEndpoint>, net: usize) -> Self {
+    pub fn new(at: NodeEndpoint, all: Vec<NodeEndpoint>, net: usize, __dep_Transport: crate::net::__Handle_Transport) -> Self {
         Self {
             at,
             all,
             net,
             nodes: None,
+            __dep_Transport,
             __mailbox_capacity: 2,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -1480,29 +1544,12 @@ impl Booting {
     }
 }
 
-pub struct __Deps_Booting<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl Boot for Booting {
 
-impl<'a, __P: __Has_Transport + ?Sized> __Has_Transport for __Deps_Booting<'a, __P> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        __Has_Transport::__get_Transport(&mut *self.__p)
-    }
-}
-
-pub trait __Impl_Booting {
-
-    fn boot<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, done: crate::scheduler::SalvoReply);
-
-    fn stop<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, done: crate::scheduler::SalvoReply);
-}
-
-impl __Impl_Booting for Booting {
-
-    fn boot<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, done: crate::scheduler::SalvoReply) {
+    fn boot(&mut self, done: crate::scheduler::SalvoReply) {
         let mut p = crate::scheduler::salvo_pool(((1) as usize));
-        let mut _connected = connect__3(&mut *__fx, self.at.clone(), ({ let __h = Sending::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sending::new(__h, __Prov_Sending { __d0: MemTransport::new(self.at.clone(), self.net.clone()) })), __DECODE_Sending); __a }), ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving); __a }));
-        let mut group = ({ let __h = StaticNodeGroup::new("cluster".to_string(), self.all.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_StaticNodeGroup::new(__h, __Prov_StaticNodeGroup { __d0: MemTransport::new(self.at.clone(), self.net.clone()) })), __DECODE_StaticNodeGroup); crate::scheduler::salvo_send(__a, Box::new(__Priv_StaticNodeGroup::Init)); __a });
+        let mut _connected = connect__3(&mut self.__dep_Transport, self.at.clone(), ({ let __h = Sending::new(crate::net::__Handle_Transport::new(MemTransport::new(self.at.clone(), self.net.clone()))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sending::new(__h)), __DECODE_Sending); __a }), ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving); __a }));
+        let mut group = ({ let __h = StaticNodeGroup::new("cluster".to_string(), self.all.clone(), crate::net::__Handle_Transport::new(MemTransport::new(self.at.clone(), self.net.clone()))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_StaticNodeGroup::new(__h)), __DECODE_StaticNodeGroup); crate::scheduler::salvo_send(__a, Box::new(__Priv_StaticNodeGroup::Init)); __a });
         self.nodes = Some(group.clone());
         let mut seq = crate::net::open_group(Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() }, group.clone());
         let mut mine = { let __spawned = ({ let __h = Sequencing::new("b".to_string()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sequencing::new(__h)), __DECODE_Sequencing); __a }); crate::scheduler::salvo_send_wire((seq).clone(), crate::net::__Msg_ActorGroup::Join(__spawned), crate::net::__PROTO_ActorGroup); __spawned };
@@ -1516,7 +1563,7 @@ impl __Impl_Booting for Booting {
         crate::scheduler::salvo_reply_wire::<usize>(done, mine);
     }
 
-    fn stop<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, done: crate::scheduler::SalvoReply) {
+    fn stop(&mut self, done: crate::scheduler::SalvoReply) {
         let mut group = &self.nodes;
         if !(group.is_none()) {
             crate::scheduler::salvo_send_wire(group.as_ref().unwrap().clone(), crate::net::__Msg_NodeGroup::Leave, crate::net::__PROTO_NodeGroup);
@@ -1530,38 +1577,26 @@ pub enum __Cont_Booting {
     Stop,
 }
 
-pub struct __Prov_Booting<__D0> {
-    pub __d0: __D0,
-}
-
-impl<__D0: Transport> __Has_Transport for __Prov_Booting<__D0> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        &mut self.__d0
-    }
-}
-
-pub struct __Actor_Booting<__D0> {
+pub struct __Actor_Booting {
     handler: Booting,
-    prov: __Prov_Booting<__D0>,
 }
 
-impl<__D0> __Actor_Booting<__D0> {
-    pub fn new(handler: Booting, prov: __Prov_Booting<__D0>) -> Self {
-        Self { handler, prov }
+impl __Actor_Booting {
+    pub fn new(handler: Booting) -> Self {
+        Self { handler }
     }
 }
 
-impl<__D0: Transport> __Actor_Booting<__D0> {
+impl __Actor_Booting {
     fn __dispatch(&mut self, msg: crate::__Msg_Boot) {
-        let mut __deps = __Deps_Booting{ __p: &mut self.prov };
         match msg {
-            crate::__Msg_Boot::Boot(done) => __Impl_Booting::boot(&mut self.handler, &mut __deps, done),
-            crate::__Msg_Boot::Stop(done) => __Impl_Booting::stop(&mut self.handler, &mut __deps, done),
+            crate::__Msg_Boot::Boot(done) => crate::Boot::boot(&mut self.handler, done),
+            crate::__Msg_Boot::Stop(done) => crate::Boot::stop(&mut self.handler, done),
         }
     }
 }
 
-impl<__D0: Transport + Send + 'static> crate::scheduler::SalvoActor for __Actor_Booting<__D0> {
+impl crate::scheduler::SalvoActor for __Actor_Booting {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Boot>().expect("message of this protocol");
@@ -1607,17 +1642,15 @@ pub fn settle(timer: &usize) {
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("ActorChanges".to_string(), crate::net::__PROTO_ActorChanges.to_string()), ("ActorGroup".to_string(), crate::net::__PROTO_ActorGroup.to_string()), ("Boot".to_string(), crate::__PROTO_Boot.to_string()), ("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Gather".to_string(), crate::__PROTO_Gather.to_string()), ("Inbound".to_string(), crate::net::__PROTO_Inbound.to_string()), ("Inventory".to_string(), crate::__PROTO_Inventory.to_string()), ("Lookup".to_string(), crate::__PROTO_Lookup.to_string()), ("MemNet".to_string(), crate::net::__PROTO_MemNet.to_string()), ("NodeChanges".to_string(), crate::net::__PROTO_NodeChanges.to_string()), ("NodeGroup".to_string(), crate::net::__PROTO_NodeGroup.to_string()), ("Outbound".to_string(), crate::net::__PROTO_Outbound.to_string()), ("Race".to_string(), crate::__PROTO_Race.to_string()), ("Search".to_string(), crate::__PROTO_Search.to_string()), ("Sequencer".to_string(), crate::__PROTO_Sequencer.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string())]);
-    let mut __fx = __Fx_main_5 { __h: StdOutConsole::new() };
+    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
     let mut a = NodeEndpoint { host: "a".to_string(), port: 1 };
     let mut b = NodeEndpoint { host: "b".to_string(), port: 1 };
     let mut all = vec![a.clone(), b.clone()];
     let mut network = ({ let __h = MemNetwork::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_pool(((1) as usize)), __cap as usize, Box::new(__Actor_MemNetwork::new(__h)), __DECODE_MemNetwork); __a });
-    let mut __bind = MemTransport::new(a.clone(), network.clone());
-    let __handle = crate::net::__Mon_Transport::new(Box::new(__bind.clone()));
-    let mut __fx2 = __Fx_main_6 { __outer: &mut __fx, __h: __bind };
+    let mut transport = crate::net::__Handle_Transport::new(MemTransport::new(a.clone(), network.clone()));
     let mut p = crate::scheduler::salvo_pool(((2) as usize));
-    let mut _connected = connect__2(&mut __fx2, &crate::net::__Hs_transport { transport: __handle.clone() }, a.clone(), p.clone());
-    let mut nodes = ({ let __h = StaticNodeGroup::new("cluster".to_string(), all.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_StaticNodeGroup::new(__h, __Prov_StaticNodeGroup { __d0: __handle.clone() })), __DECODE_StaticNodeGroup); crate::scheduler::salvo_send(__a, Box::new(__Priv_StaticNodeGroup::Init)); __a });
+    let mut _connected = connect__2(&mut transport, a.clone(), p.clone());
+    let mut nodes = ({ let __h = StaticNodeGroup::new("cluster".to_string(), all.clone(), transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_StaticNodeGroup::new(__h)), __DECODE_StaticNodeGroup); crate::scheduler::salvo_send(__a, Box::new(__Priv_StaticNodeGroup::Init)); __a });
     let mut seq = crate::net::open_group(Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() }, nodes.clone());
     { let __spawned = ({ let __h = Sequencing::new("a".to_string()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sequencing::new(__h)), __DECODE_Sequencing); __a }); crate::scheduler::salvo_send_wire((seq).clone(), crate::net::__Msg_ActorGroup::Join(__spawned), crate::net::__PROTO_ActorGroup); __spawned };
     let mut stock = crate::net::open_group(Protocol { name: "Inventory".to_string(), hash: crate::__PROTO_Inventory.to_string() }, nodes.clone());
@@ -1627,7 +1660,7 @@ pub fn main() {
     let mut looks = crate::net::open_group(Protocol { name: "Lookup".to_string(), hash: crate::__PROTO_Lookup.to_string() }, nodes.clone());
     { let __spawned = ({ let __h = Looking::new("a".to_string()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Looking::new(__h)), __DECODE_Looking); __a }); crate::scheduler::salvo_send_wire((looks).clone(), crate::net::__Msg_ActorGroup::Join(__spawned), crate::net::__PROTO_ActorGroup); __spawned };
     let mut pb = crate::scheduler::salvo_pool_at((NodeId { id: crate::scheduler::salvo_new_node() as i64 }).id as u64, (1) as usize);
-    let mut booter = ({ let __h = Booting::new(b.clone(), all.clone(), network.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(pb, __cap as usize, Box::new(__Actor_Booting::new(__h, __Prov_Booting { __d0: MemTransport::new(b.clone(), network.clone()) })), __DECODE_Booting); __a });
+    let mut booter = ({ let __h = Booting::new(b.clone(), all.clone(), network.clone(), crate::net::__Handle_Transport::new(MemTransport::new(b.clone(), network.clone()))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(pb, __cap as usize, Box::new(__Actor_Booting::new(__h)), __DECODE_Booting); __a });
     let mut remote_seq = {
         let (mut done, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<usize>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
@@ -1642,25 +1675,23 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(nodes, crate::net::__Msg_NodeGroup::Members(out), crate::net::__PROTO_NodeGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<Node>>().expect("the awaited answer")
     };
-    println(&mut __fx2, &(format!("nodes: {}, sequencers: {}", (members.len() as i32) + 1, ({
+    println(&mut console, &(format!("nodes: {}, sequencers: {}", (members.len() as i32) + 1, ({
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Vec<usize>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(seq, crate::net::__Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<usize>>().expect("the awaited answer")
     }.len() as i32))));
-    println(&mut __fx2, &(format!("singleton (b's sequencer is remote: {}):", !eq__2(&(NodeId { id: crate::scheduler::salvo_addr_identity((remote_seq).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })))));
-    let mut __bind2 = LastHost::new(nodes.clone(), a.clone());
-    let __handle2 = crate::net::__Mon_Leader::new(Box::new(__bind2.clone()));
-    let mut __fx3 = __Fx_main_7 { __outer: &mut __fx2, __h: __bind2 };
-    two_ids(&mut __fx3, &crate::__Hs_leader { leader: __handle2.clone() }, seq.clone());
-    println(&mut __fx3, &("sharded:".to_string()));
-    shop(&mut __fx3, stock);
-    println(&mut __fx3, &("scatter:".to_string()));
-    let mut __fx4 = __Fx_main_8 { __outer: &mut __fx3, __h: Scattering::new(index.clone(), ({ let __h = Gathering::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Gathering::new(__h)), __DECODE_Gathering); __a })) };
-    { let __a1 = &(format!("  salvo: {}, actors: {}, none: {}", count(&mut __fx4, "salvo".to_string()), count(&mut __fx4, "actors".to_string()), count(&mut __fx4, "none".to_string()))); println(&mut __fx4, __a1) };
-    println(&mut __fx4, &("hedge:".to_string()));
-    let mut __fx5 = __Fx_main_9 { __outer: &mut __fx4, __h: Hedging::new(looks.clone(), ({ let __h = Racing::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Racing::new(__h)), __DECODE_Racing); __a })) };
-    { let __a2 = &(format!("  {}", find(&mut __fx5, "k1".to_string()))); println(&mut __fx5, __a2) };
+    println(&mut console, &(format!("singleton (b's sequencer is remote: {}):", !eq__2(&(NodeId { id: crate::scheduler::salvo_addr_identity((remote_seq).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })))));
+    let mut leader = crate::net::__Handle_Leader::new(LastHost::new(nodes.clone(), a.clone()));
+    two_ids(&mut leader, &mut console, seq.clone());
+    println(&mut console, &("sharded:".to_string()));
+    shop(&mut console, stock);
+    println(&mut console, &("scatter:".to_string()));
+    let mut search = crate::__Handle_Search::new(Scattering::new(index.clone(), ({ let __h = Gathering::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Gathering::new(__h)), __DECODE_Gathering); __a })));
+    println(&mut console, &(format!("  salvo: {}, actors: {}, none: {}", count(&mut search, "salvo".to_string()), count(&mut search, "actors".to_string()), count(&mut search, "none".to_string()))));
+    println(&mut console, &("hedge:".to_string()));
+    let mut lookup = crate::__Handle_Lookup::new(Hedging::new(looks.clone(), ({ let __h = Racing::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Racing::new(__h)), __DECODE_Racing); __a })));
+    println(&mut console, &(format!("  {}", find(&mut lookup, "k1".to_string()))));
     let mut _stopped = {
         let (mut done, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<bool>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
@@ -1668,27 +1699,29 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<bool>().expect("the awaited answer")
     };
     settle(&(timer.clone()));
-    println(&mut __fx5, &("after b left:".to_string()));
-    println(&mut __fx5, &(format!("  sequencers: {}", ({
+    println(&mut console, &("after b left:".to_string()));
+    println(&mut console, &(format!("  sequencers: {}", ({
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Vec<usize>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(seq, crate::net::__Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<usize>>().expect("the awaited answer")
     }.len() as i32))));
-    two_ids(&mut __fx5, &crate::__Hs_leader { leader: __handle2.clone() }, seq);
+    two_ids(&mut leader, &mut console, seq);
 }
 
 pub struct __Route_Inventory {
     group: usize,
+    __dep_Pick: crate::net::__Handle_Pick,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont___Route_Inventory>,
 }
 
 impl __Route_Inventory {
-    pub fn new(group: usize) -> Self {
+    pub fn new(group: usize, __dep_Pick: crate::net::__Handle_Pick) -> Self {
         Self {
             group,
+            __dep_Pick,
             __mailbox_capacity: 1,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -1696,25 +1729,10 @@ impl __Route_Inventory {
     }
 }
 
-pub struct __Deps___Route_Inventory<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl Inventory for __Route_Inventory {
 
-impl<'a, __P: __Has_Pick + ?Sized> __Has_Pick for __Deps___Route_Inventory<'a, __P> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        __Has_Pick::__get_Pick(&mut *self.__p)
-    }
-}
-
-pub trait __Impl___Route_Inventory {
-
-    fn reserve<__Fx: __Has_Pick>(&mut self, __fx: &mut __Fx, sku: String, qty: i32, out: crate::scheduler::SalvoReply);
-}
-
-impl __Impl___Route_Inventory for __Route_Inventory {
-
-    fn reserve<__Fx: __Has_Pick>(&mut self, __fx: &mut __Fx, sku: String, qty: i32, out: crate::scheduler::SalvoReply) {
-        let mut __target = route_to__2(&mut *__fx, &self.group, crate::scheduler::salvo_key_hash(&crate::wire::salvo_encode(&sku)));
+    fn reserve(&mut self, sku: String, qty: i32, out: crate::scheduler::SalvoReply) {
+        let mut __target = route_to__2(&mut self.__dep_Pick, &self.group, crate::scheduler::salvo_key_hash(&crate::wire::salvo_encode(&sku)));
         crate::scheduler::salvo_send_wire(__target, crate::__Msg_Inventory::Reserve(sku, qty, out), crate::__PROTO_Inventory);
     }
 }
@@ -1723,37 +1741,25 @@ pub enum __Cont___Route_Inventory {
     Reserve(String, i32),
 }
 
-pub struct __Prov___Route_Inventory<__D0> {
-    pub __d0: __D0,
-}
-
-impl<__D0: Pick> __Has_Pick for __Prov___Route_Inventory<__D0> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        &mut self.__d0
-    }
-}
-
-pub struct __Actor___Route_Inventory<__D0> {
+pub struct __Actor___Route_Inventory {
     handler: __Route_Inventory,
-    prov: __Prov___Route_Inventory<__D0>,
 }
 
-impl<__D0> __Actor___Route_Inventory<__D0> {
-    pub fn new(handler: __Route_Inventory, prov: __Prov___Route_Inventory<__D0>) -> Self {
-        Self { handler, prov }
+impl __Actor___Route_Inventory {
+    pub fn new(handler: __Route_Inventory) -> Self {
+        Self { handler }
     }
 }
 
-impl<__D0: Pick> __Actor___Route_Inventory<__D0> {
+impl __Actor___Route_Inventory {
     fn __dispatch(&mut self, msg: crate::__Msg_Inventory) {
-        let mut __deps = __Deps___Route_Inventory{ __p: &mut self.prov };
         match msg {
-            crate::__Msg_Inventory::Reserve(sku, qty, out) => __Impl___Route_Inventory::reserve(&mut self.handler, &mut __deps, sku, qty, out),
+            crate::__Msg_Inventory::Reserve(sku, qty, out) => crate::Inventory::reserve(&mut self.handler, sku, qty, out),
         }
     }
 }
 
-impl<__D0: Pick + Send + 'static> crate::scheduler::SalvoActor for __Actor___Route_Inventory<__D0> {
+impl crate::scheduler::SalvoActor for __Actor___Route_Inventory {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Inventory>().expect("message of this protocol");
@@ -1788,15 +1794,17 @@ fn __decode_msg___Route_Inventory(proto: &str, payload: &[u8]) -> Option<crate::
 
 pub struct __Route_Lookup {
     group: usize,
+    __dep_Pick: crate::net::__Handle_Pick,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont___Route_Lookup>,
 }
 
 impl __Route_Lookup {
-    pub fn new(group: usize) -> Self {
+    pub fn new(group: usize, __dep_Pick: crate::net::__Handle_Pick) -> Self {
         Self {
             group,
+            __dep_Pick,
             __mailbox_capacity: 1,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -1804,25 +1812,10 @@ impl __Route_Lookup {
     }
 }
 
-pub struct __Deps___Route_Lookup<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl Lookup for __Route_Lookup {
 
-impl<'a, __P: __Has_Pick + ?Sized> __Has_Pick for __Deps___Route_Lookup<'a, __P> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        __Has_Pick::__get_Pick(&mut *self.__p)
-    }
-}
-
-pub trait __Impl___Route_Lookup {
-
-    fn lookup<__Fx: __Has_Pick>(&mut self, __fx: &mut __Fx, key: String, out: crate::scheduler::SalvoReply);
-}
-
-impl __Impl___Route_Lookup for __Route_Lookup {
-
-    fn lookup<__Fx: __Has_Pick>(&mut self, __fx: &mut __Fx, key: String, out: crate::scheduler::SalvoReply) {
-        let mut __target = route_to(&mut *__fx, &self.group);
+    fn lookup(&mut self, key: String, out: crate::scheduler::SalvoReply) {
+        let mut __target = route_to(&mut self.__dep_Pick, &self.group);
         crate::scheduler::salvo_send_wire(__target, crate::__Msg_Lookup::Lookup(key, out), crate::__PROTO_Lookup);
     }
 }
@@ -1831,37 +1824,25 @@ pub enum __Cont___Route_Lookup {
     Lookup(String),
 }
 
-pub struct __Prov___Route_Lookup<__D0> {
-    pub __d0: __D0,
-}
-
-impl<__D0: Pick> __Has_Pick for __Prov___Route_Lookup<__D0> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        &mut self.__d0
-    }
-}
-
-pub struct __Actor___Route_Lookup<__D0> {
+pub struct __Actor___Route_Lookup {
     handler: __Route_Lookup,
-    prov: __Prov___Route_Lookup<__D0>,
 }
 
-impl<__D0> __Actor___Route_Lookup<__D0> {
-    pub fn new(handler: __Route_Lookup, prov: __Prov___Route_Lookup<__D0>) -> Self {
-        Self { handler, prov }
+impl __Actor___Route_Lookup {
+    pub fn new(handler: __Route_Lookup) -> Self {
+        Self { handler }
     }
 }
 
-impl<__D0: Pick> __Actor___Route_Lookup<__D0> {
+impl __Actor___Route_Lookup {
     fn __dispatch(&mut self, msg: crate::__Msg_Lookup) {
-        let mut __deps = __Deps___Route_Lookup{ __p: &mut self.prov };
         match msg {
-            crate::__Msg_Lookup::Lookup(key, out) => __Impl___Route_Lookup::lookup(&mut self.handler, &mut __deps, key, out),
+            crate::__Msg_Lookup::Lookup(key, out) => crate::Lookup::lookup(&mut self.handler, key, out),
         }
     }
 }
 
-impl<__D0: Pick + Send + 'static> crate::scheduler::SalvoActor for __Actor___Route_Lookup<__D0> {
+impl crate::scheduler::SalvoActor for __Actor___Route_Lookup {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Lookup>().expect("message of this protocol");
@@ -1896,15 +1877,17 @@ fn __decode_msg___Route_Lookup(proto: &str, payload: &[u8]) -> Option<crate::sch
 
 pub struct __Route_Search {
     group: usize,
+    __dep_Pick: crate::net::__Handle_Pick,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont___Route_Search>,
 }
 
 impl __Route_Search {
-    pub fn new(group: usize) -> Self {
+    pub fn new(group: usize, __dep_Pick: crate::net::__Handle_Pick) -> Self {
         Self {
             group,
+            __dep_Pick,
             __mailbox_capacity: 1,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -1912,25 +1895,10 @@ impl __Route_Search {
     }
 }
 
-pub struct __Deps___Route_Search<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl Search for __Route_Search {
 
-impl<'a, __P: __Has_Pick + ?Sized> __Has_Pick for __Deps___Route_Search<'a, __P> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        __Has_Pick::__get_Pick(&mut *self.__p)
-    }
-}
-
-pub trait __Impl___Route_Search {
-
-    fn query<__Fx: __Has_Pick>(&mut self, __fx: &mut __Fx, word: String, out: crate::scheduler::SalvoReply);
-}
-
-impl __Impl___Route_Search for __Route_Search {
-
-    fn query<__Fx: __Has_Pick>(&mut self, __fx: &mut __Fx, word: String, out: crate::scheduler::SalvoReply) {
-        let mut __target = route_to(&mut *__fx, &self.group);
+    fn query(&mut self, word: String, out: crate::scheduler::SalvoReply) {
+        let mut __target = route_to(&mut self.__dep_Pick, &self.group);
         crate::scheduler::salvo_send_wire(__target, crate::__Msg_Search::Query(word, out), crate::__PROTO_Search);
     }
 }
@@ -1939,37 +1907,25 @@ pub enum __Cont___Route_Search {
     Query(String),
 }
 
-pub struct __Prov___Route_Search<__D0> {
-    pub __d0: __D0,
-}
-
-impl<__D0: Pick> __Has_Pick for __Prov___Route_Search<__D0> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        &mut self.__d0
-    }
-}
-
-pub struct __Actor___Route_Search<__D0> {
+pub struct __Actor___Route_Search {
     handler: __Route_Search,
-    prov: __Prov___Route_Search<__D0>,
 }
 
-impl<__D0> __Actor___Route_Search<__D0> {
-    pub fn new(handler: __Route_Search, prov: __Prov___Route_Search<__D0>) -> Self {
-        Self { handler, prov }
+impl __Actor___Route_Search {
+    pub fn new(handler: __Route_Search) -> Self {
+        Self { handler }
     }
 }
 
-impl<__D0: Pick> __Actor___Route_Search<__D0> {
+impl __Actor___Route_Search {
     fn __dispatch(&mut self, msg: crate::__Msg_Search) {
-        let mut __deps = __Deps___Route_Search{ __p: &mut self.prov };
         match msg {
-            crate::__Msg_Search::Query(word, out) => __Impl___Route_Search::query(&mut self.handler, &mut __deps, word, out),
+            crate::__Msg_Search::Query(word, out) => crate::Search::query(&mut self.handler, word, out),
         }
     }
 }
 
-impl<__D0: Pick + Send + 'static> crate::scheduler::SalvoActor for __Actor___Route_Search<__D0> {
+impl crate::scheduler::SalvoActor for __Actor___Route_Search {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Search>().expect("message of this protocol");
@@ -2004,15 +1960,17 @@ fn __decode_msg___Route_Search(proto: &str, payload: &[u8]) -> Option<crate::sch
 
 pub struct __Route_Sequencer {
     group: usize,
+    __dep_Pick: crate::net::__Handle_Pick,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont___Route_Sequencer>,
 }
 
 impl __Route_Sequencer {
-    pub fn new(group: usize) -> Self {
+    pub fn new(group: usize, __dep_Pick: crate::net::__Handle_Pick) -> Self {
         Self {
             group,
+            __dep_Pick,
             __mailbox_capacity: 1,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -2020,25 +1978,10 @@ impl __Route_Sequencer {
     }
 }
 
-pub struct __Deps___Route_Sequencer<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl Sequencer for __Route_Sequencer {
 
-impl<'a, __P: __Has_Pick + ?Sized> __Has_Pick for __Deps___Route_Sequencer<'a, __P> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        __Has_Pick::__get_Pick(&mut *self.__p)
-    }
-}
-
-pub trait __Impl___Route_Sequencer {
-
-    fn next<__Fx: __Has_Pick>(&mut self, __fx: &mut __Fx, out: crate::scheduler::SalvoReply);
-}
-
-impl __Impl___Route_Sequencer for __Route_Sequencer {
-
-    fn next<__Fx: __Has_Pick>(&mut self, __fx: &mut __Fx, out: crate::scheduler::SalvoReply) {
-        let mut __target = route_to(&mut *__fx, &self.group);
+    fn next(&mut self, out: crate::scheduler::SalvoReply) {
+        let mut __target = route_to(&mut self.__dep_Pick, &self.group);
         crate::scheduler::salvo_send_wire(__target, crate::__Msg_Sequencer::Next(out), crate::__PROTO_Sequencer);
     }
 }
@@ -2047,37 +1990,25 @@ pub enum __Cont___Route_Sequencer {
     Next,
 }
 
-pub struct __Prov___Route_Sequencer<__D0> {
-    pub __d0: __D0,
-}
-
-impl<__D0: Pick> __Has_Pick for __Prov___Route_Sequencer<__D0> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        &mut self.__d0
-    }
-}
-
-pub struct __Actor___Route_Sequencer<__D0> {
+pub struct __Actor___Route_Sequencer {
     handler: __Route_Sequencer,
-    prov: __Prov___Route_Sequencer<__D0>,
 }
 
-impl<__D0> __Actor___Route_Sequencer<__D0> {
-    pub fn new(handler: __Route_Sequencer, prov: __Prov___Route_Sequencer<__D0>) -> Self {
-        Self { handler, prov }
+impl __Actor___Route_Sequencer {
+    pub fn new(handler: __Route_Sequencer) -> Self {
+        Self { handler }
     }
 }
 
-impl<__D0: Pick> __Actor___Route_Sequencer<__D0> {
+impl __Actor___Route_Sequencer {
     fn __dispatch(&mut self, msg: crate::__Msg_Sequencer) {
-        let mut __deps = __Deps___Route_Sequencer{ __p: &mut self.prov };
         match msg {
-            crate::__Msg_Sequencer::Next(out) => __Impl___Route_Sequencer::next(&mut self.handler, &mut __deps, out),
+            crate::__Msg_Sequencer::Next(out) => crate::Sequencer::next(&mut self.handler, out),
         }
     }
 }
 
-impl<__D0: Pick + Send + 'static> crate::scheduler::SalvoActor for __Actor___Route_Sequencer<__D0> {
+impl crate::scheduler::SalvoActor for __Actor___Route_Sequencer {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Sequencer>().expect("message of this protocol");
@@ -2108,248 +2039,4 @@ fn __decode_msg___Route_Sequencer(proto: &str, payload: &[u8]) -> Option<crate::
                 .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
         }
     None
-}
-
-pub struct __Hs_leader {
-    pub leader: crate::net::__Mon_Leader,
-}
-
-pub trait __Prov_Console_Leader: __Has_Console + __Has_Leader {}
-impl<T: __Has_Console + __Has_Leader + ?Sized> __Prov_Console_Leader for T {}
-
-pub struct __Fx_two_ids_1<'a, __H> {
-    __outer: &'a mut dyn __Prov_Console_Leader,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Console for __Fx_two_ids_1<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Leader for __Fx_two_ids_1<'a, __H> {
-    fn __get_Leader(&mut self) -> &mut dyn Leader {
-        __Has_Leader::__get_Leader(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: Pick> __Has_Pick for __Fx_two_ids_1<'a, __H> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        &mut self.__h
-    }
-}
-
-pub trait __Prov_Console_Leader_Pick: __Has_Console + __Has_Leader + __Has_Pick {}
-impl<T: __Has_Console + __Has_Leader + __Has_Pick + ?Sized> __Prov_Console_Leader_Pick for T {}
-
-pub struct __Fx_two_ids_2<'a, __H> {
-    __outer: &'a mut dyn __Prov_Console_Leader_Pick,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Console for __Fx_two_ids_2<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Leader for __Fx_two_ids_2<'a, __H> {
-    fn __get_Leader(&mut self) -> &mut dyn Leader {
-        __Has_Leader::__get_Leader(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Pick for __Fx_two_ids_2<'a, __H> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        __Has_Pick::__get_Pick(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: __Impl___Route_Sequencer> Sequencer for __Fx_two_ids_2<'a, __H> {
-    fn next(&mut self, out: crate::scheduler::SalvoReply) {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps___Route_Sequencer{ __p: &mut **__outer };
-        __Impl___Route_Sequencer::next(__h, &mut __deps, out)
-    }
-}
-
-impl<'a, __H: __Impl___Route_Sequencer> __Has_Sequencer for __Fx_two_ids_2<'a, __H> {
-    fn __get_Sequencer(&mut self) -> &mut dyn Sequencer {
-        self
-    }
-}
-
-pub struct __Fx_shop_3<'a, __H> {
-    __outer: &'a mut dyn __Has_Console,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Console for __Fx_shop_3<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: Pick> __Has_Pick for __Fx_shop_3<'a, __H> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        &mut self.__h
-    }
-}
-
-pub trait __Prov_Console_Pick: __Has_Console + __Has_Pick {}
-impl<T: __Has_Console + __Has_Pick + ?Sized> __Prov_Console_Pick for T {}
-
-pub struct __Fx_shop_4<'a, __H> {
-    __outer: &'a mut dyn __Prov_Console_Pick,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Console for __Fx_shop_4<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Pick for __Fx_shop_4<'a, __H> {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        __Has_Pick::__get_Pick(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: __Impl___Route_Inventory> Inventory for __Fx_shop_4<'a, __H> {
-    fn reserve(&mut self, sku: String, qty: i32, out: crate::scheduler::SalvoReply) {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps___Route_Inventory{ __p: &mut **__outer };
-        __Impl___Route_Inventory::reserve(__h, &mut __deps, sku, qty, out)
-    }
-}
-
-impl<'a, __H: __Impl___Route_Inventory> __Has_Inventory for __Fx_shop_4<'a, __H> {
-    fn __get_Inventory(&mut self) -> &mut dyn Inventory {
-        self
-    }
-}
-
-pub struct __Fx_main_5<__H> {
-    __h: __H,
-}
-
-impl<__H: Console> __Has_Console for __Fx_main_5<__H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        &mut self.__h
-    }
-}
-
-pub struct __Fx_main_6<'a, __H> {
-    __outer: &'a mut dyn __Has_Console,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Console for __Fx_main_6<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: Transport> __Has_Transport for __Fx_main_6<'a, __H> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        &mut self.__h
-    }
-}
-
-pub trait __Prov_Console_Transport: __Has_Console + __Has_Transport {}
-impl<T: __Has_Console + __Has_Transport + ?Sized> __Prov_Console_Transport for T {}
-
-pub struct __Fx_main_7<'a, __H> {
-    __outer: &'a mut dyn __Prov_Console_Transport,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Console for __Fx_main_7<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Transport for __Fx_main_7<'a, __H> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        __Has_Transport::__get_Transport(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: Leader> __Has_Leader for __Fx_main_7<'a, __H> {
-    fn __get_Leader(&mut self) -> &mut dyn Leader {
-        &mut self.__h
-    }
-}
-
-pub trait __Prov_Console_Leader_Transport: __Has_Console + __Has_Leader + __Has_Transport {}
-impl<T: __Has_Console + __Has_Leader + __Has_Transport + ?Sized> __Prov_Console_Leader_Transport for T {}
-
-pub struct __Fx_main_8<'a, __H> {
-    __outer: &'a mut dyn __Prov_Console_Leader_Transport,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Console for __Fx_main_8<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Leader for __Fx_main_8<'a, __H> {
-    fn __get_Leader(&mut self) -> &mut dyn Leader {
-        __Has_Leader::__get_Leader(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Transport for __Fx_main_8<'a, __H> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        __Has_Transport::__get_Transport(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: Search> __Has_Search for __Fx_main_8<'a, __H> {
-    fn __get_Search(&mut self) -> &mut dyn Search {
-        &mut self.__h
-    }
-}
-
-pub trait __Prov_Console_Leader_Search_Transport: __Has_Console + __Has_Leader + __Has_Search + __Has_Transport {}
-impl<T: __Has_Console + __Has_Leader + __Has_Search + __Has_Transport + ?Sized> __Prov_Console_Leader_Search_Transport for T {}
-
-pub struct __Fx_main_9<'a, __H> {
-    __outer: &'a mut dyn __Prov_Console_Leader_Search_Transport,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Console for __Fx_main_9<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Leader for __Fx_main_9<'a, __H> {
-    fn __get_Leader(&mut self) -> &mut dyn Leader {
-        __Has_Leader::__get_Leader(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Search for __Fx_main_9<'a, __H> {
-    fn __get_Search(&mut self) -> &mut dyn Search {
-        __Has_Search::__get_Search(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_Transport for __Fx_main_9<'a, __H> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        __Has_Transport::__get_Transport(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: Lookup> __Has_Lookup for __Fx_main_9<'a, __H> {
-    fn __get_Lookup(&mut self) -> &mut dyn Lookup {
-        &mut self.__h
-    }
 }

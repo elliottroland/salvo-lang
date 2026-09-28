@@ -87,10 +87,6 @@ pub trait Inbound {
     fn receive_frame(&mut self, from: NodeEndpoint, frame: Vec<u8>);
 }
 
-pub trait __Has_Inbound {
-    fn __get_Inbound(&mut self) -> &mut dyn Inbound;
-}
-
 pub struct __Stub_Inbound {
     addr: usize,
 }
@@ -104,6 +100,31 @@ impl __Stub_Inbound {
 impl Inbound for __Stub_Inbound {
     fn receive_frame(&mut self, from: NodeEndpoint, frame: Vec<u8>) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Inbound::ReceiveFrame(from, frame), crate::net::__PROTO_Inbound);
+    }
+}
+
+pub struct __Handle_Inbound {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Inbound + Send>>,
+}
+
+impl Clone for __Handle_Inbound {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Inbound {
+    pub fn new<__H: Inbound + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Inbound + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Inbound for __Handle_Inbound {
+    fn receive_frame(&mut self, from: NodeEndpoint, frame: Vec<u8>) {
+        self.inner.lock().unwrap().receive_frame(from, frame)
     }
 }
 
@@ -139,68 +160,26 @@ pub trait Transport {
     fn local_endpoint(&mut self) -> NodeEndpoint;
 }
 
-pub trait __Has_Transport {
-    fn __get_Transport(&mut self) -> &mut dyn Transport;
+pub struct __Handle_Transport {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Transport + Send>>,
 }
 
-pub trait __Share_Transport: Transport + Send {
-    fn __clone_box(&self) -> Box<dyn __Share_Transport>;
-}
-
-impl<__H: Transport + Clone + Send + 'static> __Share_Transport for __H {
-    fn __clone_box(&self) -> Box<dyn __Share_Transport> {
-        Box::new(self.clone())
-    }
-}
-
-pub struct __Mon_Transport {
-    inner: Box<dyn __Share_Transport>,
-}
-
-impl Clone for __Mon_Transport {
-    fn clone(&self) -> Self {
-        Self { inner: self.inner.__clone_box() }
-    }
-}
-
-impl __Mon_Transport {
-    pub fn new(inner: Box<dyn __Share_Transport>) -> Self {
-        Self { inner }
-    }
-}
-
-impl Transport for __Mon_Transport {
-    fn listen(&mut self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
-        self.inner.listen(at, sink)
-    }
-    fn unlisten(&mut self, at: &NodeEndpoint) {
-        self.inner.unlisten(at)
-    }
-    fn deliver(&mut self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>> {
-        self.inner.deliver(to, frame)
-    }
-    fn local_endpoint(&mut self) -> NodeEndpoint {
-        self.inner.local_endpoint()
-    }
-}
-
-pub struct __Lock_Transport<H> {
-    inner: std::sync::Arc<std::sync::Mutex<H>>,
-}
-
-impl<H> Clone for __Lock_Transport<H> {
+impl Clone for __Handle_Transport {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H> __Lock_Transport<H> {
-    pub fn new(inner: H) -> Self {
+impl __Handle_Transport {
+    pub fn new<__H: Transport + Send + 'static>(inner: __H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Transport + Send>>) -> Self {
+        Self { inner }
     }
 }
 
-impl<H: Transport + Send> Transport for __Lock_Transport<H> {
+impl Transport for __Handle_Transport {
     fn listen(&mut self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
         self.inner.lock().unwrap().listen(at, sink)
     }
@@ -212,12 +191,6 @@ impl<H: Transport + Send> Transport for __Lock_Transport<H> {
     }
     fn local_endpoint(&mut self) -> NodeEndpoint {
         self.inner.lock().unwrap().local_endpoint()
-    }
-}
-
-impl __Has_Transport for __Mon_Transport {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        self
     }
 }
 
@@ -241,10 +214,6 @@ pub trait Outbound {
     fn send_frame(&mut self, to: NodeEndpoint, frame: Vec<u8>);
 }
 
-pub trait __Has_Outbound {
-    fn __get_Outbound(&mut self) -> &mut dyn Outbound;
-}
-
 pub struct __Stub_Outbound {
     addr: usize,
 }
@@ -258,6 +227,31 @@ impl __Stub_Outbound {
 impl Outbound for __Stub_Outbound {
     fn send_frame(&mut self, to: NodeEndpoint, frame: Vec<u8>) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Outbound::SendFrame(to, frame), crate::net::__PROTO_Outbound);
+    }
+}
+
+pub struct __Handle_Outbound {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Outbound + Send>>,
+}
+
+impl Clone for __Handle_Outbound {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Outbound {
+    pub fn new<__H: Outbound + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Outbound + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Outbound for __Handle_Outbound {
+    fn send_frame(&mut self, to: NodeEndpoint, frame: Vec<u8>) {
+        self.inner.lock().unwrap().send_frame(to, frame)
     }
 }
 
@@ -287,14 +281,16 @@ impl crate::wire::__Wire for __Msg_Outbound {
 pub const __PROTO_Outbound: &str = "e754249e848e9986";
 
 pub struct Sending {
+    __dep_Transport: crate::net::__Handle_Transport,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Sending>,
 }
 
 impl Sending {
-    pub fn new() -> Self {
+    pub fn new(__dep_Transport: crate::net::__Handle_Transport) -> Self {
         Self {
+            __dep_Transport,
             __mailbox_capacity: 256,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -302,25 +298,10 @@ impl Sending {
     }
 }
 
-pub struct __Deps_Sending<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl Outbound for Sending {
 
-impl<'a, __P: __Has_Transport + ?Sized> __Has_Transport for __Deps_Sending<'a, __P> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        __Has_Transport::__get_Transport(&mut *self.__p)
-    }
-}
-
-pub trait __Impl_Sending {
-
-    fn send_frame<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, to: NodeEndpoint, frame: Vec<u8>);
-}
-
-impl __Impl_Sending for Sending {
-
-    fn send_frame<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, to: NodeEndpoint, frame: Vec<u8>) {
-        let mut _sent = __Has_Transport::__get_Transport(&mut *__fx).deliver(&to, frame);
+    fn send_frame(&mut self, to: NodeEndpoint, frame: Vec<u8>) {
+        let mut _sent = self.__dep_Transport.deliver(&to, frame);
     }
 }
 
@@ -328,37 +309,25 @@ pub enum __Cont_Sending {
     SendFrame(NodeEndpoint),
 }
 
-pub struct __Prov_Sending<__D0> {
-    pub __d0: __D0,
-}
-
-impl<__D0: Transport> __Has_Transport for __Prov_Sending<__D0> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        &mut self.__d0
-    }
-}
-
-pub struct __Actor_Sending<__D0> {
+pub struct __Actor_Sending {
     handler: Sending,
-    prov: __Prov_Sending<__D0>,
 }
 
-impl<__D0> __Actor_Sending<__D0> {
-    pub fn new(handler: Sending, prov: __Prov_Sending<__D0>) -> Self {
-        Self { handler, prov }
+impl __Actor_Sending {
+    pub fn new(handler: Sending) -> Self {
+        Self { handler }
     }
 }
 
-impl<__D0: Transport> __Actor_Sending<__D0> {
+impl __Actor_Sending {
     fn __dispatch(&mut self, msg: crate::net::__Msg_Outbound) {
-        let mut __deps = __Deps_Sending{ __p: &mut self.prov };
         match msg {
-            crate::net::__Msg_Outbound::SendFrame(to, frame) => __Impl_Sending::send_frame(&mut self.handler, &mut __deps, to, frame),
+            crate::net::__Msg_Outbound::SendFrame(to, frame) => crate::net::Outbound::send_frame(&mut self.handler, to, frame),
         }
     }
 }
 
-impl<__D0: Transport + Send + 'static> crate::scheduler::SalvoActor for __Actor_Sending<__D0> {
+impl crate::scheduler::SalvoActor for __Actor_Sending {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::net::__Msg_Outbound>().expect("message of this protocol");
@@ -469,23 +438,23 @@ fn __decode_msg_Receiving(proto: &str, payload: &[u8]) -> Option<crate::schedule
     None
 }
 
-pub fn connect<__Fx: __Has_Transport>(__fx: &mut __Fx, __hs: &__Hs_transport, me: NodeEndpoint) -> bool {
-    return connect__2(&mut *__fx, &crate::net::__Hs_transport { transport: __hs.transport.clone() }, me, crate::scheduler::salvo_pool(((1) as usize)));
+pub fn connect(transport: &mut crate::net::__Handle_Transport, me: NodeEndpoint) -> bool {
+    return connect__2(transport, me, crate::scheduler::salvo_pool(((1) as usize)));
 }
 
-pub fn connect__2<__Fx: __Has_Transport>(__fx: &mut __Fx, __hs: &__Hs_transport, me: NodeEndpoint, on: usize) -> bool {
+pub fn connect__2(transport: &mut crate::net::__Handle_Transport, me: NodeEndpoint, on: usize) -> bool {
     if crate::scheduler::salvo_connected() {
         return false;
     }
-    return connect__3(&mut *__fx, me, ({ let __h = Sending::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Sending::new(__h, __Prov_Sending { __d0: __hs.transport.clone() })), __DECODE_Sending); __a }), ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving); __a }));
+    return { let __a1 = ({ let __h = Sending::new(transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Sending::new(__h)), __DECODE_Sending); __a }); connect__3(transport, me, __a1, ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving); __a })) };
 }
 
-pub fn connect__3<__Fx: __Has_Transport>(__fx: &mut __Fx, me: NodeEndpoint, sending: usize, receiving: usize) -> bool {
+pub fn connect__3(transport: &mut crate::net::__Handle_Transport, me: NodeEndpoint, sending: usize, receiving: usize) -> bool {
     if crate::scheduler::salvo_connected() {
         return false;
     }
     { let __out = sending; crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| { if let Some(__to) = crate::wire::salvo_decode::<NodeEndpoint>(__ep) { crate::scheduler::salvo_send_wire(__out, crate::net::__Msg_Outbound::SendFrame(__to, __frame), crate::net::__PROTO_Outbound); } })) };
-    let mut _listening = __Has_Transport::__get_Transport(&mut *__fx).listen(&(me.clone()), receiving);
+    let mut _listening = transport.listen(&(me.clone()), receiving);
     crate::scheduler::salvo_add_route((NodeId { id: crate::scheduler::salvo_here_node() as i64 }).id as u64, crate::wire::salvo_encode(&me));
     return true;
 }
@@ -515,10 +484,6 @@ pub trait NodeGroup {
     fn leave(&mut self);
 }
 
-pub trait __Has_NodeGroup {
-    fn __get_NodeGroup(&mut self) -> &mut dyn NodeGroup;
-}
-
 pub struct __Stub_NodeGroup {
     addr: usize,
 }
@@ -538,6 +503,37 @@ impl NodeGroup for __Stub_NodeGroup {
     }
     fn leave(&mut self) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroup::Leave, crate::net::__PROTO_NodeGroup);
+    }
+}
+
+pub struct __Handle_NodeGroup {
+    inner: std::sync::Arc<std::sync::Mutex<dyn NodeGroup + Send>>,
+}
+
+impl Clone for __Handle_NodeGroup {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_NodeGroup {
+    pub fn new<__H: NodeGroup + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn NodeGroup + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl NodeGroup for __Handle_NodeGroup {
+    fn members(&mut self, out: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().members(out)
+    }
+    fn subscribe(&mut self, w: usize) {
+        self.inner.lock().unwrap().subscribe(w)
+    }
+    fn leave(&mut self) {
+        self.inner.lock().unwrap().leave()
     }
 }
 
@@ -579,10 +575,6 @@ pub trait NodeChanges {
     fn left(&mut self, n: Node, why: String);
 }
 
-pub trait __Has_NodeChanges {
-    fn __get_NodeChanges(&mut self) -> &mut dyn NodeChanges;
-}
-
 pub struct __Stub_NodeChanges {
     addr: usize,
 }
@@ -599,6 +591,34 @@ impl NodeChanges for __Stub_NodeChanges {
     }
     fn left(&mut self, n: Node, why: String) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeChanges::Left(n, why), crate::net::__PROTO_NodeChanges);
+    }
+}
+
+pub struct __Handle_NodeChanges {
+    inner: std::sync::Arc<std::sync::Mutex<dyn NodeChanges + Send>>,
+}
+
+impl Clone for __Handle_NodeChanges {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_NodeChanges {
+    pub fn new<__H: NodeChanges + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn NodeChanges + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl NodeChanges for __Handle_NodeChanges {
+    fn joined(&mut self, n: Node) {
+        self.inner.lock().unwrap().joined(n)
+    }
+    fn left(&mut self, n: Node, why: String) {
+        self.inner.lock().unwrap().left(n, why)
     }
 }
 
@@ -638,18 +658,20 @@ pub struct StaticNodeGroup {
     all: Vec<NodeEndpoint>,
     known: SalvoMap<NodeId, Node>,
     watchers: Vec<usize>,
+    __dep_Transport: crate::net::__Handle_Transport,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_StaticNodeGroup>,
 }
 
 impl StaticNodeGroup {
-    pub fn new(name: String, all: Vec<NodeEndpoint>) -> Self {
+    pub fn new(name: String, all: Vec<NodeEndpoint>, __dep_Transport: crate::net::__Handle_Transport) -> Self {
         Self {
             name,
             all,
             known: SalvoMap::from_entries::<__Hash_hash__NodeId_NodeId, __Eq_eq__NodeId_NodeId, _>(vec![]),
             watchers: vec![],
+            __dep_Transport,
             __mailbox_capacity: 64,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -657,36 +679,9 @@ impl StaticNodeGroup {
     }
 }
 
-pub struct __Deps_StaticNodeGroup<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl NodeGroup for StaticNodeGroup {
 
-impl<'a, __P: __Has_Transport + ?Sized> __Has_Transport for __Deps_StaticNodeGroup<'a, __P> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        __Has_Transport::__get_Transport(&mut *self.__p)
-    }
-}
-
-pub trait __Impl_StaticNodeGroup {
-
-    fn members<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, out: crate::scheduler::SalvoReply);
-
-    fn subscribe<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, w: usize);
-
-    fn leave<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx);
-
-    fn hello<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, node: NodeId, at: NodeEndpoint, protocols: Vec<(String, String)>);
-
-    fn gone<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, node: NodeId);
-
-    fn introduced<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, peers: Vec<NodeEndpoint>);
-
-    fn init<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx);
-}
-
-impl __Impl_StaticNodeGroup for StaticNodeGroup {
-
-    fn members<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, out: crate::scheduler::SalvoReply) {
+    fn members(&mut self, out: crate::scheduler::SalvoReply) {
         let mut all_known: Vec<Node> = vec![];
         for mut id in self.known.keys().cloned().collect::<Vec<_>>() {
             let mut n = self.known.get(&id);
@@ -697,15 +692,30 @@ impl __Impl_StaticNodeGroup for StaticNodeGroup {
         crate::scheduler::salvo_reply_wire::<Vec<Node>>(out, all_known);
     }
 
-    fn subscribe<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, w: usize) {
+    fn subscribe(&mut self, w: usize) {
         self.watchers.push(w);
     }
 
-    fn leave<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx) {
+    fn leave(&mut self) {
         crate::scheduler::salvo_leave_group();
     }
+}
 
-    fn hello<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, node: NodeId, at: NodeEndpoint, protocols: Vec<(String, String)>) {
+impl StaticNodeGroup {
+
+    fn init(&mut self) {
+        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:384:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
+        let mut me = self.__dep_Transport.local_endpoint();
+        crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
+        crate::scheduler::salvo_watch_peers((self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __ep, __t| Box::new(__Priv_StaticNodeGroup::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(__Priv_StaticNodeGroup::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(__Priv_StaticNodeGroup::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));
+        for e in &self.all {
+            if !eq(e, &me) {
+                let mut _sent = self.__dep_Transport.deliver(&(e.clone()), crate::scheduler::salvo_hello_frame());
+            }
+        }
+    }
+
+    fn hello(&mut self, node: NodeId, at: NodeEndpoint, protocols: Vec<(String, String)>) {
         if self.known.contains_key(&node) {
             return;
         }
@@ -716,7 +726,7 @@ impl __Impl_StaticNodeGroup for StaticNodeGroup {
         }
     }
 
-    fn gone<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, node: NodeId) {
+    fn gone(&mut self, node: NodeId) {
         let mut n = self.known.remove(&node);
         if n.is_none() {
             return;
@@ -726,19 +736,7 @@ impl __Impl_StaticNodeGroup for StaticNodeGroup {
         }
     }
 
-    fn introduced<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, peers: Vec<NodeEndpoint>) {
-    }
-
-    fn init<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx) {
-        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:384:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
-        let mut me = __Has_Transport::__get_Transport(&mut *__fx).local_endpoint();
-        crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
-        crate::scheduler::salvo_watch_peers((self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __ep, __t| Box::new(__Priv_StaticNodeGroup::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(__Priv_StaticNodeGroup::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(__Priv_StaticNodeGroup::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));
-        for e in &self.all {
-            if !eq(e, &me) {
-                let mut _sent = __Has_Transport::__get_Transport(&mut *__fx).deliver(&(e.clone()), crate::scheduler::salvo_hello_frame());
-            }
-        }
+    fn introduced(&mut self, peers: Vec<NodeEndpoint>) {
     }
 }
 
@@ -757,48 +755,35 @@ pub enum __Priv_StaticNodeGroup {
     Introduced(Vec<NodeEndpoint>),
 }
 
-pub struct __Prov_StaticNodeGroup<__D0> {
-    pub __d0: __D0,
-}
-
-impl<__D0: Transport> __Has_Transport for __Prov_StaticNodeGroup<__D0> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        &mut self.__d0
-    }
-}
-
-pub struct __Actor_StaticNodeGroup<__D0> {
+pub struct __Actor_StaticNodeGroup {
     handler: StaticNodeGroup,
-    prov: __Prov_StaticNodeGroup<__D0>,
 }
 
-impl<__D0> __Actor_StaticNodeGroup<__D0> {
-    pub fn new(handler: StaticNodeGroup, prov: __Prov_StaticNodeGroup<__D0>) -> Self {
-        Self { handler, prov }
+impl __Actor_StaticNodeGroup {
+    pub fn new(handler: StaticNodeGroup) -> Self {
+        Self { handler }
     }
 }
 
-impl<__D0: Transport> __Actor_StaticNodeGroup<__D0> {
+impl __Actor_StaticNodeGroup {
     fn __dispatch_NodeGroup(&mut self, msg: crate::net::__Msg_NodeGroup) {
-        let mut __deps = __Deps_StaticNodeGroup{ __p: &mut self.prov };
         match msg {
-            crate::net::__Msg_NodeGroup::Members(out) => __Impl_StaticNodeGroup::members(&mut self.handler, &mut __deps, out),
-            crate::net::__Msg_NodeGroup::Subscribe(w) => __Impl_StaticNodeGroup::subscribe(&mut self.handler, &mut __deps, w),
-            crate::net::__Msg_NodeGroup::Leave => __Impl_StaticNodeGroup::leave(&mut self.handler, &mut __deps),
+            crate::net::__Msg_NodeGroup::Members(out) => crate::net::NodeGroup::members(&mut self.handler, out),
+            crate::net::__Msg_NodeGroup::Subscribe(w) => crate::net::NodeGroup::subscribe(&mut self.handler, w),
+            crate::net::__Msg_NodeGroup::Leave => crate::net::NodeGroup::leave(&mut self.handler),
         }
     }
     fn __dispatch_priv(&mut self, msg: __Priv_StaticNodeGroup) {
-        let mut __deps = __Deps_StaticNodeGroup{ __p: &mut self.prov };
         match msg {
-            __Priv_StaticNodeGroup::Init => __Impl_StaticNodeGroup::init(&mut self.handler, &mut __deps),
-            __Priv_StaticNodeGroup::Hello(node, at, protocols) => __Impl_StaticNodeGroup::hello(&mut self.handler, &mut __deps, node, at, protocols),
-            __Priv_StaticNodeGroup::Gone(node) => __Impl_StaticNodeGroup::gone(&mut self.handler, &mut __deps, node),
-            __Priv_StaticNodeGroup::Introduced(peers) => __Impl_StaticNodeGroup::introduced(&mut self.handler, &mut __deps, peers),
+            __Priv_StaticNodeGroup::Init => self.handler.init(),
+            __Priv_StaticNodeGroup::Hello(node, at, protocols) => self.handler.hello(node, at, protocols),
+            __Priv_StaticNodeGroup::Gone(node) => self.handler.gone(node),
+            __Priv_StaticNodeGroup::Introduced(peers) => self.handler.introduced(peers),
         }
     }
 }
 
-impl<__D0: Transport + Send + 'static> crate::scheduler::SalvoActor for __Actor_StaticNodeGroup<__D0> {
+impl crate::scheduler::SalvoActor for __Actor_StaticNodeGroup {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = match msg.downcast::<crate::net::__Msg_NodeGroup>() {
@@ -853,19 +838,21 @@ pub struct GossipNodeGroup {
     known: SalvoMap<NodeId, Node>,
     dialed: SalvoSet<String>,
     watchers: Vec<usize>,
+    __dep_Transport: crate::net::__Handle_Transport,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_GossipNodeGroup>,
 }
 
 impl GossipNodeGroup {
-    pub fn new(name: String, seeds: Vec<NodeEndpoint>) -> Self {
+    pub fn new(name: String, seeds: Vec<NodeEndpoint>, __dep_Transport: crate::net::__Handle_Transport) -> Self {
         Self {
             name,
             seeds,
             known: SalvoMap::from_entries::<__Hash_hash__NodeId_NodeId, __Eq_eq__NodeId_NodeId, _>(vec![]),
             dialed: SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]),
             watchers: vec![],
+            __dep_Transport,
             __mailbox_capacity: 64,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -873,36 +860,9 @@ impl GossipNodeGroup {
     }
 }
 
-pub struct __Deps_GossipNodeGroup<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl NodeGroup for GossipNodeGroup {
 
-impl<'a, __P: __Has_Transport + ?Sized> __Has_Transport for __Deps_GossipNodeGroup<'a, __P> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        __Has_Transport::__get_Transport(&mut *self.__p)
-    }
-}
-
-pub trait __Impl_GossipNodeGroup {
-
-    fn members<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, out: crate::scheduler::SalvoReply);
-
-    fn subscribe<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, w: usize);
-
-    fn leave<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx);
-
-    fn hello<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, node: NodeId, at: NodeEndpoint, protocols: Vec<(String, String)>);
-
-    fn gone<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, node: NodeId);
-
-    fn introduced<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, peers: Vec<NodeEndpoint>);
-
-    fn init<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx);
-}
-
-impl __Impl_GossipNodeGroup for GossipNodeGroup {
-
-    fn members<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, out: crate::scheduler::SalvoReply) {
+    fn members(&mut self, out: crate::scheduler::SalvoReply) {
         let mut all_known: Vec<Node> = vec![];
         for mut id in self.known.keys().cloned().collect::<Vec<_>>() {
             let mut n = self.known.get(&id);
@@ -913,15 +873,28 @@ impl __Impl_GossipNodeGroup for GossipNodeGroup {
         crate::scheduler::salvo_reply_wire::<Vec<Node>>(out, all_known);
     }
 
-    fn subscribe<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, w: usize) {
+    fn subscribe(&mut self, w: usize) {
         self.watchers.push(w);
     }
 
-    fn leave<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx) {
+    fn leave(&mut self) {
         crate::scheduler::salvo_leave_group();
     }
+}
 
-    fn hello<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, node: NodeId, at: NodeEndpoint, protocols: Vec<(String, String)>) {
+impl GossipNodeGroup {
+
+    fn init(&mut self) {
+        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:458:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
+        let mut me = self.__dep_Transport.local_endpoint();
+        crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
+        crate::scheduler::salvo_watch_peers((self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __ep, __t| Box::new(__Priv_GossipNodeGroup::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(__Priv_GossipNodeGroup::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(__Priv_GossipNodeGroup::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));
+        for e in &self.seeds {
+            dial(&mut self.__dep_Transport, &mut self.dialed, e.clone());
+        }
+    }
+
+    fn hello(&mut self, node: NodeId, at: NodeEndpoint, protocols: Vec<(String, String)>) {
         if self.known.contains_key(&node) {
             return;
         }
@@ -942,7 +915,7 @@ impl __Impl_GossipNodeGroup for GossipNodeGroup {
         }
     }
 
-    fn gone<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, node: NodeId) {
+    fn gone(&mut self, node: NodeId) {
         let mut n = self.known.remove(&node);
         if n.is_none() {
             return;
@@ -952,19 +925,9 @@ impl __Impl_GossipNodeGroup for GossipNodeGroup {
         }
     }
 
-    fn introduced<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx, peers: Vec<NodeEndpoint>) {
+    fn introduced(&mut self, peers: Vec<NodeEndpoint>) {
         for e in &peers {
-            dial(&mut *__fx, &mut self.dialed, e.clone());
-        }
-    }
-
-    fn init<__Fx: __Has_Transport>(&mut self, __fx: &mut __Fx) {
-        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:458:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
-        let mut me = __Has_Transport::__get_Transport(&mut *__fx).local_endpoint();
-        crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
-        crate::scheduler::salvo_watch_peers((self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __ep, __t| Box::new(__Priv_GossipNodeGroup::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(__Priv_GossipNodeGroup::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(__Priv_GossipNodeGroup::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));
-        for e in &self.seeds {
-            dial(&mut *__fx, &mut self.dialed, e.clone());
+            dial(&mut self.__dep_Transport, &mut self.dialed, e.clone());
         }
     }
 }
@@ -984,48 +947,35 @@ pub enum __Priv_GossipNodeGroup {
     Introduced(Vec<NodeEndpoint>),
 }
 
-pub struct __Prov_GossipNodeGroup<__D0> {
-    pub __d0: __D0,
-}
-
-impl<__D0: Transport> __Has_Transport for __Prov_GossipNodeGroup<__D0> {
-    fn __get_Transport(&mut self) -> &mut dyn Transport {
-        &mut self.__d0
-    }
-}
-
-pub struct __Actor_GossipNodeGroup<__D0> {
+pub struct __Actor_GossipNodeGroup {
     handler: GossipNodeGroup,
-    prov: __Prov_GossipNodeGroup<__D0>,
 }
 
-impl<__D0> __Actor_GossipNodeGroup<__D0> {
-    pub fn new(handler: GossipNodeGroup, prov: __Prov_GossipNodeGroup<__D0>) -> Self {
-        Self { handler, prov }
+impl __Actor_GossipNodeGroup {
+    pub fn new(handler: GossipNodeGroup) -> Self {
+        Self { handler }
     }
 }
 
-impl<__D0: Transport> __Actor_GossipNodeGroup<__D0> {
+impl __Actor_GossipNodeGroup {
     fn __dispatch_NodeGroup(&mut self, msg: crate::net::__Msg_NodeGroup) {
-        let mut __deps = __Deps_GossipNodeGroup{ __p: &mut self.prov };
         match msg {
-            crate::net::__Msg_NodeGroup::Members(out) => __Impl_GossipNodeGroup::members(&mut self.handler, &mut __deps, out),
-            crate::net::__Msg_NodeGroup::Subscribe(w) => __Impl_GossipNodeGroup::subscribe(&mut self.handler, &mut __deps, w),
-            crate::net::__Msg_NodeGroup::Leave => __Impl_GossipNodeGroup::leave(&mut self.handler, &mut __deps),
+            crate::net::__Msg_NodeGroup::Members(out) => crate::net::NodeGroup::members(&mut self.handler, out),
+            crate::net::__Msg_NodeGroup::Subscribe(w) => crate::net::NodeGroup::subscribe(&mut self.handler, w),
+            crate::net::__Msg_NodeGroup::Leave => crate::net::NodeGroup::leave(&mut self.handler),
         }
     }
     fn __dispatch_priv(&mut self, msg: __Priv_GossipNodeGroup) {
-        let mut __deps = __Deps_GossipNodeGroup{ __p: &mut self.prov };
         match msg {
-            __Priv_GossipNodeGroup::Init => __Impl_GossipNodeGroup::init(&mut self.handler, &mut __deps),
-            __Priv_GossipNodeGroup::Hello(node, at, protocols) => __Impl_GossipNodeGroup::hello(&mut self.handler, &mut __deps, node, at, protocols),
-            __Priv_GossipNodeGroup::Gone(node) => __Impl_GossipNodeGroup::gone(&mut self.handler, &mut __deps, node),
-            __Priv_GossipNodeGroup::Introduced(peers) => __Impl_GossipNodeGroup::introduced(&mut self.handler, &mut __deps, peers),
+            __Priv_GossipNodeGroup::Init => self.handler.init(),
+            __Priv_GossipNodeGroup::Hello(node, at, protocols) => self.handler.hello(node, at, protocols),
+            __Priv_GossipNodeGroup::Gone(node) => self.handler.gone(node),
+            __Priv_GossipNodeGroup::Introduced(peers) => self.handler.introduced(peers),
         }
     }
 }
 
-impl<__D0: Transport + Send + 'static> crate::scheduler::SalvoActor for __Actor_GossipNodeGroup<__D0> {
+impl crate::scheduler::SalvoActor for __Actor_GossipNodeGroup {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = match msg.downcast::<crate::net::__Msg_NodeGroup>() {
@@ -1074,12 +1024,12 @@ fn __decode_msg_GossipNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::sc
     None
 }
 
-pub fn dial<__Fx: __Has_Transport>(__fx: &mut __Fx, dialed: &mut SalvoSet<String>, e: NodeEndpoint) {
-    if eq(&e, &(__Has_Transport::__get_Transport(&mut *__fx).local_endpoint())) || dialed.contains(&to_str__2(&e)) {
+pub fn dial(transport: &mut crate::net::__Handle_Transport, dialed: &mut SalvoSet<String>, e: NodeEndpoint) {
+    if eq(&e, &(transport.local_endpoint())) || dialed.contains(&to_str__2(&e)) {
         return;
     }
     dialed.insert(to_str__2(&e));
-    let mut _sent = __Has_Transport::__get_Transport(&mut *__fx).deliver(&e, crate::scheduler::salvo_hello_frame());
+    let mut _sent = transport.deliver(&e, crate::scheduler::salvo_hello_frame());
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1108,10 +1058,6 @@ pub trait ActorGroup {
     fn subscribe(&mut self, w: usize);
 }
 
-pub trait __Has_ActorGroup {
-    fn __get_ActorGroup(&mut self) -> &mut dyn ActorGroup;
-}
-
 pub struct __Stub_ActorGroup {
     addr: usize,
 }
@@ -1134,6 +1080,40 @@ impl ActorGroup for __Stub_ActorGroup {
     }
     fn subscribe(&mut self, w: usize) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Subscribe(w), crate::net::__PROTO_ActorGroup);
+    }
+}
+
+pub struct __Handle_ActorGroup {
+    inner: std::sync::Arc<std::sync::Mutex<dyn ActorGroup + Send>>,
+}
+
+impl Clone for __Handle_ActorGroup {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_ActorGroup {
+    pub fn new<__H: ActorGroup + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn ActorGroup + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl ActorGroup for __Handle_ActorGroup {
+    fn join(&mut self, member: usize) {
+        self.inner.lock().unwrap().join(member)
+    }
+    fn leave(&mut self, member: usize) {
+        self.inner.lock().unwrap().leave(member)
+    }
+    fn members(&mut self, out: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().members(out)
+    }
+    fn subscribe(&mut self, w: usize) {
+        self.inner.lock().unwrap().subscribe(w)
     }
 }
 
@@ -1184,10 +1164,6 @@ pub trait ActorChanges {
     fn left(&mut self, member: usize);
 }
 
-pub trait __Has_ActorChanges {
-    fn __get_ActorChanges(&mut self) -> &mut dyn ActorChanges;
-}
-
 pub struct __Stub_ActorChanges {
     addr: usize,
 }
@@ -1204,6 +1180,34 @@ impl ActorChanges for __Stub_ActorChanges {
     }
     fn left(&mut self, member: usize) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorChanges::Left(member), crate::net::__PROTO_ActorChanges);
+    }
+}
+
+pub struct __Handle_ActorChanges {
+    inner: std::sync::Arc<std::sync::Mutex<dyn ActorChanges + Send>>,
+}
+
+impl Clone for __Handle_ActorChanges {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_ActorChanges {
+    pub fn new<__H: ActorChanges + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn ActorChanges + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl ActorChanges for __Handle_ActorChanges {
+    fn joined(&mut self, member: usize) {
+        self.inner.lock().unwrap().joined(member)
+    }
+    fn left(&mut self, member: usize) {
+        self.inner.lock().unwrap().left(member)
     }
 }
 
@@ -1576,92 +1580,53 @@ pub trait Pick {
     fn choose(&mut self, view: ActorGroupView) -> Option<usize>;
 }
 
-pub trait __Has_Pick {
-    fn __get_Pick(&mut self) -> &mut dyn Pick;
+pub struct __Handle_Pick {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Pick + Send>>,
 }
 
-pub trait __Share_Pick: Pick + Send {
-    fn __clone_box(&self) -> Box<dyn __Share_Pick>;
-}
-
-impl<__H: Pick + Clone + Send + 'static> __Share_Pick for __H {
-    fn __clone_box(&self) -> Box<dyn __Share_Pick> {
-        Box::new(self.clone())
-    }
-}
-
-pub struct __Mon_Pick {
-    inner: Box<dyn __Share_Pick>,
-}
-
-impl Clone for __Mon_Pick {
-    fn clone(&self) -> Self {
-        Self { inner: self.inner.__clone_box() }
-    }
-}
-
-impl __Mon_Pick {
-    pub fn new(inner: Box<dyn __Share_Pick>) -> Self {
-        Self { inner }
-    }
-}
-
-impl Pick for __Mon_Pick {
-    fn choose(&mut self, view: ActorGroupView) -> Option<usize> {
-        self.inner.choose(view)
-    }
-}
-
-pub struct __Lock_Pick<H> {
-    inner: std::sync::Arc<std::sync::Mutex<H>>,
-}
-
-impl<H> Clone for __Lock_Pick<H> {
+impl Clone for __Handle_Pick {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H> __Lock_Pick<H> {
-    pub fn new(inner: H) -> Self {
+impl __Handle_Pick {
+    pub fn new<__H: Pick + Send + 'static>(inner: __H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Pick + Send>>) -> Self {
+        Self { inner }
     }
 }
 
-impl<H: Pick + Send> Pick for __Lock_Pick<H> {
+impl Pick for __Handle_Pick {
     fn choose(&mut self, view: ActorGroupView) -> Option<usize> {
         self.inner.lock().unwrap().choose(view)
     }
 }
 
-impl __Has_Pick for __Mon_Pick {
-    fn __get_Pick(&mut self) -> &mut dyn Pick {
-        self
-    }
+pub fn route_to(pick: &mut crate::net::__Handle_Pick, group: &usize) -> usize {
+    return route_keyed(pick, group, &(None));
 }
 
-pub fn route_to<__Fx: __Has_Pick>(__fx: &mut __Fx, group: &usize) -> usize {
-    return route_keyed(&mut *__fx, group, &(None));
+pub fn route_to__2(pick: &mut crate::net::__Handle_Pick, group: &usize, key: i64) -> usize {
+    return route_keyed(pick, group, &(Some(key)));
 }
 
-pub fn route_to__2<__Fx: __Has_Pick>(__fx: &mut __Fx, group: &usize, key: i64) -> usize {
-    return route_keyed(&mut *__fx, group, &(Some(key)));
-}
-
-pub fn route_keyed<__Fx: __Has_Pick>(__fx: &mut __Fx, group: &usize, key: &Option<i64>) -> usize {
+pub fn route_keyed(pick: &mut crate::net::__Handle_Pick, group: &usize, key: &Option<i64>) -> usize {
     loop {
         let mut members = crate::scheduler::salvo_view_members((group.clone()).clone());
         let mut actors: Vec<ActorView> = vec![];
         for m in &members {
             actors.push(ActorView { addr: m.clone(), pending: crate::scheduler::salvo_pending((m.clone()).clone()), local: eq__2(&(NodeId { id: crate::scheduler::salvo_addr_identity((m.clone()).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })) });
         }
-        let mut picked = __Has_Pick::__get_Pick(&mut *__fx).choose(ActorGroupView { actors: actors.clone(), key: key.clone() });
+        let mut picked = pick.choose(ActorGroupView { actors: actors.clone(), key: key.clone() });
         if !(picked.is_none()) {
             return picked.as_ref().unwrap().clone();
         }
         crate::scheduler::salvo_park_briefly();
     }
-    return route_keyed(&mut *__fx, group, key);
+    return route_keyed(pick, group, key);
 }
 
 #[derive(Clone)]
@@ -1737,67 +1702,28 @@ pub trait Leader {
     fn leader(&mut self) -> Option<NodeId>;
 }
 
-pub trait __Has_Leader {
-    fn __get_Leader(&mut self) -> &mut dyn Leader;
+pub struct __Handle_Leader {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Leader + Send>>,
 }
 
-pub trait __Share_Leader: Leader + Send {
-    fn __clone_box(&self) -> Box<dyn __Share_Leader>;
-}
-
-impl<__H: Leader + Clone + Send + 'static> __Share_Leader for __H {
-    fn __clone_box(&self) -> Box<dyn __Share_Leader> {
-        Box::new(self.clone())
-    }
-}
-
-pub struct __Mon_Leader {
-    inner: Box<dyn __Share_Leader>,
-}
-
-impl Clone for __Mon_Leader {
-    fn clone(&self) -> Self {
-        Self { inner: self.inner.__clone_box() }
-    }
-}
-
-impl __Mon_Leader {
-    pub fn new(inner: Box<dyn __Share_Leader>) -> Self {
-        Self { inner }
-    }
-}
-
-impl Leader for __Mon_Leader {
-    fn leader(&mut self) -> Option<NodeId> {
-        self.inner.leader()
-    }
-}
-
-pub struct __Lock_Leader<H> {
-    inner: std::sync::Arc<std::sync::Mutex<H>>,
-}
-
-impl<H> Clone for __Lock_Leader<H> {
+impl Clone for __Handle_Leader {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H> __Lock_Leader<H> {
-    pub fn new(inner: H) -> Self {
+impl __Handle_Leader {
+    pub fn new<__H: Leader + Send + 'static>(inner: __H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
     }
-}
-
-impl<H: Leader + Send> Leader for __Lock_Leader<H> {
-    fn leader(&mut self) -> Option<NodeId> {
-        self.inner.lock().unwrap().leader()
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Leader + Send>>) -> Self {
+        Self { inner }
     }
 }
 
-impl __Has_Leader for __Mon_Leader {
-    fn __get_Leader(&mut self) -> &mut dyn Leader {
-        self
+impl Leader for __Handle_Leader {
+    fn leader(&mut self) -> Option<NodeId> {
+        self.inner.lock().unwrap().leader()
     }
 }
 
@@ -1823,11 +1749,11 @@ impl Leader for StaticLeader {
 
 #[derive(Clone)]
 pub struct Elected {
-    __dep_Leader: crate::net::__Mon_Leader,
+    __dep_Leader: crate::net::__Handle_Leader,
 }
 
 impl Elected {
-    pub fn new(__dep_Leader: crate::net::__Mon_Leader) -> Self {
+    pub fn new(__dep_Leader: crate::net::__Handle_Leader) -> Self {
         Self {
             __dep_Leader,
         }
@@ -1837,7 +1763,7 @@ impl Elected {
 impl Pick for Elected {
 
     fn choose(&mut self, view: ActorGroupView) -> Option<usize> {
-        let mut l = { let __pick2 = __Has_Leader::__get_Leader(&mut self.__dep_Leader).leader(); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { return None } };
+        let mut l = { let __pick2 = self.__dep_Leader.leader(); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { return None } };
         for a in &view.actors {
             if eq__2(&(NodeId { id: crate::scheduler::salvo_addr_identity((a.addr.clone()).clone()).node as i64 }), &l) {
                 return Some(a.addr.clone());
@@ -1845,16 +1771,6 @@ impl Pick for Elected {
         }
         return None;
     }
-}
-
-// [threadsafe-platform] [rs-platform-handler] The `&self` twin of `Transport`
-// that the threadsafe host `HostTcpTransport` implements: the host synchronizes
-// internally, and rustc checks that what it holds is `Sync`.
-pub trait __Shared_HostTcpTransport: Send + Sync {
-    fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn unlisten(&self, at: &NodeEndpoint);
-    fn deliver(&self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn local_endpoint(&self) -> NodeEndpoint;
 }
 
 pub trait MemNet {
@@ -1865,10 +1781,6 @@ pub trait MemNet {
     fn heal(&mut self, a: NodeEndpoint, b: NodeEndpoint);
     fn kill(&mut self, node: NodeEndpoint);
     fn delivered(&mut self, out: crate::scheduler::SalvoReply);
-}
-
-pub trait __Has_MemNet {
-    fn __get_MemNet(&mut self) -> &mut dyn MemNet;
 }
 
 pub struct __Stub_MemNet {
@@ -1902,6 +1814,49 @@ impl MemNet for __Stub_MemNet {
     }
     fn delivered(&mut self, out: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Delivered(out), crate::net::__PROTO_MemNet);
+    }
+}
+
+pub struct __Handle_MemNet {
+    inner: std::sync::Arc<std::sync::Mutex<dyn MemNet + Send>>,
+}
+
+impl Clone for __Handle_MemNet {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_MemNet {
+    pub fn new<__H: MemNet + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn MemNet + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl MemNet for __Handle_MemNet {
+    fn attach(&mut self, at: NodeEndpoint, sink: usize) {
+        self.inner.lock().unwrap().attach(at, sink)
+    }
+    fn detach(&mut self, at: NodeEndpoint) {
+        self.inner.lock().unwrap().detach(at)
+    }
+    fn route(&mut self, from: NodeEndpoint, to: NodeEndpoint, out: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().route(from, to, out)
+    }
+    fn partition(&mut self, a: NodeEndpoint, b: NodeEndpoint) {
+        self.inner.lock().unwrap().partition(a, b)
+    }
+    fn heal(&mut self, a: NodeEndpoint, b: NodeEndpoint) {
+        self.inner.lock().unwrap().heal(a, b)
+    }
+    fn kill(&mut self, node: NodeEndpoint) {
+        self.inner.lock().unwrap().kill(node)
+    }
+    fn delivered(&mut self, out: crate::scheduler::SalvoReply) {
+        self.inner.lock().unwrap().delivered(out)
     }
 }
 
@@ -2199,10 +2154,6 @@ pub fn hash__3(value: &Node) -> i64 {
 
 pub fn eq__3(a: &Node, b: &Node) -> bool {
     (a == b)
-}
-
-pub struct __Hs_transport {
-    pub transport: crate::net::__Mon_Transport,
 }
 
 pub struct __Hash_hash__NodeId_NodeId;
