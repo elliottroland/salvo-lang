@@ -1080,7 +1080,7 @@ export handler MemNetwork() of MemNet {
 
 // One virtual node's transport over a shared [MemNet]. Stateless — the
 // network holds everything — so a `use` binds it bare and shareable, and it
-// crosses into any actor that needs the wire [use-local].
+// crosses into any actor that needs the wire [effect-handle].
 //
 // `deliver` waits on the network for the route: a `waitfor` on the caller's
 // thread, which serves the caller's pool meanwhile [waitfor-pump], so a node

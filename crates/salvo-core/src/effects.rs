@@ -15,13 +15,13 @@
 
 use salvo_syntax::ast::{EffectDecl, EffectRef, FnDecl, HandlerDecl};
 
-/// [use-local] [effect-handler-deps] Whether a handler's dependency form is
-/// **owned handles** (user decision 2026-09-20): a plain-face, non-mixed,
-/// dep-bearing handler whose declared effects are all the shareable default
-/// (`[E]` — no `local E`, no `use`, no `spawn`). Such a handler captures its
-/// dependencies as handles at construction, its members reach them through
-/// fields, and it may be bound shareable; every other dep-bearing handler
-/// keeps the fusion form and binds `use local` only.
+/// [effect-handler-deps] Whether a handler's dependency form is **owned
+/// handles**: a plain-face, non-mixed, dep-bearing handler whose declared
+/// effects are plain non-generic effects (no `use`, no `spawn`). Such a
+/// handler captures its dependencies as handles at construction and its
+/// members reach them through fields; every other dep-bearing handler keeps
+/// the fusion form. Transitional (ROADMAP §2b): every dependency becomes a
+/// handle in steps ②/③ and this predicate goes.
 ///
 /// Shared by the checker and both emitters so the struct shape and the
 /// classification cannot disagree; `is_actor_effect` answers for a face name
@@ -33,7 +33,7 @@ pub fn handler_handle_deps(h: &HandlerDecl, is_actor_effect: impl Fn(&str) -> bo
             // An actor-effect dependency has no owned-handle form (an addr
             // travels as a constructor parameter instead), and a generic
             // effect instance has no `__Mon_E` — either pins the fusion
-            // form like a `local` dep does. [effect-generic-decl] Except an
+            // form. [effect-generic-decl] Except an
             // instance whose every argument is an effect (`Pick<Ping>`): that
             // erases to the monomorphic `__Mon_Pick`, so the handle exists.
             EffectRef::Effect(r) | EffectRef::AnyEffect(r) => {
@@ -42,7 +42,7 @@ pub fn handler_handle_deps(h: &HandlerDecl, is_actor_effect: impl Fn(&str) -> bo
                 }
                 has_deps = true;
             }
-            EffectRef::LocalEffect(_) | EffectRef::Use(_) | EffectRef::Spawn(_) => return false,
+            EffectRef::Use(_) | EffectRef::Spawn(_) => return false,
         }
     }
     if !has_deps || h.fns.iter().any(|f| f.is_send) || h.of.is_empty() {

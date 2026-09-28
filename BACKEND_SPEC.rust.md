@@ -2104,7 +2104,7 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     "Arc-where-sent" growth point) — and a monitor spawn is
     `__Mon_E::new(Box::new(__Lock_E::new(H::new(args))))` — no scheduler, no
     mailbox, no pool. A bare `use` of a stateful handler emits the same lock
-    wrap at the binding ([use-local]); the whole apparatus is **generic
+    wrap at the binding ([effect-handle]); the whole apparatus is **generic
     exactly as the effect is** (`__Share_Random<T: 'static>`,
     `__Mon_Random<T: 'static>`, `impl<T: 'static, H: Random<T> + Send>
     Random<T> for __Lock_Random<H>`), and construction sites name a generic
@@ -2143,8 +2143,7 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     trait skips them ([rs-effects] refuses dyn-dispatching them).
   * **Rust's `Mutex` is not reentrant, and that is unobservable**: a
     shareable handler's bindings are fixed at construction and its deps bind
-    strictly outward/earlier ([use-local]'s blockers keep `use`/`spawn` and
-    `local` deps off the form), so no path routes back into the wrapper;
+    strictly outward/earlier, so no path routes back into the wrapper;
     sibling calls inside the handler are direct self calls under the one
     acquisition. A poisoned lock (`unwrap`) surfaces as a
     panic only after another member already panicked, which is the fault

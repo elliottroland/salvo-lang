@@ -528,7 +528,7 @@ fn respan_type(ty: &mut Type, spans: &mut Spans) {
             for eff in effects.iter_mut().flatten() {
                 match eff {
                     EffectRef::Use(s) | EffectRef::Spawn(s) => *s = spans.take(),
-                    EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) => {
+                    EffectRef::Effect(r) | EffectRef::AnyEffect(r) => {
                         respan_ref(r, spans)
                     }
                 }

@@ -3277,10 +3277,10 @@ Conventions:
   * Emission is **one of two forms**, decided per handler declaration by the
     shared predicate `handler_handle_deps` (`salvo-core`, used verbatim by
     the checker and both emitters so the shapes cannot disagree):
-    * **Owned handles** (user decision 2026-09-20, [use-local]): a
+    * **Owned handles** (user decision 2026-09-20, [effect-handle]): a
       plain-face, non-mixed, dep-bearing handler whose declared effects are
-      all the shareable default (`[E]` — no `local E`, no `use`, no
-      `spawn`, no actor-effect dep, no generic-effect-instance dep)
+      plain (no `use`, no `spawn`, no actor-effect dep, no
+      generic-effect-instance dep)
       captures its dependencies as handles **at construction** — fields and
       trailing constructor arguments, one per dep in declaration order
       (`Checked::handle_captures` records the resolved instances per
@@ -3291,12 +3291,10 @@ Conventions:
       no generated trait names the handler's generics — the cut that still
       stands for the fusion form).
       * The handle is minted off a **binding in the same function**
-        ([use-local]'s eager handle) **or threaded in by the caller** when
+        (the eager handle) **or threaded in by the caller** when
         the effect arrives through the enclosing *signature*
         ([spawn-inherit]'s lift, 2026-09-20: a recorded handle requirement,
-        propagated up the call graph, lowered as [rs-handle-bundle]). A
-        `use local` dep binding is still refused — a local binding cannot
-        yield an owned handle.
+        propagated up the call graph, lowered as [rs-handle-bundle]).
     * **Fusion** ([rs-effect-fusion], [kt-effect-fusion]) for every other
       dep-bearing handler — which therefore binds `use local` only. Since
       2026-09-14 in the **Has-accessor** shape on both backends (user
@@ -3343,8 +3341,8 @@ Conventions:
     own** (a clause item has no scope to resolve them from — register it
     before this one instead); a `with` on a `use` of an **existing handle**
     (its dependencies were settled where it was built); and a `with` on a
-    handler whose dependencies take the **fusion** form ([use-local]'s
-    `local`/actor/generic-instance deps), which threads per call from the
+    handler whose dependencies take the **fusion** form (actor-effect or
+    generic-instance deps, transitionally), which threads per call from the
     scope's fused value and has no slot for a private instance — both
     remaining cuts are recorded in ROADMAP.
   * `with` is a keyword already — the qualifier-compatibility clause spells
@@ -3356,15 +3354,15 @@ Conventions:
   round was built for). A declared dependency the `with` clause does not
   cover is resolved from the scope's availabilities and captured as an owned
   handle that travels with the child — which is sound *modularly*, with no
-  whole-program analysis and no runtime check, exactly because a bare `[E]`
-  now guarantees shareability [effect-local]. The old rule ("dependencies
-  come from the clause, never from the spawning scope") is gone; the clause
-  is for overriding [with-clause].
-  * **Only a shareable availability can be inherited**: a `use local`
-    binding exists precisely so that it does not cross a seam, and the
-    refusal names the remedy — bind it shareable, or supply the child its
-    own with `with`. For an **actor** effect the local binding is an inline
-    `use H()`, so the remedy is instead "spawn it and bind the addr".
+  whole-program analysis and no runtime check, exactly because every binding
+  is a handle [effect-handle]. The old rule ("dependencies come from the
+  clause, never from the spawning scope") is gone; the clause is for
+  overriding [with-clause].
+  * Transitional (ROADMAP §2b): a binding the emitters still bind *inline*
+    (an actor-face handler's `use H()`, a handler with an actor-effect or
+    generic-instance dep) has no handle yet, and the refusal names the
+    remedy — for an actor effect, "spawn it and bind the addr"; otherwise
+    supply the child its own with `with`.
   * **Ambiguity is an error, not a guess**: two instances in scope that
     could both satisfy the dependency (a generic effect with an unpinned
     instantiation) is reported, naming `with` as how the program says which.
@@ -3389,53 +3387,52 @@ Conventions:
   * Two shapes cannot answer and are errors: a **platform effect** (the host
     owns that instance and hands it to `main` as a borrow — there is nothing
     to mint; the remedy is a Salvo handler over it, the `DefaultFs [RawFs]`
-    shape, or a `local` dependency — that surface gets its own design round,
-    ROADMAP), and a **lambda** body (a fn value's effects are call-only, so
+    shape), and a **lambda** body (a fn value's effects are call-only, so
     no caller could supply a handle).
   * **The deadlock graph is unchanged**: it prices a handler's dependencies
     from its *declaration*, so an inherited dependency carries exactly the
     edges a written one did [actor-deadlock-cycle].
-* [effect-local] **`local E` in an effect list accepts a scope-local
-  binding of `E` and disclaims seam rights** (user decision 2026-09-20);
-  the bare `[E]` default now means *shareable `E`* — the fn may pass it
-  across seams. Contextual: `local` followed by an effect name; an effect
-  *called* `local` (unwise) still parses.
-  * **The call-site rule**: a `use local` binding satisfies only
-    `[local E]` requirements — a bare requirement over it is an error
-    naming both remedies (bind `E` shareable, or declare `[local E]` if
-    the fn only calls it). A shareable binding satisfies both forms,
-    `local` being the weaker claim.
-  * The annotation is **viral down call chains** that traffic in local
-    bindings — an accepted cost, to be lifted later by inference (the
-    deduction pattern: written validates, unwritten infers). std's own
-    effect-forwarding fns (`println`, the whole `[Fs]` surface, `elapsed`)
-    declare `[local E]`: a pure forwarder makes the weakest demand.
-  * **A fn type's effects are always call-only** — a function value cannot
-    spawn, so its requirement grants no seam rights either way. Writing
-    `local` on a fn type is refused as redundant, and the availabilities a
-    fn value's declared effects grant its body are local — so a fn called
-    from inside a *lambda* declares `[local E]`. A fn-typed parameter's
-    inherited effects [fn-effects] enter the enclosing fn's environment as
-    local for the same reason.
-  * On a **handler's** list, `local E` declares a dependency that accepts a
-    scope-local binding — which cannot be captured into a shared instance,
-    so it pins the handler itself to `use local` ([use-local]) and keeps
-    the handler on the fusion emission ([effect-handler-deps]).
-* [effect-any] **`any E` weakens identity, as `local E` weakens seam
-  rights** (user decision 2026-09-26, the network round). Bare `[E]` keeps
+* [effect-handle] **Every binding of an effect is a handle** (user decision
+  2026-09-28, *one shape*): a `use` makes one value — the handle of the
+  instance — and everything downstream is that value or a copy of it: a
+  fn's `[E]` parameter, a dependent handler's captured dependency
+  ([effect-handler-deps]), a spawn's or task's inherited effect
+  ([spawn-inherit], [task-effects]), a fn value's effect. A stateless
+  handler's handle costs a copy; a stateful one's is a **monitor**
+  ([monitor-handler]), so two spawns capturing one stateful binding share
+  its state — accepted as a consequence of the shape. A `use` of an addr or
+  of a spawn expression is already a handle.
+  * **Replaces** the 2026-09-20 shareable-by-default round's two spellings,
+    both deleted from the language: `use local H(args)` (the scope-local,
+    lock-free binding) and `local E` in an effect list (the requirement that
+    accepted one, with its call-site rule and its viral spread down call
+    chains). The record is in COMPLETED.md's log; a lock-free scope-local
+    binding returns as an optimisation, not as syntax (ROADMAP, "Recorded,
+    not scheduled").
+  * A fn *type*'s effects are its parameters like any fn's, so a lambda's
+    availabilities are handles too and a fn called from inside a lambda is
+    written like any other.
+  * **The one refusal a handle brings**: a member that lends a mutable view
+    into the handler's own state ([rs-loc]'s wholesale-lending shape,
+    `fn_type_lends_mut`) has nothing to lend through a handle whose lock is
+    released at the return, and is a checker error at the declaration —
+    answer a copy, or take a closure. No std effect has such a member.
+  * The emitters classify each `use` for their own purposes (`use_kinds`:
+    bare/monitor, and transitionally *inline* for the shapes the handle
+    emission does not cover yet — ROADMAP §2b steps ②/③ delete the third).
+* [effect-any] **`any E` weakens identity** (user decision 2026-09-26, the
+  network round). Bare `[E]` keeps
   the strong meaning every program so far assumed: *one* instance, sends in
   order, state shared between them. `[any E]` says "each send may go to a
   different instance; I assume no order between my sends and no state
   across them" — and accepts every binding, since a single instance is a
-  group of one. Contextual like `local`, and the two never combine: a
-  binding spread over many instances is always shareable, so `local any E`
-  is refused as redundant rather than given a meaning.
+  group of one. Contextual: `any` followed by an effect name.
   * **The binding side**: a handler declares the weaker guarantee in its
     `of` clause, per face — `handler RoundRobin(members) of any Resizer` —
     and a `use` of it binds `any Resizer`, which satisfies **only**
     `[any Resizer]`. A router that forwards to many members and omits `any`
     is telling a lie the checker cannot see: the one gap, accepted.
-  * **The call-site rule** mirrors `local`'s: a bare `[E]` requirement
+  * **The call-site rule**: a bare `[E]` requirement
     against an `any` binding is an error naming both remedies (declare
     `[any E]` if any member may take each send, or bind one instance); a
     strong binding satisfies both forms. **Viral downward**: a body holding
@@ -3447,8 +3444,8 @@ Conventions:
     give an actor effect the lock adapter exactly when a router of it
     exists. It is also a servant node of its own in the deadlock graph, so
     its forwards do not read as `E → E`.
-  * **A fn type carries no strength** (it cannot say `any`, as it cannot say
-    `local`): an inherited requirement [fn-effects] is the strong one unless
+  * **A fn type carries no strength** (it cannot say `any`): an inherited
+    requirement [fn-effects] is the strong one unless
     the function taking the value writes `[any E]` itself, which weakens it
     — the written entry wins the dedupe. Recorded gaps: an `Addr<E>`
     answered by *spawning* a router binds as an ordinary `E` under `use
@@ -3469,51 +3466,6 @@ Conventions:
     overload set, so nothing else was reporting this: a parameter demanding a
     claim (`numbers: NE List<Double>`) used to accept a value without it, and
     the disagreement surfaced later or not at all.
-* [use-local] **A bare `use H(args)` binds shareable by default** (user
-  decision 2026-09-20; the motivating goal is spawn-inheritance — a bare
-  `[E]` in a signature has to *guarantee* shareability for a `spawn` to
-  synthesize its dep clause from scope). The checker classifies every
-  handler-construction `use` (recorded in `use_kinds`; the emitters wrap, or
-  don't, off this and never off their own re-derivation):
-  * **Bare** — a stateless handler: shareable without a lock, nothing
-    changes at the binding. On Rust the struct derives `Clone` so a seam
-    can box a clone; a stateless clone is observationally the instance.
-    A **platform handler classifies bare only when it says so** —
-    `threadsafe platform handler` [threadsafe-platform] (user decision
-    2026-09-26, replacing the 2026-09-20 assumption); an undeclared one
-    classifies as a **monitor**. Either way nothing depending on a
-    platform-backed effect ever writes `local` (`DefaultFs [RawFs]` stays
-    annotation-free), since a monitor is shareable too.
-  * **Monitor** — a stateful handler: lock-shaped from birth, effectively
-    `let h = spawn H(args); use h` ([monitor-handler]'s form, minus the
-    words). Intrinsic handlers are the emitters' own structs, so their
-    declared (stateless) shape is trusted.
-  * **Local** — `use local H(args)`: the scope-local, lock-free binding
-    (the pre-2026-09-20 meaning of a bare `use`). *Required*, by an error
-    naming it, for a handler that cannot be shared: unsendable constructor
-    parameters or state [actor-sendable], the `use` capability (bindings
-    would not be fixed at construction), the `spawn` capability, a
-    `local E` dependency (a scope-local binding cannot be captured into a
-    shared instance), an actor-effect or generic-effect-instance dependency
-    (both pin the fusion form, [effect-handler-deps]), or — stateful only —
-    several faces (one lock behind several effect types has no backend
-    representation yet). A `use` of a handler with an **actor-effect face**
-    classifies Local silently: binding one inline is the historical escape
-    hatch, and its shareable handle is the addr a `spawn` answers.
-  * `use local … on POOL` is a parse error — the `on` clause spawns a
-    shared servant, which contradicts `local`. `local` is contextual:
-    `use local H` binds `H` locally, and a *binding named* `local` is still
-    reachable as `use (local)`.
-  * A stateful handler of a **generic effect instance** shares like any
-    other (user decision 2026-09-20: `handler CyclicRandom of Random<Int>`
-    is shareable): the per-effect wrappers are generic exactly as the
-    effect is ([rs-monitor], [kt-monitor]).
-  * Both emitters mint an **eager handle** beside a shareable binding when
-    a later construction in the same file captures the effect
-    ([effect-handler-deps]): the binding value itself moves into the local
-    dispatch machinery, so the handle is minted where the value is whole.
-    A monitor's handle-clone is a lock-handle clone (same instance); a
-    stateless clone is indistinguishable from the instance.
 * [use-requires-use] `use` is only legal in functions declaring the
   special `use` effect (`main() [use]` is the conventional entry point).
 * [use-no-dup] A `use` may **shadow** an earlier registration for the same
@@ -3940,9 +3892,8 @@ Conventions:
   *and* stream operations as members [effect-member-overload]), the `Lines`
   iterator, the `Chunks` iterator, and the one-shots (`read_to_str`, `read_lines`,
   `write_str`, `open_lines`, `read_to_bytes`, `write_bytes_to`, `copy_stream`,
-  `copy_file`). Application code declares `[Fs]` (or `[local Fs]` where a
-  local binding suffices) and nothing else; the std forwarders themselves
-  declare `[local Fs]` — the weakest form [effect-local].
+  `copy_file`). Application code declares `[Fs]` and nothing else, as the std
+  forwarders themselves do.
   * Fallible members return `Ok T | Err Checked<FsError>`: an effect member may
     declare no effects, so there is no `[Throw]` here
     [effect-member-no-effects]. The `Err` arm is linear, so a result that
@@ -4224,10 +4175,9 @@ docs/language/ remains the source of truth for everything that does.
   same `Addr<E>` an actor spawn answers; the handle is freely copyable and
   sendable, `use addr` binds the effect to it, and every member call locks,
   runs the member on the caller's thread, and unlocks. Since 2026-09-20
-  ([use-local]) **a bare `use H(args)` of a stateful plain handler is also a
+  ([effect-handle]) **a `use H(args)` of a stateful plain handler is also a
   sharing site** — the same lock shape, minted at the binding — so the
-  spawn spelling and the bare `use` answer one form and `use local` is the
-  scope-local, lock-free binding.
+  spawn spelling and the `use` answer one form.
   * **The dependency restriction is lifted** (user decision 2026-09-20;
     it was "a monitor-spawned handler declares no dependencies"). A monitor
     may declare dependencies when every one is the shareable default —
@@ -4237,8 +4187,8 @@ docs/language/ remains the source of truth for everything that does.
     this handler, so no lock order can cycle and no path routes back —
     which is what keeps the JVM-reentrant/Rust-non-reentrant parity trap
     closed [backend-never-wrong], *provided the door stays shut*: no `use`,
-    no `spawn`, no `local` deps on a shareable handler (bindings are fixed
-    at construction; each is a named blocker under [use-local]).
+    no `spawn` capability on a shared handler (bindings are fixed at
+    construction).
   * **Waits under the lock are priced, not refused** — option (b), user
     decision 2026-09-20, chosen over a wait-free restriction since the
     deadlock graph already exists: a dep-bearing or waiting shareable plain
@@ -4764,10 +4714,9 @@ docs/language/ remains the source of truth for everything that does.
     compatible one, with an ambiguity refused rather than guessed. Three
     failures, each naming its own remedy: nothing in scope (bind a handler
     before the mint, or declare the effect on the minting function so it is
-    supplied from further out), several candidates, and a **`local`** binding —
-    the one availability whose whole point is that it does not travel
-    [effect-local], so a body that runs after the scope ends has nothing to
-    take from it.
+    supplied from further out), several candidates, and — transitionally,
+    ROADMAP §2b — an **inline** binding the emitters cannot yet hand a body
+    that runs after the scope ends.
   * **Two forms still cannot be declared on a task**, because they are
     capabilities of a *frame* rather than of a body: `[use]` registers handlers
     for the rest of a scope and a scheduled body has no scope anything else can
@@ -7701,10 +7650,10 @@ replaced the working document TESTING.md).
     constructed inside the program, not handed to it. Constructor
     parameters are passed through to the host class
     (`use HostS3("bucket")`).
-  * Under [use-local] a platform handler classifies **shareable** — as a
+  * Under [effect-handle] a platform handler binds as a handle — a
     monitor unless it declares `threadsafe` [threadsafe-platform], bare when
-    it does — so handlers depending on its effect share with no `local E`
-    anywhere, whichever the host declared.
+    it does — so handlers depending on its effect are written the same
+    whichever the host declared.
   * Nothing is emitted for the declaration itself: the effect's
     interface/trait is emitted as any effect's, and the `use` site
     constructs the *host's* class by name — `salvo.platform.<module>.H`
@@ -7735,7 +7684,7 @@ replaced the working document TESTING.md).
   effect` it is a parse error saying why (an effect names members, and has no
   instance to be safe or unsafe).
   * **Undeclared = serialized on both backends.** A platform handler without
-    the word classifies as a **monitor** under [use-local]: Rust wraps the
+    the word classifies as a **monitor** under [effect-handle]: Rust wraps the
     host in the effect's lock adapter, Kotlin in the effect's `synchronized`
     wrapper (`__Mon_E`). A host that did not claim safety therefore behaves
     identically everywhere and pays only the lock — the *safe* default, and

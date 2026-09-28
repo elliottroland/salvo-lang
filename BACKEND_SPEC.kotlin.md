@@ -1209,7 +1209,7 @@ where Rust had to build the fusion to get the same programs running
     path rather than a rule.
   * **A monitor spawn** is `__Mon_E(H(args))` — no scheduler, no mailbox, no
     pool. A bare `use` of a stateful handler wraps the construction the same
-    way at the binding ([use-local]). JVM references make the handle freely
+    way at the binding ([effect-handle]). JVM references make the handle freely
     shareable with no clone machinery (the Rust half carries an `Arc`). The
     wrapper is **generic exactly as the effect is**
     (`class __Mon_Random<T>(private val inner: Random<T>) : Random<T>`,
@@ -1237,8 +1237,7 @@ where Rust had to build the fusion to get the same programs running
   * **`synchronized(inner)`** uses the handler instance's own JVM monitor.
     Its *re-entrancy* (against Rust's non-reentrant `Mutex`) is unobservable
     by construction: a shareable handler's bindings are fixed at
-    construction and its deps bind strictly outward/earlier ([use-local]'s
-    blockers keep `use`/`spawn` and `local` deps off the form), so no path
+    construction and its deps bind strictly outward/earlier, so no path
     routes back [backend-never-wrong]. Members with their own generics are
     forwarded generically, exactly as the interface declares them
     [effect-member-generics] — Kotlin has no dyn-dispatch restriction to

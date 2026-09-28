@@ -218,7 +218,23 @@ rustc E0515 the emitter special-cased becomes a Salvo diagnostic.
 `cargo test` warm and `SALVO_E2E_FRESH=1 cargo nextest run` before each
 commit; regenerate `examples/*/{rust,kotlin}` whenever emission changes):
 
-① **Remove `local`.** Parser: `use local` and `[local E]` become parse
+① ✅ (2026-09-28, commit follows) **Remove `local`.** Landed as planned,
+   with the emitters unchanged: the checker's `UseKind::Local` survives as
+   the *transitional* "inline" classification (the fusion emission, chosen
+   silently for the shapes the handle emission does not cover yet — actor-face
+   handlers, actor-effect/generic-instance deps, `use`/`spawn` capabilities,
+   unsendable state, several stateful faces), `EffectAvail.local` marks
+   inline availabilities (inline `use`, lambda/inherited effects), and the
+   capture refusals stay with transitional wording. Steps ②/③ delete all of
+   it. Deleted for good: the surface, the call-site rule, `[effect-local]`
+   /`[use-local]` (now `[effect-handle]`), the `local`/`any` combination
+   check, the fusion-shape tests (`fusion_shapes`, `handler_dependencies_fuse`,
+   `interception_shapes`, the Kotlin pair, `generic_dependent_handler_is_a_
+   codegen_error`) — replaced by `[rs-handle]`/`[kt-handle]` shape tests in
+   ②/③. Two tests carry transitional assertions to flip in ②:
+   `a_handler_may_depend_on_a_platform_effect` (a platform effect through
+   `main`'s signature, captured by a dependent handler) and
+   `a_spawn_cannot_inherit_an_inline_binding`. Original plan: Parser: `use local` and `[local E]` become parse
    errors naming the removal (no dual acceptance — the language just stops
    having it); `EffectRef::LocalEffect` deleted; `Stmt::Use.local` deleted;
    the `local`/`any` "do not combine" check goes with it; tm-grammar entries

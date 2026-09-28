@@ -103,11 +103,10 @@ handler QuietLogger of Logger {
 // clock for the timestamp and the wrapped logger to hand the line to. The
 // list reads like a fn's, and means the same thing — "this needs these to
 // run" — with the compiler supplying them where the handler is registered.
-// Nothing here says `local`: a plain `use` captures its dependencies as owned
-// handles, and since spawn-inheritance those handles may come from the
-// *enclosing signature* as well as from a binding — which is what lets the
-// wiring live in `interception` below, a function that only receives the
-// effects it wires.
+// A `use` captures its dependencies as handles, and those handles may come
+// from the *enclosing signature* as well as from a binding — which is what
+// lets the wiring live in `interception` below, a function that only
+// receives the effects it wires.
 handler Stamped [Logger, Clock] of Logger {
     fn log(message: Str) -> None => message {
         log("[t=${now()}] ${message}")

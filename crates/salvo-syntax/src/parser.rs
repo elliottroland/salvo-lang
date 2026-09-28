@@ -1930,7 +1930,7 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// [effect-any] `any` before a type name, contextual like `local`: an
+    /// [effect-any] `any` before a type name, contextual: an
     /// effect called `any` (unwise) still parses alone.
     fn eat_any_prefix(&mut self) -> bool {
         if self.at_word("any") && matches!(self.peek_at(1).kind, TokenKind::Ident(_)) {
@@ -2220,36 +2220,18 @@ impl<'s> Parser<'s> {
                         tok.span,
                     );
                 }
-                // [effect-local] `local E` (contextual, user decision
-                // 2026-09-20): the requirement that accepts a scope-local
-                // binding of `E`, disclaiming seam rights. `local` followed
-                // by anything but a type name stays an ordinary effect
-                // name, so an effect called `local` (unwise) still parses
-                // alone.
+                // [effect-any] `any E` (contextual): the requirement that
+                // accepts a binding spread over many instances. `any`
+                // followed by anything but a type name stays an ordinary
+                // effect name, so an effect called `any` (unwise) still
+                // parses alone. (`local E`, the form that accepted a
+                // scope-local binding, was removed 2026-09-28 — every
+                // binding is a handle [effect-handle].)
                 TokenKind::Ident(name)
-                    if (name == "local" || name == "any")
-                        && matches!(self.peek_at(1).kind, TokenKind::Ident(_)) =>
+                    if name == "any" && matches!(self.peek_at(1).kind, TokenKind::Ident(_)) =>
                 {
-                    let word = self.bump();
-                    let is_local = matches!(&word.kind, TokenKind::Ident(n) if n == "local");
-                    // [effect-any] `local any E` would claim no rights at
-                    // all — but a group handle is always shareable, so a
-                    // group never needs `local`, and the pair is refused as
-                    // redundant rather than given a meaning.
-                    if (self.at_word("any") || self.at_word("local"))
-                        && matches!(self.peek_at(1).kind, TokenKind::Ident(_))
-                    {
-                        let other = self.bump();
-                        self.error(
-                            "`local` and `any` do not combine: `local` weakens seam \
-                             rights and `any` weakens identity, and a binding spread \
-                             over many instances is always shareable — write one of \
-                             them",
-                            word.span.to(other.span),
-                        );
-                    }
+                    self.bump();
                     match self.parse_type_ref() {
-                        Some(r) if is_local => effects.push(EffectRef::LocalEffect(r)),
                         Some(r) => effects.push(EffectRef::AnyEffect(r)),
                         None => {
                             self.group_depth -= 1;
@@ -3399,21 +3381,6 @@ impl<'s> Parser<'s> {
             TokenKind::KwRename => self.parse_rename().map(Stmt::Rename),
             TokenKind::KwUse => {
                 let start = self.bump().span;
-                // [use-local] `use local H(args)` — the scope-local opt-out
-                // (user decision 2026-09-20): lock-free, unshareable, the
-                // pre-2026-09-20 default. Contextual: `use local` followed
-                // by nothing an expression can start with would be a plain
-                // parse error either way, and a *binding named* `local` is
-                // still reachable as `use (local)`.
-                let local = if self.at_word("local")
-                    && self.same_line()
-                    && matches!(self.peek_at(1).kind, TokenKind::Ident(_))
-                {
-                    self.bump();
-                    true
-                } else {
-                    false
-                };
                 let handler = self.parse_expr()?;
                 // [with-clause] The dependency clause, on the statement as
                 // on the spawn (user decision 2026-09-20): the instances to
@@ -3431,14 +3398,6 @@ impl<'s> Parser<'s> {
                     let pool = self.parse_expr()?;
                     let span = start.to(pool.span());
                     let spawn_span = handler.span().to(pool.span());
-                    if local {
-                        self.error(
-                            "`use local … on POOL` contradicts itself: the `on` clause \
-                             spawns a shared servant, and `local` is the scope-local \
-                             opt-out — drop one of them",
-                            span,
-                        );
-                    }
                     // The clause belongs to the *spawn* here: the sugar's
                     // instance is the child's, so its dependencies are
                     // supplied where the child is built.
@@ -3451,7 +3410,6 @@ impl<'s> Parser<'s> {
                     };
                     return Some(Stmt::Use {
                         handler,
-                        local: false,
                         with_items: Vec::new(),
                         span,
                     });
@@ -3463,7 +3421,6 @@ impl<'s> Parser<'s> {
                 let span = start.to(end);
                 Some(Stmt::Use {
                     handler,
-                    local,
                     with_items,
                     span,
                 })

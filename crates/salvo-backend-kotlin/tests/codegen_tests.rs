@@ -2011,20 +2011,20 @@ handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     }
 }
 
-fn draw() [local Random<Int>, local Random<Str>, Console] {
+fn draw() [Random<Int>, Random<Str>, Console] {
     let n: Int = next_random()
     let s: Str = next_random()
     println("${s}: ${n}")
 }
 
-fn lucky_number() [local Random<Int>] -> Int {
+fn lucky_number() [Random<Int>] -> Int {
     return next_random()
 }
 
 fn main() [use] {
     use StdOutConsole
-    use local CyclicRandom(list_of(10, 20, 30))
-    use local CyclicRandom(list_of("a", "b"))
+    use CyclicRandom(list_of(10, 20, 30))
+    use CyclicRandom(list_of("a", "b"))
     draw()
     draw()
     println("lucky: ${next_random<Int>()}")
@@ -2212,8 +2212,8 @@ fn a_generic_dependency_is_refused() {
          fn keep(value: T) -> Str => value {\n        return \"kept\"\n    }\n}\n\n\
          handler Twice<T> [Store<T>] of Store<T> {\n    \
          fn keep(value: T) -> Str => value {\n        return \"twice\"\n    }\n}\n\n\
-         fn main() [use] -> None {\n    use local MemStore<Int>()\n    \
-         use local Twice<Int>()\n}\n",
+         fn main() [use] -> None {\n    use MemStore<Int>()\n    \
+         use Twice<Int>()\n}\n",
     );
     assert!(
         errors
@@ -6663,13 +6663,13 @@ handler Formal of Greeter {
     }
 }
 
-handler Loud [local Greeter] of Greeter {
+handler Loud [Greeter] of Greeter {
     fn greet(name: Str) -> Str => name {
         return "${greet(name)}!"
     }
 }
 
-handler Counting [local Greeter] of Greeter {
+handler Counting [Greeter] of Greeter {
     count: Int = 0
     fn greet(name: Str) -> Str => name {
         count = count + 1
@@ -6683,87 +6683,38 @@ handler MemStore<T> of Store<T> {
     }
 }
 
-handler Twice [local Store<Int>] of Store<Int> {
+handler Twice [Store<Int>] of Store<Int> {
     fn keep(value: Int) -> Str => value {
         return "${keep(value)} ${keep(value)}"
     }
 }
 
-fn shout(name: Str) [local Greeter, Console] -> None => name {
+fn shout(name: Str) [Greeter, Console] -> None => name {
     println(greet(name))
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use local Plain
+    use Plain
     shout("a")
-    use local Formal
+    use Formal
     shout("b")
-    use local Counting
+    use Counting
     shout("c")
     if true {
-        use local Loud
+        use Loud
         shout("d")
     }
     shout("e")
-    use local MemStore<Int>()
-    use local MemStore<Str>()
+    use MemStore<Int>()
+    use MemStore<Str>()
     println(keep(1))
     println(keep("x"))
-    use local Twice
+    use Twice
     println(keep(2))
     println(keep("y"))
 }
 "#;
-
-/// [effect-intercept] [use-no-dup] [kt-effect-fusion] An intercepting
-/// handler is constructed with the instance registered *before* it, and the
-/// fused class carries one property per instance — the shadowed one is not
-/// duplicated.
-#[test]
-fn interception_binds_outward_and_shadows() {
-    let program = build_program(&[("main.sv", INTERCEPTION_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.kt"))
-        .unwrap();
-    let c = &main.content;
-    // Each interceptor is handed a fused environment built from the
-    // *previous* registration, and each `shout` reads the newest one.
-    assert!(
-        c.contains("Counting(__Fx_3(__fx3.__fx_Greeter))")
-            && c.contains("shout(__fx4, \"c\")")
-            && c.contains("Loud(__Fx_3(__fx4.__fx_Greeter))")
-            && c.contains("shout(__fx5, \"d\")"),
-        "an interceptor must bind the instance registered before it, and \
-         later calls must reach the interceptor:\n{c}"
-    );
-    // Out of the block, calls go back to the fusion that outlived it.
-    assert!(
-        c.contains("shout(__fx4, \"e\")"),
-        "a shadowing registration expires with its block:\n{c}"
-    );
-    // One property per instance: a shadowed `Greeter` is not a second field,
-    // and one effect *set* is one class however many scopes need it.
-    for class in c.split("class __Fx_") {
-        let count = class.matches("__fx_Greeter: Greeter").count();
-        assert!(count <= 1, "duplicated property in a fused class:\n{c}");
-    }
-    let classes: Vec<&str> = c.match_indices("\nclass __Fx_").map(|(_, s)| s).collect();
-    let bodies: std::collections::HashSet<&str> = c
-        .split("\nclass __Fx_")
-        .skip(1)
-        .map(|rest| rest.split_once('(').map(|(_, b)| b).unwrap_or(rest))
-        .collect();
-    assert_eq!(
-        classes.len(),
-        bodies.len(),
-        "two fused classes with the same effect set were emitted:\n{c}"
-    );
-}
 
 fn kotlinc_compiles_and_runs_interception() -> KotlinCase {
     let program = build_program(&[("main.sv", INTERCEPTION_DEMO)]);
@@ -6778,9 +6729,9 @@ fn kotlinc_compiles_and_runs_interception() -> KotlinCase {
     )
 }
 
-// ===== the shareable-by-default interceptor chain [use-local] =====
-// The production shape the 2026-09-20 arc was built for, with no `local`
-// anywhere: a stateful handler binds as a monitor, a stateless dependent
+// ===== the interceptor chain [effect-handle] =====
+// The production shape the 2026-09-20 arc was built for:
+// a stateful handler binds as a monitor, a stateless dependent
 // handler binds bare with its dependencies injected at construction — one
 // of them the effect it implements (interception binds outward), another a
 // monitor. The program and its stdout are shared with the Rust backend.
@@ -6834,7 +6785,7 @@ fn main() [use] -> None {
 }
 "#;
 
-/// [use-local] [effect-handler-deps] [kt-monitor] The chain end to end:
+/// [effect-handle] [effect-handler-deps] [kt-monitor] The chain end to end:
 /// `MemCounter` behind `__Mon_Counter`, `PlainLogger` bare with an injected
 /// console, `Shout` wrapping the `Logger` registered before it — and the
 /// count proving both `work` calls went through the interceptor and the
@@ -6937,7 +6888,7 @@ fn kotlinc_compiles_and_runs_spawn_inheritance() -> KotlinCase {
     kotlin_case(files, "spawn-inherit", SPAWN_INHERIT_OUTPUT)
 }
 
-/// [use-local] [effect-handler-deps] A **generic** dependent handler works
+/// [effect-handle] [effect-handler-deps] A **generic** dependent handler works
 /// in the owned-handle form: `Relay<T>`'s dependency is a handle field, so
 /// no carrier has to name the handler's generics — the cut that still
 /// stands for the fusion form (`a_generic_dependency_is_refused`) does not
@@ -6978,91 +6929,23 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger [local Console] of Logger {
+handler ConsoleLogger [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
 
-fn work() [local Logger] -> None {
+fn work() [Logger] -> None {
     log("from work")
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use local ConsoleLogger()
+    use ConsoleLogger()
     work()
     log("from main")
 }
 "#;
-
-/// [effect-handler-deps] [kt-effect-fusion] The dependencies arrive as **one
-/// fused value, built at the `use` site and stored** for the handler's
-/// lifetime; the member reaches them through that field (its signature must
-/// match the interface), and `work` takes only the Logger — behind its Has
-/// bound, since dependency programs fuse.
-///
-/// The carrier is a **type parameter** bounded by the Has interfaces, not one
-/// of the `__Fx_N` classes: those are minted per *file*, so naming one in the
-/// class's signature left a handler declared in another module
-/// unconstructable — found 2026-09-14 by std's `DefaultFs [RawFs]`, whose
-/// `use` site lives in the program.
-#[test]
-fn handler_dependencies_inject_at_construction() {
-    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.kt"))
-        .unwrap();
-    assert!(
-        main.content.contains(
-            "class ConsoleLogger<__Fx>(private val __fx: __Fx) : Logger \
-             where __Fx : __Has_Console"
-        ),
-        "expected one stored fused value rather than a field per dependency \
-         in:\n{}",
-        main.content
-    );
-    assert!(
-        main.content.contains("override fun log(message: String)"),
-        "the member signature must match the interface in:\n{}",
-        main.content
-    );
-    // No per-call combiner: the member body opens with its own statements.
-    assert!(
-        !main
-            .content
-            .contains("override fun log(message: String) {\n        val __fx"),
-        "a member body must not rebuild the fused value per call in:\n{}",
-        main.content
-    );
-    assert!(
-        main.content.contains("ConsoleLogger(__Fx_1(__fx.__fx_Console))"),
-        "expected the `use` site to build the handler's environment in:\n{}",
-        main.content
-    );
-    assert!(
-        main.content
-            .contains("fun<__Fx> work(__fx: __Fx) where __Fx : __Has_Logger"),
-        "callers should not mention the dependency, and a single effect \
-         still fuses (uniformity) in:\n{}",
-        main.content
-    );
-    // The Has-accessor interface is generated once, in fx.kt.
-    let fx = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "fx.kt")
-        .expect("fx.kt emitted");
-    assert!(
-        fx.content
-            .contains("interface __Has_Logger {\n    val __fx_Logger: Logger\n}"),
-        "expected the accessor interface in fx.kt:\n{}",
-        fx.content
-    );
-}
 
 fn kotlinc_compiles_and_runs_handler_dependencies() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
@@ -7672,13 +7555,13 @@ handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     }
 }
 
-fn roll() [local Random<Count>] -> Count {
+fn roll() [Random<Count>] -> Count {
     return next_random()
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use local CyclicRandom(list_of(7, 8))
+    use CyclicRandom(list_of(7, 8))
     println("${roll()} ${roll()}")
 }
 "#;
@@ -12433,7 +12316,7 @@ fn fs_program() -> String {
     FS_PROGRAM.replace("__DIR__", &dir.to_string_lossy())
 }
 
-/// [kt-platform-handler] [use-local] [effect-handler-deps] What the layering
+/// [kt-platform-handler] [effect-handle] [effect-handler-deps] What the layering
 /// emits: the effect interfaces, no class for the platform handler, and
 /// `DefaultFs` capturing its dependency as an **owned handle at
 /// construction** — a constructor parameter typed as the dep's Has-accessor
@@ -13911,7 +13794,7 @@ handler Counting() of Tally, Stats {
     }
 }
 
-fn count() [local Tally, local Stats] -> Int {
+fn count() [Tally, Stats] -> Int {
     bump(2)
     bump(3)
     return total()
@@ -13929,7 +13812,7 @@ fn main() [use, spawn] {
     println(fired)
     let left = waitfor c: Reply<Int> { ctl.pending(c) }
     println("pending ${left}")
-    use local Counting()
+    use Counting()
     println("total ${count()}")
 }
 "#;

@@ -96,17 +96,19 @@ fn a_handler_may_depend_on_a_platform_effect() {
         "platform effect Telemetry {\n    \
              fn record(name: Str) [] -> None => name\n}\n\n\
          effect Logger {\n    fn log(message: Str) -> None => message\n}\n\n\
-         handler AuditLogger [local Telemetry] of Logger {\n    \
+         handler AuditLogger [Telemetry] of Logger {\n    \
              fn log(message: Str) -> None => message {\n        \
                  record(message)\n    }\n}\n\n\
-         fn main() [use, Telemetry] {\n    use local AuditLogger()\n}\n",
+         fn main() [use, Telemetry] {\n    use AuditLogger()\n}\n",
     ));
-    // [use-local] [effect-local] `main`'s Telemetry arrives from the host
-    // through the signature, so there is no lexical binding to capture a
-    // handle from — the dependency is declared `local` and the handler
-    // binds `use local` (the signature-to-handle threading arrives with
-    // spawn-inheritance; ROADMAP).
-    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+    // Transitional (ROADMAP §2b step ②): `main`'s Telemetry arrives from the
+    // host through the signature, and until a fn's effect parameter *is* a
+    // handle there is nothing to capture from it — refused by name. Step ②
+    // makes this program clean.
+    assert!(
+        errs.iter().any(|m| m.contains("is a platform effect") && m.contains("no handle to capture")),
+        "expected the transitional platform-capture refusal, got {errs:?}"
+    );
 }
 
 // ===== restrictions =====
@@ -249,16 +251,15 @@ fn a_platform_handler_is_registered_with_use_like_any_handler() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [platform-handler] [use-local] [threadsafe-platform] A platform handler
-/// classifies **shareable** either way (user decision 2026-09-26): without
+/// [platform-handler] [effect-handle] [threadsafe-platform] A platform
+/// handler binds as a handle either way (user decision 2026-09-26): without
 /// `threadsafe` as a monitor (serialized behind a lock on both backends),
-/// with it bare (shared raw). Either satisfies a bare `[RawFs]`, so a handler
-/// depending on its effect binds shareable with no `local E` anywhere — the
-/// `DefaultFs [RawFs]` shape — whichever the host declared. The two kinds are
-/// told apart in the backends' emission tests (lock adapter / `__Mon_E`
-/// present or absent).
+/// with it bare (shared raw). Either satisfies a `[RawFs]`, so a handler
+/// depending on its effect — the `DefaultFs [RawFs]` shape — binds whichever
+/// the host declared. The two kinds are told apart in the backends' emission
+/// tests.
 #[test]
-fn a_platform_handler_shares_and_needs_no_local_dependency() {
+fn a_platform_handler_shares() {
     let errs = messages(&src(
         "effect RawFs {\n    fn raw_close(handle: Int) [] -> Bool => handle\n}\n\n\
          platform handler HostRawFs of RawFs\n\n\
@@ -276,7 +277,7 @@ fn a_platform_handler_shares_and_needs_no_local_dependency() {
 /// [threadsafe-platform] The declared form checks identically: `threadsafe`
 /// changes how the instance is shared, never whether it may be.
 #[test]
-fn a_threadsafe_platform_handler_shares_and_needs_no_local_dependency() {
+fn a_threadsafe_platform_handler_shares() {
     let errs = messages(&src(
         "effect RawFs {\n    fn raw_close(handle: Int) [] -> Bool => handle\n}\n\n\
          threadsafe platform handler HostRawFs of RawFs\n\n\

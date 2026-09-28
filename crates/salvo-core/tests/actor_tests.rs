@@ -200,12 +200,11 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [spawn-inherit] [effect-local] What a spawn cannot inherit: a
-/// **scope-local** binding, which exists precisely so that it does not cross
-/// a seam. For an actor effect the local binding is an inline `use H()`, so
-/// the diagnostic names *that* remedy — spawn it and bind the addr.
+/// [spawn-inherit] What a spawn cannot inherit yet (transitional, ROADMAP
+/// §2b): an **inline** binding — here a `use H()` of an actor-face handler,
+/// so the diagnostic names *that* remedy — spawn it and bind the addr.
 #[test]
-fn a_spawn_cannot_inherit_a_scope_local_binding() {
+fn a_spawn_cannot_inherit_an_inline_binding() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
@@ -217,9 +216,9 @@ fn main() [use, spawn] {
     let diag = errs
         .iter()
         .find(|m| m.contains("inherits `Log` from this scope"))
-        .unwrap_or_else(|| panic!("expected the local-binding refusal: {errs:?}"));
+        .unwrap_or_else(|| panic!("expected the inline-binding refusal: {errs:?}"));
     assert!(
-        diag.contains("scope-local binding cannot cross")
+        diag.contains("binding here is inline")
             && diag.contains("spawn the handler of `Log`")
             && diag.contains("`with SomeHandler()`"),
         "the diagnostic must name both remedies: {diag}"
@@ -1553,24 +1552,6 @@ send fn finish(out: Reply<Int>, total: Int) [use] => !out, !total {
         "a task has no scope to register a handler in: {uses:?}"
     );
 
-    let local = errors(
-        "\
-effect Log {
-    fn note(m: Str) -> None
-}
-
-send fn finish(out: Reply<Int>, total: Int) [local Log] => !out, !total {
-    out.send(total)
-}
-",
-    );
-    assert!(
-        local
-            .iter()
-            .any(|m| m.contains("does not travel") && m.contains("[effect-local]")),
-        "a local binding is the one availability that cannot cross: {local:?}"
-    );
-
     let generic = errors(
         "\
 send fn finish<T>(out: Reply<T>, value: T) => !out, !value {
@@ -1634,23 +1615,6 @@ fn go() [] -> None {{
         "the mint is where the handler has to be: {missing:?}"
     );
 
-    // A `local` binding cannot cross the seam, and the diagnostic says which
-    // rule refused it.
-    let local = errors(&format!(
-        "{TARGET}
-fn go() [use] -> None {{
-    use local Quiet()
-    let k = replyto finish(\"done\")
-    k.send(1)
-}}
-"
-    ));
-    assert!(
-        local
-            .iter()
-            .any(|m| m.contains("is `local`") && m.contains("[effect-local]")),
-        "a local binding has nothing to give a detached body: {local:?}"
-    );
 }
 
 /// [free-send-fn] It runs by being **scheduled**, so it is neither callable nor
@@ -2379,7 +2343,7 @@ fn main() [use, spawn] {{
     assert_eq!(errs.len(), 1, "`poke` declares `[any Counter]` and is legal: {errs:?}");
 }
 
-/// [effect-any] Viral downward, like `local`: a body holding `[any Counter]`
+/// [effect-any] Viral downward: a body holding `[any Counter]`
 /// may not call a callee that assumes one instance, and a body holding the
 /// strong `[Counter]` may call either.
 #[test]
@@ -2424,15 +2388,10 @@ fn main() [use, spawn] {{
     );
 }
 
-/// [effect-any] `local` and `any` do not combine, and a fn type carries no
-/// strength — both refused with the reason.
+/// [effect-any] A fn type carries no strength — `any` on one is refused
+/// with the reason.
 #[test]
-fn any_is_refused_beside_local_and_on_fn_types() {
-    let (_, diags) = salvo_syntax::parse_module("fn f() [local any Counter] -> None {}");
-    assert!(
-        diags.iter().any(|d| d.is_error() && d.message.contains("do not combine")),
-        "{diags:?}"
-    );
+fn any_is_refused_on_fn_types() {
     let errs = errors(&format!(
         "{ROUTER}
 fn each(f: () [any Counter] -> None) [any Counter] -> None {{

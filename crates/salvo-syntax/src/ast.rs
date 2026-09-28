@@ -643,15 +643,10 @@ pub enum EffectRef {
     /// resolve and nothing to thread — `fn main() [use, spawn]` is the
     /// typical entry point.
     Spawn(Span),
-    /// A named effect, possibly generic: `Random<Int>`. [effect-local]
-    /// `local` (contextual, user decision 2026-09-20) accepts a
-    /// scope-local binding and disclaims seam rights for it; the default
-    /// requires a shareable one.
+    /// A named effect, possibly generic: `Random<Int>`. [effect-handle]
+    /// Every binding of it is a handle (user decision 2026-09-28; the
+    /// `local E` form that disclaimed seam rights was removed with it).
     Effect(TypeRef),
-    /// [effect-local] `local Random<Int>` — the requirement that accepts a
-    /// `use local` binding. Kept apart from `Effect` so every existing
-    /// match keeps meaning "the shareable default".
-    LocalEffect(TypeRef),
     /// [effect-any] `any Resizer` — the requirement that accepts a binding
     /// spread over **many instances** (a router `of any Resizer`): the
     /// function assumes no order between its sends to the effect and no
@@ -1064,7 +1059,6 @@ impl fmt::Display for EffectRef {
             EffectRef::Use(_) => write!(f, "use"),
             EffectRef::Spawn(_) => write!(f, "spawn"),
             EffectRef::Effect(r) => write!(f, "{r}"),
-            EffectRef::LocalEffect(r) => write!(f, "local {r}"),
             EffectRef::AnyEffect(r) => write!(f, "any {r}"),
         }
     }
@@ -1094,15 +1088,13 @@ pub enum Stmt {
         span: Span,
     },
     /// `use HandlerExpr(...)` — register a handler for the current context.
-    /// [use-local] `use local HandlerExpr(...)` binds it **scope-local**
-    /// (lock-free, unshareable) instead of shareable-by-default (user
-    /// decision 2026-09-20).
+    /// [effect-handle] The binding is a handle, shareable and capturable
+    /// (user decision 2026-09-28: one shape; `use local` was removed).
     /// [with-clause] `use H(...) with D(), addr` supplies `H`'s declared
     /// dependencies from the clause instead of from the scope — private
     /// instances, the self-dependency included (user decision 2026-09-20).
     Use {
         handler: Expr,
-        local: bool,
         with_items: Vec<Expr>,
         span: Span,
     },

@@ -48,12 +48,10 @@ shows both prefixes in that order.
 Notice *where* the dependencies surface. `interception` is the function that
 registers `Stamped`, so `interception` is what needs a `Clock` in scope; the
 function actually calling `log` declares `[Logger]` and knows nothing about
-any of it. Wiring lives at the composition site, not along the call path —
-and nothing in this section writes `local`, which is the point of
-spawn-inheritance: a plain `use` captures its dependencies as owned handles,
-and those handles may come from the enclosing *signature* as well as from a
-binding in the same function, so wiring code can receive the effects it
-wires.
+any of it. Wiring lives at the composition site, not along the call path: a `use`
+captures its dependencies as handles, and those handles may come from the
+enclosing *signature* as well as from a binding in the same function, so
+wiring code can receive the effects it wires.
 
 **5 — shadowing is not wrapping.** A `use` for an effect already in scope takes
 over for the rest of the block, and what it shadowed comes back at the closing

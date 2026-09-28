@@ -2462,7 +2462,7 @@ impl<'p> Emitter<'p> {
             }
             None => {
                 for eff in f.effects.iter().flatten() {
-                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
+                    if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
                         let rendered = self.emit_type_ref(r);
                         if self.is_platform_effect(None, &rendered)
                             && !out.contains(&rendered)
@@ -2511,7 +2511,7 @@ impl<'p> Emitter<'p> {
         let (dep_entries, dep_param, dep_bounds) = if deps.is_empty() {
             (Vec::new(), None, Vec::new())
         } else if self.handler_is_handle_dep(h) {
-            // [use-local] [effect-handler-deps] The handle-dep form (user
+            // [effect-handle] [effect-handler-deps] The handle-dep form (user
             // decision 2026-09-20): one trailing constructor parameter per
             // dep, typed as the dep's **Has-accessor interface** — a stable
             // per-effect identity (unlike the per-file `__Fx_N` classes),
@@ -3215,9 +3215,9 @@ impl<'p> Emitter<'p> {
             .iter()
             .flatten()
             .filter_map(|e| match e {
-                // [effect-local] Dep locality is the checker's business; at
+                // [effect-handle] Dep locality is the checker's business; at
                 // the fusion layer a `local E` dep threads like any other.
-                EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) => Some(r.clone()),
+                EffectRef::Effect(r) | EffectRef::AnyEffect(r) => Some(r.clone()),
                 EffectRef::Use(_) => None,
                 // [actor-spawn-effect] A capability, not an effect type: no
                 // handler parameter is threaded for it.
@@ -3498,7 +3498,7 @@ impl<'p> Emitter<'p> {
                 }
                 None => {
                     for eff in f.effects.iter().flatten() {
-                        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
+                        if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
                             if r.name.name == salvo_core::THROW_EFFECT {
                                 continue;
                             }
@@ -4030,7 +4030,7 @@ impl<'p> Emitter<'p> {
                 // of the Kotlin function type's parameter list.
                 let mut ps: Vec<String> = Vec::new();
                 for eff in effects.iter().flatten() {
-                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
+                    if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
                         ps.push(self.emit_type_ref(r));
                     }
                 }
@@ -4707,10 +4707,9 @@ impl<'p> Emitter<'p> {
             Stmt::Expr(Expr::Continue { .. }) => format!("{pad}continue\n"),
             Stmt::Use {
                 handler,
-                local,
                 with_items,
                 span,
-            } => self.emit_use(handler, *local, with_items, *span, indent),
+            } => self.emit_use(handler, with_items, *span, indent),
             Stmt::Expr(expr) => self.emit_expr_stmt(expr, indent),
         }
     }
@@ -5227,7 +5226,7 @@ impl<'p> Emitter<'p> {
             })
     }
 
-    /// [use-local] [effect-handler-deps] The shared dependency-form
+    /// [effect-handle] [effect-handler-deps] The shared dependency-form
     /// predicate, with the symbol table answering the face kind.
     /// [with-clause] A written `with` item as the instance the depending
     /// handler stores: a handler construction is a **private instance** built
@@ -5408,12 +5407,10 @@ impl<'p> Emitter<'p> {
     fn emit_use(
         &mut self,
         handler: &Expr,
-        local: bool,
         with_items: &[Expr],
         span: Span,
         indent: usize,
     ) -> String {
-        let _ = local; // classification travels in `use_kinds` [use-local]
         // [actor-use-addr] `use addr` binds the effect to a **forwarding stub**
         // over the addr: `__Stub_E(addr)` is an ordinary instance of the effect
         // as far as the rest of this scope is concerned, which is exactly why
@@ -5474,7 +5471,7 @@ impl<'p> Emitter<'p> {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
         };
-        // [use-local] The binding kind, decided by the checker (shareable by
+        // [effect-handle] The binding kind, decided by the checker (shareable by
         // default, user decision 2026-09-20): a monitor binds behind the
         // per-effect `synchronized` wrapper — `__Mon_E(H(args))` — and a
         // stateless handler binds bare. `use local` keeps the pre-2026-09-20
@@ -5525,7 +5522,7 @@ impl<'p> Emitter<'p> {
         ctor_args.extend(written);
         // The carrier the handler's dependencies arrive in, when it has any:
         // its class also completes the handler's type-argument list below.
-        // [use-local] A handle-dep handler takes them as individual trailing
+        // [effect-handle] A handle-dep handler takes them as individual trailing
         // arguments instead — the binding expression per dep, in declaration
         // order (JVM references are the handles).
         let mut dep_class: Option<String> = None;
@@ -5616,7 +5613,7 @@ impl<'p> Emitter<'p> {
         } else {
             handler_code
         };
-        // [use-local] [kt-monitor] The monitor binding: the construction
+        // [effect-handle] [kt-monitor] The monitor binding: the construction
         // wrapped in the per-effect lock wrapper, which implements the same
         // interface, so everything downstream is unchanged.
         let handler_code = if kind == salvo_core::UseKind::Monitor {
@@ -6680,7 +6677,7 @@ impl<'p> Emitter<'p> {
             {
                 if let Some(f) = decl.fns.iter().find(|f| f.name.name == "qualifies") {
                     for eff in f.effects.iter().flatten() {
-                        if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
+                        if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
                             let ty = self.emit_type_ref(r);
                             args.push(self.thread_effect_fused_by_type(&ty));
                         }
@@ -9199,7 +9196,7 @@ impl<'p> Emitter<'p> {
     /// host calls rather than a `main` of its own.
     fn declares_platform_effect(&self, f: &FnDecl) -> bool {
         f.effects.iter().flatten().any(|eff| match eff {
-            EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) => self
+            EffectRef::Effect(r) | EffectRef::AnyEffect(r) => self
                 .symbols
                 .effects
                 .get(r.name.name.as_str())
@@ -9579,7 +9576,7 @@ impl<'p> Emitter<'p> {
             }
             _ => {
                 for eff in f.effects.iter().flatten() {
-                    if let EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r) = eff {
+                    if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
                         if r.name.name == salvo_core::THROW_EFFECT {
                             continue;
                         }

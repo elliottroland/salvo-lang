@@ -187,7 +187,7 @@ export fn lines(s: InStream) [] -> Mut Lines => !s {
 // The iterator's step: a line, or the end of the sequence. Declares `[Fs]`,
 // since reading is an effect — so `for`, `map`, `filter` and `reduce`
 // inherit it at the call site.
-export fn next(p: Mut Lines) [local Fs] -> Emitted Str | Finished => p: Mut {
+export fn next(p: Mut Lines) [Fs] -> Emitted Str | Finished => p: Mut {
     let line = read_line(p.s)
     when line {
         is Str { return emitted(line) }
@@ -198,12 +198,12 @@ export fn next(p: Mut Lines) [local Fs] -> Emitted Str | Finished => p: Mut {
 // Closes the stream the iterator reads, reporting what reading recorded. Named
 // `close` like every other discharger: a member and a fn of one name are one
 // overload set, and the argument type picks [effect-available].
-export fn close(p: Lines) [local Fs] -> Ok None | Err Checked<FsError> => !p {
+export fn close(p: Lines) [Fs] -> Ok None | Err Checked<FsError> => !p {
     return close(p.s)
 }
 
 // Opens a file as a sequence of its lines.
-export fn open_lines(path: Str) [local Fs] -> Ok Mut Lines | Err Checked<FsError> => path {
+export fn open_lines(path: Str) [Fs] -> Ok Mut Lines | Err Checked<FsError> => path {
     let opened = open_read(path)
     if opened is Err {
         return opened
@@ -233,7 +233,7 @@ export fn chunks(s: InStream, size: Int) [] -> Mut Chunks => !s {
 // handed back its own buffer would have the next step overwrite what the
 // caller is still holding. The allocation-free shape is `read_to` into a
 // buffer of your own — which is what [copy_stream] does [fs-read-to].
-export fn next(p: Mut Chunks) [local Fs] -> Emitted Bytes | Finished => p: Mut {
+export fn next(p: Mut Chunks) [Fs] -> Emitted Bytes | Finished => p: Mut {
     let got = read_bytes(p.s, p.size)
     if got is Err {
         // The handler recorded the failure, and `close` reports it — so
@@ -249,12 +249,12 @@ export fn next(p: Mut Chunks) [local Fs] -> Emitted Bytes | Finished => p: Mut {
 }
 
 // Closes the stream the iterator reads, reporting what reading recorded.
-export fn close(p: Chunks) [local Fs] -> Ok None | Err Checked<FsError> => !p {
+export fn close(p: Chunks) [Fs] -> Ok None | Err Checked<FsError> => !p {
     return close(p.s)
 }
 
 // Opens a file as a sequence of chunks of up to [size] bytes.
-export fn open_chunks(path: Str, size: Int) [local Fs] -> Ok Mut Chunks | Err Checked<FsError> => path {
+export fn open_chunks(path: Str, size: Int) [Fs] -> Ok Mut Chunks | Err Checked<FsError> => path {
     let opened = open_read(path)
     if opened is Err {
         return opened
@@ -265,7 +265,7 @@ export fn open_chunks(path: Str, size: Int) [local Fs] -> Ok Mut Chunks | Err Ch
 // ===== the one-shots =====
 
 // A whole file as text: the 90% case, and no token reaches the caller.
-export fn read_to_str(path: Str) [local Fs] -> Ok Str | Err Checked<FsError> => path {
+export fn read_to_str(path: Str) [Fs] -> Ok Str | Err Checked<FsError> => path {
     let opened = open_read(path)
     if opened is Err {
         return opened
@@ -289,7 +289,7 @@ export fn read_to_str(path: Str) [local Fs] -> Ok Str | Err Checked<FsError> => 
 }
 
 // A whole file as its lines, eagerly.
-export fn read_lines(path: Str) [local Fs] -> Ok List<Str> | Err Checked<FsError> => path {
+export fn read_lines(path: Str) [Fs] -> Ok List<Str> | Err Checked<FsError> => path {
     let opened = open_read(path)
     if opened is Err {
         return opened
@@ -309,7 +309,7 @@ export fn read_lines(path: Str) [local Fs] -> Ok List<Str> | Err Checked<FsError
 
 // Writes text to a file, creating it or replacing what is there, and answers
 // how many bytes it took.
-export fn write_str(path: Str, content: Str) [local Fs] -> Ok Long | Err Checked<FsError> => path, content {
+export fn write_str(path: Str, content: Str) [Fs] -> Ok Long | Err Checked<FsError> => path, content {
     let opened = open_write(path)
     if opened is Err {
         return opened
@@ -324,7 +324,7 @@ export fn write_str(path: Str, content: Str) [local Fs] -> Ok Long | Err Checked
 }
 
 // The whole of a file as bytes: `read_to_str` for data that is not text.
-export fn read_to_bytes(path: Str) [local Fs] -> Ok Bytes | Err Checked<FsError> => path {
+export fn read_to_bytes(path: Str) [Fs] -> Ok Bytes | Err Checked<FsError> => path {
     let opened = open_read(path)
     if opened is Err {
         return opened
@@ -349,7 +349,7 @@ export fn read_to_bytes(path: Str) [local Fs] -> Ok Bytes | Err Checked<FsError>
 
 // Writes bytes to a file, creating it or replacing what is there, and answers
 // how many it took.
-export fn write_bytes_to(path: Str, data: Bytes) [local Fs] -> Ok Long | Err Checked<FsError> => path, data {
+export fn write_bytes_to(path: Str, data: Bytes) [Fs] -> Ok Long | Err Checked<FsError> => path, data {
     let opened = open_write(path)
     if opened is Err {
         return opened
@@ -374,7 +374,7 @@ fn fs_chunk_size() [] -> Int {
 // Appends everything left in [s] to [buf], answering how many bytes moved.
 // One buffer for the whole read: this is `read_to` in a loop, which is the
 // point of `read_to` existing [fs-read-to].
-export fn fill_from(s: InStream, buf: Mut Bytes) [local Fs] -> Ok Long | Err Checked<FsError> => s, buf: Mut {
+export fn fill_from(s: InStream, buf: Mut Bytes) [Fs] -> Ok Long | Err Checked<FsError> => s, buf: Mut {
     let total: Long = 0
     let reading = true
     while reading {
@@ -393,7 +393,7 @@ export fn fill_from(s: InStream, buf: Mut Bytes) [local Fs] -> Ok Long | Err Che
 
 // Copies everything left in [s] into [w], answering how many bytes moved.
 // Neither token is consumed: whoever opened them closes them.
-export fn copy_stream(s: InStream, w: OutStream) [local Fs] -> Ok Long | Err Checked<FsError> => s, w {
+export fn copy_stream(s: InStream, w: OutStream) [Fs] -> Ok Long | Err Checked<FsError> => s, w {
     let buf = mut_bytes()
     let total: Long = 0
     let copying = true
@@ -416,7 +416,7 @@ export fn copy_stream(s: InStream, w: OutStream) [local Fs] -> Ok Long | Err Che
 // Copies the file at [from] onto [to], creating it or replacing what is there,
 // and answers how many bytes moved. The one-shot: no token, no buffer and no
 // stream reaches the caller.
-export fn copy_file(from: Str, to: Str) [local Fs] -> Ok Long | Err Checked<FsError> => from, to {
+export fn copy_file(from: Str, to: Str) [Fs] -> Ok Long | Err Checked<FsError> => from, to {
     let opened = open_read(from)
     if opened is Err {
         return opened

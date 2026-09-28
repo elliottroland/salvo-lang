@@ -547,20 +547,20 @@ handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     }
 }
 
-fn draw() [local Random<Int>, local Random<Str>, Console] {
+fn draw() [Random<Int>, Random<Str>, Console] {
     let n: Int = next_random()
     let s: Str = next_random()
     println("${s}: ${n}")
 }
 
-fn lucky_number() [local Random<Int>] -> Int {
+fn lucky_number() [Random<Int>] -> Int {
     return next_random()
 }
 
 fn main() [use] {
     use StdOutConsole
-    use local CyclicRandom(list_of(10, 20, 30))
-    use local CyclicRandom(list_of("a", "b"))
+    use CyclicRandom(list_of(10, 20, 30))
+    use CyclicRandom(list_of("a", "b"))
     draw()
     draw()
     println("lucky: ${next_random<Int>()}")
@@ -1824,75 +1824,23 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger [local Console] of Logger {
+handler ConsoleLogger [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
 
-fn work() [local Logger] -> None {
+fn work() [Logger] -> None {
     log("from work")
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use local ConsoleLogger()
+    use ConsoleLogger()
     work()
     log("from main")
 }
 "#;
-
-/// [effect-handler-deps] [rs-effect-fusion] The dependency is neither a
-/// field nor a `new` parameter: the member bodies move into a generated
-/// `__Impl_H` trait that takes it as a fused value, and the `use` site
-/// builds a fusion owning the handler and forwarding the effect to it.
-#[test]
-fn handler_dependencies_fuse() {
-    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
-    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.rs"))
-        .unwrap();
-    let c = &main.content;
-    assert!(
-        c.contains("pub struct ConsoleLogger {\n}") && c.contains("pub fn new() -> Self"),
-        "the dependency must not become a field or a `new` parameter:\n{c}"
-    );
-    assert!(
-        c.contains("pub trait __Impl_ConsoleLogger")
-            && c.contains("fn log<__Fx: __Has_Console>(&mut self, __fx: &mut __Fx, message: &String)"),
-        "expected the member bodies in a trait taking the fused dependency \
-         behind its Has bound:\n{c}"
-    );
-    assert!(
-        c.contains("pub fn work<__Fx: __Has_Logger>(__fx: &mut __Fx)"),
-        "callers must not mention the dependency, and a single effect still \
-         fuses (uniformity):\n{c}"
-    );
-    assert!(
-        c.contains("pub trait __Has_Logger {\n    fn __get_Logger(&mut self) -> &mut dyn Logger;\n}"),
-        "expected the Has-accessor trait beside the effect:\n{c}"
-    );
-    assert!(
-        c.contains("__outer: &'a mut dyn __Has_Console") && c.contains("__h: __H,"),
-        "expected a fusion chaining to the provider and owning the handler:\n{c}"
-    );
-    assert!(
-        c.contains("let Self { __outer, __h } = self;")
-            && c.contains("let mut __deps = __Deps_ConsoleLogger{ __p: &mut **__outer };")
-            && c.contains("__Impl_ConsoleLogger::log(__h, &mut __deps, message)"),
-        "the forwarding impl must split `&mut self` into disjoint field \
-         borrows before threading the dependency adapter:\n{c}"
-    );
-    assert!(
-        c.contains("fn __get_Logger(&mut self) -> &mut dyn Logger {\n        self\n    }"),
-        "a dependent handler's accessor returns the fusion itself, which \
-         carries the raw effect impl:\n{c}"
-    );
-}
 
 /// [rs-effect-fusion] The gate is program-wide but *narrow*: a program
 /// where no handler declares a dependency keeps the per-effect `&mut dyn`
@@ -1980,13 +1928,13 @@ handler Formal of Greeter {
     }
 }
 
-handler Loud [local Greeter] of Greeter {
+handler Loud [Greeter] of Greeter {
     fn greet(name: Str) -> Str => name {
         return "${greet(name)}!"
     }
 }
 
-handler Counting [local Greeter] of Greeter {
+handler Counting [Greeter] of Greeter {
     count: Int = 0
     fn greet(name: Str) -> Str => name {
         count = count + 1
@@ -2000,97 +1948,38 @@ handler MemStore<T> of Store<T> {
     }
 }
 
-handler Twice [local Store<Int>] of Store<Int> {
+handler Twice [Store<Int>] of Store<Int> {
     fn keep(value: Int) -> Str => value {
         return "${keep(value)} ${keep(value)}"
     }
 }
 
-fn shout(name: Str) [local Greeter, Console] -> None => name {
+fn shout(name: Str) [Greeter, Console] -> None => name {
     println(greet(name))
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use local Plain
+    use Plain
     shout("a")
-    use local Formal
+    use Formal
     shout("b")
-    use local Counting
+    use Counting
     shout("c")
     if true {
-        use local Loud
+        use Loud
         shout("d")
     }
     shout("e")
-    use local MemStore<Int>()
-    use local MemStore<Str>()
+    use MemStore<Int>()
+    use MemStore<Str>()
     println(keep(1))
     println(keep("x"))
-    use local Twice
+    use Twice
     println(keep(2))
     println(keep("y"))
 }
 "#;
-
-/// [effect-intercept] [use-no-dup] [rs-effect-fusion] The shapes
-/// interception needs from the fusion.
-#[test]
-fn interception_shapes() {
-    let files = generate(&[("main.sv", INTERCEPTION_DEMO)]);
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.rs"))
-        .unwrap();
-    let c = &main.content;
-    // One `__Has_E` impl per effect per fusion struct. Two is E0119, and it
-    // is exactly what a shadowing `use` produced before the accessor for the
-    // shadowed instance was suppressed.
-    let mut checked = 0;
-    for n in 1..=12 {
-        for effect in ["Greeter", "Store<i32>", "Store<String>"] {
-            let needle = format!("__Has_{effect} for __Fx_main_{n}<");
-            let count = c.matches(needle.as_str()).count();
-            checked += count;
-            assert!(
-                count <= 1,
-                "fusion `__Fx_main_{n}` has {count} `{needle}` impls — a \
-                 shadowed instance must lose its inherited accessor:\n{c}"
-            );
-        }
-    }
-    assert!(
-        checked >= 8,
-        "the impl scan found only {checked} accessors, so it is not testing \
-         what it claims:\n{c}"
-    );
-    // The intercepting handler still reaches the shadowed instance, through
-    // the provider it was handed: that is "binds strictly outward".
-    assert!(
-        c.contains("let mut __deps = __Deps_Loud{ __p: &mut **__outer };")
-            && c.contains("__Impl_Loud::greet(__h, &mut __deps, name)"),
-        "an intercepting member must be handed the outer instance through \
-         `__outer`:\n{c}"
-    );
-    assert!(
-        c.contains("impl<'a, __P: __Has_Greeter + ?Sized> __Has_Greeter for __Deps_Loud"),
-        "the adapter's accessor forwards to the provider, not to the fusion \
-         that owns the intercepting handler:\n{c}"
-    );
-    // A shadowed instance stays in the provider conjunction, or the
-    // dependency above would have nothing to bind to.
-    assert!(
-        c.contains("__Has_Greeter") && c.contains("__outer: &'a mut dyn __Prov_"),
-        "expected the shadowed effect to remain reachable through a provider \
-         trait:\n{c}"
-    );
-    // [effect-intercept] Only one instance of a generic effect is
-    // intercepted; the sibling keeps the handler it had.
-    assert!(
-        c.contains("__Deps_Twice") && c.contains("__Has_Store<i32>"),
-        "expected the interception of one instance of a generic effect:\n{c}"
-    );
-}
 
 #[test]
 fn rustc_compiles_and_runs_interception() {
@@ -2108,9 +1997,9 @@ fn rustc_compiles_and_runs_interception() {
     );
 }
 
-// ===== the shareable-by-default interceptor chain [use-local] =====
-// The production shape the 2026-09-20 arc was built for, with no `local`
-// anywhere: a stateful handler binds as a monitor, a stateless dependent
+// ===== the interceptor chain [effect-handle] =====
+// The production shape the 2026-09-20 arc was built for:
+// a stateful handler binds as a monitor, a stateless dependent
 // handler binds bare and captures its dependencies as owned handles at
 // construction — one of them the effect it implements (interception binds
 // outward), another a monitor's handle.
@@ -2166,7 +2055,7 @@ fn main() [use] -> None {
 
 const SHAREABLE_CHAIN_OUTPUT: &str = "log: plain\nlog: loud!\nlog: louder!\nshouted 2\n";
 
-/// [use-local] [effect-handler-deps] [rs-monitor] The chain end to end:
+/// [effect-handle] [effect-handler-deps] [rs-monitor] The chain end to end:
 /// `MemCounter` behind its lock, `PlainLogger` bare with a captured console
 /// handle, `Shout` wrapping the `Logger` registered before it — and the
 /// count proving both `work` calls went through the interceptor and the
@@ -2304,7 +2193,7 @@ fn a_handle_bundle_threads_signature_supplied_effects() {
     );
 }
 
-/// [use-local] [effect-handler-deps] A **generic** dependent handler works
+/// [effect-handle] [effect-handler-deps] A **generic** dependent handler works
 /// in the owned-handle form: `Relay<T>`'s dependency is a handle field, so
 /// no generated trait has to name the handler's generics — the cut that
 /// still stands for the fusion form (`generic_dependent_handler_is_a_
@@ -2347,19 +2236,19 @@ export effect Logger {
     fn log(m: Str) -> None => m
 }
 
-export handler PlainLogger [local Console] of Logger {
+export handler PlainLogger [Console] of Logger {
     fn log(m: Str) -> None => m {
         println("log: ${m}")
     }
 }
 
 export fn first() [Console, use] -> None {
-    use local PlainLogger()
+    use PlainLogger()
     log("first")
 }
 
 export fn second() [Console, use] -> None {
-    use local PlainLogger()
+    use PlainLogger()
     log("second")
 }
 
@@ -2429,7 +2318,7 @@ handler MemCounter of Counter {
     fn total() -> Int { return n }
 }
 
-handler ConsoleLogger [local Console] of Logger {
+handler ConsoleLogger [Console] of Logger {
     seen: Int = 0
     fn log(message: Str) -> None => message {
         seen = seen + 1
@@ -2437,7 +2326,7 @@ handler ConsoleLogger [local Console] of Logger {
     }
 }
 
-handler CountingAudit [local Console, local Counter] of Audit {
+handler CountingAudit [Console, Counter] of Audit {
     fn note(message: Str) -> None => message {
         bump()
         println("[${total()}] ${message}")
@@ -2448,80 +2337,33 @@ fn shout(message: Str) [Console] -> None => message {
     println("!! ${message}")
 }
 
-fn banner() [Console, local Logger] -> None {
+fn banner() [Console, Logger] -> None {
     log("banner")
     shout("done")
 }
 
-fn draw() [Console, local Random<Int>, use] -> None {
-    use local MemCounter
+fn draw() [Console, Random<Int>, use] -> None {
+    use MemCounter
     bump()
     println("drew ${next_random<Int>()} at ${total()}")
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use local ConsoleLogger()
+    use ConsoleLogger()
     banner()
     if true {
-        use local MemCounter
-        use local CountingAudit()
+        use MemCounter
+        use CountingAudit()
         note("inner")
         banner()
     }
     log("outer again")
-    use local CyclicRandom(array_of(10, 20, 30))
+    use CyclicRandom(array_of(10, 20, 30))
     draw()
     draw()
 }
 "#;
-
-#[test]
-fn fusion_shapes() {
-    let files = generate(&[("main.sv", FUSION_DEMO)]);
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.rs"))
-        .unwrap();
-    let c = &main.content;
-    // A fn needing effects takes one *generic* fused value bounded by the
-    // Has-accessor traits — never the effect traits, so member names cannot
-    // collide on it — and forwards it to a callee needing a subset.
-    assert!(
-        c.contains("pub fn banner<__Fx: __Has_Console + __Has_Logger>(__fx: &mut __Fx)")
-            && c.contains("shout(&mut *__fx,"),
-        "expected a Has-bounded fused parameter forwarded to a smaller callee:\n{c}"
-    );
-    // Dependencies need a Sized Has-implementing view over the single
-    // provider field — uniformly, one dependency or two.
-    assert!(
-        c.contains("pub struct __Deps_CountingAudit<'a, __P: ?Sized>")
-            && c.contains("let mut __deps = __Deps_CountingAudit{ __p: &mut **__outer };")
-            && c.contains("fn note<__Fx: __Has_Console + __Has_Counter>(&mut self, __fx: &mut __Fx"),
-        "expected the dependency adapter and a Has-bounded generic member:\n{c}"
-    );
-    // Provider traits exist only as `__outer` field types, and conjoin the
-    // Has traits, never the effects.
-    assert!(
-        c.contains("pub trait __Prov_Console_Logger: __Has_Console + __Has_Logger {}")
-            && c.contains(
-                "impl<T: __Has_Console + __Has_Logger + ?Sized> __Prov_Console_Logger for T {}"
-            ),
-        "expected a provider trait over Has supertraits with its blanket impl:\n{c}"
-    );
-    // Member dispatch is accessor-then-method: the Has trait's turbofish
-    // disambiguates generic instances, the member call is on `&mut dyn E`.
-    assert!(
-        c.contains("__Has_Random::<i32>::__get_Random(&mut __fx"),
-        "expected accessor dispatch for a generic effect:\n{c}"
-    );
-    // Two effect calls in one expression: the inner one is hoisted, or the
-    // fused value would be borrowed twice (`E0499`).
-    assert!(
-        c.contains("{ let __a1 = &(format!(\"drew {} at {}\""),
-        "expected nested effect calls to be hoisted into a temporary:\n{c}"
-    );
-}
 
 #[test]
 fn rustc_compiles_and_runs_fusion() {
@@ -2535,44 +2377,6 @@ fn rustc_compiles_and_runs_fusion() {
         "fusion",
         "LOG 1: banner\n!! done\n[1] inner\nLOG 2: banner\n!! done\n\
          LOG 3: outer again\ndrew 20 at 1\ndrew 30 at 1\n",
-    );
-}
-
-/// [backend-never-wrong] A dependent handler whose *generated* trait would
-/// have to name the handler's own generic parameters (a dependency or member
-/// signature mentioning them) is reported: the fusion cannot supply that
-/// type argument, because it never derives the handler's generics.
-#[test]
-fn generic_dependent_handler_is_a_codegen_error() {
-    const SRC: &str = r#"
-export effect Sink<T> {
-    fn accept(value: T) -> None => value
-}
-
-export handler Relay<T> [local Console] of Sink<T> {
-    fn accept(value: T) -> None => value {
-        println("relayed")
-    }
-}
-
-export fn main() [use] -> None {
-    use StdOutConsole
-    use local Relay<Int>()
-    accept(1)
-}
-"#;
-    let program = build_program(&[("main.sv", SRC)]);
-    let errors = match salvo_backend_rust::emit_program(&program) {
-        Ok(_) => panic!("expected a codegen error for a generic dependent handler"),
-        Err(errors) => errors,
-    };
-    let msg = errors
-        .iter()
-        .find(|e| e.contains("generic parameters"))
-        .unwrap_or_else(|| panic!("got {errors:?}"));
-    assert!(
-        msg.contains("Relay") && msg.contains("fuse"),
-        "the cut should name the handler and the mechanism: {msg}"
     );
 }
 
@@ -3242,13 +3046,13 @@ handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     }
 }
 
-fn roll() [local Random<Count>] -> Count {
+fn roll() [Random<Count>] -> Count {
     return next_random()
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use local CyclicRandom(list_of(7, 8))
+    use CyclicRandom(list_of(7, 8))
     println("${roll()} ${roll()}")
 }
 "#;
@@ -9639,7 +9443,7 @@ handler Direct of Sink {
     }
 }
 
-handler Doubling [local Sink] of Sink {
+handler Doubling [Sink] of Sink {
     fn take(t: Token) -> Int => !t {
         return take(t) * 2
     }
@@ -9652,7 +9456,7 @@ handler Doubling [local Sink] of Sink {
 fn main() [use] {
     use StdOutConsole()
     use Direct()
-    use local Doubling()
+    use Doubling()
     let t: Mut Token = Mut Token { id: 1 }
     bump(t)
     println("bumped ${t.id}")
@@ -9676,13 +9480,9 @@ fn effect_member_modes_follow_the_declared_clause() {
         // The trait.
         "fn take(&mut self, t: Token) -> i32;",
         "fn bump(&mut self, t: &mut Token);",
-        // The independent handler.
+        // The handlers, independent and dependent alike.
         "fn take(&mut self, t: Token) -> i32 {",
         "fn bump(&mut self, t: &mut Token) {",
-        // The dependent handler's own trait, and the fusion's forwarding
-        // impl, which passes the consumed value straight through.
-        "fn take<__Fx: __Has_Sink>(&mut self, __fx: &mut __Fx, t: Token) -> i32;",
-        "fn bump<__Fx: __Has_Sink>(&mut self, __fx: &mut __Fx, t: &mut Token);",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -11768,7 +11568,7 @@ handler Counting() of Tally, Stats {
     }
 }
 
-fn count() [local Tally, local Stats] -> Int {
+fn count() [Tally, Stats] -> Int {
     bump(2)
     bump(3)
     return total()
@@ -11786,7 +11586,7 @@ fn main() [use, spawn] {
     println(fired)
     let left = waitfor c: Reply<Int> { ctl.pending(c) }
     println("pending ${left}")
-    use local Counting()
+    use Counting()
     println("total ${count()}")
 }
 "#;

@@ -1,6 +1,5 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
-assertion_line: 138
 expression: "parse_clean(&corpus(\"effects.sv\"))"
 ---
 Module {
@@ -625,7 +624,6 @@ Module {
                                     named: [],
                                     span: 399..425,
                                 },
-                                local: false,
                                 with_items: [],
                                 span: 395..425,
                             },

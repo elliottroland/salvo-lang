@@ -194,7 +194,7 @@ fn build(
     // that binds `SystemRandom` everywhere still gets the edge if a mixed
     // `CyclicRandom` exists, the same trade the whole graph makes.
     //
-    // [use-local] [monitor-handler] And, since shareable-by-default (user
+    // [effect-handle] [monitor-handler] And, since shareable-by-default (user
     // decision 2026-09-20, option (b): waits under a lock are priced, not
     // refused), the **shareable plain handlers worth a node of their own**:
     // a plain-face, no-send-member handler that declares dependencies or
@@ -221,7 +221,7 @@ fn build(
                     .effects
                     .iter()
                     .flatten()
-                    .any(|e| matches!(e, EffectRef::Effect(_) | EffectRef::LocalEffect(_) | EffectRef::AnyEffect(_)));
+                    .any(|e| matches!(e, EffectRef::Effect(_) | EffectRef::AnyEffect(_)));
                 let waits = out
                     .waitfor_sites
                     .iter()
@@ -380,7 +380,7 @@ fn build(
             // which one a binding will choose [actor-deadlock-cycle].
             let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
             for dep in h.effects.iter().flatten() {
-                let (EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r)) = dep else { continue };
+                let (EffectRef::Effect(r) | EffectRef::AnyEffect(r)) = dep else { continue };
                 let name = r.name.name.as_str();
                 if !is_actor(name) {
                     if let Some(mixed_handlers) = mixed_of.get(name) {
@@ -388,7 +388,7 @@ fn build(
                             occupancies.push((servant_node(mh), file_idx, r.span));
                         }
                     }
-                    // [use-local] [monitor-handler] A dep on a plain effect
+                    // [effect-handle] [monitor-handler] A dep on a plain effect
                     // with wait-capable shareable handlers may park inside
                     // one — through its lock when it is stateful — so the
                     // edge points at the handler's own node (option (b),
@@ -471,7 +471,7 @@ fn build(
             }
         }
     }
-    // [use-local] [monitor-handler] The shareable plain handlers worth a
+    // [effect-handle] [monitor-handler] The shareable plain handlers worth a
     // node (option (b), user decision 2026-09-20): occupancy edges out to
     // whatever their members can park in — the mixed servants and priced
     // monitors of their dependency effects — plus actor-dep sends and task
@@ -486,7 +486,7 @@ fn build(
         let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
         let mut targets: Vec<(String, usize, Span)> = Vec::new();
         for dep in h.effects.iter().flatten() {
-            let (EffectRef::Effect(r) | EffectRef::LocalEffect(r) | EffectRef::AnyEffect(r)) = dep else { continue };
+            let (EffectRef::Effect(r) | EffectRef::AnyEffect(r)) = dep else { continue };
             let name = r.name.name.as_str();
             if own_faces.contains(&name) {
                 continue;
@@ -721,7 +721,7 @@ fn servant_node(handler: &str) -> String {
     format!("{handler}'s servant")
 }
 
-/// [use-local] [monitor-handler] The graph node of a shareable plain
+/// [effect-handle] [monitor-handler] The graph node of a shareable plain
 /// handler worth pricing (deps or waits — option (b), user decision
 /// 2026-09-20): its members run on the callers' threads, under the lock
 /// when it is stateful, so a wait inside stalls every caller behind it.

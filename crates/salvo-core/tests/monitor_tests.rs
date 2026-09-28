@@ -157,8 +157,8 @@ fn main() [use, spawn] {
     );
 }
 
-/// [use-local] The dependency restriction was lifted 2026-09-20 (user
-/// decision): a monitor may declare shareable deps, captured as owned
+/// [monitor-handler] The dependency restriction was lifted 2026-09-20 (user
+/// decision): a monitor may declare deps, captured as owned
 /// handles from the **enclosing scope** at the spawn. With no binding in
 /// scope the resolution fails by name; with one, the spawn is legal.
 #[test]
@@ -253,9 +253,7 @@ fn main() [use, spawn] {
 
 /// [actor-sendable] The instance crosses to every thread that binds the
 /// handle, so a fn-typed constructor parameter — shared, not owned — is
-/// refused by name at the spawn. `use local`-binding the same handler stays
-/// legal ([use-local]: since 2026-09-20 the bare `use` is itself a sharing
-/// site, so the lock-free binding is the spelled opt-out).
+/// refused by name at the spawn.
 #[test]
 fn a_monitor_spawn_refuses_unsendable_state() {
     let errs = errors(
@@ -271,7 +269,6 @@ handler Derived(step: (n: Int) -> Int) of Random {
 
 fn main() [use, spawn] {
     let rng = spawn Derived(n -> n + 1)
-    use local Derived(n -> n + 2)
     let ok = next()
 }
 ",
@@ -282,15 +279,11 @@ fn main() [use, spawn] {
             && m.contains("must be sendable")),
         "expected the sendability refusal: {errs:?}"
     );
-    assert!(
-        !errs.iter().any(|m| m.contains("use local Derived")),
-        "the `use local` binding of the same handler must stay legal: {errs:?}"
-    );
 }
 
-// ===== shareable by default (user decisions 2026-09-20) [use-local] =====
+// ===== every binding is a handle [effect-handle] =====
 
-/// [use-local] A bare `use` binds shareable with no annotation anywhere: a
+/// [effect-handle] A bare `use` binds shareable with no annotation anywhere: a
 /// stateful handler as a monitor, satisfying a callee's bare `[E]`
 /// requirement.
 #[test]
@@ -310,120 +303,12 @@ fn main() [use] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [effect-local] The call-site rule, both halves: a `use local` binding
-/// satisfies only `[local E]` requirements — a bare `[E]` means shareable
-/// and is refused, naming both remedies.
+/// [effect-handle] [effect-handler-deps] A dependency of any shape binds
+/// with a plain `use` — an actor-effect dependency and a generic effect
+/// instance included, which the owned-handle capture used to exclude (they
+/// bound `use local` only until 2026-09-28).
 #[test]
-fn a_local_binding_satisfies_only_local_requirements() {
-    let errs = errors(
-        "\
-fn draw() [Random] -> Int {
-    return next()
-}
-
-fn peek() [local Random] -> Int {
-    return next()
-}
-
-fn main() [use] {
-    use local CyclicRandom(7)
-    let n = draw()
-    let m = peek()
-}
-",
-    );
-    assert!(
-        errs.iter().any(|m| m.contains("requires a shareable `Random`")
-            && m.contains("local Random")),
-        "expected the bare requirement refused with both remedies: {errs:?}"
-    );
-    assert_eq!(errs.len(), 1, "the `[local Random]` call is legal: {errs:?}");
-}
-
-/// [effect-local] A shareable binding satisfies both forms: `[local E]` is
-/// the weaker requirement, so a monitor binding passes through it.
-#[test]
-fn a_shareable_binding_satisfies_a_local_requirement() {
-    let errs = errors(
-        "\
-fn peek() [local Random] -> Int {
-    return next()
-}
-
-fn main() [use] {
-    use CyclicRandom(7)
-    let n = peek()
-}
-",
-    );
-    assert!(errs.is_empty(), "expected a clean program: {errs:?}");
-}
-
-/// [use-local] A handler that cannot be shared is refused under the bare
-/// default, and the error names the opt-out.
-#[test]
-fn an_unshareable_handler_names_the_opt_out() {
-    let errs = errors(
-        "\
-handler Derived(step: (n: Int) -> Int) of Random {
-    cursor: Int = 0
-
-    fn next() -> Int {
-        cursor = step(cursor)
-        return cursor
-    }
-}
-
-fn main() [use] {
-    use Derived(n -> n + 1)
-}
-",
-    );
-    assert!(
-        errs.iter().any(|m| m.contains("cannot be bound shareable")
-            && m.contains("step")
-            && m.contains("use local Derived")),
-        "expected the refusal to name the opt-out: {errs:?}"
-    );
-}
-
-/// [use-local] [effect-local] A `local E` dependency accepts a scope-local
-/// binding, which no shared instance can capture — so it pins the handler
-/// itself to `use local`.
-#[test]
-fn a_local_dependency_pins_the_handler_to_local_bindings() {
-    let errs = errors(
-        "\
-effect Beacon {
-    fn shine() -> Int
-}
-
-handler Relaying [local Random] of Beacon {
-    fn shine() -> Int {
-        return next()
-    }
-}
-
-fn main() [use] {
-    use CyclicRandom(7)
-    use Relaying()
-}
-",
-    );
-    assert!(
-        errs.iter().any(|m| m.contains("cannot be bound shareable")
-            && m.contains("local Random")
-            && m.contains("use local Relaying")),
-        "expected the local dep named as the blocker: {errs:?}"
-    );
-}
-
-/// [use-local] [effect-handler-deps] The two dependency shapes the
-/// owned-handle capture excludes, each named as a blocker: an actor-effect
-/// dependency (an addr constructor parameter is the shape for that), and a
-/// generic effect instance.
-#[test]
-fn fusion_pinning_dependencies_block_a_shareable_binding() {
+fn dependencies_of_every_shape_bind_with_a_plain_use() {
     let errs = errors(
         "\
 effect Beacon {
@@ -444,7 +329,7 @@ effect Store<T> {
 
 handler MemStore of Store<Int> {
     fn keep(value: Int) -> Int => value {
-        return value
+        return 1
     }
 }
 
@@ -455,6 +340,7 @@ handler ViaStore [Store<Int>] of Beacon {
 }
 
 fn main() [use, spawn] {
+    use CyclicRandom(7)
     let d = spawn Drawing() on pool(1)
     use d
     use ViaDrawer()
@@ -463,22 +349,12 @@ fn main() [use, spawn] {
 }
 ",
     );
-    assert!(
-        errs.iter().any(|m| m.contains("`ViaDrawer` cannot be bound shareable")
-            && m.contains("actor effect")),
-        "expected the actor-effect dep blocker: {errs:?}"
-    );
-    assert!(
-        errs.iter().any(|m| m.contains("`ViaStore` cannot be bound shareable")
-            && m.contains("generic effect instance")),
-        "expected the generic-instance dep blocker: {errs:?}"
-    );
+    assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [use-local] [monitor-handler] The generic monitor (user decision
+/// [effect-handle] [monitor-handler] The generic monitor (user decision
 /// 2026-09-20): a stateful handler of a generic effect *instance* shares by
-/// default like any other — `handler Keeping of Store<Int>` needs no
-/// `local` anywhere.
+/// default like any other — `handler Keeping of Store<Int>`.
 #[test]
 fn a_stateful_handler_of_a_generic_instance_shares() {
     let errs = errors(
@@ -546,9 +422,7 @@ fn main() [use] {
 
 /// [spawn-inherit] A **platform effect** keeps a targeted refusal: the host
 /// owns that instance and hands it to `main` as a borrow, so there is no
-/// handle to mint — the remedy is the `DefaultFs [RawFs]` shape, or a
-/// `local` dependency (user decision 2026-09-20; that surface gets its own
-/// design round).
+/// handle to mint — the remedy is the `DefaultFs [RawFs]` shape.
 #[test]
 fn a_platform_effect_cannot_be_captured_as_a_handle() {
     let errs = errors(
@@ -581,36 +455,7 @@ fn wire() [Host, use] {
     );
 }
 
-/// [use-local] [effect-local] A shareable-default dependency is captured as
-/// an owned handle, which a `use local` binding cannot yield.
-#[test]
-fn a_captured_dependency_needs_a_shareable_binding() {
-    let errs = errors(
-        "\
-effect Beacon {
-    fn shine() -> Int
-}
-
-handler Relaying [Random] of Beacon {
-    fn shine() -> Int {
-        return next()
-    }
-}
-
-fn main() [use] {
-    use local CyclicRandom(7)
-    use Relaying()
-}
-",
-    );
-    assert!(
-        errs.iter().any(|m| m.contains("depends on a shareable `Random`")
-            && m.contains("use local")),
-        "expected the local dep binding refused: {errs:?}"
-    );
-}
-
-/// [use-local] [actor-deadlock-cycle] Waits under a monitor's lock are
+/// [monitor-handler] [actor-deadlock-cycle] Waits under a monitor's lock are
 /// priced, not refused — option (b), user decision 2026-09-20: dep-bearing
 /// shareable handlers get graph nodes, and a cycle through held locks is
 /// reported before it runs, naming the locks.

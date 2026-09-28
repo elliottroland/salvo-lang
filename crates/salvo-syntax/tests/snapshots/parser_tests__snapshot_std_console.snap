@@ -1,6 +1,5 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
-assertion_line: 88
 expression: "parse_clean(&std_core(\"console.sv\"))"
 ---
 Module {
@@ -198,11 +197,11 @@ Module {
                 implicit_groups: [],
                 effects: Some(
                     [
-                        LocalEffect(
+                        Effect(
                             TypeRef {
                                 name: Ident {
                                     name: "Console",
-                                    span: 219..226,
+                                    span: 213..220,
                                 },
                                 args: [],
                                 value_args: [],
@@ -211,7 +210,7 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 219..226,
+                                span: 213..220,
                             },
                         ),
                     ],
@@ -223,7 +222,7 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 231..235,
+                                span: 225..229,
                             },
                             args: [],
                             value_args: [],
@@ -232,7 +231,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 231..235,
+                            span: 225..229,
                         },
                     },
                 ),
@@ -245,7 +244,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 242..247,
+                                            span: 236..241,
                                         },
                                     ),
                                     type_args: [],
@@ -253,12 +252,12 @@ Module {
                                         Ident(
                                             Ident {
                                                 name: "message",
-                                                span: 248..255,
+                                                span: 242..249,
                                             },
                                         ),
                                     ],
                                     named: [],
-                                    span: 242..256,
+                                    span: 236..250,
                                 },
                             ),
                             Expr(
@@ -266,7 +265,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 261..266,
+                                            span: 255..260,
                                         },
                                     ),
                                     type_args: [],
@@ -277,18 +276,18 @@ Module {
                                                     "\n",
                                                 ),
                                             ],
-                                            span: 267..271,
+                                            span: 261..265,
                                         },
                                     ],
                                     named: [],
-                                    span: 261..272,
+                                    span: 255..266,
                                 },
                             ),
                         ],
-                        span: 236..274,
+                        span: 230..268,
                     },
                 ),
-                span: 187..274,
+                span: 187..268,
             },
         ),
     ],

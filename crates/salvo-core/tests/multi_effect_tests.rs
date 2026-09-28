@@ -417,20 +417,17 @@ handler Counting() of Tally, Stats {
     }
 }
 
-fn work() [local Tally, local Stats] -> Int {
+fn work() [Tally, Stats] -> Int {
     bump(2)
     return total()
 }
 
 fn main() [use] -> None {
-    use local Counting()
+    use Counting()
     discard(work())
 }
 "#,
     );
-    // [use-local] A stateful multi-face handler has no shared form yet (one
-    // lock behind several effect types), so the binding is the spelled
-    // opt-out and the callee accepts a local instance.
     assert!(errs.is_empty(), "both faces are bound by one `use`: {errs:?}");
 }
 

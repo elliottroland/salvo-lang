@@ -191,8 +191,8 @@ handler Counting() of Tally, Stats {
 }
 
 fn main() [use] {
-    use local Counting()    // registers *both* effects — `local` because one
-    bump(2)                 // lock behind several faces has no shared form yet
+    use Counting()          // registers *both* effects
+    bump(2)
     println("${total()}")
 }
 ```
@@ -231,34 +231,31 @@ fn main() [use, spawn] {
 }
 ```
 
-The price of sharing used to be "a monitor declares no dependencies"; since the shareable-by-default round (2026-09-20) a monitor **may** declare dependencies, provided every one is the shareable default (`[E]` — no `local E`, no `use`, no `spawn` capability). They are captured as **owned handles at construction**, resolved from the enclosing scope exactly as a `use` resolves them, so the bindings are fixed for the instance's life. The availability rule keeps the capture acyclic — a dependency was bound before this handler, so no lock order can cycle by construction — and where a member *can* wait (a dependency with mixed handlers, a `waitfor` in a member), the wait is **priced, not refused**: the handler gets a node in the same deadlock graph actors use (`H's lock`), and a cycle through held locks is reported before it runs. A handler that cannot be shared at all — unsendable state, the `use`/`spawn` capabilities, a `local` dependency — is refused with the opt-out named.
+The price of sharing used to be "a monitor declares no dependencies"; since 2026-09-20 a monitor **may** declare dependencies. They are captured as **handles at construction**, resolved from the enclosing scope exactly as a `use` resolves them, so the bindings are fixed for the instance's life. The availability rule keeps the capture acyclic — a dependency was bound before this handler, so no lock order can cycle by construction — and where a member *can* wait (a dependency with mixed handlers, a `waitfor` in a member), the wait is **priced, not refused**: the handler gets a node in the same deadlock graph actors use (`H's lock`), and a cycle through held locks is reported before it runs.
 
 A monitor serializes with a lock where an actor serializes with a mailbox, and one piece of state can be under only one of them — so a handler is one or the other, read off its shape: mutable state with `send fn` members is an actor's, mutable state with only plain members shares as a monitor. Fit: passive shared state — counters, caches, configuration, cursors, `Random`. A generic effect instance shares like any other: `handler CyclicRandom of Random<Int>` gets a monitor of `Random<Int>`, so genericity costs nothing here.
 
-## Shareable by default: `use`, `use local`, and `local E`
+## Every binding is a handle
 
 ```
-use Counting()          // shareable: the instance may be captured by a spawn
-use local Counting()    // this frame only — nothing may capture it
+use Counting()          // a handle: callees receive it, spawns and handlers capture it
 
-fn tally(n: Int) [local Tally] -> None {
-    …                   // declares that its handler need not be shareable
+fn tally(n: Int) [Tally] -> None {
+    …                   // receives the handle of whatever `Tally` is bound
 }
 ```
 
-`use H(args)` binds **shareable by default** (user decision 2026-09-20). A stateless handler binds *bare* — shareable without a lock, so `StdOutConsole` and friends pay nothing — and a stateful one binds as a **monitor**: lock-shaped from birth, effectively `let h = spawn H(args); use h`. A `use` of an addr or of a spawn expression is already a handle and needs no words. The motivating goal is *spawn-inheritance*: for `spawn H on pool(2)` to pick up the scope's effects without re-declaration, a bare `[E]` in a signature has to guarantee something that may cross a seam.
+A `use` makes one value — the **handle** of the instance — and everything downstream is that value or a copy of it: a function's `[E]` parameter, a dependent handler's captured dependency, a spawn's or task's inherited effect, a fn value's effect (user decision 2026-09-28: *one shape*, after a round that had distinguished shareable from scope-local bindings). A stateless handler's handle costs a copy; a stateful one's is a **monitor** — lock-shaped from birth, effectively `let h = spawn H(args); use h` — so two spawns capturing the same stateful binding share its state, exactly as they would through an addr. A `use` of an addr or of a spawn expression is already a handle and needs no words.
 
-That is what `[E]` now means: **a shareable `E`** — the function may pass it across seams. The opt-outs are spelled:
+The motivating goal is *spawn-inheritance*: for `spawn H on pool(2)` to pick up the scope's effects without re-declaration, a bare `[E]` in a signature has to be something that may cross a seam — and a handle is. Since every binding is one, nothing has to be annotated to be inherited, captured, or handed to a scheduled body, and a function called from inside a lambda declares `[E]` like any other.
 
-- **`use local H(args)`** binds scope-local and lock-free — the pre-2026-09-20 meaning. It is *required*, by an error naming it, for handlers that cannot be shared: unsendable state (a stored lambda), the `use`/`spawn` capabilities, a `local E` dependency, an actor-effect or generic-instance dependency (both pin the fusion form).
-- **`[local E]`** in an effect list accepts a scope-local binding and disclaims seam rights for `E`. The call-site rule: a `use local` binding satisfies only `[local E]` requirements; a shareable binding satisfies both, since `local` is the weaker claim. The annotation is viral down call chains that traffic in local bindings — an accepted cost, to be lifted later by inference — and std's own effect-forwarding functions (`println`, the `Fs` surface, `elapsed`) declare `[local E]`, being pure forwarders that never cross a seam.
-- A **fn type's** effects are always call-only — a function value cannot spawn — so writing `local` there is refused as redundant, and a lambda's availabilities are local: a function called from inside a lambda declares `[local E]`.
+A dependent handler captures its dependencies as handles **at construction** — from a binding in the same function, or from an effect the function received through its own signature (see the next section). A `platform handler` **states its own thread-safety** (user decision 2026-09-26): `threadsafe platform handler` is the declared contract that the host synchronizes internally; without the word the compiler serializes it. Either binds as a handle, so nothing that depends on a platform-backed effect is written differently — `DefaultFs [RawFs]` is an ordinary dependent handler. The contract itself is on the Backends page.
 
-A dependent handler bound shareable captures its dependencies as owned handles **at construction** — from a binding in the same function, or from an effect the function received through its own signature, in which case the handle is threaded in by the caller (see the next section). A `platform handler` **states its own thread-safety** (user decision 2026-09-26): `threadsafe platform handler` classifies bare and is shared raw; without the word it classifies as a monitor and the compiler serializes it on both backends. Either is shareable, so nothing that depends on a platform-backed effect ever writes `local` — `DefaultFs [RawFs]` stays annotation-free, as does the production interceptor chain, which was the point of lifting monitor dependencies. The contract itself is on the Backends page.
+One member shape a handle cannot give: a member that **lends** a mutable view into the handler's own state (`fn cursor() -> Mut proj(self) List<Int>`) has nothing to lend through a handle whose lock is released at the return, and is refused at the declaration — answer a copy, or take a closure.
 
 ## Many instances: `[any E]` and `of any E`
 
-`local` weakens one thing a bare `[E]` claims — that the binding may cross a seam. The other claim is **identity**: that `E` is *one* instance, so two sends to it arrive in order and see the same state. A function written `bump(2); bump(3); total(out)` relies on that, and nothing in its body says so. A binding spread over many instances — a router in front of a fleet — cannot give it, so the weakening is spelled where the requirement is:
+A bare `[E]` claims **identity**: that `E` is *one* instance, so two sends to it arrive in order and see the same state. A function written `bump(2); bump(3); total(out)` relies on that, and nothing in its body says so. A binding spread over many instances — a router in front of a fleet — cannot give it, so the weakening is spelled where the requirement is:
 
 ```
 handler RoundRobin(members: List<Addr<Resizer>>) of any Resizer {   // forwards; promises no order
@@ -284,9 +281,8 @@ tally(["dog.png"])       // error: `tally` declares `[Resizer]` — one instance
 ```
 
 - **`of any E`** on a handler's face says the handler forwards to many instances. A `use` of it binds `any E`, which satisfies only `[any E]`. It is also the one handler of an actor effect that `use` binds *shareable* — bare when stateless, a monitor when it keeps a cursor — since a group handle is always shareable.
-- **`[any E]`** in an effect list says "each send may go to a different instance; I assume no order and no shared state between them." It accepts every binding, a single instance being a group of one, and it is viral downward like `local`: a body holding `[any E]` may call `E` directly and callees declaring `[any E]`, never a callee that assumes one instance. Bare `[E]` keeps the strong meaning, so a program written before groups existed cannot be broken by binding one under it.
-- The two axes never combine: `local any E` is refused, because a binding spread over many instances is always shareable.
-- A fn type carries no strength (no `any`, no `local`): the function that takes the value writes `[any E]` itself if any instance will do, which weakens the requirement it inherits.
+- **`[any E]`** in an effect list says "each send may go to a different instance; I assume no order and no shared state between them." It accepts every binding, a single instance being a group of one, and it is viral downward: a body holding `[any E]` may call `E` directly and callees declaring `[any E]`, never a callee that assumes one instance. Bare `[E]` keeps the strong meaning, so a program written before groups existed cannot be broken by binding one under it.
+- A fn type carries no strength (no `any`): the function that takes the value writes `[any E]` itself if any instance will do, which weakens the requirement it inherits.
 
 `any` is a claim about the guarantee the effect gives, not about where the instances are: a local group of a hundred on `pool(4)` is `any`; a single actor on another machine, reached through its `Addr`, is not.
 
@@ -303,9 +299,9 @@ fn main() [use, spawn] {
 }
 ```
 
-This is what the shareable-by-default round bought. A bare `[Random]` guarantees a shareable instance, so the scope's registration can be captured as a handle and travel with the child — checked one function at a time, with no whole-program analysis and no runtime check. Before it, every dependency had to be written at every spawn.
+A bare `[Random]` is a handle, so the scope's registration can be captured and travel with the child — checked one function at a time, with no whole-program analysis and no runtime check. Before handles, every dependency had to be written at every spawn.
 
-Only a shareable binding can be inherited: a `use local` one exists precisely so that it does not cross a seam, and the error names the remedy (bind it shareable, or give the child its own). Two candidate instances in scope is an ambiguity the compiler will not guess at, and nothing in scope is still an error — now naming both ways to fix it.
+Two candidate instances in scope is an ambiguity the compiler will not guess at, and nothing in scope is an error — naming both ways to fix it.
 
 Where the scope's instance is *not* what a handler should get, **`with` names what it should**:
 
@@ -315,7 +311,7 @@ use Loud with Formal()        // Loud wraps this fresh Formal, not the Plain in 
 let d = spawn Drawing() with FixedRandom() on pool(1)
 ```
 
-A `with` item is a **private instance**: constructed at the clause, owned by the handler or child it is given to, shared with nothing. The clause is *partial* — items satisfy the dependencies they match, and the rest still inherit — and it may supply the self-dependency, which is the one case where an interceptor wraps something other than what it shadows. It works on both binding forms, and `use local H with …` is fine too: the clause chooses which instance, which has nothing to do with locality.
+A `with` item is a **private instance**: constructed at the clause, owned by the handler or child it is given to, shared with nothing. The clause is *partial* — items satisfy the dependencies they match, and the rest still inherit — and it may supply the self-dependency, which is the one case where an interceptor wraps something other than what it shadows. The clause chooses *which* instance; how it is bound is not its business.
 
 The same lift applies to `use` inside a function that *received* the effects it wires:
 
@@ -326,9 +322,9 @@ fn interception() [Logger, Clock, use] -> None {
 }
 ```
 
-Nothing in that function says `local`. On the Kotlin backend an object reference already is a handle, so this costs nothing; on the Rust backend the caller passes one extra hidden parameter — a small bundle of the handles the callee has to capture — and only on call chains that actually capture one. A function may only have such a parameter if its effect list carries `use` or `spawn`, so the possibility is visible in the signature even though the parameter is not.
+The effects a function receives *are* handles — on the Kotlin backend an object reference, on the Rust backend a cloneable wrapper — so capturing one costs a copy and nothing else.
 
-One shape still refuses: a **platform effect** cannot be captured this way, because the host owns that instance and hands it to `main` as a borrow — there is no handle to make. Put an ordinary Salvo handler over it (`DefaultFs [RawFs]` is exactly this) or declare the dependency `local`.
+One shape still refuses: a **platform effect** cannot be captured this way, because the host owns that instance and hands it to `main` as a borrow — there is no handle to make. Put an ordinary Salvo handler over it (`DefaultFs [RawFs]` is exactly this).
 
 
 ## Mixed handlers — a servant behind a plain effect
@@ -402,7 +398,7 @@ Two members with the same name *and* the same parameter types are the error they
 A member and an ordinary **function** may also share a name, and they are one overload set too. std's own filesystem needs it: `close` is an `Fs` member per stream token *and* the function that closes a `Lines` iterator.
 
 ```
-fn close(p: Lines) [local Fs] -> Ok None | Err Checked<FsError> => !p {   // a function
+fn close(p: Lines) [Fs] -> Ok None | Err Checked<FsError> => !p {         // a function
     return close(p.s)                                            // ...calling the member
 }
 ```
