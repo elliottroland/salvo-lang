@@ -115,6 +115,12 @@ pub fn fn_call(
         ("hash", Some("Int" | "Long" | "Byte" | "Char" | "Bool" | "Str")) => {
             format!("({}).hashCode().toLong()", a(0))
         }
+        // [col-hashed-ordered] **Interim** (see the Rust side): a `List` or a
+        // tuple through the host's structural `equals`/`hashCode`, and the
+        // runtime comparator for order [kt-ordered].
+        ("cmp", Some("List" | "()")) => format!("salvo.__salvoCompare({}, {})", a(0), a(1)),
+        ("eq", Some("List" | "()")) => format!("(({}) == ({}))", a(0), a(1)),
+        ("hash", Some("List" | "()")) => format!("({}).hashCode().toLong()", a(0)),
         // [cmp-hash-values] The wrapping fold a structural `hash` combines
         // its fields with; the JVM's `Long` arithmetic wraps by itself.
         ("mix_hash", Some("Long")) => format!("(({}) * 31L + ({}))", a(0), a(1)),

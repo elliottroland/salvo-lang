@@ -33,6 +33,8 @@ fn check_files(files: &[(&str, &str)]) -> (Program, Checked) {
         assert!(errors.is_empty(), "parse errors: {errors:?}");
         modules.push(module);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -104,6 +106,8 @@ fn resolve_errors(files: &[(&str, &str)]) -> Vec<String> {
         assert!(errors.is_empty(), "parse errors: {errors:?}");
         modules.push(module);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -262,6 +266,8 @@ fn check_errors(src: &str) -> Vec<String> {
         assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
         modules.push(module);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,

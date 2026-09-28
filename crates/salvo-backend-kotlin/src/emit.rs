@@ -1383,7 +1383,7 @@ impl<'p> Emitter<'p> {
                 // [iter-fn] A `yield fn` is not a function in the
                 // output: it *is* the hidden state machine the `for` sugar
                 // constructs, so nothing callable is emitted for it.
-                // [cmp-auto] A structural member has no body and is still
+                // [obligation-by] A structural member has no body and is still
                 // emitted: its body is the host's own operation.
                 Item::Fn(f) if f.body.is_some() => {
                     body.push_str(&self.emit_fn(f))
@@ -3451,7 +3451,7 @@ impl<'p> Emitter<'p> {
     fn kotlin_fn_name(&mut self, decl: &FnDecl) -> String {
         let name = decl.name.name.clone();
         let overloads: Vec<&FnDecl> = match self.symbols.fns.get(name.as_str()) {
-            // [cmp-auto] A generated structural member has no body and is
+            // [obligation-by] A generated structural member has no body and is
             // still emitted, so it takes part in mangling like any overload —
             // without this, three `auto Eq` structs would all emit `eq`.
             Some(o) if o.len() > 1 => o
@@ -8905,7 +8905,7 @@ impl<'p> Emitter<'p> {
     /// function: the call, then the operator applied to its answer. The call
     /// itself is emitted by the ordinary paths, so an intrinsic (`cmp(Str, Str)`
     /// → the runtime comparator, which is how this backend gets code-point
-    /// order), a canonical and a generated structural member [cmp-auto] all
+    /// order), a canonical and a generated structural member [obligation-by] all
     /// need no special handling.
     fn emit_compare_via(
         &mut self,
@@ -9205,6 +9205,9 @@ fn type_base_name(ty: &Type) -> Option<&str> {
         Type::Nullable { inner, .. } => type_base_name(inner),
         Type::QualifiedGroup { base, .. } => type_base_name(base),
         Type::Array { .. } => Some("[]"),
+        // [col-hashed-ordered] A tuple receiver, for the interim structural
+        // `cmp`/`eq`/`hash` intrinsics over tuples.
+        Type::Tuple { .. } => Some("()"),
         _ => None,
     }
 }

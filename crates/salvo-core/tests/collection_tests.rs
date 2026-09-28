@@ -51,6 +51,12 @@ fn checked(src: &str) -> salvo_core::Checked {
         true,
     );
     sources.add(
+        "std/core/auto.sv",
+        SourceSet::classify(Path::new("core/auto.sv")).unwrap(),
+        AUTO_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
         "main.sv",
         SourceSet::classify(Path::new("main.sv")).unwrap(),
         src.to_string(),
@@ -67,6 +73,8 @@ fn checked(src: &str) -> salvo_core::Checked {
         );
         modules.push(ast);
     }
+    // [comptime-instantiate] The `by` sites stamp here, before resolution.
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -74,7 +82,10 @@ fn checked(src: &str) -> salvo_core::Checked {
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
-    check_program(&program, &resolution, &symbols)
+    let mut checked = check_program(&program, &resolution, &symbols);
+    // A stamping refusal is an error of the program like any other.
+    checked.errors.extend(expansion.diagnostics);
+    checked
 }
 
 fn errors(src: &str) -> Vec<FileDiagnostic> {
@@ -124,7 +135,7 @@ fn a_float_value_is_fine() {
     assert_ok("fn probe(m: Map<Str, Double>) -> Int => m {\n    return size(m)\n}\n");
 }
 
-/// [col-key-eligible] [cmp-auto] A struct with no `hash` is not a key, and
+/// [col-key-eligible] [obligation-by] A struct with no `hash` is not a key, and
 /// the diagnostic names the clause that makes it one.
 #[test]
 fn a_struct_key_names_the_default_hashed_clause() {
@@ -134,7 +145,7 @@ fn a_struct_key_names_the_default_hashed_clause() {
     );
     assert_eq!(msgs.len(), 1, "expected exactly one error: {msgs:?}");
     assert!(
-        msgs[0].contains("auto Hashed<self>"),
+        msgs[0].contains("Hashed<self> by auto"),
         "the message should name the clause: {}",
         msgs[0]
     );
@@ -278,10 +289,46 @@ const LIT_PRELUDE: &str = concat!(
     "export params Hashed<T> {\n    fn hash(value: T) -> Long\n    fn eq(a: T, b: T) -> Bool\n}\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn eq(a: Double, b: Double) [] -> Bool => a, b\n",
     "export intrinsic fn hash(value: Int) [] -> Long => value\n",
+    "export intrinsic fn cmp(a: Str, b: Str) [] -> Int => a, b\n",
+    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
+    "export intrinsic fn hash(value: Str) [] -> Long => value\n",
+    // [col-hashed-ordered] The interim structural container identities, as
+    // `core.compare` declares them.
+    "export intrinsic fn cmp<T>(a: List<T>, b: List<T>) [] -> Int => a, b\n",
+    "export intrinsic fn eq<T>(a: List<T>, b: List<T>) [] -> Bool => a, b\n",
+    "export intrinsic fn hash<T>(value: List<T>) [] -> Long => value\n",
+    "export intrinsic fn cmp<A, B>(a: (A, B), b: (A, B)) [] -> Int => a, b\n",
+    "export intrinsic fn eq<A, B>(a: (A, B), b: (A, B)) [] -> Bool => a, b\n",
+    "export intrinsic fn hash<A, B>(value: (A, B)) [] -> Long => value\n",
     "export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
     "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
     "export intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
+);
+
+/// [obligation-by] The structural `compfn`s `by auto` stamps, mirroring
+/// `std/core/auto.sv`'s struct half: the tests here are about what a `by`
+/// clause does to a type, not about the bodies.
+const AUTO_PRELUDE: &str = concat!(
+    "export intrinsic fn mix_hash(seed: Long, value: Long) [] -> Long => seed, value\n",
+    "export compfn cmp<struct T>(a: T, b: T) [] -> Int => a, b {\n",
+    "    inline for field in T.fields {\n",
+    "        let c = cmp(a.[field], b.[field])\n",
+    "        if c != 0 {\n            return c\n        }\n",
+    "    }\n    return 0\n}\n",
+    "export compfn eq<struct T>(a: T, b: T) [] -> Bool => a, b {\n",
+    "    inline for field in T.fields {\n",
+    "        if !eq(a.[field], b.[field]) {\n            return false\n        }\n",
+    "    }\n    return true\n}\n",
+    "export compfn hash<struct T>(value: T) [] -> Long => value {\n",
+    "    inline if T canbe Mut {\n",
+    "        refuse \"a `Mut`-capable struct can change while a collection holds it, so it cannot be a key\"\n",
+    "    }\n",
+    "    let h = 17L\n",
+    "    inline for field in T.fields {\n",
+    "        h = mix_hash(h, hash(value.[field]))\n",
+    "    }\n    return h\n}\n",
 );
 
 fn lit_checked(src: &str) -> salvo_core::Checked {
@@ -290,6 +337,12 @@ fn lit_checked(src: &str) -> salvo_core::Checked {
         "std/core/prelude.sv",
         SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
         LIT_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "std/core/auto.sv",
+        SourceSet::classify(Path::new("core/auto.sv")).unwrap(),
+        AUTO_PRELUDE.to_string(),
         true,
     );
     sources.add(
@@ -309,6 +362,8 @@ fn lit_checked(src: &str) -> salvo_core::Checked {
         );
         modules.push(ast);
     }
+    // [comptime-instantiate] The `by` sites stamp here, before resolution.
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -316,7 +371,10 @@ fn lit_checked(src: &str) -> salvo_core::Checked {
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
-    check_program(&program, &resolution, &symbols)
+    let mut checked = check_program(&program, &resolution, &symbols);
+    // A stamping refusal is an error of the program like any other.
+    checked.errors.extend(expansion.diagnostics);
+    checked
 }
 
 fn lit_messages(src: &str) -> Vec<String> {
@@ -451,12 +509,12 @@ fn a_map_literal_wants_a_value_for_every_entry() {
 /// [op-equality] Equality **ignores qualifiers** — it is about the data at the
 /// moment of the check, so `Tagged Point == Point` resolves the same
 /// `eq(Point, Point)`. (Since 2026-09-21 the struct has to *have* one: equality
-/// is opt-in, and `auto Eq<self>` is the one-token way to ask.)
+/// is opt-in, and `Eq<self> by auto` is the one-token way to ask.)
 #[test]
 fn equality_ignores_qualifiers() {
     let msgs = lit_messages(
         "qualifier Tagged of Point\n\n\
-         struct Point : auto Eq<self> {\n    x: Int,\n    y: Int\n}\n\n\
+         struct Point : Eq<self> by auto {\n    x: Int,\n    y: Int\n}\n\n\
          fn tagged(p: Point) -> +Tagged Point {\n    return p\n}\n\n\
          fn probe(a: Point, b: Point) -> Bool => !a, b {\n    \
          let t = tagged(a)\n    return t == b\n}\n",
@@ -477,7 +535,7 @@ fn a_struct_without_an_eq_cannot_be_compared() {
     assert_eq!(msgs.len(), 1, "expected one error: {msgs:?}");
     assert!(
         msgs[0].contains("declare a `eq` inside `Point`'s body")
-            && msgs[0].contains(": auto"),
+            && msgs[0].contains("by auto"),
         "unexpected message: {}",
         msgs[0]
     );
@@ -499,20 +557,21 @@ fn comparing_different_struct_types_is_refused() {
     );
 }
 
-/// [cmp-auto] A fn-typed field bars the **structural** `eq`: no answer exists
-/// that both backends can give. It no longer bars the *struct* from equality
-/// though — which is the new capability decision 6 names: declare an `eq` that
-/// ignores the field, and the type is comparable (and hashable, with a `hash` to
-/// match).
+/// [obligation-by] [comptime-instantiate] A fn-typed field bars the stamped
+/// `eq`: the copy for that field finds no `eq` over a function value, and the
+/// error lands at the field, prefixed with what was being stamped. It does not
+/// bar the *struct* from equality: declare an `eq` that ignores the field, and
+/// the type is comparable (and hashable, with a `hash` to match).
 #[test]
 fn a_fn_field_bars_the_structural_eq_but_not_a_hand_written_one() {
     let structural = lit_messages(
-        "struct Holder : auto Eq<self> {\n    f: (Int) -> Int\n}\n",
+        "struct Holder : Eq<self> by auto {\n    f: (Int) -> Int\n}\n",
     );
     assert_eq!(structural.len(), 1, "expected one error: {structural:?}");
     assert!(
-        structural[0].contains("auto fn eq")
-            && structural[0].contains("function value has no equality"),
+        structural[0].contains("in `eq` from `auto` for `Holder.f: (Int) -> Int`")
+            && structural[0].contains("no matching overload for `eq(")
+            && structural[0].contains("-> Int, (Int) -> Int)"),
         "unexpected message: {}",
         structural[0]
     );
@@ -533,7 +592,7 @@ fn a_fn_field_bars_the_structural_eq_but_not_a_hand_written_one() {
 #[test]
 fn ordering_needs_a_cmp() {
     let generated = lit_messages(
-        "struct P : auto Ordered<self> {\n    x: Int\n}\n\n\
+        "struct P : Ordered<self> by auto {\n    x: Int\n}\n\n\
          fn probe(a: P, b: P) -> Bool => a, b {\n    return a < b\n}\n",
     );
     assert!(generated.is_empty(), "expected no errors, got: {generated:?}");
@@ -554,66 +613,71 @@ fn ordering_needs_a_cmp() {
     assert_eq!(msgs.len(), 1, "expected one error: {msgs:?}");
     assert!(
         msgs[0].contains("declare a `cmp` inside `P`'s body")
-            && msgs[0].contains(": auto"),
+            && msgs[0].contains("by auto"),
         "unexpected message: {}",
         msgs[0]
     );
 }
 
-/// [cmp-auto] The `default` clauses are validated where they are written: a
-/// mutable struct cannot be a key, and every field has to qualify for the
-/// structural implementation — the rules `canbe hashed`/`canbe ordered` used to
-/// carry, inherited along with the derive-based lowering.
+/// [obligation-by] [comptime-refuse] The `by auto` clauses are validated where
+/// they are written: `core.auto`'s `hash` **refuses** a `canbe Mut` struct (a key
+/// that can change under the collection holding it), and every field has to
+/// resolve its own `hash`/`cmp` — the rules `canbe hashed`/`canbe ordered` used
+/// to carry, now stated in std rather than in the compiler.
 #[test]
 fn the_default_clauses_are_validated_at_the_declaration() {
-    // A `canbe Mut` struct could change under the collection holding it.
+    // A `canbe Mut` struct could change under the collection holding it. The
+    // refusal is one error; the obligation left unfulfilled by it is another,
+    // at the clause.
     let mutable =
-        lit_messages("struct K : auto Hashed<self> canbe Mut {\n    v: Int\n}\n");
-    assert_eq!(mutable.len(), 1, "expected one error: {mutable:?}");
+        lit_messages("struct K : Hashed<self> by auto canbe Mut {\n    v: Int\n}\n");
     assert!(
-        mutable[0].contains("canbe Mut") && mutable[0].contains("Only an immutable struct"),
-        "unexpected message: {}",
-        mutable[0]
+        mutable
+            .iter()
+            .any(|m| m.contains("`K` refused") && m.contains("`Mut`-capable struct") && m.contains("[comptime-refuse]")),
+        "unexpected messages: {mutable:?}"
     );
 
-    // A float field is hashable by neither backend...
-    let float_hash = lit_messages("struct K : auto Hashed<self> {\n    v: Double\n}\n");
-    assert_eq!(float_hash.len(), 1, "expected one error: {float_hash:?}");
+    // A float field has no `hash` (by neither backend) — reported at the
+    // field, in the stamped copy's terms. `Hashed` brings `eq`, and the
+    // prelude here declares no `eq(Double)`, so that copy fails too.
+    let float_hash = lit_messages("struct K : Hashed<self> by auto {\n    v: Double\n}\n");
     assert!(
-        float_hash[0].contains("field `v`") && float_hash[0].contains("not hashable"),
-        "unexpected message: {}",
-        float_hash[0]
+        float_hash
+            .iter()
+            .any(|m| m.contains("in `hash` from `auto` for `K.v: Double`") && m.contains("hash(Double)")),
+        "unexpected messages: {float_hash:?}"
     );
 
-    // ... nor orderable.
-    let float_ord = lit_messages("struct K : auto Ordered<self> {\n    v: Double\n}\n");
+    // ... nor a `cmp`.
+    let float_ord = lit_messages("struct K : Ordered<self> by auto {\n    v: Double\n}\n");
     assert_eq!(float_ord.len(), 1, "expected one error: {float_ord:?}");
     assert!(
-        float_ord[0].contains("not orderable"),
+        float_ord[0].contains("in `cmp` from `auto` for `K.v: Double`") && float_ord[0].contains("cmp(Double, Double)"),
         "unexpected message: {}",
         float_ord[0]
     );
 
     // A float field is fine for **equality**, which Salvo owns [kt-float-eq].
-    let float_eq = lit_messages("struct K : auto Eq<self> {\n    v: Double\n}\n");
+    let float_eq = lit_messages("struct K : Eq<self> by auto {\n    v: Double\n}\n");
     assert!(float_eq.is_empty(), "expected no errors, got: {float_eq:?}");
 
     // A nested struct must itself be hashable — which now means *having* a
     // `hash`, not declaring an opt-in.
     let nested = lit_messages(
         "struct Inner {\n    v: Int\n}\n\n\
-         struct K : auto Hashed<self> {\n    i: Inner\n}\n",
+         struct K : Hashed<self> by auto {\n    i: Inner\n}\n",
     );
-    assert_eq!(nested.len(), 1, "expected one error: {nested:?}");
     assert!(
-        nested[0].contains("`Inner` has no `hash`"),
-        "unexpected message: {}",
-        nested[0]
+        nested
+            .iter()
+            .any(|m| m.contains("in `hash` from `auto` for `K.i: Inner`") && m.contains("hash(Inner)")),
+        "unexpected messages: {nested:?}"
     );
 
     // Lists and tuples qualify when their elements do (user, 2026-09-12).
     let containers = lit_messages(
-        "struct K : auto Hashed<self>, auto Ordered<self> {\n    \
+        "struct K : Hashed<self> by auto, Ordered<self> by auto {\n    \
          parts: List<Int>,\n    pair: (Str, Int)\n}\n",
     );
     assert!(containers.is_empty(), "expected no errors, got: {containers:?}");
@@ -624,7 +688,7 @@ fn the_default_clauses_are_validated_at_the_declaration() {
 #[test]
 fn a_hashed_struct_is_a_valid_key() {
     let msgs = lit_messages(
-        "struct Point : auto Hashed<self> {\n    x: Int,\n    y: Int\n}\n\n\
+        "struct Point : Hashed<self> by auto {\n    x: Int,\n    y: Int\n}\n\n\
          fn probe(s: Set<Point>, m: Map<Point, Str>) -> Int => s, m {\n    \
          return size(s) + size(m)\n}\n",
     );
@@ -647,7 +711,7 @@ fn canbe_rejects_an_unknown_optin() {
     assert!(
         deleted
             .iter()
-            .any(|m| m.contains("no longer exists") && m.contains(": auto Hashed<self>")),
+            .any(|m| m.contains("no longer exists") && m.contains(": Hashed<self> by auto")),
         "the message should name the replacement, got: {deleted:?}"
     );
 }
@@ -689,6 +753,12 @@ fn sorted_messages(src: &str) -> Vec<String> {
         true,
     );
     sources.add(
+        "std/core/auto.sv",
+        SourceSet::classify(Path::new("core/auto.sv")).unwrap(),
+        AUTO_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
         "main.sv",
         SourceSet::classify(Path::new("main.sv")).unwrap(),
         src.to_string(),
@@ -705,6 +775,8 @@ fn sorted_messages(src: &str) -> Vec<String> {
         );
         modules.push(ast);
     }
+    // [comptime-instantiate] The `by` sites stamp here, before resolution.
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -712,7 +784,9 @@ fn sorted_messages(src: &str) -> Vec<String> {
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
-    check_program(&program, &resolution, &symbols)
+    let mut checked = check_program(&program, &resolution, &symbols);
+    checked.errors.extend(expansion.diagnostics);
+    checked
         .errors
         .into_iter()
         .filter(|d| d.is_error())
@@ -725,7 +799,7 @@ fn sorted_messages(src: &str) -> Vec<String> {
 #[test]
 fn a_sorted_key_must_be_orderable() {
     let ok = sorted_messages(
-        "struct P : auto Ordered<self> {\n    x: Int\n}\n\n\
+        "struct P : Ordered<self> by auto {\n    x: Int\n}\n\n\
          fn probe(a: SortedSet<Str>, b: SortedMap<Int, Str>, c: SortedSet<P>) -> Int \
          => a, b, c {\n    return size(a) + size(b) + size(c)\n}\n",
     );
@@ -734,13 +808,13 @@ fn a_sorted_key_must_be_orderable() {
     // A struct with only the hashing pair is a `Set` key but not a `SortedSet`
     // one: the two axes are separate.
     let hashed_only = sorted_messages(
-        "struct P : auto Hashed<self> {\n    x: Int\n}\n\n\
+        "struct P : Hashed<self> by auto {\n    x: Int\n}\n\n\
          fn probe(a: SortedSet<P>) -> Int => a {\n    return size(a)\n}\n",
     );
     assert_eq!(hashed_only.len(), 1, "expected one error: {hashed_only:?}");
     assert!(
         hashed_only[0].contains("sorted collection's key")
-            && hashed_only[0].contains("auto Ordered<self>"),
+            && hashed_only[0].contains("Ordered<self> by auto"),
         "unexpected message: {}",
         hashed_only[0]
     );
@@ -836,6 +910,8 @@ fn the_generated_constructors_and_converters_type_correctly() {
         );
         modules.push(ast);
     }
+    // [comptime-instantiate] The `by` sites stamp here, before resolution.
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -843,7 +919,9 @@ fn the_generated_constructors_and_converters_type_correctly() {
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
-    let errs: Vec<String> = check_program(&program, &resolution, &symbols)
+    let mut checked = check_program(&program, &resolution, &symbols);
+    checked.errors.extend(expansion.diagnostics);
+    let errs: Vec<String> = checked
         .errors
         .into_iter()
         .filter(|d| d.is_error())

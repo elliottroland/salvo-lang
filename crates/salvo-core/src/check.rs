@@ -893,7 +893,7 @@ enum ImplicitMiss {
 #[derive(Clone, Debug, PartialEq)]
 pub enum CompareVia {
     /// A declared `cmp`/`eq` — a canonical [fn-attached], a generated
-    /// structural member [cmp-auto], or any other visible overload that
+    /// structural member [obligation-by], or any other visible overload that
     /// fits. Intrinsic declarations included, which is how `Str` ordering
     /// reaches the backends' code-point comparison.
     Call(FnKey),
@@ -3187,7 +3187,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if matches!(q.name.name.as_str(), "Mut" | "once") {
                 continue;
             }
-            // [cmp-auto] `canbe hashed` / `canbe ordered` are **gone** (user
+            // [obligation-by] `canbe hashed` / `canbe ordered` are **gone** (user
             // decision 2026-09-21): a type is hashable or orderable exactly when
             // a `hash`/`cmp` for it exists, so the opt-in became the
             // implementation — one token where the type wants the structural one.
@@ -3201,9 +3201,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     q.span,
                     format!(
                         "`canbe {}` no longer exists: being hashable or orderable is \
-                         *having the function*, so declare it — `: auto {group}<self>` \
+                         *having the function*, so declare it — `: {group}<self> by auto` \
                          on the type for the structural one, or a `{member}` of your \
-                         own [cmp-auto] [fn-attached]",
+                         own [obligation-by] [fn-attached]",
                         q.name.name,
                         member = if q.name.name == "hashed" { "hash" } else { "cmp" }
                     ),
@@ -4192,7 +4192,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 bound: None,
             });
         }
-        // [cmp-auto] [implicit-group] Two spreads asking for the **same
+        // [obligation-by] [implicit-group] Two spreads asking for the **same
         // position** ask for one parameter, not two: `?Eq<T>` beside
         // `?Hashed<T>` brings one `eq`, since `Hashed` carries the `eq` its
         // `hash` is confirmed by (user decision 2026-09-22). Merging is by name
@@ -10101,7 +10101,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   story.
     /// * **Everything else needs a function.** Ordering resolves `cmp` at the
     ///   operand type, equality resolves `eq` — a canonical [fn-attached], a
-    ///   generated structural member [cmp-auto], or any other fitting
+    ///   generated structural member [obligation-by], or any other fitting
     ///   overload. With none in scope the operator is an **error naming the
     ///   remedy**, which is what makes equality opt-in for a type of your own
     ///   and closes the silent comparison of unconstrained generics.
@@ -10305,12 +10305,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             ),
             Ty::Named { name, .. } if self.scope.structs.contains_key(name.as_str()) => format!(
                 " — declare a `{member}` inside `{name}`'s body, or ask for the \
-                 structural one with `: auto …<self>` on `{name}` [cmp-auto] \
+                 structural one with `: …<self> by auto` on `{name}` [obligation-by] \
                  [fn-attached]"
             ),
             _ => format!(
                 " — declare a `{member}` for it, or ask for the structural one with \
-                 `: auto …<self>` where the type is declared [cmp-auto]"
+                 `: …<self> by auto` where the type is declared [obligation-by]"
             ),
         }
     }
@@ -10432,7 +10432,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// resolved). It replaced `canbe hashed`/`canbe ordered`, which asked
     /// whether the *declaration* said so: a type is orderable now exactly when
     /// an ordering for it exists, whether hand-written [fn-attached] or
-    /// generated [cmp-auto].
+    /// generated [obligation-by].
     fn has_member_for(&self, member: &str, name: &str) -> bool {
         self.scope.fns.get(member).is_some_and(|entries| {
             entries.iter().any(|e| {
@@ -10478,7 +10478,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         Some(format!(
                             "`{name}` has no `hash`: declare one (with an `eq`) in its \
                              file, or ask for the structural pair with \
-                             `: auto Hashed<self>` [cmp-auto]"
+                             `: Hashed<self> by auto` [obligation-by]"
                         ))
                     }
                 }
@@ -10532,8 +10532,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     } else {
                         Some(format!(
                             "`{name}` has no `cmp`: declare one in its file, or ask for \
-                             the structural one with `: auto Ordered<self>` \
-                             [cmp-auto]"
+                             the structural one with `: Ordered<self> by auto` \
+                             [obligation-by]"
                         ))
                     }
                 }

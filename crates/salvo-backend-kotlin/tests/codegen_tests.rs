@@ -2946,7 +2946,7 @@ fn main() [use] {
     )
 }
 
-/// [cmp-auto] `: auto Ordered<self>` and friends: the compiler writes the
+/// [cmp-auto] `: Ordered<self> by auto` and friends: the compiler writes the
 /// structural implementations and lowers them to what this backend already
 /// emits for an ordered struct — `compareTo` through the runtime comparator, the
 /// data class's `equals`, and `hashCode()`.
@@ -2958,7 +2958,7 @@ fn kotlinc_compiles_and_runs_auto_members() -> KotlinCase {
     let src = r#"
 // Ordering is lexicographic by field declaration order, which is the language's
 // rule on both backends.
-struct Point : auto Ordered<self>, auto Hashed<self> {
+struct Point : Ordered<self> by auto, Hashed<self> by auto {
     x: Int,
     y: Int
 }
@@ -2969,11 +2969,11 @@ struct Point : auto Ordered<self>, auto Hashed<self> {
 struct Tag {
     label: Str
 
-    auto fn eq(a: Tag, b: Tag) [] -> Bool => a, b
+    fn eq(a: Tag, b: Tag) [] -> Bool => a, b by auto
 }
 
 // A generic struct's generated members are generic too.
-struct Box<T> : auto Eq<self> {
+struct Box<T> : Eq<self> by auto {
     item: T
 }
 
@@ -3025,7 +3025,7 @@ fn main() [use] {
 /// units where Salvo's `cmp(Str, Str)` compares code points [kt-ordered].
 fn kotlinc_compiles_and_runs_operators_through_the_groups() -> KotlinCase {
     let src = r#"
-struct Point : auto Ordered<self>, auto Eq<self> {
+struct Point : Ordered<self> by auto, Eq<self> by auto {
     x: Int,
     y: Int
 }
@@ -3190,7 +3190,7 @@ fn main() [use] {
 /// lowerings of one rule, and the equality of the output is the assertion.
 fn kotlinc_compiles_and_runs_a_keyed_container_ordering() -> KotlinCase {
     let src = r#"
-struct Person : auto Ordered<self>, auto Eq<self> { name: Str, age: Int }
+struct Person : Ordered<self> by auto, Eq<self> by auto { name: Str, age: Int }
 
 fn by_age(a: Person, b: Person) -> Int => a, b {
     return cmp(a.age, b.age)
@@ -3247,7 +3247,7 @@ fn main() [use] {
 /// the emitted *type* is still `MutableSet<T>` and only the construction differs.
 fn kotlinc_compiles_and_runs_a_keyed_hash_pair() -> KotlinCase {
     let src = r#"
-struct Person : auto Hashed<self> { name: Str, age: Int }
+struct Person : Hashed<self> by auto { name: Str, age: Int }
 
 // A pair that keys by age alone: two people of an age are one member.
 fn age_hash(p: Person) -> Long => p {
@@ -3478,14 +3478,14 @@ fn kotlinc_compiles_and_runs_a_declared_identity() -> KotlinCase {
 
 /// [cmp-carry] [kt-keyed] A **mixed fill**, byte-identical to the Rust backend's
 /// `a_mixed_identity_fill_pairs_both_slots`: the written `hash` beside the `eq`
-/// that `: auto Hashed<self>` generated. This backend used to abandon the whole
+/// that `: Hashed<self> by auto` generated. This backend used to abandon the whole
 /// pair when *either* slot resolved to the host's own operation, so the written
 /// slot was silently lost and the native container answered instead — wrong
 /// output [backend-never-wrong], fixed 2026-09-26.
 const MIXED_IDENTITY_DEMO: &str = r#"
-// `auto Hashed<self>` generates `hash` and `eq`; the constructor keeps the
+// `Hashed<self> by auto` generates `hash` and `eq`; the constructor keeps the
 // generated equality and writes a coarser hash of its own.
-struct Point : auto Hashed<self> {
+struct Point : Hashed<self> by auto {
     x: Int,
     y: Int
 }
@@ -3589,7 +3589,7 @@ fn kotlinc_compiles_and_runs_a_generic_written_identity() -> KotlinCase {
 /// where the shape closed two defects. This backend always handled it; the case
 /// is here so the two stay verified together [backend-parity].
 const MIXED_SOURCE_DEMO: &str = r#"
-struct Point : auto Hashed<self> {
+struct Point : Hashed<self> by auto {
     x: Int,
     y: Int
 }
@@ -6364,18 +6364,18 @@ export fn main() [use] -> None {
 /// class's own `equals` would have reported as `true`.
 fn kotlinc_compiles_and_runs_equality_and_ordering() -> KotlinCase {
     let src = r#"
-export struct Point : auto Ordered<self>, auto Hashed<self> {
+export struct Point : Ordered<self> by auto, Hashed<self> by auto {
     x: Int,
     y: Int
 }
 
-export struct Version : auto Ordered<self>, auto Hashed<self> {
+export struct Version : Ordered<self> by auto, Hashed<self> by auto {
     parts: List<Int>,
     label: (Str, Int)
 }
 
 // Equality only — and a float field, which is fine for `eq` and not for a key.
-export struct Measure : auto Eq<self> {
+export struct Measure : Eq<self> by auto {
     value: Double
 }
 

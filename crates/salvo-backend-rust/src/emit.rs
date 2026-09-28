@@ -2676,7 +2676,7 @@ impl<'p> Emitter<'p> {
                 Item::Effect(e) if e.name.name == salvo_core::THROW_EFFECT => {}
                 Item::Effect(e) => body.push_str(&self.emit_effect(e)),
                 Item::Handler(h) => body.push_str(&self.emit_handler(h)),
-                // [cmp-auto] A structural member has no body and is still
+                // [obligation-by] A structural member has no body and is still
                 // emitted: its body is the host's derived operation.
                 Item::Fn(f) if f.body.is_some() => {
                     body.push_str(&self.emit_fn(f))
@@ -2723,6 +2723,52 @@ impl<'p> Emitter<'p> {
 
     // ================= declarations =================
 
+    /// [col-hashed-ordered] Whether a `member` (`hash`, `cmp`) is declared on
+    /// the struct: written inside its body or stamped (`scoped_to`), or a
+    /// fulfilment in the struct's file whose first parameter names it.
+    fn struct_has_capability(&self, s: &StructDecl, member: &str) -> bool {
+        self.program.modules.iter().flat_map(|m| &m.items).any(|item| {
+            let Item::Fn(f) = item else { return false };
+            if f.name.name != member {
+                return false;
+            }
+            if f.scoped_to.as_ref().is_some_and(|t| t.name == s.name.name) {
+                return true;
+            }
+            f.params
+                .first()
+                .is_some_and(|p| matches!(&p.ty, Type::Named { base, .. } if base.name.name == s.name.name))
+        })
+    }
+
+    /// Whether every field of `s` has a host `Hash`/`Ord` derive to stand on:
+    /// the scalars but the floats, `Str`, containers and tuples of derivable
+    /// types, and structs that are themselves derivable.
+    fn struct_derivable(&self, s: &StructDecl, depth: usize) -> bool {
+        if depth > 8 || !s.generics.is_empty() {
+            return false;
+        }
+        s.fields.iter().all(|f| self.type_derivable(&f.ty, depth))
+    }
+
+    fn type_derivable(&self, ty: &Type, depth: usize) -> bool {
+        match ty {
+            Type::Named { base, .. } => match base.name.name.as_str() {
+                "Int" | "Long" | "Byte" | "Char" | "Bool" | "Str" | "Bytes" | "None" => true,
+                "List" | "Set" | "Map" => base.args.iter().all(|a| self.type_derivable(a, depth + 1)),
+                name => self.symbols.structs.get(name).is_some_and(|inner| {
+                    (self.struct_has_capability(inner, "hash")
+                        || self.struct_has_capability(inner, "cmp"))
+                        && self.struct_derivable(inner, depth + 1)
+                }),
+            },
+            Type::Tuple { elems, .. } => elems.iter().all(|e| self.type_derivable(e, depth + 1)),
+            Type::Array { elem, .. } => self.type_derivable(elem, depth + 1),
+            Type::QualifiedGroup { base, .. } => self.type_derivable(base, depth),
+            Type::Union { .. } | Type::Nullable { .. } | Type::Fn { .. } => false,
+        }
+    }
+
     fn emit_struct(&mut self, s: &StructDecl) -> String {
         let saved = self.enter_generics(&s.generics);
         let mut generics = self.emit_generic_params(&s.generics);
@@ -2748,12 +2794,33 @@ impl<'p> Emitter<'p> {
             .collect();
         // [col-equality] Every struct supports `==`, so `PartialEq` is derived
         // unless a fn-typed field makes equality meaningless (`Rc<dyn Fn>` has
-        // none). A struct's `cmp`/`eq`/`hash` are **Salvo functions** —
-        // stamped from `core.auto` or hand-written [obligation-by] — so no
-        // `Hash`/`Ord` derive is asked for: the keyed containers take the
-        // functions themselves [rs-stored-implicit].
+        // none). A struct's own `cmp`/`eq`/`hash` are **Salvo functions** —
+        // stamped from `core.auto` or hand-written [obligation-by] — and are
+        // never these derives.
+        //
+        // [col-hashed-ordered] The derives are still asked for where a struct
+        // *has* a `hash` or `cmp` and every field derives: a `List<Point>` or a
+        // `(Int, Point)` as a **key** hashes and orders through the host's
+        // structural `Vec`/tuple implementations, which reach the element's
+        // derive rather than its Salvo fn. Interim until std owns container
+        // identity through recursive implicit resolution (COMPTIME.md 15.1,
+        // ROADMAP §6); the host's structural order agrees with the stamped
+        // one by construction (both are field-wise in declaration order).
+        let hashed = self.struct_has_capability(s, "hash") && self.struct_derivable(s, 0);
+        let ordered = self.struct_has_capability(s, "cmp") && self.struct_derivable(s, 0);
         let derives = if fn_fields.is_empty() {
-            "#[derive(Clone, Debug, PartialEq)]".to_string()
+            let mut items = vec!["Clone", "Debug", "PartialEq"];
+            if hashed || ordered {
+                items.push("Eq");
+            }
+            if hashed {
+                items.push("Hash");
+            }
+            if ordered {
+                items.push("PartialOrd");
+                items.push("Ord");
+            }
+            format!("#[derive({})]", items.join(", "))
         } else {
             "#[derive(Clone)]".to_string()
         };
@@ -4891,7 +4958,7 @@ impl<'p> Emitter<'p> {
     ///
     /// The call itself is emitted by the ordinary paths — an intrinsic through
     /// its lowering, anything else as a named call with its own parameter modes
-    /// — so a canonical, a generated structural member [cmp-auto] and an
+    /// — so a canonical, a generated structural member [obligation-by] and an
     /// intrinsic (`cmp(Str, Str)`, which is how `Str` gets code-point order on
     /// both backends) all need no special handling here.
     fn emit_compare_via(
@@ -5872,7 +5939,7 @@ impl<'p> Emitter<'p> {
     fn rust_fn_name(&mut self, decl: &FnDecl) -> String {
         let name = decl.name.name.clone();
         let overloads: Vec<&FnDecl> = match self.symbols.fns.get(name.as_str()) {
-            // [cmp-auto] A generated structural member has no body and is
+            // [obligation-by] A generated structural member has no body and is
             // still emitted, so it takes part in mangling like any overload —
             // without this, three `auto Eq` structs would all emit `eq`.
             Some(o) if o.len() > 1 => o
@@ -17004,6 +17071,9 @@ fn type_base_name(ty: &Type) -> Option<&str> {
         Type::Nullable { inner, .. } => type_base_name(inner),
         Type::QualifiedGroup { base, .. } => type_base_name(base),
         Type::Array { .. } => Some("[]"),
+        // [col-hashed-ordered] A tuple receiver, for the interim structural
+        // `cmp`/`eq`/`hash` intrinsics over tuples.
+        Type::Tuple { .. } => Some("()"),
         _ => None,
     }
 }

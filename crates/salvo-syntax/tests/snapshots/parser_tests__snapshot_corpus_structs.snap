@@ -1,6 +1,5 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
-assertion_line: 118
 expression: "parse_clean(&corpus(\"structs.sv\"))"
 ---
 Module {
@@ -222,7 +221,9 @@ Module {
                     span: 137..142,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -786,7 +787,9 @@ Module {
                     span: 601..607,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -885,7 +888,9 @@ Module {
                     span: 669..680,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,

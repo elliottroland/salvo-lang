@@ -225,6 +225,23 @@ pub fn fn_call(
              (std::hash::Hasher::finish(&__h) as i64) }}",
             a(0)
         ),
+        // [col-hashed-ordered] **Interim**: a `List` or a tuple compares, hashes
+        // and orders through the host's structural implementations, which
+        // reach an element struct's derive (kept for exactly this, see
+        // `emit_struct`) rather than its Salvo fn. Until std owns container
+        // identity through recursive implicit resolution (COMPTIME.md 15.1,
+        // ROADMAP §6), so an element's *declared* `cmp` is not consulted inside
+        // a list — the limitation §6 records.
+        ("cmp", Some("List" | "()")) => {
+            format!("(Ord::cmp(&({}), &({})) as i32)", a(0), a(1))
+        }
+        ("eq", Some("List" | "()")) => format!("(({}) == ({}))", a(0), a(1)),
+        ("hash", Some("List" | "()")) => format!(
+            "{{ let mut __h = std::hash::DefaultHasher::new(); \
+             std::hash::Hash::hash(&({}), &mut __h); \
+             (std::hash::Hasher::finish(&__h) as i64) }}",
+            a(0)
+        ),
         // [cmp-hash-values] Folding one digest into another, wrapping: what a
         // structural `hash` combines its fields with. Written arithmetic
         // would trap here in a debug build, where the JVM wraps.

@@ -39,6 +39,30 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn to_long(value: Int) [] -> Long => value\n",
 );
 
+/// [obligation-by] The structural `compfn`s `by auto` stamps, mirroring
+/// `std/core/auto.sv`'s struct half: the tests here are about what a `by`
+/// clause does to a type, not about the bodies.
+const AUTO_PRELUDE: &str = concat!(
+    "export intrinsic fn mix_hash(seed: Long, value: Long) [] -> Long => seed, value\n",
+    "export compfn cmp<struct T>(a: T, b: T) [] -> Int => a, b {\n",
+    "    inline for field in T.fields {\n",
+    "        let c = cmp(a.[field], b.[field])\n",
+    "        if c != 0 {\n            return c\n        }\n",
+    "    }\n    return 0\n}\n",
+    "export compfn eq<struct T>(a: T, b: T) [] -> Bool => a, b {\n",
+    "    inline for field in T.fields {\n",
+    "        if !eq(a.[field], b.[field]) {\n            return false\n        }\n",
+    "    }\n    return true\n}\n",
+    "export compfn hash<struct T>(value: T) [] -> Long => value {\n",
+    "    inline if T canbe Mut {\n",
+    "        refuse \"a `Mut`-capable struct can change while a collection holds it, so it cannot be a key\"\n",
+    "    }\n",
+    "    let h = 17L\n",
+    "    inline for field in T.fields {\n",
+    "        h = mix_hash(h, hash(value.[field]))\n",
+    "    }\n    return h\n}\n",
+);
+
 fn errors(src: &str) -> Vec<String> {
     errors_in(&[("main.sv", src)])
 }
@@ -51,6 +75,12 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
         "std/core/compare.sv",
         SourceSet::classify(Path::new("core/compare.sv")).unwrap(),
         STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "std/core/auto.sv",
+        SourceSet::classify(Path::new("core/auto.sv")).unwrap(),
+        AUTO_PRELUDE.to_string(),
         true,
     );
     for (name, src) in files {
@@ -71,6 +101,8 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
         );
         modules.push(ast);
     }
+    // [comptime-instantiate] The `by` sites stamp here, before resolution.
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -79,9 +111,10 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    resolution
-        .errors
+    expansion
+        .diagnostics
         .iter()
+        .chain(resolution.errors.iter())
         .chain(checked.errors.iter())
         .filter(|d| d.is_error())
         .map(|d| d.message.clone())
@@ -721,14 +754,14 @@ fn a_declaration_takes_no_selector() {
 
 // ===== [cmp-auto] the generated structural implementations =====
 
-/// `: auto Ordered<self>` writes the members: `cmp` resolves at the type,
+/// `: Ordered<self> by auto` writes the members: `cmp` resolves at the type,
 /// fills a `?Ordered<T>` position, and is reached by the canonical selector
 /// like a hand-written one [fn-attached].
 #[test]
 fn a_default_obligation_generates_the_members() {
     let errs = errors(
         r#"
-struct Point : auto Ordered<self>, auto Hashed<self> {
+struct Point : Ordered<self> by auto, Hashed<self> by auto {
     x: Int,
     y: Int
 }
@@ -758,17 +791,17 @@ fn smaller(p: Point, q: Point) [] -> Point => !p, !q {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// [cmp-auto] **`auto Hashed<self>` brings `eq` with it, and `auto
+/// [cmp-auto] **`Hashed<self> by auto` brings `eq` with it, and `auto
 /// Ordered<self>` does not** (user decision 2026-09-22, revising decision 7): a
 /// hash container buckets by `hash` and confirms by `eq`, so the pair is the
 /// unit — while no sorted container consults equality at all, so an `eq` in
 /// `Ordered` would be a member nothing reads.
 #[test]
 fn hashing_brings_eq_and_ordering_does_not() {
-    // `auto Hashed<self>` generates `hash` *and* `eq`.
+    // `Hashed<self> by auto` generates `hash` *and* `eq`.
     let errs = errors(
         r#"
-struct Key : auto Hashed<self> {
+struct Key : Hashed<self> by auto {
     x: Int
 }
 
@@ -779,10 +812,10 @@ fn same(a: Key, b: Key) [] -> Bool => a, b {
     );
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 
-    // `auto Ordered<self>` generates only `cmp`, so equality is a separate ask.
+    // `Ordered<self> by auto` generates only `cmp`, so equality is a separate ask.
     let errs = errors(
         r#"
-struct Point : auto Ordered<self> {
+struct Point : Ordered<self> by auto {
     x: Int
 }
 
@@ -804,9 +837,9 @@ fn same(a: Point, b: Point) [] -> Bool => a, b {
 struct Point : Ordered<self>, Eq<self> {
     x: Int
 
-    auto fn eq(a: Point, b: Point) [] -> Bool => a, b
+    fn eq(a: Point, b: Point) [] -> Bool => a, b by auto
 
-    auto fn cmp(a: Point, b: Point) [] -> Int => a, b
+    fn cmp(a: Point, b: Point) [] -> Int => a, b by auto
 }
 
 fn same(a: Point, b: Point) [] -> Bool => a, b {
@@ -827,15 +860,16 @@ params Step<It, T> {
     fn advance(it: Mut It) -> T
 }
 
-struct Counter : auto Step<self, Int> canbe Mut {
+struct Counter : Step<self, Int> by auto canbe Mut {
     at: Int
 }
 "#,
     );
+    // `auto` has no `advance`, and the clause's argument is not `self` either.
     assert!(
         errs.iter()
-            .any(|e| e.contains("`cmp`, `eq`, `hash`")),
-        "expected the generable members to be named, got: {errs:?}"
+            .any(|e| e.contains("its argument is `self`") || e.contains("has no `compfn advance`")),
+        "expected the stamping to be refused, got: {errs:?}"
     );
 }
 
@@ -845,7 +879,7 @@ struct Counter : auto Step<self, Int> canbe Mut {
 fn a_default_obligation_takes_self() {
     let errs = errors(
         r#"
-struct Point : auto Ordered<Int> {
+struct Point : Ordered<Int> by auto {
     x: Int
 }
 "#,
@@ -856,14 +890,15 @@ struct Point : auto Ordered<Int> {
     );
 }
 
-/// [cmp-auto] `default` inherits today's validation, because it inherits
-/// today's lowering: a float field has no hash the two backends agree on, and a
-/// mutable struct cannot be a key. Both are reported at the clause.
+/// [obligation-by] [comptime-instantiate] [comptime-refuse] What a stamped body
+/// needs of the type is checked where the type is declared: a float field has no
+/// `hash` (reported at the field, in the copy's terms), and `core.auto`'s `hash`
+/// refuses a mutable struct (reported at the clause).
 #[test]
 fn a_default_obligation_validates_the_fields() {
     let float_field = errors(
         r#"
-struct Sample : auto Hashed<self> {
+struct Sample : Hashed<self> by auto {
     at: Double
 }
 "#,
@@ -871,13 +906,13 @@ struct Sample : auto Hashed<self> {
     assert!(
         float_field
             .iter()
-            .any(|e| e.contains("auto fn hash") && e.contains("not hashed")),
+            .any(|e| e.contains("in `hash` from `auto` for `Sample.at: Double`") && e.contains("hash(Double)")),
         "expected the float field to be refused, got: {float_field:?}"
     );
 
     let mutable = errors(
         r#"
-struct Counter : auto Ordered<self> canbe Mut {
+struct Counter : Hashed<self> by auto canbe Mut {
     at: Int
 }
 "#,
@@ -885,7 +920,7 @@ struct Counter : auto Ordered<self> canbe Mut {
     assert!(
         mutable
             .iter()
-            .any(|e| e.contains("auto fn cmp") && e.contains("canbe Mut")),
+            .any(|e| e.contains("`Counter` refused") && e.contains("`Mut`-capable struct")),
         "expected the mutable struct to be refused, got: {mutable:?}"
     );
 }
@@ -946,7 +981,7 @@ fn a_spread_resolves_every_member() {
 struct Key {
     x: Int
 
-    auto fn hash(value: Key) [] -> Long => value
+    fn hash(value: Key) [] -> Long => value by auto
 }
 
 fn bucket<T>(v: T, ?Hashed<T>) [] -> Long => v {
@@ -969,7 +1004,7 @@ fn probe(k: Key) [] -> Long => k {
 struct Key {
     x: Int
 
-    auto fn hash(value: Key) [] -> Long => value
+    fn hash(value: Key) [] -> Long => value by auto
 }
 
 fn bucket<T>(v: T, ?hash: (T) -> Long) [] -> Long => v {
@@ -1001,9 +1036,9 @@ struct Person : Ordered<self>, Hashed<self> {
         return cmp(a, b) == 0
     }
 
-    auto fn hash(value: Person) [] -> Long => value
+    fn hash(value: Person) [] -> Long => value by auto
 
-    auto fn cmp(a: Person, b: Person) [] -> Int => a, b
+    fn cmp(a: Person, b: Person) [] -> Int => a, b by auto
 }
 
 fn probe(a: Person, b: Person) [] -> Bool => a, b {
@@ -1014,23 +1049,23 @@ fn probe(a: Person, b: Person) [] -> Bool => a, b {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// [cmp-auto] `auto Group<self>` is sugar for exactly those declarations, so
+/// [cmp-auto] `Group<self> by auto` is sugar for exactly those declarations, so
 /// the two spellings are interchangeable — and mixing them on one member is the
 /// ordinary duplicate.
 #[test]
 fn the_clause_and_the_fn_form_are_one_thing() {
     let errs = errors(
         r#"
-struct A : auto Hashed<self> {
+struct A : Hashed<self> by auto {
     x: Int
 }
 
 struct B {
     x: Int
 
-    auto fn eq(a: B, b: B) [] -> Bool => a, b
+    fn eq(a: B, b: B) [] -> Bool => a, b by auto
 
-    auto fn hash(value: B) [] -> Long => value
+    fn hash(value: B) [] -> Long => value by auto
 }
 
 fn probe(p: A, q: A, r: B, s: B) [] -> Bool => p, q, r, s {
@@ -1042,10 +1077,10 @@ fn probe(p: A, q: A, r: B, s: B) [] -> Bool => p, q, r, s {
 
     let dup = errors(
         r#"
-struct A : auto Hashed<self> {
+struct A : Hashed<self> by auto {
     x: Int
 
-    auto fn hash(value: A) [] -> Long => value
+    fn hash(value: A) [] -> Long => value by auto
 }
 
 "#,
@@ -1056,67 +1091,58 @@ struct A : auto Hashed<self> {
     );
 }
 
-/// [cmp-auto] What an `auto fn` must be: `@`-scoped to a visible struct, named
-/// after a member the compiler can write, bodiless, and of the member's own
-/// shape. Each refusal names the remedy rather than leaving a body unwritten.
+/// [fn-by] What a `by` declaration must be: stamped at a struct or a declared
+/// union (the first parameter's type), from a scope holding a `compfn` of that
+/// name, bodiless, and of the instantiation's own shape. Each refusal names the
+/// remedy rather than leaving a body unwritten.
 #[test]
 fn an_auto_fn_is_checked_at_its_declaration() {
-    // Not declared on a type: there are no fields to read.
-    let errs = errors("auto fn cmp(a: Int, b: Int) [] -> Int => a, b
-");
+    // Not at a struct or union: there are no fields or arms to walk.
+    let errs = errors("fn cmp(a: Int, b: Int) [] -> Int => a, b by auto\n");
     assert!(
-        errs.iter().any(|e| e.contains("declared *on* one")),
-        "expected the attachment requirement: {errs:?}"
+        errs.iter().any(|e| e.contains("not a struct or a declared union type")),
+        "expected the target requirement: {errs:?}"
     );
 
-    // A member the compiler has no generator for.
+    // A member `auto` has no compfn for.
     let errs = errors(
         r#"
 struct Point {
     x: Int
 
-    auto fn describe(p: Point) [] -> Str => p
+    fn describe(p: Point) [] -> Str => p by auto
 }
 
 "#,
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("`cmp`, `eq`, `hash`") && e.contains("describe")),
-        "expected the generable members to be named: {errs:?}"
+            .any(|e| e.contains("has no `compfn describe`")),
+        "expected the missing compfn to be named: {errs:?}"
     );
 
-    // A body, which the compiler was going to write.
+    // A body, which the stamping was going to write: a parse error.
+    let (_, diags) = salvo_syntax::parse_module(
+        "struct Point {\n    x: Int\n\n    fn cmp(a: Point, b: Point) [] -> Int => a, b by auto {\n        return 0\n    }\n}\n",
+    );
+    assert!(
+        diags.iter().any(|d| d.message.contains("its body is stamped")),
+        "expected the body to be refused: {diags:?}"
+    );
+
+    // The wrong shape for the compfn it names.
     let errs = errors(
         r#"
 struct Point {
     x: Int
 
-    auto fn cmp(a: Point, b: Point) [] -> Int => a, b {
-        return 0
-    }
+    fn hash(a: Point, b: Point) [] -> Long => a, b by auto
 }
 
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("takes none")),
-        "expected the body to be refused: {errs:?}"
-    );
-
-    // The wrong shape for the member it names.
-    let errs = errors(
-        r#"
-struct Point {
-    x: Int
-
-    auto fn hash(a: Point, b: Point) [] -> Long => a, b
-}
-
-"#,
-    );
-    assert!(
-        errs.iter().any(|e| e.contains("1 parameter")),
+        errs.iter().any(|e| e.contains("takes 2 parameter(s)") && e.contains("takes 1")),
         "expected the arity to be named: {errs:?}"
     );
 
@@ -1125,23 +1151,21 @@ struct Point {
 struct Point {
     x: Int
 
-    auto fn cmp(a: Point, b: Point) [] -> Bool => a, b
+    fn cmp(a: Point, b: Point) [] -> Bool => a, b by auto
 }
 
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("must be declared")),
-        "expected the signature to be named: {errs:?}"
+        errs.iter().any(|e| e.contains("returns `Bool`, but the stamped `cmp` returns `Int`")),
+        "expected the return type to be named: {errs:?}"
     );
 
-    // An `auto` obligation on a type with no fields to read: the generator has
-    // nothing to write the body from, and only a struct has fields.
-    let errs = errors("auto fn cmp(a: Str, b: Str) [] -> Int => a, b
-");
+    // The same, at a type with no fields to read: an intrinsic is not a target.
+    let errs = errors("fn cmp(a: Str, b: Str) [] -> Int => a, b by auto\n");
     assert!(
-        errs.iter().any(|e| e.contains("declared *on* one")),
-        "expected the attachment requirement: {errs:?}"
+        errs.iter().any(|e| e.contains("not a struct or a declared union type")),
+        "expected the target requirement: {errs:?}"
     );
 }
 
@@ -1151,7 +1175,7 @@ struct Point {
 fn a_hand_written_member_beside_a_generated_one_is_a_duplicate() {
     let errs = errors(
         r#"
-struct Point : auto Eq<self> {
+struct Point : Eq<self> by auto {
     x: Int
 
     fn eq(a: Point, b: Point) [] -> Bool => a, b {
@@ -1163,28 +1187,27 @@ struct Point : auto Eq<self> {
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("is declared twice") && e.contains("remove `default`")),
+            .any(|e| e.contains("is declared twice") && e.contains("remove the member's group from the `by` clause")),
         "expected the duplicate to name both remedies, got: {errs:?}"
     );
 }
 
-/// A generic struct's generated members are generic too, over the struct's own
-/// parameters — and a type variable is not checked at the declaration
-/// [col-hashed-ordered], so generic code over keyed collections stays writable.
+/// [obligation-by] A generic struct is **not** stamped at yet (COMPTIME.md 12.3,
+/// deferred): the copy for a field of type `T` would need an implicit, and the
+/// refusal names the hand-written form that declares one.
 #[test]
-fn a_generic_struct_generates_generic_members() {
+fn a_generic_struct_is_refused_with_the_remedy() {
     let errs = errors(
         r#"
-struct Box<T> : auto Eq<self> {
+struct Box<T> : Eq<self> by auto {
     item: T
-}
-
-fn same(a: Box<Int>, b: Box<Int>) [] -> Bool => a, b {
-    return eq(a, b)
 }
 "#,
     );
-    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+    assert!(
+        errs.iter().any(|e| e.contains("`Box` is generic") && e.contains("?Hashed<T>")),
+        "expected the generic refusal with its remedy: {errs:?}"
+    );
 }
 
 /// The obligation is still checked at the struct [group-obligation]: `default`
@@ -1194,7 +1217,7 @@ fn same(a: Box<Int>, b: Box<Int>) [] -> Bool => a, b {
 fn default_satisfies_the_obligation_it_is_written_on() {
     let generated = errors(
         r#"
-struct Point : auto Eq<self> {
+struct Point : Eq<self> by auto {
     x: Int
 }
 "#,
@@ -1224,7 +1247,7 @@ struct Point : Eq<self> {
 fn the_operators_resolve_through_the_groups() {
     let errs = errors(
         r#"
-struct Point : auto Ordered<self>, auto Eq<self> {
+struct Point : Ordered<self> by auto, Eq<self> by auto {
     x: Int
 }
 
@@ -1297,7 +1320,7 @@ fn same(a: Note, b: Note) [] -> Bool => a, b {
     assert!(
         missing
             .iter()
-            .any(|e| e.contains("`==` on `Note`") && e.contains(": auto")),
+            .any(|e| e.contains("`==` on `Note`") && e.contains("by auto")),
         "expected the opt-in to be named, got: {missing:?}"
     );
 
@@ -1319,8 +1342,8 @@ fn same<T>(a: T, b: T) [] -> Bool => a, b {
 #[test]
 fn the_canbe_optins_are_deleted() {
     for (written, replacement) in [
-        ("canbe hashed", ": auto Hashed<self>"),
-        ("canbe ordered", ": auto Ordered<self>"),
+        ("canbe hashed", ": Hashed<self> by auto"),
+        ("canbe ordered", ": Ordered<self> by auto"),
     ] {
         let errs = errors(&format!("struct Point {written} {{\n    x: Int\n}}\n"));
         assert!(
@@ -1338,11 +1361,11 @@ fn the_canbe_optins_are_deleted() {
 fn the_operands_must_still_be_one_type() {
     let errs = errors(
         r#"
-struct A : auto Eq<self> {
+struct A : Eq<self> by auto {
     v: Int
 }
 
-struct B : auto Eq<self> {
+struct B : Eq<self> by auto {
     v: Int
 }
 

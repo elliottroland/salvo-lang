@@ -111,6 +111,23 @@ export intrinsic fn hash(value: Char) [] -> Long => value
 export intrinsic fn hash(value: Bool) [] -> Long => value
 export intrinsic fn hash(value: Str) [] -> Long => value
 
+// [col-hashed-ordered] **Interim**: a `List` and a tuple compare, hash and
+// order structurally through the host, exactly when their elements do — the
+// backends' implementations, declared here so a stamped `cmp`/`eq`/`hash`
+// over a struct holding one resolves. What this does *not* do is consult an
+// element's own declared identity inside the container (a `List<Person>`
+// compares by `Person`'s fields, not its `eq`); std owning these in Salvo
+// waits on recursive implicit resolution (COMPTIME.md 15.1, ROADMAP §6).
+export intrinsic fn cmp<T>(a: List<T>, b: List<T>) [] -> Int => a, b
+export intrinsic fn eq<T>(a: List<T>, b: List<T>) [] -> Bool => a, b
+export intrinsic fn hash<T>(value: List<T>) [] -> Long => value
+export intrinsic fn cmp<A, B>(a: (A, B), b: (A, B)) [] -> Int => a, b
+export intrinsic fn eq<A, B>(a: (A, B), b: (A, B)) [] -> Bool => a, b
+export intrinsic fn hash<A, B>(value: (A, B)) [] -> Long => value
+export intrinsic fn cmp<A, B, C>(a: (A, B, C), b: (A, B, C)) [] -> Int => a, b
+export intrinsic fn eq<A, B, C>(a: (A, B, C), b: (A, B, C)) [] -> Bool => a, b
+export intrinsic fn hash<A, B, C>(value: (A, B, C)) [] -> Long => value
+
 // The fold a structural `hash` combines its fields' digests with, **wrapping**
 // on both backends: `seed * 31 + value` where written arithmetic would trap
 // in a Rust debug build and wrap on the JVM. What `core.auto`'s `hash` calls

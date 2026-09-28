@@ -22,13 +22,13 @@
 // (a hash container confirms a bucket hit by equality); `Ordered` does not, since
 // no sorted container consults equality. Both clauses are checked here, at the
 // declaration: a `canbe Mut` struct or a float field is refused.
-struct Point : auto Ordered<self>, auto Hashed<self> {
+struct Point : Ordered<self> by auto, Hashed<self> by auto {
     x: Int,
     y: Int
 }
 
 // Equality alone: comparable with `==`, and not a key (no `hash`).
-struct Note : auto Eq<self> {
+struct Note : Eq<self> by auto {
     text: Str
 }
 
@@ -114,7 +114,7 @@ fn main() [use] -> None {
     let before = a < c
     println("4. equal ${same}, ordered ${before}")
 
-    // `auto Eq<self>` alone: `==` without an order and without a hash.
+    // `Eq<self> by auto` alone: `==` without an order and without a hash.
     let n1 = Note { text: "same" }
     let n2 = Note { text: "same" }
     let notes_equal = n1 == n2

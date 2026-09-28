@@ -56,6 +56,8 @@ fn checked(src: &str) -> salvo_core::Checked {
         );
         modules.push(ast);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -224,17 +226,17 @@ fn ordering_surface() {
     ));
     let msgs = messages(&body("    let a = \"x\" < \"y\""));
     assert!(
-        msgs[0].contains("`<` on `Str` is `cmp(Str, Str)`") && msgs[0].contains(": auto"),
+        msgs[0].contains("`<` on `Str` is `cmp(Str, Str)`") && msgs[0].contains("by auto"),
         "{msgs:?}"
     );
     let msgs = messages(&body("    let a = true < false"));
     assert!(msgs[0].contains("`cmp(Bool, Bool)`"), "{msgs:?}");
     // A struct needs its `cmp` like anything else, and the message names both
-    // ways to get one [fn-attached] [cmp-auto].
+    // ways to get one [fn-attached] [obligation-by].
     let src = "struct P {\n    x: Int\n}\n\nfn probe(a: P, b: P) -> Bool => a, b {\n    return a < b\n}\n";
     let msgs = messages(src);
     assert!(
-        msgs[0].contains("declare a `cmp` inside `P`'s body") && msgs[0].contains(": auto"),
+        msgs[0].contains("declare a `cmp` inside `P`'s body") && msgs[0].contains("by auto"),
         "{msgs:?}"
     );
 }

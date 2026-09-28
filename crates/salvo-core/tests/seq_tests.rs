@@ -135,6 +135,8 @@ fn checked(src: &str) -> (Program, salvo_core::Checked) {
         );
         modules.push(ast);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,

@@ -595,7 +595,7 @@ impl<'s> Parser<'s> {
             TokenKind::Ident(name) if name == COMPFN_WORD => {
                 self.parse_compfn().map(Item::Fn)
             }
-            // [cmp-auto] The word this replaced (user decision 2026-09-28): the
+            // [obligation-by] The word this replaced (user decision 2026-09-28): the
             // structural implementations are `compfn`s in `core.auto`, asked
             // for with `by auto`, so `auto fn` has nothing left to mean.
             TokenKind::Ident(name)
@@ -1349,7 +1349,7 @@ impl<'s> Parser<'s> {
             return Some(obligations);
         }
         loop {
-            // [cmp-auto] The pre-comptime spelling, worth its own message: the
+            // [obligation-by] The pre-comptime spelling, worth its own message: the
             // word moved to the other side of the group.
             if self.at_word("auto")
                 && matches!(

@@ -629,7 +629,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         for module in sorted_modules {
             let items = &by_module[*module];
             // The span it was first declared at, and whether that one was
-            // *generated* [cmp-auto].
+            // *generated* [obligation-by].
             let mut seen: HashMap<(&str, Vec<String>), (Span, bool)> = HashMap::new();
             for (key, f) in &items.fns {
                 let mut generics: Vec<&str> =

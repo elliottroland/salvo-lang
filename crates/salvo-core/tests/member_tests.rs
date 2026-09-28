@@ -59,6 +59,8 @@ fn check_errors(src: &str) -> Vec<FileDiagnostic> {
         );
         modules.push(ast);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -128,6 +130,8 @@ fn unresolved_call_suggests_imports() {
         );
         modules.push(module);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -751,6 +755,8 @@ fn all_messages(src: &str) -> Vec<String> {
         );
         modules.push(module);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,

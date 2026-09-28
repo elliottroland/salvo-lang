@@ -5293,7 +5293,7 @@ fn rustc_compiles_and_runs_a_canonical_implementation() {
     run_rust_files(&files, "canonical_impl", CANONICAL_OUTPUT);
 }
 
-/// [cmp-auto] `: auto Ordered<self>` and friends: the compiler writes the
+/// [cmp-auto] `: Ordered<self> by auto` and friends: the compiler writes the
 /// structural implementations, `@`-scoped to the type, and lowers them to the
 /// derive the `default` clause asks for — so the generated
 /// member and the type's own `Ord`/`Hash` cannot disagree (user decision
@@ -5304,7 +5304,7 @@ fn rustc_compiles_and_runs_a_canonical_implementation() {
 pub const AUTO_DEMO: &str = r#"
 // Ordering is lexicographic by field declaration order, which is the language's
 // rule on both backends.
-struct Point : auto Ordered<self>, auto Hashed<self> {
+struct Point : Ordered<self> by auto, Hashed<self> by auto {
     x: Int,
     y: Int
 }
@@ -5315,11 +5315,11 @@ struct Point : auto Ordered<self>, auto Hashed<self> {
 struct Tag {
     label: Str
 
-    auto fn eq(a: Tag, b: Tag) [] -> Bool => a, b
+    fn eq(a: Tag, b: Tag) [] -> Bool => a, b by auto
 }
 
 // A generic struct's generated members are generic too.
-struct Box<T> : auto Eq<self> {
+struct Box<T> : Eq<self> by auto {
     item: T
 }
 
@@ -5400,7 +5400,7 @@ fn rustc_compiles_and_runs_auto_members() {
 /// `kotlinc_compiles_and_runs_operators_through_the_groups`. The `Str` line is
 /// the parity claim: the JVM's own `<` would compare UTF-16 code units.
 pub const GROUP_OPERATOR_DEMO: &str = r#"
-struct Point : auto Ordered<self>, auto Eq<self> {
+struct Point : Ordered<self> by auto, Eq<self> by auto {
     x: Int,
     y: Int
 }
@@ -5571,7 +5571,7 @@ pub const CARRY_OUTPUT: &str = "by age: Bob of 3\nby name: Ada of 3\n";
 /// becomes a `TreeSet` comparator rather than a marker — two lowerings of one
 /// rule, and the equality of the output is the assertion.
 pub const KEYED_DEMO: &str = r#"
-struct Person : auto Ordered<self>, auto Eq<self> { name: Str, age: Int }
+struct Person : Ordered<self> by auto, Eq<self> by auto { name: Str, age: Int }
 
 fn by_age(a: Person, b: Person) -> Int => a, b {
     return cmp(a.age, b.age)
@@ -5659,7 +5659,7 @@ fn main() [use] {
 /// passed to a runtime container as two function references, here it is two
 /// zero-sized markers.
 pub const KEYED_HASH_DEMO: &str = r#"
-struct Person : auto Hashed<self> { name: Str, age: Int }
+struct Person : Hashed<self> by auto { name: Str, age: Int }
 
 // A pair that keys by age alone: two people of an age are one member.
 fn age_hash(p: Person) -> Long => p {
@@ -8589,18 +8589,18 @@ fn rustc_compiles_and_runs_collection_literals() {
 /// its own `equals` [kt-float-eq]. Shares source and expected output with the
 /// Kotlin case of the same name [backend-parity].
 const EQUALITY_DEMO: &str = r#"
-struct Point : auto Ordered<self>, auto Hashed<self> {
+struct Point : Ordered<self> by auto, Hashed<self> by auto {
     x: Int,
     y: Int
 }
 
-struct Version : auto Ordered<self>, auto Hashed<self> {
+struct Version : Ordered<self> by auto, Hashed<self> by auto {
     parts: List<Int>,
     label: (Str, Int)
 }
 
 // Equality only — and a float field, which is fine for `eq` and not for a key.
-struct Measure : auto Eq<self> {
+struct Measure : Eq<self> by auto {
     value: Double
 }
 
@@ -14474,14 +14474,14 @@ fn rustc_compiles_and_runs_a_declared_identity() {
 
 /// [cmp-carry] A **mixed fill**: one slot of `?Hashed<T>` written at the
 /// constructor, the other left to whatever resolution finds — here a coarser
-/// `hash` beside the `eq` that `: auto Hashed<self>` generated. Honoured rather
+/// `hash` beside the `eq` that `: Hashed<self> by auto` generated. Honoured rather
 /// than refused (user decision 2026-09-26: a parameter group is a convenience,
 /// not a contract the caller must fill wholesale), and the fix to a defect that
 /// dropped the written slot silently on Kotlin and misdiagnosed it here.
 const MIXED_IDENTITY_DEMO: &str = r#"
-// `auto Hashed<self>` generates `hash` and `eq`; the constructor keeps the
+// `Hashed<self> by auto` generates `hash` and `eq`; the constructor keeps the
 // generated equality and writes a coarser hash of its own.
-struct Point : auto Hashed<self> {
+struct Point : Hashed<self> by auto {
     x: Int,
     y: Int
 }
@@ -14628,7 +14628,7 @@ fn rustc_compiles_and_runs_a_generic_written_identity() {
 ///    rustc's E0308, because only the forwarded and resolved fills had learned
 ///    the owned convention.
 const MIXED_SOURCE_DEMO: &str = r#"
-struct Point : auto Hashed<self> {
+struct Point : Hashed<self> by auto {
     x: Int,
     y: Int
 }
@@ -14701,7 +14701,7 @@ fn rustc_compiles_and_runs_a_held_identity() {
 fn a_written_lambda_at_a_kept_position_moves() {
     let files = generate(&[(
         "main.sv",
-        "struct Point : auto Hashed<self> {\n    \
+        "struct Point : Hashed<self> by auto {\n    \
          x: Int,\n    \
          y: Int\n}\n\
          fn collect(a: Point, ?Hashed<Point>) -> Set<Point> => !a {\n    \

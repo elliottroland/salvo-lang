@@ -34,6 +34,8 @@ fn check_src(src: &str) -> (Program, Checked) {
         assert!(errors.is_empty(), "parse errors: {errors:?}");
         modules.push(module);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -931,6 +933,8 @@ fn disjoint_errors(body: &str) -> Vec<String> {
         assert!(errors.is_empty(), "parse errors: {errors:?}");
         modules.push(module);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -1220,6 +1224,8 @@ fn a_kept_parameter_still_refuses_a_projection_move() {
         );
         modules.push(module);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -1423,6 +1429,8 @@ fn reapply_errors_in(files: &[(&str, &str)]) -> Vec<String> {
         assert!(errors.is_empty(), "parse errors: {errors:?}");
         modules.push(module);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -1628,6 +1636,8 @@ fn field_errors(src: &str) -> Vec<String> {
         assert!(errors.is_empty(), "parse errors: {errors:?}");
         modules.push(module);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -2020,6 +2030,8 @@ fn view_errors(src: &str) -> Vec<String> {
         assert!(errors.is_empty(), "parse errors: {errors:?}");
         modules.push(module);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,

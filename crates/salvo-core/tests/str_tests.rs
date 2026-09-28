@@ -43,6 +43,8 @@ fn checked(src: &str) -> (Program, salvo_core::Checked) {
         );
         modules.push(ast);
     }
+    // [comptime-instantiate] The `by` sites stamp before resolution.
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program {
         files: sources.files,
         modules,
@@ -274,18 +276,22 @@ fn a_to_str_in_scope_makes_a_type_interpolable() {
     assert!(msgs.is_empty(), "expected a clean check, got {msgs:?}");
 }
 
-/// [interp-struct] A struct whose every field renders natively interpolates
-/// with no declaration at all (user decision 2026-09-11).
+/// [interp-to-str] [obligation-by] A struct interpolates by **opting in**
+/// (user decision 2026-09-28, replacing the default-on derivation): with no
+/// `to_str`, the diagnostic names the clause that stamps the field-wise one.
 #[test]
 fn a_struct_of_native_fields_interpolates_by_default() {
     let src = "struct Person { name: Str, age: Int }\n\
                fn probe(p: Person) -> None => p {\n    let _s = \"${p}\"\n}\n";
     let msgs = messages(src);
-    assert!(msgs.is_empty(), "expected a clean check, got {msgs:?}");
+    assert!(
+        msgs.iter().any(|m| m.contains("has no text form") && m.contains(": ToStr<self> by auto")),
+        "expected the opt-in to be named, got {msgs:?}"
+    );
 }
 
-/// [interp-struct] The derivation is for the simple cases only: a field that
-/// itself needs a `to_str` is not followed, and the diagnostic asks for one.
+/// [interp-to-str] A struct holding another struct has no text form either
+/// without a declaration; the diagnostic asks for one.
 #[test]
 fn a_struct_with_a_non_native_field_needs_its_own_to_str() {
     let src = "struct Inner { a: Int }\n\

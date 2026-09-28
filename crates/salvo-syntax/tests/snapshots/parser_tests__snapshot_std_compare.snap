@@ -35,7 +35,9 @@ Module {
                             span: 1758..1761,
                         },
                         scoped_to: None,
-                        structural: false,
+                        compfn: None,
+                        by: None,
+                        stamped: None,
                         generics: [],
                         generic_canbe: [],
                         derived_return: None,
@@ -155,7 +157,9 @@ Module {
                             span: 2038..2040,
                         },
                         scoped_to: None,
-                        structural: false,
+                        compfn: None,
+                        by: None,
+                        stamped: None,
                         generics: [],
                         generic_canbe: [],
                         derived_return: None,
@@ -292,7 +296,9 @@ Module {
                             span: 3368..3372,
                         },
                         scoped_to: None,
-                        structural: false,
+                        compfn: None,
+                        by: None,
+                        stamped: None,
                         generics: [],
                         generic_canbe: [],
                         derived_return: None,
@@ -362,7 +368,9 @@ Module {
                             span: 3398..3400,
                         },
                         scoped_to: None,
-                        structural: false,
+                        compfn: None,
+                        by: None,
+                        stamped: None,
                         generics: [],
                         generic_canbe: [],
                         derived_return: None,
@@ -483,7 +491,9 @@ Module {
                     span: 4034..4037,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -608,7 +618,9 @@ Module {
                     span: 4092..4095,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -733,7 +745,9 @@ Module {
                     span: 4152..4155,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -858,7 +872,9 @@ Module {
                     span: 4212..4215,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -983,7 +999,9 @@ Module {
                     span: 4272..4275,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1108,7 +1126,9 @@ Module {
                     span: 4332..4335,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1237,7 +1257,9 @@ Module {
                     span: 4585..4587,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1362,7 +1384,9 @@ Module {
                     span: 4643..4645,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1487,7 +1511,9 @@ Module {
                     span: 4703..4705,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1612,7 +1638,9 @@ Module {
                     span: 4767..4769,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1737,7 +1765,9 @@ Module {
                     span: 4829..4831,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1862,7 +1892,9 @@ Module {
                     span: 4889..4891,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1987,7 +2019,9 @@ Module {
                     span: 4949..4951,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -2112,7 +2146,9 @@ Module {
                     span: 5009..5011,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -2248,7 +2284,9 @@ Module {
                     span: 5696..5700,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -2336,7 +2374,9 @@ Module {
                     span: 5753..5757,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -2424,7 +2464,9 @@ Module {
                     span: 5811..5815,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -2512,7 +2554,9 @@ Module {
                     span: 5869..5873,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -2600,7 +2644,9 @@ Module {
                     span: 5927..5931,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -2688,7 +2734,9 @@ Module {
                     span: 5985..5989,
                 },
                 scoped_to: None,
-                structural: false,
+                compfn: None,
+                by: None,
+                stamped: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -2761,6 +2809,1654 @@ Module {
                 constructs: None,
                 body: None,
                 span: 5982..6012,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[col-hashed-ordered] **Interim**: a `List` and a tuple compare, hash and",
+                    "order structurally through the host, exactly when their elements do — the",
+                    "backends' implementations, declared here so a stamped `cmp`/`eq`/`hash`",
+                    "over a struct holding one resolves. What this does *not* do is consult an",
+                    "element's own declared identity inside the container (a `List<Person>`",
+                    "compares by `Person`'s fields, not its `eq`); std owning these in Salvo",
+                    "waits on recursive implicit resolution (COMPTIME.md 15.1, ROADMAP §6).",
+                ],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "cmp",
+                    span: 6574..6577,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 6578..6579,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "a",
+                            span: 6581..6582,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 6584..6588,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 6589..6590,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 6589..6590,
+                                        },
+                                    },
+                                ],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 6584..6591,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6581..6591,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "b",
+                            span: 6593..6594,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 6596..6600,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 6601..6602,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 6601..6602,
+                                        },
+                                    },
+                                ],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 6596..6603,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6593..6603,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "a",
+                                    span: 6618..6619,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6618..6619,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "b",
+                                    span: 6621..6622,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6621..6622,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Int",
+                                span: 6611..6614,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 6611..6614,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 6571..6614,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "eq",
+                    span: 6643..6645,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 6646..6647,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "a",
+                            span: 6649..6650,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 6652..6656,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 6657..6658,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 6657..6658,
+                                        },
+                                    },
+                                ],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 6652..6659,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6649..6659,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "b",
+                            span: 6661..6662,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 6664..6668,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 6669..6670,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 6669..6670,
+                                        },
+                                    },
+                                ],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 6664..6671,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6661..6671,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "a",
+                                    span: 6687..6688,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6687..6688,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "b",
+                                    span: 6690..6691,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6690..6691,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Bool",
+                                span: 6679..6683,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 6679..6683,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 6640..6683,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "hash",
+                    span: 6712..6716,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 6717..6718,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 6720..6725,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 6727..6731,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 6732..6733,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 6732..6733,
+                                        },
+                                    },
+                                ],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 6727..6734,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6720..6734,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 6750..6755,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6750..6755,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Long",
+                                span: 6742..6746,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 6742..6746,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 6709..6746,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "cmp",
+                    span: 6776..6779,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "A",
+                        span: 6780..6781,
+                    },
+                    Ident {
+                        name: "B",
+                        span: 6783..6784,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "a",
+                            span: 6786..6787,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 6790..6791,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6790..6791,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 6793..6794,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6793..6794,
+                                    },
+                                },
+                            ],
+                            span: 6789..6795,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6786..6795,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "b",
+                            span: 6797..6798,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 6801..6802,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6801..6802,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 6804..6805,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6804..6805,
+                                    },
+                                },
+                            ],
+                            span: 6800..6806,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6797..6806,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "a",
+                                    span: 6821..6822,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6821..6822,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "b",
+                                    span: 6824..6825,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6824..6825,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Int",
+                                span: 6814..6817,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 6814..6817,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 6773..6817,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "eq",
+                    span: 6846..6848,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "A",
+                        span: 6849..6850,
+                    },
+                    Ident {
+                        name: "B",
+                        span: 6852..6853,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "a",
+                            span: 6855..6856,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 6859..6860,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6859..6860,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 6862..6863,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6862..6863,
+                                    },
+                                },
+                            ],
+                            span: 6858..6864,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6855..6864,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "b",
+                            span: 6866..6867,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 6870..6871,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6870..6871,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 6873..6874,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6873..6874,
+                                    },
+                                },
+                            ],
+                            span: 6869..6875,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6866..6875,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "a",
+                                    span: 6891..6892,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6891..6892,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "b",
+                                    span: 6894..6895,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6894..6895,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Bool",
+                                span: 6883..6887,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 6883..6887,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 6843..6887,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "hash",
+                    span: 6916..6920,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "A",
+                        span: 6921..6922,
+                    },
+                    Ident {
+                        name: "B",
+                        span: 6924..6925,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 6927..6932,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 6935..6936,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6935..6936,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 6938..6939,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6938..6939,
+                                    },
+                                },
+                            ],
+                            span: 6934..6940,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6927..6940,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 6956..6961,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6956..6961,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Long",
+                                span: 6948..6952,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 6948..6952,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 6913..6952,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "cmp",
+                    span: 6982..6985,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "A",
+                        span: 6986..6987,
+                    },
+                    Ident {
+                        name: "B",
+                        span: 6989..6990,
+                    },
+                    Ident {
+                        name: "C",
+                        span: 6992..6993,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "a",
+                            span: 6995..6996,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 6999..7000,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6999..7000,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 7002..7003,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7002..7003,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "C",
+                                            span: 7005..7006,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7005..7006,
+                                    },
+                                },
+                            ],
+                            span: 6998..7007,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6995..7007,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "b",
+                            span: 7009..7010,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 7013..7014,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7013..7014,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 7016..7017,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7016..7017,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "C",
+                                            span: 7019..7020,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7019..7020,
+                                    },
+                                },
+                            ],
+                            span: 7012..7021,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 7009..7021,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "a",
+                                    span: 7036..7037,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 7036..7037,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "b",
+                                    span: 7039..7040,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 7039..7040,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Int",
+                                span: 7029..7032,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 7029..7032,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 6979..7032,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "eq",
+                    span: 7061..7063,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "A",
+                        span: 7064..7065,
+                    },
+                    Ident {
+                        name: "B",
+                        span: 7067..7068,
+                    },
+                    Ident {
+                        name: "C",
+                        span: 7070..7071,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "a",
+                            span: 7073..7074,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 7077..7078,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7077..7078,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 7080..7081,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7080..7081,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "C",
+                                            span: 7083..7084,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7083..7084,
+                                    },
+                                },
+                            ],
+                            span: 7076..7085,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 7073..7085,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "b",
+                            span: 7087..7088,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 7091..7092,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7091..7092,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 7094..7095,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7094..7095,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "C",
+                                            span: 7097..7098,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7097..7098,
+                                    },
+                                },
+                            ],
+                            span: 7090..7099,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 7087..7099,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "a",
+                                    span: 7115..7116,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 7115..7116,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "b",
+                                    span: 7118..7119,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 7118..7119,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Bool",
+                                span: 7107..7111,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 7107..7111,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 7058..7111,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "hash",
+                    span: 7140..7144,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "A",
+                        span: 7145..7146,
+                    },
+                    Ident {
+                        name: "B",
+                        span: 7148..7149,
+                    },
+                    Ident {
+                        name: "C",
+                        span: 7151..7152,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 7154..7159,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 7162..7163,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7162..7163,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 7165..7166,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7165..7166,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "C",
+                                            span: 7168..7169,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 7168..7169,
+                                    },
+                                },
+                            ],
+                            span: 7161..7170,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 7154..7170,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 7186..7191,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 7186..7191,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Long",
+                                span: 7178..7182,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 7178..7182,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 7137..7182,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The fold a structural `hash` combines its fields' digests with, **wrapping**",
+                    "on both backends: `seed * 31 + value` where written arithmetic would trap",
+                    "in a Rust debug build and wrap on the JVM. What `core.auto`'s `hash` calls",
+                    "per field; a hand-written `hash` may use it too.",
+                ],
+                exported: true,
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "mix_hash",
+                    span: 7500..7508,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "seed",
+                            span: 7509..7513,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Long",
+                                    span: 7515..7519,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 7515..7519,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 7509..7519,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 7521..7526,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Long",
+                                    span: 7528..7532,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 7528..7532,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 7521..7532,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "seed",
+                                    span: 7548..7552,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 7548..7552,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 7554..7559,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 7554..7559,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Long",
+                                span: 7540..7544,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 7540..7544,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 7497..7544,
             },
         ),
     ],

@@ -75,13 +75,29 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the iterator-fn modifier",
     ),
-    // [cmp-auto] `auto fn cmp@Person(…)` and `: auto Ordered<self>`: the
-    // generator modifier, recognised by what follows it — `fn`, or the
-    // capitalized group name inside an obligation clause.
+    // [comptime-bound] `compfn cmp<struct T>(…)`: the compile-time function.
     (
-        "\\\\bauto(?=\\\\s+(fn\\\\b|[A-Z]))",
+        "\\\\bcompfn\\\\b",
         "keyword.declaration.salvo",
-        "the structural-implementation modifier",
+        "the compile-time function declaration",
+    ),
+    // [obligation-by] [fn-by] `: Ordered<self> by auto`, `-> Int by auto`: the
+    // stamping clause, recognised by the lowercase scope that follows.
+    (
+        "\\\\bby(?=\\\\s+[a-z])",
+        "keyword.declaration.salvo",
+        "the stamping clause",
+    ),
+    // [comptime-inline] `inline for` / `inline if` / `inline when`, and `refuse`.
+    (
+        "\\\\binline(?=\\\\s+(for|if|when)\\\\b)",
+        "keyword.control.salvo",
+        "the comptime construct word",
+    ),
+    (
+        "\\\\brefuse\\\\b",
+        "keyword.control.salvo",
+        "the comptime refusal",
     ),
     // `mailbox { capacity: n }`: the handler's queue slot, named before a block.
     (
@@ -175,7 +191,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
 
 /// The lowercase claims a `canbe` clause can name. `hashed`/`ordered` were
 /// deleted with the ordering round (2026-09-21) — being hashable or orderable is
-/// *having the function* now [cmp-auto] — leaving `once` on a type and
+/// *having the function* now [obligation-by] — leaving `once` on a type and
 /// `linear` in a generic's clause.
 const CANBE_WORDS: &[&str] = &["once", "linear"];
 
@@ -566,8 +582,9 @@ mod tests {
             canbe_clause < plain,
             "the `canbe once` pattern must come before the plain keyword alternation"
         );
-        // [cmp-auto] The obligation clause's generator modifier.
-        assert!(grammar.contains("\\\\bauto(?=\\\\s+(fn\\\\b|[A-Z]))"));
+        // [obligation-by] The stamping clause and the compfn word.
+        assert!(grammar.contains("\\\\bby(?=\\\\s+[a-z])"));
+        assert!(grammar.contains("\\\\bcompfn\\\\b"));
     }
 
     // [cli-lang] A `[symbol]` doc reference inside a comment is highlighted,
