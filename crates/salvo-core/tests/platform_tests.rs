@@ -101,14 +101,11 @@ fn a_handler_may_depend_on_a_platform_effect() {
                  record(message)\n    }\n}\n\n\
          fn main() [use, Telemetry] {\n    use AuditLogger()\n}\n",
     ));
-    // Transitional (ROADMAP §2b step ②): `main`'s Telemetry arrives from the
-    // host through the signature, and until a fn's effect parameter *is* a
-    // handle there is nothing to capture from it — refused by name. Step ②
-    // makes this program clean.
-    assert!(
-        errs.iter().any(|m| m.contains("is a platform effect") && m.contains("no handle to capture")),
-        "expected the transitional platform-capture refusal, got {errs:?}"
-    );
+    // [effect-handle] `main`'s Telemetry arrives from the host through the
+    // signature, and a fn's effect parameter *is* a handle — so a Salvo
+    // handler over it captures it like any dependency (2026-09-28; until
+    // then the capture was refused, since Rust had no handle to mint).
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
 // ===== restrictions =====

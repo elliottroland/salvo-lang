@@ -363,16 +363,13 @@ pub enum UseKind {
 }
 
 /// [effect-handle] One entry of the checker's effect environment: the
-/// instance, whether the availability is **inline** (`local`: an inline
-/// `use` binding or an inherited/lambda requirement — transitional, the
-/// emitters cannot capture those yet, ROADMAP §2b), and whether it is a
-/// *declared* availability rather than a lexical `use` binding (a
-/// handler's dependency capture needs the value, so v1 refuses declared
-/// sources there).
+/// instance, whether it is a *declared* availability (a signature's or a fn
+/// value's) rather than a lexical `use` binding, and whether it is spread
+/// over many instances. Every entry is a handle; nothing here decides what
+/// may be captured.
 #[derive(Clone, Debug)]
 struct EffectAvail {
     ty: Ty,
-    local: bool,
     declared: bool,
     /// [effect-any] The binding is spread over many instances (a `use` of
     /// a handler `of any E`, or a `[any E]` declaration): it satisfies a
@@ -879,25 +876,6 @@ pub struct Checked {
     /// at the call site because the callee's generics are in scope here and not
     /// there, exactly as for `implicit_params`.
     pub established_quals: HashMap<(FnKey, String), Vec<Qual>>,
-    /// [spawn-inherit] The **handle requirements** of each fn: the
-    /// signature-supplied effects whose *handles* its body needs, because a
-    /// construction inside it captures them at construction
-    /// ([effect-handler-deps]'s owned-handle form) — directly, or through a
-    /// fn it calls. In declaration order of the fn's own effect list, so the
-    /// bundle's field order is stable and a caller can build one from its
-    /// own.
-    ///
-    /// Only fns whose effect list carries `use` or `spawn` can have an
-    /// entry (user decision 2026-09-20: the visible capability is what
-    /// admits the hidden parameter), and only the Rust backend reads it — a
-    /// JVM reference is already a handle [kt-monitor], so the Kotlin
-    /// emission is unchanged.
-    pub handle_requirements: HashMap<FnKey, Vec<Ty>>,
-    /// [spawn-inherit] Static call edges between declared fns, as
-    /// (caller, callee): what `handle_requirements`' propagation walks.
-    /// Recorded where a call's callee resolves to a declaration, so it
-    /// covers exactly the calls whose requirements a caller must satisfy.
-    pub call_edges: Vec<(FnKey, FnKey)>,
     /// [cmp-carry] What each **carried identity** resolves to: the declaration
     /// behind the `by_age` in a `SortedSet<Person>(by_age)`, keyed by the
     /// identity and the type it orders.
@@ -1180,7 +1158,6 @@ pub fn check_program<'p>(
             && mutations == prev_mutations
             && mut_fields == prev_mut_fields;
         if stable {
-            propagate_handle_requirements(&mut out);
             return out;
         }
         if round >= MAX_ROUNDS {
@@ -1208,7 +1185,6 @@ pub fn check_program<'p>(
                     ));
                 }
             }
-            propagate_handle_requirements(&mut out);
             return out;
         }
         inferred = std::mem::take(&mut out.deductions);
@@ -1219,49 +1195,6 @@ pub fn check_program<'p>(
     }
 }
 
-/// [spawn-inherit] Propagate handle requirements up the call graph to a
-/// fixpoint: a fn requires the handle of a signature-supplied effect when it
-/// captures one itself (recorded while checking its body) **or** when it
-/// calls a fn that requires one for an effect this fn supplies from its own
-/// signature. The caller's own `fn_effects` is the gate, which is what keeps
-/// the requirement off a fn that binds the effect locally — and the `use`
-/// capability rides along for free, since a requiring callee declares `use`
-/// and the existing capability check already forces its callers to.
-///
-/// The order within an entry follows the fn's declared effect list, so the
-/// bundle a caller builds and the one a callee expects agree by construction.
-fn propagate_handle_requirements(out: &mut Checked) {
-    loop {
-        let mut grew = false;
-        for (caller, callee) in out.call_edges.clone() {
-            let Some(needs) = out.handle_requirements.get(&callee).cloned() else {
-                continue;
-            };
-            let Some(supplies) = out.fn_effects.get(&caller).cloned() else {
-                continue;
-            };
-            for want in needs {
-                if !supplies.contains(&want) {
-                    continue;
-                }
-                let entry = out.handle_requirements.entry(caller).or_default();
-                if !entry.contains(&want) {
-                    entry.push(want);
-                    grew = true;
-                }
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-    // Declaration order per fn, so both sides of the hidden parameter agree.
-    for (key, needs) in out.handle_requirements.iter_mut() {
-        if let Some(order) = out.fn_effects.get(key) {
-            needs.sort_by_key(|ty| order.iter().position(|e| e == ty).unwrap_or(usize::MAX));
-        }
-    }
-}
 
 /// One checking round; `inferred` carries the previous round's deduction
 /// facts for fns without a written list [deduce-consume].
@@ -7106,7 +7039,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for p in &f.params {
             for ty in self.inherited_fn_effects(&p.ty) {
                 if !env.iter().any(|a| a.ty == ty) {
-                    env.push(EffectAvail { ty, local: true, declared: true, any: false });
+                    env.push(EffectAvail { ty, declared: true, any: false });
                 }
             }
         }
@@ -7122,7 +7055,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [effect-handle] A named effect: an availability every
                 // binding of which is a handle.
                 EffectRef::Effect(r) | EffectRef::AnyEffect(r) => {
-                    let local = false;
                     // [effect-any] `any E` declares the weak availability:
                     // this body may call `E` and callees declaring
                     // `[any E]`, never a callee that assumes one instance.
@@ -7141,7 +7073,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     } else {
                         written.push(ty.clone());
                         if !env.iter().any(|a| a.ty == ty) {
-                            env.push(EffectAvail { ty, local, declared: true, any });
+                            env.push(EffectAvail { ty, declared: true, any });
                         }
                     }
                 }
@@ -7345,7 +7277,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .insert(self.key(span), vec![effect.clone()]);
             self.effect_env.push(EffectAvail {
                 ty: effect,
-                local: false,
                 declared: false,
                 any: false,
             });
@@ -7673,96 +7604,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return None;
         };
-        // Transitional (ROADMAP §2b): an inline binding has no handle to
-        // capture yet. For an **actor** effect the inline binding is a
-        // `use H()` of its handler, and its handle is the addr a `spawn`
-        // answers — so the remedy differs.
-        if avail.local {
-            let actor = matches!(want.strip_quals(), Ty::Named { name, .. }
-                if self.scope.effects.get(name.as_str()).is_some_and(|e| e.is_actor));
-            let remedy = if actor {
-                format!(
-                    "spawn the handler of `{want}` and bind its addr (`let a = spawn \
-                     H(...) on pool(1)` then `use a`), or supply the child its own \
-                     with `with SomeHandler()`"
-                )
-            } else {
-                format!("supply the child its own `{want}` with `with SomeHandler()`")
-            };
-            self.error(
-                span,
-                format!(
-                    "handler `{}` inherits `{want}` from this scope, and the binding \
-                     here is inline (not yet a handle): a spawned handler holds its \
-                     dependencies across a seam — {remedy}",
-                    id.name
-                ),
-            );
-            return None;
-        }
-        // A signature-supplied availability needs its handle threaded in, the
-        // same requirement a `use` capture records [spawn-inherit].
-        if avail.declared {
-            self.require_handle(&avail.ty, span);
-        }
         Some(avail.ty)
-    }
-
-    /// [spawn-inherit] Record that the function being checked needs the
-    /// **handle** of a signature-supplied effect: something in its body
-    /// captures `want` at construction, so the handle has to arrive from the
-    /// caller (the hidden fused bundle parameter — user decision 2026-09-20,
-    /// Rust-only).
-    ///
-    /// Two shapes cannot answer, and each is an error here rather than a
-    /// backend surprise: a **platform effect** (the host owns that instance
-    /// and hands it to `main` as a borrow — there is nothing to mint, and the
-    /// entry point's host-visible signature is not this arc's to change),
-    /// and a **lambda** body (a fn value's effects are call-only, so no
-    /// caller could supply one).
-    fn require_handle(&mut self, want: &Ty, span: Span) {
-        if self.in_lambda() {
-            self.error(
-                span,
-                format!(
-                    "capturing a handle for `{want}` needs the enclosing function's \
-                     own `use` capability, and this is a lambda: a function value's \
-                     effects are call-only, so no caller can supply the handle — \
-                     register the handler in the enclosing function"
-                ),
-            );
-            return;
-        }
-        if self.platform_effect_ty(want) {
-            self.error(
-                span,
-                format!(
-                    "`{want}` is a platform effect, whose instance the host owns and \
-                     hands to `main` — there is no handle to capture: put a Salvo \
-                     handler of an ordinary effect over it (the `DefaultFs [RawFs]` \
-                     shape)"
-                ),
-            );
-            return;
-        }
-        let Some(key) = self.own_fn else { return };
-        let entry = self.out.handle_requirements.entry(key).or_default();
-        if !entry.contains(want) {
-            entry.push(want.clone());
-        }
-    }
-
-    /// Whether an effect instance is a **platform effect** — the host's
-    /// rather than Salvo's [platform-effect].
-    fn platform_effect_ty(&self, ty: &Ty) -> bool {
-        match ty.strip_quals() {
-            Ty::Named { name, .. } => self
-                .scope
-                .effects
-                .get(name.as_str())
-                .is_some_and(|e| e.platform),
-            _ => false,
-        }
     }
 
     /// [effect-handle] [monitor-handler] How a `use` of this plain handler
@@ -7893,7 +7735,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             .insert(self.key(span), vec![effect.clone()]);
         self.effect_env.push(EffectAvail {
             ty: effect,
-            local: false,
             declared: false,
             any: false,
         });
@@ -8127,7 +7968,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             .iter()
             .map(|d| EffectAvail {
                 ty: substitute_vars(&d.ty, &subst, &generic_set),
-                local: d.local,
                 declared: d.declared,
                 any: d.any,
             })
@@ -8142,7 +7982,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         id: &'p Ident,
         concrete: Vec<Ty>,
         deps: Vec<EffectAvail>,
-        kind: UseKind,
+        _kind: UseKind,
         with_items: &'p [Expr],
         span: Span,
     ) {
@@ -8219,29 +8059,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 });
             match found {
                 Some(avail) => {
-                    // Transitional (ROADMAP §2b): a handle-capturing handler
-                    // needs a handle to capture, and an inline binding has
-                    // none yet.
-                    if handle_deps && avail.local {
-                        self.error(
-                            span,
-                            format!(
-                                "handler `{}` captures `{want}` as a handle, and the \
-                                 binding in scope here is inline (not yet a handle): \
-                                 supply it with `with SomeHandler()`",
-                                id.name
-                            ),
-                        );
-                    }
-                    // [spawn-inherit] A capture over a **signature-supplied**
-                    // effect is legal since 2026-09-20 (the v1 lexical cut is
-                    // lifted): the handle is not minted from a binding in
-                    // this function — there is none — but threaded in by the
-                    // caller, recorded here as this fn's handle requirement
-                    // and propagated to its callers.
-                    if handle_deps && avail.declared && !avail.local {
-                        self.require_handle(&want, span);
-                    }
+                    // [spawn-inherit] [effect-handle] A capture over a
+                    // **signature-supplied** effect is legal: the effect
+                    // parameter *is* a handle.
                     resolved_deps.push(avail.ty);
                     items.push(None);
                 }
@@ -8316,7 +8136,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (i, effect) in concrete.into_iter().enumerate() {
             self.effect_env.push(EffectAvail {
                 ty: effect,
-                local: kind == UseKind::Local,
                 declared: false,
                 any: of_any.get(i).copied().unwrap_or(false),
             });
@@ -13225,36 +13044,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 });
             match found {
-                Some(avail) => {
-                    // Transitional (ROADMAP §2b): an inline binding has no
-                    // handle to capture yet.
-                    if avail.local {
-                        self.error(
-                            span,
-                            format!(
-                                "handler `{}` captures `{want}` as a handle, and the \
-                                 binding in scope here is inline (not yet a handle): \
-                                 supply it with `with SomeHandler()`",
-                                id.name
-                            ),
-                        );
-                    }
-                    if avail.declared && !avail.local {
-                        self.error(
-                            span,
-                            format!(
-                                "handler `{}` captures a handle for `{want}` at \
-                                 construction, and the `{want}` here comes from the \
-                                 enclosing signature rather than a `use` in this \
-                                 function: bind it here first — threading a \
-                                 signature-supplied effect into a captured handle \
-                                 arrives with spawn-inheritance",
-                                id.name
-                            ),
-                        );
-                    }
-                    resolved_deps.push(avail.ty);
-                }
+                Some(avail) => resolved_deps.push(avail.ty),
                 None => self.error(
                     span,
                     format!(
@@ -13932,21 +13722,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 continue;
             };
-            // Transitional (ROADMAP §2b): an inline binding has no handle to
-            // hand a detached body yet.
-            if avail.local {
-                self.error(
-                    span,
-                    format!(
-                        "`send fn {}` performs `{want}`, but this scope's binding of it is \
-                         inline (not yet a handle) — a scheduled body runs after the scope \
-                         ends, so it has nothing to give it. Do that work in the function \
-                         that mints",
-                        target.name.name
-                    ),
-                );
-                continue;
-            }
             resolved.push(avail.ty.clone());
         }
         if resolved.len() == declared.len() {
@@ -16804,7 +16579,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn handler_dep_effects(&mut self, h: &'p ast::HandlerDecl) -> Vec<EffectAvail> {
         let mut out: Vec<EffectAvail> = Vec::new();
         for eff in h.effects.iter().flatten() {
-            let (r, local, any) = match eff {
+            let (r, any) = match eff {
                 EffectRef::Use(span) => {
                     self.error(
                         *span,
@@ -16821,10 +16596,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // effect type, so there is nothing to lower here; the gate
                 // arrives with the `spawn` expression.
                 EffectRef::Spawn(_) => continue,
-                EffectRef::Effect(r) => (r, false, false),
+                EffectRef::Effect(r) => (r, false),
                 // [effect-any] A dependency on `any E`: the handler assumes
                 // no order between its sends, so a router may be bound for it.
-                EffectRef::AnyEffect(r) => (r, false, true),
+                EffectRef::AnyEffect(r) => (r, true),
             };
             if r.name.name == THROW_EFFECT {
                 self.error(
@@ -16848,7 +16623,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 continue;
             }
-            out.push(EffectAvail { ty, local, declared: true, any });
+            out.push(EffectAvail { ty, declared: true, any });
         }
         out
     }
@@ -23023,7 +22798,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .iter()
                     .map(|ty| EffectAvail {
                         ty: ty.clone(),
-                        local: true,
                         declared: true,
                         any: false,
                     })
@@ -27562,15 +27336,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) {
         let mut resolved: Vec<Ty> = Vec::new();
-        // [spawn-inherit] The call edge, for the handle-requirement
-        // propagation: a callee needing a handle for a signature-supplied
-        // effect makes its callers need one too, where they supply that
-        // effect from *their* signatures in turn.
-        if let (Some(caller), Some(callee)) = (self.own_fn, self.fn_key_of_decl(decl)) {
-            if caller != callee && !self.out.call_edges.contains(&(caller, callee)) {
-                self.out.call_edges.push((caller, callee));
-            }
-        }
         // [actor-spawn-effect] The `spawn` capability **propagates like any
         // other effect**: `pool` and `watch` declare it, and std's own
         // documentation says declaring it is "what makes creating one a

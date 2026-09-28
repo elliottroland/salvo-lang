@@ -200,16 +200,21 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [spawn-inherit] What a spawn cannot inherit yet (transitional, ROADMAP
-/// §2b): an **inline** binding — here a `use H()` of an actor-face handler,
-/// so the diagnostic names *that* remedy — spawn it and bind the addr.
+/// [spawn-inherit] [effect-handle] A spawn inherits an actor-face handler
+/// bound inline with `use` like any other binding (2026-09-28): the binding
+/// is a handle, so the child holds the same instance the scope calls. (Until
+/// then this was refused, the inline binding having no handle on Rust.)
 #[test]
-fn a_spawn_cannot_inherit_an_inline_binding() {
+fn a_spawn_inherits_an_inline_binding() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
     use Printing()
     let counter = spawn Counting() on pool(1)
+}
+",
+    );
+    assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 ",
     );

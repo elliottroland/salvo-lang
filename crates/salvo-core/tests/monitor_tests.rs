@@ -420,11 +420,12 @@ fn main() [use] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [spawn-inherit] A **platform effect** keeps a targeted refusal: the host
-/// owns that instance and hands it to `main` as a borrow, so there is no
-/// handle to mint — the remedy is the `DefaultFs [RawFs]` shape.
+/// [spawn-inherit] [effect-handle] A **platform effect** received through
+/// the signature is a handle like any other (2026-09-28): a Salvo handler
+/// over it captures it at construction, the `DefaultFs [RawFs]` shape with
+/// the host's instance arriving through `main`.
 #[test]
-fn a_platform_effect_cannot_be_captured_as_a_handle() {
+fn a_platform_effect_is_captured_as_a_handle() {
     let errs = errors(
         "\
 platform effect Host {
@@ -448,11 +449,7 @@ fn wire() [Host, use] {
 }
 ",
     );
-    assert!(
-        errs.iter().any(|m| m.contains("is a platform effect")
-            && m.contains("no handle to capture")),
-        "expected the platform-effect refusal: {errs:?}"
-    );
+    assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
 /// [monitor-handler] [actor-deadlock-cycle] Waits under a monitor's lock are
