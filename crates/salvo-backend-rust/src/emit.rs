@@ -193,15 +193,6 @@ pub fn emit_program_reporting(
             if let Item::Effect(e) = item {
                 effect_paths.insert(e.name.name.clone(), prefix.clone());
             }
-            // [threadsafe-platform] [rs-platform-handler] A threadsafe
-            // platform handler's `__Arc_H` adapter is generated into its
-            // declaring module, so a `use` in any other module names it
-            // through the same prefix table.
-            if let Item::Handler(h) = item {
-                if h.platform && h.threadsafe {
-                    effect_paths.insert(h.name.name.clone(), prefix.clone());
-                }
-            }
         }
     }
 
@@ -228,7 +219,7 @@ pub fn emit_program_reporting(
     // [rs-effect-fusion] The fusion switch is program-wide: a fn's
     // signature cannot depend on which of its callers happens to hold a
     // fusion, so either every effect site fuses or none does.
-    let fusion = program_needs_fusion(&symbols, &reachable);
+    let fusion = false && program_needs_fusion(&symbols, &reachable);
     for (file_idx, unit) in program.units().enumerate() {
         if !reachable.contains(&unit.file.module) || !module_produces_code(unit.ast) {
             continue;
@@ -659,17 +650,27 @@ pub fn platform_skeletons(
                     ));
                     continue;
                 };
-                let owner = if other == module {
-                    String::new()
+                // [rs-handle] The host struct is wrapped in the effect's
+                // handle at the one place the host constructs it: the entry
+                // takes `&mut __Handle_E` like every other fn, so a Salvo
+                // handler over the host captures it like any dependency. The
+                // handle's `new` needs `Send + 'static`, so a host struct
+                // holding a non-`Send` value is a rustc error at this line.
+                let (owner, effect_owner) = if other == module {
+                    (String::new(), own_path.clone())
                 } else {
                     match path_to(other) {
                         // A host struct lives in the *other module's* host
                         // file, which is mounted under its own name.
-                        Some(_) => format!("crate::{}::", rs_ident(&host_mod_name(other))),
+                        Some(path) => (format!("crate::{}::", rs_ident(&host_mod_name(other))), path),
                         None => continue,
                     }
                 };
-                args.push(format!("&mut {owner}{}", host_struct(&effect)));
+                args.push(format!(
+                    "&mut {effect_owner}::{}::new({owner}{})",
+                    monitor_struct_name(&effect),
+                    host_struct(&effect)
+                ));
             }
             body.push_str(&format!(
                 "\n// The program's entry point [rs-platform-host]: Salvo's `main` \
@@ -1121,13 +1122,18 @@ const RUST_UNRAW: &[&str] = &["self", "Self", "super", "crate"];
 /// struct field cannot spell, and the callback is shared by every pass
 /// anyway. The rendering is exact, so this is surgery on it rather than a
 /// second fn-type renderer that could drift from the first.
+/// [rs-fn-field] [rs-handle] `Arc<dyn Fn… + Send + Sync>` since 2026-09-28
+/// (it was `Rc`): a struct holding a callback may be handler state behind a
+/// handle that crosses threads, and a Salvo lambda captures by value, so the
+/// bounds hold for every value the program can build — which is what let the
+/// checker's "holds a function value" unsendability arm go.
 fn rc_fn_type(rendered: &str) -> String {
     // Each strip falls back to *its own* input: chaining them onto `rendered`
     // undid the prefix strip whenever the suffix was absent, which rendered
     // `Rc<dyn impl Fn(..)>` ("expected a trait, found type").
     let inner = rendered.strip_prefix("impl ").unwrap_or(rendered);
     let inner = inner.strip_suffix(" + 'static").unwrap_or(inner);
-    format!("std::rc::Rc<dyn {inner}>")
+    format!("std::sync::Arc<dyn {inner} + Send + Sync>")
 }
 
 fn rs_ident(name: &str) -> String {
@@ -1225,7 +1231,7 @@ struct EffectEntry {
     is_local: bool,
     /// [effect-handle] The eager **handle variable** for a shareable binding
     /// that a later construction in the same fn captures as a dependency:
-    /// `let __handle_N = __Mon_E::new(Box::new(binding.clone()))`, emitted
+    /// `let __handle_N = __Handle_E::new(Box::new(binding.clone()))`, emitted
     /// at the bind site because the binding value itself moves into the
     /// fusion. `None` when nothing captures the effect, or the binding is
     /// local.
@@ -2695,32 +2701,6 @@ impl<'p> Emitter<'p> {
     // ================= module =================
 
     fn emit_module(&mut self, module: &Module) -> String {
-        // [effect-handle] What this file's constructions capture, so bind sites
-        // know to mint an eager handle.
-        // [spawn-inherit] A spawn's **synthesized** dependencies capture the
-        // same way — the child holds the scope's handle — so the pre-scan
-        // reads both tables; `spawn_dep_items` says which entries of
-        // `spawn_deps` were inherited rather than written.
-        let mut captured: Vec<Ty> = self
-            .checked
-            .handle_captures
-            .iter()
-            .filter(|((f, _), _)| *f == self.file_idx)
-            .flat_map(|(_, tys)| tys.iter().cloned())
-            .collect();
-        for (key, tys) in &self.checked.spawn_deps {
-            if key.0 != self.file_idx {
-                continue;
-            }
-            let items = self.checked.spawn_dep_items.get(key);
-            for (i, ty) in tys.iter().enumerate() {
-                let inherited = items.map_or(true, |items| items.get(i) == Some(&None));
-                if inherited {
-                    captured.push(ty.clone());
-                }
-            }
-        }
-        self.captured_effects = captured.iter().map(|t| self.rust_ty(t)).collect();
         let mut body = String::new();
         for item in &module.items {
             match item {
@@ -3145,54 +3125,29 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [monitor-handler] [mixed-handler] [rs-monitor] The **shareable
-    /// handle** of a plain effect, plus the monitor's lock adapter. What
-    /// `Addr<E>` lowers to must cover two kinds of value — a monitor (a
-    /// handler behind a lock) and a mixed handler's façade (an addr plus
-    /// ctor params, whose sync members *wait*) — and the façade must NOT sit
-    /// behind the monitor's mutex: a second caller blocked on it would serve
-    /// nothing while the first waits inside, which wedges a shared
-    /// single-threaded pool. So the handle is a **clone-boxed trait object**
-    /// (`__Mon_E` over `Box<dyn __Share_E>`), and the lock is demoted into a
-    /// per-effect generic adapter (`__Lock_E<H>`) that only monitor spawns
-    /// wrap.
+    /// [effect-handle] [rs-handle] The **handle** of an effect: the one
+    /// value every binding of `E` is (user decision 2026-09-28, one shape).
+    /// `__Handle_E` holds an `Arc<Mutex<dyn E + Send>>` and implements `E`
+    /// by lock-and-forward, so a `use` local, a fn's effect parameter, a
+    /// dependent handler's captured dependency, a spawn's inherited effect
+    /// and a task's capture are all the same type — cloned where they
+    /// travel, shared where they meet. Generic exactly as the effect is
+    /// (`__Handle_Random<T>` for `Random<T>`). Emitted for actor effects
+    /// too: `use addr` binds one over the send stub, and a router `of any E`
+    /// is a handler of it like any other.
     ///
-    /// The lock stays innermost by construction (the checker refused a
-    /// monitor-spawned handler any dependencies), which is what keeps
-    /// Rust's non-reentrant `Mutex` unobservable against the JVM's
-    /// re-entrant monitor [backend-never-wrong].
+    /// `share` takes an already-shared instance so a multi-face handler's
+    /// faces can be handles of *one* `Arc<Mutex<H>>` [effect-handler-multi].
     fn emit_monitor_stub(&mut self, e: &EffectDecl) -> String {
-        if e.is_actor {
-            // [effect-any] An actor effect's shareable handle is the addr,
-            // so it has no `__Mon_E` — but a router `of any E` bound with
-            // `use` is a monitor of it, and needs the lock adapter alone.
-            let routed = salvo_core::has_any_router(
-                self.symbols.handlers.values().copied(),
-                &e.name.name,
-            );
-            if !routed {
-                return String::new();
-            }
-            return self.emit_lock_adapter(e, &e.fns.iter().enumerate().collect::<Vec<_>>());
-        }
-        // A plain effect's members are sync members (send fns need the actor
-        // kind); a member with its own generics was refused and skipped by
-        // the trait above, so it is skipped here to match.
+        // A member with its own generics was refused and skipped by the
+        // trait above, so it is skipped here to match.
         let members: Vec<(usize, &FnDecl)> = e
             .fns
             .iter()
             .enumerate()
-            .filter(|(_, f)| !f.is_send && f.generics.is_empty())
+            .filter(|(_, f)| f.generics.is_empty())
             .collect();
         let base = monitor_struct_name(&e.name.name);
-        let share_base = share_trait_name(&e.name.name);
-        let lock = lock_struct_name(&e.name.name);
-        // [rs-monitor] Generic exactly as the effect is, so one declaration
-        // serves every instance (`__Mon_Random<T>` for `Random<T>`) and a
-        // stateful handler of a generic effect instance shares like any
-        // other. `'static` because the handle boxes a trait object of the
-        // instance — and every Salvo type is owned data with no lifetime of
-        // its own, so the bound costs nothing.
         let g_params = if e.generics.is_empty() {
             String::new()
         } else {
@@ -3207,148 +3162,22 @@ impl<'p> Emitter<'p> {
         };
         let g_args: Vec<String> = e.generics.iter().map(|g| g.name.clone()).collect();
         let name = trait_type(&base, &g_args);
-        let share = trait_type(&share_base, &g_args);
         let trait_name = trait_type(&e.name.name, &g_args);
-        // The blanket impl's own parameter is `__H`, which an effect's
+        // The constructor's own parameter is `__H`, which an effect's
         // generics can never collide with [name-casing].
-        let blanket_generics = if e.generics.is_empty() {
-            format!("<__H: {trait_name} + Clone + Send + 'static>")
-        } else {
-            format!(
-                "<{}, __H: {trait_name} + Clone + Send + 'static>",
-                g_params.trim_start_matches('<').trim_end_matches('>')
-            )
-        };
+        let dyn_ty = format!("dyn {trait_name} + Send");
         let mut out = format!(
-            "\npub trait {share_base}{g_params}: {trait_name} + Send {{\n    \
-             fn __clone_box(&self) -> Box<dyn {share}>;\n}}\n\n\
-             impl{blanket_generics} {share} for __H {{\n    \
-             fn __clone_box(&self) -> Box<dyn {share}> {{\n        \
-             Box::new(self.clone())\n    }}\n}}\n\n\
-             pub struct {base}{g_params} {{\n    inner: Box<dyn {share}>,\n}}\n\n\
+            "\npub struct {base}{g_params} {{\n    \
+             inner: std::sync::Arc<std::sync::Mutex<{dyn_ty}>>,\n}}\n\n\
              impl{g_params} Clone for {name} {{\n    fn clone(&self) -> Self {{\n        \
-             Self {{ inner: self.inner.__clone_box() }}\n    }}\n}}\n\n\
-             impl{g_params} {name} {{\n    pub fn new(inner: Box<dyn {share}>) -> Self {{\n        \
+             Self {{ inner: self.inner.clone() }}\n    }}\n}}\n\n\
+             impl{g_params} {name} {{\n    \
+             pub fn new<__H: {trait_name} + Send + 'static>(inner: __H) -> Self {{\n        \
+             Self {{ inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }}\n    }}\n    \
+             pub fn share(inner: std::sync::Arc<std::sync::Mutex<{dyn_ty}>>) -> Self {{\n        \
              Self {{ inner }}\n    }}\n}}\n\nimpl{g_params} {trait_name} for {name} {{\n"
         );
-        let mut forwards = String::new();
         for (i, f) in &members {
-            let member = self.member_name(e, *i);
-            let params = format!(
-                "{}{}",
-                self.emit_member_param_list(f),
-                self.emit_member_implicits(f)
-            );
-            let mut ret = self.emit_return_type(f.return_type.as_ref());
-            let mut params = params;
-            let lt = self.member_lend_lifetime(f, &mut params, &mut ret);
-            let mut args: Vec<String> = f
-                .params
-                .iter()
-                .filter(|p| !p.implicit)
-                .map(|p| rs_ident(&p.name.name))
-                .collect();
-            args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
-            let args = args.join(", ");
-            out.push_str(&format!(
-                "    fn {member}{lt}(&mut self{params}){ret} {{\n        \
-                 self.inner.{member}({args})\n    }}\n"
-            ));
-            forwards.push_str(&format!(
-                "    fn {member}{lt}(&mut self{params}){ret} {{\n        \
-                 self.inner.lock().unwrap().{member}({args})\n    }}\n"
-            ));
-            // [rs-loc] ④a slice 4 — both adapters forward the locator face
-            // of a mutable-lending member, or the trait impl is incomplete.
-            if f.return_type
-                .as_ref()
-                .is_some_and(|rt| fn_type_lends_mut(rt))
-            {
-                let saved = std::mem::replace(&mut self.lend_loc_mode, true);
-                let loc_params = format!(
-                    "{}{}",
-                    self.emit_member_param_list(f),
-                    self.emit_member_implicits(f)
-                );
-                let loc_ret = self.loc_return_type(f);
-                self.lend_loc_mode = saved;
-                out.push_str(&format!(
-                    "    fn {member}__loc(&mut self{loc_params}){loc_ret} {{\n        \
-                     self.inner.{member}__loc({args})\n    }}\n"
-                ));
-                forwards.push_str(&format!(
-                    "    fn {member}__loc(&mut self{loc_params}){loc_ret} {{\n        \
-                     self.inner.lock().unwrap().{member}__loc({args})\n    }}\n"
-                ));
-            }
-        }
-        out.push_str("}\n");
-        // [rs-monitor] The lock adapter, generic over the handler so one
-        // definition serves every monitor of this effect. The struct itself
-        // is unbounded (bounds live on the trait impl, where the effect's
-        // own generics can join them).
-        let lock_impl_generics = if e.generics.is_empty() {
-            format!("<H: {trait_name} + Send>")
-        } else {
-            format!(
-                "<{}, H: {trait_name} + Send>",
-                g_params.trim_start_matches('<').trim_end_matches('>')
-            )
-        };
-        // [rs-loc] ④a slice 4 — an effect with a **wholesale-lending**
-        // member has no lock adapter: a borrow cannot escape a mutex guard
-        // (E0515), and a member that lends one therefore cannot be shared
-        // across threads. Such an effect is `use local` by nature; sharing
-        // one is reported at the `use`.
-        if e.fns.iter().any(|f| {
-            f.return_type
-                .as_ref()
-                .is_some_and(|rt| fn_type_lends_mut(rt))
-        }) {
-            if self.fusion {
-                out.push_str(&emit_has_impl(&g_params, &name, &e.name.name, &g_args, "self"));
-            }
-            return out;
-        }
-        out.push_str(&format!(
-            "\npub struct {lock}<H> {{\n    \
-             inner: std::sync::Arc<std::sync::Mutex<H>>,\n}}\n\n\
-             impl<H> Clone for {lock}<H> {{\n    \
-             fn clone(&self) -> Self {{\n        \
-             Self {{ inner: self.inner.clone() }}\n    }}\n}}\n\n\
-             impl<H> {lock}<H> {{\n    \
-             pub fn new(inner: H) -> Self {{\n        \
-             Self {{ inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }}\n    }}\n}}\n\n\
-             impl{lock_impl_generics} {trait_name} for {lock}<H> {{\n{forwards}}}\n"
-        ));
-        // [effect-handle] The handle is its own Has-provider: a handle-dep
-        // handler's captured `__Mon_E` field satisfies the fused call
-        // machinery directly, with a field-granular borrow (which is what
-        // keeps the handler's own state usable in the same expression).
-        // Under the fusion gate exactly as the `__Has_E` trait itself is:
-        // plain mode declares no such trait, so the impl would dangle.
-        if self.fusion {
-            out.push_str(&emit_has_impl(&g_params, &name, &e.name.name, &g_args, "self"));
-        }
-        out
-    }
-
-    /// [effect-any] [rs-monitor] The lock adapter on its own, for an actor
-    /// effect with a router: `__Lock_E<H>` forwarding every member (send
-    /// members included — a `use`-bound router runs them inline) under the
-    /// mutex. The plain-effect path emits the same adapter inline.
-    fn emit_lock_adapter(&mut self, e: &EffectDecl, members: &[(usize, &FnDecl)]) -> String {
-        let lock = lock_struct_name(&e.name.name);
-        let g_args: Vec<String> = e.generics.iter().map(|g| g.name.clone()).collect();
-        let trait_name = trait_type(&e.name.name, &g_args);
-        let g_params: Vec<String> = e.generics.iter().map(|g| format!("{}: 'static", g.name)).collect();
-        let lock_impl_generics = if g_params.is_empty() {
-            format!("<H: {trait_name} + Send>")
-        } else {
-            format!("<{}, H: {trait_name} + Send>", g_params.join(", "))
-        };
-        let mut forwards = String::new();
-        for (i, f) in members {
             let member = self.member_name(e, *i);
             let mut params = format!(
                 "{}{}",
@@ -3365,22 +3194,35 @@ impl<'p> Emitter<'p> {
                 .collect();
             args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
             let args = args.join(", ");
-            forwards.push_str(&format!(
+            out.push_str(&format!(
                 "    fn {member}{lt}(&mut self{params}){ret} {{\n        \
                  self.inner.lock().unwrap().{member}({args})\n    }}\n"
             ));
+            // [rs-loc] The locator face of a mutable-lending member is
+            // forwarded too, or the trait impl is incomplete. A member lends
+            // from a *parameter* (`proj(es)`), never from handler state —
+            // an effect member has no `self` to name — so the borrow
+            // outlives the guard legitimately.
+            if f.return_type
+                .as_ref()
+                .is_some_and(|rt| fn_type_lends_mut(rt))
+            {
+                let saved = std::mem::replace(&mut self.lend_loc_mode, true);
+                let loc_params = format!(
+                    "{}{}",
+                    self.emit_member_param_list(f),
+                    self.emit_member_implicits(f)
+                );
+                let loc_ret = self.loc_return_type(f);
+                self.lend_loc_mode = saved;
+                out.push_str(&format!(
+                    "    fn {member}__loc(&mut self{loc_params}){loc_ret} {{\n        \
+                     self.inner.lock().unwrap().{member}__loc({args})\n    }}\n"
+                ));
+            }
         }
-        format!(
-            "\npub struct {lock}<H> {{\n    \
-             inner: std::sync::Arc<std::sync::Mutex<H>>,\n}}\n\n\
-             impl<H> Clone for {lock}<H> {{\n    \
-             fn clone(&self) -> Self {{\n        \
-             Self {{ inner: self.inner.clone() }}\n    }}\n}}\n\n\
-             impl<H> {lock}<H> {{\n    \
-             pub fn new(inner: H) -> Self {{\n        \
-             Self {{ inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }}\n    }}\n}}\n\n\
-             impl{lock_impl_generics} {trait_name} for {lock}<H> {{\n{forwards}}}\n"
-        )
+        out.push_str("}\n");
+        out
     }
 
     fn emit_message_enum(&mut self, e: &EffectDecl) -> String {
@@ -3676,22 +3518,21 @@ impl<'p> Emitter<'p> {
         };
         let name = rs_ident(&h.name.name);
         // [threadsafe-platform] The contract, printed where the implementer
-        // signs it. Two shapes: a `threadsafe` host implements the `&self`
-        // twin trait and is shared as an `Arc` with no lock, so its receivers
-        // are `&self` and its state must be `Sync`; an undeclared host
-        // implements the effect's own trait with `&mut self` and is
-        // serialized by the compiler on both backends.
+        // signs it. Since 2026-09-28 (one shape, [effect-handle]) the word
+        // is a *declared* contract and changes no emission: every handler,
+        // this one included, is reached through the effect's handle, which
+        // serializes it. A `threadsafe` host is one whose members are safe
+        // to run concurrently should a later, lock-free emission take the
+        // word at its word; `Send` is what the handle needs today.
         let mut out = if h.threadsafe {
             format!(
                 "\n// `threadsafe platform handler {}` — THE CONTRACT YOU ARE SIGNING:\n\
-                 // this instance is shared across every thread of the program with NO\n\
-                 // lock around it. Every member below may run concurrently with every\n\
-                 // other, so the receivers are `&self`, any mutable state needs its own\n\
-                 // synchronization (`Mutex`, `RwLock`, atomics — a `RefCell` will not\n\
-                 // compile), and rustc enforces `Send + Sync` on this struct. If the\n\
-                 // host cannot promise that, delete `threadsafe` from the Salvo\n\
-                 // declaration: the compiler then serializes the instance for you and\n\
-                 // the receivers become `&mut self` [threadsafe-platform].\n\
+                 // every member below is safe to run concurrently with every other, so\n\
+                 // any mutable state has its own synchronization (`Mutex`, `RwLock`,\n\
+                 // atomics). Today the compiler still serializes the instance behind\n\
+                 // the effect's handle, so the receivers are `&mut self` and the\n\
+                 // struct must be `Send`; the contract is what lets a later emission\n\
+                 // drop the lock [threadsafe-platform].\n\
                  pub struct {name} {{\n",
                 h.name.name
             )
@@ -3699,10 +3540,9 @@ impl<'p> Emitter<'p> {
             format!(
                 "\n// `platform handler {}` — the compiler SERIALIZES this instance: every\n\
                  // member runs under one lock on both backends, so the receivers are\n\
-                 // `&mut self` and plain fields are fine. If the host synchronizes\n\
-                 // internally and wants to run concurrently, declare it `threadsafe\n\
-                 // platform handler` in Salvo and regenerate: the receivers become\n\
-                 // `&self` and the lock goes away [threadsafe-platform].\n\
+                 // `&mut self` and plain fields are fine; the struct must be `Send`.\n\
+                 // If the host synchronizes internally, declare it `threadsafe platform\n\
+                 // handler` in Salvo to say so [threadsafe-platform].\n\
                  pub struct {name} {{\n",
                 h.name.name
             )
@@ -3736,21 +3576,12 @@ impl<'p> Emitter<'p> {
             }
             out.push_str("        }\n    }\n}\n");
         }
-        // [threadsafe-platform] Which trait, and which receiver: the `&self`
-        // twin (`__Shared_H`, generated into the declaring module and in
-        // scope through `use own_path::*`) for a threadsafe host, the effect's
-        // own `&mut self` trait otherwise.
-        let (trait_path, receiver) = if h.threadsafe {
-            (
-                format!("{own_path}::{}", host_shared_trait_name(&h.name.name)),
-                "&self",
-            )
-        } else {
-            (
-                format!("{effect_path}::{}", rs_ident(&effect.name.name)),
-                "&mut self",
-            )
-        };
+        // The host implements the effect's own trait, `threadsafe` or not.
+        let _ = own_path;
+        let (trait_path, receiver) = (
+            format!("{effect_path}::{}", rs_ident(&effect.name.name)),
+            "&mut self",
+        );
         out.push_str(&format!("\nimpl {trait_path} for {name} {{\n"));
         for (i, f) in effect.fns.iter().enumerate() {
             if !f.generics.is_empty() {
@@ -3925,19 +3756,6 @@ impl<'p> Emitter<'p> {
         // effect's, emitted as any effect's is — which is what the host
         // struct implements.
         if h.platform {
-            // [threadsafe-platform] …except the two items a `threadsafe` one
-            // adds beside its declaration: the `&self` twin trait the host
-            // implements — always, since a shipped host companion (std's
-            // `platform/net.rs`) is copied whenever its module is reachable
-            // and names the trait — and the `Arc` adapter the `use` site
-            // constructs, only when some `use` does: the adapter names the
-            // host *struct*, so emitting it unused would demand a companion
-            // nobody wrote (a customer's threadsafe handler in a program that
-            // never binds it).
-            if h.threadsafe {
-                let used = self.checked.used_handlers.contains(h.name.name.as_str());
-                return self.emit_host_arc_adapter(h, used);
-            }
             return String::new();
         }
         // [effect-handler-deps] Dependencies are the handler's own effect
@@ -3948,30 +3766,6 @@ impl<'p> Emitter<'p> {
         // `new` parameters, one per dep in declaration order.
         let deps: Vec<(String, Vec<String>)> = self.handler_dep_effects(h);
         let handle_dep = self.handler_is_handle_dep(h);
-        if handle_dep {
-            for (base, args) in &deps {
-                if !args.is_empty() {
-                    self.error(format!(
-                        "handler `{}` depends on the generic effect instance \
-                         `{base}<…>`, whose shared handle has no representation: \
-                         declare the dependency `local {base}` and bind the handler \
-                         `use local`",
-                        h.name.name
-                    ));
-                    return String::new();
-                }
-            }
-        }
-        if !deps.is_empty() && !handle_dep && !self.fusion {
-            // The gate is *exactly* "some handler declares a dependency",
-            // so this is an internal inconsistency, not a language cut.
-            self.error(format!(
-                "internal: handler `{}` declares effect dependencies but the \
-                 fusion emission is off",
-                h.name.name
-            ));
-            return String::new();
-        }
         let saved = self.enter_generics(&h.generics);
         let generics = self.emit_generic_params(&h.generics);
         let generic_args = self.emit_generic_args_plain(&h.generics);
@@ -3986,7 +3780,7 @@ impl<'p> Emitter<'p> {
         // seam turns the binding into a handle by boxing a clone (the
         // `__Share_E` blanket impl wants `Clone + Send`), and a stateless
         // clone is observationally the instance itself. Handle-dep fields
-        // are `__Mon_E` (Clone by construction), data params are Salvo
+        // are `__Handle_E` (Clone by construction), data params are Salvo
         // types (Clone throughout).
         let shareable_stateless = h.state.is_empty()
             && !h.params.iter().any(|p| p.implicit)
@@ -4004,9 +3798,12 @@ impl<'p> Emitter<'p> {
             // such as `?copy: (v: T) -> T`) is stored boxed: `impl Trait` is
             // not a field type, and the handler outlives the `use` that
             // built it. Called as `(self.copy)(…)`.
+            // [rs-handle] `+ Send`: the handler sits behind a handle that
+            // crosses threads, and a Salvo lambda captures by value, so the
+            // bound holds for every adapter the checker resolves.
             let ty = if p.implicit {
                 let rendered = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
-                format!("Box<dyn {}>", rendered.trim_start_matches("impl "))
+                format!("Box<dyn {} + Send>", rendered.trim_start_matches("impl "))
             } else {
                 self.param_type(&p.ty, p.variadic, ParamMode::Owned)
             };
@@ -4021,12 +3818,10 @@ impl<'p> Emitter<'p> {
         // [effect-handle] The handle-dep form's dependency fields, in
         // declaration order: the effect's shareable handle, owned.
         if handle_dep {
-            for (base, _) in &deps {
-                out.push_str(&format!(
-                    "    __dep_{}: {},\n",
-                    sanitize_ident(base),
-                    self.effect_path(base, &monitor_struct_name(base))
-                ));
+            for (base, args) in &deps {
+                let ty = self.dep_handle_type(base, args);
+                field_types.push_str(&ty);
+                out.push_str(&format!("    __dep_{}: {ty},\n", sanitize_ident(base)));
             }
         }
         // [effect-handler-generics] A type parameter no field mentions is an
@@ -4099,10 +3894,10 @@ impl<'p> Emitter<'p> {
             .iter()
             .map(|p| {
                 let ty = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
-                // [copy-implicit] The adapter arrives as `impl FnMut + 'static`
-                // and is boxed into the field.
+                // [copy-implicit] The adapter arrives as `impl FnMut + Send +
+                // 'static` and is boxed into the field.
                 let ty = if p.implicit {
-                    format!("{ty} + 'static")
+                    format!("{ty} + Send + 'static")
                 } else {
                     ty
                 };
@@ -4110,12 +3905,9 @@ impl<'p> Emitter<'p> {
             })
             .collect();
         if handle_dep {
-            for (base, _) in &deps {
-                ctor_params.push(format!(
-                    "__dep_{}: {}",
-                    sanitize_ident(base),
-                    self.effect_path(base, &monitor_struct_name(base))
-                ));
+            for (base, args) in &deps {
+                let ty = self.dep_handle_type(base, args);
+                ctor_params.push(format!("__dep_{}: {ty}", sanitize_ident(base)));
             }
         }
         out.push_str(&format!(
@@ -4202,7 +3994,7 @@ impl<'p> Emitter<'p> {
             //
             // [effect-handle] A handle-dep handler emits the independent shape;
             // its dependency access is wired in `emit_fn_inner` off the
-            // captured `__Mon_E` fields, which are their own Has-providers.
+            // captured `__Handle_E` fields, which are their own Has-providers.
             for (face, effect) in h.of.iter().zip(self.handler_faces(h)) {
                 let of = self.emit_type(face);
                 out.push_str(&format!(
@@ -4274,8 +4066,12 @@ impl<'p> Emitter<'p> {
     fn emit_actor_body(
         &mut self,
         h: &HandlerDecl,
-        deps: &[(String, Vec<String>)],
+        _deps: &[(String, Vec<String>)],
     ) -> String {
+        // [rs-handle] A dependent handler holds its dependency handles in
+        // its own fields, so the actor body is the same for every handler:
+        // it owns the instance and dispatches onto its members.
+        let deps: &[(String, Vec<String>)] = &[];
         // [effect-handler-multi] One protocol per face, each with its own
         // message enum and its own dispatcher; one mailbox and one state serve
         // all of them.
@@ -5261,7 +5057,7 @@ impl<'p> Emitter<'p> {
 
     /// [spawn-inherit] [rs-handle-bundle] The hidden handle-bundle parameter
     /// of `f`, when the checker recorded handle requirements for it: a
-    /// generated struct with one `__Mon_E` field per required effect, in the
+    /// generated struct with one `__Handle_E` field per required effect, in the
     /// fn's declared effect order, deduped per *shape* exactly as the `__Fx_N`
     /// fusions are — so two fns needing the same handle set share one struct
     /// and a caller can forward its own bundle unchanged.
@@ -5387,7 +5183,7 @@ impl<'p> Emitter<'p> {
     }
 
     /// [rs-handle-bundle] The rendered handle type of an effect instance:
-    /// the effect's `__Mon_E`, at its instantiation.
+    /// the effect's `__Handle_E`, at its instantiation.
     fn handle_type_of(&mut self, ty: &Ty) -> String {
         let (base, args) = self.ty_effect_parts(ty);
         let mon = self.effect_path(&base, &monitor_struct_name(&base));
@@ -5788,18 +5584,19 @@ impl<'p> Emitter<'p> {
                     .insert(field.name.name.clone(), BindKind::SelfField);
             }
             // [effect-handle] A handle-dep handler's members reach their
-            // dependencies through the captured fields: `__Mon_E` is its
+            // dependencies through the captured fields: `__Handle_E` is its
             // own Has-provider, so the environment points straight at
             // `self.__dep_e`, a field-granular borrow that leaves the
             // handler's own state usable beside it.
             if matches!(style, FnStyle::HandlerMember(_)) && self.handler_is_handle_dep(h) {
                 for (base, args) in self.handler_dep_effects(h) {
+                    let var = format!("self.__dep_{}", sanitize_ident(&base));
                     self.effect_env.push(EffectEntry {
                         ty: None,
                         key: trait_type(&base, &args),
-                        var: format!("self.__dep_{}", sanitize_ident(&base)),
+                        var: var.clone(),
                         is_local: true,
-                        handle_var: None,
+                        handle_var: Some(var),
                     });
                 }
             }
@@ -6011,12 +5808,12 @@ impl<'p> Emitter<'p> {
                 }
             } else if f.is_send {
                 // [task-effects] [rs-task] A **task body** takes its inherited
-                // effects as *owned handles* (`__Mon_E`) rather than
+                // effects as *owned handles* (`__Handle_E`) rather than
                 // `&mut dyn E`. Two reasons, both about outliving the frame:
                 // the mint's closure is `move` and `'static`, so it cannot hold
                 // a borrow to hand over; and a task may itself mint a task,
                 // which needs a handle to clone — the shape that made the
-                // nested case fail before this. A `__Mon_E` implements the
+                // nested case fail before this. A `__Handle_E` implements the
                 // effect's own trait, so ordinary dispatch inside the body is
                 // `&mut param`, which is what `is_local` already spells.
                 for (ty, rendered) in effects {
@@ -6047,17 +5844,20 @@ impl<'p> Emitter<'p> {
                     params.push(format!("mut {param}: {handle_ty}"));
                 }
             } else {
+                // [rs-handle] One `&mut __Handle_E` per declared effect, in
+                // declaration order; a capture clones through the reference.
                 for (ty, rendered) in effects {
                     let param = self.unique_name(effect_param_name(&rendered));
+                    let handle_ty = self.handle_type_rendered(&rendered);
                     self.effect_env.push(EffectEntry {
                         ty,
                         key: rendered.clone(),
                         var: param.clone(),
                         is_local: false,
-                        handle_var: None,
+                        handle_var: Some(param.clone()),
                     });
                     self.bindings.insert(param.clone(), BindKind::RefMut);
-                    params.push(format!("{param}: &mut dyn {rendered}"));
+                    params.push(format!("{param}: &mut {handle_ty}"));
                 }
             }
         }
@@ -6136,7 +5936,20 @@ impl<'p> Emitter<'p> {
                 | FnStyle::DepMemberSig(h) => match self.effect_member_of(h, f) {
                     Some(m) => {
                         let m = m.clone();
-                        self.member_param_mode(&m, p)
+                        // The mode is decided on the *effect's* parameter
+                        // type: a generic `T` position is `&T` in the trait
+                        // whatever the instantiation, so `keep(value: Int)`
+                        // implementing `Store<Int>`'s `keep(value: T)` takes
+                        // `&i32` — the trait's rendering, not its own.
+                        let pos = f.params[..i].iter().filter(|q| !q.implicit).count();
+                        let eff_param = m
+                            .params
+                            .iter()
+                            .filter(|q| !q.implicit)
+                            .nth(pos)
+                            .cloned()
+                            .unwrap_or_else(|| p.clone());
+                        self.member_param_mode(&m, &eff_param)
                     }
                     // [mixed-handler] [rs-mixed] A handler-local send member
                     // has no effect contract to mirror; its own written
@@ -7080,7 +6893,7 @@ impl<'p> Emitter<'p> {
         }
         rendered
             .into_iter()
-            .map(|r| format!("&mut dyn {r}"))
+            .map(|r| format!("&mut {}", self.handle_type_rendered(&r)))
             .collect()
     }
 
@@ -7788,7 +7601,7 @@ impl<'p> Emitter<'p> {
 
     /// [monitor-handler] [rs-monitor] Whether a type is the `Addr` of a
     /// **plain** effect — a shared monitor's handle, which lowers to the
-    /// effect's `__Mon_E` lock wrapper rather than to the scheduler's
+    /// effect's `__Handle_E` lock wrapper rather than to the scheduler's
     /// `usize` index.
     fn is_plain_addr_ty(&self, ty: &Ty) -> bool {
         let Ty::Named { name, args } = ty.strip_quals() else {
@@ -7807,8 +7620,8 @@ impl<'p> Emitter<'p> {
     }
 
     /// [monitor-handler] [rs-monitor] The rendering of `Addr<E>` for a plain
-    /// effect `E`: the `__Mon_E` wrapper, generic exactly as the effect is —
-    /// `Addr<Random<Int>>` is `__Mon_Random<i64>` — so the instantiation the
+    /// effect `E`: the `__Handle_E` wrapper, generic exactly as the effect is —
+    /// `Addr<Random<Int>>` is `__Handle_Random<i64>` — so the instantiation the
     /// addr's own type argument carries is the wrapper's.
     fn plain_addr_rendering(&mut self, effect: &str, args: &[String]) -> String {
         let arity = self
@@ -8318,12 +8131,12 @@ fn stub_struct_name(effect: &str) -> String {
 }
 
 /// [monitor-handler] [rs-monitor] The lock wrapper of a **plain** effect:
-/// `__Mon_Random`, the effect implemented by locking a shared instance and
+/// `__Handle_Random`, the effect implemented by locking a shared instance and
 /// delegating — what an `Addr<Random>` *is* in Rust, and what a monitor
 /// spawn answers. Per effect, like the send stub: a holder knows only the
 /// effect the handle serves.
 fn monitor_struct_name(effect: &str) -> String {
-    format!("__Mon_{}", rs_ident(effect))
+    format!("__Handle_{}", rs_ident(effect))
 }
 
 /// [actor-private-send] The handler-keyed enum of a handler's private send
@@ -8348,35 +8161,9 @@ fn handle_bundle_name(fields: &[(String, String)]) -> String {
     format!("__Hs_{}", parts.join("__"))
 }
 
-/// [rs-monitor] The clone-box supertrait behind the handle: what lets a
-/// `Box<dyn __Share_E>` be cloned, which is what makes the handle freely
-/// copyable whatever kind of value sits inside it.
-fn share_trait_name(effect: &str) -> String {
-    format!("__Share_{}", rs_ident(effect))
-}
 
-/// [rs-monitor] The monitor's lock adapter: `__Lock_E<H>`, generic over the
-/// handler, wrapped by monitor spawns only — a mixed handler's façade must
-/// never sit behind it.
-fn lock_struct_name(effect: &str) -> String {
-    format!("__Lock_{}", rs_ident(effect))
-}
 
-/// [threadsafe-platform] [rs-platform-handler] The `&self` twin of the
-/// effect's trait that a `threadsafe` platform host implements:
-/// `__Shared_HostTcpTransport`. Per *handler*, since the host is the
-/// implementor and a second (unsafe) host of the same effect implements the
-/// effect's own trait instead.
-fn host_shared_trait_name(handler: &str) -> String {
-    format!("__Shared_{}", rs_ident(handler))
-}
 
-/// [threadsafe-platform] [rs-platform-handler] The lock-free sharing adapter
-/// over a `threadsafe` host: `__Arc_HostTcpTransport`, holding `Arc<H>` and
-/// implementing the effect's trait by forwarding to `__Shared_H`.
-fn host_arc_adapter_name(handler: &str) -> String {
-    format!("__Arc_{}", rs_ident(handler))
-}
 
 /// [mixed-handler] [rs-mixed] The façade of a mixed handler:
 /// `__Fac_CyclicRandom`, the servant's addr plus the constructor parameters
@@ -9421,7 +9208,7 @@ impl<'p> Emitter<'p> {
         }
         // [monitor-handler] [rs-monitor] Every face a plain effect: the
         // **monitor spawn** — no mailbox, no scheduler, no pool. One shared
-        // instance behind a lock, handed out as the effect's `__Mon_E`
+        // instance behind a lock, handed out as the effect's `__Handle_E`
         // wrapper. The checker restricted the handler (single face, no
         // dependencies, sendable state) and refused the `on` clause.
         let plain_faces = !decl.of.is_empty()
@@ -9441,11 +9228,10 @@ impl<'p> Emitter<'p> {
                 ));
                 return "todo!()".to_string();
             }
-            let effect = decl.of.first().and_then(type_base_name).unwrap_or_default();
-            let mon = monitor_struct_name(effect);
-            // [rs-monitor] A generic effect instance names the wrapper's
-            // type arguments outright (the checker resolved the instance).
-            let mon_args = match self
+            let effect = decl.of.first().and_then(type_base_name).unwrap_or_default().to_string();
+            // [rs-handle] A generic effect instance names the handle's type
+            // arguments outright (the checker resolved the instance).
+            let handle = match self
                 .checked
                 .spawn_effects
                 .get(&(self.file_idx, span))
@@ -9453,9 +9239,9 @@ impl<'p> Emitter<'p> {
             {
                 Some(ty) if ty_is_concrete(ty) => {
                     let ty = ty.clone();
-                    self.effect_instance_turbofish(&ty)
+                    self.handle_ctor_for(Some(&ty), "")
                 }
-                _ => String::new(),
+                _ => self.effect_path(&effect, &monitor_struct_name(&effect)),
             };
             let ctor = self.handler_ctor_path(&handler_name, decl);
             // [mixed-handler] [rs-mixed] The mixed spawn: build the handler,
@@ -9479,12 +9265,16 @@ impl<'p> Emitter<'p> {
                     Some(pool) => self.emit_owned(pool),
                     None => "crate::scheduler::salvo_current_pool()".to_string(),
                 };
+                // [rs-handle] The façade sits behind the handle's lock like
+                // every other instance (one shape, user decision 2026-09-28);
+                // its members wait on the servant while holding it, which the
+                // record notes as the shape's known cost.
                 return format!(
                     "({{ {lets}let __h = {ctor}::new({}); \
                      let __cap = __h.__mailbox_capacity; \
                      let __a = crate::scheduler::salvo_spawn({pool_code}, __cap as usize, \
                      Box::new({}::new(__h)), None); \
-                     {mon}{mon_args}::new(Box::new({} {{ {} }})) }})",
+                     {handle}::new({} {{ {} }}) }})",
                     handler_args.join(", "),
                     actor_struct_name(&handler_name),
                     facade_struct_name(&handler_name),
@@ -9503,7 +9293,7 @@ impl<'p> Emitter<'p> {
             self.emitting_producer_args = saved_producer;
             for dep in self
                 .checked
-                .handle_captures
+                .use_deps
                 .get(&(self.file_idx, span))
                 .cloned()
                 .unwrap_or_default()
@@ -9527,31 +9317,25 @@ impl<'p> Emitter<'p> {
                     }
                 }
             }
-            return format!(
-                "{mon}{mon_args}::new(Box::new({}::new({ctor}::new({}))))",
-                lock_struct_name(effect),
-                arg_code.join(", ")
-            );
+            return format!("{handle}::new({ctor}::new({}))", arg_code.join(", "));
         }
         self.needs_scheduler = true;
-        // [effect-handler-deps] [rs-effect-fusion] A dependent child owns its
-        // dependencies rather than reaching a fusion: the clause's instances
-        // go into the generated flat provider, in the *handler's declaration*
+        // [effect-handler-deps] [rs-handle] A dependent child owns its
+        // dependency handles: the clause's instances and the inherited ones
+        // are trailing constructor arguments, in the *handler's declaration*
         // order, which is what the checker's `spawn_dep_items` records.
         let deps = self.handler_dep_effects(decl);
-        let prov = if deps.is_empty() {
-            None
-        } else {
-            match self.spawn_provider(&handler_name, &deps, uses, span) {
-                Some(code) => Some(code),
-                None => return "todo!()".to_string(),
-            }
-        };
         let mut arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
         let saved_producer = self.emitting_producer_args;
         self.emitting_producer_args = true;
         arg_code.extend(self.emit_implicit_args(&[], span));
         self.emitting_producer_args = saved_producer;
+        if !deps.is_empty() {
+            match self.spawn_dep_handles(&handler_name, &deps, uses, span) {
+                Some(handles) => arg_code.extend(handles),
+                None => return "todo!()".to_string(),
+            }
+        }
         let ctor = self.handler_ctor_path(&handler_name, decl);
         // The actor body is emitted beside its handler, and generated
         // `use crate::<module>::*` globs bring both into scope unqualified —
@@ -9561,10 +9345,7 @@ impl<'p> Emitter<'p> {
         // constructor from its own parameters — so the instance is built into a
         // local, the bound read off it, and only then does it move into the
         // actor body. That ordering is the whole reason this is a block.
-        let body = match prov {
-            Some(prov) => format!("{}::new(__h, {prov})", actor_struct_name(&handler_name)),
-            None => format!("{}::new(__h)", actor_struct_name(&handler_name)),
-        };
+        let body = format!("{}::new(__h)", actor_struct_name(&handler_name));
         // [main-pool] An omitted `on` clause means the pool current where the
         // spawn runs — `main`'s own pool in `main`, the actor's in a member.
         let pool_code = match pool {
@@ -9606,18 +9387,19 @@ impl<'p> Emitter<'p> {
         format!("({{ let __h = {held}; let __cap = __h.__mailbox_capacity; let __a = {spawn_call}; {init}__a }})")
     }
 
-    /// [actor-spawn-expr] [rs-actor] The child's flat provider, built from
-    /// the spawn's `with` clause: `__Prov_H { __d0: <instance>, … }`, its
-    /// fields in the handler's *declaration* order while the clause items are
-    /// in the order the program wrote them. The checker's `spawn_dep_items`
-    /// is the map between the two.
-    fn spawn_provider(
+    /// [actor-spawn-expr] [rs-handle] The child's dependency handles, one per
+    /// declared dependency in the handler's *declaration* order while the
+    /// clause items are in the order the program wrote them; the checker's
+    /// `spawn_dep_items` is the map between the two. A written item is a
+    /// private instance built here; a synthesized one is the spawning
+    /// scope's own handle, cloned.
+    fn spawn_dep_handles(
         &mut self,
         handler_name: &str,
         deps: &[(String, Vec<String>)],
         uses: &[Expr],
         span: Span,
-    ) -> Option<String> {
+    ) -> Option<Vec<String>> {
         let items = match self.checked.spawn_dep_items.get(&(self.file_idx, span)) {
             Some(items) if items.len() == deps.len() => items.clone(),
             _ => {
@@ -9629,19 +9411,15 @@ impl<'p> Emitter<'p> {
                 return None;
             }
         };
-        // [spawn-inherit] The instances the child's provider holds: a
-        // written clause item is constructed here, and a **synthesized**
-        // dependency (`None`) is the spawning scope's own handle, cloned —
-        // the child then holds the same shared instance the parent does.
         let resolved = self
             .checked
             .spawn_deps
             .get(&(self.file_idx, span))
             .cloned()
             .unwrap_or_default();
-        let mut fields: Vec<String> = Vec::new();
+        let mut handles: Vec<String> = Vec::new();
         for (i, at) in items.iter().enumerate() {
-            let instance = match at {
+            let handle = match at {
                 Some(at) => {
                     let Some(item) = uses.get(*at) else {
                         self.error(format!(
@@ -9650,7 +9428,8 @@ impl<'p> Emitter<'p> {
                         ));
                         return None;
                     };
-                    self.spawn_dep_instance(item, &deps[i])?
+                    let resolved_ty = resolved.get(i).cloned();
+                    self.spawn_dep_instance(item, &deps[i], resolved_ty.as_ref())?
                 }
                 None => {
                     let Some(ty) = resolved.get(i).cloned() else {
@@ -9660,26 +9439,18 @@ impl<'p> Emitter<'p> {
                         ));
                         return None;
                     };
-                    match self.inherited_dep_handle(&ty) {
-                        Some(code) => code,
-                        None => return None,
-                    }
+                    self.inherited_dep_handle(&ty)?
                 }
             };
-            fields.push(format!("__d{i}: {instance}"));
+            handles.push(handle);
         }
-        Some(format!(
-            "{} {{ {} }}",
-            prov_struct_name(handler_name),
-            fields.join(", ")
-        ))
+        Some(handles)
     }
 
-    /// [spawn-inherit] A **synthesized** dependency's instance: the handle
-    /// this frame holds for that effect — an eager handle variable a binding
-    /// minted, or a field of this fn's own handle bundle
-    /// ([rs-handle-bundle]) — cloned into the child, so parent and child
-    /// share one instance.
+    /// [spawn-inherit] [rs-handle] A **synthesized** dependency's instance:
+    /// the handle this frame holds for that effect — a `use` local, an effect
+    /// parameter or a captured field — cloned into the child, so parent and
+    /// child share one instance.
     fn inherited_dep_handle(&mut self, ty: &Ty) -> Option<String> {
         if let Some(hv) = self
             .effect_entry_by_ty(ty)
@@ -9687,21 +9458,37 @@ impl<'p> Emitter<'p> {
         {
             return Some(format!("{hv}.clone()"));
         }
-        if let Some(place) = self.handle_place(ty) {
-            return Some(format!("{place}.clone()"));
-        }
         self.error(format!(
             "internal: no handle in scope for inherited dependency `{ty}`"
         ));
         None
     }
 
-    /// [actor-spawn-expr] One clause item as the expression that *makes* an
-    /// instance: a handler construction is `D::new(args)`, an `Addr` is the
-    /// forwarding stub over it (`__Stub_D::new(addr)`) — the same two shapes
-    /// `use` binds, which is what makes a dependency swappable between a
-    /// local handler and an actor without touching the child.
-    fn spawn_dep_instance(&mut self, item: &Expr, dep: &(String, Vec<String>)) -> Option<String> {
+    /// [actor-spawn-expr] [rs-handle] One clause item as the **handle** the
+    /// child captures: a handler construction is a private instance behind
+    /// the effect's handle (`__Handle_D::new(D::new(args))`), a plain
+    /// effect's `Addr` is a handle already, and an actor's addr is wrapped
+    /// over its send stub — the same shapes `use` binds, which is what makes
+    /// a dependency swappable between a local handler and an actor without
+    /// touching the child.
+    fn spawn_dep_instance(
+        &mut self,
+        item: &Expr,
+        dep: &(String, Vec<String>),
+        resolved: Option<&Ty>,
+    ) -> Option<String> {
+        let handle = match resolved {
+            Some(ty) if ty_is_concrete(ty) => self.handle_ctor_for(Some(ty), ""),
+            _ => {
+                let (base, args) = dep.clone();
+                let h = self.effect_path(&base, &monitor_struct_name(&base));
+                if args.is_empty() {
+                    h
+                } else {
+                    format!("{h}::<{}>", args.join(", "))
+                }
+            }
+        };
         let named = match item {
             Expr::Ident(id) => Some((id.name.clone(), Vec::new())),
             Expr::Call { callee, args, .. } => match callee.as_ref() {
@@ -9714,15 +9501,9 @@ impl<'p> Emitter<'p> {
             if let Some(decl) = self.symbols.handlers.get(name.as_str()).copied() {
                 let arg_code: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
                 let ctor = self.handler_ctor_path(&name, decl);
-                return Some(format!("{ctor}::new({})", arg_code.join(", ")));
+                return Some(format!("{handle}::new({ctor}::new({}))", arg_code.join(", ")));
             }
         }
-        // Not a handler name, so it is an addr: the stub is the instance.
-        // [monitor-handler] [rs-monitor] A plain effect's handle *is* an
-        // instance already — the effect's lock wrapper — so it passes through
-        // as itself (`emit_owned` clones the handle), and the same monitor
-        // serves every actor it is supplied to. An actor effect's addr is an
-        // index the send stub wraps.
         let addr_code = self.emit_owned(item);
         if self
             .symbols
@@ -9732,7 +9513,10 @@ impl<'p> Emitter<'p> {
         {
             return Some(addr_code);
         }
-        Some(format!("{}::new({addr_code})", stub_struct_name(&dep.0)))
+        Some(format!(
+            "{handle}::new({}::new({addr_code}))",
+            stub_struct_name(&dep.0)
+        ))
     }
 
     /// [actor-waitfor] `waitfor out: Reply<T> { … }` → a block expression:
@@ -10066,58 +9850,26 @@ impl<'p> Emitter<'p> {
                 }
             };
             let addr_code = self.emit_owned(handler);
-            // [monitor-handler] [rs-monitor] A plain effect's handle already
-            // *is* the effect's lock wrapper, so binding it is binding the
-            // value itself; an actor's addr is an index that the send stub
-            // turns into an instance.
+            // [monitor-handler] [rs-handle] A plain effect's `Addr<E>` *is*
+            // `__Handle_E`, so binding it is binding the value itself; an
+            // actor's addr is an index the send stub turns into an instance,
+            // which the handle then wraps like any handler.
             let instance = if is_plain {
                 addr_code
             } else {
-                format!("{stub}::new({addr_code})")
+                let handle = self.handle_ctor_for(Some(&effect), &rendered);
+                format!("{handle}::new({stub}::new({addr_code}))")
             };
-            // [effect-handle] A handle binding that a later construction
-            // captures: the handle *is* the clonable thing, so the eager
-            // variable is a plain clone minted before the value moves into
-            // the fusion.
-            let mut prelude = String::new();
-            let mut handle_var: Option<String> = None;
-            let mut instance = instance;
-            if is_plain && self.captured_effects.contains(&rendered) {
-                let bind = self.unique_name("__bind".to_string());
-                let hv = self.unique_name("__handle".to_string());
-                prelude.push_str(&format!("{pad}let mut {bind} = {instance};\n"));
-                prelude.push_str(&format!("{pad}let {hv} = {bind}.clone();\n"));
-                instance = bind;
-                handle_var = Some(hv);
-            }
-            if self.fusion {
-                let code = self.emit_fusion_instance(
-                    Vec::new(),
-                    instance,
-                    Some(effect),
-                    rendered.clone(),
-                    indent,
-                );
-                if let Some(hv) = handle_var {
-                    for entry in self.effect_env.iter_mut().rev() {
-                        if entry.key == rendered && entry.handle_var.is_none() {
-                            entry.handle_var = Some(hv.clone());
-                            break;
-                        }
-                    }
-                }
-                return format!("{prelude}{code}");
-            }
             let var = self.unique_name(effect_param_name(&rendered));
             self.effect_env.push(EffectEntry {
                 ty: Some(effect),
                 key: rendered,
                 var: var.clone(),
                 is_local: true,
-                handle_var,
+                handle_var: Some(var.clone()),
             });
             self.bindings.insert(var.clone(), BindKind::Owned);
-            return format!("{prelude}{pad}let mut {var} = {instance};\n");
+            return format!("{pad}let mut {var} = {instance};\n");
         }
         let (handler_name, args): (String, Vec<&Expr>) = match handler {
             Expr::Ident(id) => (id.name.clone(), Vec::new()),
@@ -10164,7 +9916,7 @@ impl<'p> Emitter<'p> {
         // whole).
         let captures = self
             .checked
-            .handle_captures
+            .use_deps
             .get(&(self.file_idx, span))
             .cloned()
             .unwrap_or_default();
@@ -10281,118 +10033,92 @@ impl<'p> Emitter<'p> {
             arg_code.join(", ")
         );
         // [handler-init] A `use`-bound handler runs its `init` inline, right
-        // after construction. An independent handler's `init` is a plain
-        // method; a dependent one's takes the fused value, which is not built
-        // until the fusion struct holds the instance — reported rather than
-        // emitted wrong [backend-never-wrong].
+        // after construction: a plain method, since a dependent handler
+        // reaches its dependencies through its own fields [effect-handle].
         if decl.init.is_some() {
-            if self.handler_dep_effects(decl).is_empty() || self.handler_is_handle_dep(decl) {
-                ctor = format!("{{ let mut __h = {ctor}; __h.init(); __h }}");
-            } else if !self.fusion {
-                self.error(format!(
-                    "handler `{handler_name}` has an `init` block and declares effect \
-                     dependencies, which the rust backend runs under a `use` only in \
-                     fusion mode"
-                ));
-            }
-            // A dependent handler's `init` runs after the fusion struct
-            // holds the instance (`emit_fusion_inner`).
+            ctor = format!("{{ let mut __h = {ctor}; __h.init(); __h }}");
         }
-        // [rs-monitor] A monitor binding wraps in the per-effect lock
-        // adapter. [rs-platform-handler] [threadsafe-platform] A platform
-        // handler *without* `threadsafe` classifies as a monitor since
-        // 2026-09-26 (user decision), so it arrives here as `Monitor` and
-        // takes the same lock — now a semantic claim on both backends, not
-        // this backend's sharing mechanics. A `threadsafe` one classifies
-        // bare and is wrapped below in its `Arc` adapter instead.
-        let lock_shared = kind == salvo_core::UseKind::Monitor;
-        if lock_shared {
-            if let Some((Some(Ty::Named { name, .. }), _)) = faces.first() {
-                // The lock adapter is generic only over the handler, so its
-                // one type argument is inferred from the construction.
-                ctor = format!(
-                    "{}::new({ctor})",
-                    self.effect_path(name, &lock_struct_name(name))
-                );
-            }
-        }
-        // [rs-platform-handler] [threadsafe-platform] A `threadsafe` platform
-        // handler shares the host instance as `Arc<H>` with **no lock**: the
-        // generated `__Arc_H` adapter implements the effect's `&mut self`
-        // trait by forwarding to the host's `&self` members (a parallel
-        // `__Shared_H` trait the skeleton implements), so the host is
-        // compiled under shared access and rustc checks the half of the
-        // contract it can — interior mutability must be `Sync`. Cloning the
-        // adapter bumps the `Arc`, which is what a seam's handle needs and
-        // what the host struct itself (real state, no `Clone`) cannot give.
-        if kind == salvo_core::UseKind::Bare && decl.platform && decl.threadsafe {
-            ctor = format!("{}::new({ctor})", self.host_arc_adapter_path(&handler_name));
-        }
-        // [effect-handle] The eager handle: minted beside the binding when a
-        // later construction in this file captures the effect. A monitor's
-        // clone is an `Arc` bump (same instance); a stateless clone is
-        // indistinguishable from the instance.
-        let mut prelude = String::new();
-        let mut handle_var: Option<String> = None;
-        if kind != salvo_core::UseKind::Local {
-            if let Some((Some(ty @ Ty::Named { name, .. }), key)) = faces.first() {
-                if self.captured_effects.contains(key) {
-                    let bind = self.unique_name("__bind".to_string());
-                    let hv = self.unique_name("__handle".to_string());
-                    let ty = ty.clone();
-                    let mon = self.effect_path(name, &monitor_struct_name(name));
-                    // A generic instance names the wrapper's type arguments
-                    // outright: inference would have to thread them through
-                    // the unsize coercion, which rustc refuses to guess.
-                    let mon_args = self.effect_instance_turbofish(&ty);
-                    prelude.push_str(&format!("{pad}let mut {bind} = {ctor};\n"));
-                    prelude.push_str(&format!(
-                        "{pad}let {hv} = {mon}{mon_args}::new(Box::new({bind}.clone()));\n"
-                    ));
-                    ctor = bind;
-                    handle_var = Some(hv);
-                }
-            }
-        }
-        if self.fusion {
-            let code = self.emit_fusion_inner(
-                Some(decl),
-                &handler_name,
-                "",
-                Vec::new(),
-                Some(ctor),
-                faces.clone(),
-                indent,
-            );
-            // The entries the fusion just pushed for these faces learn the
-            // handle, so a later capture can clone it.
-            if let Some(hv) = handle_var {
-                let keys: Vec<String> = faces.iter().map(|(_, k)| k.clone()).collect();
-                for entry in self.effect_env.iter_mut().rev() {
-                    if keys.contains(&entry.key) && entry.handle_var.is_none() {
-                        entry.handle_var = Some(hv.clone());
-                    }
-                }
-            }
-            return format!("{prelude}{code}");
-        }
+        let _ = kind;
+        // [effect-handle] [rs-handle] The binding *is* the handle:
+        // `let mut e = __Handle_E::new(H::new(args, deps…))`. A stateless
+        // handler pays an uncontended lock per member call and nothing else
+        // (user decision 2026-09-28: one implementation; the lock-free
+        // stateless path is the optimisation pass). A platform handler is
+        // wrapped the same way — `threadsafe` is the declared contract the
+        // skeleton prints and emits nothing [threadsafe-platform].
+        // [effect-handler-multi] Several faces share **one** instance: the
+        // construction goes into an `Arc<Mutex<H>>` once, and each face's
+        // handle shares it (`__Handle_E::share`), so a stateful multi-face
+        // handler is one lock behind several effect types.
+        let pad = "    ".repeat(indent);
         let var = self.unique_name(effect_param_name(&faces[0].1));
-        for (checked_ty, effect_ty) in faces.clone() {
+        let mut out = String::new();
+        if faces.len() == 1 {
+            let (checked_ty, key) = faces[0].clone();
+            let handle = self.handle_ctor_for(checked_ty.as_ref(), &key);
+            out.push_str(&format!("{pad}let mut {var} = {handle}::new({ctor});\n"));
             self.effect_env.push(EffectEntry {
                 ty: checked_ty,
-                key: effect_ty,
+                key,
                 var: var.clone(),
                 is_local: true,
-                handle_var: handle_var.clone(),
+                handle_var: Some(var.clone()),
             });
+            self.bindings.insert(var.clone(), BindKind::Owned);
+            return out;
         }
-        self.bindings.insert(var.clone(), BindKind::Owned);
-        format!("{prelude}{pad}let mut {var} = {ctor};\n")
+        let inst = self.unique_name("__inst".to_string());
+        out.push_str(&format!(
+            "{pad}let {inst} = std::sync::Arc::new(std::sync::Mutex::new({ctor}));\n"
+        ));
+        for (checked_ty, key) in faces {
+            let face_var = self.unique_name(effect_param_name(&key));
+            let handle = self.handle_ctor_for(checked_ty.as_ref(), &key);
+            out.push_str(&format!(
+                "{pad}let mut {face_var} = {handle}::share({inst}.clone());\n"
+            ));
+            self.effect_env.push(EffectEntry {
+                ty: checked_ty,
+                key,
+                var: face_var.clone(),
+                is_local: true,
+                handle_var: Some(face_var.clone()),
+            });
+            self.bindings.insert(face_var, BindKind::Owned);
+        }
+        let _ = var;
+        out
+    }
+
+    /// [rs-handle] The handle type's constructor path for an effect
+    /// instance, with the instance's type arguments spelled outright: an
+    /// unsize coercion is not a site rustc infers them from.
+    fn handle_ctor_for(&mut self, checked: Option<&Ty>, rendered: &str) -> String {
+        match checked {
+            Some(ty) => {
+                let (base, args) = self.ty_effect_parts(ty);
+                let handle = self.effect_path(&base, &monitor_struct_name(&base));
+                if args.is_empty() {
+                    handle
+                } else {
+                    format!("{handle}::<{}>", args.join(", "))
+                }
+            }
+            None => {
+                let (base, args) = split_rendered_generic(rendered);
+                let handle = self.effect_path(&base, &monitor_struct_name(&base));
+                if args.is_empty() {
+                    handle
+                } else {
+                    format!("{handle}::<{}>", args.join(", "))
+                }
+            }
+        }
     }
 
     /// [with-clause] [rs-monitor] A written `with` item as the **handle** the
     /// depending handler captures: a handler construction becomes a private
-    /// instance boxed into the effect's `__Mon_E` (the same shape a binding's
+    /// instance boxed into the effect's `__Handle_E` (the same shape a binding's
     /// eager handle takes, so the field type is unchanged), and an `Addr`
     /// value is already a handle and passes through as itself.
     fn with_item_handle(&mut self, item: &Expr, dep: &Ty) -> String {
@@ -10409,145 +10135,48 @@ impl<'p> Emitter<'p> {
                 let arg_code: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
                 let ctor = self.handler_ctor_path(&name, decl);
                 let inner = format!("{ctor}::new({})", arg_code.join(", "));
-                let Ty::Named { name: effect, .. } = dep.strip_quals() else {
-                    self.error(format!(
-                        "internal: the `with` item for `{dep}` supplies no named effect"
-                    ));
-                    return "todo!()".to_string();
-                };
-                let effect = effect.clone();
-                let mon = self.effect_path(&effect, &monitor_struct_name(&effect));
-                let mon_args = self.effect_instance_turbofish(dep);
-                // A private instance is stateful as often as not, and the
-                // handle must own it: the lock adapter is what gives a
-                // captured instance shared ownership on this backend, exactly
-                // as it does for a monitor binding ([rs-platform-handler]
-                // records the same mechanics for a host struct).
-                let lock = self.effect_path(&effect, &lock_struct_name(&effect));
-                return format!("{mon}{mon_args}::new(Box::new({lock}::new({inner})))");
+                // An actor-effect `with` item is an addr, not a construction,
+                // so only plain handlers reach here; the handle owns the
+                // private instance.
+                let handle = self.handle_ctor_for(Some(dep), "");
+                return format!("{handle}::new({inner})");
             }
         }
         // Not a handler name, so it is an addr — already a handle.
         self.emit_owned(item)
     }
 
-    /// [threadsafe-platform] [rs-platform-handler] The path of a `threadsafe`
-    /// platform handler's `__Arc_H` adapter: generated into the declaring
-    /// module, so named through the same prefix table as that module's
-    /// effects. Recording the host module here is what makes the `use` demand
-    /// a companion file exactly as `handler_ctor_path` does.
-    fn host_arc_adapter_path(&mut self, handler: &str) -> String {
-        if let Some(module) = self.symbols.handler_modules.get(handler) {
-            self.platform_hosts.insert((*module).clone());
-        }
-        self.effect_path(handler, &host_arc_adapter_name(handler))
-    }
-
-    /// [threadsafe-platform] [rs-platform-handler] What a `threadsafe
-    /// platform handler H of E` emits into its declaring module: a
-    /// **`__Shared_H` trait** — the effect's members with `&self` receivers,
-    /// which the host struct implements — and an **`__Arc_H` adapter** holding
-    /// `Arc<H>` and implementing the effect's own `&mut self` trait by
-    /// forwarding. The `use` site constructs the adapter around the host;
-    /// cloning it bumps the `Arc`, which is the handle a seam needs; and the
-    /// host is compiled under shared access, so rustc refuses a host whose
-    /// interior mutability is not `Sync` — the half of the contract the
-    /// compiler can check. Kotlin needs neither piece: an object reference is
-    /// already the shared handle [kt-platform-handler].
-    ///
-    /// A member that **lends** has no `&self` reading — a borrow out of shared
-    /// state is what `&self` cannot hand back mutably — so such an effect is
-    /// refused here rather than mis-emitted [backend-never-wrong].
-    fn emit_host_arc_adapter(&mut self, h: &HandlerDecl, with_adapter: bool) -> String {
-        let Some(effect) = h
-            .of
-            .first()
-            .and_then(type_base_name)
-            .and_then(|n| self.symbols.effects.get(n))
-            .copied()
-        else {
-            self.error(format!(
-                "internal: threadsafe platform handler `{}` implements no declared \
-                 effect",
-                h.name.name
-            ));
-            return String::new();
-        };
-        if effect.fns.iter().any(|f| {
-            f.return_type
-                .as_ref()
-                .is_some_and(|rt| fn_type_lends_mut(rt))
-        }) {
-            self.error(format!(
-                "`threadsafe platform handler {}` implements `{}`, whose members lend \
-                 mutably: a shared host cannot hand out a mutable borrow of its own \
-                 state through `&self`, so this handler cannot be `threadsafe` — drop \
-                 the word (the instance is then serialized behind a lock) or make the \
-                 effect answer owned values [threadsafe-platform]",
-                h.name.name, effect.name.name
-            ));
-            return String::new();
-        }
-        let shared = host_shared_trait_name(&h.name.name);
-        let arc = host_arc_adapter_name(&h.name.name);
-        let trait_name = self.effect_path(&effect.name.name, &rs_ident(&effect.name.name));
-        let mut shared_members = String::new();
-        let mut forwards = String::new();
-        for (i, f) in effect.fns.iter().enumerate() {
-            if !f.generics.is_empty() {
-                continue;
-            }
-            let member = self.member_name(effect, i);
-            let params = format!(
-                "{}{}",
-                self.emit_member_param_list(f),
-                self.emit_member_implicits(f)
-            );
-            let ret = self.emit_return_type(f.return_type.as_ref());
-            let mut args: Vec<String> = f
-                .params
-                .iter()
-                .filter(|p| !p.implicit)
-                .map(|p| rs_ident(&p.name.name))
-                .collect();
-            args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
-            let args = args.join(", ");
-            shared_members.push_str(&format!("    fn {member}(&self{params}){ret};\n"));
-            forwards.push_str(&format!(
-                "    fn {member}(&mut self{params}){ret} {{\n        \
-                 self.inner.{member}({args})\n    }}\n"
-            ));
-        }
-        let mut out = format!(
-            "\n// [threadsafe-platform] [rs-platform-handler] The `&self` twin of `{}`\n\
-             // that the threadsafe host `{}` implements: the host synchronizes\n\
-             // internally, and rustc checks that what it holds is `Sync`.\n\
-             pub trait {shared}: Send + Sync {{\n{shared_members}}}\n",
-            effect.name.name, h.name.name
-        );
-        if with_adapter {
-            let host = self.handler_ctor_path(&h.name.name, h);
-            out.push_str(&format!(
-                "\n// The lock-free sharing adapter a `use` constructs around the host.\n\
-                 pub struct {arc} {{\n    inner: std::sync::Arc<{host}>,\n}}\n\n\
-                 impl Clone for {arc} {{\n    fn clone(&self) -> Self {{\n        \
-                 Self {{ inner: self.inner.clone() }}\n    }}\n}}\n\n\
-                 impl {arc} {{\n    pub fn new(inner: {host}) -> Self {{\n        \
-                 Self {{ inner: std::sync::Arc::new(inner) }}\n    }}\n}}\n\n\
-                 impl {trait_name} for {arc} {{\n{forwards}}}\n"
-            ));
-        }
-        out
-    }
 
     /// [effect-handle] [effect-handler-deps] The shared dependency-form
     /// predicate, with the symbol table answering the face kind.
-    fn handler_is_handle_dep(&self, decl: &HandlerDecl) -> bool {        salvo_core::handler_handle_deps(decl, |name| {
-            self.symbols
-                .effects
-                .get(name)
-                .is_some_and(|e| e.is_actor)
-        })
+    /// [effect-handle] [rs-handle] Whether a handler holds dependency
+    /// handles: every dependent handler does, whatever the dependency's
+    /// kind (plain, actor, generic instance) and however it is bound.
+    fn handler_is_handle_dep(&self, decl: &HandlerDecl) -> bool {
+        decl.effects
+            .iter()
+            .flatten()
+            .any(|e| matches!(e, EffectRef::Effect(_) | EffectRef::AnyEffect(_)))
+    }
+
+    /// [rs-handle] The handle type of an effect given its rendered trait
+    /// type (`Store<i64>` -> `__Handle_Store<i64>`): what a fn's effect
+    /// parameter, a fn value's effect parameter and a lambda's are typed by.
+    fn handle_type_rendered(&mut self, rendered: &str) -> String {
+        let (base, args) = split_rendered_generic(rendered);
+        self.dep_handle_type(&base, &args)
+    }
+
+    /// [rs-handle] The rendered handle type of a dependency
+    /// (`__Handle_Store<i64>` for `Store<Int>`), through the declaring
+    /// module's path.
+    fn dep_handle_type(&mut self, base: &str, args: &[String]) -> String {
+        let handle = self.effect_path(base, &monitor_struct_name(base));
+        if args.is_empty() {
+            handle
+        } else {
+            format!("{handle}<{}>", args.join(", "))
+        }
     }
 
     /// [platform-handler] [rs-platform-handler] The type a `use` constructs. An
@@ -13421,7 +13050,7 @@ impl<'p> Emitter<'p> {
         // [task-effects] [rs-task] The effects the task inherits, first and in
         // the target's declared order. The closure is `move` and outlives the
         // minting frame, so a `&mut dyn E` from this scope is unusable: what
-        // travels is the **owned handle**, the effect's `__Mon_E`, which is
+        // travels is the **owned handle**, the effect's `__Handle_E`, which is
         // `Clone` and implements the effect's own trait — so `&mut` of it *is*
         // the `&mut dyn E` the target's signature asks for, with no bundle and
         // no signature change [rs-handle-bundle]. Bound outside the closure so
@@ -13439,7 +13068,7 @@ impl<'p> Emitter<'p> {
             lets.push_str(&format!("let __e{i} = {code}; "));
             // Cloned *inside* the closure rather than moved out of the capture:
             // the scheduler's callback is a `Fn`, so a capture may not be
-            // consumed, and a `__Mon_E` clone is a handle to the same instance.
+            // consumed, and a `__Handle_E` clone is a handle to the same instance.
             args.push(format!("__e{i}.clone()"));
         }
         for (i, c) in captures.iter().enumerate() {
@@ -13550,21 +13179,9 @@ impl<'p> Emitter<'p> {
             } else {
                 format!("{priv_enum}::{variant}({})", payload.join(", "))
             };
-            let deps = self.handler_dep_effects(decl);
-            let inline = if deps.is_empty() {
-                format!("self.{}({})", rs_ident(&f.name.name), payload.join(", "))
-            } else {
-                let fx = self
-                    .effect_env
-                    .iter()
-                    .rev()
-                    .find(|e| !e.is_local)
-                    .map(|e| e.var.clone())
-                    .unwrap_or_else(|| "__fx".to_string());
-                let mut args = vec!["self".to_string(), format!("&mut *{fx}")];
-                args.extend(payload.iter().cloned());
-                format!("__Impl_{}::{}({})", rs_ident(&handler), rs_ident(&f.name.name), args.join(", "))
-            };
+            // [rs-handle] A dependent handler's members are inherent/trait
+            // methods like any other: its dependencies are its own fields.
+            let inline = format!("self.{}({})", rs_ident(&f.name.name), payload.join(", "));
             return format!(
                 "match self.__addr {{ Some(__a) => crate::scheduler::salvo_send(__a, Box::new({built})), \
                  None => {inline} }}"
@@ -13590,26 +13207,10 @@ impl<'p> Emitter<'p> {
         } else {
             format!("{msg}::{variant}({})", payload.join(", "))
         };
-        // The inline reading: the dependent-member trait when the handler has
-        // dependencies, the effect trait otherwise.
-        let deps = self.handler_dep_effects(decl);
-        let inline = if deps.is_empty() {
+        // The inline reading: the effect trait's method on `self`.
+        let inline = {
             let trait_path = self.effect_path(&effect_name, &rs_ident(&effect_name));
             format!("{trait_path}::{}(self, {})", rs_ident(member), "__PAYLOAD__")
-        } else {
-            let fx = self
-                .effect_env
-                .iter()
-                .rev()
-                .find(|e| !e.is_local)
-                .map(|e| e.var.clone())
-                .unwrap_or_else(|| "__fx".to_string());
-            format!(
-                "__Impl_{}::{}(self, &mut *{fx}, {})",
-                rs_ident(&handler),
-                rs_ident(member),
-                "__PAYLOAD__"
-            )
         };
         let inline = inline.replace("__PAYLOAD__", &payload.join(", "));
         // A trailing `, )` when the member takes nothing.
@@ -13973,7 +13574,8 @@ impl<'p> Emitter<'p> {
                 if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
                     let rendered = self.emit_type_ref(r);
                     let var = format!("__fx{}", effect_params.len());
-                    effect_params.push(format!("{var}: &mut dyn {rendered}"));
+                    let handle_ty = self.handle_type_rendered(&rendered);
+                    effect_params.push(format!("{var}: &mut {handle_ty}"));
                     effect_args.push((rendered, var));
                 }
             }
@@ -15500,15 +15102,16 @@ impl<'p> Emitter<'p> {
             for ty in &lambda_effects {
                 let rendered = self.rust_ty(ty);
                 let var = self.unique_name(effect_param_name(&rendered));
+                let handle_ty = self.handle_type_rendered(&rendered);
                 self.effect_env.push(EffectEntry {
                     ty: Some(ty.clone()),
                     key: rendered.clone(),
                     var: var.clone(),
                     is_local: false,
-                    handle_var: None,
+                    handle_var: Some(var.clone()),
                 });
                 self.bindings.insert(var.clone(), BindKind::RefMut);
-                param_list.push(format!("{var}: &mut dyn {rendered}"));
+                param_list.push(format!("{var}: &mut {handle_ty}"));
             }
         }
         param_list.extend(params.iter().enumerate().map(|(i, p)| match &p.ty {
@@ -15723,7 +15326,7 @@ impl<'p> Emitter<'p> {
                     .iter()
                     .map(|(n, v)| {
                         if fn_fields.contains(n) {
-                            format!("{n}: std::rc::Rc::new({v})")
+                            format!("{n}: std::sync::Arc::new({v})")
                         } else {
                             format!("{n}: {v}")
                         }
@@ -15753,7 +15356,7 @@ impl<'p> Emitter<'p> {
                             let code = self.emit_default_value(&default, &df.ty);
                             let code = if matches!(df.ty, Type::Fn { .. }) {
                                 // [rs-fn-field] Same wrap as a written store.
-                                format!("std::rc::Rc::new({code})")
+                                format!("std::sync::Arc::new({code})")
                             } else {
                                 code
                             };
@@ -16095,7 +15698,16 @@ impl<'p> Emitter<'p> {
             arg_code.extend(self.emit_implicit_args(named, span));
             let called = self.called_member_name(effect, name, span);
             if !self.fusion {
-                return format!("{handler}.{called}({})", arg_code.join(", "));
+                // [effect-args-hoisted] An argument that reaches the same
+                // handle this call dispatches on is evaluated first: the
+                // receiver's `&mut` is live across the argument list, so
+                // `clock.to_instant(&clock.to_tick(i))` is E0499 unhoisted.
+                let (prelude, arg_code) =
+                    self.hoist_effect_args(Some(&[handler.clone()]), arg_code);
+                return Self::wrap_hoisted(
+                    &prelude,
+                    format!("{handler}.{called}({})", arg_code.join(", ")),
+                );
             }
             // [rs-effect-fusion] Accessor-then-method: the fused value
             // implements `__Has_E` per effect, never the effects

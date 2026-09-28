@@ -1,0 +1,4657 @@
+---
+source: crates/salvo-backend-rust/tests/codegen_tests.rs
+assertion_line: 221
+expression: combined
+---
+// ===== core/checked.rs =====
+use crate::core_iterator::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Checked<T: Clone + 'static> {
+    pub value: T,
+}
+
+pub fn checked<T: Clone>(value: T) -> Checked<T> {
+    return Checked { value: value };
+}
+
+pub fn ignore<T: Clone>(checked: Checked<T>) {
+    drop(checked);
+}
+
+pub fn detach<T: Clone>(checked: Checked<T>) -> T {
+    return checked.value;
+}
+
+// ===== core/console.rs =====
+use crate::core_iterator::*;
+use crate::core_string::*;
+
+pub trait Console {
+    fn print(&mut self, message: &String);
+}
+
+pub struct __Handle_Console {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Console + Send>>,
+}
+
+impl Clone for __Handle_Console {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl __Handle_Console {
+    pub fn new<__H: Console + Send + 'static>(inner: __H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Console + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Console for __Handle_Console {
+    fn print(&mut self, message: &String) {
+        self.inner.lock().unwrap().print(message)
+    }
+}
+
+#[derive(Clone)]
+pub struct StdOutConsole {
+}
+
+impl StdOutConsole {
+    pub fn new() -> Self {
+        Self { }
+    }
+}
+
+impl Console for StdOutConsole {
+    fn print(&mut self, message: &String) {
+        print!("{}", message)
+    }
+}
+
+pub fn println(console: &mut crate::core_console::__Handle_Console, message: &String) {
+    console.print(message);
+    console.print(&("\n".to_string()));
+}
+
+// ===== core/iterator.rs =====
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Finished {
+}
+
+impl crate::wire::__Wire for Finished {
+    fn __enc(&self, out: &mut Vec<u8>) {
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+        })
+    }
+}
+
+pub fn emitted<T: Clone>(value: T) -> T {
+    return value;
+}
+
+pub fn finished() -> Finished {
+    return Finished {  };
+}
+
+// ===== core/list.rs =====
+use crate::collections::*;
+use crate::core_checked::*;
+use crate::core_iterator::*;
+use crate::core_map::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
+use crate::core_string::*;
+use crate::seq::*;
+use crate::unions::*;
+
+pub fn Idx_qualifies<T: Clone>(index: i32, list: &Vec<T>) -> bool {
+    return index >= 0 && index < (list.len() as i32);
+}
+
+pub fn NotEq_qualifies(j: i32, i: i32) -> bool {
+    return j != i;
+}
+
+pub fn get<'a, T: Clone>(list: &'a Vec<T>, index: &i32) -> &'a T {
+    return list.get((*index + 0) as i64 as usize).expect("salvo: value is absent at core.list:90:12");
+}
+
+pub fn get__loc<T: Clone>(list: &Vec<T>, index: &i32) -> usize {
+    return { let __i = (*index + 0) as i64 as usize; if __i < list.len() { Some(__i) } else { None } }.expect("salvo: value is absent at core.list:90:12");
+}
+
+pub fn swap<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32) {
+    ignore({ let __i = (*i + 0) as i64 as usize; let __j = (*j + 0) as i64 as usize; Checked { value: if __i < list.len() && __j < list.len() { list.swap(__i, __j); true } else { false } } });
+    return;
+}
+
+pub fn at<T: Clone>(list: &mut Vec<T>, index: i32) -> Option<&T> {
+    return list.get((index) as i64 as usize);
+}
+
+pub fn update<T: Clone>(list: &mut Vec<T>, index: &i32, f: &mut impl FnMut(&mut T)) {
+    f(list.get_mut((*index) as usize).expect("salvo: value is absent at core.list:133:7"));
+    return;
+}
+
+pub fn update2<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32, f: &mut impl FnMut(&mut T, &mut T)) {
+    let (__pm0, __pm1) = salvo_pair_mut(&mut list[..], (*i) as usize, (*j) as usize).expect("salvo: value is absent at core.list:146:5");
+    f(__pm0, __pm1);
+    return;
+}
+
+pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
+    return (list.len() as i32) > 0;
+}
+
+pub fn first<T: Clone>(list: &Vec<T>) -> &T {
+    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:259:12");
+}
+
+pub fn iter__3<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
+    return ListYield { items: list, at: 0 };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListYield<'s, T: Clone + 'static> {
+    pub items: &'s Vec<T>,
+    pub at: i32,
+}
+
+pub fn next__3<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
+    let mut elem = p.items.get((p.at) as i64 as usize);
+    if elem.is_none() {
+        return Union2::U2(finished());
+    }
+    p.at = p.at + 1;
+    return Union2::U1(emitted(elem.unwrap()));
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_reversed_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
+    pub at: i32,
+}
+
+pub fn reversed<T: Clone>(list: &Vec<T>) -> __Iter_reversed_List<'_, T> {
+    return __Iter_reversed_List { list: list, at: (list.len() as i32) - 1 };
+}
+
+pub fn next__4<'s, T: Clone>(__p: &mut __Iter_reversed_List<'s, T>) -> Union2<&'s T, Finished> {
+    let mut elem = __p.list.get((__p.at) as i64 as usize);
+    if elem.is_none() {
+        return Union2::U2(finished());
+    }
+    __p.at = __p.at - 1;
+    return Union2::U1(emitted(elem.unwrap()));
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_indices_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
+    pub at: i32,
+}
+
+pub fn indices<T: Clone>(list: &Vec<T>) -> __Iter_indices_List<'_, T> {
+    return __Iter_indices_List { list: list, at: 0 };
+}
+
+pub fn next__5<T: Clone>(__p: &mut __Iter_indices_List<'_, T>) -> Union2<i32, Finished> {
+    if __p.at >= (__p.list.len() as i32) {
+        return Union2::<i32, Finished>::U2(finished());
+    }
+    let mut index = __p.at;
+    __p.at = __p.at + 1;
+    return Union2::<i32, Finished>::U1(emitted(index));
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_rev_indices_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
+    pub at: i32,
+}
+
+pub fn rev_indices<T: Clone>(list: &Vec<T>) -> __Iter_rev_indices_List<'_, T> {
+    return __Iter_rev_indices_List { list: list, at: (list.len() as i32) - 1 };
+}
+
+pub fn next__6<T: Clone>(__p: &mut __Iter_rev_indices_List<'_, T>) -> Union2<i32, Finished> {
+    if __p.at < 0 {
+        return Union2::<i32, Finished>::U2(finished());
+    }
+    let mut index = __p.at;
+    __p.at = __p.at - 1;
+    return Union2::<i32, Finished>::U1(emitted(index));
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Enumerated<'s, T: Clone + 'static> {
+    pub index: i32,
+    pub elem: &'s T,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_enumerate_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
+    pub at: i32,
+}
+
+pub fn enumerate<T: Clone>(list: &Vec<T>) -> __Iter_enumerate_List<'_, T> {
+    return __Iter_enumerate_List { list: list, at: 0 };
+}
+
+pub fn next__7<'a, T: Clone>(__p: &mut __Iter_enumerate_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
+    let mut elem = __p.list.get((__p.at) as i64 as usize);
+    if elem.is_none() {
+        return Union2::<Enumerated<'_, T>, Finished>::U2(finished());
+    }
+    let mut index = __p.at;
+    __p.at = __p.at + 1;
+    return Union2::<Enumerated<'_, T>, Finished>::U1(emitted(Enumerated { index: index, elem: elem.unwrap() }));
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_enumerate_rev_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
+    pub at: i32,
+}
+
+pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> __Iter_enumerate_rev_List<'_, T> {
+    return __Iter_enumerate_rev_List { list: list, at: (list.len() as i32) - 1 };
+}
+
+pub fn next__8<'a, T: Clone>(__p: &mut __Iter_enumerate_rev_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
+    let mut elem = __p.list.get((__p.at) as i64 as usize);
+    if elem.is_none() {
+        return Union2::<Enumerated<'_, T>, Finished>::U2(finished());
+    }
+    let mut index = __p.at;
+    __p.at = __p.at - 1;
+    return Union2::<Enumerated<'_, T>, Finished>::U1(emitted(Enumerated { index: index, elem: elem.unwrap() }));
+}
+
+pub fn sort<T: Clone>(list: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Vec<T> {
+    return { let mut __cmp = cmp; let mut __v = list.clone(); __v.sort_by(|__a, __b| __cmp(__a, __b).cmp(&0)); __v };
+}
+
+pub fn mut_sort<T: Clone>(list: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Vec<T> {
+    return { let mut __cmp = cmp; let mut __v = list.clone(); __v.sort_by(|__a, __b| __cmp(__a, __b).cmp(&0)); __v };
+}
+
+pub fn add_sorted<T: Clone>(list: &mut Vec<T>, elem: T, cmp: &mut dyn FnMut(&T, &T) -> i32) {
+    { let mut __cmp = cmp; let __e = elem; let __at = list.partition_point(|__x| __cmp(__x, &__e) < 0); list.insert(__at, __e); };
+}
+
+pub fn binary_search<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Option<i32> {
+    return { let mut __cmp = cmp; let __e = elem; let __at = list.partition_point(|__x| __cmp(__x, &__e) < 0); if __at < list.len() && __cmp(&list[__at], &__e) == 0 { Some(__at as i32) } else { None } };
+}
+
+// ===== core/map.rs =====
+use crate::collections::*;
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
+use crate::core_string::*;
+use crate::unions::*;
+
+pub fn KeyOf_qualifies<K: Clone, V: Clone>(key: &K, map: &SalvoMap<K, V>) -> bool {
+    return map.contains_key(&key);
+}
+
+pub fn get__2<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V {
+    return map.get(&key).unwrap();
+}
+
+pub fn iter__4<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
+    return MapKeyYield { items: map.keys().cloned().collect::<Vec<_>>(), at: 0 };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapKeyYield<K: Clone + 'static> {
+    pub items: Vec<K>,
+    pub at: i32,
+}
+
+pub fn next__9<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
+    let mut key = p.items.get((p.at) as i64 as usize).cloned();
+    if key.is_none() {
+        return Union2::<K, Finished>::U2(finished());
+    }
+    p.at = p.at + 1;
+    return Union2::<K, Finished>::U1(emitted(key.as_ref().unwrap().clone()));
+}
+
+pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> bool {
+    return (map.len() as i32) > 0;
+}
+
+// ===== core/set.rs =====
+use crate::collections::*;
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_map::*;
+use crate::core_sorted::*;
+use crate::core_string::*;
+use crate::unions::*;
+
+pub fn iter__5<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
+    return SetYield { items: set.iter().cloned().collect::<Vec<_>>(), at: 0 };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SetYield<T: Clone + 'static> {
+    pub items: Vec<T>,
+    pub at: i32,
+}
+
+pub fn next__11<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+    let mut elem = p.items.get((p.at) as i64 as usize).cloned();
+    if elem.is_none() {
+        return Union2::<T, Finished>::U2(finished());
+    }
+    p.at = p.at + 1;
+    return Union2::<T, Finished>::U1(emitted(elem.as_ref().unwrap().clone()));
+}
+
+pub fn NonEmpty__Set_qualifies<T: Clone>(set: &SalvoSet<T>) -> bool {
+    return (set.len() as i32) > 0;
+}
+
+// ===== core/sorted.rs =====
+use crate::collections::*;
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_map::*;
+use crate::core_set::*;
+use crate::core_string::*;
+
+pub fn iter__6<T: Clone>(set: &SalvoSortedSet<T>) -> SetYield<T> {
+    return SetYield { items: set.to_vec(), at: 0 };
+}
+
+pub fn iter__7<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> MapKeyYield<K> {
+    return MapKeyYield { items: map.keys(), at: 0 };
+}
+
+pub fn NonEmpty__SortedSet_qualifies<T: Clone>(set: &SalvoSortedSet<T>) -> bool {
+    return (set.len() as i32) > 0;
+}
+
+pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> bool {
+    return (map.len() as i32) > 0;
+}
+
+pub fn min<T: Clone>(set: &SalvoSortedSet<T>) -> T {
+    return set.min().cloned().expect("salvo: value is absent at core.sorted:160:12");
+}
+
+pub fn max<T: Clone>(set: &SalvoSortedSet<T>) -> T {
+    return set.max().cloned().expect("salvo: value is absent at core.sorted:164:12");
+}
+
+pub fn first_key<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> K {
+    return map.first_key().cloned().expect("salvo: value is absent at core.sorted:168:12");
+}
+
+pub fn last_key<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> K {
+    return map.last_key().cloned().expect("salvo: value is absent at core.sorted:172:12");
+}
+
+// ===== core/string.rs =====
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_map::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
+use crate::unions::*;
+
+pub fn iter__8(str: &String) -> StrYield<'_> {
+    return StrYield { text: str, at: 0 };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StrYield<'s> {
+    pub text: &'s String,
+    pub at: i32,
+}
+
+pub fn next__12(p: &mut StrYield<'_>) -> Union2<char, Finished> {
+    let mut chr = p.text.chars().nth((p.at) as i64 as usize);
+    if chr.is_none() {
+        return Union2::<char, Finished>::U2(finished());
+    }
+    p.at = p.at + 1;
+    return Union2::<char, Finished>::U1(emitted(chr.unwrap()));
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Span {
+    pub start: i32,
+    pub end: i32,
+}
+
+impl crate::wire::__Wire for Span {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.start, out);
+        crate::wire::__Wire::__enc(&self.end, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            start: crate::wire::__Wire::__dec(r)?,
+            end: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub fn SpanOf_qualifies(span: &Span, str: &String) -> bool {
+    return span.start >= 0 && span.start <= span.end && span.end <= (str.chars().count() as i32);
+}
+
+pub fn substr(str: &String, at: &Span) -> String {
+    return { let __s = &str[..]; let __i = at.start; let __j = at.end; let __n = __s.chars().count() as i32; if __i >= 0 && __j >= __i && __j <= __n { Some(__s.chars().skip(__i as usize).take((__j - __i) as usize).collect::<String>()) } else { None } }.expect("salvo: value is absent at core.string:116:12");
+}
+
+// ===== main.rs =====
+#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals)]
+#[path = "unions.rs"]
+pub mod unions;
+#[path = "seq.rs"]
+pub mod seq;
+#[path = "collections.rs"]
+pub mod collections;
+#[path = "scheduler.rs"]
+pub mod scheduler;
+#[path = "hosttime.rs"]
+pub mod hosttime;
+#[path = "wire.rs"]
+pub mod wire;
+#[path = "core/checked.rs"]
+pub mod core_checked;
+#[path = "core/console.rs"]
+pub mod core_console;
+#[path = "core/iterator.rs"]
+pub mod core_iterator;
+#[path = "core/list.rs"]
+pub mod core_list;
+#[path = "core/map.rs"]
+pub mod core_map;
+#[path = "core/set.rs"]
+pub mod core_set;
+#[path = "core/sorted.rs"]
+pub mod core_sorted;
+#[path = "core/string.rs"]
+pub mod core_string;
+
+use crate::core_console::*;
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_map::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
+use crate::core_string::*;
+use crate::unions::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Person {
+    pub name: String,
+    pub surname: Option<String>,
+    pub age: i32,
+}
+
+impl crate::wire::__Wire for Person {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.name, out);
+        crate::wire::__Wire::__enc(&self.surname, out);
+        crate::wire::__Wire::__enc(&self.age, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            name: crate::wire::__Wire::__dec(r)?,
+            surname: crate::wire::__Wire::__dec(r)?,
+            age: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub fn full_name(person: &Person) -> String {
+    if person.surname.is_some() {
+        let mut surname = person.surname.as_ref().unwrap().clone();
+        return format!("{} {}", person.name.clone(), surname);
+    }
+    return person.name.clone();
+}
+
+pub fn greet(console: &mut crate::core_console::__Handle_Console, person: &Person) {
+    println(console, &(format!("Hello, {}!", full_name(person))));
+    let mut __loop1_pass = iter__9(&(upto(1, 4)));
+    while let Union2::U1(mut i) = next__15(&mut __loop1_pass) {
+        println(console, &(format!("  {}: {}", i, person.age + i)));
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Upto {
+    pub start: i32,
+    pub end: i32,
+}
+
+impl crate::wire::__Wire for Upto {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.start, out);
+        crate::wire::__Wire::__enc(&self.end, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            start: crate::wire::__Wire::__dec(r)?,
+            end: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub fn upto(start: i32, end: i32) -> Upto {
+    return Upto { start: start, end: end };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_iter_Upto {
+    pub end: i32,
+    pub at: i32,
+}
+
+impl crate::wire::__Wire for __Iter_iter_Upto {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.end, out);
+        crate::wire::__Wire::__enc(&self.at, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            end: crate::wire::__Wire::__dec(r)?,
+            at: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub fn iter__9(r: &Upto) -> __Iter_iter_Upto {
+    return __Iter_iter_Upto { end: r.end, at: r.start };
+}
+
+pub fn next__15(__p: &mut __Iter_iter_Upto) -> Union2<i32, Finished> {
+    if __p.at >= __p.end {
+        return Union2::<i32, Finished>::U2(finished());
+    }
+    let mut v = __p.at;
+    __p.at = __p.at + 1;
+    return Union2::<i32, Finished>::U1(emitted(v));
+}
+
+pub fn main() {
+    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
+    let mut person = Person { name: "Roland".to_string(), surname: Some("Elliott".to_string()), age: 36 };
+    greet(&mut console, &person);
+    let mut anon = Person { surname: None, ..person.clone() };
+    greet(&mut console, &anon);
+    let mut names = vec!["a".to_string(), "b".to_string()];
+    println(&mut console, &(format!("first: {}", first(&names))));
+    let mut mut_names = vec!["x".to_string()];
+    mut_names.push("y".to_string());
+    println(&mut console, &(format!("size: {}", (mut_names.len() as i32))));
+}
+
+// ===== unions.rs =====
+// Generated by the Salvo compiler: enums for union types.
+
+impl<T1: crate::wire::__Wire, T2: crate::wire::__Wire> crate::wire::__Wire for Union2<T1, T2> {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            Union2::U1(v) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(v, out);
+            }
+            Union2::U2(v) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(v, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(Union2::U1(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(Union2::U2(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Union2<T1, T2> {
+    U1(T1),
+    U2(T2),
+}
+
+impl<T1, T2> Union2<T1, T2> {
+    pub fn u1(&self) -> &T1 {
+        match self {
+            Union2::U1(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u1_mut(&mut self) -> &mut T1 {
+        match self {
+            Union2::U1(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u2(&self) -> &T2 {
+        match self {
+            Union2::U2(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u2_mut(&mut self) -> &mut T2 {
+        match self {
+            Union2::U2(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+}
+
+impl<T1, T2> std::fmt::Display for Union2<T1, T2>
+where
+    T1: std::fmt::Display,
+    T2: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Union2::U1(v) => write!(f, "{}", v),
+            Union2::U2(v) => write!(f, "{}", v),
+        }
+    }
+}
+
+// ===== wire.rs =====
+// Generated by the Salvo compiler: the wire — the canonical encoding's codec
+// trait and the language's own codecs [wire-format] [rs-wire].
+//
+// One half of the encoding: the Rust runtime's codec trait and its impls for every type the language defines
+// without the program's help. The Kotlin runtime's `wire.kt` produces and
+// reads the same bytes, which is what lets the two share a group; the
+// encoding is stated once, in `salvo-core`'s `wire.rs`, and implemented here
+// twice. Struct, union and message codecs are *generated* by the emitter
+// beside their declarations as `impl __Wire`.
+//
+// Every integer is big-endian; every length is a `u32`; an optional is a
+// presence byte; a union is a tag byte holding the arm's declared index.
+// Decoding is total: a malformed input answers `None` rather than panicking,
+// and `salvo_decode` refuses trailing bytes so a frame is exactly one value.
+
+pub struct __Reader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> __Reader<'a> {
+    pub fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(n)?;
+        if end > self.data.len() {
+            return None;
+        }
+        let out = &self.data[self.pos..end];
+        self.pos = end;
+        Some(out)
+    }
+
+    pub fn u8(&mut self) -> Option<u8> {
+        self.take(1).map(|b| b[0])
+    }
+
+    pub fn u32(&mut self) -> Option<u32> {
+        let b = self.take(4)?;
+        Some(u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+    }
+
+    pub fn u64(&mut self) -> Option<u64> {
+        let b = self.take(8)?;
+        let mut a = [0u8; 8];
+        a.copy_from_slice(b);
+        Some(u64::from_be_bytes(a))
+    }
+
+    /// A length prefix, bounded by what is left so a hostile length cannot
+    /// ask for an allocation the input does not carry.
+    pub fn len(&mut self) -> Option<usize> {
+        let n = self.u32()? as usize;
+        if n > self.data.len() - self.pos {
+            return None;
+        }
+        Some(n)
+    }
+
+    pub fn done(&self) -> bool {
+        self.pos == self.data.len()
+    }
+}
+
+pub trait __Wire: Sized {
+    fn __enc(&self, out: &mut Vec<u8>);
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self>;
+}
+
+/// `encode(value)`: the whole value, as one frame.
+pub fn salvo_encode<T: __Wire>(v: &T) -> Vec<u8> {
+    let mut out = Vec::new();
+    v.__enc(&mut out);
+    out
+}
+
+/// `decode<T>(bytes)`: `None` on a malformed input, including trailing bytes.
+pub fn salvo_decode<T: __Wire>(data: &[u8]) -> Option<T> {
+    let mut r = __Reader::new(data);
+    let v = T::__dec(&mut r)?;
+    if !r.done() {
+        return None;
+    }
+    Some(v)
+}
+
+impl __Wire for bool {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        out.push(u8::from(*self));
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
+    }
+}
+
+impl __Wire for u8 {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        out.push(*self);
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        r.u8()
+    }
+}
+
+impl __Wire for i32 {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.to_be_bytes());
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        r.u32().map(|v| v as i32)
+    }
+}
+
+impl __Wire for i64 {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.to_be_bytes());
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        r.u64().map(|v| v as i64)
+    }
+}
+
+impl __Wire for f32 {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.to_bits().to_be_bytes());
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        r.u32().map(f32::from_bits)
+    }
+}
+
+impl __Wire for f64 {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.to_bits().to_be_bytes());
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        r.u64().map(f64::from_bits)
+    }
+}
+
+impl __Wire for char {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&(*self as u32).to_be_bytes());
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        char::from_u32(r.u32()?)
+    }
+}
+
+impl __Wire for String {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&(self.len() as u32).to_be_bytes());
+        out.extend_from_slice(self.as_bytes());
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        let n = r.len()?;
+        let b = r.take(n)?;
+        String::from_utf8(b.to_vec()).ok()
+    }
+}
+
+/// `None` (the unit type) is nothing on the wire.
+impl __Wire for () {
+    fn __enc(&self, _out: &mut Vec<u8>) {}
+    fn __dec(_r: &mut __Reader<'_>) -> Option<Self> {
+        Some(())
+    }
+}
+
+/// A `List<T>`, an array, and `Bytes` alike: a count then the elements —
+/// `Bytes` being `Vec<u8>`, whose elements are one byte each, so the two
+/// readings of `Vec<u8>` agree byte for byte.
+impl<T: __Wire> __Wire for Vec<T> {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&(self.len() as u32).to_be_bytes());
+        for v in self {
+            v.__enc(out);
+        }
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        let n = r.len()?;
+        let mut out = Vec::with_capacity(n);
+        for _ in 0..n {
+            out.push(T::__dec(r)?);
+        }
+        Some(out)
+    }
+}
+
+/// An optional — `T?`, or any union with a `None` arm — is a presence byte.
+impl<T: __Wire> __Wire for Option<T> {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            None => out.push(0),
+            Some(v) => {
+                out.push(1);
+                v.__enc(out);
+            }
+        }
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(None),
+            1 => Some(Some(T::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+macro_rules! __wire_tuple {
+    ($($name:ident $idx:tt),+) => {
+        impl<$($name: __Wire),+> __Wire for ($($name,)+) {
+            fn __enc(&self, out: &mut Vec<u8>) {
+                $(self.$idx.__enc(out);)+
+            }
+            fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+                Some(($($name::__dec(r)?,)+))
+            }
+        }
+    };
+}
+__wire_tuple!(A 0, B 1);
+__wire_tuple!(A 0, B 1, C 2);
+__wire_tuple!(A 0, B 1, C 2, D 3);
+__wire_tuple!(A 0, B 1, C 2, D 3, E 4);
+__wire_tuple!(A 0, B 1, C 2, D 3, E 4, F 5);
+__wire_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6);
+__wire_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7);
+
+/// [addr-routable] An `Addr<E>` is a scheduler index in generated code; on
+/// the wire it is its routable identity `(node, actor, bits)`, 24 bytes.
+/// Decoding imports the identity: the actor itself when it lives here, a
+/// proxy otherwise [addr-capability].
+impl __Wire for usize {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        let r = crate::scheduler::salvo_addr_identity(*self);
+        out.extend_from_slice(&r.node.to_be_bytes());
+        out.extend_from_slice(&r.actor.to_be_bytes());
+        out.extend_from_slice(&r.bits.to_be_bytes());
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        let node = r.u64()?;
+        let actor = r.u64()?;
+        let bits = r.u64()?;
+        Some(crate::scheduler::salvo_import_addr(
+            crate::scheduler::RemoteRef { node, actor, bits },
+        ))
+    }
+}
+
+/// [addr-routable] A `Reply<T>` on the wire: `(node, kind, id, slot, bits)`,
+/// 33 bytes. Encoding a token whose target is a task exports the task body
+/// to the origin's table under the key the frame will name; decoding answers
+/// a remote token whose `send` routes a REPLY frame back.
+impl __Wire for crate::scheduler::SalvoReply {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        let (node, kind, id, slot, bits) = crate::scheduler::salvo_reply_export(self);
+        out.extend_from_slice(&node.to_be_bytes());
+        out.push(kind);
+        out.extend_from_slice(&id.to_be_bytes());
+        out.extend_from_slice(&slot.to_be_bytes());
+        out.extend_from_slice(&bits.to_be_bytes());
+    }
+    fn __dec(r: &mut __Reader<'_>) -> Option<Self> {
+        let node = r.u64()?;
+        let kind = r.u8()?;
+        let id = r.u64()?;
+        let slot = r.u64()?;
+        let bits = r.u64()?;
+        Some(crate::scheduler::salvo_reply_import(node, kind, id, slot, bits))
+    }
+}
+
+// ===== seq.rs =====
+// Generated by the Salvo compiler: sequence helpers.
+
+/// `map(list, f)`: every element, in order.
+pub fn salvo_map<T, U, F: FnMut(&T) -> U>(xs: &[T], mut f: F) -> Vec<U> {
+    xs.iter().map(|x| f(x)).collect()
+}
+
+/// `filter(list, keep)`: the kept elements, cloned into an owned result.
+pub fn salvo_filter<T: Clone, F: FnMut(&T) -> bool>(xs: &[T], mut keep: F) -> Vec<T> {
+    xs.iter().filter(|x| keep(x)).cloned().collect()
+}
+
+/// `reduce(list, init, f)`: a fold whose accumulator is *borrowed* by the
+/// callback, which is why this is not `Iterator::fold` (that passes it by
+/// value).
+pub fn salvo_reduce<T, A, F: FnMut(&A, &T) -> A>(xs: &[T], init: A, mut f: F) -> A {
+    let mut acc = init;
+    for x in xs.iter() {
+        acc = f(&acc, x);
+    }
+    acc
+}
+
+/// [linear-container] [rs-borrows] Take-by-move out of a list, as **methods**
+/// rather than an inline `&mut` block: a `Mut List<T>` parameter is already a
+/// `&mut Vec<T>` and cannot be re-borrowed by an inline `&mut` (it is not a
+/// `mut` binding), while method syntax auto-refs an owned local and re-borrows
+/// a reference alike — and splices the receiver exactly once, which an
+/// `if is_empty() … remove(0)` expression cannot.
+pub trait SalvoTake<T> {
+    /// `remove_first(list)`: the first element, moved out.
+    fn salvo_remove_first(&mut self) -> Option<T>;
+    /// `remove_at(list, i)`: the element at `i`, moved out.
+    fn salvo_remove_at(&mut self, index: i32) -> Option<T>;
+}
+
+impl<T> SalvoTake<T> for Vec<T> {
+    fn salvo_remove_first(&mut self) -> Option<T> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.remove(0))
+        }
+    }
+
+    fn salvo_remove_at(&mut self, index: i32) -> Option<T> {
+        if index < 0 {
+            return None;
+        }
+        let index = index as usize;
+        if index < self.len() {
+            Some(self.remove(index))
+        } else {
+            None
+        }
+    }
+}
+
+/// [rs-elem-mut] Two `&mut` elements of one `Vec` at once — the rendering
+/// of a call taking two mutable element handles the checker proved apart
+/// (`Distinct`, [elem-distinct]): one `split_at_mut` at the higher index,
+/// one element out of each half. `i != j` is checker-guaranteed; `None`
+/// when either index is out of range, so the caller's `.expect` carries
+/// the same message and timing as a single handle's `!`.
+pub fn salvo_pair_mut<T>(xs: &mut [T], i: usize, j: usize) -> Option<(&mut T, &mut T)> {
+    if i == j || i >= xs.len() || j >= xs.len() {
+        return None;
+    }
+    if i < j {
+        let (lo, hi) = xs.split_at_mut(j);
+        Some((&mut lo[i], &mut hi[0]))
+    } else {
+        let (lo, hi) = xs.split_at_mut(i);
+        Some((&mut hi[0], &mut lo[j]))
+    }
+}
+
+// ===== collections.rs =====
+// Generated by the Salvo compiler: insertion-ordered collections.
+//
+// Salvo's `Map<K, V>` and `Set<T>` iterate in **insertion order** on every
+// backend [col-insertion-order]. Kotlin gets that from `LinkedHashMap` /
+// `LinkedHashSet`; Rust's own `HashMap`/`HashSet` do not provide it (their
+// order is unspecified and randomly seeded per process), and the standard
+// library has no ordered hash map, so this file is the equivalent. The
+// observable semantics are LinkedHashMap's, exactly:
+//
+//   * iteration yields entries in first-insertion order;
+//   * overwriting an existing key updates the value and **keeps** the
+//     key's original position;
+//   * removal is O(1) and preserves the order of everything else;
+//   * equality is order-insensitive content equality, like
+//     `AbstractMap.equals` on the JVM.
+//
+// Representation: entries live in a `Vec` in insertion order, and a
+// `HashMap` indexes key -> slot. A removed slot becomes `None` so the
+// stored indices stay valid, and the slab is compacted once the dead slots
+// outnumber the live ones — which keeps removal amortized O(1) without
+// letting an add/remove loop grow the vector without bound.
+//
+// **Where the bounds sit matters.** The struct definitions carry none, and
+// each operation carries only what it needs: hashing a key needs
+// `Hash + Eq + Clone`, but *walking* a collection does not. That is what
+// lets a generic Salvo function (`fn iter<T>(set: Set<T>)`, whose emitted
+// signature has only the bounds Salvo knows about) iterate a `Set<T>` at
+// all — a bound on the struct would have to be repeated by every generated
+// signature that so much as mentions the type.
+
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fmt;
+use std::hash::Hash;
+use std::marker::PhantomData;
+use std::sync::Arc;
+
+// ===== the hash and equality a keyed container is kept by [cmp-carry] =====
+
+/// One Salvo `hash`, as a **type**, exactly as `SalvoCmp` is one ordering: the
+/// compiler emits a zero-sized marker per bound identity and implements this for
+/// it, so hashing is a direct call and no key pays to store a function.
+pub trait SalvoHash<T> {
+    fn hash(value: &T) -> i64;
+}
+
+/// …and one `eq`. A hash container buckets by `hash` and confirms the bucket hit
+/// by `eq`, which is why the two travel together [col-membership].
+pub trait SalvoEq<T> {
+    fn eq(a: &T, b: &T) -> bool;
+}
+
+/// The **canonical** pair: the host's own hashing and equality, which is what
+/// every keyed container used before a hash could be named — and for a generated
+/// `auto fn hash`/`auto fn eq` it is the same function [cmp-auto].
+pub struct HostHash;
+
+impl<T: Hash> SalvoHash<T> for HostHash {
+    fn hash(value: &T) -> i64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        value.hash(&mut hasher);
+        std::hash::Hasher::finish(&hasher) as i64
+    }
+}
+
+pub struct HostEq;
+
+impl<T: PartialEq> SalvoEq<T> for HostEq {
+    fn eq(a: &T, b: &T) -> bool {
+        a == b
+    }
+}
+
+/// A key wearing a hash and an equality. `#[repr(transparent)]` for the same
+/// reason `OrdBy` is: it lets a borrowed key be *viewed* as a borrowed wrapper,
+/// so a lookup costs no clone.
+#[repr(transparent)]
+struct HashBy<H, E, T>(T, PhantomData<(H, E)>);
+
+impl<H, E, T> HashBy<H, E, T> {
+    fn wrap(value: T) -> Self {
+        HashBy(value, PhantomData)
+    }
+
+    /// A borrowed key as a borrowed wrapper.
+    fn probe(value: &T) -> &Self {
+        // SAFETY: `HashBy` is `#[repr(transparent)]` over `T` — the
+        // `PhantomData` is zero-sized, so `T` is its only non-zero-sized field.
+        // The language therefore guarantees identical size, alignment and
+        // validity, so the memory behind a live `&T` is a valid
+        // `HashBy<H, E, T>`; the result borrows it for the same lifetime, and
+        // both references are shared. As with `OrdBy`, there is deliberately no
+        // mutable form: writing through one could break the index's invariant.
+        unsafe { &*(value as *const T as *const HashBy<H, E, T>) }
+    }
+}
+
+impl<H: SalvoHash<T>, E, T> Hash for HashBy<H, E, T> {
+    fn hash<S: std::hash::Hasher>(&self, state: &mut S) {
+        state.write_i64(H::hash(&self.0));
+    }
+}
+
+impl<H, E: SalvoEq<T>, T> PartialEq for HashBy<H, E, T> {
+    fn eq(&self, other: &Self) -> bool {
+        E::eq(&self.0, &other.0)
+    }
+}
+
+impl<H, E: SalvoEq<T>, T> Eq for HashBy<H, E, T> {}
+
+// ===== the store, generic over the pair =====
+
+/// The insertion-ordered map behind `SalvoMap`, with the hash and equality its
+/// keys are kept by erased at this boundary — so `SalvoMap<K, V>` is one Rust
+/// type however its keys are hashed, and a Salvo fn over a map is emitted with no
+/// parameter and no bound for the difference.
+trait MapStore<K, V> {
+    fn get(&self, key: &K) -> Option<&V>;
+    fn get_mut(&mut self, key: &K) -> Option<&mut V>;
+    fn insert(&mut self, key: K, value: V);
+    fn replace(&mut self, key: K, value: V) -> Option<V>;
+    fn remove(&mut self, key: &K) -> Option<V>;
+    fn contains_key(&self, key: &K) -> bool;
+    fn len(&self) -> usize;
+    /// The slab, in insertion order: what iteration walks. Exposing it keeps
+    /// `SalvoMap::iter` an ordinary iterator rather than a boxed one.
+    fn slots(&self) -> &[Option<(K, V)>];
+    fn take_values(&mut self) -> Vec<V>;
+    fn clone_box(&self) -> Box<dyn MapStore<K, V> + Send>;
+}
+
+struct HashedStore<H, E, K, V> {
+    slots: Vec<Option<(K, V)>>,
+    index: HashMap<HashBy<H, E, K>, usize>,
+}
+
+impl<H, E, K, V> HashedStore<H, E, K, V> {
+    fn new() -> Self {
+        HashedStore {
+            slots: Vec::new(),
+            index: HashMap::new(),
+        }
+    }
+}
+
+impl<H, E, K, V> MapStore<K, V> for HashedStore<H, E, K, V>
+where
+    H: SalvoHash<K> + Send + 'static,
+    E: SalvoEq<K> + Send + 'static,
+    K: Clone + Send + 'static,
+    V: Clone + Send + 'static,
+{
+    fn get(&self, key: &K) -> Option<&V> {
+        let i = *self.index.get(HashBy::<H, E, K>::probe(key))?;
+        self.slots[i].as_ref().map(|(_, v)| v)
+    }
+
+    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let i = *self.index.get(HashBy::<H, E, K>::probe(key))?;
+        self.slots[i].as_mut().map(|(_, v)| v)
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        match self.index.get(HashBy::<H, E, K>::probe(&key)) {
+            Some(&i) => self.slots[i] = Some((key, value)),
+            None => {
+                self.slots.push(Some((key.clone(), value)));
+                self.index.insert(HashBy::wrap(key), self.slots.len() - 1);
+            }
+        }
+    }
+
+    fn replace(&mut self, key: K, value: V) -> Option<V> {
+        match self.index.get(HashBy::<H, E, K>::probe(&key)) {
+            Some(&i) => self.slots[i].replace((key, value)).map(|(_, v)| v),
+            None => {
+                self.slots.push(Some((key.clone(), value)));
+                self.index.insert(HashBy::wrap(key), self.slots.len() - 1);
+                None
+            }
+        }
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        let i = self.index.remove(HashBy::<H, E, K>::probe(key))?;
+        let taken = self.slots[i].take().map(|(_, v)| v);
+        self.compact_if_sparse();
+        taken
+    }
+
+    fn contains_key(&self, key: &K) -> bool {
+        self.index.contains_key(HashBy::<H, E, K>::probe(key))
+    }
+
+    fn len(&self) -> usize {
+        self.index.len()
+    }
+
+    fn slots(&self) -> &[Option<(K, V)>] {
+        &self.slots
+    }
+
+    fn take_values(&mut self) -> Vec<V> {
+        self.index.clear();
+        std::mem::take(&mut self.slots)
+            .into_iter()
+            .flatten()
+            .map(|(_, v)| v)
+            .collect()
+    }
+
+    fn clone_box(&self) -> Box<dyn MapStore<K, V> + Send> {
+        let mut store = HashedStore::<H, E, K, V>::new();
+        store.slots = self.slots.clone();
+        for (i, slot) in store.slots.iter().enumerate() {
+            if let Some((k, _)) = slot {
+                store.index.insert(HashBy::wrap(k.clone()), i);
+            }
+        }
+        Box::new(store)
+    }
+}
+
+impl<H, E, K, V> HashedStore<H, E, K, V>
+where
+    H: SalvoHash<K>,
+    E: SalvoEq<K>,
+    K: Clone,
+{
+    fn compact_if_sparse(&mut self) {
+        let live = self.index.len();
+        if self.slots.len() <= 2 * live + 8 {
+            return;
+        }
+        self.slots.retain(|s| s.is_some());
+        self.index.clear();
+        for (i, slot) in self.slots.iter().enumerate() {
+            if let Some((k, _)) = slot {
+                self.index.insert(HashBy::wrap(k.clone()), i);
+            }
+        }
+    }
+}
+
+/// [cmp-carry] A store whose identity is a **pair of functions** rather than a
+/// pair of marker types, for a keyed container built inside a *generic*
+/// function: there the identity is a capability the function was handed, so
+/// there is no type to name it by (added 2026-09-26).
+///
+/// Its representation matches the Kotlin runtime's `SalvoHashMap`, which has
+/// always held closures: entries live in a slab in first-insertion order and a
+/// bucket index maps a Salvo hash to the slots holding it, confirming a bucket
+/// hit with `eq`. That is also why it cannot reuse `HashedStore` — `HashBy`'s
+/// `Hash`/`Eq` impls dispatch through *types*, and a closure held elsewhere is
+/// not reachable from them.
+///
+/// `Arc` rather than `Box` so `clone_box` can share the identity: two clones of
+/// a map are keyed the same way by construction.
+struct FnStore<K, V> {
+    slots: Vec<Option<(K, V)>>,
+    buckets: HashMap<i64, Vec<usize>>,
+    hash: Arc<dyn Fn(&K) -> i64 + Send + Sync>,
+    eq: Arc<dyn Fn(&K, &K) -> bool + Send + Sync>,
+    live: usize,
+}
+
+impl<K, V> FnStore<K, V> {
+    fn new(
+        hash: Arc<dyn Fn(&K) -> i64 + Send + Sync>,
+        eq: Arc<dyn Fn(&K, &K) -> bool + Send + Sync>,
+    ) -> Self {
+        FnStore {
+            slots: Vec::new(),
+            buckets: HashMap::new(),
+            hash,
+            eq,
+            live: 0,
+        }
+    }
+
+    /// The slot holding a key equal to `key`, if any.
+    fn slot_of(&self, key: &K) -> Option<usize> {
+        let bucket = self.buckets.get(&(self.hash)(key))?;
+        bucket.iter().copied().find(|&i| {
+            self.slots[i]
+                .as_ref()
+                .is_some_and(|(k, _)| (self.eq)(k, key))
+        })
+    }
+
+    fn compact_if_sparse(&mut self) {
+        if self.slots.len() <= 2 * self.live + 8 {
+            return;
+        }
+        self.slots.retain(|s| s.is_some());
+        self.buckets.clear();
+        for i in 0..self.slots.len() {
+            if let Some((k, _)) = &self.slots[i] {
+                let h = (self.hash)(k);
+                self.buckets.entry(h).or_default().push(i);
+            }
+        }
+    }
+}
+
+impl<K: Clone + Send + 'static, V: Clone + Send + 'static> MapStore<K, V> for FnStore<K, V> {
+    fn get(&self, key: &K) -> Option<&V> {
+        let i = self.slot_of(key)?;
+        self.slots[i].as_ref().map(|(_, v)| v)
+    }
+
+    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let i = self.slot_of(key)?;
+        self.slots[i].as_mut().map(|(_, v)| v)
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        match self.slot_of(&key) {
+            // An overwrite keeps the key's position [col-insertion-order].
+            Some(i) => self.slots[i] = Some((key, value)),
+            None => {
+                let h = (self.hash)(&key);
+                self.slots.push(Some((key, value)));
+                self.buckets.entry(h).or_default().push(self.slots.len() - 1);
+                self.live += 1;
+            }
+        }
+    }
+
+    fn replace(&mut self, key: K, value: V) -> Option<V> {
+        match self.slot_of(&key) {
+            Some(i) => self.slots[i].replace((key, value)).map(|(_, v)| v),
+            None => {
+                self.insert(key, value);
+                None
+            }
+        }
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        let i = self.slot_of(key)?;
+        let h = (self.hash)(key);
+        if let Some(bucket) = self.buckets.get_mut(&h) {
+            bucket.retain(|&j| j != i);
+            if bucket.is_empty() {
+                self.buckets.remove(&h);
+            }
+        }
+        let taken = self.slots[i].take().map(|(_, v)| v);
+        self.live -= 1;
+        self.compact_if_sparse();
+        taken
+    }
+
+    fn contains_key(&self, key: &K) -> bool {
+        self.slot_of(key).is_some()
+    }
+
+    fn len(&self) -> usize {
+        self.live
+    }
+
+    fn slots(&self) -> &[Option<(K, V)>] {
+        &self.slots
+    }
+
+    fn take_values(&mut self) -> Vec<V> {
+        self.buckets.clear();
+        self.live = 0;
+        self.slots
+            .drain(..)
+            .flatten()
+            .map(|(_, v)| v)
+            .collect()
+    }
+
+    fn clone_box(&self) -> Box<dyn MapStore<K, V> + Send> {
+        Box::new(FnStore {
+            slots: self.slots.clone(),
+            buckets: self.buckets.clone(),
+            hash: Arc::clone(&self.hash),
+            eq: Arc::clone(&self.eq),
+            live: self.live,
+        })
+    }
+}
+
+pub struct SalvoMap<K, V> {
+    // `+ Send` on the box rather than on the trait: a map is sendable when its
+    // keys and values are, and stating it here keeps every operation bound-free —
+    // so a Salvo fn over a map is emitted with no bounds of its own.
+    store: Box<dyn MapStore<K, V> + Send>,
+}
+
+// Building one names the hash and the equality its keys are kept by, which is the
+// only place the markers appear.
+impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SalvoMap<K, V> {
+    pub fn new<H, E>() -> Self
+    where
+        H: SalvoHash<K> + Send + 'static,
+        E: SalvoEq<K> + Send + 'static,
+    {
+        SalvoMap {
+            store: Box::new(HashedStore::<H, E, K, V>::new()),
+        }
+    }
+
+    /// [cmp-carry] The same map, keyed by a **pair of functions**: what a
+    /// keyed container built inside a generic function is given, where the
+    /// identity is a capability rather than a name (2026-09-26).
+    pub fn with_fns(
+        hash: Arc<dyn Fn(&K) -> i64 + Send + Sync>,
+        eq: Arc<dyn Fn(&K, &K) -> bool + Send + Sync>,
+    ) -> Self {
+        SalvoMap {
+            store: Box::new(FnStore::new(hash, eq)),
+        }
+    }
+
+    /// The constructor lowering's entry point: `map_of(("a", 1), ...)`.
+    /// A repeated key keeps the position of its first appearance and takes
+    /// the value of its last [col-duplicate-keys].
+    pub fn from_entries<H, E, I>(entries: I) -> Self
+    where
+        H: SalvoHash<K> + Send + 'static,
+        E: SalvoEq<K> + Send + 'static,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let mut map = SalvoMap::new::<H, E>();
+        for (k, v) in entries {
+            map.insert(k, v);
+        }
+        map
+    }
+}
+
+// Using one needs nothing of `K` or `V`: every operation goes through the store.
+impl<K, V> SalvoMap<K, V> {
+    pub fn len(&self) -> usize {
+        self.store.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Entries in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
+        self.store
+            .slots()
+            .iter()
+            .filter_map(|s| s.as_ref().map(|(k, v)| (k, v)))
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &K> + '_ {
+        self.iter().map(|(k, _)| k)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &V> + '_ {
+        self.iter().map(|(_, v)| v)
+    }
+
+    /// Inserts or overwrites. An overwrite keeps the key's original
+    /// position, so iteration order is stable under updates.
+    pub fn insert(&mut self, key: K, value: V) {
+        self.store.insert(key, value)
+    }
+
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.store.get(key)
+    }
+
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.store.get_mut(key)
+    }
+
+    /// Removes the entry and hands its value back — the shape Salvo's
+    /// `remove(map, key) -> V?` needs, so a caller can take ownership of
+    /// what the map was holding.
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.store.remove(key)
+    }
+
+    /// [linear-container] Inserts and answers what it **displaced** — the
+    /// shape `replace(map, key, value) -> V?` needs, and the only write a map
+    /// of obligations can have: an overwrite that dropped the old value would
+    /// be a silent discard. Like `insert`, an existing key keeps its position.
+    pub fn replace(&mut self, key: K, value: V) -> Option<V> {
+        self.store.replace(key, value)
+    }
+
+    /// [linear-container] Consumes the map and answers its values in
+    /// insertion order — what `drain(map, each)` hands to its callback, one
+    /// at a time.
+    pub fn into_values(mut self) -> Vec<V> {
+        self.store.take_values()
+    }
+
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.store.contains_key(key)
+    }
+}
+
+// Through the store, so no key is rehashed and no bound is needed here.
+impl<K, V> Clone for SalvoMap<K, V> {
+    fn clone(&self) -> Self {
+        SalvoMap {
+            store: self.store.clone_box(),
+        }
+    }
+}
+
+/// Order-insensitive, matching the JVM's `AbstractMap.equals` so `==` on a
+/// map means the same thing on both backends [col-equality].
+impl<K, V: PartialEq> PartialEq for SalvoMap<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().all(|(k, v)| other.get(k) == Some(v))
+    }
+}
+
+impl<K, V: Eq> Eq for SalvoMap<K, V> {}
+
+/// `{a: 1, b: 2}` — the language's format, in insertion order, matching
+/// the map literal that would build it [col-to-str]. Walking only, so no
+/// hashing bound.
+impl<K: fmt::Display, V: fmt::Display> fmt::Display for SalvoMap<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        for (i, (k, v)) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}: {}", k, v)?;
+        }
+        write!(f, "}}")
+    }
+}
+
+// `{:?}` is how an interpolated struct renders its fields [rs-display], so
+// a struct holding a map needs this; it prints the language's format
+// rather than Rust's, for the same reason `to_str` does.
+impl<K: fmt::Display, V: fmt::Display> fmt::Debug for SalvoMap<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+pub struct SalvoSet<T> {
+    // A set is a map to nothing: one representation, so the two cannot
+    // drift apart on ordering or removal semantics.
+    entries: SalvoMap<T, ()>,
+}
+
+// Building one names the pair its elements are kept by.
+impl<T: Clone + Send + 'static> SalvoSet<T> {
+    pub fn new<H, E>() -> Self
+    where
+        H: SalvoHash<T> + Send + 'static,
+        E: SalvoEq<T> + Send + 'static,
+    {
+        SalvoSet {
+            entries: SalvoMap::new::<H, E>(),
+        }
+    }
+
+    /// [cmp-carry] Keyed by a pair of functions, for a generic body.
+    pub fn with_fns(
+        hash: Arc<dyn Fn(&T) -> i64 + Send + Sync>,
+        eq: Arc<dyn Fn(&T, &T) -> bool + Send + Sync>,
+    ) -> Self {
+        SalvoSet {
+            entries: SalvoMap::with_fns(hash, eq),
+        }
+    }
+
+    pub fn from_elements<H, E, I>(elems: I) -> Self
+    where
+        H: SalvoHash<T> + Send + 'static,
+        E: SalvoEq<T> + Send + 'static,
+        I: IntoIterator<Item = T>,
+    {
+        let mut set = SalvoSet::new::<H, E>();
+        for e in elems {
+            set.insert(e);
+        }
+        set
+    }
+}
+
+// Using one needs nothing of `T`.
+impl<T> SalvoSet<T> {
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Elements in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        self.entries.keys()
+    }
+
+    /// `true` when the element was newly added, which is what Salvo's
+    /// `add(set, elem) -> Bool` reports.
+    pub fn insert(&mut self, elem: T) -> bool {
+        if self.entries.contains_key(&elem) {
+            return false;
+        }
+        self.entries.insert(elem, ());
+        true
+    }
+
+    /// `true` when the element was present.
+    pub fn remove(&mut self, elem: &T) -> bool {
+        self.entries.remove(elem).is_some()
+    }
+
+    pub fn contains(&self, elem: &T) -> bool {
+        self.entries.contains_key(elem)
+    }
+}
+
+impl<T> Clone for SalvoSet<T> {
+    fn clone(&self) -> Self {
+        SalvoSet {
+            entries: self.entries.clone(),
+        }
+    }
+}
+
+/// Order-insensitive, like the JVM's `AbstractSet.equals`.
+impl<T> PartialEq for SalvoSet<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().all(|e| other.contains(e))
+    }
+}
+
+impl<T> Eq for SalvoSet<T> {}
+
+/// `{1, 2, 3}` — the set literal that would build it.
+impl<T: fmt::Display> fmt::Display for SalvoSet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        for (i, e) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", e)?;
+        }
+        write!(f, "}}")
+    }
+}
+
+impl<T: fmt::Display> fmt::Debug for SalvoSet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+// ===== the sorted collections, and the ordering they are kept by =====
+//
+// [cmp-carry] [col-membership] A `SortedSet<T>(?cmp)` / `SortedMap<K, V>(?cmp)`
+// is kept by the ordering its type names, and its members are **`cmp`-distinct**:
+// two elements are one member when `cmp(a, b) == 0`. That is what both hosts do
+// natively — `BTreeSet` decides duplicates by `Ord` alone — so it is the rule
+// the language states rather than one this file invents.
+//
+// The ordering is a **type**, not a value: the compiler emits a zero-sized
+// marker per bound identity (`__Cmp_by_age`) and implements `SalvoCmp` for it,
+// so comparisons are direct calls the optimizer can inline and no element pays
+// to store a comparator. The marker then stops at the container's edge, behind a
+// boxed store — which is why a Salvo fn generic over a sorted collection is
+// emitted with no extra type parameter, and why swapping the store (a B-tree
+// today) changes nothing outside this file.
+
+// ===== the ordering as a type [cmp-carry] =====
+
+/// One Salvo ordering, as a **type**: the compiler generates a zero-sized
+/// marker per bound identity and implements this for it, so a comparison is a
+/// direct call the optimizer can inline and no element pays for storing one.
+pub trait SalvoCmp<T> {
+    fn cmp(a: &T, b: &T) -> i32;
+}
+
+/// The **canonical** ordering, as a marker: the host's own `Ord`. A sorted
+/// collection whose type names no ordering is kept by this one, which is what
+/// every such collection was kept by before orderings could be named — and for a
+/// generated `auto fn cmp` it *is* the same function, since that member lowers to
+/// the host's derived comparison [cmp-auto].
+pub struct HostOrd;
+
+impl<T: Ord> SalvoCmp<T> for HostOrd {
+    fn cmp(a: &T, b: &T) -> i32 {
+        match Ord::cmp(a, b) {
+            Ordering::Less => -1,
+            Ordering::Equal => 0,
+            Ordering::Greater => 1,
+        }
+    }
+}
+
+/// An element wearing an ordering. `#[repr(transparent)]` is load-bearing:
+/// with exactly one non-zero-sized field this type has `T`'s size, alignment
+/// and validity, which is what lets `probe` view a borrowed `T` as a borrowed
+/// wrapper without copying it.
+#[repr(transparent)]
+pub struct OrdBy<C, T>(T, PhantomData<C>);
+
+impl<C, T> OrdBy<C, T> {
+    fn wrap(value: T) -> Self {
+        OrdBy(value, PhantomData)
+    }
+
+    fn get(&self) -> &T {
+        &self.0
+    }
+
+    /// A borrowed element as a borrowed wrapper, for probing a tree without
+    /// building an owned wrapper (which would mean cloning the element).
+    fn probe(value: &T) -> &Self {
+        // SAFETY: `OrdBy` is `#[repr(transparent)]` over `T` — `PhantomData<C>`
+        // is zero-sized, so `T` is the only non-zero-sized field. The language
+        // therefore guarantees this type has `T`'s size, alignment and validity
+        // invariant, so the memory behind a live `&T` is a valid `OrdBy<C, T>`.
+        // The returned reference borrows that same memory for the same lifetime
+        // (tied by the signature), and both references are shared, so no
+        // `&mut` aliasing is created. There is deliberately no `probe_mut`:
+        // writing through such a reference could break the tree's ordering.
+        unsafe { &*(value as *const T as *const OrdBy<C, T>) }
+    }
+}
+
+impl<C: SalvoCmp<T>, T> PartialEq for OrdBy<C, T> {
+    fn eq(&self, other: &Self) -> bool {
+        C::cmp(&self.0, &other.0) == 0
+    }
+}
+
+impl<C: SalvoCmp<T>, T> Eq for OrdBy<C, T> {}
+
+impl<C: SalvoCmp<T>, T> PartialOrd for OrdBy<C, T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(Ord::cmp(self, other))
+    }
+}
+
+impl<C: SalvoCmp<T>, T> Ord for OrdBy<C, T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        C::cmp(&self.0, &other.0).cmp(&0)
+    }
+}
+
+// ===== the store, generic over the ordering =====
+
+trait SortedStore<T> {
+    fn insert(&mut self, value: T) -> bool;
+    fn remove(&mut self, value: &T) -> bool;
+    fn contains(&self, value: &T) -> bool;
+    fn len(&self) -> usize;
+    fn min(&self) -> Option<&T>;
+    fn max(&self) -> Option<&T>;
+    fn to_vec(&self) -> Vec<T>;
+    fn clone_box(&self) -> Box<dyn SortedStore<T> + Send>;
+}
+
+struct BTreeStore<C, T> {
+    inner: BTreeSet<OrdBy<C, T>>,
+}
+
+impl<C, T> BTreeStore<C, T> {
+    fn new() -> Self {
+        BTreeStore {
+            inner: BTreeSet::new(),
+        }
+    }
+}
+
+impl<C, T> SortedStore<T> for BTreeStore<C, T>
+where
+    C: SalvoCmp<T> + Send + 'static,
+    T: Clone + Send + 'static,
+{
+    fn insert(&mut self, value: T) -> bool {
+        self.inner.insert(OrdBy::wrap(value))
+    }
+
+    fn remove(&mut self, value: &T) -> bool {
+        self.inner.remove(OrdBy::<C, T>::probe(value))
+    }
+
+    fn contains(&self, value: &T) -> bool {
+        self.inner.contains(OrdBy::<C, T>::probe(value))
+    }
+
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    fn min(&self) -> Option<&T> {
+        self.inner.iter().next().map(OrdBy::get)
+    }
+
+    fn max(&self) -> Option<&T> {
+        self.inner.iter().next_back().map(OrdBy::get)
+    }
+
+    fn to_vec(&self) -> Vec<T> {
+        self.inner.iter().map(|w| w.get().clone()).collect()
+    }
+
+    fn clone_box(&self) -> Box<dyn SortedStore<T> + Send> {
+        Box::new(BTreeStore::<C, T> {
+            inner: self
+                .inner
+                .iter()
+                .map(|w| OrdBy::wrap(w.get().clone()))
+                .collect(),
+        })
+    }
+}
+
+/// [cmp-carry] The sorted store whose ordering is a **function** rather than a
+/// marker type — the sorted half of `FnStore`, for a container built inside a
+/// generic function (added 2026-09-26). A sorted `Vec` with binary search by the
+/// held comparator: `BTreeSet` cannot serve, because `OrdBy`'s `Ord` dispatches
+/// through a *type*.
+struct FnSortedStore<T> {
+    items: Vec<T>,
+    cmp: Arc<dyn Fn(&T, &T) -> i32 + Send + Sync>,
+}
+
+impl<T> FnSortedStore<T> {
+    fn new(cmp: Arc<dyn Fn(&T, &T) -> i32 + Send + Sync>) -> Self {
+        FnSortedStore {
+            items: Vec::new(),
+            cmp,
+        }
+    }
+
+    /// `Ok(i)` when an element comparing equal sits at `i`, `Err(i)` where one
+    /// would be inserted — `slice::binary_search_by` against the held ordering.
+    fn find(&self, value: &T) -> Result<usize, usize> {
+        self.items.binary_search_by(|probe| match (self.cmp)(probe, value) {
+            n if n < 0 => Ordering::Less,
+            0 => Ordering::Equal,
+            _ => Ordering::Greater,
+        })
+    }
+}
+
+impl<T: Clone + Send + 'static> SortedStore<T> for FnSortedStore<T> {
+    fn insert(&mut self, value: T) -> bool {
+        match self.find(&value) {
+            // A set: an element comparing equal is already there
+            // [col-membership].
+            Ok(_) => false,
+            Err(at) => {
+                self.items.insert(at, value);
+                true
+            }
+        }
+    }
+
+    fn remove(&mut self, value: &T) -> bool {
+        match self.find(value) {
+            Ok(at) => {
+                self.items.remove(at);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn contains(&self, value: &T) -> bool {
+        self.find(value).is_ok()
+    }
+
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    fn min(&self) -> Option<&T> {
+        self.items.first()
+    }
+
+    fn max(&self) -> Option<&T> {
+        self.items.last()
+    }
+
+    fn to_vec(&self) -> Vec<T> {
+        self.items.clone()
+    }
+
+    fn clone_box(&self) -> Box<dyn SortedStore<T> + Send> {
+        Box::new(FnSortedStore {
+            items: self.items.clone(),
+            cmp: Arc::clone(&self.cmp),
+        })
+    }
+}
+
+// ===== the container the emitted code sees =====
+
+pub struct SalvoSortedSet<T> {
+    // `+ Send` on the *box* rather than on the trait: a container is sendable
+    // when its elements are, and stating it here keeps the bound off every
+    // method — so a Salvo fn over a sorted collection is emitted with no bounds
+    // of its own, which is the whole point of hiding the marker.
+    store: Box<dyn SortedStore<T> + Send>,
+}
+
+// Building one names the ordering, which is the only place the marker — and the
+// bounds the boxed store needs — appear.
+impl<T: Clone + Send + 'static> SalvoSortedSet<T> {
+    pub fn new<C: SalvoCmp<T> + Send + 'static>() -> Self {
+        SalvoSortedSet {
+            store: Box::new(BTreeStore::<C, T>::new()),
+        }
+    }
+
+    /// [cmp-carry] Ordered by a **function**, for a generic body.
+    pub fn with_cmp(cmp: Arc<dyn Fn(&T, &T) -> i32 + Send + Sync>) -> Self {
+        SalvoSortedSet {
+            store: Box::new(FnSortedStore::new(cmp)),
+        }
+    }
+
+    pub fn from_elements<C: SalvoCmp<T> + Send + 'static, I: IntoIterator<Item = T>>(
+        elems: I,
+    ) -> Self {
+        let mut set = SalvoSortedSet::new::<C>();
+        for e in elems {
+            set.insert(e);
+        }
+        set
+    }
+}
+
+// Using one needs nothing of `T`: every operation goes through the store.
+impl<T> SalvoSortedSet<T> {
+    pub fn insert(&mut self, value: T) -> bool {
+        self.store.insert(value)
+    }
+    pub fn remove(&mut self, value: &T) -> bool {
+        self.store.remove(value)
+    }
+    pub fn contains(&self, value: &T) -> bool {
+        self.store.contains(value)
+    }
+    pub fn len(&self) -> usize {
+        self.store.len()
+    }
+    pub fn min(&self) -> Option<&T> {
+        self.store.min()
+    }
+    pub fn max(&self) -> Option<&T> {
+        self.store.max()
+    }
+    pub fn to_vec(&self) -> Vec<T> {
+        self.store.to_vec()
+    }
+}
+
+impl<T> Clone for SalvoSortedSet<T> {
+    fn clone(&self) -> Self {
+        SalvoSortedSet {
+            store: self.store.clone_box(),
+        }
+    }
+}
+
+impl<T: fmt::Display> fmt::Display for SalvoSortedSet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let items: Vec<String> = self.to_vec().iter().map(|e| e.to_string()).collect();
+        write!(f, "{{{}}}", items.join(", "))
+    }
+}
+
+// ===== the sorted map, the same way =====
+
+trait SortedMapStore<K, V> {
+    fn get(&self, key: &K) -> Option<&V>;
+    fn insert(&mut self, key: K, value: V) -> Option<V>;
+    fn remove(&mut self, key: &K) -> Option<V>;
+    fn contains_key(&self, key: &K) -> bool;
+    fn len(&self) -> usize;
+    fn first_key(&self) -> Option<&K>;
+    fn last_key(&self) -> Option<&K>;
+    fn keys(&self) -> Vec<K>;
+    fn entries(&self) -> Vec<(K, V)>;
+    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send>;
+}
+
+/// [cmp-carry] The sorted *map* store ordered by a **function**, completing the
+/// set of four (added 2026-09-26). A sorted `Vec` of entries, searched by the
+/// held comparator, for the same reason `FnSortedStore` is one.
+struct FnSortedMapStore<K, V> {
+    entries: Vec<(K, V)>,
+    cmp: Arc<dyn Fn(&K, &K) -> i32 + Send + Sync>,
+}
+
+impl<K, V> FnSortedMapStore<K, V> {
+    fn find(&self, key: &K) -> Result<usize, usize> {
+        self.entries
+            .binary_search_by(|(probe, _)| match (self.cmp)(probe, key) {
+                n if n < 0 => Ordering::Less,
+                0 => Ordering::Equal,
+                _ => Ordering::Greater,
+            })
+    }
+}
+
+impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SortedMapStore<K, V>
+    for FnSortedMapStore<K, V>
+{
+    fn get(&self, key: &K) -> Option<&V> {
+        self.find(key).ok().map(|at| &self.entries[at].1)
+    }
+
+    fn insert(&mut self, key: K, value: V) -> Option<V> {
+        match self.find(&key) {
+            Ok(at) => Some(std::mem::replace(&mut self.entries[at], (key, value)).1),
+            Err(at) => {
+                self.entries.insert(at, (key, value));
+                None
+            }
+        }
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        match self.find(key) {
+            Ok(at) => Some(self.entries.remove(at).1),
+            Err(_) => None,
+        }
+    }
+
+    fn contains_key(&self, key: &K) -> bool {
+        self.find(key).is_ok()
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn first_key(&self) -> Option<&K> {
+        self.entries.first().map(|(k, _)| k)
+    }
+
+    fn last_key(&self) -> Option<&K> {
+        self.entries.last().map(|(k, _)| k)
+    }
+
+    fn keys(&self) -> Vec<K> {
+        self.entries.iter().map(|(k, _)| k.clone()).collect()
+    }
+
+    fn entries(&self) -> Vec<(K, V)> {
+        self.entries.clone()
+    }
+
+    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send> {
+        Box::new(FnSortedMapStore {
+            entries: self.entries.clone(),
+            cmp: Arc::clone(&self.cmp),
+        })
+    }
+}
+
+struct BTreeMapStore<C, K, V> {
+    inner: BTreeMap<OrdBy<C, K>, V>,
+}
+
+impl<C, K, V> SortedMapStore<K, V> for BTreeMapStore<C, K, V>
+where
+    C: SalvoCmp<K> + Send + 'static,
+    K: Clone + Send + 'static,
+    V: Clone + Send + 'static,
+{
+    fn get(&self, key: &K) -> Option<&V> {
+        self.inner.get(OrdBy::<C, K>::probe(key))
+    }
+    fn insert(&mut self, key: K, value: V) -> Option<V> {
+        self.inner.insert(OrdBy::wrap(key), value)
+    }
+    fn remove(&mut self, key: &K) -> Option<V> {
+        self.inner.remove(OrdBy::<C, K>::probe(key))
+    }
+    fn contains_key(&self, key: &K) -> bool {
+        self.inner.contains_key(OrdBy::<C, K>::probe(key))
+    }
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+    fn first_key(&self) -> Option<&K> {
+        self.inner.keys().next().map(OrdBy::get)
+    }
+    fn last_key(&self) -> Option<&K> {
+        self.inner.keys().next_back().map(OrdBy::get)
+    }
+    fn keys(&self) -> Vec<K> {
+        self.inner.keys().map(|k| k.get().clone()).collect()
+    }
+    fn entries(&self) -> Vec<(K, V)> {
+        self.inner
+            .iter()
+            .map(|(k, v)| (k.get().clone(), v.clone()))
+            .collect()
+    }
+    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send> {
+        Box::new(BTreeMapStore::<C, K, V> {
+            inner: self
+                .inner
+                .iter()
+                .map(|(k, v)| (OrdBy::wrap(k.get().clone()), v.clone()))
+                .collect(),
+        })
+    }
+}
+
+pub struct SalvoSortedMap<K, V> {
+    store: Box<dyn SortedMapStore<K, V> + Send>,
+}
+
+impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SalvoSortedMap<K, V> {
+    pub fn new<C: SalvoCmp<K> + Send + 'static>() -> Self {
+        SalvoSortedMap {
+            store: Box::new(BTreeMapStore::<C, K, V> {
+                inner: BTreeMap::new(),
+            }),
+        }
+    }
+    /// [cmp-carry] Ordered by a **function**, for a generic body.
+    pub fn with_cmp(cmp: Arc<dyn Fn(&K, &K) -> i32 + Send + Sync>) -> Self {
+        SalvoSortedMap {
+            store: Box::new(FnSortedMapStore {
+                entries: Vec::new(),
+                cmp,
+            }),
+        }
+    }
+
+    pub fn from_entries<C: SalvoCmp<K> + Send + 'static, I: IntoIterator<Item = (K, V)>>(
+        entries: I,
+    ) -> Self {
+        let mut map = SalvoSortedMap::new::<C>();
+        for (k, v) in entries {
+            map.insert(k, v);
+        }
+        map
+    }
+}
+
+impl<K, V> SalvoSortedMap<K, V> {
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.store.get(key)
+    }
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        self.store.insert(key, value)
+    }
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.store.remove(key)
+    }
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.store.contains_key(key)
+    }
+    pub fn len(&self) -> usize {
+        self.store.len()
+    }
+    pub fn first_key(&self) -> Option<&K> {
+        self.store.first_key()
+    }
+    pub fn last_key(&self) -> Option<&K> {
+        self.store.last_key()
+    }
+    pub fn keys(&self) -> Vec<K> {
+        self.store.keys()
+    }
+    pub fn entries(&self) -> Vec<(K, V)> {
+        self.store.entries()
+    }
+}
+
+impl<K, V> Clone for SalvoSortedMap<K, V> {
+    fn clone(&self) -> Self {
+        SalvoSortedMap {
+            store: self.store.clone_box(),
+        }
+    }
+}
+
+impl<K: fmt::Display, V: fmt::Display> fmt::Display for SalvoSortedMap<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let items: Vec<String> = self
+            .entries()
+            .iter()
+            .map(|(k, v)| format!("{k}: {v}"))
+            .collect();
+        write!(f, "{{{}}}", items.join(", "))
+    }
+}
+
+// ===== scheduler.rs =====
+// Generated by the Salvo compiler: the actor scheduler — asynchronous
+// effect handlers' runtime. Actors are run-to-completion: a `send`
+// enqueues a member invocation, a pool worker runs one activation at a
+// time per actor, and nothing here suspends. The semantics it implements are
+// LANGUAGE_SPEC.md's [actor-kind] … [actor-watch]: per-actor bounded queues (bound explicit at spawn; a full
+// queue blocks the sender), reply tokens with reserved capacity (a reply
+// never blocks and never counts against the bound), the gate (at most one
+// outstanding gated continuation per actor; while gated, only the
+// awaited reply is delivered), death = a faulted activation (caught at
+// the dispatch boundary; sends and replies to the dead are silent
+// no-ops), `watch` notification as a one-shot reply, the quiescence hook
+// ([actor-on-idle]: a registered token answered when nothing anywhere can
+// run), and the deadlock report — nothing left that can run while a frame
+// waits, and no hook to fire, is a named runtime error rather than a hang.
+// The waiting frame need not be `main`: an activation parked in a nested wait
+// holds its actor's `running` flag, so its own mailbox is stalled while it
+// waits, and the report counts parked frames out of the running ones.
+//
+// [main-pool] [waitfor-pump] `main` is the **single worker of its own
+// pool** (pool 0), which is given no OS thread: `main`'s own thread is its
+// worker, and it works while it waits. A wait therefore *serves* its pool
+// rather than merely blocking on it — the uniform rule is that a `waitfor`
+// serves its own pool's work except activations of the actor doing the
+// waiting, so a waiting actor's mailbox stays stalled (serialization is
+// preserved) while `main`, which has no mailbox, serves everything placed
+// on its pool. Blocking is the degenerate case of an empty queue.
+
+use std::any::Any;
+use std::cell::Cell;
+use std::collections::{HashMap, VecDeque};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
+
+/// A message payload: any sendable value. The checker owns sendability
+/// statically; the runtime is untyped.
+pub type SalvoMsg = Box<dyn Any + Send>;
+
+/// An actor body: state plus one entry point per kind of delivery.
+/// Generated code implements `handle` as the member dispatch and `resume`
+/// as the parked-continuation dispatch (by slot).
+pub trait SalvoActor: Send {
+    /// A user message (a `send fn` invocation).
+    fn handle(&mut self, ctx: &SalvoCtx, msg: SalvoMsg);
+    /// A reply delivery: the slot names the parked continuation.
+    fn resume(&mut self, ctx: &SalvoCtx, slot: u64, value: SalvoMsg);
+    /// [addr-routable] [wire-format] Decodes a reply that arrived over the
+    /// wire for the continuation parked at `slot`: only the actor knows the
+    /// answer's type (it is the parked member's trailing parameter). `None`
+    /// when no continuation is parked there or the bytes are malformed.
+    fn decode_reply(&self, _slot: u64, _payload: &[u8]) -> Option<SalvoMsg> {
+        None
+    }
+}
+
+/// Passed to every activation: the actor's own identity.
+pub struct SalvoCtx {
+    pub addr: usize,
+}
+
+/// A one-shot reply capability. `send` consumes it — one shot by move in
+/// the runtime too, though the *guarantee* is the checker's.
+pub struct SalvoReply {
+    target: Target,
+    slot: u64,
+    /// [actor-on-idle] Whether this token still counts as an obligation the
+    /// program owes. A mint counts it; a delivery, or a handover to the
+    /// scheduler itself (`salvo_watch`, `salvo_on_idle`), stops counting it —
+    /// what an `Idle` payload reports is work *user code* has not answered,
+    /// not registrations the scheduler will answer on its own.
+    tracked: bool,
+}
+
+enum Target {
+    Proc(usize),
+    Waiter(usize),
+    /// [task-mint] A **detached one-shot**: no mailbox, no identity, no
+    /// capacity to reserve — the continuation *is* the closure, and the pool
+    /// is where it will run. Chosen at the mint [task-pool-inherit], because
+    /// whoever creates work pays for it. The body sits behind a shared cell
+    /// so that a token *crossing the wire* can move it into the exported
+    /// table from a `&self` encoder [addr-routable].
+    Task(usize, Arc<Mutex<Option<TaskBody>>>, ReplyDecoder),
+    /// [addr-routable] A token minted on **another node** and decoded here:
+    /// `send` on it encodes the value and routes a REPLY frame back. `kind`
+    /// is the origin's target kind (0 proc, 1 waiter, 2 task), `id` the
+    /// origin's index (or exported-task key), `bits` the origin actor's
+    /// capability bits (0 for a waiter or task).
+    Remote {
+        node: u64,
+        kind: u8,
+        id: u64,
+        bits: u64,
+    },
+}
+
+/// [task-mint] A task body: a one-shot closure taking the answer. `FnOnce`
+/// and `Send`, which is what the sendability check proves statically
+/// [actor-sendable].
+pub type TaskBody = Box<dyn FnOnce(SalvoMsg) + Send>;
+
+enum Entry {
+    /// A user message, and — for one that arrived over the wire — the node
+    /// it came from, which is granted a credit back when the entry is
+    /// dequeued [remote-backpressure].
+    User(SalvoMsg, Option<u64>),
+    Reply(u64, SalvoMsg),
+    /// [addr-routable] A reply that arrived over the wire, still as bytes:
+    /// decoded by the actor's own `decode_reply` when the activation runs
+    /// (the body is out of the table then, and the lock released — a payload
+    /// holding an `Addr` imports it by asking the scheduler).
+    ReplyRaw(u64, Vec<u8>),
+}
+
+/// [addr-routable] The routable identity of an actor: the node hosting it,
+/// its index there, and the unguessable capability bits minted at its spawn
+/// [addr-capability] — what an `Addr<E>` becomes on the wire, and what a
+/// receiving node checks before delivering to the index.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct RemoteRef {
+    pub node: u64,
+    pub actor: u64,
+    pub bits: u64,
+}
+
+/// [wire-format] Decodes one message of one protocol, given the protocol's
+/// hash and the payload: generated per actor handler, matching on the
+/// `__PROTO_E` constants of the faces it serves. `None` for a protocol this
+/// actor does not serve or a malformed payload.
+pub type MsgDecoder = fn(&str, &[u8]) -> Option<SalvoMsg>;
+
+/// [node-group] Builds the `PeerEvents` messages the runtime sends a group
+/// actor: `hello(node, endpoint bytes, protocol table)` for a peer that
+/// completed the handshake, `gone(node)` for one that left. Generated code
+/// supplies both at `watch_peers`, since the runtime cannot construct a Salvo
+/// struct [actor-watch].
+pub type HelloOf = fn(u64, &[u8], &[(String, String)]) -> SalvoMsg;
+pub type GoneOf = fn(u64) -> SalvoMsg;
+/// [node-group] Builds `PeerEvents.introduced` from the encoded endpoints an
+/// INTRO frame carries.
+pub type IntroOf = fn(&[Vec<u8>]) -> SalvoMsg;
+/// [actor-group] Builds the message a publisher receives when a peer node
+/// publishes the same name: given the peer node.
+pub type NamedOf = fn(u64) -> SalvoMsg;
+/// [actor-group] Builds the message a publisher receives when a peer's
+/// replica shares members: the peer node and the identities (which the
+/// builder imports into addrs).
+pub type MembersOf = fn(u64, &[RemoteRef]) -> SalvoMsg;
+
+struct GroupState {
+    name: String,
+    endpoint: Vec<u8>,
+    sink: Option<(usize, HelloOf, GoneOf, IntroOf)>,
+}
+
+/// [wire-format] Decodes one reply payload of a known type: what a waiter or
+/// an exported task is registered with, since only the minting site knows
+/// the answer's type.
+pub type ReplyDecoder = fn(&[u8]) -> Option<SalvoMsg>;
+
+struct ActorState {
+    /// [addr-routable] The node this actor lives on — one of this process's
+    /// hosted node ids for a real actor, the remote node for a **proxy**
+    /// (an imported identity: `body` is `None`, `remote` is `Some`, and a
+    /// send to it is a frame).
+    node: u64,
+    /// [addr-capability] Unguessable bits minted at spawn: the half of the
+    /// identity that makes a wire addr a capability rather than a number.
+    bits: u64,
+    /// [addr-routable] `Some` for a proxy of an actor on another node.
+    remote: Option<RemoteRef>,
+    /// [remote-backpressure] For a proxy: how many more messages the remote
+    /// mailbox has granted room for. A send blocks at zero; the receiver
+    /// grants one back per dequeue.
+    credits: usize,
+    /// [remote-backpressure] For a hosted actor: credits currently held by
+    /// remote senders, so `user_len + granted` stays within `bound`.
+    granted: usize,
+    /// [wire-format] For a hosted actor: how to decode an arriving message
+    /// frame of one of its protocols. `None` for a handler none of whose
+    /// faces has a wire form (nothing can be sent to it from outside).
+    decode: Option<MsgDecoder>,
+    queue: VecDeque<Entry>,
+    /// User entries currently queued; replies are reserved and not counted.
+    user_len: usize,
+    bound: usize,
+    /// While `Some(slot)`, only the reply for `slot` may be delivered.
+    gate: Option<u64>,
+    running: bool,
+    dead: bool,
+    /// The host's account of the fault that killed it, kept so a watch
+    /// registered *after* the death answers what the earlier watchers got.
+    exit_reason: Option<String>,
+    pool: usize,
+    /// [actor-watch] Registered death watches: the token to fulfil and the
+    /// **builder** generated code handed over with it, which turns the
+    /// reason into the language's `Exit` value. The runtime cannot construct
+    /// a Salvo struct, so the watch site supplies the constructor.
+    watchers: Vec<(SalvoReply, ExitOf)>,
+    /// [actor-on-idle] Reply tokens aimed at this actor that nobody has
+    /// discharged — the continuations it is still owed. A token whose holder
+    /// died stays counted, which is the honest answer: the obligation is
+    /// genuinely lost.
+    owed: usize,
+    /// Taken out while an activation runs.
+    body: Option<Box<dyn SalvoActor>>,
+}
+
+/// [actor-watch] Builds the `Exit` payload from the fault's reason. A plain
+/// fn pointer, so it is `Send` without a bound.
+pub type ExitOf = fn(String) -> SalvoMsg;
+
+/// [actor-on-idle] Builds the `Idle` payload from the counts, exactly as
+/// `ExitOf` builds an `Exit`: the runtime holds numbers and cannot construct a
+/// Salvo struct, so the registration site supplies the constructor.
+pub type IdleOf = fn(i32, i32) -> SalvoMsg;
+
+/// [time-timer] Builds the `Fired` payload from the monotonic reading the
+/// deadline came due at — `ExitOf`'s shape again, for the same reason.
+pub type FiredOf = fn(i64) -> SalvoMsg;
+
+struct WaiterState {
+    value: Option<SalvoMsg>,
+    /// [wire-format] How to decode a reply that arrives for this waiter over
+    /// the wire, registered by the `waitfor` site, which knows the type.
+    decode: Option<ReplyDecoder>,
+    /// [actor-on-idle] The pool of the frame that is waiting, which is what a
+    /// token targeting this waiter is owed *by* for the purposes of an `Idle`
+    /// payload.
+    pool: usize,
+    /// [waitfor-pump] While this waiter is parked: the actor whose activation
+    /// is parked on it, if the waiting frame is one. `Some(None)` is a park
+    /// that belongs to no actor (`main` or a task); `None` is not parked at
+    /// all. What the deadlock report reads to name the **occupied** actors —
+    /// the ones whose mailbox is stalled by a wait nested inside an
+    /// activation.
+    parked: Option<Option<usize>>,
+}
+
+/// [task-mint] What a pool owns besides its worker threads: a queue of
+/// detached tasks, and the sink an uncaught fault on it is reported to
+/// [pool-fault-sink].
+struct PoolState {
+    /// [addr-routable] The node this pool's work belongs to: what a spawn on
+    /// it stamps into the actor's identity. The main pool and every
+    /// `pool(n)` are on the process's own node; `pool_at(node, n)` makes one
+    /// for a hosted virtual node (the in-process double of several nodes).
+    node: u64,
+    /// Tasks whose answer has arrived, in the order it arrived.
+    tasks: VecDeque<(TaskBody, SalvoMsg)>,
+    /// [pool-fault-sink] Where a fault on this pool goes: an actor's addr and
+    /// the builder that turns the host's reason into the language's `Fault`.
+    /// `None` is the named runtime report.
+    sink: Option<(usize, ExitOf)>,
+    /// [actor-on-idle] Undischarged tokens that belong to this pool without
+    /// belonging to an actor on it: a task waiting for its answer, and the
+    /// token a frame working for this pool is parked on.
+    owed: usize,
+}
+
+struct Sched {
+    actors: Vec<ActorState>,
+    waiters: Vec<WaiterState>,
+    pools: Vec<PoolState>,
+    next_slot: u64,
+    /// Activations currently running, across all pools.
+    active: usize,
+    /// [waitfor-pump] Of those, the ones parked in a `salvo_wait`: an
+    /// activation or a task whose frame is alive on some thread's stack but
+    /// which cannot proceed until its token arrives. It still holds its
+    /// actor's `running` flag — so its mailbox is stalled and nobody else
+    /// will serve it — which is why a parked frame is *not* progress and must
+    /// not hide a deadlock. `active - parked_frames` is the number of frames
+    /// that can still get somewhere on their own.
+    parked_frames: usize,
+    /// [waitfor-pump] How deep `main`'s own thread is in `salvo_wait`.
+    /// `main` is the one thread that runs program code without being a frame
+    /// the scheduler counts, so while it is *not* waiting it is progress the
+    /// scheduler cannot see, and no deadlock may be declared.
+    main_waits: usize,
+    /// [actor-on-idle] Registered quiescence hooks: the pool whose
+    /// obligations the answer reports, the token to fulfil, and the builder
+    /// for its payload. Taken as a whole when the scheduler settles — every
+    /// registration is a one-shot.
+    idle_hooks: Vec<(usize, SalvoReply, IdleOf)>,
+    /// [time-timer] Registered deadlines, each a monotonic reading with the
+    /// token to fulfil when it passes and the builder for the `Fired` payload.
+    /// Unordered: a Salvo program registers few deadlines at a time, and one
+    /// scan per wake is cheaper than keeping a heap ordered under a lock the
+    /// whole scheduler shares.
+    timers: Vec<(i64, SalvoReply, FiredOf)>,
+    /// [threadsafe-platform] Outside sources of work the scheduler cannot
+    /// see: a host thread that may send at any moment — a transport's
+    /// socket reader, an OS event loop. Bumped by `salvo_external_begin` /
+    /// `salvo_external_end` from host code. While one is registered the
+    /// program is neither quiescent nor deadlocked, exactly as with a
+    /// pending timer: work is on its way from a thread the scheduler does not
+    /// run. This is the "a platform handler with a thread of its own can
+    /// make idle stale" caveat of [actor-on-idle], made a fact the runtime
+    /// is told rather than one it must guess.
+    externals: usize,
+    /// [addr-routable] This process's node identity, and every further node
+    /// it hosts (`salvo_new_node`, for the in-process double).
+    node_id: u64,
+    hosted_nodes: Vec<u64>,
+    /// [addr-routable] Imported identities → the local proxy entry for each.
+    proxies: HashMap<RemoteRef, usize>,
+    /// [addr-routable] Where a node's frames go: the encoded `NodeEndpoint`
+    /// registered by `salvo_add_route` (a `NodeGroup` learns it in the
+    /// handshake). The runtime never decodes it — the outbound hook does.
+    routes: HashMap<u64, Vec<u8>>,
+    /// [addr-routable] The outbound hooks, one per hosted node: hands
+    /// (encoded endpoint, frame) to whatever std bound as that node's wire —
+    /// an `Outbound` actor over its `Transport`. Per node, so several hosted
+    /// nodes in one process each send through their own transport.
+    wires: HashMap<u64, Arc<dyn Fn(&[u8], Vec<u8>) + Send + Sync>>,
+    /// [addr-routable] Tasks whose token crossed the wire: the body waits
+    /// here under the key the REPLY frame will name, with the decoder for
+    /// its answer.
+    exported_tasks: HashMap<u64, (usize, TaskBody, ReplyDecoder)>,
+    /// [addr-routable] Frames (from, to, bytes) for nodes with no route or
+    /// wire yet, delivered when one arrives — a `NodeGroup` may learn a node
+    /// after an addr of it.
+    parked_frames_out: Vec<(u64, u64, Vec<u8>)>,
+    /// [node-group] Per hosted node: the group name it joined (compared at
+    /// the handshake), its own encoded endpoint (carried in its HELLO), and
+    /// the actor its peer events go to — with the builders for the two
+    /// messages, since the runtime cannot construct a Salvo value.
+    groups: HashMap<u64, GroupState>,
+    /// [protocol-hash] Every peer's protocol table, by node: what
+    /// `attach<E>` (step ⑤) compares before joining a group of `E`.
+    peer_protocols: HashMap<u64, HashMap<String, String>>,
+    /// [protocol-hash] This program's own table, registered by generated
+    /// code at start-up: every actor effect with a wire form and its hash.
+    protocols: Vec<(String, String)>,
+    /// [actor-group] What each hosted node publishes by name: the identity
+    /// and, when a local actor wants to hear of peers publishing the same
+    /// name, the sink and the builder for its message.
+    published: HashMap<u64, HashMap<String, (RemoteRef, Option<(usize, NamedOf, MembersOf)>)>>,
+    /// [actor-group] What peers have published: (node, name) → identity.
+    peer_names: HashMap<(u64, String), RemoteRef>,
+    /// [route-stub] Per local group replica: its member set as the replica
+    /// last mirrored it — what a `route(group)` stub reads on the sender's
+    /// thread, without a hop to the replica.
+    views: HashMap<usize, Vec<usize>>,
+    /// [time-timer] Whether the deadline thread is running. Started by the
+    /// first `salvo_after`, so a program that never sets a timer has no timer
+    /// thread — and one that does has exactly one, never a thread per timer.
+    timer_thread: bool,
+}
+
+fn state() -> &'static (Mutex<Sched>, Condvar) {
+    static STATE: OnceLock<(Mutex<Sched>, Condvar)> = OnceLock::new();
+    STATE.get_or_init(|| {
+        let node_id = random_u64();
+        (
+            Mutex::new(Sched {
+                actors: Vec::new(),
+                waiters: Vec::new(),
+                // [main-pool] Pool 0 exists from the start and belongs to
+                // `main`; the first `salvo_pool` therefore answers 1.
+                pools: vec![PoolState {
+                    node: node_id,
+                    tasks: VecDeque::new(),
+                    sink: None,
+                    owed: 0,
+                }],
+                next_slot: 0,
+                active: 0,
+                parked_frames: 0,
+                main_waits: 0,
+                idle_hooks: Vec::new(),
+                timers: Vec::new(),
+                externals: 0,
+                node_id,
+                hosted_nodes: vec![node_id],
+                proxies: HashMap::new(),
+                routes: HashMap::new(),
+                wires: HashMap::new(),
+                exported_tasks: HashMap::new(),
+                parked_frames_out: Vec::new(),
+                groups: HashMap::new(),
+                peer_protocols: HashMap::new(),
+                protocols: Vec::new(),
+                published: HashMap::new(),
+                peer_names: HashMap::new(),
+                views: HashMap::new(),
+                timer_thread: false,
+            }),
+            Condvar::new(),
+        )
+    })
+}
+
+/// [main-pool] The pool `main` is the single worker of. It is never given a
+/// worker thread of its own: `main`'s thread is the worker, and it runs the
+/// pool's work while it waits in `salvo_wait`.
+pub const SALVO_MAIN_POOL: usize = 0;
+
+/// Where a thread is. Saved and restored by every frame, so a nested wait
+/// reads the frame it is actually inside.
+#[derive(Clone, Copy)]
+struct Here {
+    /// The pool this thread works for — what a `spawn` or a mint with no
+    /// `on` clause inherits, and the pool a wait serves [waitfor-pump].
+    pool: usize,
+    /// The actor whose activation this thread is currently inside (`None` on
+    /// `main`, inside a task, and between activations): the one actor a wait
+    /// must not serve.
+    actor: Option<usize>,
+    /// Whether this thread is inside a frame that counts in `active` — an
+    /// activation or a task. `main`'s own thread is not one, which is what
+    /// distinguishes it from a task running on the main pool. Read by
+    /// `salvo_wait` to decide *which* kind of park this wait is.
+    frame: bool,
+}
+
+thread_local! {
+    static HERE: Cell<Here> = Cell::new(Here {
+        pool: SALVO_MAIN_POOL,
+        actor: None,
+        frame: false,
+    });
+}
+
+/// [main-pool] The pool the calling thread works for — what a `spawn` or a
+/// mint with no `on` clause inherits. `main`'s thread answers the main pool.
+pub fn salvo_current_pool() -> usize {
+    HERE.with(|h| h.get().pool)
+}
+
+/// [waitfor-dedicated] A pool of exactly one thread, for work that may
+/// occupy its thread until an answer arrives. Identical to `salvo_pool(1)`
+/// at run time — what makes it different is static: the language types it as
+/// a `Dedicated Pool` and the `on` clause consumes it, so a dedicated thread
+/// has exactly one occupant.
+pub fn salvo_thread() -> usize {
+    salvo_pool(1)
+}
+
+/// The index of the first deliverable entry for an actor, honouring the
+/// gate: ungated, the queue's head; gated, only the awaited reply.
+fn deliverable(p: &ActorState) -> Option<usize> {
+    if p.running || p.dead {
+        return None;
+    }
+    match p.gate {
+        None => {
+            if p.queue.is_empty() {
+                None
+            } else {
+                Some(0)
+            }
+        }
+        Some(slot) => p.queue.iter().position(
+            |e| matches!(e, Entry::Reply(s, _) | Entry::ReplyRaw(s, _) if *s == slot),
+        ),
+    }
+}
+
+/// True when no work is *queued* anywhere: no actor has a deliverable entry,
+/// no pool has a scheduled task, no deadline is pending, and no parked frame
+/// has an answer sitting in its slot.
+///
+/// [waitfor-pump] That last clause is a queue too, even though it looks like a
+/// variable: a fulfilled waiter slot is work whose *pickup is the waiting
+/// thread itself*, which will take it at the top of its next pass. Between the
+/// delivery and the pickup the frame is still booked as parked, so without this
+/// clause a thread that looked in that window would call a program stuck one
+/// instant before it proceeds.
+///
+/// [time-timer] A pending deadline counts as work on its way: the timer thread
+/// will deliver it, so a program waiting for a fire is neither quiescent
+/// ([actor-on-idle]) nor deadlocked — it is waiting for time to pass, which is
+/// the one thing that happens without anybody running.
+fn quiet(s: &Sched) -> bool {
+    s.actors.iter().all(|p| deliverable(p).is_none())
+        && s.pools.iter().all(|p| p.tasks.is_empty())
+        && s.timers.is_empty()
+        && s.externals == 0
+        && s.waiters
+            .iter()
+            .all(|w| !(w.parked.is_some() && w.value.is_some()))
+}
+
+/// True when nothing can ever run again without outside input: no
+/// activation is running and no actor has a deliverable entry.
+///
+/// [actor-on-idle] What the quiescence hook fires on. A frame parked in a
+/// `waitfor` counts as running here, so idleness does not fire while any wait
+/// is in flight — the stated caveat of the rule.
+fn idle(s: &Sched) -> bool {
+    s.active == 0 && quiet(s)
+}
+
+/// True when nothing can ever run again *and* somebody is waiting for
+/// something — the deadlock condition, which is weaker than `idle` in exactly
+/// one way: a frame **parked in a `salvo_wait`** is not progress.
+///
+/// [waitfor-pump] Every clause is a thread that could still get somewhere:
+///
+/// * `active - parked_frames > 0` — a frame is running rather than parked (a
+///   body between two waits, or a sender blocked on a full mailbox, which
+///   will proceed when the mailbox drains).
+/// * `main_waits == 0` — `main`'s thread is running program code, which the
+///   scheduler does not count as a frame and therefore cannot see. Whatever
+///   it does next may fulfil the token that is being waited on.
+/// * `!quiet` — something is queued, so whoever runs next will run it.
+///
+/// With all of them false, every thread the scheduler knows about is parked
+/// on an answer and nothing is queued to produce one: the wait cannot end.
+/// The remaining blind spot is stated with [actor-on-idle] and is the same one
+/// the report has always had — a platform handler with a thread of its own can
+/// inject work the scheduler never saw.
+fn stuck(s: &Sched) -> bool {
+    s.active == s.parked_frames && s.main_waits > 0 && quiet(s)
+}
+
+/// [actor-on-idle] Marks one token as no longer outstanding, against whatever
+/// it was owed by: the actor it targets, the pool a task will run on, or the
+/// pool of the frame parked on it. Saturating, so a double release cannot wrap.
+fn release(s: &mut Sched, target: &Target) {
+    let owed = match *target {
+        Target::Proc(addr) => &mut s.actors[addr].owed,
+        Target::Task(pool, _, _) => &mut s.pools[pool].owed,
+        Target::Waiter(wid) => {
+            let pool = s.waiters[wid].pool;
+            &mut s.pools[pool].owed
+        }
+        // [addr-routable] The obligation is owed on the origin node, which
+        // counted it at the mint; nothing here to release.
+        Target::Remote { .. } => return,
+    };
+    *owed = owed.saturating_sub(1);
+}
+
+/// [actor-on-idle] Hands a token over to the scheduler: it stops counting as
+/// an obligation the program owes, because the scheduler is now the one who
+/// will answer it. Used by `salvo_watch` and `salvo_on_idle`, which is why a
+/// steady-state program with registrations outstanding still reports zero.
+fn untrack(s: &mut Sched, mut reply: SalvoReply) -> SalvoReply {
+    if reply.tracked {
+        reply.tracked = false;
+        release(s, &reply.target);
+    }
+    reply
+}
+
+/// [actor-on-idle] What an `Idle` payload says about a pool: how many actors
+/// placed there have a gated mailbox, and how many reply tokens aimed at work
+/// there nobody has discharged. Both zero is "done"; either non-zero is "idle
+/// and still owed something".
+fn parked(s: &Sched, pool: usize) -> (i32, i32) {
+    let gates = s
+        .actors
+        .iter()
+        .filter(|p| p.pool == pool && p.gate.is_some() && !p.dead)
+        .count();
+    let tokens: usize = s
+        .actors
+        .iter()
+        .filter(|p| p.pool == pool)
+        .map(|p| p.owed)
+        .sum::<usize>()
+        + s.pools[pool].owed;
+    (gates as i32, tokens as i32)
+}
+
+/// [actor-on-idle] Fires every registered quiescence hook, if the scheduler
+/// has settled. Answers whether anything fired — which is *progress*, so a
+/// caller about to declare a deadlock has to look again first.
+///
+/// Registrations are one-shots and all of them fire together: quiescence is a
+/// property of the whole scheduler, so there is no order in which one hook
+/// could see it and another not.
+fn fire_idle(s: &mut Sched, cv: &Condvar) -> bool {
+    if s.idle_hooks.is_empty() || !idle(s) {
+        return false;
+    }
+    for (pool, notify, build) in std::mem::take(&mut s.idle_hooks) {
+        let (gates, tokens) = parked(s, pool);
+        deliver_reply(s, notify, build(gates, tokens));
+    }
+    cv.notify_all();
+    true
+}
+
+/// [waitfor-pump] The next job a thread working for `pool` may run:
+/// `exclude` is the actor whose own activation is waiting, which a wait must
+/// never serve — re-entering an actor mid-activation is precisely what
+/// serialization exists to prevent. A pool worker excludes nothing.
+fn pick(s: &Sched, pool: usize, exclude: Option<usize>) -> Option<(usize, usize)> {
+    s.actors
+        .iter()
+        .enumerate()
+        .filter(|(addr, p)| p.pool == pool && Some(*addr) != exclude)
+        .find_map(|(addr, p)| deliverable(p).map(|at| (addr, at)))
+}
+
+/// The deadlock report [actor-watch] [waitfor-pump]: nothing can run while a
+/// frame waits, so nothing can ever change — a named error instead of a silent
+/// hang. `waiter` names the frame that is waiting, which since
+/// [waitfor-effect] need not be `main`.
+///
+/// The two lists are the two ways a mailbox comes to be unservable, and a
+/// diagnosis starts by reading them: an actor **parked in a wait** holds its
+/// own `running` flag, so *nothing* of its mailbox is delivered by anybody
+/// until its token arrives; a **gated** actor serves only the reply it is
+/// waiting for.
+fn report_deadlock(s: &Sched, waiter: Option<usize>) -> ! {
+    let occupied: Vec<String> = s
+        .waiters
+        .iter()
+        .filter_map(|w| match w.parked {
+            Some(Some(addr)) => Some(format!("actor {addr}")),
+            _ => None,
+        })
+        .collect();
+    let gated: Vec<String> = s
+        .actors
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.gate.is_some() && !p.dead)
+        .map(|(i, _)| format!("actor {i}"))
+        .collect();
+    let who = match waiter {
+        None => "main".to_string(),
+        Some(addr) => format!("actor {addr}"),
+    };
+    let mut detail = String::new();
+    if !occupied.is_empty() {
+        detail.push_str(&format!(" (parked in a wait: {}", occupied.join(", ")));
+    }
+    if !gated.is_empty() {
+        detail.push_str(if detail.is_empty() { " (" } else { "; " });
+        detail.push_str(&format!("parked gates: {}", gated.join(", ")));
+    }
+    if !detail.is_empty() {
+        detail.push(')');
+    }
+    eprintln!("salvo: deadlock: nothing can run while {who} waits{detail}");
+    std::process::exit(1);
+}
+
+/// Creates a pool of `n` worker threads and answers its id.
+pub fn salvo_pool(n: usize) -> usize {
+    salvo_pool_with_sink(n, None)
+}
+
+/// [pool-fault-sink] The same, with an actor to report uncaught faults to:
+/// the addr and the builder that turns the host's reason into the language's
+/// `Fault` value (the runtime cannot construct one, exactly as with `Exit`
+/// [actor-watch]).
+pub fn salvo_pool_with_sink(n: usize, sink: Option<(usize, ExitOf)>) -> usize {
+    let (lock, _cv) = state();
+    let pool = {
+        let mut s = lock.lock().unwrap();
+        let node = s.pools[salvo_current_pool()].node;
+        s.pools.push(PoolState {
+            node,
+            tasks: VecDeque::new(),
+            sink,
+            owed: 0,
+        });
+        s.pools.len() - 1
+    };
+    for _ in 0..n {
+        std::thread::spawn(move || worker(pool));
+    }
+    pool
+}
+
+/// [task-mint] Mints a token whose fulfilment **schedules** `body` on `pool`.
+/// No capacity is reserved and no queue can be full: a task has no mailbox,
+/// which is why a task mint contributes no deadlock edge.
+pub fn salvo_mint_task(pool: usize, body: TaskBody, decode: ReplyDecoder) -> SalvoReply {
+    let (lock, _cv) = state();
+    let mut s = lock.lock().unwrap();
+    s.next_slot += 1;
+    let slot = s.next_slot;
+    s.pools[pool].owed += 1;
+    SalvoReply {
+        target: Target::Task(pool, Arc::new(Mutex::new(Some(body))), decode),
+        slot,
+        tracked: true,
+    }
+}
+
+/// Spawns an actor on a pool. The queue bound is explicit and required.
+/// `decode` is how a message frame for one of its protocols is read
+/// [wire-format]; `None` when no face has a wire form.
+pub fn salvo_spawn(
+    pool: usize,
+    bound: usize,
+    body: Box<dyn SalvoActor>,
+    decode: Option<MsgDecoder>,
+) -> usize {
+    let (lock, _cv) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[pool].node;
+    s.actors.push(ActorState {
+        node,
+        bits: random_u64(),
+        remote: None,
+        credits: 0,
+        granted: 0,
+        decode,
+        queue: VecDeque::new(),
+        user_len: 0,
+        bound,
+        gate: None,
+        running: false,
+        dead: false,
+        exit_reason: None,
+        pool,
+        watchers: Vec::new(),
+        owed: 0,
+        body: Some(body),
+    });
+    s.actors.len() - 1
+}
+
+/// Sends a user message. Blocks while the target's queue is full; a send
+/// to a dead actor is a silent no-op.
+///
+/// [main-pool] One block is a *guaranteed* wedge rather than back-pressure:
+/// the main pool has exactly one worker — `main`'s own thread, which serves
+/// work only inside a `waitfor` — so a full main-pool mailbox blocked on
+/// from that same thread can never drain. Reported by name instead of hung.
+pub fn salvo_send(addr: usize, msg: SalvoMsg) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    while !s.actors[addr].dead && s.actors[addr].user_len >= s.actors[addr].bound {
+        if salvo_current_pool() == SALVO_MAIN_POOL && s.actors[addr].pool == SALVO_MAIN_POOL {
+            report_main_pool_wedge(addr);
+        }
+        s = cv.wait(s).unwrap();
+    }
+    if s.actors[addr].dead {
+        return;
+    }
+    // [addr-routable] A proxy has no queue to push onto: the typed path
+    // (`salvo_send_wire`) is what encodes; reaching here means the emitter
+    // sent to a protocol with no wire form, which `attach` refuses.
+    assert!(
+        s.actors[addr].remote.is_none(),
+        "internal: an untyped send to a remote proxy (the protocol has no wire form)"
+    );
+    s.actors[addr].queue.push_back(Entry::User(msg, None));
+    s.actors[addr].user_len += 1;
+    cv.notify_all();
+}
+
+/// [main-pool] The full-main-pool-mailbox report: a named error, since the
+/// only thread that could drain the queue is the one blocked on it.
+fn report_main_pool_wedge(addr: usize) -> ! {
+    eprintln!(
+        "salvo: deadlock: the main pool's actor {addr} has a full mailbox and the \
+         only thread that could drain it is the one sending: the main pool has one \
+         worker, `main` itself, and it serves work only inside a `waitfor` — send \
+         fewer messages before waiting, raise the handler's `mailbox` capacity, or \
+         place the actor on a pool of its own"
+    );
+    std::process::exit(1);
+}
+
+/// Mints a reply token targeting an actor's parked continuation `slot`.
+pub fn salvo_mint(addr: usize) -> (SalvoReply, u64) {
+    let (lock, _cv) = state();
+    let mut s = lock.lock().unwrap();
+    s.next_slot += 1;
+    let slot = s.next_slot;
+    s.actors[addr].owed += 1;
+    (
+        SalvoReply {
+            target: Target::Proc(addr),
+            slot,
+            tracked: true,
+        },
+        slot,
+    )
+}
+
+/// Mints a *gated* reply token: until it is delivered, the actor serves
+/// nothing else. At most one gate may be outstanding — a second is a
+/// fault in the calling activation.
+pub fn salvo_mint_gated(addr: usize) -> (SalvoReply, u64) {
+    let (lock, _cv) = state();
+    let mut s = lock.lock().unwrap();
+    assert!(
+        s.actors[addr].gate.is_none(),
+        "a gated continuation is already outstanding"
+    );
+    s.next_slot += 1;
+    let slot = s.next_slot;
+    s.actors[addr].gate = Some(slot);
+    s.actors[addr].owed += 1;
+    (
+        SalvoReply {
+            target: Target::Proc(addr),
+            slot,
+            tracked: true,
+        },
+        slot,
+    )
+}
+
+/// [actor-watch] Registers a death watch: `on_exit` is sent the `Exit`
+/// `exit` builds when the actor dies. Watching an already-dead actor
+/// answers immediately, with the reason its death recorded — so a watch that
+/// loses the race to a fast fault is not a watch that never answers.
+pub fn salvo_watch(addr: usize, on_exit: SalvoReply, exit: ExitOf) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    let on_exit = untrack(&mut s, on_exit);
+    if s.actors[addr].dead {
+        let reason = s.actors[addr]
+            .exit_reason
+            .clone()
+            .unwrap_or_else(|| "fault".to_string());
+        deliver_reply(&mut s, on_exit, exit(reason));
+        cv.notify_all();
+    } else {
+        s.actors[addr].watchers.push((on_exit, exit));
+    }
+}
+
+/// [actor-on-idle] Registers a quiescence hook: `notify` is sent the `Idle`
+/// `idle` builds the moment nothing anywhere can run, reporting what `pool` is
+/// still owed. One-shot, exactly as a watch is — delivering the answer is work,
+/// which ends the idleness that produced it.
+///
+/// The registration itself wakes every worker: the scheduler may *already* be
+/// settled, in which case the next thread to look fires the hook.
+pub fn salvo_on_idle(pool: usize, notify: SalvoReply, idle: IdleOf) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    let notify = untrack(&mut s, notify);
+    s.idle_hooks.push((pool, notify, idle));
+    cv.notify_all();
+}
+
+/// [time-timer] Registers a deadline: `done` is sent the `Fired` `fired`
+/// builds once at least `delay` nanoseconds have passed, carrying the
+/// monotonic reading it fired at.
+///
+/// One thread serves every deadline, started on the first registration and
+/// parked in `wait_timeout` until the earliest one comes due — so a thousand
+/// outstanding timers cost one thread and no polling, which is the constraint
+/// this design was chosen under (no thread-per-timer). A registration wakes
+/// it, since the new deadline may be earlier than the one it is sleeping on.
+///
+/// A delay of zero or less fires at the next look rather than immediately:
+/// the answer is always a *later* activation, never a call inside `after`.
+/// [threadsafe-platform] A host declares that a thread of its own may inject
+/// work — a listener is open. Pair with `salvo_external_end` when it closes.
+/// While any source is registered, neither the idle hook nor the deadlock
+/// report fires: an answer may still arrive from outside.
+pub fn salvo_external_begin() {
+    let (lock, _) = state();
+    lock.lock().unwrap().externals += 1;
+}
+
+/// [threadsafe-platform] The outside source is gone; the scheduler may settle
+/// again. Wakes every waiter so a program that was only ever waiting on the
+/// wire gets its idle report now rather than never.
+pub fn salvo_external_end() {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    s.externals = s.externals.saturating_sub(1);
+    cv.notify_all();
+}
+
+pub fn salvo_after(delay: i64, done: SalvoReply, fired: FiredOf) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    // The token is the scheduler's obligation now, exactly as with a watch or
+    // an idle hook [actor-on-idle]: it will be answered, so it is not work the
+    // program has forgotten.
+    let done = untrack(&mut s, done);
+    let deadline = crate::hosttime::salvo_mono_nanos().saturating_add(delay.max(0));
+    s.timers.push((deadline, done, fired));
+    if !s.timer_thread {
+        s.timer_thread = true;
+        std::thread::spawn(serve_timers);
+    }
+    cv.notify_all();
+}
+
+/// [time-timer] The deadline thread: delivers every timer whose deadline has
+/// passed, then sleeps until the earliest one left (or until something
+/// changes). It never exits — the program ends when `main` returns
+/// [actor-waitfor], and pending timers die with it.
+fn serve_timers() {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    loop {
+        let now = crate::hosttime::salvo_mono_nanos();
+        let due: Vec<usize> = s
+            .timers
+            .iter()
+            .enumerate()
+            .filter(|(_, (deadline, _, _))| *deadline <= now)
+            .map(|(i, _)| i)
+            .collect();
+        if !due.is_empty() {
+            // Back to front, so removing one does not shift the next.
+            for i in due.into_iter().rev() {
+                let (deadline, done, fired) = s.timers.remove(i);
+                let value = fired(deadline);
+                deliver_reply(&mut s, done, value);
+            }
+            cv.notify_all();
+            continue;
+        }
+        let sleep = s
+            .timers
+            .iter()
+            .map(|(deadline, _, _)| *deadline)
+            .min()
+            .map(|earliest| std::time::Duration::from_nanos((earliest - now).max(0) as u64));
+        s = match sleep {
+            Some(d) => cv.wait_timeout(s, d).unwrap().0,
+            None => cv.wait(s).unwrap(),
+        };
+    }
+}
+
+/// A waiter: the `waitfor` bridge. Answers the token to hand out and the
+/// waiter's id to block on.
+pub fn salvo_waiter() -> (SalvoReply, usize) {
+    let (lock, _cv) = state();
+    let pool = salvo_current_pool();
+    let mut s = lock.lock().unwrap();
+    s.waiters.push(WaiterState {
+        value: None,
+        decode: None,
+        pool,
+        parked: None,
+    });
+    let wid = s.waiters.len() - 1;
+    s.next_slot += 1;
+    let slot = s.next_slot;
+    s.pools[pool].owed += 1;
+    (
+        SalvoReply {
+            target: Target::Waiter(wid),
+            slot,
+            tracked: true,
+        },
+        wid,
+    )
+}
+
+/// [waitfor-pump] Blocks the calling thread until the waiter's token is
+/// sent, and answers the value — *serving this thread's pool while it waits*
+/// (everything on it except the waiting actor's own activations, which stay
+/// stalled). For `main`, whose pool has no other worker, that is what runs
+/// main-pool work at all; where the queue is empty the wait is a plain
+/// block. If nothing can run while this frame waits, reports the deadlock
+/// instead of hanging — including when the waiting frame is an **occupied
+/// actor**, whose own mailbox its wait has stalled.
+pub fn salvo_wait(wid: usize) -> SalvoMsg {
+    let (lock, cv) = state();
+    let here = HERE.with(|h| h.get());
+    let (pool, own) = (here.pool, here.actor);
+    let mut s = lock.lock().unwrap();
+    // This frame is parked for the whole call, including across the jobs the
+    // pump runs below: each of those books itself in `active` on its own, so
+    // `active - parked` stays the count of frames that can still proceed.
+    enter_wait(&mut s, &here, wid);
+    loop {
+        if let Some(v) = s.waiters[wid].value.take() {
+            leave_wait(&mut s, &here, wid);
+            return v;
+        }
+        // [waitfor-pump] Detached tasks are what the rule names first, and
+        // they are served whoever is waiting; activations are served except
+        // the waiter's own.
+        if !s.pools[pool].tasks.is_empty() {
+            s = run_task(lock, cv, s, pool);
+            continue;
+        }
+        if let Some((addr, at)) = pick(&s, pool, own) {
+            s = run_job(lock, cv, s, addr, at);
+            continue;
+        }
+        // [actor-on-idle] Nothing to run is exactly the event the hooks are
+        // registered for, and firing one *is* progress — so it comes before
+        // the deadlock report, which is what firing nothing leaves.
+        if fire_idle(&mut s, cv) {
+            continue;
+        }
+        if stuck(&s) {
+            report_deadlock(&s, own);
+        }
+        s = cv.wait(s).unwrap();
+    }
+}
+
+/// [waitfor-pump] Books the calling frame as parked on `wid`: an activation or
+/// a task counts out of the frames that can still proceed, and `main`'s own
+/// thread — which the scheduler never counts as a frame — records that it is
+/// inside a wait at all, since `main` running program code is progress nothing
+/// else can see.
+fn enter_wait(s: &mut Sched, here: &Here, wid: usize) {
+    s.waiters[wid].parked = Some(here.actor);
+    if here.frame {
+        s.parked_frames += 1;
+    } else if here.pool == SALVO_MAIN_POOL {
+        s.main_waits += 1;
+    }
+}
+
+/// The exact reverse, on every way out of a wait. Saturating, so an
+/// unbalanced pair cannot wrap the count into a permanent "everything is
+/// stuck".
+fn leave_wait(s: &mut Sched, here: &Here, wid: usize) {
+    s.waiters[wid].parked = None;
+    if here.frame {
+        s.parked_frames = s.parked_frames.saturating_sub(1);
+    } else if here.pool == SALVO_MAIN_POOL {
+        s.main_waits = s.main_waits.saturating_sub(1);
+    }
+}
+
+/// Delivers a reply under the lock: to a waiter, or to an actor's queue
+/// with reserved capacity (never blocks, never counts against the bound).
+/// A reply to a dead actor is a silent no-op.
+fn deliver_reply(s: &mut Sched, reply: SalvoReply, value: SalvoMsg) {
+    // [actor-on-idle] The obligation is met here, whatever the target does
+    // with the value — including a no-op delivery to the dead.
+    if reply.tracked {
+        release(s, &reply.target);
+    }
+    match reply.target {
+        Target::Waiter(wid) => {
+            s.waiters[wid].value = Some(value);
+        }
+        Target::Proc(addr) => {
+            if s.actors[addr].dead {
+                return;
+            }
+            s.actors[addr].queue.push_back(Entry::Reply(reply.slot, value));
+        }
+        // [task-mint] The answer schedules the task. Nothing to check: a task
+        // has no mailbox to fill and no death to be a no-op for. An empty
+        // cell means the token crossed the wire and the body is in the
+        // exported table; the frame that comes back will find it there.
+        Target::Task(pool, body, _) => {
+            if let Some(body) = body.lock().unwrap().take() {
+                s.pools[pool].tasks.push_back((body, value));
+            }
+        }
+        // [addr-routable] An untyped delivery to a remote token: the typed
+        // path (`salvo_reply_wire`) is what encodes. Reaching here means the
+        // value's type has no wire form, and a token of such a type never
+        // crosses — so this is unreachable by construction.
+        Target::Remote { .. } => {
+            panic!("internal: an untyped reply to a remote token")
+        }
+    }
+}
+
+impl SalvoReply {
+    /// Sends the reply, consuming the token. Enqueue only — user code
+    /// never runs inside a `send`.
+    pub fn send(self, value: SalvoMsg) {
+        let (lock, cv) = state();
+        let mut s = lock.lock().unwrap();
+        deliver_reply(&mut s, self, value);
+        cv.notify_all();
+    }
+}
+
+/// Runs one activation to completion: takes the entry out of the queue,
+/// releases the lock for the body, catches a fault at this boundary and
+/// turns it into the actor's death, then answers the reacquired guard. Both
+/// callers — a pool worker and a `waitfor` pumping its own pool
+/// [waitfor-pump] — go through here, so an activation means the same thing
+/// whichever thread runs it.
+fn run_job<'g>(
+    lock: &'g Mutex<Sched>,
+    cv: &Condvar,
+    mut s: MutexGuard<'g, Sched>,
+    addr: usize,
+    at: usize,
+) -> MutexGuard<'g, Sched> {
+    let entry = s.actors[addr].queue.remove(at).unwrap();
+    if let Entry::User(_, from) = &entry {
+        s.actors[addr].user_len -= 1;
+        // [remote-backpressure] A remote sender's message left the queue:
+        // grant that node one credit back for this actor.
+        if let Some(from) = *from {
+            grant_credit(&mut s, addr, from, 1);
+        }
+    }
+    if let Entry::Reply(slot, _) | Entry::ReplyRaw(slot, _) = entry {
+        if s.actors[addr].gate == Some(slot) {
+            s.actors[addr].gate = None;
+        }
+    }
+    let mut body = s.actors[addr].body.take().unwrap();
+    let pool = s.actors[addr].pool;
+    s.actors[addr].running = true;
+    s.active += 1;
+    cv.notify_all(); // a user entry left the queue: unblock senders
+    drop(s);
+    // [remote-backpressure] A credit granted for the dequeued entry was
+    // staged under the lock; it goes out now that the lock is released.
+    flush_out();
+
+    // The activation runs *here*: an ambient mint inside it inherits this
+    // pool, and a nested wait must not serve this actor [waitfor-pump].
+    let saved = HERE.with(|h| {
+        h.replace(Here {
+            pool,
+            actor: Some(addr),
+            frame: true,
+        })
+    });
+    let ctx = SalvoCtx { addr };
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        match entry {
+            Entry::User(msg, _) => body.handle(&ctx, msg),
+            Entry::Reply(slot, value) => body.resume(&ctx, slot, value),
+            // [addr-routable] Decoded here, with the lock released and the
+            // body in hand; a malformed answer is dropped, never resumed with
+            // the wrong value [backend-never-wrong].
+            Entry::ReplyRaw(slot, bytes) => {
+                if let Some(value) = body.decode_reply(slot, &bytes) {
+                    body.resume(&ctx, slot, value);
+                }
+            }
+        }
+        body
+    }));
+    HERE.with(|h| h.set(saved));
+
+    s = lock.lock().unwrap();
+    s.actors[addr].running = false;
+    s.active -= 1;
+    match outcome {
+        Ok(body) => {
+            s.actors[addr].body = Some(body);
+        }
+        Err(panic) => {
+            let reason = panic
+                .downcast_ref::<&str>()
+                .map(|m| (*m).to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "fault".to_string());
+            s.actors[addr].dead = true;
+            s.actors[addr].exit_reason = Some(reason.clone());
+            s.actors[addr].queue.clear();
+            s.actors[addr].user_len = 0;
+            s.actors[addr].gate = None;
+            let watchers = std::mem::take(&mut s.actors[addr].watchers);
+            let unwatched = watchers.is_empty();
+            for (w, exit) in watchers {
+                let value = exit(reason.clone());
+                deliver_reply(&mut s, w, value);
+            }
+            // [pool-fault-sink] The net under supervision: a death nobody was
+            // watching still reaches the pool's sink, or the named report.
+            if unwatched {
+                report_fault(&mut s, pool, reason);
+            }
+        }
+    }
+    cv.notify_all();
+    s
+}
+
+/// One pool worker: pick a deliverable entry for an actor on this pool,
+/// run the activation to completion, repeat.
+fn worker(pool: usize) {
+    HERE.with(|h| {
+        h.set(Here {
+            pool,
+            actor: None,
+            frame: false,
+        })
+    });
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    loop {
+        // [task-mint] A queued task before an activation: one rule, the same
+        // on both backends, so a program's interleaving does not depend on
+        // its target. Each queue is still served in arrival order.
+        if !s.pools[pool].tasks.is_empty() {
+            s = run_task(lock, cv, s, pool);
+            continue;
+        }
+        match pick(&s, pool, None) {
+            Some((addr, at)) => s = run_job(lock, cv, s, addr, at),
+            None => {
+                // [actor-on-idle] A worker with nothing to do is the other
+                // place quiescence is observed: a hook registered from an
+                // actor is fired by whichever thread next runs dry, without
+                // anybody having to wait for it.
+                if !fire_idle(&mut s, cv) {
+                    s = cv.wait(s).unwrap();
+                }
+            }
+        }
+    }
+}
+
+/// [task-mint] Runs one detached task to completion, with the same lock
+/// discipline and fault boundary as an activation: the lock is released for
+/// the body, and a fault is caught here. A task has no identity, so there is
+/// nothing to mark dead and nobody to notify — the fault goes to the pool's
+/// sink [pool-fault-sink], or to the named report when it has none.
+fn run_task<'g>(
+    lock: &'g Mutex<Sched>,
+    cv: &Condvar,
+    mut s: MutexGuard<'g, Sched>,
+    pool: usize,
+) -> MutexGuard<'g, Sched> {
+    let Some((body, value)) = s.pools[pool].tasks.pop_front() else {
+        return s;
+    };
+    s.active += 1;
+    drop(s);
+
+    // A task belongs to no actor, so a nested wait inside it may serve every
+    // activation on the pool [waitfor-pump].
+    let saved = HERE.with(|h| {
+        h.replace(Here {
+            pool,
+            actor: None,
+            frame: true,
+        })
+    });
+    let outcome = catch_unwind(AssertUnwindSafe(move || body(value)));
+    HERE.with(|h| h.set(saved));
+
+    s = lock.lock().unwrap();
+    s.active -= 1;
+    if let Err(panic) = outcome {
+        let reason = panic
+            .downcast_ref::<&str>()
+            .map(|m| (*m).to_string())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "fault".to_string());
+        report_fault(&mut s, pool, reason);
+    }
+    cv.notify_all();
+    s
+}
+
+/// [pool-fault-sink] Where an uncaught fault on a pool goes: a message to the
+/// pool's sink actor if it has one, else a named report on stderr. A fault
+/// that cannot be delivered (a dead sink) falls back to the report, since the
+/// alternative is losing it silently.
+fn report_fault(s: &mut Sched, pool: usize, reason: String) {
+    if let Some((addr, build)) = s.pools[pool].sink {
+        if !s.actors[addr].dead {
+            let msg = build(reason);
+            // Enqueued past the bound deliberately: a fault report must not
+            // block the faulting thread, and dropping it would lose the one
+            // thing the sink exists for.
+            s.actors[addr].queue.push_back(Entry::User(msg, None));
+            s.actors[addr].user_len += 1;
+            return;
+        }
+    }
+    eprintln!("salvo: an uncaught fault on pool {pool}: {reason}");
+}
+
+// ======================================================================
+// [addr-routable] [addr-capability] [remote-backpressure] Across machines:
+// identity, routing, and the frames — step ③ of the network sequence.
+//
+// An `Addr<E>` is still a `usize` in generated code: an index into `actors`.
+// What changed is what an index *is*: every entry carries the node it lives
+// on and unguessable bits, so its wire form is `(node, index, bits)`, and an
+// index may be a **proxy** — an imported identity of an actor elsewhere,
+// whose entry has no body and whose sends become frames. Locality is a
+// runtime fact, read at the send: the same `salvo_send_wire` call queues
+// locally or encodes and routes, and a function holding the addr never
+// learns which.
+//
+// The process is one node, with one random identity; it may *host* further
+// virtual nodes (`salvo_new_node`), each with pools of its own, so a program
+// can run several nodes in one process over `MemTransport` and exercise every
+// remote path — proxies, credits, frames — without a socket. An actor on a
+// hosted node is reached from another hosted node exactly as from another
+// process: encode, frame, decode, deliver.
+//
+// Frames (every integer big-endian):
+//   0 MSG   to.node u64, to.actor u64, to.bits u64, from.node u64,
+//           proto 16 ascii bytes, payload
+//   1 REPLY to.node u64, kind u8, id u64, slot u64, bits u64, payload
+//   2 GRANT to.node u64, from.node u64, actor u64, bits u64, n u32
+//           (from the host of `actor` to a sender holding a proxy of it)
+//   3 OPEN  to.node u64, actor u64, bits u64, from.node u64
+//   4 HELLO to.node u64 (0: unknown yet), from.node u64, group name (u32 len +
+//           UTF-8), from endpoint (u32 len + encoded NodeEndpoint), protocol
+//           table (u32 count, then per entry: name u32+UTF-8, hash 16 ascii)
+//           — the handshake [node-group]; a HELLO is sent through the
+//           transport directly, since no route exists yet
+//   5 ACK   the same fields; the answer to a HELLO, routed
+//   6 LEAVE to.node u64, from.node u64
+//   7 INTRO to.node u64, from.node u64, endpoints (u32 count, then each as a
+//           u32-length-prefixed encoded NodeEndpoint) — gossip's introductions,
+//           arriving as `PeerEvents.introduced`
+//   8 NAMED to.node u64, from.node u64, name (u32 len + UTF-8), identity
+//           (node u64, actor u64, bits u64) — "I publish this actor under this
+//           name" [actor-group]; sent to every peer at publish and to every
+//           new peer after its handshake, and delivered to the local publisher
+//           of the same name as the message its `publish` registered
+//   9 MEMBERS to.node u64, from.node u64, name, identities (u32 count, then
+//           24 bytes each) — a group replica sharing its members with the
+//           replica of the same name on a peer node
+// Delivery is at most once and in order per (sender, receiver) pair — the
+// transport's guarantee, and nothing more [net-transport].
+// ======================================================================
+
+/// A fresh 64-bit value from the OS entropy the standard library exposes
+/// through hashing: `RandomState` seeds itself from the OS per process, and a
+/// counter under it gives a distinct value per call. Good enough for an
+/// identity that must be unguessable to an outsider, which is what an addr's
+/// bits are for [addr-capability]; not a cryptographic RNG.
+fn random_u64() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    static SEED: OnceLock<std::collections::hash_map::RandomState> = OnceLock::new();
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let rs = SEED.get_or_init(std::collections::hash_map::RandomState::new);
+    let mut h = rs.build_hasher();
+    h.write_u64(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    h.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+    );
+    h.finish()
+}
+
+/// [addr-routable] This process's node identity.
+pub fn salvo_node_id() -> u64 {
+    let (lock, _) = state();
+    lock.lock().unwrap().node_id
+}
+
+/// [addr-routable] The node the current pool belongs to.
+pub fn salvo_here_node() -> u64 {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    s.pools[salvo_current_pool()].node
+}
+
+/// [addr-routable] Hosts a fresh virtual node in this process and answers
+/// its identity: the in-process double of another machine. Pools made with
+/// `salvo_pool_at` belong to it; actors spawned on them carry it.
+pub fn salvo_new_node() -> u64 {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    let id = random_u64();
+    s.hosted_nodes.push(id);
+    id
+}
+
+/// [addr-routable] A pool of `n` workers belonging to `node` (one this
+/// process hosts).
+pub fn salvo_pool_at(node: u64, n: usize) -> usize {
+    let (lock, _cv) = state();
+    let pool = {
+        let mut s = lock.lock().unwrap();
+        s.pools.push(PoolState {
+            node,
+            tasks: VecDeque::new(),
+            sink: None,
+            owed: 0,
+        });
+        s.pools.len() - 1
+    };
+    for _ in 0..n {
+        std::thread::spawn(move || worker(pool));
+    }
+    pool
+}
+
+/// [addr-routable] The routable identity of a local index — what an addr
+/// encodes as.
+pub fn salvo_addr_identity(addr: usize) -> RemoteRef {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    let a = &s.actors[addr];
+    a.remote.unwrap_or(RemoteRef {
+        node: a.node,
+        actor: addr as u64,
+        bits: a.bits,
+    })
+}
+
+/// [addr-routable] [addr-capability] Turns a decoded identity into a local
+/// index: the actor itself when the node is hosted here and the bits match
+/// (a forged or stale identity answers a dead entry, so sends to it are the
+/// silent no-op every send to the dead is), a proxy otherwise — created once
+/// per identity, with an OPEN frame asking the host for credits.
+pub fn salvo_import_addr(r: RemoteRef) -> usize {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    // An identity of *this* node is the actor itself; one of any other node
+    // — hosted in this process or not — is reached through a proxy, so a
+    // hosted virtual node is a remote node in every respect but the socket.
+    if r.node == node {
+        let idx = r.actor as usize;
+        if idx < s.actors.len() && s.actors[idx].remote.is_none() && s.actors[idx].bits == r.bits {
+            return idx;
+        }
+        return dead_entry(&mut s);
+    }
+    if let Some(&idx) = s.proxies.get(&r) {
+        return idx;
+    }
+    s.actors.push(ActorState {
+        node: r.node,
+        bits: r.bits,
+        remote: Some(r),
+        credits: 0,
+        granted: 0,
+        decode: None,
+        queue: VecDeque::new(),
+        user_len: 0,
+        bound: 0,
+        gate: None,
+        running: false,
+        dead: false,
+        exit_reason: None,
+        pool: 0,
+        watchers: Vec::new(),
+        owed: 0,
+        body: None,
+    });
+    let idx = s.actors.len() - 1;
+    s.proxies.insert(r, idx);
+    let mut frame = vec![3u8];
+    frame.extend_from_slice(&r.node.to_be_bytes());
+    frame.extend_from_slice(&r.actor.to_be_bytes());
+    frame.extend_from_slice(&r.bits.to_be_bytes());
+    frame.extend_from_slice(&node.to_be_bytes());
+    route_frame(&mut s, node, r.node, frame);
+    cv.notify_all();
+    drop(s);
+    flush_out();
+    idx
+}
+
+/// An entry that is dead from birth: what a forged identity imports as.
+fn dead_entry(s: &mut Sched) -> usize {
+    s.actors.push(ActorState {
+        node: s.node_id,
+        bits: 0,
+        remote: None,
+        credits: 0,
+        granted: 0,
+        decode: None,
+        queue: VecDeque::new(),
+        user_len: 0,
+        bound: 0,
+        gate: None,
+        running: false,
+        dead: true,
+        exit_reason: Some("unknown identity".to_string()),
+        pool: 0,
+        watchers: Vec::new(),
+        owed: 0,
+        body: None,
+    });
+    s.actors.len() - 1
+}
+
+/// [addr-routable] Whether an index is a proxy of an actor elsewhere.
+pub fn salvo_is_remote(addr: usize) -> bool {
+    let (lock, _) = state();
+    lock.lock().unwrap().actors[addr].remote.is_some()
+}
+
+/// [addr-routable] Registers where a node's frames go: the encoded endpoint
+/// the outbound hook will decode. Frames parked for want of a route go now.
+pub fn salvo_add_route(node: u64, endpoint: Vec<u8>) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    s.routes.insert(node, endpoint);
+    let parked = std::mem::take(&mut s.parked_frames_out);
+    for (from, n, frame) in parked {
+        route_frame(&mut s, from, n, frame);
+    }
+    cv.notify_all();
+    drop(s);
+    flush_out();
+}
+
+/// [net-connect] Whether the current node's outbound hook is bound — what
+/// `connect` checks before binding, so a second `connect` is a no-op.
+pub fn salvo_connected() -> bool {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    s.wires.contains_key(&node)
+}
+
+/// [addr-routable] Binds the outbound hook of the **current node**: what
+/// turns (encoded endpoint, frame) into a delivery — std's `Outbound` actor
+/// over that node's `Transport`.
+pub fn salvo_set_wire(hook: Arc<dyn Fn(&[u8], Vec<u8>) + Send + Sync>) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    s.wires.insert(node, hook);
+    let parked = std::mem::take(&mut s.parked_frames_out);
+    for (from, n, frame) in parked {
+        route_frame(&mut s, from, n, frame);
+    }
+    cv.notify_all();
+    drop(s);
+    flush_out();
+}
+
+/// Stages a frame from node `from` for node `to`. The hook only *enqueues*
+/// on an `Outbound` actor (a `salvo_send`, which takes this same lock), so it
+/// must run with the lock **released**: frames are staged here and sent by
+/// `flush_out` once the caller has dropped its guard.
+fn route_frame(s: &mut Sched, from: u64, to: u64, frame: Vec<u8>) {
+    match (s.routes.get(&to).cloned(), s.wires.get(&from).cloned()) {
+        (Some(ep), Some(hook)) => OUTBOX.with(|o| o.borrow_mut().push((ep, frame, hook))),
+        _ => s.parked_frames_out.push((from, to, frame)),
+    }
+}
+
+thread_local! {
+    /// Frames staged under the scheduler lock, sent once it is released.
+    static OUTBOX: std::cell::RefCell<Vec<(Vec<u8>, Vec<u8>, Arc<dyn Fn(&[u8], Vec<u8>) + Send + Sync>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Sends every staged frame. Called with the scheduler lock released.
+fn flush_out() {
+    let staged: Vec<_> = OUTBOX.with(|o| std::mem::take(&mut *o.borrow_mut()));
+    for (ep, frame, hook) in staged {
+        hook(&ep, frame);
+    }
+}
+
+/// [remote-backpressure] Grants `n` credits to node `from` for hosted actor
+/// `addr`: a GRANT frame back, and the outstanding count adjusted.
+fn grant_credit(s: &mut Sched, addr: usize, from: u64, n: u32) {
+    s.actors[addr].granted += n as usize;
+    let host = s.actors[addr].node;
+    let bits = s.actors[addr].bits;
+    let mut frame = vec![2u8];
+    frame.extend_from_slice(&from.to_be_bytes());
+    frame.extend_from_slice(&host.to_be_bytes());
+    frame.extend_from_slice(&(addr as u64).to_be_bytes());
+    frame.extend_from_slice(&bits.to_be_bytes());
+    frame.extend_from_slice(&n.to_be_bytes());
+    route_frame(s, host, from, frame);
+}
+
+/// [addr-routable] [wire-format] The typed send: a message whose protocol
+/// has a wire form goes to a local mailbox as any send does, or — when the
+/// index is a proxy — is encoded with its protocol hash and routed, waiting
+/// for a credit first [remote-backpressure]. Generated code calls this for
+/// every send on a protocol with a wire form; `salvo_send` stays for the
+/// rest.
+pub fn salvo_send_wire<M: crate::wire::__Wire + Any + Send>(addr: usize, msg: M, proto: &str) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    let Some(r) = s.actors[addr].remote else {
+        drop(s);
+        salvo_send(addr, Box::new(msg));
+        return;
+    };
+    while !s.actors[addr].dead && s.actors[addr].credits == 0 {
+        s = cv.wait(s).unwrap();
+    }
+    if s.actors[addr].dead {
+        return;
+    }
+    s.actors[addr].credits -= 1;
+    // On a proxy, `granted` counts what is in flight: sent, not yet credited
+    // back — what `pending` reads.
+    s.actors[addr].granted += 1;
+    let from = s.pools[salvo_current_pool()].node;
+    // Encode with the lock **released**: a payload holding an `Addr` or a
+    // `Reply` encodes its routable identity by asking the scheduler, which
+    // takes this lock (non-reentrant here) — found the first time a `total(out)`
+    // crossed the wire.
+    drop(s);
+    let mut frame = vec![0u8];
+    frame.extend_from_slice(&r.node.to_be_bytes());
+    frame.extend_from_slice(&r.actor.to_be_bytes());
+    frame.extend_from_slice(&r.bits.to_be_bytes());
+    frame.extend_from_slice(&from.to_be_bytes());
+    frame.extend_from_slice(proto.as_bytes());
+    msg.__enc(&mut frame);
+    let mut s = lock.lock().unwrap();
+    route_frame(&mut s, from, r.node, frame);
+    drop(s);
+    flush_out();
+}
+
+/// [actor-group] [remote-backpressure] `pending(addr)`: how loaded a member
+/// looks from here — the queue depth of a local actor, or `bound − credits`
+/// for a proxy (the messages in flight to it that its host has not yet
+/// dequeued, as far as this node knows; `bound` is unknown for a proxy, so
+/// the messages *sent and not yet credited back* stand in for it).
+pub fn salvo_pending(addr: usize) -> i32 {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    let a = &s.actors[addr];
+    if a.remote.is_some() {
+        a.granted as i32
+    } else {
+        a.user_len as i32
+    }
+}
+
+/// [route-stub] The replica `group` mirrors its member set here after every
+/// change; `salvo_view_members` reads it back.
+pub fn salvo_view_set(group: usize, members: &[usize]) {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    s.views.insert(group, members.to_vec());
+}
+
+/// [route-stub] The mirrored members of `group`, in a stable order — by
+/// (node, actor id), the same on every node and both backends, so a keyed
+/// pick lands on the same member everywhere. Empty for a group with no
+/// local replica.
+pub fn salvo_view_members(group: usize) -> Vec<usize> {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    let mut members: Vec<usize> = s.views.get(&group).cloned().unwrap_or_default();
+    let identity = |s: &Sched, addr: usize| {
+        let a = &s.actors[addr];
+        a.remote.unwrap_or(RemoteRef {
+            node: a.node,
+            actor: addr as u64,
+            bits: a.bits,
+        })
+    };
+    members.sort_by_key(|m| {
+        let r = identity(&s, *m);
+        (r.node, r.actor)
+    });
+    members
+}
+
+/// [route-stub] The key hash a `Key`-marked argument reduces to: FNV-1a over
+/// the argument's canonical bytes, identical on both backends.
+pub fn salvo_key_hash(bytes: &[u8]) -> i64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h as i64
+}
+
+/// [route-stub] What a stub does when the pick answers `None`: yields the
+/// thread briefly and asks again. A member joining, or a mailbox draining,
+/// changes the answer; nothing else the sender could do would.
+pub fn salvo_park_briefly() {
+    std::thread::sleep(std::time::Duration::from_millis(1));
+}
+
+/// [remote-backpressure] The credit balance of a proxy — what `pending(addr)`
+/// reads for a remote member (step ⑤) — or `None` for a local actor.
+pub fn salvo_credits(addr: usize) -> Option<usize> {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    s.actors[addr].remote.map(|_| s.actors[addr].credits)
+}
+
+/// [addr-routable] [wire-format] The typed reply: a token that came over the
+/// wire is answered by encoding the value and routing a REPLY frame to its
+/// origin; a local token delivers as before. Generated code calls this for a
+/// `send(reply, v)` whose `v` has a wire form.
+pub fn salvo_reply_wire<T: crate::wire::__Wire + Any + Send>(reply: SalvoReply, value: T) {
+    let (lock, cv) = state();
+    match reply.target {
+        Target::Remote { node, kind, id, bits } => {
+            // Encoded with the lock released, as in `salvo_send_wire`.
+            let mut frame = vec![1u8];
+            frame.extend_from_slice(&node.to_be_bytes());
+            frame.push(kind);
+            frame.extend_from_slice(&id.to_be_bytes());
+            frame.extend_from_slice(&reply.slot.to_be_bytes());
+            frame.extend_from_slice(&bits.to_be_bytes());
+            value.__enc(&mut frame);
+            let mut s = lock.lock().unwrap();
+            let from = s.pools[salvo_current_pool()].node;
+            route_frame(&mut s, from, node, frame);
+            drop(s);
+            flush_out();
+        }
+        _ => {
+            let mut s = lock.lock().unwrap();
+            deliver_reply(&mut s, reply, Box::new(value));
+            cv.notify_all();
+        }
+    }
+}
+
+/// [addr-routable] The wire form of a reply token: `(node, kind, id, slot,
+/// bits)`. Encoding a token whose target is a **task** moves the task body
+/// into the exported table under a fresh key, since the body cannot travel;
+/// the REPLY frame that comes back names the key.
+pub fn salvo_reply_export(reply: &SalvoReply) -> (u64, u8, u64, u64, u64) {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    match &reply.target {
+        Target::Proc(idx) => {
+            let a = &s.actors[*idx];
+            (a.node, 0, *idx as u64, reply.slot, a.bits)
+        }
+        Target::Waiter(wid) => {
+            let node = s.pools[s.waiters[*wid].pool].node;
+            (node, 1, *wid as u64, reply.slot, 0)
+        }
+        Target::Task(pool, body, decode) => {
+            let key = reply.slot;
+            let node = s.pools[*pool].node;
+            if let Some(b) = body.lock().unwrap().take() {
+                let pool = *pool;
+                s.exported_tasks.insert(key, (pool, b, *decode));
+            }
+            (node, 2, key, reply.slot, 0)
+        }
+        Target::Remote { node, kind, id, bits } => (*node, *kind, *id, reply.slot, *bits),
+    }
+}
+
+/// [addr-routable] A reply token decoded from the wire: a `Remote` target
+/// unless it names a node hosted here, in which case it is the original.
+pub fn salvo_reply_import(node: u64, kind: u8, id: u64, slot: u64, bits: u64) -> SalvoReply {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    let here = s.pools[salvo_current_pool()].node;
+    let target = if node == here {
+        match kind {
+            0 => Target::Proc(id as usize),
+            1 => Target::Waiter(id as usize),
+            _ => Target::Remote { node, kind, id, bits },
+        }
+    } else {
+        Target::Remote { node, kind, id, bits }
+    };
+    SalvoReply {
+        target,
+        slot,
+        tracked: false,
+    }
+}
+
+/// [addr-routable] Registers how a waiter's reply is decoded should it come
+/// over the wire: the `waitfor` site knows the type, the runtime does not.
+pub fn salvo_waiter_decoder(wid: usize, decode: ReplyDecoder) {
+    let (lock, _) = state();
+    lock.lock().unwrap().waiters[wid].decode = Some(decode);
+}
+
+/// [protocol-hash] Registers this program's protocol table: generated code
+/// calls it once at start-up with every actor effect that has a wire form.
+pub fn salvo_set_protocols(table: Vec<(String, String)>) {
+    let (lock, _) = state();
+    lock.lock().unwrap().protocols = table;
+}
+
+/// [node-group] The current node joins group `name` at `endpoint`: what its
+/// HELLO carries and what a peer's HELLO is checked against.
+pub fn salvo_set_group(name: String, endpoint: Vec<u8>) {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    let entry = s.groups.entry(node).or_insert(GroupState {
+        name: String::new(),
+        endpoint: Vec::new(),
+        sink: None,
+    });
+    entry.name = name;
+    entry.endpoint = endpoint;
+}
+
+/// [node-group] Where the current node's peer events go, with the builders
+/// for the three messages.
+pub fn salvo_watch_peers(sink: usize, hello: HelloOf, gone: GoneOf, intro: IntroOf) {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    let entry = s.groups.entry(node).or_insert(GroupState {
+        name: String::new(),
+        endpoint: Vec::new(),
+        sink: None,
+    });
+    entry.sink = Some((sink, hello, gone, intro));
+}
+
+/// [node-group] Tells peer `to` about `peers` (each an encoded endpoint): an
+/// INTRO frame from the current node.
+pub fn salvo_introduce(to: u64, peers: &[Vec<u8>]) {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    let mut frame = vec![7u8];
+    frame.extend_from_slice(&to.to_be_bytes());
+    frame.extend_from_slice(&node.to_be_bytes());
+    frame.extend_from_slice(&(peers.len() as u32).to_be_bytes());
+    for p in peers {
+        put_bytes(&mut frame, p);
+    }
+    route_frame(&mut s, node, to, frame);
+    drop(s);
+    flush_out();
+}
+
+fn put_str(out: &mut Vec<u8>, text: &str) {
+    out.extend_from_slice(&(text.len() as u32).to_be_bytes());
+    out.extend_from_slice(text.as_bytes());
+}
+
+fn put_bytes(out: &mut Vec<u8>, b: &[u8]) {
+    out.extend_from_slice(&(b.len() as u32).to_be_bytes());
+    out.extend_from_slice(b);
+}
+
+fn handshake_body(s: &Sched, node: u64, kind: u8, to: u64) -> Option<Vec<u8>> {
+    let g = s.groups.get(&node)?;
+    let mut frame = vec![kind];
+    frame.extend_from_slice(&to.to_be_bytes());
+    frame.extend_from_slice(&node.to_be_bytes());
+    put_str(&mut frame, &g.name);
+    put_bytes(&mut frame, &g.endpoint);
+    frame.extend_from_slice(&(s.protocols.len() as u32).to_be_bytes());
+    for (name, hash) in &s.protocols {
+        put_str(&mut frame, name);
+        frame.extend_from_slice(hash.as_bytes());
+    }
+    Some(frame)
+}
+
+/// [node-group] The current node's HELLO frame: sent through the transport
+/// directly by a `NodeGroup` handler, since the peer has no route yet.
+pub fn salvo_hello_frame() -> Vec<u8> {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    handshake_body(&s, node, 4, 0).unwrap_or_default()
+}
+
+/// [node-group] The current node leaves: a LEAVE to every peer it knows.
+pub fn salvo_leave_group() {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    let peers: Vec<u64> = s.peer_protocols.keys().copied().collect();
+    for to in peers {
+        let mut frame = vec![6u8];
+        frame.extend_from_slice(&to.to_be_bytes());
+        frame.extend_from_slice(&node.to_be_bytes());
+        route_frame(&mut s, node, to, frame);
+    }
+    drop(s);
+    flush_out();
+}
+
+/// [protocol-hash] A peer's hash for a protocol, if the handshake carried
+/// one: `None` for an unknown peer or a protocol it does not have.
+pub fn salvo_peer_protocol(node: u64, effect: &str) -> Option<String> {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    s.peer_protocols.get(&node)?.get(effect).cloned()
+}
+
+fn read_str(b: &[u8], at: &mut usize) -> Option<String> {
+    let n = u32::from_be_bytes(b.get(*at..*at + 4)?.try_into().ok()?) as usize;
+    *at += 4;
+    let text = std::str::from_utf8(b.get(*at..*at + n)?).ok()?.to_string();
+    *at += n;
+    Some(text)
+}
+
+fn read_bytes(b: &[u8], at: &mut usize) -> Option<Vec<u8>> {
+    let n = u32::from_be_bytes(b.get(*at..*at + 4)?.try_into().ok()?) as usize;
+    *at += 4;
+    let out = b.get(*at..*at + n)?.to_vec();
+    *at += n;
+    Some(out)
+}
+
+/// [node-group] A HELLO or ACK arrived at the current node: checks the group
+/// name, learns the peer's route and protocol table, answers an ACK to a
+/// HELLO, and tells the group actor. Answers whether it was accepted.
+fn deliver_handshake(kind: u8, frame: &[u8]) -> bool {
+    let (lock, cv) = state();
+    let mut at = 9;
+    let Some(from) = read_u64(frame, at) else { return false };
+    at += 8;
+    let Some(name) = read_str(frame, &mut at) else { return false };
+    let Some(endpoint) = read_bytes(frame, &mut at) else { return false };
+    let Some(count) = frame.get(at..at + 4) else { return false };
+    let count = u32::from_be_bytes([count[0], count[1], count[2], count[3]]) as usize;
+    at += 4;
+    let mut table: Vec<(String, String)> = Vec::with_capacity(count);
+    for _ in 0..count {
+        let Some(effect) = read_str(frame, &mut at) else { return false };
+        let Some(hash) = frame.get(at..at + 16).and_then(|h| std::str::from_utf8(h).ok()) else {
+            return false;
+        };
+        at += 16;
+        table.push((effect, hash.to_string()));
+    }
+    let mut s = lock.lock().unwrap();
+    // A HELLO names no node yet: it is for whichever hosted node joined the
+    // group it names — the one whose endpoint the transport listened at, in
+    // practice the current pool's. An ACK names its node.
+    let here = s.pools[salvo_current_pool()].node;
+    let to = read_u64(frame, 1).unwrap_or(0);
+    let node = if kind == 4 { here } else { to };
+    let Some(g) = s.groups.get(&node) else { return false };
+    if g.name != name {
+        return false;
+    }
+    let sink = g.sink;
+    s.routes.insert(from, endpoint.clone());
+    s.peer_protocols.insert(from, table.iter().cloned().collect());
+    if kind == 4 {
+        if let Some(ack) = handshake_body(&s, node, 5, from) {
+            route_frame(&mut s, node, from, ack);
+        }
+    }
+    let parked = std::mem::take(&mut s.parked_frames_out);
+    for (f, n, fr) in parked {
+        route_frame(&mut s, f, n, fr);
+    }
+    // [actor-group] Everything this node publishes, told to the new peer.
+    let mine: Vec<(String, RemoteRef)> = s
+        .published
+        .get(&node)
+        .map(|m| m.iter().map(|(n, (r, _))| (n.clone(), *r)).collect())
+        .unwrap_or_default();
+    for (n, r) in mine {
+        let frame = named_frame(from, node, &n, r);
+        route_frame(&mut s, node, from, frame);
+    }
+    cv.notify_all();
+    drop(s);
+    flush_out();
+    // The message is built with the lock released.
+    if let Some((sink, hello, _, _)) = sink {
+        let msg = hello(from, &endpoint, &table);
+        let mut s = lock.lock().unwrap();
+        if !s.actors[sink].dead {
+            s.actors[sink].queue.push_back(Entry::User(msg, None));
+            s.actors[sink].user_len += 1;
+        }
+        cv.notify_all();
+    }
+    true
+}
+
+fn named_frame(to: u64, from: u64, name: &str, r: RemoteRef) -> Vec<u8> {
+    let mut frame = vec![8u8];
+    frame.extend_from_slice(&to.to_be_bytes());
+    frame.extend_from_slice(&from.to_be_bytes());
+    put_str(&mut frame, name);
+    frame.extend_from_slice(&r.node.to_be_bytes());
+    frame.extend_from_slice(&r.actor.to_be_bytes());
+    frame.extend_from_slice(&r.bits.to_be_bytes());
+    frame
+}
+
+/// [actor-group] The current node publishes `addr` under `name`, and asks to
+/// hear — as the message `named` builds, at `sink` — of every peer node that
+/// publishes the same name, now or later. Peers already known learn of it
+/// now; a NAMED goes to every peer that completes a handshake afterwards.
+pub fn salvo_publish(name: String, addr: usize, sink: Option<(usize, NamedOf, MembersOf)>) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    let a = &s.actors[addr];
+    let r = a.remote.unwrap_or(RemoteRef {
+        node: a.node,
+        actor: addr as u64,
+        bits: a.bits,
+    });
+    s.published
+        .entry(node)
+        .or_default()
+        .insert(name.clone(), (r, sink));
+    let peers: Vec<u64> = s.peer_protocols.keys().copied().collect();
+    for to in peers {
+        let frame = named_frame(to, node, &name, r);
+        route_frame(&mut s, node, to, frame);
+    }
+    // Peers that published the name before we did are told to us now.
+    let already: Vec<u64> = s
+        .peer_names
+        .iter()
+        .filter(|((_, n), _)| *n == name)
+        .map(|((node, _), _)| *node)
+        .collect();
+    cv.notify_all();
+    drop(s);
+    flush_out();
+    if let Some((sink, named, _)) = sink {
+        for r in already {
+            let msg = named(r);
+            let mut s = lock.lock().unwrap();
+            if !s.actors[sink].dead {
+                s.actors[sink].queue.push_back(Entry::User(msg, None));
+                s.actors[sink].user_len += 1;
+            }
+            cv.notify_all();
+        }
+    }
+}
+
+/// [actor-group] Shares `members` with the replica named `name` on peer
+/// `to`: a MEMBERS frame from the current node.
+pub fn salvo_share_members(name: &str, to: u64, members: &[usize]) {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    let mut frame = vec![9u8];
+    frame.extend_from_slice(&to.to_be_bytes());
+    frame.extend_from_slice(&node.to_be_bytes());
+    put_str(&mut frame, name);
+    frame.extend_from_slice(&(members.len() as u32).to_be_bytes());
+    for &m in members {
+        let a = &s.actors[m];
+        let r = a.remote.unwrap_or(RemoteRef {
+            node: a.node,
+            actor: m as u64,
+            bits: a.bits,
+        });
+        frame.extend_from_slice(&r.node.to_be_bytes());
+        frame.extend_from_slice(&r.actor.to_be_bytes());
+        frame.extend_from_slice(&r.bits.to_be_bytes());
+    }
+    route_frame(&mut s, node, to, frame);
+    drop(s);
+    flush_out();
+}
+
+/// [actor-group] What peer `node` published under `name`, if anything.
+pub fn salvo_lookup(node: u64, name: &str) -> Option<RemoteRef> {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    s.peer_names.get(&(node, name.to_string())).copied()
+}
+
+fn read_u64(b: &[u8], at: usize) -> Option<u64> {
+    let s = b.get(at..at + 8)?;
+    let mut a = [0u8; 8];
+    a.copy_from_slice(s);
+    Some(u64::from_be_bytes(a))
+}
+
+/// [addr-routable] [wire-format] Delivers one frame that arrived on the
+/// wire: MSG into the target's mailbox (decoded by the actor's own decoder,
+/// bits checked), REPLY to the target token's owner (decoded by the owner's
+/// registered decoder), GRANT onto a proxy's credits, OPEN answered with an
+/// initial grant. A frame for a node not hosted here, a target that does not
+/// exist, a bits mismatch or a malformed payload is **dropped**, never
+/// delivered wrong [backend-never-wrong]. Answers whether it was delivered.
+pub fn salvo_deliver_frame(frame: &[u8]) -> bool {
+    let (lock, cv) = state();
+    let Some(&kind) = frame.first() else { return false };
+    let Some(to_node) = read_u64(frame, 1) else { return false };
+    // Two phases around every decode: the header is checked and the decoder
+    // found under the lock, the payload decoded with it **released** (an
+    // `Addr` or `Reply` in it asks the scheduler for its identity), and the
+    // decoded value delivered under the lock again.
+    if kind == 4 || kind == 5 {
+        return deliver_handshake(kind, frame);
+    }
+    if kind == 6 {
+        let Some(from) = read_u64(frame, 9) else { return false };
+        let mut s = lock.lock().unwrap();
+        if !s.hosted_nodes.contains(&to_node) {
+            return false;
+        }
+        s.routes.remove(&from);
+        s.peer_protocols.remove(&from);
+        // Every proxy of an actor on the departed node is dead: sends to it
+        // are the silent no-op, and a `watch` on it fires [node-exit].
+        let dead: Vec<usize> = s
+            .proxies
+            .iter()
+            .filter(|(r, _)| r.node == from)
+            .map(|(_, &idx)| idx)
+            .collect();
+        for idx in dead {
+            s.actors[idx].dead = true;
+            s.actors[idx].exit_reason = Some("node left".to_string());
+            let watchers = std::mem::take(&mut s.actors[idx].watchers);
+            for (w, exit) in watchers {
+                let value = exit("node left".to_string());
+                deliver_reply(&mut s, w, value);
+            }
+        }
+        if let Some((sink, _, gone, _)) = s.groups.get(&to_node).and_then(|g| g.sink) {
+            let msg = gone(from);
+            if !s.actors[sink].dead {
+                s.actors[sink].queue.push_back(Entry::User(msg, None));
+                s.actors[sink].user_len += 1;
+            }
+        }
+        cv.notify_all();
+        drop(s);
+        flush_out();
+        return true;
+    }
+    if kind == 8 {
+        let Some(from) = read_u64(frame, 9) else { return false };
+        let mut at = 17;
+        let Some(name) = read_str(frame, &mut at) else { return false };
+        let (Some(n), Some(a), Some(b)) = (read_u64(frame, at), read_u64(frame, at + 8), read_u64(frame, at + 16))
+        else {
+            return false;
+        };
+        let r = RemoteRef { node: n, actor: a, bits: b };
+        let sink = {
+            let mut s = lock.lock().unwrap();
+            if !s.hosted_nodes.contains(&to_node) {
+                return false;
+            }
+            s.peer_names.insert((from, name.clone()), r);
+            s.published
+                .get(&to_node)
+                .and_then(|m| m.get(&name))
+                .and_then(|(_, sink)| *sink)
+        };
+        if let Some((sink, named, _)) = sink {
+            let msg = named(from);
+            let mut s = lock.lock().unwrap();
+            if !s.actors[sink].dead {
+                s.actors[sink].queue.push_back(Entry::User(msg, None));
+                s.actors[sink].user_len += 1;
+            }
+            cv.notify_all();
+        }
+        return true;
+    }
+    if kind == 9 {
+        let Some(from) = read_u64(frame, 9) else { return false };
+        let mut at = 17;
+        let Some(name) = read_str(frame, &mut at) else { return false };
+        let Some(count) = frame.get(at..at + 4) else { return false };
+        let count = u32::from_be_bytes([count[0], count[1], count[2], count[3]]) as usize;
+        at += 4;
+        let mut ids: Vec<RemoteRef> = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (Some(n), Some(a), Some(b)) =
+                (read_u64(frame, at), read_u64(frame, at + 8), read_u64(frame, at + 16))
+            else {
+                return false;
+            };
+            ids.push(RemoteRef { node: n, actor: a, bits: b });
+            at += 24;
+        }
+        let sink = {
+            let s = lock.lock().unwrap();
+            if !s.hosted_nodes.contains(&to_node) {
+                return false;
+            }
+            s.published
+                .get(&to_node)
+                .and_then(|m| m.get(&name))
+                .and_then(|(_, sink)| *sink)
+        };
+        // Built with the lock released: the builder imports every identity.
+        if let Some((sink, _, members)) = sink {
+            let msg = members(from, &ids);
+            let mut s = lock.lock().unwrap();
+            if !s.actors[sink].dead {
+                s.actors[sink].queue.push_back(Entry::User(msg, None));
+                s.actors[sink].user_len += 1;
+            }
+            cv.notify_all();
+        }
+        return true;
+    }
+    if kind == 7 {
+        let mut at = 17;
+        let Some(count) = frame.get(at..at + 4) else { return false };
+        let count = u32::from_be_bytes([count[0], count[1], count[2], count[3]]) as usize;
+        at += 4;
+        let mut peers: Vec<Vec<u8>> = Vec::with_capacity(count);
+        for _ in 0..count {
+            let Some(p) = read_bytes(frame, &mut at) else { return false };
+            peers.push(p);
+        }
+        let sink = {
+            let s = lock.lock().unwrap();
+            if !s.hosted_nodes.contains(&to_node) {
+                return false;
+            }
+            s.groups.get(&to_node).and_then(|g| g.sink)
+        };
+        // Built with the lock released: the builder decodes endpoints.
+        if let Some((sink, _, _, intro)) = sink {
+            let msg = intro(&peers);
+            let mut s = lock.lock().unwrap();
+            if !s.actors[sink].dead {
+                s.actors[sink].queue.push_back(Entry::User(msg, None));
+                s.actors[sink].user_len += 1;
+            }
+            cv.notify_all();
+        }
+        return true;
+    }
+    let delivered = match kind {
+        0 => {
+            let (Some(actor), Some(bits), Some(from)) =
+                (read_u64(frame, 9), read_u64(frame, 17), read_u64(frame, 25))
+            else {
+                return false;
+            };
+            let Some(proto) = frame.get(33..49).and_then(|p| std::str::from_utf8(p).ok()) else {
+                return false;
+            };
+            let payload = &frame[49..];
+            let idx = actor as usize;
+            let decode = {
+                let s = lock.lock().unwrap();
+                if !s.hosted_nodes.contains(&to_node) {
+                    return false;
+                }
+                if idx >= s.actors.len() || s.actors[idx].remote.is_some() || s.actors[idx].bits != bits {
+                    return false;
+                }
+                if s.actors[idx].dead {
+                    return true;
+                }
+                let Some(decode) = s.actors[idx].decode else { return false };
+                decode
+            };
+            let Some(msg) = decode(proto, payload) else { return false };
+            let mut s = lock.lock().unwrap();
+            if s.actors[idx].dead {
+                return true;
+            }
+            // The sender spent a credit for this: the room is ours to fill.
+            s.actors[idx].granted = s.actors[idx].granted.saturating_sub(1);
+            s.actors[idx].queue.push_back(Entry::User(msg, Some(from)));
+            s.actors[idx].user_len += 1;
+            cv.notify_all();
+            true
+        }
+        1 => {
+            let (Some(&tkind), Some(id), Some(slot), Some(bits)) = (
+                frame.get(9),
+                read_u64(frame, 10),
+                read_u64(frame, 18),
+                read_u64(frame, 26),
+            ) else {
+                return false;
+            };
+            let payload = &frame[34..];
+            match tkind {
+                0 => {
+                    let mut s = lock.lock().unwrap();
+                    if !s.hosted_nodes.contains(&to_node) {
+                        return false;
+                    }
+                    let idx = id as usize;
+                    if idx >= s.actors.len() || s.actors[idx].bits != bits || s.actors[idx].dead {
+                        return false;
+                    }
+                    // Decoded by the activation that runs it: only the actor
+                    // knows the answer's type, and only with the lock released.
+                    s.actors[idx].queue.push_back(Entry::ReplyRaw(slot, payload.to_vec()));
+                    cv.notify_all();
+                    true
+                }
+                1 => {
+                    let wid = id as usize;
+                    let decode = {
+                        let s = lock.lock().unwrap();
+                        if !s.hosted_nodes.contains(&to_node) {
+                            return false;
+                        }
+                        let Some(w) = s.waiters.get(wid) else { return false };
+                        let Some(decode) = w.decode else { return false };
+                        decode
+                    };
+                    let Some(value) = decode(payload) else { return false };
+                    let mut s = lock.lock().unwrap();
+                    s.waiters[wid].value = Some(value);
+                    cv.notify_all();
+                    true
+                }
+                2 => {
+                    let taken = {
+                        let mut s = lock.lock().unwrap();
+                        if !s.hosted_nodes.contains(&to_node) {
+                            return false;
+                        }
+                        s.exported_tasks.remove(&id)
+                    };
+                    let Some((pool, body, decode)) = taken else { return false };
+                    let Some(value) = decode(payload) else { return false };
+                    let mut s = lock.lock().unwrap();
+                    s.pools[pool].tasks.push_back((body, value));
+                    cv.notify_all();
+                    true
+                }
+                _ => false,
+            }
+        }
+        2 => {
+            let (Some(host), Some(actor), Some(bits), Some(n)) = (
+                read_u64(frame, 9),
+                read_u64(frame, 17),
+                read_u64(frame, 25),
+                frame.get(33..37),
+            ) else {
+                return false;
+            };
+            let n = u32::from_be_bytes([n[0], n[1], n[2], n[3]]) as usize;
+            let r = RemoteRef { node: host, actor, bits };
+            let mut s = lock.lock().unwrap();
+            if !s.hosted_nodes.contains(&to_node) {
+                return false;
+            }
+            match s.proxies.get(&r).copied() {
+                Some(idx) => {
+                    s.actors[idx].credits += n;
+                    // The initial grant is not a credit back; only grants
+                    // matching in-flight messages reduce the count.
+                    s.actors[idx].granted = s.actors[idx].granted.saturating_sub(n);
+                    cv.notify_all();
+                    true
+                }
+                None => false,
+            }
+        }
+        3 => {
+            let (Some(actor), Some(bits), Some(from)) =
+                (read_u64(frame, 9), read_u64(frame, 17), read_u64(frame, 25))
+            else {
+                return false;
+            };
+            let idx = actor as usize;
+            let mut s = lock.lock().unwrap();
+            if !s.hosted_nodes.contains(&to_node) {
+                return false;
+            }
+            if idx >= s.actors.len() || s.actors[idx].bits != bits || s.actors[idx].remote.is_some() {
+                return false;
+            }
+            // [remote-backpressure] The initial grant: the room left in the
+            // mailbox after what is queued and what other senders already
+            // hold — at least one, so a starved sender is not stuck forever
+            // (the queue may then run at most one over per sender, which the
+            // local send's own block absorbs).
+            let a = &s.actors[idx];
+            let room = a.bound.saturating_sub(a.user_len + a.granted).max(1);
+            grant_credit(&mut s, idx, from, room as u32);
+            cv.notify_all();
+            true
+        }
+        _ => false,
+    };
+    flush_out();
+    delivered
+}
+
+
+// ===== hosttime.rs =====
+// Generated by the Salvo compiler: the two clock readings std's `time`
+// module is built on [time-types] [rs-time].
+//
+// Both answer nanoseconds in an `i64`, which is what `Instant`, `Tick` and
+// `Duration` carry — one field each, so the seam between the language and the
+// host is a number and nothing else.
+
+use std::sync::OnceLock;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+/// [time-ticker] The monotonic clock, in nanoseconds from an arbitrary
+/// origin — this process's first reading, established here.
+///
+/// The origin has to live somewhere: Rust's `Instant` is opaque and cannot be
+/// turned into a number, so a *process-wide* base is what makes two readings
+/// comparable. One `OnceLock` for the whole program is the point — a base per
+/// call site would put two origins in one program and make `between` answer
+/// nonsense.
+///
+/// Never negative, and monotonically non-decreasing: `Instant` guarantees it,
+/// and `duration_since` on the process base cannot underflow.
+pub fn salvo_mono_nanos() -> i64 {
+    static ORIGIN: OnceLock<Instant> = OnceLock::new();
+    let origin = ORIGIN.get_or_init(Instant::now);
+    Instant::now().duration_since(*origin).as_nanos() as i64
+}
+
+/// [time-clock] The wall clock, in nanoseconds since the Unix epoch.
+///
+/// Before 1970 answers a negative number rather than saturating at zero,
+/// which is what a signed epoch reading means on the Kotlin side too — the
+/// two backends must agree on the number, not merely on its sign.
+pub fn salvo_epoch_nanos() -> i64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(since) => since.as_nanos() as i64,
+        Err(before) => -(before.duration().as_nanos() as i64),
+    }
+}

@@ -2180,7 +2180,7 @@ fn a_handle_bundle_threads_signature_supplied_effects() {
         "expected one hidden bundle parameter after the fused value:\n{c}"
     );
     assert!(
-        c.contains("pub struct __Hs_logger__clock {") && c.contains("pub logger: crate::__Mon_Logger,"),
+        c.contains("pub struct __Hs_logger__clock {") && c.contains("pub logger: crate::__Handle_Logger,"),
         "expected the generated bundle struct with a handle per effect:\n{c}"
     );
     assert!(
@@ -4032,11 +4032,11 @@ fn platform_effect_emits_a_trait_and_a_host_entry() {
         "a platform effect must not emit a handler struct:\n{src}"
     );
     assert!(
-        src.contains("pub fn salvo_main(telemetry: &mut dyn Telemetry)"),
+        src.contains("pub fn salvo_main(telemetry: &mut __Handle_Telemetry)"),
         "expected the renamed entry point, got:\n{src}"
     );
     assert!(
-        src.contains("pub fn work(telemetry: &mut dyn Telemetry, n: i32) -> i32"),
+        src.contains("pub fn work(telemetry: &mut __Handle_Telemetry, n: i32) -> i32"),
         "expected the effect threaded into `work`, got:\n{src}"
     );
     // [platform-tree] [rs-platform-host] Rust wants `fn main` in the crate
@@ -4070,7 +4070,7 @@ fn platform_generate_renders_a_host_skeleton() {
         "impl crate::Telemetry for TelemetryHost {",
         "fn record(&mut self, name: &String, value: i32) {",
         "todo!(\"implement Telemetry.record\")",
-        "pub fn main() {\n    crate::salvo_main(&mut TelemetryHost)\n}",
+        "pub fn main() {\n    crate::salvo_main(&mut crate::__Handle_Telemetry::new(TelemetryHost))\n}",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -4275,13 +4275,12 @@ fn rustc_compiles_and_runs_a_platform_handler() {
 
 // ===== [threadsafe-platform] the thread-safety contract =====
 
-/// [threadsafe-platform] [rs-platform-handler] An **undeclared** platform
-/// handler binds as a monitor (user decision 2026-09-26): the `use` site
-/// wraps the host in the effect's lock adapter, so the instance is serialized
-/// — on this backend as before, and now as a semantic claim rather than a
-/// sharing mechanic.
+/// [threadsafe-platform] [rs-handle] An **undeclared** platform handler
+/// binds like every handler: the `use` site wraps the host in the effect's
+/// handle, which serializes it (user decision 2026-09-26, kept under the one
+/// shape of 2026-09-28).
 #[test]
-fn an_undeclared_platform_handler_is_serialized_behind_the_lock() {
+fn an_undeclared_platform_handler_is_serialized_behind_the_handle() {
     let files = generate_platform_handler_demo_with(&platform_handler_skeleton().content);
     let main = files
         .iter()
@@ -4289,12 +4288,8 @@ fn an_undeclared_platform_handler_is_serialized_behind_the_lock() {
         .expect("main.rs should be generated");
     let src = &main.content;
     assert!(
-        src.contains("__Lock_RawClock::new(crate::platform_main::HostRawClock::new(35))"),
-        "expected the lock adapter around the undeclared host, got:\n{src}"
-    );
-    assert!(
-        !src.contains("__Shared_HostRawClock") && !src.contains("__Arc_HostRawClock"),
-        "an undeclared host gets no `&self` twin or `Arc` adapter:\n{src}"
+        src.contains("__Handle_RawClock::new(crate::platform_main::HostRawClock::new(35))"),
+        "expected the handle around the host, got:\n{src}"
     );
 }
 
@@ -4352,13 +4347,12 @@ fn generate_threadsafe_platform_handler_demo_with(
     })
 }
 
-/// [threadsafe-platform] [rs-platform-handler] A **`threadsafe`** platform
-/// handler is shared as an `Arc` with no lock: the declaring module gains the
-/// `&self` twin trait `__Shared_H` and the `__Arc_H` adapter implementing the
-/// effect's own trait by forwarding, and the `use` site constructs the
-/// adapter around the host. No `__Lock_E` anywhere near it.
+/// [threadsafe-platform] [rs-handle] A **`threadsafe`** platform handler is
+/// emission-neutral (user decision 2026-09-28): the word is the contract the
+/// skeleton prints, and the `use` site wraps the host in the effect's handle
+/// exactly as an undeclared one — no twin trait, no `Arc` adapter.
 #[test]
-fn a_threadsafe_platform_handler_shares_an_arc_with_no_lock() {
+fn a_threadsafe_platform_handler_binds_like_any_other() {
     let files = generate_threadsafe_platform_handler_demo_with(
         &threadsafe_platform_handler_skeleton().content,
     );
@@ -4367,45 +4361,34 @@ fn a_threadsafe_platform_handler_shares_an_arc_with_no_lock() {
         .find(|f| f.rel_path == std::path::Path::new("main.rs"))
         .expect("main.rs should be generated");
     let src = &main.content;
-    for expected in [
-        "pub trait __Shared_HostRawClock: Send + Sync {",
-        "fn raw_now(&self) -> i32;",
-        "pub struct __Arc_HostRawClock {",
-        "inner: std::sync::Arc<crate::platform_main::HostRawClock>,",
-        "impl crate::RawClock for __Arc_HostRawClock {",
-        "fn raw_now(&mut self) -> i32 {\n        self.inner.raw_now()",
-        "__Arc_HostRawClock::new(crate::platform_main::HostRawClock::new(35))",
-    ] {
-        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
-    }
     assert!(
-        !src.contains("__Lock_RawClock::new("),
-        "a threadsafe host must not be wrapped in the lock adapter:\n{src}"
+        src.contains("__Handle_RawClock::new(crate::platform_main::HostRawClock::new(35))"),
+        "expected the handle around the host, got:\n{src}"
+    );
+    assert!(
+        !src.contains("__Shared_HostRawClock") && !src.contains("__Arc_HostRawClock"),
+        "`threadsafe` emits nothing of its own:\n{src}"
     );
 }
 
 /// [threadsafe-platform] [platform-tree] The skeleton prints the contract the
-/// implementer signs and takes `&self` receivers implementing the twin trait,
-/// so a host whose state is not `Sync` fails to compile under rustc.
+/// implementer signs; the receivers are `&mut self` implementing the effect's
+/// own trait either way, since the handle serializes every instance today.
 #[test]
 fn platform_generate_prints_the_threadsafe_contract_into_the_skeleton() {
     let file = threadsafe_platform_handler_skeleton();
     let src = &file.content;
     for expected in [
         "`threadsafe platform handler HostRawClock` — THE CONTRACT YOU ARE SIGNING",
-        "NO\n// lock around it",
+        "safe to run concurrently",
         "pub struct HostRawClock {",
-        "impl crate::__Shared_HostRawClock for HostRawClock {",
-        "fn raw_now(&self) -> i32 {",
+        "impl crate::RawClock for HostRawClock {",
+        "fn raw_now(&mut self) -> i32 {",
         "[threadsafe-platform]",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
-    assert!(
-        !src.contains("#[derive(Clone)]"),
-        "a threadsafe host is shared through an `Arc`, not cloned:\n{src}"
-    );
-    // And the undeclared skeleton says what the compiler does instead.
+    // And the undeclared skeleton says what the compiler does.
     let plain = platform_handler_skeleton();
     assert!(
         plain.content.contains("the compiler SERIALIZES this instance")
@@ -4416,9 +4399,8 @@ fn platform_generate_prints_the_threadsafe_contract_into_the_skeleton() {
 }
 
 /// [threadsafe-platform] End to end under rustc with the *generated*
-/// threadsafe skeleton, one `&self` stub filled in. Same program, same
-/// output as the undeclared run — the contract changes the sharing, never
-/// the answer — and byte-identical to the Kotlin backend's.
+/// threadsafe skeleton, one stub filled in. Same program, same output as
+/// the undeclared run — and byte-identical to the Kotlin backend's.
 #[test]
 fn rustc_compiles_and_runs_a_threadsafe_platform_handler() {
     if !rustc_available() {
@@ -10617,18 +10599,18 @@ fn a_monitor_lowers_to_a_lock_wrapper() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs");
     assert!(
-        main.content.contains("pub struct __Mon_Random {"),
+        main.content.contains("pub struct __Handle_Random {"),
         "the lock wrapper is missing:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("impl Random for __Mon_Random {"),
+        main.content.contains("impl Random for __Handle_Random {"),
         "the wrapper does not implement the effect:\n{}",
         main.content
     );
     assert!(
         main.content
-            .contains("__Mon_Random::new(Box::new(__Lock_Random::new("),
+            .contains("__Handle_Random::new(Box::new(__Lock_Random::new("),
         "the monitor spawn is missing:\n{}",
         main.content
     );
@@ -10933,7 +10915,7 @@ fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
     );
     assert!(
         main.content
-            .contains("__Mon_Random::new(Box::new(__Fac_CyclicRandom {"),
+            .contains("__Handle_Random::new(Box::new(__Fac_CyclicRandom {"),
         "the mixed spawn does not answer the handle over the façade:\n{}",
         main.content
     );
@@ -12226,7 +12208,7 @@ fn rustc_compiles_and_runs_a_task_that_inherits_effects() {
 }
 
 /// [task-effects] [rs-task] The lowering: the inherited handle is an **owned**
-/// `__Mon_E` bound outside the closure and cloned inside it, so nothing borrows
+/// `__Handle_E` bound outside the closure and cloned inside it, so nothing borrows
 /// the minting frame — and a task's own effect parameters are owned handles for
 /// the same reason, which is what lets `chain` mint `report`.
 #[test]
@@ -12239,7 +12221,7 @@ fn an_inherited_effect_travels_as_an_owned_handle() {
     let text = &main.content;
     // A task body takes the handle, not a `&mut dyn`.
     assert!(
-        text.contains("pub fn report(mut console: crate::core_console::__Mon_Console"),
+        text.contains("pub fn report(mut console: crate::core_console::__Handle_Console"),
         "a task's effect parameter is an owned handle:\n{text}"
     );
     // The mint binds it outside the closure and clones it in.
@@ -12816,20 +12798,17 @@ fn main() [use, spawn] {
 const NET_MEM_TRANSPORT_OUTPUT: &str = "listen a: sent\nlisten b: sent\nhello: sent\nlost: unreachable: b:1\nagain: sent\nvoid: unreachable: c:9\ndead: unreachable: b:1\nb saw [b <- a:1: hello, b <- a:1: again], routed 2\n";
 
 /// [threadsafe-platform] A `threadsafe` platform handler nobody binds emits
-/// its `&self` twin trait (std's shipped host companion implements it, and is
-/// copied whenever `net` is reachable) but **not** its `Arc` adapter, which
-/// names the host struct — and nothing constructs the host.
+/// nothing and constructs nothing: the effect's trait is the whole surface
+/// std's shipped host companion implements.
 #[test]
-fn an_unused_threadsafe_platform_handler_emits_its_trait_but_no_adapter() {
+fn an_unused_threadsafe_platform_handler_emits_nothing() {
     let files = generate(&[("main.sv", NET_MEM_TRANSPORT)]);
     let all: String = files.iter().map(|f| f.content.as_str()).collect();
     assert!(
-        all.contains("pub trait __Shared_HostTcpTransport: Send + Sync {"),
-        "expected the twin trait for the shipped host to implement:\n{all}"
-    );
-    assert!(
-        !all.contains("pub struct __Arc_HostTcpTransport") && !all.contains("HostTcpTransport::new("),
-        "an unused threadsafe platform handler emitted its adapter or constructed the host:\n{all}"
+        !all.contains("__Shared_HostTcpTransport")
+            && !all.contains("__Arc_HostTcpTransport")
+            && !all.contains("HostTcpTransport::new("),
+        "an unused threadsafe platform handler emitted something:\n{all}"
     );
 }
 
@@ -12918,8 +12897,8 @@ fn rustc_compiles_and_runs_the_tcp_transport_on_localhost() {
     let files = generate(&[("main.sv", NET_TCP_SMOKE)]);
     let all: String = files.iter().map(|f| f.content.as_str()).collect();
     assert!(
-        all.contains("__Arc_HostTcpTransport::new(crate::platform_net::HostTcpTransport::new("),
-        "expected the threadsafe host behind its Arc adapter:\n{all}"
+        all.contains("__Handle_Transport::new(crate::platform_net::HostTcpTransport::new("),
+        "expected the host behind the effect's handle:\n{all}"
     );
     run_rust_files(&files, "net-tcp-smoke", NET_TCP_SMOKE_OUTPUT);
 }
