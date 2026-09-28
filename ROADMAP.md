@@ -144,9 +144,10 @@ deadlock graph is per program, so a wait cycle closing through a handler in
 Built in four commits the day it was decided; the record — the decision, what
 it took, what fell out, the gotchas — is COMPLETED.md's "One shape for effects"
 entry, the shape itself is EFFECT_FUSION.md, and the rules are [effect-handle],
-[rs-handle], [kt-handle]. What it left open is in "Recorded, not scheduled":
-the lock-free optimisation pass (scope-local bindings, stateless handlers,
-the mixed façade), and the erased-sibling refusal.
+[rs-handle], [kt-handle]. The same afternoon the handle was keyed on
+statefulness and named after the effect (COMPLETED.md's second 2026-09-28
+entry). What it left open is in "Recorded, not scheduled": lock-free
+scope-local bindings, and the erased-sibling refusal.
 
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
@@ -632,26 +633,17 @@ backends**.
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
 
-- **The lock-free pass over the one shape** (2026-09-28, the optimisation
-  the one-shape decision explicitly deferred). Three items, all emission-only
-  and all invisible to a Salvo program:
-  - *Lock-free stateless handlers*: a handler with no `state` and no
-    `threadsafe`-less platform host needs no `Mutex`/`synchronized` — an
-    `Arc<H>` with `&self` members (Rust) or the raw reference (Kotlin) would
-    do, the shape Rust's `__Arc_H` adapter had for `threadsafe` hosts until
-    2026-09-28. `threadsafe platform handler` is the declared contract this
-    pass reads for a host; a Salvo handler's statelessness is visible in its
-    declaration. Removes the one recorded cost of the shape that matters: the
-    **mixed handler's façade** (stateless) waiting on its servant while holding
-    the handle's lock, which blocks a second caller instead of letting it serve
-    its pool ([rs-handle]).
-  - *Lock-free scope-local bindings*: a `use` whose binding no spawn, task or
-    dependent handler captures — the checker knows, `use_deps`/`spawn_deps`/
-    `task_mint_effects` are the capture sites — could be an `Rc<RefCell<H>>`
-    or a plain `&mut` on Rust, paying a borrow flag or nothing instead of a
-    mutex. This is what `use local` used to select by hand.
-  - *Eager handle cloning*: `Stamped::new(logger.clone(), clock.clone())`
-    bumps two `Arc`s per `use`; fine, noted.
+- **Lock-free scope-local bindings** (2026-09-28, the one item left of the
+  lock-free pass the one-shape decision deferred; the stateless half landed
+  the same afternoon — a stateless handler, the send stub and the mixed façade
+  hold no lock, [rs-handle]/[kt-handle]). A *stateful* `use` whose binding no
+  spawn, task or dependent handler captures — the checker knows, `use_deps`/
+  `spawn_deps`/`task_mint_effects` are the capture sites — could be an
+  `Rc<RefCell<H>>` or a plain `&mut` on Rust and a raw reference on Kotlin,
+  paying a borrow flag or nothing instead of a mutex. This is what `use local`
+  used to select by hand. Emission-only, invisible to a program.
+- **Eager handle cloning**: `Stamped::new(logger.clone(), clock.clone())`
+  bumps two `Arc`s per `use`; fine, noted.
 - **The erased-sibling refusal** (`Pick<A>` beside `Pick<B>` in one scope,
   [effect-generic-decl]) was kept through the one-shape change. Its original
   reason — two `__Has_Pick` impls colliding on one fusion struct — is gone,

@@ -17,10 +17,12 @@
 # COMPLETED.md's gotchas.
 [profile.default]
 # The kotlin driver test (`kotlinc_compiles_and_runs_every_case`) legitimately
-# runs ~30s fresh — it does the whole batched compile — and the other
-# toolchain tests are minutes-long only when something is wrong; a test that
-# hangs should say so rather than stall the run.
-slow-timeout = { period = "30s", terminate-after = 8 }
+# runs minutes fresh — it batch-compiles every case (173 on 2026-09-28) while
+# every other kotlinc test contends for the same cores, and it measured 174s
+# alone and 211–240s inside a full fresh run that day. The other toolchain
+# tests are minutes-long only when something is wrong; a test that hangs
+# should still say so rather than stall the run, so the ceiling is 6 minutes.
+slow-timeout = { period = "30s", terminate-after = 12 }
 # Show a line per test as it finishes, so the timings are the point.
 status-level = "pass"
 final-status-level = "slow"

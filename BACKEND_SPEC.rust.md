@@ -975,9 +975,9 @@ the blanket rule:
   * `^` on a *projection* (`p.result is ^Ok`) is a reported codegen error for
     now: the materialization needs a plain variable to shadow.
 * [fn-effects] [rs-fn-effect-params] A fn type's effects are **leading
-  `&mut __Handle_E` parameters** of the closure [rs-handle]: `(s: Str)
-  [Logger] -> Str` renders as `&mut impl FnMut(&mut __Handle_Logger,
-  &String) -> String`, a lambda as `|logger: &mut __Handle_Logger, s| …`, and
+  `&E` handle parameters** of the closure [rs-handle]: `(s: Str)
+  [Logger] -> Str` renders as `&mut impl FnMut(&Logger,
+  &String) -> String`, a lambda as `|logger: &Logger, s| …`, and
   the call passes the handle first. Nothing is captured, which is what lets
   the value cross a call that borrows the same effect value.
   * Inside a lambda body an effect resolves to the lambda's *own* parameter:
@@ -1184,10 +1184,10 @@ the blanket rule:
   Handler member bodies access ctor params and state through `self.`.
   An `intrinsic handler`'s member bodies come from
   `intrinsics::handler_member` instead, same shape. A *dependency* is a
-  `__dep_E: __Handle_E` field and a trailing `new` parameter — see
+  `__dep_E: E` handle field and a trailing `new` parameter — see
   [rs-handle].
 * [kt-effect-params]-equivalent: effect dependencies become leading
-  parameters `name: &mut __Handle_E<...>` [rs-handle]; effect member calls
+  parameters `name: &E<...>` [rs-handle]; effect member calls
   dispatch through the parameter (`console.print(...)` — auto-reborrow), and
   callee dependencies thread as arguments (`draw(random_int, console)`,
   with `&mut local` for handlers `use`d in the current scope).
@@ -1217,8 +1217,8 @@ the blanket rule:
     (`Checked::effect_member_calls`); no recorded resolution where the name
     is overloaded is a codegen error, never a guess.
 * [effect-use] `use Handler(...)` emits
-  `let mut <name> = __Handle_E::new(Handler::new(args));` and registers
-  `&mut <name>` in the effect environment for the rest of the scope
+  `let <name> = E::shared(Handler::new(args));` (`locked` for a stateful
+  handler) and registers `&<name>` in the effect environment for the rest of the scope
   [effect-scope]; ctor arguments are owned (a `use` argument is a move,
   [deduce-infer]). Handler generics are inferred by rustc from the `new`
   arguments (the checker already validated the instance, `use_effects`), or
@@ -1233,140 +1233,162 @@ the blanket rule:
 ### Every binding is a handle [rs-handle]
 
 **Built 2026-09-28** (user decisions of the same day, ROADMAP §2b — *one shape*:
-handles everywhere, fusion removed, `local` removed). It replaces the fusion
+handles everywhere, fusion removed, `local` removed — then, the same afternoon,
+**keyed on statefulness and named after the effect**). It replaces the fusion
 emission of 2026-09-04/14 (`__Fx_N` structs, `__Has_E` accessors, `__Prov_…`
 conjunctions, `__Deps_H`/`__Impl_H` for dependent handlers, `__Prov_H` actor
 providers, `__Hs_…` handle bundles) and the monitor apparatus of 2026-09-19/20
 (`__Mon_E` over `Box<dyn __Share_E>`, `__Lock_E<H>`, `__Arc_H`/`__Shared_H` for
-threadsafe hosts): about 1,850 lines of `emit.rs`, one Rust shape for every
-Salvo declaration. EFFECT_FUSION.md keeps the history.
+threadsafe hosts). EFFECT_FUSION.md shows the shape and keeps the history.
 
-* **The handle.** Every effect `E` emits, beside its trait, one struct:
+* **An effect emits two traits and a handle.** The traits are what handlers
+  implement, and their names are the mangled ones; the handle **carries the
+  effect's name** — it is what a reader of the output sees on every fn
+  parameter, `use` local and dependency field:
 
   ```rust
-  pub struct __Handle_E {
-      inner: std::sync::Arc<std::sync::Mutex<dyn E + Send>>,
+  pub trait __Stateless_Console: Send + Sync { fn print(&self, message: &String); }
+  pub trait __Stateful_Console: Send        { fn print(&mut self, message: &String); }
+
+  pub struct Console { inner: __Inner_Console }
+  pub enum __Inner_Console {
+      Shared(std::sync::Arc<dyn __Stateless_Console>),
+      Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_Console>>),
   }
-  impl Clone for __Handle_E { … }                 // an `Arc` bump
-  impl __Handle_E {
-      pub fn new<__H: E + Send + 'static>(inner: __H) -> Self { … }
-      pub fn share(inner: Arc<Mutex<dyn E + Send>>) -> Self { … }
-  }
-  impl E for __Handle_E {
-      fn member(&mut self, …) -> … { self.inner.lock().unwrap().member(…) }
+  impl Clone for Console { … }                          // an `Arc` bump either way
+  impl Console {
+      pub fn shared<__H: __Stateless_Console + 'static>(inner: __H) -> Self { … }
+      pub fn locked<__H: __Stateful_Console + 'static>(inner: __H) -> Self { … }
+      pub fn share_shared(inner: Arc<dyn __Stateless_Console>) -> Self { … }
+      pub fn share_locked(inner: Arc<Mutex<dyn __Stateful_Console>>) -> Self { … }
+      pub fn print(&self, message: &String) {
+          match &self.inner {
+              __Inner_Console::Shared(h) => h.print(message),
+              __Inner_Console::Locked(h) => h.lock().unwrap().print(message),
+          }
+      }
   }
   ```
 
-  Generic exactly as the effect is (`__Handle_Random<T: 'static>` for
-  `Random<T>`); construction sites name a generic instance's type arguments
-  outright (`__Handle_Random::<i64>::new(…)`, from the checker's resolved
-  instance) rather than asking inference to thread them through the unsize
-  coercion. Emitted for **every** effect, actor effects included (a `use
-  addr` of an actor binds one over the send stub; a router `of any E` is a
-  handler of it like any other), used or not — generated programs allow
-  `dead_code`, and per-effect emission gives the type one identity across
-  modules. Members with their own generics are skipped as the trait skips
-  them. The locator face of a mutable-lending member (`m__loc`, [rs-loc]) is
-  forwarded too: an effect member lends from a *parameter*, never from
-  handler state (it has no `self` to name), so the borrow outlives the guard
-  legitimately.
-* **One implementation** (user decision 2026-09-28): `Arc<Mutex<_>>` for
-  every handler, stateless included — an uncontended lock per member call.
-  The lock-free stateless path (`Arc<H>` with `&self` members) is the
-  recorded optimisation pass, and `threadsafe platform handler` is the
-  declared contract it will read; today the word changes no emission
-  ([threadsafe-platform]: the skeleton prints the contract, the host
-  implements the effect's own `&mut self` trait, and must be `Send`).
-* **A `use` is the handle**: `let mut e = __Handle_E::new(H::new(args, deps…));`
-  and the local *is* what everything downstream receives — no eager handle
-  variable, no fusion local. A multi-face handler is one `Arc<Mutex<H>>` and
-  one handle per face (`let __inst = Arc::new(Mutex::new(H::new(…)));
-  let mut a = __Handle_A::share(__inst.clone()); let mut b =
-  __Handle_B::share(__inst.clone());`), so a **stateful multi-face handler is
-  one lock behind several effect types** — the shape [monitor-handler] used
-  to refuse. `init` runs on the instance before it is wrapped. A `use addr`
-  of a plain effect binds the value itself (an `Addr<E>` *is* `__Handle_E`);
-  of an actor effect, `__Handle_E::new(__Stub_E::new(addr))`.
-* **A fn declaring `[A, B]`** is `fn f(a: &mut __Handle_A, b: &mut
-  __Handle_B, …)`, one parameter per effect **in the order of
-  `Checked::fn_effects`** — inherited effects (from fn-typed parameters,
-  [fn-effects]) first, then the written list — and a call passes `&mut a`
-  for a local or a captured field, the parameter itself (auto-reborrow) for a
-  parameter. The checker's `call_effects` follows the same order, since the
+  The handle's members are **inherent `&self` methods** dispatching on the
+  arm, so a fn declaring `[E]` takes `e: &E` — a shared borrow, which also
+  means two handles of one instance in one call never conflict and the
+  `E0499` hoisting around `clock.to_instant(&clock.to_tick(i))` is gone.
+  Generic exactly as the effect is (`Random<T: 'static>`); construction
+  sites name a generic instance's type arguments outright
+  (`Random::<i64>::locked(…)`). Emitted for **every** effect, actor effects
+  included, used or not. Members with their own generics are skipped as the
+  traits skip them. The locator face of a mutable-lending member (`m__loc`,
+  [rs-loc]) is dispatched too: an effect member lends from a *parameter*,
+  never from handler state, so the borrow outlives the guard legitimately.
+* **Statefulness decides the arm** — `salvo_core::handler_is_stateful`, the
+  one predicate both backends and the deadlock graph read, off the
+  declaration: a `state` field; a member that mints a `replyto` (the parked
+  table is state the mint writes — `Checked::parking_handlers`); a fn-typed
+  constructor parameter (a stored `FnMut`, and a lambda may mutate what it
+  captured); a platform handler without `threadsafe`. An `intrinsic` handler
+  is trusted stateless. The generated actor fields (`__addr`, `__parked`) do
+  not count: the actor body owns the instance and writes them itself, so an
+  actor handler with no state fields bound inline is `Shared` like any other.
+  A **stateless** handler implements `__Stateless_E` with `&self` members
+  (`Emitter::member_receiver_mut`) and is shared as `Arc<dyn …>` with no
+  lock; a **stateful** one implements `__Stateful_E` with `&mut self` and sits
+  behind `Arc<Mutex<_>>`. Stateless by construction: the send stub `__Stub_E`
+  (so a send through a `use addr` binding blocks only on the mailbox, never
+  on a lock another sender holds while blocked on that mailbox), the mixed
+  handler's façade `__Fac_H` (so a caller waiting on the servant holds
+  nothing), intrinsic handlers, `threadsafe` hosts. A generic handler's
+  parameters carry `Clone + Send + Sync + 'static`, since the instance sits in
+  an `Arc`; every Salvo type satisfies them.
+* **A `use` is the handle**: `let e = Console::shared(StdOutConsole::new());`
+  / `let random = Random::<i64>::locked(CyclicRandom::new(…));` — the local
+  *is* what everything downstream receives. A multi-face handler is one
+  `Arc` (of a `Mutex` when stateful) and one handle per face (`let __inst =
+  Arc::new(Mutex::new(H::new(…))); let a = A::share_locked(__inst.clone());
+  let b = B::share_locked(__inst.clone());`), so a **stateful multi-face
+  handler is one lock behind several effect types** — the shape
+  [monitor-handler] used to refuse. `init` runs on the instance before it is
+  wrapped. A `use addr` of a plain effect binds the value (an `Addr<E>` *is*
+  `E`); of an actor effect, `E::shared(__Stub_E::new(addr))`.
+* **A fn declaring `[A, B]`** is `fn f(a: &A, b: &B, …)`, one parameter per
+  effect **in the order of `Checked::fn_effects`** — inherited effects (from
+  fn-typed parameters, [fn-effects]) first, then the written list — and a
+  call passes `&a` for a local or a captured field, the parameter itself for
+  a parameter. The checker's `call_effects` follows the same order, since the
   emitters pass one argument per entry (the two disagreed until 2026-09-28;
-  fusion had hidden it behind a single fused argument). [effect-args-hoisted]
-  applies per handle: `clock.to_instant(&clock.to_tick(i))` hoists the inner
-  call, as the receiver's `&mut` is live across the argument list.
-* **A dependent handler** ([effect-handler-deps]) holds one `__dep_E:
-  __Handle_E<…>` field per declared dependency, whatever the dependency's
-  kind — plain, actor effect (the field holds a handle over the send stub),
-  or generic instance (`__dep_Store: __Handle_Store<i64>`, or `<T>` for a
-  generic handler: the cut that refused a generic dependent handler is gone)
-  — as trailing `new` parameters in declaration order. Members reach them as
-  `self.__dep_E.member(…)`, a field-granular borrow beside the handler's own
-  state. A `use` clones the scope's handles into `new`
+  fusion had hidden it behind a single fused argument).
+* **A dependent handler** ([effect-handler-deps]) holds one `__dep_E: E<…>`
+  field per declared dependency, whatever the dependency's kind — plain,
+  actor effect (a handle over the send stub), or generic instance
+  (`__dep_Store: Store<i64>`, or `<T>` for a generic handler: the cut that
+  refused a generic dependent handler is gone) — as trailing `new` parameters
+  in declaration order. Members reach them as `self.__dep_E.member(…)`
+  through the handle's `&self` methods, so a **stateless** dependent handler
+  stays stateless. A `use` clones the scope's handles into `new`
   (`Stamped::new(logger.clone(), clock.clone())`) whether the effect arrived
   by a `use` in the same function or through the enclosing *signature*
   ([spawn-inherit]'s lift needs no bundle: the parameter is the handle); a
   `with` item is a private instance behind its own handle
-  (`__Handle_Clock::new(FixedClock::new())`). **Interception**
-  ([effect-intercept]) is the same shape: `let mut logger2 =
-  __Handle_Logger::new(Stamped::new(logger.clone()))` — the previous
-  registration's handle is minted before the interceptor is constructed,
-  which is "binds strictly outward" in emission.
+  (`Clock::shared(FixedClock::new())`, `locked` when stateful).
+  **Interception** ([effect-intercept]) is the same shape: `let logger2 =
+  Logger::shared(Stamped::new(logger.clone()))` — the previous registration's
+  handle is captured before the interceptor is constructed, which is "binds
+  strictly outward" in emission.
 * **A spawn** hands the actor body the same struct: `__Actor_H { handler: H }`
   with the handler's fields the handles, `__dispatch` calling
-  `E::member(&mut self.handler, …)` for every handler, dependent or not; the
-  clause's items and the inherited dependencies are trailing `new` arguments
-  exactly as at a `use`. A **monitor spawn** answers `__Handle_E::new(H::new(…))`
-  — no scheduler, no mailbox, no pool. A **mixed spawn** answers the handle
-  over the façade (`__Handle_E::new(__Fac_H { __addr, … })`): the façade sits
-  behind the lock like every other instance, and its sync members *wait on
-  the servant while holding it* — recorded as the shape's known cost (a
-  second caller on another thread blocks on the mutex rather than serving
-  its pool; the lock-free stateless pass removes it, the façade being
-  stateless).
-* **A fn value with effects** is `impl FnMut(&mut __Handle_A, …, args)`: a
-  lambda takes each as a typed leading parameter, and the adapter for a named
-  fn forwards the reborrow (`|__fx0: &mut __Handle_Logger, mut __a0|
-  shout(&mut *__fx0, __a0)`), ignoring what the declaration does not need.
-  **A task body** takes its inherited effects as *owned* handles (the mint's
-  closure is `move` and `'static`) and clones them into nested mints.
-* **`main` with a platform effect** ([platform-effect]) takes `&mut
-  __Handle_E` like any fn; the host's `main()` wraps its struct at the one
-  place it constructs it: `crate::salvo_main(&mut
-  crate::__Handle_Telemetry::new(TelemetryHost))`. So a Salvo handler over a
-  platform effect captures it like any dependency (the `DefaultFs [RawFs]`
-  shape with the host's instance arriving through `main` — refused until
-  2026-09-28, there being no handle to mint). `new`'s bound makes a
-  non-`Send` host struct a rustc error at that line.
+  `__Stateful_E::member(&mut self.handler, …)` (or `__Stateless_E::…`, by the
+  handler's statefulness) for every handler, dependent or not; the clause's
+  items and the inherited dependencies are trailing `new` arguments exactly
+  as at a `use`. A **monitor spawn** answers `E::locked(H::new(…))` /
+  `E::shared(…)` — no scheduler, no mailbox, no pool. A **mixed spawn**
+  answers `E::shared(__Fac_H { __addr, … })`: the façade is stateless, so its
+  wait on the servant holds no lock.
+* **A fn value with effects** is `impl FnMut(&A, …, args)`: a lambda takes
+  each as a typed leading parameter, and the adapter for a named fn forwards
+  it (`|__fx0: &Logger, mut __a0| shout(__fx0, __a0)`), ignoring what the
+  declaration does not need. **A task body** takes its inherited effects as
+  *owned* handles (the mint's closure is `move` and `'static`) and clones
+  them into nested mints.
+* **`main` with a platform effect** ([platform-effect]) takes `&E` like any
+  fn; the host's `main()` wraps its struct at the one place it constructs it:
+  `crate::salvo_main(&crate::Telemetry::locked(TelemetryHost))` — a platform
+  *effect*'s host has no `threadsafe` word to declare itself, so it is the
+  locked arm and its skeleton implements `__Stateful_E`. A Salvo handler over
+  a platform effect captures it like any dependency (refused until
+  2026-09-28, there being no handle to mint).
+* **`threadsafe platform handler`** ([threadsafe-platform]) is the declared
+  statefulness of a host the compiler cannot see: a `threadsafe` host's
+  skeleton implements `__Stateless_E` with `&self` receivers and the `use`
+  binds `E::shared(H::new(args))` — rustc checks the half of the contract it
+  can, since a field that is not `Sync` does not compile — and an undeclared
+  host implements `__Stateful_E` with `&mut self` behind `E::locked(…)`.
+  `std/platform/net.rs` (`HostTcpTransport`) is written in the first form.
 * **Fn-typed constructor parameters and state** ([rs-fn-field]): a written
   fn-typed constructor parameter (`handler Derived(step: (n: Int) -> Int)`)
   is stored like an implicit — `Box<dyn FnMut(i32) -> i32 + Send>`, arriving
-  as `impl FnMut + Send + 'static`, called `(self.step)(…)` — and a struct's
-  fn-typed field is `Arc<dyn Fn… + Send + Sync>` (it was `Rc`): a Salvo
-  lambda captures by value, so the bounds hold for every value the program
-  can build, and the checker's "holds a function value" unsendability arm
-  no longer applies to handler state (`unshareable_reason`). It still applies
-  to message payloads and task captures (`unsendable_reason`): a fn value in
-  a message has no enum rendering.
+  as `impl FnMut + Send + 'static`, called `(self.step)(…)` — and makes the
+  handler stateful; a struct's fn-typed field is `Arc<dyn Fn… + Send + Sync>`
+  (it was `Rc`). A Salvo lambda captures by value, so the bounds hold for
+  every value the program can build, and the checker's "holds a function
+  value" unsendability arm no longer applies to handler state
+  (`unshareable_reason`); it still applies to message payloads and task
+  captures (`unsendable_reason`).
 * **The handle is `Clone`, not `Copy`** — unlike the `usize` addr — and the
   checker treats every `Addr` as freely reusable, so an owned read of a
-  plain-effect addr **clones** (`emit_owned`'s ident arm). `Arc<Mutex<dyn E +
-  Send>>` is `Send + Sync`, which is the sendability the checker promises at
-  a spawn [actor-sendable].
+  plain-effect addr **clones** (`emit_owned`'s ident arm). Both arms are
+  `Send + Sync`, which is the sendability the checker promises at a spawn
+  [actor-sendable].
 * **Rust's `Mutex` is not reentrant, and that is unobservable**: a handler's
   bindings are fixed at construction and its dependencies bind strictly
   outward/earlier, so no path routes back into its own handle; sibling calls
   inside a handler are direct self calls under the one acquisition. A
   poisoned lock (`unwrap`) surfaces as a panic only after another member
   already panicked, which is the fault boundary's business.
-* **`Addr<E>` for a plain effect lowers to `__Handle_E`** (both type paths —
-  checked `Ty` and written AST — branch on the effect's declared kind); an
-  actor effect's addr stays `usize`. A generic plain effect's addr carries
-  the instantiation (`Addr<Random<Int>>` is `__Handle_Random<i64>`); an
-  uninstantiated mention is refused by arity, a leniency path rather than a
-  rule.
+* **`Addr<E>` for a plain effect lowers to `E`** (both type paths — checked
+  `Ty` and written AST — branch on the effect's declared kind); an actor
+  effect's addr stays `usize`. A generic plain effect's addr carries the
+  instantiation (`Addr<Random<Int>>` is `Random<i64>`); an uninstantiated
+  mention is refused by arity, a leniency path rather than a rule.
 
 ## Functions and calls
 
@@ -1489,7 +1511,7 @@ Salvo declaration. EFFECT_FUSION.md keeps the history.
   the checker's `route_stubs[site]` handler exactly as a written `use
   __Route_E(g)` would. An erased effect's types render without arguments
   everywhere an instance is split into base and args (`ty_effect_parts`,
-  `handler_dep_effects`, the `use` turbofish) — `__Handle_Pick`, `dyn Pick`,
+  `handler_dep_effects`, the `use` turbofish) — `Pick`, `dyn __Stateless_Pick`,
   `Sharded::new()`. `while true` lowers to `loop`.
 * [rs-actor] [handler-init] `init` is one more private member: `__Priv_H::Init`,
   an inherent `fn init(&mut self)`, dispatched by `__dispatch_priv`. A spawn
@@ -1533,19 +1555,18 @@ Salvo declaration. EFFECT_FUSION.md keeps the history.
     of the same crate, so without them the skeleton does not compile — which
     stayed invisible until a `platform handler` whose members trade in more
     than primitives arrived (`HostRawFs`, 2026-09-14).
-  * **Sharing follows one shape** [threadsafe-platform] [rs-handle]: a
-    platform handler's `use` wraps the host in the effect's handle
-    (`__Handle_E::new(H::new(args))`) whether or not it is declared
-    `threadsafe` (user decision 2026-09-28; until then a `threadsafe` host
-    got a `&self` twin trait and an `Arc<H>` adapter, an undeclared one the
-    lock adapter). The word is the declared contract the skeleton prints —
-    every member safe to run concurrently — which the lock-free stateless
-    pass will read; the host implements the effect's own `&mut self` trait
-    and must be `Send`.
-  * **The skeleton prints the contract** in both shapes — the threadsafe one
-    opens with the signing comment, the undeclared one says the compiler
-    serializes the instance — and both implement `<effect_path>::E` with
-    `&mut self` receivers.
+  * **Sharing follows the declared contract** [threadsafe-platform]
+    [rs-handle]: a `threadsafe` host implements `__Stateless_E` with `&self`
+    receivers and its `use` binds `E::shared(H::new(args))` — no lock, and
+    rustc refuses a host whose fields are not `Sync`; an undeclared host
+    implements `__Stateful_E` with `&mut self` behind `E::locked(…)`, so a
+    host that did not claim safety behaves identically on both backends and
+    pays only the lock.
+  * **The skeleton prints the contract** in both shapes: the threadsafe one
+    opens with the signing comment and implements `<effect_path>::
+    __Stateless_E` with `&self` receivers; the undeclared one says the
+    compiler serializes the instance and implements `__Stateful_E` with
+    `&mut self`. Regenerating after toggling the word changes the receivers.
 * [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
   a bare identifier clones its binding place (whatever its binding
   mode — every generated type derives or is `Clone`, and generic
@@ -1815,9 +1836,8 @@ Salvo declaration. EFFECT_FUSION.md keeps the history.
   * **The mixed spawn** evaluates ctor args once (`let __cN = …`), clones
     them into the handler, moves them into the façade, reads the mailbox
     bound off the instance, spawns `__Actor_H`, and answers
-    `__Handle_E::new(__Fac_H { __addr: __a, … })` — the façade behind the
-    effect's handle like every instance [rs-handle], its known cost recorded
-    there.
+    `E::shared(__Fac_H { __addr: __a, … })` — the façade behind the effect's
+    handle, stateless so lock-free [rs-handle].
 
 * [rs-actor] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.rs`

@@ -588,21 +588,27 @@ nothing but the monitor.
   scope (`draw(random_int, random_string, console)`). The Rust backend's
   parameter list is the same list with `&mut __Handle_E` types [rs-handle],
   so the two backends' output reads the same modulo syntax.
-* **A `use` is the effect's monitor**: `val e: E = __Mon_E(H(args, deps…))`
-  for every handler, stateless or not (one implementation, user decision
-  2026-09-28: a `synchronized` block per member call, uncontended in the
-  common case; the lock-free stateless path is the optimisation pass). The
-  `__Mon_E` class is emitted for **every** effect, actor effects included
-  (`use addr` of an actor wraps the send stub; a router `of any E` is a
-  handler of it like any other) — see [kt-monitor] for the class itself. A
-  `use addr` of a plain effect binds the value: an `Addr<E>` of a plain
-  effect is already the effect's monitor. `init` runs on the instance
-  (`H(…).also { it.init() }`) before it is wrapped.
-* **A multi-face handler** is built once into a local and each face gets its
-  own monitor over it — `val __h = H(…); val a: A = __Mon_A(__h); val b: B =
-  __Mon_B(__h)` — so a stateful multi-face handler is one lock behind several
-  interfaces (`synchronized(inner)` locks the same object), the shape
-  [monitor-handler] used to refuse.
+* **A `use` binds by statefulness** (`salvo_core::handler_is_stateful`, the
+  predicate both backends and the deadlock graph read — a `state` field, a
+  `replyto` mint, a fn-typed constructor parameter, a platform handler
+  without `threadsafe`): a **stateless** handler binds raw (`val console:
+  Console = StdOutConsole()` — the reference is the handle and nothing is
+  locked), a **stateful** one behind the effect's `synchronized` monitor
+  (`val random: Random<Int> = __Mon_Random(CyclicRandom(…))`, [kt-monitor]).
+  The `__Mon_E` class is emitted for **every** effect, actor effects included
+  (a router `of any E` with a cursor is a stateful handler of it). A `use
+  addr` binds the value: a plain effect's `Addr<E>` is already the handle,
+  and an actor's send stub is stateless and binds raw — so a send through
+  the binding blocks only on the mailbox, never on a lock. `init` runs on the
+  instance (`H(…).also { it.init() }`) before any wrapping. This is the
+  Rust handle's `Shared`/`Locked` split with the JVM reference as the
+  shared arm [rs-handle].
+* **A multi-face handler** is built once into a local and, when stateful,
+  each face gets its own monitor over it — `val __h = H(…); val a: A =
+  __Mon_A(__h); val b: B = __Mon_B(__h)` — so a stateful multi-face handler
+  is one lock behind several interfaces (`synchronized(inner)` locks the
+  same object), the shape [monitor-handler] used to refuse; a stateless one
+  binds the local raw under each face.
 * **A dependent handler** ([effect-handler-deps]) takes **one trailing
   constructor parameter per dependency**, typed by the effect's interface
   and named by the emitter — `class Stamped(private val __dep_Logger: Logger,
@@ -613,15 +619,16 @@ nothing but the monitor.
   dependency through its field and pass it to callees declaring the effect.
   The `use` passes the scope's bindings (`Stamped(logger, clock)`) whether
   the effect arrived by a `use` or through the enclosing signature; a `with`
-  item is a private instance constructed in place. **Interception**
-  ([effect-intercept]): `val logger2: Logger = __Mon_Logger(Stamped(logger))`
-  — the previous registration is captured before the interceptor is bound.
+  item is a private instance constructed in place (behind `__Mon_E` when
+  stateful). **Interception** ([effect-intercept]): `val logger2: Logger =
+  Stamped(logger)` — the previous registration is captured before the
+  interceptor is bound.
 * **A spawn** passes the clause's instances and the inherited bindings as the
   same trailing arguments (`Counting(Recording(), __Stub_Tally(tally))`), and
   the actor class is `class __Actor_H(private val handler: H)` for every
-  handler — not generic in a carrier. A monitor spawn answers `__Mon_E(H(…))`;
-  a mixed spawn answers the façade (`__Fac_H`), which is stateless and needs
-  no monitor of its own.
+  handler — not generic in a carrier. A monitor spawn answers `__Mon_E(H(…))`
+  for a stateful handler and `H(…)` for a stateless one; a mixed spawn
+  answers the façade (`__Fac_H`), which is stateless and needs no monitor.
 * **A fn value with effects** is `(A, B, args) -> R`: a lambda takes each
   effect as a typed leading parameter, a named fn declaring exactly the type's
   effects passes as `::name`, and a pure fn gets an adapter that drops the
@@ -630,10 +637,10 @@ nothing but the monitor.
   bindings in scope.
 * **`main` with a platform effect** ([platform-effect]) takes the host's
   instance as a parameter like any fn; the host's `main()` constructs it and
-  calls `salvoMain(TelemetryHost())`. A `threadsafe platform handler`
-  changes no emission [threadsafe-platform]: the `use` wraps the host in
-  `__Mon_E` either way, and the word is the declared contract the skeleton
-  prints.
+  calls `salvoMain(TelemetryHost())`. A `threadsafe platform handler` is
+  the declared statefulness of a host the compiler cannot see
+  [threadsafe-platform]: `threadsafe` binds the host raw, undeclared binds it
+  behind `__Mon_E`.
 * **`fx.kt` is no longer emitted**: a program's Kotlin output is its modules
   plus the runtime files it needs (`unions.kt`, `tuples.kt`, `throwsignal.kt`,
   the scheduler and wire files).
@@ -834,13 +841,13 @@ nothing but the monitor.
     `HostRawFs` (2026-09-14), whose members return `Union2<Long, Union8<…>>`
     — a skeleton that does not compile is a skeleton that fails at its one
     job.
-  * **Sharing follows one shape** [threadsafe-platform] [kt-handle]: a
-    platform handler's `use` wraps the host in the effect's monitor —
-    `__Mon_E(salvo.platform.M.H(args))` — whether or not it is declared
-    `threadsafe` (user decision 2026-09-28; until then a `threadsafe` host
-    bound raw). The word is the declared contract the skeleton prints, which
-    the lock-free stateless pass will read; the Kotlin host stays on trust —
-    no compiler check of the contract exists on this backend.
+  * **Sharing follows the declared contract** [threadsafe-platform]
+    [kt-handle]: an undeclared platform handler's `use` wraps the host in
+    the effect's monitor — `__Mon_E(salvo.platform.M.H(args))` — so a host
+    that did not claim safety cannot race on this backend; a `threadsafe`
+    one binds the raw instance, a JVM reference being the shared handle. The
+    Kotlin host stays on trust — no compiler check of the contract exists on
+    this backend (Rust checks the `Sync` half, [rs-handle]).
   * **The skeleton prints the contract** in both shapes above the class: the
     threadsafe one names what synchronization the host owes; the undeclared
     one says the compiler serializes the instance.

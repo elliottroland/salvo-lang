@@ -229,6 +229,61 @@ built, recorded in ROADMAP.md §16: an `iter fn` over a *generic* source or
 taking an `iter T` parameter (a stage — needs the generated `next` to carry
 forwarded implicits and the obligation match to ignore them).
 
+**Handles keyed on statefulness, named after the effect (2026-09-28
+afternoon, user decisions — built the same day, three commits).** Reading the
+morning's one-shape result, the user asked whether an actor's binding is a lock
+too, and the answer exposed the one cost that mattered: with every handler
+behind `Arc<Mutex<_>>`, the send stub inside a `use addr` binding and the mixed
+handler's façade were locked while they blocked — a sender stalled on a full
+mailbox held the mutex against a second sender who might have drained it, and a
+façade waiting on its servant held it against the next caller. The user's call:
+**stateless versus stateful is the real distinction**, on both backends whatever
+their mechanisms, and a handle's members should be lock-free or locked by the
+handler's statefulness; and **the handle should carry the effect's name** in
+the generated code, the mangling going behind it where a reader looks only if
+interested. Three sub-choices confirmed: `threadsafe platform handler` regains
+its meaning at once (a `threadsafe` host is stateless — `&self` receivers,
+shared raw — reversing the morning's "emit nothing"); the traits are
+`__Stateless_E`/`__Stateful_E`; a fn-typed constructor parameter makes a
+handler stateful (a stored `FnMut` may mutate its captures). The user then
+poked at "an actor face is state": it was too coarse — sends never lock (an
+`Addr` is a `usize`, the stub is stateless), the actor body owns its instance,
+and the generated `__addr`/`__parked` fields are written by the body, never
+through a handle — so the predicate became: a `state` field, a `replyto` mint
+(`Checked::parking_handlers`), a fn-typed constructor parameter, or a platform
+handler without `threadsafe`; intrinsic handlers trusted stateless.
+
+*What it took.* `salvo_core::handler_is_stateful(h, parks)`, one predicate for
+both emitters and the deadlock graph. **Rust**: an effect emits two traits
+(`__Stateless_E: Send + Sync` with `&self`, `__Stateful_E: Send` with `&mut
+self`) and a struct **named after the effect** holding `enum __Inner_E {
+Shared(Arc<dyn __Stateless_E>), Locked(Arc<Mutex<dyn __Stateful_E>>) }`, with
+`shared`/`locked`/`share_shared`/`share_locked` constructors and inherent
+`&self` members dispatching on the arm; a fn declaring `[E]` takes `e: &E` (a
+shared borrow — the E0499 hoisting is gone); handlers implement one trait by
+statefulness (`Emitter::member_receiver_mut`), the actor body dispatches through
+that trait, the send stub, façade and intrinsic handlers are stateless, a
+`threadsafe` host implements `__Stateless_E` with `&self`
+(`std/platform/net.rs` restored), an undeclared host and a platform *effect*'s
+host `__Stateful_E`; generic handlers carry `Send + Sync`. **Kotlin**: a
+stateless handler binds raw, a stateful one behind `__Mon_E` — the pre-§2b
+bare/monitor split, decided by the emitter from the declaration rather than by
+the checker's deleted `UseKind`; the stub and façade raw; a `with` item or spawn
+dependency wrapped when stateful. **Deadlock graph**: `H's lock` nodes for
+stateful plain handlers only (a stateless handler's members run on the caller's
+thread with nothing held, so the caller's edges already price them). Specs:
+[rs-handle], [kt-handle], [effect-handle], [threadsafe-platform] rewritten;
+EFFECT_FUSION.md §2–3; Backends.md and Effects-and-Handlers.md.
+
+*What fell out.* The two costs the morning recorded for a later pass are gone
+the same day: no lock around a stateless handler, none around the façade, none
+around the stub. `threadsafe` is a live contract again, half-checked by rustc
+(`Sync`) as on 2026-09-26. The one remaining lock-free item is scope-local
+bindings (a stateful `use` nothing captures). Test count unchanged at **1613**
+(+1 `stateless_handlers_hold_no_lock_in_the_graph`, the threadsafe Kotlin test
+renamed back to `…_binds_raw…`); goldens and every example regenerated on both
+backends, outputs unchanged.
+
 **One shape for effects — handles everywhere, fusion removed, `local`
 removed (2026-09-28, user decisions — built the same day, four commits).**
 EFFECT_FUSION.md's survey (2026-09-27) found that Rust had two modes for the
@@ -19264,14 +19319,25 @@ snapshot diffs.
   too, or the handle's trait impl is incomplete (E0046). A member lending from
   handler *state* has no `self` to name in an effect declaration, so the
   refusal ROADMAP §2b planned for it never had a program to fire on.
-- **A stateless handler behind a lock is still a lock** (2026-09-28). The
-  one-shape decision puts every handler behind `Arc<Mutex<_>>` /
-  `synchronized`, including `StdOutConsole`. Uncontended it is ~20ns on Rust
-  and a biased lock on the JVM; the cost that matters is the **mixed
-  handler's façade**, whose sync member waits on the servant while holding
-  the mutex, so a second caller on another thread blocks instead of serving
-  its pool. Recorded in [rs-handle] and ROADMAP's "Recorded, not scheduled";
-  the lock-free stateless path removes it.
+- **The lock that matters is the one held while blocking** (2026-09-28).
+  Putting every handler behind a mutex looked like a ~20ns tax; it was a
+  wedge. A `use addr` binding's send stub blocked on a full mailbox *holding
+  the handle's lock*, so a second sender — possibly a worker of the pool that
+  drains that mailbox — blocked on the mutex instead, a shape the deadlock
+  graph does not model (its back-pressure edges know mailboxes, not locks
+  around stubs); the mixed façade did the same while waiting on its servant.
+  Both are stateless, which is what made statefulness the right key for the
+  handle: a lock is only ever needed where there is state to protect, and a
+  wait under a stateful handler's lock is the case already priced (`H's
+  lock` nodes). Ask "what does this hold while it blocks?" before "how fast
+  is the lock?".
+- **"An actor's state" is three different things** (2026-09-28): the
+  instance the actor body owns (never behind a handle), the send stub a bound
+  `Addr` wraps (a `usize`, stateless), and the generated `__addr`/`__parked`
+  fields (written by the body, never through a handle). Only a `replyto`
+  mint makes a handler stateful *for a handle*, and a handler that mints is
+  spawn-only anyway. Writing "any actor face ⇒ stateful" would have locked
+  every inline `use` of an actor handler for nothing.
 - **A `+ Send` bound on a boxed fn is free for Salvo** because a lambda
   captures by value, and nothing a Salvo program can build is `!Send` — so
   `Box<dyn FnMut + Send>` for a handler's fn-typed parameter and `Arc<dyn Fn +

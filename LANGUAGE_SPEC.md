@@ -3365,11 +3365,29 @@ Conventions:
   instance — and everything downstream is that value or a copy of it: a
   fn's `[E]` parameter, a dependent handler's captured dependency
   ([effect-handler-deps]), a spawn's or task's inherited effect
-  ([spawn-inherit], [task-effects]), a fn value's effect. A stateless
-  handler's handle costs a copy; a stateful one's is a **monitor**
-  ([monitor-handler]), so two spawns capturing one stateful binding share
-  its state — accepted as a consequence of the shape. A `use` of an addr or
-  of a spawn expression is already a handle.
+  ([spawn-inherit], [task-effects]), a fn value's effect. A `use` of an addr
+  or of a spawn expression is already a handle.
+  * **Stateless or stateful is the one distinction the handle keys on**,
+    on both backends (user decision 2026-09-28, the afternoon's refinement):
+    a *stateful* handler's members run under a lock through its handle — the
+    monitor, [monitor-handler] — so two spawns capturing one stateful
+    binding share its state (accepted as a consequence of the shape); a
+    *stateless* handler's members run on the shared instance with nothing
+    held, so a send through an actor's bound addr, a mixed handler's façade
+    waiting on its servant, and every stateless handler cost no lock. Read
+    off the declaration by one predicate (`salvo_core::handler_is_stateful`):
+    a `state` field; a member that mints a `replyto` (the parked table is
+    state); a **fn-typed constructor parameter** (a stored callback may
+    mutate its captures); a **platform handler without `threadsafe`**
+    ([threadsafe-platform] is the declared statefulness of a host the
+    compiler cannot see). An `intrinsic` handler is trusted stateless, and
+    an actor handler's generated address and parked table do not count (the
+    actor body owns the instance). The deadlock graph's `H's lock` nodes
+    follow the same predicate ([actor-deadlock-cycle]).
+  * **On Rust the handle carries the effect's name** ([rs-handle]): `fn
+    work(console: &Console)`, the two traits a handler implements being the
+    mangled `__Stateless_E`/`__Stateful_E`; on Kotlin the interface is the
+    type and a stateful binding is wrapped in `__Mon_E` ([kt-handle]).
   * **Replaces** the 2026-09-20 shareable-by-default round's two spellings,
     both deleted from the language: `use local H(args)` (the scope-local,
     lock-free binding) and `local E` in an effect list (the requirement that
@@ -3380,14 +3398,12 @@ Conventions:
   * A fn *type*'s effects are its parameters like any fn's, so a lambda's
     availabilities are handles too and a fn called from inside a lambda is
     written like any other.
-  * **The one refusal a handle brings**: a member that lends a mutable view
-    into the handler's own state ([rs-loc]'s wholesale-lending shape,
-    `fn_type_lends_mut`) has nothing to lend through a handle whose lock is
-    released at the return, and is a checker error at the declaration —
-    answer a copy, or take a closure. No std effect has such a member.
-  * The emitters classify each `use` for their own purposes (`use_kinds`:
-    bare/monitor, and transitionally *inline* for the shapes the handle
-    emission does not cover yet — ROADMAP §2b steps ②/③ delete the third).
+  * **Lending members need no refusal**: an effect member that lends a
+    mutable view ([rs-loc]'s wholesale-lending shape) lends from a
+    *parameter* — an effect declaration has no `self` to name — so the borrow
+    outlives the handle's lock legitimately and the handle forwards both
+    faces. (ROADMAP §2b planned a checker error for lending from handler
+    state; no program can write one.)
 * [effect-any] **`any E` weakens identity** (user decision 2026-09-26, the
   network round). Bare `[E]` keeps
   the strong meaning every program so far assumed: *one* instance, sends in
@@ -7649,29 +7665,27 @@ replaced the working document TESTING.md).
   effect` it is a parse error saying why (an effect names members, and has no
   instance to be safe or unsafe).
   * **Undeclared = serialized on both backends.** A platform handler without
-    the word classifies as a **monitor** under [effect-handle]: Rust wraps the
-    host in the effect's lock adapter, Kotlin in the effect's `synchronized`
-    wrapper (`__Mon_E`). A host that did not claim safety therefore behaves
+    the word is **stateful** under [effect-handle]: Rust binds the host in the
+    handle's locked arm (`E::locked(H::new(…))`), Kotlin in the effect's
+    `synchronized` wrapper (`__Mon_E`). A host that did not claim safety therefore behaves
     identically everywhere and pays only the lock — the *safe* default, and
     the one the pre-2026-09-26 Kotlin emission lacked (it bound the raw
     instance, so a non-conforming host raced there and was accidentally
     serialized on Rust).
-  * **Declared = shared raw.** A `threadsafe` handler classifies **bare**:
-    Kotlin binds the raw instance; Rust shares it as `Arc<H>` through a
-    generated `&self` twin of the effect's trait, so the host is compiled
-    under shared access and rustc refuses interior mutability that is not
-    `Sync` — the half of the contract a compiler can check
-    ([rs-platform-handler]). The Kotlin host stays on trust.
+  * **Declared = shared raw.** A `threadsafe` handler is **stateless** for
+    the handle's purposes: Kotlin binds the raw instance; Rust shares it as
+    `Arc<dyn __Stateless_E>` — the host implements the effect's `&self`
+    trait, so it is compiled under shared access and rustc refuses interior
+    mutability that is not `Sync`, the half of the contract a compiler can
+    check ([rs-handle]). The Kotlin host stays on trust. (For the afternoon
+    of 2026-09-28 the word was emission-neutral, every handler being locked;
+    keying the handle on statefulness restored it the same day.)
   * **`salvo platform generate` prints the contract** into the skeleton it
     writes, in both shapes, so the person implementing the host signs what
     the compiler assumes: the threadsafe skeleton's receivers are `&self`
     (Rust) and the comment says there is no lock; the undeclared skeleton
     says the compiler serializes the instance. Regenerating after adding or
     removing the word changes the skeleton's shape.
-  * A `threadsafe` handler of an effect with a **mutably lending** member is
-    refused on Rust [backend-never-wrong]: a shared host cannot hand out a
-    mutable borrow of its state through `&self`. Drop the word or answer
-    owned values.
   * The first customer is the network sequence's `Transport` (ROADMAP.md
     section 2), called from every pool; std's `HostRawFs` keeps plain
     hash-map state on both backends and stays undeclared, so it is now
