@@ -344,24 +344,6 @@ pub struct ThrowSite {
     pub arm: Option<usize>,
 }
 
-/// [effect-handle] How a `use` of a handler construction is emitted.
-/// Transitional (ROADMAP §2b): every binding is a handle in the language
-/// since 2026-09-28, and this classification only guides the emitters until
-/// steps ②/③ make the emission uniform and delete it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UseKind {
-    /// Bound **inline** — the fusion emission, lock-free and not yet
-    /// capturable: the shapes the handle emission does not cover yet
-    /// (`classify_shareable_use` lists them).
-    Local,
-    /// A **stateless** handler bound shareable: no lock needed, the bare
-    /// instance is the binding (and it is clonable into a handle at a seam).
-    Bare,
-    /// A **stateful** handler bound shareable: a monitor — the instance is
-    /// lock-shaped from birth (`__Lock_E<H>` / `__Mon_E(H(...))`).
-    Monitor,
-}
-
 /// [effect-handle] One entry of the checker's effect environment: the
 /// instance, whether it is a *declared* availability (a signature's or a fn
 /// value's) rather than a lexical `use` binding, and whether it is spread
@@ -461,18 +443,6 @@ pub struct Checked {
     /// [effect-handler-multi] Several entries when the handler wears several
     /// faces: a `use` binds every effect it implements, in declaration order.
     pub use_effects: HashMap<Key, Vec<Ty>>,
-    /// [effect-handle] [effect-handler-deps] Dependency instances captured as
-    /// **owned handles** at a shareable construction — a `use` of a
-    /// handle-dep handler, or a monitor spawn with deps — keyed by the
-    /// statement/expression span, in the handler's declaration order. The
-    /// emitters synthesize one handle argument per entry, and pre-scan this
-    /// table to know which bindings need an eager handle variable.
-    pub handle_captures: HashMap<Key, Vec<Ty>>,
-    /// [effect-handle] How each `use` of a handler construction was classified
-    /// (keyed by the statement span): the emitters wrap, or don't, off this
-    /// — never off their own re-derivation (checker and emitter must
-    /// agree).
-    pub use_kinds: HashMap<Key, UseKind>,
     /// [route-stub] `use route(group)` sites, mapped to the generated handler
     /// they construct (`__Route_E`): the emitters build that handler where the
     /// program wrote `route`.
@@ -504,7 +474,7 @@ pub struct Checked {
     /// index `i`, `None` for a dependency resolved from the scope. Present
     /// only when the clause supplied at least one — a partial clause is the
     /// rule (user decision 2026-09-20), so both cases coexist in one list.
-    /// Parallel to the `use_deps`/`handle_captures` entry for the same span.
+    /// Parallel to the `use_deps` entry for the same span.
     pub use_with_items: HashMap<Key, Vec<Option<usize>>>,
     /// [actor-spawn-expr] The effect instance each `spawn` expression's child
     /// serves, keyed by the spawn's span — which is also the type of its
@@ -7433,21 +7403,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.key(span),
             ));
         }
-        // [effect-handle] Classification, for the emitters: a stateless
-        // handler binds bare, a stateful one as a monitor, and the shapes the
-        // handle emission does not cover yet bind inline (`UseKind::Local`,
-        // the fusion emission) — transitional until ROADMAP §2b steps ②/③
-        // make every binding a handle.
-        let kind = if mixed {
-            UseKind::Local
-        } else if let Some(decl) = self.scope.handlers.get(id.name.as_str()).copied() {
-            self.classify_shareable_use(decl, span)
-        } else {
-            UseKind::Local
-        };
-        self.out.use_kinds.insert(self.key(span), kind);
+        let _ = mixed;
         self.out.used_handlers.insert(id.name.clone());
-        self.finish_use(id, concrete, deps, kind, with_items, span);
+        self.finish_use(id, concrete, deps, with_items, span);
     }
 
     /// [with-clause] One item of a `use`'s `with` clause: the effect
@@ -7458,7 +7416,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// and the same two `use` itself binds, which is what makes a dependency
     /// swappable between a private handler and a shared one without
     /// touching the handler that depends on it.
-    fn check_with_item(&mut self, item: &'p Expr, handle_deps: bool) -> Option<Ty> {
+    fn check_with_item(&mut self, item: &'p Expr) -> Option<Ty> {
         let is_handler = match item {
             Expr::Ident(id) => self.scope.handlers.contains_key(id.name.as_str()),
             Expr::Call { callee, .. } => match callee.as_ref() {
@@ -7522,33 +7480,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // The fusion form threads dependencies per call from the enclosing
-        // scope's fused value; a private instance has no slot there yet.
-        // Refused rather than emitted wrong ([backend-never-wrong]); the
-        // handle-capturing form (every dependency the shareable default) is
-        // where a `with` clause lands today.
-        if !handle_deps {
-            self.error(
-                item.span(),
-                "a `with` clause on a `use` needs the handler's dependencies to be \
-                 captured as handles, and this handler has an actor-effect or \
-                 generic-instance dependency, which threads through the scope's \
-                 fused value instead — register the dependency with `use` before it",
-            );
-        }
         Some(effect)
-    }
-
-    /// [effect-handler-deps] The shared dependency-form predicate, with this
-    /// checker's effect table answering the face kind (transitional: gone
-    /// when every dependency is a handle, ROADMAP §2b).
-    fn handler_handle_deps(&self, h: &ast::HandlerDecl) -> bool {
-        crate::handler_handle_deps(h, |name| {
-            self.scope
-                .effects
-                .get(name)
-                .is_some_and(|e| e.is_actor)
-        })
     }
 
     /// [spawn-inherit] A declared dependency the `with` clause did not
@@ -7558,10 +7490,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// is a handle [effect-handle]. Answers the resolved instance, or `None`
     /// after reporting why it could not be synthesized.
     ///
-    /// Three refusals, each named: an **inline** binding (no handle to
-    /// capture yet — transitional, see `UseKind::Local`), an **ambiguity**
-    /// between compatible instances (a guess is not the checker's to make),
-    /// and **nothing in scope** (the old message, with both remedies now).
+    /// Two refusals, each named: an **ambiguity** between compatible
+    /// instances (a guess is not the checker's to make), and **nothing in
+    /// scope** (naming both remedies).
     fn synthesized_spawn_dep(
         &mut self,
         want: &Ty,
@@ -7614,104 +7545,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             return None;
         };
         Some(avail.ty)
-    }
-
-    /// [effect-handle] [monitor-handler] How a `use` of this plain handler
-    /// binds, for the emitters: **bare** (stateless) or **monitor**
-    /// (stateful) when the handle emission covers it, and **inline**
-    /// (`UseKind::Local`, the fusion emission) for the shapes it does not
-    /// cover yet — a `use`/`spawn` capability, an actor-effect or
-    /// generic-instance dependency, an unsendable constructor parameter or
-    /// state field, several stateful faces. Transitional: ROADMAP §2b steps
-    /// ②/③ make every binding a handle and delete this classification.
-    fn classify_shareable_use(&mut self, decl: &'p ast::HandlerDecl, _span: Span) -> UseKind {
-        // [actor-effect-kind] A handler of an actor effect bound with `use`
-        // runs its members inline in this scope — the historical escape
-        // hatch: the shareable handle of an actor effect is the addr a
-        // `spawn` answers, not a lock.
-        // [effect-any] Except a face written `of any E`: a router forwards
-        // to many members and holds no protocol state of its own, so its
-        // shareable form *is* a lock (or the bare instance) — the one kind
-        // of actor-effect handler whose `use` may bind shareable, and it
-        // must, since a group handle is always shareable.
-        let actor_face = decl.of.iter().zip(decl.of_any.iter()).any(|(of, any)| {
-            if *any {
-                return false;
-            }
-            let base = match of {
-                ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
-                ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
-                    ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
-                    _ => None,
-                },
-                _ => None,
-            };
-            base.is_some_and(|n| self.scope.effects.get(n).is_some_and(|e| e.is_actor))
-        });
-        if actor_face {
-            return UseKind::Local;
-        }
-        let mut inline = false;
-        for eff in decl.effects.iter().flatten() {
-            match eff {
-                EffectRef::Use(_) | EffectRef::Spawn(_) => inline = true,
-                // The two dependency shapes the owned-handle form excludes
-                // ([effect-handler-deps], `handler_handle_deps`): either
-                // pins the fusion form.
-                EffectRef::Effect(r) | EffectRef::AnyEffect(r) => {
-                    if self
-                        .scope
-                        .effects
-                        .get(r.name.name.as_str())
-                        .is_some_and(|e| e.is_actor)
-                    {
-                        inline = true;
-                    } else if !crate::effect_only_args(r, &|n: &str| {
-                        self.scope.effects.contains_key(n)
-                    }) {
-                        inline = true;
-                    }
-                }
-            }
-        }
-        // [actor-sendable] The instance crosses to every thread that binds
-        // the handle, so what it holds must be sendable.
-        let saved = self.enter_generics(&decl.generics);
-        for p in &decl.params {
-            let ty = self.lower_type(&p.ty);
-            if self.unshareable_reason(&ty).is_some() {
-                inline = true;
-            }
-        }
-        for field in &decl.state {
-            let ty = self.lower_type(&field.ty);
-            if self.unshareable_reason(&ty).is_some() {
-                inline = true;
-            }
-        }
-        self.generics = saved;
-        // [platform-handler] [threadsafe-platform] A platform handler's
-        // state is the host's and invisible here, so its shareability is a
-        // *contract*, not a proof — and since 2026-09-26 (user decision) the
-        // contract is written: `threadsafe platform handler` classifies
-        // **bare** (the host synchronizes internally), and a platform
-        // handler *without* the word classifies as a **monitor** —
-        // serialized behind a lock on both backends.
-        let stateful = !decl.state.is_empty() || (decl.platform && !decl.threadsafe);
-        // A stateful shared binding is one instance behind one lock; several
-        // faces would need one lock behind several effect types, which has
-        // no backend representation yet (the monitor spawn's rule).
-        if stateful && decl.of.len() > 1 {
-            inline = true;
-        }
-        if inline {
-            return UseKind::Local;
-        }
-        if stateful {
-            UseKind::Monitor
-        } else {
-            UseKind::Bare
-        }
     }
 
     /// [actor-use-addr] `use addr` — bind the effect an actor serves in this
@@ -7991,7 +7824,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         id: &'p Ident,
         concrete: Vec<Ty>,
         deps: Vec<EffectAvail>,
-        _kind: UseKind,
         with_items: &'p [Expr],
         span: Span,
     ) {
@@ -8008,12 +7840,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // recorded for the emitters, in declaration order. The lookup runs
         // *before* this `use` is registered, which is exactly the
         // binds-outward rule for a self-dependency [effect-intercept].
-        let handle_deps = self
-            .scope
-            .handlers
-            .get(id.name.as_str())
-            .copied()
-            .is_some_and(|decl| self.handler_handle_deps(decl));
         let mut resolved_deps: Vec<Ty> = Vec::new();
         // [with-clause] The written clause items, typed once, each carrying
         // the index the program wrote it at: the matching below drains them,
@@ -8022,7 +7848,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // for the `use` side).
         let mut supplied: Vec<(Ty, Span, usize)> = Vec::new();
         for (at, item) in with_items.iter().enumerate() {
-            if let Some(eff) = self.check_with_item(item, handle_deps) {
+            if let Some(eff) = self.check_with_item(item) {
                 supplied.push((eff, item.span(), at));
             }
         }
@@ -8114,11 +7940,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         if !resolved_deps.is_empty() {
-            if handle_deps {
-                self.out
-                    .handle_captures
-                    .insert(self.key(span), resolved_deps.clone());
-            }
             self.out.use_deps.insert(self.key(span), resolved_deps);
             if items.iter().any(|i| i.is_some()) {
                 self.out.use_with_items.insert(self.key(span), items);
@@ -13065,9 +12886,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         if !resolved_deps.is_empty() {
-            self.out
-                .handle_captures
-                .insert(self.key(span), resolved_deps.clone());
             self.out.use_deps.insert(self.key(span), resolved_deps);
         }
     }
@@ -13129,26 +12947,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // [monitor-handler] The dependency restriction, lifted 2026-09-20
-        // (user decision): a monitor may declare deps — captured as owned
-        // handles at construction, resolved from the enclosing scope exactly
-        // as a `use` resolves them (the availability rule makes the capture
-        // acyclic: a dep was bound before this spawn, so no lock order can
-        // cycle and no path routes back). Transitional (ROADMAP §2b): the
-        // shapes the handle capture does not cover yet are refused here.
-        if decl.effects.iter().flatten().next().is_some() && !self.handler_handle_deps(decl) {
-            self.error(
-                span,
-                format!(
-                    "`{}` cannot be shared yet: a shared handler's dependencies are \
-                     captured as handles at construction, and this one has an \
-                     actor-effect or generic-instance dependency or a `use`/`spawn` \
-                     capability — bind it with `use` in one scope, or give it an \
-                     `actor effect` face and a mailbox",
-                    id.name
-                ),
-            );
-        }
+        // [monitor-handler] [effect-handle] A monitor may declare deps —
+        // captured as handles at construction, resolved from the enclosing
+        // scope exactly as a `use` resolves them (the availability rule makes
+        // the capture acyclic: a dep was bound before this spawn, so no lock
+        // order can cycle and no path routes back).
         // A `send fn` member routes the spawn to the mixed path before this
         // check, so reaching one here is an internal inconsistency.
         if let Some(f) = decl.fns.iter().find(|f| f.is_send) {
@@ -13669,9 +13472,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the seam, and an ambiguity between two compatible instances is refused
     /// rather than guessed.
     ///
-    /// Recorded in `task_mint_effects` in the target's declared order, and in
-    /// `handle_captures` so the Rust emitter's pre-scan mints the eager handle
-    /// the closure clones — the same two facts a shareable `use` records.
+    /// Recorded in `task_mint_effects` in the target's declared order; the
+    /// emitters clone the scope's handles into the closure.
     fn resolve_task_effects(&mut self, target: &'p FnDecl, span: Span) {
         let declared: Vec<Ty> = target
             .effects
@@ -13734,9 +13536,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             resolved.push(avail.ty.clone());
         }
         if resolved.len() == declared.len() {
-            self.out
-                .handle_captures
-                .insert(self.key(span), resolved.clone());
             self.out.task_mint_effects.insert(self.key(span), resolved);
         }
     }

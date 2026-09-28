@@ -24,12 +24,12 @@ pub use check::{
     check_program, Checked, Coercion, CompareVia, ImplicitArg, ImplicitParam, PassDriver,
     PassMember,
     ThrowSite,
-    UnionTest, UseKind, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
+    UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };
 pub use deduce::ParamDeduction;
 pub use expand::{expand, Expansion, TestCase};
 pub use effects::{
-    effect_member_index, effect_member_name, effect_members_named, handler_handle_deps,
+    effect_member_index, effect_member_name, effect_members_named,
     handler_member_faces, has_any_router, effect_only_args,
 };
 pub use diag::FileDiagnostic;

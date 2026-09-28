@@ -9058,15 +9058,6 @@ impl<'p> Emitter<'p> {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
         };
-        // [effect-handle] The binding kind, decided by the checker (shareable by
-        // default, user decision 2026-09-20; transitional — the Rust
-        // emission binds every kind as the handle since 2026-09-28).
-        let kind = self
-            .checked
-            .use_kinds
-            .get(&(self.file_idx, span))
-            .copied()
-            .unwrap_or(salvo_core::UseKind::Local);
         // [effect-handle] [effect-handler-deps] Dependency handles this
         // construction captures (a handle-dep handler): one trailing `new`
         // argument per dep, cloned off the eager handle variable its
@@ -9171,7 +9162,6 @@ impl<'p> Emitter<'p> {
         if decl.init.is_some() {
             ctor = format!("{{ let mut __h = {ctor}; __h.init(); __h }}");
         }
-        let _ = kind;
         // [effect-handle] [rs-handle] The binding *is* the handle:
         // `let mut e = __Handle_E::new(H::new(args, deps…))`. A stateless
         // handler pays an uncontended lock per member call and nothing else
