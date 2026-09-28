@@ -232,7 +232,7 @@ fun<__It0> first__2(it: __It0, next: (__It0) -> Union2<Int, Finished>): Int {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
-    val console: Console = __Mon_Console(StdOutConsole())
+    val console: Console = StdOutConsole()
     val xs = listOf<Int>(1, 2, 3, 4)
     describe_container(console, xs)
     val p = countdown(5)

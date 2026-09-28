@@ -472,7 +472,7 @@ fun next__15(__p: __Iter_iter_Upto): Union2<Int, Finished> {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
-    val console: Console = __Mon_Console(StdOutConsole())
+    val console: Console = StdOutConsole()
     var i = 0
     val last = run {
 var __loop1: Int? = null

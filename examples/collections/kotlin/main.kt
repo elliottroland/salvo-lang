@@ -49,7 +49,7 @@ fun count_unique(xs: List<Int>): Int {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
-    val console: Console = __Mon_Console(StdOutConsole())
+    val console: Console = StdOutConsole()
     val primes = listOf<Int>(2, 3, 5, 7)
     val vowels = linkedSetOf<String>("a", "e", "i", "o", "u")
     val ages = linkedMapOf<String, Int>(("ada" to 36), ("grace" to 45))

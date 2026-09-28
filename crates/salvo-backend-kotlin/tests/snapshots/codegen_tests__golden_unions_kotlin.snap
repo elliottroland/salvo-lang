@@ -448,7 +448,7 @@ fun describe(result: Union2<Int, String>): String {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
-    val console: Console = __Mon_Console(StdOutConsole())
+    val console: Console = StdOutConsole()
     val good = parse_age(36)
     println(console, describe(good))
     val bad = parse_age(-1)

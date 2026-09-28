@@ -74,7 +74,7 @@ fun work(logger: Logger, step: String) {
 
 fun interception(logger: Logger, clock: Clock) {
     work(logger, "4. plain")
-    val logger2: Logger = __Mon_Logger(Stamped(logger, clock))
+    val logger2: Logger = Stamped(logger, clock)
     work(logger2, "4. stamped")
     val logger3: Logger = __Mon_Logger(Numbered(logger2))
     work(logger3, "4. numbered, then stamped")
@@ -84,7 +84,7 @@ fun interception(logger: Logger, clock: Clock) {
 fun scoping(logger: Logger) {
     work(logger, "5. before the block")
     if (true) {
-        val logger2: Logger = __Mon_Logger(QuietLogger())
+        val logger2: Logger = QuietLogger()
         work(logger2, "5. this line is swallowed")
     }
     work(logger, "5. after the block, logging again")
@@ -154,25 +154,25 @@ fun settings(setting_int: Setting<Int>, setting_string: Setting<String>, console
 }
 
 fun main() {
-    val console: Console = __Mon_Console(StdOutConsole())
+    val console: Console = StdOutConsole()
     val clock: Clock = __Mon_Clock(TickingClock())
     println(console, "1. the clock reads ${clock.now()}, then ${clock.now()}")
     println(console, "2. two effects in one signature:")
     stamp(clock, console, "2. a labelled moment")
     println(console, "3. a logger whose handler needs the console:")
-    val logger: Logger = __Mon_Logger(PlainLogger(console))
+    val logger: Logger = PlainLogger(console)
     work(logger, "3. logged through the console")
     println(console, "4. interception — each `use` wraps the one before it:")
     interception(logger, clock)
     println(console, "5. shadowing is not wrapping:")
     scoping(logger)
     println(console, "6. two effects, one member name:")
-    val audit: Audit = __Mon_Audit(ConsoleAudit(console))
+    val audit: Audit = ConsoleAudit(console)
     audit_only(audit, "6. audited only")
-    val metrics: Metrics = __Mon_Metrics(ConsoleMetrics(console))
+    val metrics: Metrics = ConsoleMetrics(console)
     audit_and_measure(audit, metrics, "6. audited and measured")
     println(console, "7. two instances of one generic effect:")
-    val setting_int: Setting<Int> = __Mon_Setting(Fixed<Int>(3))
-    val setting_string: Setting<String> = __Mon_Setting(Fixed<String>("eu-west-1"))
+    val setting_int: Setting<Int> = Fixed<Int>(3)
+    val setting_string: Setting<String> = Fixed<String>("eu-west-1")
     settings(setting_int, setting_string, console)
 }

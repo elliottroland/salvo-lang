@@ -2242,8 +2242,8 @@ fn a_generic_dependent_handler_holds_a_typed_dependency_field() {
         "expected the dependency as a typed field:\n{main}"
     );
     assert!(
-        main.contains("__Mon_Store(Twice<Int>(store_int))"),
-        "expected the `use` to pass the scope's binding and wrap in the monitor:\n{main}"
+        main.contains("val store_int2: Store<Int> = Twice<Int>(store_int)"),
+        "expected the `use` to pass the scope's binding (stateless: raw):\n{main}"
     );
 }
 
@@ -8890,12 +8890,12 @@ fn generate_threadsafe_platform_handler_demo_with(
 }
 
 /// [threadsafe-platform] [kt-handle] A **`threadsafe`** platform handler
-/// binds behind the effect's monitor exactly as an undeclared one (user
-/// decision 2026-09-28: the word is the declared contract, emission-neutral);
-/// its skeleton prints the contract the implementer signs, and the undeclared
-/// skeleton says what the compiler does.
+/// binds the raw host instance — no `__Mon_E` — because the declared contract
+/// is exactly "stateless for the handle's purposes"; an undeclared one binds
+/// behind the monitor. The skeleton prints the contract the implementer
+/// signs, and the undeclared skeleton says what the compiler does.
 #[test]
-fn a_threadsafe_platform_handler_binds_like_any_other_and_its_skeleton_prints_the_contract() {
+fn a_threadsafe_platform_handler_binds_raw_and_its_skeleton_prints_the_contract() {
     let skeleton = threadsafe_platform_handler_skeleton();
     let files = generate_threadsafe_platform_handler_demo_with(&skeleton.content);
     let main = files
@@ -8904,12 +8904,13 @@ fn a_threadsafe_platform_handler_binds_like_any_other_and_its_skeleton_prints_th
         .expect("main.kt should be generated");
     let src = &main.content;
     assert!(
-        src.contains("__Mon_RawClock(salvo.platform.main.HostRawClock(35))"),
-        "a threadsafe host binds behind the monitor like any handler, got:\n{src}"
+        src.contains("salvo.platform.main.HostRawClock(35)")
+            && !src.contains("__Mon_RawClock(salvo.platform.main.HostRawClock(35))"),
+        "a threadsafe host binds raw, got:\n{src}"
     );
     for expected in [
         "`threadsafe platform handler HostRawClock` — THE CONTRACT YOU ARE SIGNING",
-        "safe to run concurrently",
+        "NO\n// lock around it",
         "class HostRawClock(private val offset: Int) : RawClock {",
         "[threadsafe-platform]",
     ] {
@@ -10240,8 +10241,8 @@ fn a_generic_handler_is_constructed_at_its_type() {
         .expect("main.kt emitted")
         .content;
     for expected in [
-        "val show_int: Show<Int> = __Mon_Show(Plain<Int>())",
-        "val tag_int: Tag<Int> = __Mon_Tag(Prefixed<Int>(\"p\"))",
+        "val show_int: Show<Int> = Plain<Int>()",
+        "val tag_int: Tag<Int> = Prefixed<Int>(\"p\")",
     ] {
         assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
     }
@@ -14215,7 +14216,7 @@ fn a_dependent_spawn_hands_the_child_its_dependencies() {
     // [actor-mailbox] The instance is built into a local first, so the spawn can
     // read the bound off it before handing it over.
     assert!(
-        text.contains("val __h = Counting(Recording(), __Stub_Tally(tally))")
+        text.contains("val __h = Counting(__Mon_Log(Recording()), __Stub_Tally(tally))")
             && text.contains("__h.__mailboxCapacity, __Actor_Counting(__h)"),
         "the spawn does not pass the clause's instances, or does not read the \
          handler's mailbox:\n{text}"

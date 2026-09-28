@@ -119,7 +119,7 @@ fun hoist(camp: Camp, banner: String) {
 }
 
 fun main() {
-    val console: Console = __Mon_Console(StdOutConsole())
+    val console: Console = StdOutConsole()
     val roster: List<Fighter> = listOf<Fighter>(Fighter(name = "Ada", hp = 30, energy = 4), Fighter(name = "Bo", hp = 8, energy = 9))
     val ada = (named(roster, "Ada") ?: throw AssertionError("salvo: value is absent at main:192:15"))
     println(console, "1. found ${ada.name}, hp ${ada.hp}")

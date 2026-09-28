@@ -92,7 +92,7 @@ fun a_queue_of_tickets(console: Console) {
 }
 
 fun main() {
-    val console: Console = __Mon_Console(StdOutConsole())
+    val console: Console = StdOutConsole()
     one_use(console)
     borrow_then_use(console)
     read_a_field(console)

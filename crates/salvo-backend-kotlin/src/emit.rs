@@ -2235,27 +2235,29 @@ impl<'p> Emitter<'p> {
             format!("({})", params.join(", "))
         };
         // [threadsafe-platform] [kt-platform-handler] The contract, printed
-        // where the implementer signs it. Since 2026-09-28 (one shape,
-        // [kt-handle]) the word changes no emission: every instance is bound
-        // behind the effect's `synchronized` monitor (`__Mon_E`); the word
-        // is the declared contract a later, lock-free emission will read.
+        // where the implementer signs it. Kotlin shares an object reference
+        // either way; what differs is whether the compiler wraps the
+        // instance in the effect's `synchronized` monitor (`__Mon_E`) — it
+        // does unless the declaration says `threadsafe` [kt-handle].
         let contract = if h.threadsafe {
             format!(
                 "\n// `threadsafe platform handler {}` — THE CONTRACT YOU ARE SIGNING:\n\
-                 // every member below is safe to run concurrently with every other, so\n\
-                 // any mutable state has its own synchronization (`ConcurrentHashMap`,\n\
-                 // atomics, `synchronized` blocks of your own). Today the compiler still\n\
-                 // serializes the instance behind the effect's monitor; the contract is\n\
-                 // what lets a later emission drop the lock [threadsafe-platform].\n",
+                 // this instance is shared across every thread of the program with NO\n\
+                 // lock around it. Every member below may run concurrently with every\n\
+                 // other, so any mutable state needs its own synchronization\n\
+                 // (`ConcurrentHashMap`, atomics, `synchronized` blocks of your own). If\n\
+                 // the host cannot promise that, delete `threadsafe` from the Salvo\n\
+                 // declaration: the compiler then serializes the instance for you\n\
+                 // [threadsafe-platform].\n",
                 h.name.name
             )
         } else {
             format!(
                 "\n// `platform handler {}` — the compiler SERIALIZES this instance: every\n\
                  // member runs under one `synchronized` monitor on both backends, so\n\
-                 // plain fields are fine. If the host synchronizes internally, declare\n\
-                 // it `threadsafe platform handler` in Salvo to say so\n\
-                 // [threadsafe-platform].\n",
+                 // plain fields are fine. If the host synchronizes internally and wants\n\
+                 // to run concurrently, declare it `threadsafe platform handler` in\n\
+                 // Salvo and regenerate [threadsafe-platform].\n",
                 h.name.name
             )
         };
@@ -4640,15 +4642,13 @@ impl<'p> Emitter<'p> {
                     fac_args.join(", ")
                 );
             }
+            // [kt-handle] A stateless handler is shared raw; a stateful one
+            // behind the effect's monitor.
             let effect = decl.of.first().and_then(type_base_name).unwrap_or_default();
-            let _ = effect;
-            return format!(
-                "{}({ctor}({}))",
-                monitor_class_name(
-                    decl.of.first().and_then(type_base_name).unwrap_or_default()
-                ),
-                args.join(", ")
-            );
+            if self.handler_is_stateful(decl) {
+                return format!("{}({ctor}({}))", monitor_class_name(effect), args.join(", "));
+            }
+            return format!("{ctor}({})", args.join(", "));
         }
         self.needs_scheduler = true;
         // [effect-handler-deps] [kt-handle] The child's dependencies are
@@ -4779,7 +4779,13 @@ impl<'p> Emitter<'p> {
                 let arg_code: Vec<String> =
                     args.iter().map(|a| self.emit_expr(a)).collect();
                 let ctor = self.handler_ctor_name(&name, decl);
-                return format!("{ctor}({})", arg_code.join(", "));
+                let inner = format!("{ctor}({})", arg_code.join(", "));
+                // [kt-handle] A stateful private instance crosses to the child
+                // behind its monitor.
+                if self.handler_is_stateful(decl) {
+                    return format!("{}({inner})", monitor_class_name(base_of_rendered(dep)));
+                }
+                return inner;
             }
         }
         // Not a handler name, so it is an addr: the stub is the instance.
@@ -4945,7 +4951,7 @@ impl<'p> Emitter<'p> {
     /// *is* the handle, so neither needs wrapping — which is why this side
     /// needs no lock machinery where Rust's does
     /// ([rs-platform-handler] records the same asymmetry).
-    fn with_item_instance(&mut self, item: &Expr) -> String {
+    fn with_item_instance(&mut self, item: &Expr, dep: &str) -> String {
         let named = match item {
             Expr::Ident(id) => Some((id.name.clone(), Vec::new())),
             Expr::Call { callee, args, .. } => match callee.as_ref() {
@@ -4958,7 +4964,13 @@ impl<'p> Emitter<'p> {
             if let Some(decl) = self.symbols.handlers.get(name.as_str()).copied() {
                 let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
                 let ctor = self.handler_ctor_name(&name, decl);
-                return format!("{ctor}({})", arg_code.join(", "));
+                let inner = format!("{ctor}({})", arg_code.join(", "));
+                // [kt-handle] A stateful private instance is bound behind
+                // the effect's monitor, like any stateful handler.
+                if self.handler_is_stateful(decl) {
+                    return format!("{}({inner})", monitor_class_name(base_of_rendered(dep)));
+                }
+                return inner;
             }
         }
         self.emit_expr(item)
@@ -5134,7 +5146,7 @@ impl<'p> Emitter<'p> {
                     {
                         (addr_code, false)
                     } else {
-                        (format!("{}({addr_code})", stub_class_name(name)), true)
+                        (format!("{}({addr_code})", stub_class_name(name)), false)
                     }
                 }
                 _ => {
@@ -5224,7 +5236,7 @@ impl<'p> Emitter<'p> {
                 if let Some(Some(at)) = clause_of.get(i) {
                     match with_items.get(*at) {
                         Some(item) => {
-                            ctor_args.push(self.with_item_instance(item));
+                            ctor_args.push(self.with_item_instance(item, dep));
                             continue;
                         }
                         None => {
@@ -5286,7 +5298,8 @@ impl<'p> Emitter<'p> {
                     .map(|of| (None, self.emit_type(of)))
                     .collect(),
             };
-        self.bind_effect_instance(faces, handler_code, true, indent)
+        let stateful = self.handler_is_stateful(decl);
+        self.bind_effect_instance(faces, handler_code, stateful, indent)
     }
 
     /// [kt-handle] [actor-use-addr] Bind one effect **instance** into
@@ -5352,6 +5365,12 @@ impl<'p> Emitter<'p> {
     /// [kt-handle] The monitor class of a rendered effect instance
     /// (`Random<Int>` → `__Mon_Random`; the type argument is inferred from
     /// the wrapped value).
+    /// [kt-handle] `salvo_core::handler_is_stateful`, with the checker's
+    /// parking set answering for the mint.
+    fn handler_is_stateful(&self, h: &HandlerDecl) -> bool {
+        salvo_core::handler_is_stateful(h, self.checked.parking_handlers.contains(&h.name.name))
+    }
+
     fn monitor_for(&mut self, rendered: &str) -> String {
         let base = rendered.split('<').next().unwrap_or(rendered).trim();
         monitor_class_name(base)

@@ -358,9 +358,9 @@ fun sandbox_edges(fs: Fs, console: Console) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
-    val console: Console = __Mon_Console(StdOutConsole())
+    val console: Console = StdOutConsole()
     val raw_fs: RawFs = __Mon_RawFs(salvo.platform.fs.host.HostRawFs())
-    val fs: Fs = __Mon_Fs(DefaultFs(raw_fs))
+    val fs: Fs = DefaultFs(raw_fs)
     val root = "tmp/files-example"
     val made = fs.create_dirs(root)
     if (made is U2_2<*, *>) {
@@ -369,7 +369,7 @@ fun main() {
     }
     println(console, "-- the real filesystem, scoped to one directory --")
     if (true) {
-        val fs2: Fs = __Mon_Fs(RestrictedFs(root, fs))
+        val fs2: Fs = RestrictedFs(root, fs)
         workflow(fs2, console)
         sandbox_edges(fs2, console)
     }

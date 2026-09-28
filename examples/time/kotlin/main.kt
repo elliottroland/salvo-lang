@@ -250,13 +250,13 @@ class __Actor_Napping(private val handler: Napping) : salvo.SalvoActor {
 
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Session", salvo.main.__PROTO_Session), Pair("Sleeper", salvo.main.__PROTO_Sleeper), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl)))
-    val console: Console = __Mon_Console(StdOutConsole())
+    val console: Console = StdOutConsole()
     val budget = millis(1500L)
     println(console, "budget ${to_str__5(budget)}, doubled ${to_str__5(times(budget, 2L))}, in millis ${to_millis(budget)}")
     val stamp = epoch_milli(1700000000000L)
     println(console, "stamp ${to_epoch_second(stamp)}s, a minute later ${to_epoch_second(plus__2(stamp, minutes(1L)))}s")
     val clock: Clock = __Mon_Clock(DefaultClock())
-    val ticker: Ticker = __Mon_Ticker(DefaultTicker())
+    val ticker: Ticker = DefaultTicker()
     println(console, "wall clock is set: ${to_epoch_second(clock.now()) > 1600000000}")
     val ticker2: Ticker = __Mon_Ticker(SteppingTicker(millis(500L)))
     val started = ticker2.tick()

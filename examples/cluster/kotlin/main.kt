@@ -877,14 +877,14 @@ fun find(lookup: Lookup, key: String): String {
 }
 
 fun two_ids(leader: Leader, console: Console, seq: Int) {
-    val pick: Pick = __Mon_Pick(Elected(leader))
-    val sequencer: Sequencer = __Mon_Sequencer(__Route_Sequencer(seq, pick))
+    val pick: Pick = Elected(leader)
+    val sequencer: Sequencer = __Route_Sequencer(seq, pick)
     println(console, "  ${fresh_id(sequencer)} ${fresh_id(sequencer)}")
 }
 
 fun shop(console: Console, stock: Int) {
-    val pick: Pick = __Mon_Pick(Sharded())
-    val inventory: Inventory = __Mon_Inventory(__Route_Inventory(stock, pick))
+    val pick: Pick = Sharded()
+    val inventory: Inventory = __Route_Inventory(stock, pick)
     checkout(inventory, console, listOf<String>("apple", "pear", "apple", "fig", "pear"))
 }
 
@@ -1021,12 +1021,12 @@ fun settle(timer: Int) {
 
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("ActorChanges", salvo.net.__PROTO_ActorChanges), Pair("ActorGroup", salvo.net.__PROTO_ActorGroup), Pair("Boot", salvo.main.__PROTO_Boot), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Gather", salvo.main.__PROTO_Gather), Pair("Inbound", salvo.net.__PROTO_Inbound), Pair("Inventory", salvo.main.__PROTO_Inventory), Pair("Lookup", salvo.main.__PROTO_Lookup), Pair("MemNet", salvo.net.__PROTO_MemNet), Pair("NodeChanges", salvo.net.__PROTO_NodeChanges), Pair("NodeGroup", salvo.net.__PROTO_NodeGroup), Pair("Outbound", salvo.net.__PROTO_Outbound), Pair("Race", salvo.main.__PROTO_Race), Pair("Search", salvo.main.__PROTO_Search), Pair("Sequencer", salvo.main.__PROTO_Sequencer), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl)))
-    val console: Console = __Mon_Console(StdOutConsole())
+    val console: Console = StdOutConsole()
     val a = NodeEndpoint(host = "a", port = 1)
     val b = NodeEndpoint(host = "b", port = 1)
     val all = listOf<NodeEndpoint>(a, b)
     val network = run { val __h = MemNetwork(); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.pool(1), __h.__mailboxCapacity, __Actor_MemNetwork(__h), __Actor_MemNetwork.__DECODE); __a }
-    val transport: Transport = __Mon_Transport(MemTransport(a, network))
+    val transport: Transport = MemTransport(a, network)
     val p = salvo.SalvoSched.pool(2)
     val _connected = connect__2(transport, a, p)
     val nodes = run { val __h = StaticNodeGroup("cluster", all, transport); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, __Priv_StaticNodeGroup.Init); __a }
@@ -1061,15 +1061,15 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as List<Int>
     }.size}")
     println(console, "singleton (b's sequencer is remote: ${!eq__2(NodeId(salvo.SalvoSched.addrIdentity(remote_seq).node), NodeId(salvo.SalvoSched.hereNode()))}):")
-    val leader: Leader = __Mon_Leader(LastHost(nodes, a))
+    val leader: Leader = LastHost(nodes, a)
     two_ids(leader, console, seq)
     println(console, "sharded:")
     shop(console, stock)
     println(console, "scatter:")
-    val search: Search = __Mon_Search(Scattering(index, run { val __h = Gathering(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Gathering(__h), __Actor_Gathering.__DECODE); __a }))
+    val search: Search = Scattering(index, run { val __h = Gathering(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Gathering(__h), __Actor_Gathering.__DECODE); __a })
     println(console, "  salvo: ${count(search, "salvo")}, actors: ${count(search, "actors")}, none: ${count(search, "none")}")
     println(console, "hedge:")
-    val lookup: Lookup = __Mon_Lookup(Hedging(looks, run { val __h = Racing(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Racing(__h), __Actor_Racing.__DECODE); __a }))
+    val lookup: Lookup = Hedging(looks, run { val __h = Racing(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Racing(__h), __Actor_Racing.__DECODE); __a })
     println(console, "  ${find(lookup, "k1")}")
     val _stopped = run {
         val (done, __wid) = salvo.SalvoSched.waiter()

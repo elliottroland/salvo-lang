@@ -475,7 +475,7 @@ fun check(console: Console, n: Int) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
-    val console: Console = __Mon_Console(StdOutConsole())
+    val console: Console = StdOutConsole()
     describe(console, Person(name = "Roland", surname = "Elliott", age = 36))
     describe(console, Person(name = "Anon", age = 3))
     check(console, 5)
