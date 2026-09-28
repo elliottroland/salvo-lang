@@ -15,6 +15,33 @@
 
 use salvo_syntax::ast::{EffectDecl, FnDecl, HandlerDecl};
 
+/// [effect-handle] Whether a handler is **stateful** — the one distinction the
+/// handle emission keys on, on both backends (user decision 2026-09-28): a
+/// stateful handler's members run under a lock (`Mutex` / `synchronized`)
+/// through its handle, a stateless handler's run on the shared instance with
+/// no lock. Read off the declaration, the same way everywhere:
+///
+/// * a declared `state` field;
+/// * a member that **mints** a continuation (`replyto`, from the checker's
+///   `parking_handlers`): the parked table is state the mint writes;
+/// * a **fn-typed constructor parameter**: the stored callback is a
+///   `FnMut`, and a lambda may mutate what it captured;
+/// * a **platform handler without `threadsafe`**: the host's state is
+///   invisible, so the undeclared case is the safe one [threadsafe-platform].
+///
+/// An `intrinsic` handler is trusted at its declared (stateless) shape. The
+/// generated actor fields (`__addr`, `__parked`) do not count: the actor body
+/// owns the instance and writes them itself, never through a handle.
+pub fn handler_is_stateful(h: &HandlerDecl, parks: bool) -> bool {
+    if h.intrinsic {
+        return false;
+    }
+    !h.state.is_empty()
+        || parks
+        || h.params.iter().any(|p| matches!(p.ty, salvo_syntax::ast::Type::Fn { .. }))
+        || (h.platform && !h.threadsafe)
+}
+
 
 /// [effect-generic-decl] Whether every type argument of `r` names an effect
 /// (an instance that erases to a monomorphic type), `true` for no arguments.

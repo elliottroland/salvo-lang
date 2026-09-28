@@ -453,6 +453,11 @@ pub struct Checked {
     /// demands the host companion — only for handlers a program actually
     /// binds, rather than for every one a reachable module declares.
     pub used_handlers: std::collections::HashSet<String>,
+    /// [actor-replyto] [effect-handle] The handlers whose members **mint** a
+    /// continuation (`replyto`), by name: they write their parked-continuation
+    /// table, which makes them stateful for the handle's purposes
+    /// (`salvo_core::handler_is_stateful`) even with no declared state.
+    pub parking_handlers: std::collections::HashSet<String>,
     /// [protocol-hash] Every actor effect's canonical protocol hash
     /// (`crate::wire::protocol_hash`), by effect name. Computed once here so
     /// both emitters carry the same constants and the handshake (step ④)
@@ -1298,6 +1303,7 @@ fn check_once<'p>(
     // recorded (`actor_gates`, `actor_sends`) — and inside the round, so its
     // diagnostics land with the round whose diagnostics are kept.
     crate::deadlock::check(program, symbols, &mut out);
+    out.parking_handlers = parking_handlers.clone();
     out
 }
 

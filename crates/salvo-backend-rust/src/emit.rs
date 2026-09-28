@@ -661,8 +661,10 @@ pub fn platform_skeletons(
                         None => continue,
                     }
                 };
+                // A platform *effect*'s host has no `threadsafe` word to
+                // declare itself, so it is the stateful (locked) arm.
                 args.push(format!(
-                    "&mut {effect_owner}::{}::new({owner}{})",
+                    "&{effect_owner}::{}::locked({owner}{})",
                     monitor_struct_name(&effect),
                     host_struct(&effect)
                 ));
@@ -1233,6 +1235,10 @@ struct Emitter<'p> {
     /// splices take their locator forms. The caller materializes
     /// `&mut anchor[loc]` at the use site, statement-scoped.
     lend_loc_mode: bool,
+    /// [rs-handle] The receiver of the handler member being emitted:
+    /// `&mut self` for a stateful handler (implementing `__Stateful_E`),
+    /// `&self` for a stateless one (`__Stateless_E`).
+    member_receiver_mut: bool,
     /// [rs-loc] Named lending fns some call site uses mutably — closed
     /// transitively over return-path forwards. Each gets a demand-driven
     /// second emission (`{name}__loc`), the locator variant.
@@ -2155,6 +2161,7 @@ impl<'p> Emitter<'p> {
             pair_args: HashMap::new(),
             pair_ready: HashSet::new(),
             lend_loc_mode: false,
+            member_receiver_mut: true,
             loc_adapter: false,
             covered_fns: covered_fns(program, checked),
             covered_here: HashMap::new(),
@@ -2606,6 +2613,42 @@ impl<'p> Emitter<'p> {
     /// the effect's own module prefix plus the name. Used for a protocol's
     /// message enum and trait, which a spawn or a send may mention from
     /// another module.
+    /// [rs-handle] `salvo_core::handler_is_stateful`, with the checker's
+    /// parking set answering for the mint.
+    fn handler_is_stateful(&self, h: &HandlerDecl) -> bool {
+        salvo_core::handler_is_stateful(h, self.checked.parking_handlers.contains(&h.name.name))
+    }
+
+    /// [rs-handle] The trait a handler of `face` implements, at the face's
+    /// instantiation: `__Stateful_E<…>` or `__Stateless_E<…>`, through the
+    /// effect's module path.
+    fn face_trait_type(&mut self, face: &Type, stateful: bool) -> String {
+        let Some((base, args)) = self.face_parts(face) else {
+            return self.emit_type(face);
+        };
+        let item = if stateful { stateful_trait_name(&base) } else { stateless_trait_name(&base) };
+        let path = self.effect_path(&base, &item);
+        if args.is_empty() {
+            path
+        } else {
+            format!("{path}<{}>", args.join(", "))
+        }
+    }
+
+    /// The base effect name and rendered type arguments of a handler's
+    /// `of` type (an erased effect's instance is monomorphic).
+    fn face_parts(&mut self, face: &Type) -> Option<(String, Vec<String>)> {
+        let base = type_base_name(face)?.to_string();
+        if self.erased.is_erased(&base) {
+            return Some((base, Vec::new()));
+        }
+        let args: Vec<String> = match face {
+            Type::Named { base: b, .. } => b.args.iter().map(|a| self.emit_type(a)).collect(),
+            _ => Vec::new(),
+        };
+        Some((base, args))
+    }
+
     fn effect_path(&self, effect: &str, item: &str) -> String {
         match self.effect_paths.get(effect) {
             Some(prefix) => format!("{prefix}{item}"),
@@ -2899,10 +2942,16 @@ impl<'p> Emitter<'p> {
         body
     }
 
+    /// [rs-handle] An effect emits **two traits and a handle**. The traits are
+    /// what handlers implement — `__Stateless_E` with `&self` receivers for a
+    /// handler with nothing to mutate, `__Stateful_E` with `&mut self` for one
+    /// with state — and the handle (`emit_monitor_stub`) carries the effect's
+    /// name and is what every binding is.
     fn emit_effect(&mut self, e: &EffectDecl) -> String {
         let saved = self.enter_generics(&e.generics);
         let generics = self.emit_generic_params_unbounded(&e.generics);
-        let mut out = format!("\npub trait {}{generics} {{\n", rs_ident(&e.name.name));
+        // Signatures once; the receiver differs per trait.
+        let mut sigs: Vec<String> = Vec::new();
         for (i, f) in e.fns.iter().enumerate() {
             // [rs-effects] `dyn` traits cannot have generic methods.
             if !f.generics.is_empty() {
@@ -2921,10 +2970,7 @@ impl<'p> Emitter<'p> {
             let mut ret = self.emit_return_type(f.return_type.as_ref());
             let mut params = params;
             let lt = self.member_lend_lifetime(f, &mut params, &mut ret);
-            out.push_str(&format!(
-                "    fn {}{lt}(&mut self{params}){ret};\n",
-                self.member_name(e, i)
-            ));
+            sigs.push(format!("fn {}{lt}(&RECV{params}){ret};", self.member_name(e, i)));
             // [rs-loc] ④a slice 4 — a member whose return is a **wholesale
             // mutable lend** gains a locator sibling: position data out,
             // read-mode parameters. Declaration-driven (a trait is one
@@ -2942,11 +2988,26 @@ impl<'p> Emitter<'p> {
                 );
                 let loc_ret = self.loc_return_type(f);
                 self.lend_loc_mode = saved;
-                out.push_str(&format!(
-                    "    fn {}__loc(&mut self{loc_params}){loc_ret};\n",
+                sigs.push(format!(
+                    "fn {}__loc(&RECV{loc_params}){loc_ret};",
                     self.member_name(e, i)
                 ));
             }
+        }
+        let mut out = format!(
+            "\npub trait {}{generics}: Send + Sync {{\n",
+            stateless_trait_name(&e.name.name)
+        );
+        for sig in &sigs {
+            out.push_str(&format!("    {}\n", sig.replace("&RECV", "&self")));
+        }
+        out.push_str("}\n");
+        out.push_str(&format!(
+            "\npub trait {}{generics}: Send {{\n",
+            stateful_trait_name(&e.name.name)
+        ));
+        for sig in &sigs {
+            out.push_str(&format!("    {}\n", sig.replace("&RECV", "&mut self")));
         }
         out.push_str("}\n");
         // [rs-actor] [actor-use-addr] The forwarding stub: the effect,
@@ -3000,7 +3061,7 @@ impl<'p> Emitter<'p> {
             "\npub struct {name} {{\n    addr: usize,\n}}\n\nimpl {name} {{\n    \
              pub fn new(addr: usize) -> Self {{\n        Self {{ addr }}\n    }}\n}}\n\
              \nimpl {} for {name} {{\n",
-            rs_ident(&e.name.name)
+            stateless_trait_name(&e.name.name)
         );
         for (i, f) in &sends {
             let member = salvo_core::effect_member_name(e, *i);
@@ -3018,7 +3079,7 @@ impl<'p> Emitter<'p> {
             };
             let call = self.send_call(&e.name.name, "self.addr", &built);
             out.push_str(&format!(
-                "    fn {}(&mut self{params}) {{\n        {call};\n    }}\n",
+                "    fn {}(&self{params}) {{\n        {call};\n    }}\n",
                 rs_ident(&member)
             ));
         }
@@ -3027,21 +3088,21 @@ impl<'p> Emitter<'p> {
     }
 
     /// [effect-handle] [rs-handle] The **handle** of an effect: the one
-    /// value every binding of `E` is (user decision 2026-09-28, one shape).
-    /// `__Handle_E` holds an `Arc<Mutex<dyn E + Send>>` and implements `E`
-    /// by lock-and-forward, so a `use` local, a fn's effect parameter, a
-    /// dependent handler's captured dependency, a spawn's inherited effect
-    /// and a task's capture are all the same type — cloned where they
-    /// travel, shared where they meet. Generic exactly as the effect is
-    /// (`__Handle_Random<T>` for `Random<T>`). Emitted for actor effects
-    /// too: `use addr` binds one over the send stub, and a router `of any E`
-    /// is a handler of it like any other.
+    /// value every binding of `E` is (user decision 2026-09-28, one shape),
+    /// named after the effect. Two arms, keyed on the handler's
+    /// **statefulness** (`salvo_core::handler_is_stateful`): a stateless
+    /// handler is shared as `Arc<dyn __Stateless_E>` and its members run
+    /// with no lock; a stateful one sits behind `Arc<Mutex<dyn __Stateful_E>>`.
+    /// The handle's members are inherent `&self` methods dispatching on the
+    /// arm, so a fn declaring `[E]` takes `e: &E` and two handles of one
+    /// instance never conflict. Generic exactly as the effect is.
     ///
-    /// `share` takes an already-shared instance so a multi-face handler's
-    /// faces can be handles of *one* `Arc<Mutex<H>>` [effect-handler-multi].
+    /// `share_locked` takes an already-shared instance so a multi-face
+    /// stateful handler's faces can be handles of *one* `Arc<Mutex<H>>`
+    /// [effect-handler-multi]; `shared` takes an `Arc` for the same reason.
     fn emit_monitor_stub(&mut self, e: &EffectDecl) -> String {
         // A member with its own generics was refused and skipped by the
-        // trait above, so it is skipped here to match.
+        // traits above, so it is skipped here to match.
         let members: Vec<(usize, &FnDecl)> = e
             .fns
             .iter()
@@ -3049,6 +3110,7 @@ impl<'p> Emitter<'p> {
             .filter(|(_, f)| f.generics.is_empty())
             .collect();
         let base = monitor_struct_name(&e.name.name);
+        let inner = format!("__Inner_{}", rs_ident(&e.name.name));
         let g_params = if e.generics.is_empty() {
             String::new()
         } else {
@@ -3063,20 +3125,29 @@ impl<'p> Emitter<'p> {
         };
         let g_args: Vec<String> = e.generics.iter().map(|g| g.name.clone()).collect();
         let name = trait_type(&base, &g_args);
-        let trait_name = trait_type(&e.name.name, &g_args);
-        // The constructor's own parameter is `__H`, which an effect's
+        let inner_ty = trait_type(&inner, &g_args);
+        let stateless = trait_type(&stateless_trait_name(&e.name.name), &g_args);
+        let stateful = trait_type(&stateful_trait_name(&e.name.name), &g_args);
+        // The constructors' own parameter is `__H`, which an effect's
         // generics can never collide with [name-casing].
-        let dyn_ty = format!("dyn {trait_name} + Send");
         let mut out = format!(
-            "\npub struct {base}{g_params} {{\n    \
-             inner: std::sync::Arc<std::sync::Mutex<{dyn_ty}>>,\n}}\n\n\
+            "\npub struct {base}{g_params} {{\n    inner: {inner_ty},\n}}\n\n\
+             pub enum {inner}{g_params} {{\n    \
+             Shared(std::sync::Arc<dyn {stateless}>),\n    \
+             Locked(std::sync::Arc<std::sync::Mutex<dyn {stateful}>>),\n}}\n\n\
              impl{g_params} Clone for {name} {{\n    fn clone(&self) -> Self {{\n        \
-             Self {{ inner: self.inner.clone() }}\n    }}\n}}\n\n\
+             Self {{ inner: match &self.inner {{\n            \
+             {inner}::Shared(h) => {inner}::Shared(h.clone()),\n            \
+             {inner}::Locked(h) => {inner}::Locked(h.clone()),\n        }} }}\n    }}\n}}\n\n\
              impl{g_params} {name} {{\n    \
-             pub fn new<__H: {trait_name} + Send + 'static>(inner: __H) -> Self {{\n        \
-             Self {{ inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }}\n    }}\n    \
-             pub fn share(inner: std::sync::Arc<std::sync::Mutex<{dyn_ty}>>) -> Self {{\n        \
-             Self {{ inner }}\n    }}\n}}\n\nimpl{g_params} {trait_name} for {name} {{\n"
+             pub fn shared<__H: {stateless} + 'static>(inner: __H) -> Self {{\n        \
+             Self {{ inner: {inner}::Shared(std::sync::Arc::new(inner)) }}\n    }}\n    \
+             pub fn share_shared(inner: std::sync::Arc<dyn {stateless}>) -> Self {{\n        \
+             Self {{ inner: {inner}::Shared(inner) }}\n    }}\n    \
+             pub fn locked<__H: {stateful} + 'static>(inner: __H) -> Self {{\n        \
+             Self {{ inner: {inner}::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }}\n    }}\n    \
+             pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn {stateful}>>) -> Self {{\n        \
+             Self {{ inner: {inner}::Locked(inner) }}\n    }}\n"
         );
         for (i, f) in &members {
             let member = self.member_name(e, *i);
@@ -3096,14 +3167,16 @@ impl<'p> Emitter<'p> {
             args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
             let args = args.join(", ");
             out.push_str(&format!(
-                "    fn {member}{lt}(&mut self{params}){ret} {{\n        \
-                 self.inner.lock().unwrap().{member}({args})\n    }}\n"
+                "    pub fn {member}{lt}(&self{params}){ret} {{\n        \
+                 match &self.inner {{\n            \
+                 {inner}::Shared(h) => h.{member}({args}),\n            \
+                 {inner}::Locked(h) => h.lock().unwrap().{member}({args}),\n        }}\n    }}\n"
             ));
             // [rs-loc] The locator face of a mutable-lending member is
-            // forwarded too, or the trait impl is incomplete. A member lends
-            // from a *parameter* (`proj(es)`), never from handler state —
-            // an effect member has no `self` to name — so the borrow
-            // outlives the guard legitimately.
+            // dispatched too. An effect member lends from a *parameter*
+            // (`proj(es)`), never from handler state — an effect member has
+            // no `self` to name — so the borrow outlives the guard
+            // legitimately.
             if f.return_type
                 .as_ref()
                 .is_some_and(|rt| fn_type_lends_mut(rt))
@@ -3117,8 +3190,10 @@ impl<'p> Emitter<'p> {
                 let loc_ret = self.loc_return_type(f);
                 self.lend_loc_mode = saved;
                 out.push_str(&format!(
-                    "    fn {member}__loc(&mut self{loc_params}){loc_ret} {{\n        \
-                     self.inner.lock().unwrap().{member}__loc({args})\n    }}\n"
+                    "    pub fn {member}__loc(&self{loc_params}){loc_ret} {{\n        \
+                     match &self.inner {{\n            \
+                     {inner}::Shared(h) => h.{member}__loc({args}),\n            \
+                     {inner}::Locked(h) => h.lock().unwrap().{member}__loc({args}),\n        }}\n    }}\n"
                 ));
             }
         }
@@ -3374,7 +3449,7 @@ impl<'p> Emitter<'p> {
         let name = host_struct(&e.name.name);
         let mut out = format!(
             "\npub struct {name};\n\nimpl {owner_path}::{} for {name} {{\n",
-            rs_ident(&e.name.name)
+            stateful_trait_name(&e.name.name)
         );
         for (i, f) in e.fns.iter().enumerate() {
             if !f.generics.is_empty() {
@@ -3477,12 +3552,23 @@ impl<'p> Emitter<'p> {
             }
             out.push_str("        }\n    }\n}\n");
         }
-        // The host implements the effect's own trait, `threadsafe` or not.
+        // [threadsafe-platform] [rs-handle] Which trait, and which receiver:
+        // a `threadsafe` host implements `__Stateless_E` with `&self` (shared
+        // with no lock — so a field that is not `Sync` does not compile), an
+        // undeclared one `__Stateful_E` with `&mut self` (serialized by the
+        // handle's lock).
         let _ = own_path;
-        let (trait_path, receiver) = (
-            format!("{effect_path}::{}", rs_ident(&effect.name.name)),
-            "&mut self",
-        );
+        let (trait_path, receiver) = if h.threadsafe {
+            (
+                format!("{effect_path}::{}", stateless_trait_name(&effect.name.name)),
+                "&self",
+            )
+        } else {
+            (
+                format!("{effect_path}::{}", stateful_trait_name(&effect.name.name)),
+                "&mut self",
+            )
+        };
         out.push_str(&format!("\nimpl {trait_path} for {name} {{\n"));
         for (i, f) in effect.fns.iter().enumerate() {
             if !f.generics.is_empty() {
@@ -3665,7 +3751,11 @@ impl<'p> Emitter<'p> {
         let deps: Vec<(String, Vec<String>)> = self.handler_dep_effects(h);
         let handle_dep = self.handler_is_handle_dep(h);
         let saved = self.enter_generics(&h.generics);
-        let generics = self.emit_generic_params(&h.generics);
+        // [rs-handle] A generic handler's parameters carry `Send + Sync`:
+        // the instance sits in an `Arc` the handle shares across threads, and
+        // every Salvo type satisfies both, so the bound costs nothing.
+        let generics = self.emit_generic_params(&h.generics)
+            .replace(": Clone + 'static", ": Clone + Send + Sync + 'static");
         let generic_args = self.emit_generic_args_plain(&h.generics);
         let name = rs_ident(&h.name.name);
         // Every constructor parameter is data now: dependencies moved to the
@@ -3893,8 +3983,10 @@ impl<'p> Emitter<'p> {
             // [effect-handle] [rs-handle] A dependent handler is the same
             // shape: its dependency access is wired in `emit_fn_inner` off
             // the captured `__Handle_E` fields.
+            let stateful = self.handler_is_stateful(h);
+            let saved_recv = std::mem::replace(&mut self.member_receiver_mut, stateful);
             for (face, effect) in h.of.iter().zip(self.handler_faces(h)) {
-                let of = self.emit_type(face);
+                let of = self.face_trait_type(face, stateful);
                 out.push_str(&format!(
                     "\nimpl{generics} {of} for {name}{generic_args} {{\n"
                 ));
@@ -3924,7 +4016,8 @@ impl<'p> Emitter<'p> {
             }
             // [actor-private-send] Private send members are inherent methods:
             // no face's trait has room for them, and only this handler's own
-            // activations call them.
+            // activations call them (which own the instance: `&mut self`).
+            self.member_receiver_mut = true;
             let privates = self.private_members(h);
             if !privates.is_empty() {
                 out.push_str(&format!("\nimpl{generics} {name}{generic_args} {{\n"));
@@ -3933,6 +4026,7 @@ impl<'p> Emitter<'p> {
                 }
                 out.push_str("}\n");
             }
+            self.member_receiver_mut = saved_recv;
         }
         // [actor-replyto] The parked-continuation enum, beside the handler
         // whose members it names.
@@ -3990,13 +4084,22 @@ impl<'p> Emitter<'p> {
         // `__dispatch`, which is what a single-protocol actor has always
         // emitted.
         let single = faces.len() == 1 && privates.is_empty();
+        // [rs-handle] The dispatch names the trait this handler implements,
+        // by its statefulness: the actor body owns the instance, so either
+        // receiver is reachable.
+        let stateful = self.handler_is_stateful(h);
         let dispatchers: Vec<(String, String, String)> = faces
             .iter()
             .map(|e| {
                 let effect_name = e.name.name.clone();
                 let msg = msg_enum_name(&effect_name);
                 let msg_path = self.effect_path(&effect_name, &msg);
-                let trait_path = self.effect_path(&effect_name, &rs_ident(&effect_name));
+                let trait_item = if stateful {
+                    stateful_trait_name(&effect_name)
+                } else {
+                    stateless_trait_name(&effect_name)
+                };
+                let trait_path = self.effect_path(&effect_name, &trait_item);
                 let dispatch = if single {
                     "__dispatch".to_string()
                 } else {
@@ -4492,7 +4595,9 @@ impl<'p> Emitter<'p> {
             }
             out.push_str("        }\n    }\n}\n");
         }
-        out.push_str(&format!("\nimpl {of} for {name} {{\n"));
+        let of_trait = self.face_trait_type(&h.of[0], false);
+        out.push_str(&format!("\nimpl {of_trait} for {name} {{\n"));
+        let _ = of;
         for (i, member) in effect.fns.iter().enumerate() {
             let params = format!(
                 "{}{}",
@@ -4515,7 +4620,7 @@ impl<'p> Emitter<'p> {
                 continue;
             };
             out.push_str(&format!(
-                "    fn {}(&mut self{params}){ret} {{\n",
+                "    fn {}(&self{params}){ret} {{\n",
                 self.member_name(effect, i)
             ));
             for line in body.lines() {
@@ -5066,7 +5171,7 @@ impl<'p> Emitter<'p> {
             .collect();
         let mut params: Vec<String> = Vec::new();
         if handler_of_style.is_some() {
-            params.push("&mut self".to_string());
+            params.push(if self.member_receiver_mut { "&mut self" } else { "&self" }.to_string());
         }
         // Effect dependencies become leading parameters [rs-effects] [rs-handle],
         // sourced from the checker's lowered effect list when available
@@ -5165,7 +5270,7 @@ impl<'p> Emitter<'p> {
                         handle_var: Some(param.clone()),
                     });
                     self.bindings.insert(param.clone(), BindKind::RefMut);
-                    params.push(format!("{param}: &mut {handle_ty}"));
+                    params.push(format!("{param}: &{handle_ty}"));
                 }
             }
         }
@@ -6180,7 +6285,7 @@ impl<'p> Emitter<'p> {
         }
         rendered
             .into_iter()
-            .map(|r| format!("&mut {}", self.handle_type_rendered(&r)))
+            .map(|r| format!("&{}", self.handle_type_rendered(&r)))
             .collect()
     }
 
@@ -7362,13 +7467,25 @@ fn trait_type(name: &str, args: &[String]) -> String {
     }
 }
 
-/// [effect-handle] [rs-handle] The handle of an effect: `__Handle_Random`,
-/// the effect implemented by locking a shared instance and delegating —
-/// what every binding of `Random` is in Rust, what an `Addr<Random>` *is*,
-/// and what a monitor spawn answers. Per effect, like the send stub: a
-/// holder knows only the effect the handle serves.
+/// [effect-handle] [rs-handle] The handle of an effect **carries the
+/// effect's name** (user decision 2026-09-28): `Random` is the struct a fn
+/// parameter, a `use` local and a dependency field are typed by — what a
+/// reader of the output sees — and the two traits handlers implement are
+/// the mangled names (`__Stateless_Random`, `__Stateful_Random`).
 fn monitor_struct_name(effect: &str) -> String {
-    format!("__Handle_{}", rs_ident(effect))
+    rs_ident(effect)
+}
+
+/// [rs-handle] The trait a **stateless** handler implements: the effect's
+/// members with `&self` receivers, shared through an `Arc` with no lock.
+fn stateless_trait_name(effect: &str) -> String {
+    format!("__Stateless_{}", rs_ident(effect))
+}
+
+/// [rs-handle] The trait a **stateful** handler implements: the effect's
+/// members with `&mut self` receivers, reached through the handle's lock.
+fn stateful_trait_name(effect: &str) -> String {
+    format!("__Stateful_{}", rs_ident(effect))
 }
 
 /// [actor-private-send] The handler-keyed enum of a handler's private send
@@ -8435,7 +8552,7 @@ impl<'p> Emitter<'p> {
                      let __cap = __h.__mailbox_capacity; \
                      let __a = crate::scheduler::salvo_spawn({pool_code}, __cap as usize, \
                      Box::new({}::new(__h)), None); \
-                     {handle}::new({} {{ {} }}) }})",
+                     {handle}::shared({} {{ {} }}) }})",
                     handler_args.join(", "),
                     actor_struct_name(&handler_name),
                     facade_struct_name(&handler_name),
@@ -8478,7 +8595,8 @@ impl<'p> Emitter<'p> {
                     }
                 }
             }
-            return format!("{handle}::new({ctor}::new({}))", arg_code.join(", "));
+            let mk = if self.handler_is_stateful(decl) { "locked" } else { "shared" };
+            return format!("{handle}::{mk}({ctor}::new({}))", arg_code.join(", "));
         }
         self.needs_scheduler = true;
         // [effect-handler-deps] [rs-handle] A dependent child owns its
@@ -8662,7 +8780,8 @@ impl<'p> Emitter<'p> {
             if let Some(decl) = self.symbols.handlers.get(name.as_str()).copied() {
                 let arg_code: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
                 let ctor = self.handler_ctor_path(&name, decl);
-                return Some(format!("{handle}::new({ctor}::new({}))", arg_code.join(", ")));
+                let mk = if self.handler_is_stateful(decl) { "locked" } else { "shared" };
+                return Some(format!("{handle}::{mk}({ctor}::new({}))", arg_code.join(", ")));
             }
         }
         let addr_code = self.emit_owned(item);
@@ -8675,7 +8794,7 @@ impl<'p> Emitter<'p> {
             return Some(addr_code);
         }
         Some(format!(
-            "{handle}::new({}::new({addr_code}))",
+            "{handle}::shared({}::new({addr_code}))",
             stub_struct_name(&dep.0)
         ))
     }
@@ -8839,8 +8958,12 @@ impl<'p> Emitter<'p> {
             out.push_str(&format!("    {}: {ty},\n", rs_ident(&p.name.name)));
         }
         out.push_str("}\n");
+        // [rs-handle] The façade is stateless — its members send to the
+        // servant and wait — so it implements the `&self` trait and a handle
+        // over it takes no lock: a waiting caller blocks nobody else.
+        let saved_recv = std::mem::replace(&mut self.member_receiver_mut, false);
         for (face, effect) in h.of.iter().zip(self.handler_faces(h)) {
-            let of = self.emit_type(face);
+            let of = self.face_trait_type(face, false);
             out.push_str(&format!("\nimpl {of} for {fac} {{\n"));
             for f in &h.fns {
                 if f.is_send {
@@ -8857,6 +8980,7 @@ impl<'p> Emitter<'p> {
             }
             out.push_str("}\n");
         }
+        self.member_receiver_mut = saved_recv;
         out
     }
 
@@ -9019,7 +9143,7 @@ impl<'p> Emitter<'p> {
                 addr_code
             } else {
                 let handle = self.handle_ctor_for(Some(&effect), &rendered);
-                format!("{handle}::new({stub}::new({addr_code}))")
+                format!("{handle}::shared({stub}::new({addr_code}))")
             };
             let var = self.unique_name(effect_param_name(&rendered));
             self.effect_env.push(EffectEntry {
@@ -9170,16 +9294,19 @@ impl<'p> Emitter<'p> {
         // wrapped the same way — `threadsafe` is the declared contract the
         // skeleton prints and emits nothing [threadsafe-platform].
         // [effect-handler-multi] Several faces share **one** instance: the
-        // construction goes into an `Arc<Mutex<H>>` once, and each face's
-        // handle shares it (`__Handle_E::share`), so a stateful multi-face
-        // handler is one lock behind several effect types.
+        // construction goes into one `Arc` (of a `Mutex` when stateful), and
+        // each face's handle shares it through an unsize coercion to its own
+        // trait object, so a stateful multi-face handler is one lock behind
+        // several effect types.
         let pad = "    ".repeat(indent);
         let var = self.unique_name(effect_param_name(&faces[0].1));
         let mut out = String::new();
+        let stateful = self.handler_is_stateful(decl);
+        let mk = if stateful { "locked" } else { "shared" };
         if faces.len() == 1 {
             let (checked_ty, key) = faces[0].clone();
             let handle = self.handle_ctor_for(checked_ty.as_ref(), &key);
-            out.push_str(&format!("{pad}let mut {var} = {handle}::new({ctor});\n"));
+            out.push_str(&format!("{pad}let {var} = {handle}::{mk}({ctor});\n"));
             self.effect_env.push(EffectEntry {
                 ty: checked_ty,
                 key,
@@ -9191,14 +9318,19 @@ impl<'p> Emitter<'p> {
             return out;
         }
         let inst = self.unique_name("__inst".to_string());
-        out.push_str(&format!(
-            "{pad}let {inst} = std::sync::Arc::new(std::sync::Mutex::new({ctor}));\n"
-        ));
+        if stateful {
+            out.push_str(&format!(
+                "{pad}let {inst} = std::sync::Arc::new(std::sync::Mutex::new({ctor}));\n"
+            ));
+        } else {
+            out.push_str(&format!("{pad}let {inst} = std::sync::Arc::new({ctor});\n"));
+        }
+        let share = if stateful { "share_locked" } else { "share_shared" };
         for (checked_ty, key) in faces {
             let face_var = self.unique_name(effect_param_name(&key));
             let handle = self.handle_ctor_for(checked_ty.as_ref(), &key);
             out.push_str(&format!(
-                "{pad}let mut {face_var} = {handle}::share({inst}.clone());\n"
+                "{pad}let {face_var} = {handle}::{share}({inst}.clone());\n"
             ));
             self.effect_env.push(EffectEntry {
                 ty: checked_ty,
@@ -9262,7 +9394,8 @@ impl<'p> Emitter<'p> {
                 // so only plain handlers reach here; the handle owns the
                 // private instance.
                 let handle = self.handle_ctor_for(Some(dep), "");
-                return format!("{handle}::new({inner})");
+                let mk = if self.handler_is_stateful(decl) { "locked" } else { "shared" };
+                return format!("{handle}::{mk}({inner})");
             }
         }
         // Not a handler name, so it is an addr — already a handle.
@@ -11929,9 +12062,14 @@ impl<'p> Emitter<'p> {
         } else {
             format!("{msg}::{variant}({})", payload.join(", "))
         };
-        // The inline reading: the effect trait's method on `self`.
+        // The inline reading: the handler's trait method on `self`.
         let inline = {
-            let trait_path = self.effect_path(&effect_name, &rs_ident(&effect_name));
+            let trait_item = if self.handler_is_stateful(decl) {
+                stateful_trait_name(&effect_name)
+            } else {
+                stateless_trait_name(&effect_name)
+            };
+            let trait_path = self.effect_path(&effect_name, &trait_item);
             format!("{trait_path}::{}(self, {})", rs_ident(member), "__PAYLOAD__")
         };
         let inline = inline.replace("__PAYLOAD__", &payload.join(", "));
@@ -12240,7 +12378,7 @@ impl<'p> Emitter<'p> {
                 let rendered = self.emit_type_ref(r);
                 let var = format!("__fx{}", effect_params.len());
                 let handle_ty = self.handle_type_rendered(&rendered);
-                effect_params.push(format!("{var}: &mut {handle_ty}"));
+                effect_params.push(format!("{var}: &{handle_ty}"));
                 effect_args.push((rendered, var));
             }
         }
@@ -12253,7 +12391,7 @@ impl<'p> Emitter<'p> {
                     }
                     let rendered = self.emit_type_ref(r);
                     match effect_args.iter().find(|(key, _)| *key == rendered) {
-                        Some((_, var)) => forwarded_effects.push(format!("&mut *{var}")),
+                        Some((_, var)) => forwarded_effects.push(var.clone()),
                         None => {
                             // The checker's fits rule makes this unreachable:
                             // a fn value may only perform effects its type
@@ -13721,7 +13859,7 @@ impl<'p> Emitter<'p> {
                     handle_var: Some(var.clone()),
                 });
                 self.bindings.insert(var.clone(), BindKind::RefMut);
-                param_list.push(format!("{var}: &mut {handle_ty}"));
+                param_list.push(format!("{var}: &{handle_ty}"));
             }
         }
         param_list.extend(params.iter().enumerate().map(|(i, p)| match &p.ty {
@@ -16692,7 +16830,7 @@ impl<'p> Emitter<'p> {
         match self.effect_entry_by_ty(ty) {
             Some(entry) => {
                 if entry.is_local {
-                    format!("&mut {}", entry.var)
+                    format!("&{}", entry.var)
                 } else {
                     entry.var
                 }
@@ -16727,7 +16865,7 @@ impl<'p> Emitter<'p> {
         match self.effect_entry(effect_ty) {
             Some(entry) => {
                 if entry.is_local {
-                    format!("&mut {}", entry.var)
+                    format!("&{}", entry.var)
                 } else {
                     entry.var
                 }
