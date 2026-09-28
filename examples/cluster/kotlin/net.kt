@@ -283,13 +283,8 @@ fun connect__2(transport: Transport, me: NodeEndpoint, on: Int): Boolean {
     if (salvo.SalvoSched.connected()) {
         return false
     }
-    return connect__3(transport, me, run { val __h = Sending(transport); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE); __a }, run { val __h = Receiving(); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE); __a })
-}
-
-fun connect__3(transport: Transport, me: NodeEndpoint, sending: Int, receiving: Int): Boolean {
-    if (salvo.SalvoSched.connected()) {
-        return false
-    }
+    val sending = run { val __h = Sending(transport); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE); __a }
+    val receiving = run { val __h = Receiving(); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE); __a }
     run { val __out = sending; salvo.SalvoSched.setWire { __ep, __frame -> val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint); if (__to != null) salvo.SalvoSched.sendWire(__out, __Msg_Outbound.SendFrame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec___Msg_Outbound) } }
     val _listening = transport.listen(me, receiving)
     salvo.SalvoSched.addRoute((NodeId(salvo.SalvoSched.hereNode())).id, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
@@ -455,8 +450,8 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
     }
 
     fun init() {
-        (if (!(salvo.SalvoSched.connected())) throw AssertionError(("salvo: " + ("a node group starts on a connected node: call connect(me) first") + " at net:382:9")) else Unit)
         val me = __dep_Transport.local_endpoint()
+        val _connected = connect(__dep_Transport, me)
         salvo.SalvoSched.setGroup(name, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
         salvo.SalvoSched.watchPeers(__addr!!, { __n, __ep, __t -> __Priv_StaticNodeGroup.Hello(NodeId(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint)!!, __t) }, { __n -> __Priv_StaticNodeGroup.Gone(NodeId(__n)) }, { __ps -> __Priv_StaticNodeGroup.Introduced(__ps.mapNotNull { salvo.salvoDecode(salvo.SalvoBytes(it), __Codec_NodeEndpoint) }) })
         for (e in all) {
@@ -609,8 +604,8 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
     }
 
     fun init() {
-        (if (!(salvo.SalvoSched.connected())) throw AssertionError(("salvo: " + ("a node group starts on a connected node: call connect(me) first") + " at net:456:9")) else Unit)
         val me = __dep_Transport.local_endpoint()
+        val _connected = connect(__dep_Transport, me)
         salvo.SalvoSched.setGroup(name, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
         salvo.SalvoSched.watchPeers(__addr!!, { __n, __ep, __t -> __Priv_GossipNodeGroup.Hello(NodeId(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint)!!, __t) }, { __n -> __Priv_GossipNodeGroup.Gone(NodeId(__n)) }, { __ps -> __Priv_GossipNodeGroup.Introduced(__ps.mapNotNull { salvo.salvoDecode(salvo.SalvoBytes(it), __Codec_NodeEndpoint) }) })
         for (e in seeds) {

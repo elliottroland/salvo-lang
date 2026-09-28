@@ -1678,8 +1678,7 @@ impl crate::__Stateful_Boot for Booting {
 
     fn boot(&mut self, done: crate::scheduler::SalvoReply) {
         let mut p = crate::scheduler::salvo_pool(((1) as usize));
-        let mut _connected = connect__3(&self.__dep_Transport, self.at.clone(), ({ let __h = Sending::new(crate::net::Transport::shared(MemTransport::new(self.at.clone(), self.net.clone()))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sending::new(__h)), __DECODE_Sending); __a }), ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving); __a }));
-        let mut group = ({ let __h = StaticNodeGroup::new("cluster".to_string(), self.all.clone(), crate::net::Transport::shared(MemTransport::new(self.at.clone(), self.net.clone()))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_StaticNodeGroup::new(__h)), __DECODE_StaticNodeGroup); crate::scheduler::salvo_send(__a, Box::new(__Priv_StaticNodeGroup::Init)); __a });
+        let mut group = ({ let __h = StaticNodeGroup::new("cluster".to_string(), self.all.clone(), self.__dep_Transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_StaticNodeGroup::new(__h)), __DECODE_StaticNodeGroup); crate::scheduler::salvo_send(__a, Box::new(__Priv_StaticNodeGroup::Init)); __a });
         self.nodes = Some(group.clone());
         let mut seq = crate::net::open_group(Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() }, group.clone());
         let mut mine = { let __spawned = ({ let __h = Sequencing::new("b".to_string()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sequencing::new(__h)), __DECODE_Sequencing); __a }); crate::scheduler::salvo_send_wire((seq).clone(), crate::net::__Msg_ActorGroup::Join(__spawned), crate::net::__PROTO_ActorGroup); __spawned };
@@ -1779,7 +1778,6 @@ pub fn main() {
     let mut network = ({ let __h = MemNetwork::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_pool(((1) as usize)), __cap as usize, Box::new(__Actor_MemNetwork::new(__h)), __DECODE_MemNetwork); __a });
     let transport = crate::net::Transport::shared(MemTransport::new(a.clone(), network.clone()));
     let mut p = crate::scheduler::salvo_pool(((2) as usize));
-    let mut _connected = connect__2(&transport, a.clone(), p.clone());
     let mut nodes = ({ let __h = StaticNodeGroup::new("cluster".to_string(), all.clone(), transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_StaticNodeGroup::new(__h)), __DECODE_StaticNodeGroup); crate::scheduler::salvo_send(__a, Box::new(__Priv_StaticNodeGroup::Init)); __a });
     let mut seq = crate::net::open_group(Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() }, nodes.clone());
     { let __spawned = ({ let __h = Sequencing::new("a".to_string()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Sequencing::new(__h)), __DECODE_Sequencing); __a }); crate::scheduler::salvo_send_wire((seq).clone(), crate::net::__Msg_ActorGroup::Join(__spawned), crate::net::__PROTO_ActorGroup); __spawned };

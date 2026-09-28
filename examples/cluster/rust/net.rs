@@ -512,13 +512,8 @@ pub fn connect__2(transport: &crate::net::Transport, me: NodeEndpoint, on: usize
     if crate::scheduler::salvo_connected() {
         return false;
     }
-    return { let __a1 = ({ let __h = Sending::new(transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Sending::new(__h)), __DECODE_Sending); __a }); connect__3(transport, me, __a1, ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving); __a })) };
-}
-
-pub fn connect__3(transport: &crate::net::Transport, me: NodeEndpoint, sending: usize, receiving: usize) -> bool {
-    if crate::scheduler::salvo_connected() {
-        return false;
-    }
+    let mut sending = ({ let __h = Sending::new(transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Sending::new(__h)), __DECODE_Sending); __a });
+    let mut receiving = ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving); __a });
     { let __out = sending; crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| { if let Some(__to) = crate::wire::salvo_decode::<NodeEndpoint>(__ep) { crate::scheduler::salvo_send_wire(__out, crate::net::__Msg_Outbound::SendFrame(__to, __frame), crate::net::__PROTO_Outbound); } })) };
     let mut _listening = transport.listen(&(me.clone()), receiving);
     crate::scheduler::salvo_add_route((NodeId { id: crate::scheduler::salvo_here_node() as i64 }).id as u64, crate::wire::salvo_encode(&me));
@@ -818,8 +813,8 @@ impl crate::net::__Stateful_NodeGroup for StaticNodeGroup {
 impl StaticNodeGroup {
 
     fn init(&mut self) {
-        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:382:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
         let mut me = self.__dep_Transport.local_endpoint();
+        let mut _connected = connect(&self.__dep_Transport, me.clone());
         crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
         crate::scheduler::salvo_watch_peers((self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __ep, __t| Box::new(__Priv_StaticNodeGroup::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(__Priv_StaticNodeGroup::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(__Priv_StaticNodeGroup::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));
         for e in &self.all {
@@ -999,8 +994,8 @@ impl crate::net::__Stateful_NodeGroup for GossipNodeGroup {
 impl GossipNodeGroup {
 
     fn init(&mut self) {
-        if !(crate::scheduler::salvo_connected()) { panic!("salvo: {} at net:456:9", "a node group starts on a connected node: call connect(me) first".to_string()) };
         let mut me = self.__dep_Transport.local_endpoint();
+        let mut _connected = connect(&self.__dep_Transport, me.clone());
         crate::scheduler::salvo_set_group((self.name.clone()).clone(), crate::wire::salvo_encode(&me.clone()));
         crate::scheduler::salvo_watch_peers((self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __ep, __t| Box::new(__Priv_GossipNodeGroup::Hello(NodeId { id: __n as i64 }, crate::wire::salvo_decode::<NodeEndpoint>(__ep).expect("a peer's endpoint"), __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), |__n| Box::new(__Priv_GossipNodeGroup::Gone(NodeId { id: __n as i64 })), |__ps| Box::new(__Priv_GossipNodeGroup::Introduced(__ps.iter().filter_map(|__p| crate::wire::salvo_decode::<NodeEndpoint>(__p)).collect())));
         for e in &self.seeds {

@@ -25,8 +25,9 @@ would write the bare `[Sequencer]`, and the compiler would refuse to bind a
 router under it (`examples/actors/` has the single-actor shape).
 
 **Two nodes, one group each.** Node `a` is `main`'s own; node `b` is booted on
-a second node id by `Booting`. Each first connects to the wire (`connect`),
-spawns the node group (a mechanism that starts itself in its `init`), opens a replica of every actor group —
+a second node id by `Booting`. Each binds a transport, spawns the node group
+(a mechanism that starts itself in its `init`, connecting the node to the
+wire), opens a replica of every actor group —
 `actor_group<Sequencer>(nodes)` — and spawns its members into them
 (`spawn Sequencing("a") on p in seq`: a local spawn plus one `join`). The
 replicas find each other by name through the node group, so `seq.members(out)`

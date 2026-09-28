@@ -939,8 +939,7 @@ class Booting(private val at: NodeEndpoint, private val all: List<NodeEndpoint>,
 
     override fun boot(done: salvo.SalvoReply) {
         val p = salvo.SalvoSched.pool(1)
-        val _connected = connect__3(__dep_Transport, at, run { val __h = Sending(MemTransport(at, net)); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE); __a }, run { val __h = Receiving(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE); __a })
-        val group = run { val __h = StaticNodeGroup("cluster", all, MemTransport(at, net)); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, __Priv_StaticNodeGroup.Init); __a }
+        val group = run { val __h = StaticNodeGroup("cluster", all, __dep_Transport); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, __Priv_StaticNodeGroup.Init); __a }
         nodes = group
         val seq = salvo.net.open_group(Protocol("Sequencer", salvo.main.__PROTO_Sequencer), group)
         val mine = run { val __spawned = run { val __h = Sequencing("b"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); __a }; salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
@@ -1028,7 +1027,6 @@ fun main() {
     val network = run { val __h = MemNetwork(); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.pool(1), __h.__mailboxCapacity, __Actor_MemNetwork(__h), __Actor_MemNetwork.__DECODE); __a }
     val transport: Transport = MemTransport(a, network)
     val p = salvo.SalvoSched.pool(2)
-    val _connected = connect__2(transport, a, p)
     val nodes = run { val __h = StaticNodeGroup("cluster", all, transport); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, __Priv_StaticNodeGroup.Init); __a }
     val seq = salvo.net.open_group(Protocol("Sequencer", salvo.main.__PROTO_Sequencer), nodes)
     run { val __spawned = run { val __h = Sequencing("a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); __a }; salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }

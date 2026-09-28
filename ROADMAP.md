@@ -116,12 +116,10 @@ sequence left behind, by step — each a leftover, none a blocker:
   erased effect (`Pick<A>`, `Pick<B>`) cannot share a scope — a function per
   policy is the pattern, and lifting it means keeping a phantom on the erased
   trait plus a marker type per effect on the Rust side.
-- **the tidy-up (2026-09-27)**: a node group connecting the node itself
-  (the mechanism asserts `connected()` instead) waits on an actor member
-  being able to hand an inherited effect to a spawn on the Rust backend
-  [rs-handle-bundle]; the in-process double's second node spawns its wire
-  actors `with` the transport meanwhile. A mixed handler has no `init`
-  block yet. The mixed servant / private-member unification
+- **the tidy-up (2026-09-27)**: a node group now connects the node itself
+  (2026-09-28, once handles let an actor member hand its transport to a
+  spawn — COMPLETED.md, "A node group connects its node"). A mixed handler
+  has no `init` block yet. The mixed servant / private-member unification
   (below) is unchanged.
 - **⑧ the example**: `examples/cluster/` ships an election by host order behind
   `Leader`, not Raft. **Raft as a flagship example is still to be written** —

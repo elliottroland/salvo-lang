@@ -5513,12 +5513,16 @@ between endpoints and delivers what arrives into the scheduler.
     two actors (default `pool(1)`). It is **idempotent**: `connected()` answers
     whether the current node's outbound side is bound, and `connect` answers
     whether *this call* did the binding (`false` when it was already
-    connected — nothing is rebound, nothing spawned). A third overload,
-    `connect(me, sending: Addr<Outbound>, receiving: Addr<Inbound>)`, takes
-    the two wire actors already spawned — for a node brought up from inside
-    another actor (the in-process double's second node spawns them `with`
-    its transport). A node group's mechanism does not
-    connect for you, for the same reason; it refuses to start unconnected.
+    connected — nothing is rebound, nothing spawned). **A node group's `init`
+    connects the node when nothing has** (user decision 2026-09-28): it calls
+    `connect(local_endpoint())`, the transport's own endpoint being the one
+    source of truth for where the node is, so a fresh node needs only its
+    transport and its group; a program still calls `connect` itself to bring
+    the wire up before any group exists, or to place the two wire actors on a
+    pool of its choosing. The third overload that took the two wire actors
+    already spawned went with the reason for it — an actor's member could not
+    hand its transport to a spawn on Rust before [effect-handle]; now the
+    group inherits it.
   * **`net`'s public surface is the layers a program touches** (2026-09-27):
     the transport effects and handlers, `encode`/`decode`/`protocol`,
     `NodeId`/`this_node`/`new_node`/`pool_at`/`node_of`, `connect`/
@@ -5575,8 +5579,8 @@ between endpoints and delivers what arrives into the scheduler.
   handler could not name its own address): `let nodes = spawn
   StaticNodeGroup("demo", all) on p` is the whole of it. It learns the node's
   own endpoint from `Transport.local_endpoint()`, so that is not a constructor
-  parameter, and it **asserts `connected()`** as it starts [net-connect]: a
-  node group on a node that is not on the wire traps, naming `connect(me)`.
+  parameter, and it **connects the node** as it starts when nothing has
+  [net-connect].
   * **The handshake is the runtime's**, common to every mechanism: a HELLO
     frame (group name, the sender's endpoint, its **protocol table** — every
     actor effect with a wire form and its hash, registered by `main`'s
@@ -5667,8 +5671,8 @@ between endpoints and delivers what arrives into the scheduler.
     send std's `join` makes, the spawn's value unchanged (`spawn_joins`
     records which tuple element).
   * **Two levels, one program**: a node group (`spawn StaticNodeGroup(…)`) is
-    about *machines* — a program has one, started once per node on a
-    connected node [net-connect]; `actor_group<E>(nodes)` is about *the actors of one
+    about *machines* — a program has one, started once per node, and it
+    connects the node if nothing has [net-connect]; `actor_group<E>(nodes)` is about *the actors of one
     protocol across them* — a program opens one per protocol it routes to or
     lists the members of, on every node that hosts or reaches them.
   * `actor_group<E>(…)` — and `protocol<E>() -> Protocol<E>{name, hash}`

@@ -229,6 +229,22 @@ built, recorded in ROADMAP.md §16: an `iter fn` over a *generic* source or
 taking an `iter T` parameter (a stage — needs the generated `next` to carry
 forwarded implicits and the obligation match to ignore them).
 
+**A node group connects its node (2026-09-28, user decision — built).** The
+handle change removed the reason `net` could not: an actor's member can now
+hand the `Transport` it depends on to a spawn, so a node group's `init` calls
+`connect(local_endpoint())` when nothing has — the transport's own endpoint
+being the one source of truth for where the node is — instead of asserting
+`connected()` and naming `connect(me)` as the fix. `connect(me)` /
+`connect(me, on)` stay public (bring the wire up before any group exists; place
+the wire actors) and idempotent; the third overload that took two already-spawned
+wire actors is deleted with its reason. The cluster example's `Booting.boot`
+lost its `connect(…, spawn Sending() with MemTransport(…) on p, spawn
+Receiving() on p)` line and both `with MemTransport(…)` clauses, and `main` its
+`connect` call: node `a` is now "bind the transport, spawn the group"; six
+test fixtures shed the same lines. Outputs unchanged on both backends; test
+count unchanged. [net-connect], [node-group], Concurrency.md, the README
+bullet and the example's README follow.
+
 **Handles keyed on statefulness, named after the effect (2026-09-28
 afternoon, user decisions — built the same day, three commits).** Reading the
 morning's one-shape result, the user asked whether an actor's binding is a lock

@@ -22,15 +22,15 @@
 //      with the same `send`; replies come back over the wire; a mailbox's
 //      `capacity` holds across machines through credits. `NodeId` names a
 //      node; `this_node`, `new_node`, `pool_at` host virtual nodes.
-//      `connect(me)` is the one call that binds the scheduler to the
-//      transport — its outbound actor, its inbound actor, its own route.
-//      Everything the runtime needs underneath (`add_route`, `route_frames`,
-//      `deliver_frame`, the handshake frames) is private to this file: a
-//      program never calls it, and the comments on each say what it does.
+//      `connect(me)` binds the scheduler to the transport — its outbound
+//      actor, its inbound actor, its own route — and a node group's `init`
+//      calls it when nothing has. Everything the runtime needs underneath
+//      (`add_route`, `route_frames`, `deliver_frame`, the handshake frames)
+//      is private to this file: a program never calls it, and the comments
+//      on each say what it does.
 //   4. **Node groups** — `NodeGroup`, the membership of *machines*: a
-//      mechanism (`StaticNodeGroup`, `GossipNodeGroup`) started with
-//      `node_group(...)` on a connected node, answering `members` and
-//      `NodeChanges`. The handshake (group name, endpoint, protocol table)
+//      mechanism (`StaticNodeGroup`, `GossipNodeGroup`) spawned on a node
+//      with a `Transport` in scope, answering `members` and `NodeChanges`. The handshake (group name, endpoint, protocol table)
 //      is the runtime's and common to every mechanism.
 //   5. **Actor groups** — `ActorGroup<E>`, the membership of *actors* of one
 //      protocol across those nodes: `actor_group<E>(nodes)` starts this
@@ -261,11 +261,11 @@ export intrinsic fn connected() [] -> Bool
 //
 // Answers whether **this call** connected the node: `false` when it was
 // already connected, in which case nothing is rebound and no actor is
-// spawned. Call it once per node, before [node_group]; the two actors run on
-// `pool(1)`, or on [on] when given. (A node group's mechanism does not connect
-// for you — connecting is the node's business, and the mechanism refuses to
-// start on a node that is not connected, so the order cannot be got wrong
-// silently.)
+// spawned. The two actors run on `pool(1)`, or on [on] when given. A program
+// calls it when it wants the wire up before any group exists, or wants to
+// place the wire actors itself; otherwise a node group's `init` connects the
+// node at the transport's own endpoint when nothing has (user decision
+// 2026-09-28), so a fresh node needs only its transport and its group.
 export fn connect(me: NodeEndpoint) [Transport, spawn] -> Bool => !me {
     return connect(me, pool(1))
 }
@@ -274,17 +274,8 @@ export fn connect(me: NodeEndpoint, on: Pool) [Transport, spawn] -> Bool => !me,
     if connected() {
         return false
     }
-    return connect(me, spawn Sending() on on, spawn Receiving() on on)
-}
-
-// [net-connect] The same three bindings over actors the caller spawned — for
-// a caller that wants to place or supply the two wire actors itself
-// (`spawn Sending() with SomeTransport() on p`).
-export fn connect(me: NodeEndpoint, sending: Addr<Outbound>, receiving: Addr<Inbound>) [Transport] -> Bool
-    => !me, !sending, !receiving {
-    if connected() {
-        return false
-    }
+    let sending = spawn Sending() on on
+    let receiving = spawn Receiving() on on
     route_frames(sending)
     let _listening = listen(copy(me), receiving)
     add_route(this_node(), me)
@@ -377,11 +368,13 @@ export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, s
     watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
 
     // The mechanism starts itself: `init` is the first activation, and
-    // `self@NodeGroup` is where the runtime's peer events go.
+    // `self@NodeGroup` is where the runtime's peer events go. [net-connect] It
+    // connects the node if nothing has yet — the transport it depends on is a
+    // handle the two wire actors inherit — at the transport's own endpoint:
+    // one source of truth for "where this node is".
     init {
-        assert!(connected(), "a node group starts on a connected node: call connect(me) first")
-        // The node's own endpoint is the transport's: one source of truth.
         let me = local_endpoint()
+        let _connected = connect(copy(me))
         set_group(copy(name), copy(me))
         watch_peers(self@NodeGroup)
         for e in all {
@@ -453,8 +446,8 @@ export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport,
     watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
 
     init {
-        assert!(connected(), "a node group starts on a connected node: call connect(me) first")
         let me = local_endpoint()
+        let _connected = connect(copy(me))
         set_group(copy(name), copy(me))
         watch_peers(self@NodeGroup)
         for e in seeds {

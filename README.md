@@ -220,8 +220,9 @@ fn main() [use] {
   protocol compared at the handshake. Membership is two actor effects:
   `NodeGroup` (the machines — a fixed list or gossip over seeds) and
   `ActorGroup<E>` (the actors of one protocol across them, found by name).
-  A node `connect`s to the wire once, spawns its node group, opens an
-  `actor_group<E>` per protocol, and `spawn H() on p in group` joins a member.
+  A node binds its transport and spawns its node group (which connects the
+  node to the wire), opens an `actor_group<E>` per protocol, and `spawn H()
+  on p in group` joins a member.
   `[any E]` is the honest claim for a fleet — each send may go to a different
   member — and `use route(group)` binds it to whichever member a `Pick<E>`
   policy chooses: `LeastLoaded`, `Sharded` by a `Key`-marked argument, or
