@@ -172,7 +172,7 @@ pub fn emit_program_reporting(
     // signature cannot depend on which of its callers happens to hold a
     // fusion, so either every effect site fuses or none does. Same gate as
     // [rs-effect-fusion].
-    let fusion = program_needs_fusion(&symbols, &reachable);
+    let fusion = false && program_needs_fusion(&symbols, &reachable);
     // [kt-effect-fusion] The Has-accessor interfaces the program uses,
     // merged across files into `fx.kt` (interface name → rendered effect
     // instance).
@@ -2080,20 +2080,12 @@ impl<'p> Emitter<'p> {
     /// shares like any other — and unused wrappers are inert classes kotlinc
     /// accepts quietly.
     fn emit_monitor_stub(&mut self, e: &EffectDecl) -> String {
-        // [effect-any] An actor effect gets the monitor class only when a
-        // router `of any E` exists: a `use` of the router binds it as a
-        // monitor, and its send members run inline under the lock.
-        let routed = e.is_actor
-            && salvo_core::has_any_router(self.symbols.handlers.values().copied(), &e.name.name);
-        if e.is_actor && !routed {
-            return String::new();
-        }
-        let members: Vec<(usize, &FnDecl)> = e
-            .fns
-            .iter()
-            .enumerate()
-            .filter(|(_, f)| routed || !f.is_send)
-            .collect();
+        // [effect-handle] [kt-handle] Every effect gets its `__Mon_E`, actor
+        // effects included: a `use` of a router `of any E` binds it as a
+        // monitor with its send members running inline under the lock, and
+        // every `use` of any handler wraps in it (one shape, user decision
+        // 2026-09-28).
+        let members: Vec<(usize, &FnDecl)> = e.fns.iter().enumerate().collect();
         let name = monitor_class_name(&e.name.name);
         let generics = self.emit_generic_params(&e.generics);
         let g_args = if e.generics.is_empty() {
@@ -2502,77 +2494,39 @@ impl<'p> Emitter<'p> {
             .map(|of| self.emit_type(of))
             .collect::<Vec<String>>()
             .join(", ");
-        // [effect-handler-deps] [kt-effect-fusion] The handler's dependencies
-        // arrive as **one fused value, built at the `use` site and stored**:
-        // a handler holds its environment for its lifetime, so there is
-        // nothing to rebuild per call (user decision 2026-09-14). The
-        // parameter is unnamed in Salvo, so the field name is the emitter's.
+        // [effect-handler-deps] [kt-handle] The handler's dependencies are
+        // **one trailing constructor parameter per dependency**, typed by the
+        // effect's interface (`private val __dep_Logger: Logger`), in
+        // declaration order — the JVM reference *is* the handle (user
+        // decision 2026-09-28: one shape, the fused carrier deleted). Member
+        // bodies reach a dependency through its field, and a member calling
+        // a `[Console]` fn passes the field.
         let deps = self.handler_dep_effects(h);
-        let (dep_entries, dep_param, dep_bounds) = if deps.is_empty() {
-            (Vec::new(), None, Vec::new())
-        } else if self.handler_is_handle_dep(h) {
-            // [effect-handle] [effect-handler-deps] The handle-dep form (user
-            // decision 2026-09-20): one trailing constructor parameter per
-            // dep, typed as the dep's **Has-accessor interface** — a stable
-            // per-effect identity (unlike the per-file `__Fx_N` classes),
-            // and what the `use` site's own fused value already implements.
-            // On the JVM the captured reference *is* the handle; member
-            // bodies reach the dep through the accessor property, and a
-            // member calling a `[Console]` fn threads the captured carrier.
-            let entries: Vec<EffectEntry> = deps
-                .iter()
-                .map(|rendered| {
-                    let (_, prop) = self.has_iface(rendered);
-                    let field = format!("__dep_{}", sanitize_instance(rendered));
-                    EffectEntry {
-                        ty: None,
-                        rendered: rendered.clone(),
-                        expr: format!("{field}.{prop}"),
-                        fused: Some(field),
-                    }
-                })
-                .collect();
-            let params: Vec<String> = deps
-                .iter()
-                .map(|rendered| {
-                    let (iface, _) = self.has_iface(rendered);
-                    format!(
-                        "private val __dep_{}: {iface}",
-                        sanitize_instance(rendered)
-                    )
-                })
-                .collect();
-            (entries, Some(params.join(", ")), Vec::new())
+        let dep_entries: Vec<EffectEntry> = deps
+            .iter()
+            .map(|rendered| {
+                let field = format!("__dep_{}", sanitize_instance(rendered));
+                EffectEntry {
+                    ty: None,
+                    rendered: rendered.clone(),
+                    expr: field.clone(),
+                    fused: Some(field),
+                }
+            })
+            .collect();
+        let dep_param: Option<String> = if deps.is_empty() {
+            None
         } else {
-            // [kt-effect-fusion] The carrier is a **type parameter** bounded
-            // by the Has-accessor interfaces, not a concrete `__Fx_N` class:
-            // those are minted per *file*, so a handler in one module could
-            // not be constructed from another (the `use` site's carrier of
-            // the same shape is a different class with the same name — found
-            // 2026-09-14 by std's `DefaultFs [RawFs]`, whose `use` lives in
-            // the program). A bound reads the accessors and erases to one
-            // class, exactly as it does for a fn [kt-effect-fusion].
-            self.check_fusable(&deps);
-            let mut bounds: Vec<String> = Vec::new();
-            let entries: Vec<EffectEntry> = deps
-                .iter()
-                .map(|rendered| {
-                    let (iface, prop) = self.has_iface(rendered);
-                    bounds.push(format!("{HANDLER_FX} : {iface}"));
-                    EffectEntry {
-                        ty: None,
-                        rendered: rendered.clone(),
-                        expr: format!("{HANDLER_CARRIER}.{prop}"),
-                        fused: Some(HANDLER_CARRIER.to_string()),
-                    }
-                })
-                .collect();
-            (
-                entries,
-                Some(format!("private val {HANDLER_CARRIER}: {HANDLER_FX}")),
-                bounds,
+            Some(
+                deps.iter()
+                    .map(|rendered| {
+                        format!("private val __dep_{}: {rendered}", sanitize_instance(rendered))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
             )
         };
+        let dep_bounds: Vec<String> = Vec::new();
         let ctor = {
             let mut params: Vec<String> = h
                 .params
@@ -2779,22 +2733,11 @@ impl<'p> Emitter<'p> {
                 (msg, dispatch)
             })
             .collect();
-        // The carrier's type parameter and its bounds, repeated from the
-        // handler's own declaration: a `Counting<__Fx>` field needs the same
-        // `where` clause the class was declared with.
-        let (proc_generics, handler_ty, where_clause) = if deps.is_empty() {
-            (String::new(), h.name.name.clone(), String::new())
-        } else {
-            let bounds: Vec<String> = deps
-                .iter()
-                .map(|rendered| format!("{HANDLER_FX} : {}", self.has_iface(rendered).0))
-                .collect();
-            (
-                format!("<{HANDLER_FX}>"),
-                format!("{}<{HANDLER_FX}>", h.name.name),
-                format!(" where {}", bounds.join(", ")),
-            )
-        };
+        // [kt-handle] The handler's dependencies are its own fields, so the
+        // actor class is the same for every handler.
+        let (proc_generics, handler_ty, where_clause) =
+            (String::new(), h.name.name.clone(), String::new());
+        let _ = &deps;
         let mut out = format!(
             "\nclass {proc_name}{proc_generics}(private val handler: {handler_ty}) : \
              salvo.SalvoActor{where_clause} {{\n    \
@@ -3516,63 +3459,9 @@ impl<'p> Emitter<'p> {
                     }
                 }
             }
-            if self.fusion && is_main && self.declares_platform_effect(f) {
-                // [kt-platform-host] The host constructs one implementation
-                // per platform effect and calls the entry with them, so the
-                // entry keeps per-effect parameters — the one ABI the fusion
-                // cannot reshape — and opens by combining them into a fused
-                // value [kt-effect-fusion].
-                if !effects.is_empty() {
-                    let rendered: Vec<String> =
-                        effects.iter().map(|(_, r)| r.clone()).collect();
-                    let (class, _props, order) = self.emit_fx_class(&rendered);
-                    let var = self.unique_name("__fx".to_string());
-                    let mut args: Vec<String> = Vec::new();
-                    for (ty, rendered) in effects {
-                        let param = self.unique_name(effect_param_name(&rendered));
-                        params.push(format!("{param}: {rendered}"));
-                        args.push(param.clone());
-                        self.effect_env.push(EffectEntry {
-                            ty,
-                            rendered,
-                            expr: param,
-                            fused: Some(var.clone()),
-                        });
-                    }
-                    // The fused class takes its effects in canonical order.
-                    let args: Vec<String> =
-                        order.iter().map(|i| args[*i].clone()).collect();
-                    let pad_body = "    ".repeat(indent + 1);
-                    body_prelude =
-                        format!("{pad_body}val {var} = {class}({})\n", args.join(", "));
-                }
-            } else if self.fusion {
-                // [kt-effect-fusion] One fused value for *any* number of
-                // effects, single included (user decision 2026-09-14:
-                // consistency over a special case): a `__Fx` type parameter
-                // bounded by the Has-accessor interfaces, which erasure
-                // makes a single emitted function.
-                if !effects.is_empty() {
-                    let var = self.unique_name("__fx".to_string());
-                    let mut bounds: Vec<String> = Vec::new();
-                    for (ty, rendered) in effects {
-                        let (iface, prop) = self.has_iface(&rendered);
-                        bounds.push(format!("__Fx : {iface}"));
-                        self.effect_env.push(EffectEntry {
-                            ty,
-                            rendered,
-                            expr: format!("{var}.{prop}"),
-                            fused: Some(var.clone()),
-                        });
-                    }
-                    generics = match generics.strip_suffix('>') {
-                        Some(rest) => format!("{rest}, __Fx>"),
-                        None => "<__Fx>".to_string(),
-                    };
-                    where_clause = format!(" where {}", bounds.join(", "));
-                    params.push(format!("{var}: __Fx"));
-                }
-            } else {
+            // [kt-handle] One parameter per declared effect, typed by the
+            // effect's interface: the reference is the handle.
+            {
                 for (ty, rendered) in effects {
                     let param = self.unique_name(effect_param_name(&rendered));
                     self.effect_env.push(EffectEntry {
@@ -4936,16 +4825,16 @@ impl<'p> Emitter<'p> {
             );
         }
         self.needs_scheduler = true;
-        // [effect-handler-deps] [kt-effect-fusion] The child's carrier, built
-        // here instead of at a `use` site: the same generated `__Fx_N` class,
-        // its arguments the clause's instances in the handler's *declaration*
-        // order — which is what the checker's `spawn_dep_items` records, since
-        // the program wrote them in its own.
+        // [effect-handler-deps] [kt-handle] The child's dependencies are
+        // trailing constructor arguments: the clause's instances and the
+        // inherited ones, in the handler's *declaration* order — which is
+        // what the checker's `spawn_dep_items` records, since the program
+        // wrote them in its own.
         let mut args = args;
         let deps = self.handler_dep_effects(decl);
         if !deps.is_empty() {
-            match self.spawn_carrier(&handler_name, &deps, uses, span) {
-                Some(code) => args.push(code),
+            match self.spawn_dep_handles(&handler_name, &deps, uses, span) {
+                Some(handles) => args.extend(handles),
                 None => return "TODO()".to_string(),
             }
         }
@@ -5003,17 +4892,15 @@ impl<'p> Emitter<'p> {
         )
     }
 
-    /// [actor-spawn-expr] [kt-actor] The carrier a spawned dependent handler
-    /// stores: `__Fx_N(d0, d1)` over the clause's instances, in the handler's
-    /// declaration order (the fused class takes them in its own canonical
-    /// order, which is what `emit_fx_class` answers).
-    fn spawn_carrier(
+    /// [actor-spawn-expr] [kt-handle] The handles a spawned dependent
+    /// handler stores, one per declared dependency in declaration order.
+    fn spawn_dep_handles(
         &mut self,
         handler_name: &str,
         deps: &[String],
         uses: &[Expr],
         span: Span,
-    ) -> Option<String> {
+    ) -> Option<Vec<String>> {
         let items = match self.checked.spawn_dep_items.get(&(self.file_idx, span)) {
             Some(items) if items.len() == deps.len() => items.clone(),
             _ => {
@@ -5044,9 +4931,7 @@ impl<'p> Emitter<'p> {
                 None => instances.push(self.lookup_effect_handler_by_type(&deps[i])),
             }
         }
-        let (class, _props, order) = self.emit_fx_class(deps);
-        let ordered: Vec<String> = order.iter().map(|i| instances[*i].clone()).collect();
-        Some(format!("{class}({})", ordered.join(", ")))
+        Some(instances)
     }
 
     /// [actor-spawn-expr] One clause item as the expression that *makes* an
@@ -5422,7 +5307,7 @@ impl<'p> Emitter<'p> {
             // *is* the effect's lock wrapper, so binding it is binding the
             // value itself; an actor's addr is an index that the send stub
             // turns into an instance.
-            let instance = match &effect {
+            let (instance, wrap) = match &effect {
                 salvo_core::Ty::Named { name, .. } => {
                     if self
                         .symbols
@@ -5430,9 +5315,9 @@ impl<'p> Emitter<'p> {
                         .get(name.as_str())
                         .is_some_and(|e| !e.is_actor)
                     {
-                        addr_code
+                        (addr_code, false)
                     } else {
-                        format!("{}({addr_code})", stub_class_name(name))
+                        (format!("{}({addr_code})", stub_class_name(name)), true)
                     }
                 }
                 _ => {
@@ -5440,7 +5325,7 @@ impl<'p> Emitter<'p> {
                     return String::new();
                 }
             };
-            return self.bind_effect_instance(vec![(Some(effect), rendered)], instance, indent);
+            return self.bind_effect_instance(vec![(Some(effect), rendered)], instance, wrap, indent);
         }
         let (handler_name, written_args) = match handler {
             Expr::Ident(id) => (id.name.clone(), Vec::new()),
@@ -5520,82 +5405,46 @@ impl<'p> Emitter<'p> {
             }
         }
         ctor_args.extend(written);
-        // The carrier the handler's dependencies arrive in, when it has any:
-        // its class also completes the handler's type-argument list below.
-        // [effect-handle] A handle-dep handler takes them as individual trailing
-        // arguments instead — the binding expression per dep, in declaration
-        // order (JVM references are the handles).
-        let mut dep_class: Option<String> = None;
+        // [kt-handle] The handler's dependencies are trailing constructor
+        // arguments — the binding expression per dep, in declaration order
+        // (JVM references are the handles). [with-clause] A written item is
+        // a **private instance**, constructed here.
         if !dep_effects.is_empty() {
-            if self.handler_is_handle_dep(decl) {
-                // [with-clause] A written item is a **private instance**,
-                // constructed here; JVM references are the handles, so the
-                // constructor argument is simply that construction.
-                let clause_of = self
-                    .checked
-                    .use_with_items
-                    .get(&(self.file_idx, span))
-                    .cloned()
-                    .unwrap_or_default();
-                for (i, dep) in dep_effects.iter().enumerate() {
-                    if let Some(Some(at)) = clause_of.get(i) {
-                        match with_items.get(*at) {
-                            Some(item) => {
-                                let code = self.with_item_instance(item);
-                                // [with-clause] The parameter is typed as the
-                                // dep's accessor interface, so a private
-                                // instance goes through the one-instance
-                                // adapter emitted beside it.
-                                let wrapped =
-                                    format!("__One_{}({code})", sanitize_instance(dep));
-                                // Registers the interface (and its adapter).
-                                let _ = self.has_iface(dep);
-                                ctor_args.push(wrapped);
-                                continue;
-                            }
-                            None => {
-                                self.error(format!(
-                                    "internal: the `with` clause has no item {at} for \
-                                     dependency `{dep}`"
-                                ));
-                                ctor_args.push("TODO()".to_string());
-                                continue;
-                            }
+            let clause_of = self
+                .checked
+                .use_with_items
+                .get(&(self.file_idx, span))
+                .cloned()
+                .unwrap_or_default();
+            for (i, dep) in dep_effects.iter().enumerate() {
+                if let Some(Some(at)) = clause_of.get(i) {
+                    match with_items.get(*at) {
+                        Some(item) => {
+                            ctor_args.push(self.with_item_instance(item));
+                            continue;
+                        }
+                        None => {
+                            self.error(format!(
+                                "internal: the `with` clause has no item {at} for \
+                                 dependency `{dep}`"
+                            ));
+                            ctor_args.push("TODO()".to_string());
+                            continue;
                         }
                     }
-                    let arg = self.thread_effect_fused_by_type(dep);
-                    ctor_args.push(arg);
                 }
-            } else {
-                let (class, _props, order) = self.emit_fx_class(&dep_effects);
-                let args: Vec<String> = order
-                    .iter()
-                    .map(|i| self.lookup_effect_handler_by_type(&dep_effects[*i]))
-                    .collect();
-                ctor_args.push(format!("{class}({})", args.join(", ")));
-                dep_class = Some(class);
+                let arg = self.lookup_effect_handler_by_type(dep);
+                ctor_args.push(arg);
             }
         }
         // [effect-handler-generics] A generic handler is constructed *at* a
         // type: Kotlin cannot infer the class's parameter from an empty
         // argument list, so the `use` site's type arguments are written out.
-        // A *dependent* handler carries one more parameter than Salvo wrote
-        // — the carrier's [kt-effect-fusion] — and Kotlin takes a type
-        // argument list whole or not at all, so it is appended here.
         let type_args = match self.checked.use_handler_args.get(&(self.file_idx, span)) {
             // [effect-generic-decl] An erased handler is monomorphic.
-            Some(_) if self.erased.handlers.contains(&handler_name) && dep_class.is_none() => {
-                String::new()
-            }
+            Some(_) if self.erased.handlers.contains(&handler_name) => String::new(),
             Some(args) if args.iter().all(ty_is_concrete) => {
-                let args = if self.erased.handlers.contains(&handler_name) {
-                    Vec::new()
-                } else {
-                    args.clone()
-                };
-                let mut rendered: Vec<String> =
-                    args.iter().map(|a| self.kotlin_ty(a)).collect();
-                rendered.extend(dep_class.clone());
+                let rendered: Vec<String> = args.iter().map(|a| self.kotlin_ty(a)).collect();
                 format!("<{}>", rendered.join(", "))
             }
             _ => String::new(),
@@ -5613,22 +5462,7 @@ impl<'p> Emitter<'p> {
         } else {
             handler_code
         };
-        // [effect-handle] [kt-monitor] The monitor binding: the construction
-        // wrapped in the per-effect lock wrapper, which implements the same
-        // interface, so everything downstream is unchanged.
-        let handler_code = if kind == salvo_core::UseKind::Monitor {
-            match self.checked.use_effects.get(&(self.file_idx, span)) {
-                Some(tys) => match tys.first() {
-                    Some(salvo_core::Ty::Named { name, .. }) => {
-                        format!("{}({handler_code})", monitor_class_name(name))
-                    }
-                    _ => handler_code,
-                },
-                None => handler_code,
-            }
-        } else {
-            handler_code
-        };
+        let _ = kind;
         // [effect-handler-multi] One entry per implemented effect, in
         // declaration order: a `use` binds every face the handler wears.
         let faces: Vec<(Option<salvo_core::Ty>, String)> =
@@ -5649,7 +5483,7 @@ impl<'p> Emitter<'p> {
                     .map(|of| (None, self.emit_type(of)))
                     .collect(),
             };
-        self.bind_effect_instance(faces, handler_code, indent)
+        self.bind_effect_instance(faces, handler_code, true, indent)
     }
 
     /// [kt-effect-fusion] [actor-use-addr] Bind one effect **instance** into
@@ -5663,6 +5497,7 @@ impl<'p> Emitter<'p> {
         // instance where it is concrete, and the rendered interface type.
         faces: Vec<(Option<salvo_core::Ty>, String)>,
         instance: String,
+        wrap: bool,
         indent: usize,
     ) -> String {
         let pad = "    ".repeat(indent);
@@ -5737,16 +5572,43 @@ impl<'p> Emitter<'p> {
                 args.join(", ")
             );
         }
-        let var = self.unique_name(effect_param_name(&rendered));
-        // [effect-handler-multi] With several faces the annotation is dropped:
-        // the val's type is the handler's own class, which satisfies every
-        // interface it implements, and Kotlin infers it.
-        let annotation = if faces.len() == 1 {
-            format!(": {rendered}")
-        } else {
-            String::new()
-        };
+        // [effect-handle] [kt-handle] Every binding is the effect's handle:
+        // `val e: E = __Mon_E(H(args, deps…))` — `synchronized` on the one
+        // instance, stateless or not (user decision 2026-09-28: one shape,
+        // parity with Rust's `__Handle_E`; the lock-free stateless path is
+        // the optimisation pass). An addr is already a handle (`use addr` of
+        // a plain effect passes the value through; of an actor effect wraps
+        // the send stub), so `wrap` says whether to wrap.
+        // [effect-handler-multi] Several faces share **one** instance: it is
+        // built once into a local and each face gets its own `__Mon_E` over
+        // it, so a stateful multi-face handler is one lock behind several
+        // interfaces (each face's monitor locks the same object).
+        if faces.len() == 1 {
+            let (ty, rendered) = faces.into_iter().next().unwrap();
+            let var = self.unique_name(effect_param_name(&rendered));
+            let code = if wrap {
+                format!("{}({instance})", self.monitor_for(&rendered))
+            } else {
+                instance
+            };
+            self.effect_env.push(EffectEntry {
+                ty,
+                rendered: rendered.clone(),
+                expr: var.clone(),
+                fused: None,
+            });
+            return format!("{pad}val {var}: {rendered} = {code}\n");
+        }
+        let held = self.unique_name("__h".to_string());
+        let mut out = format!("{pad}val {held} = {instance}\n");
         for (ty, rendered) in faces {
+            let var = self.unique_name(effect_param_name(&rendered));
+            let code = if wrap {
+                format!("{}({held})", self.monitor_for(&rendered))
+            } else {
+                held.clone()
+            };
+            out.push_str(&format!("{pad}val {var}: {rendered} = {code}\n"));
             self.effect_env.push(EffectEntry {
                 ty,
                 rendered,
@@ -5754,7 +5616,15 @@ impl<'p> Emitter<'p> {
                 fused: None,
             });
         }
-        format!("{pad}val {var}{annotation} = {instance}\n")
+        out
+    }
+
+    /// [kt-handle] The monitor class of a rendered effect instance
+    /// (`Random<Int>` → `__Mon_Random`; the type argument is inferred from
+    /// the wrapped value).
+    fn monitor_for(&mut self, rendered: &str) -> String {
+        let base = rendered.split('<').next().unwrap_or(rendered).trim();
+        monitor_class_name(base)
     }
 
     fn emit_expr_stmt(&mut self, expr: &Expr, indent: usize) -> String {
