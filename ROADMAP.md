@@ -632,6 +632,18 @@ backends**.
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
 
+- **A one-off fresh-run failure of `kotlinc_compiles_and_runs_every_case`**
+  (2026-09-28, under `SALVO_E2E_FRESH=1 cargo nextest run` with the whole
+  suite contending): FAIL at 185s after the node-group-connects change; the
+  same test passed fresh in isolation (131s), fresh with the Kotlin crate
+  alone (154s), and in the next full fresh run (205s, 1614/1614). The
+  driver's failure output was not captured that time, so the cause is
+  unknown — the suspects are a timing-dependent net case (the in-process
+  double's two nodes meeting under `settle` delays) or a kotlinc batch under
+  memory pressure (`JAVA_OPTS=-Xmx3g` per batch, several batches at once
+  with rustc tests beside them). If it recurs: run with `--no-capture` so the
+  per-case diff survives, and check which case it names.
+
 - **Lock-free scope-local bindings** (2026-09-28, the one item left of the
   lock-free pass the one-shape decision deferred; the stateless half landed
   the same afternoon — a stateless handler, the send stub and the mixed façade
