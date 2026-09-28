@@ -198,7 +198,34 @@ pub struct OutStream {
     pub handle: i64,
 }
 
-pub trait Fs {
+pub trait __Stateless_Fs: Send + Sync {
+    fn open_read(&self, path: &String) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn open_read_at(&self, path: &String, offset: i64) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn open_write(&self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn open_append(&self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn exists(&self, path: &String) -> bool;
+    fn metadata(&self, path: &String) -> Union2<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn list_dir(&self, path: &String) -> Union2<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn create_dirs(&self, path: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn delete(&self, path: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn rename_path(&self, from: &String, to: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn read_line(&self, s: &InStream) -> Option<String>;
+    fn read_all(&self, s: &InStream) -> Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn read_bytes(&self, s: &InStream, max: i32) -> Union2<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn read_to(&self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn read_to__2(&self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn read_line_to(&self, s: &InStream, buf: &mut String) -> bool;
+    fn position(&self, s: &InStream) -> i64;
+    fn close(&self, s: InStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn write(&self, s: &OutStream, text: &String) -> i64;
+    fn write_line(&self, s: &OutStream, text: &String) -> i64;
+    fn write_bytes(&self, s: &OutStream, data: &Vec<u8>) -> i64;
+    fn position__2(&self, s: &OutStream) -> i64;
+    fn flush(&self, s: &OutStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+    fn close__2(&self, s: OutStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
+}
+
+pub trait __Stateful_Fs: Send {
     fn open_read(&mut self, path: &String) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
     fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
     fn open_write(&mut self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
@@ -225,97 +252,180 @@ pub trait Fs {
     fn close__2(&mut self, s: OutStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>;
 }
 
-pub struct __Handle_Fs {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Fs + Send>>,
+pub struct Fs {
+    inner: __Inner_Fs,
 }
 
-impl Clone for __Handle_Fs {
+pub enum __Inner_Fs {
+    Shared(std::sync::Arc<dyn __Stateless_Fs>),
+    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_Fs>>),
+}
+
+impl Clone for Fs {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self { inner: match &self.inner {
+            __Inner_Fs::Shared(h) => __Inner_Fs::Shared(h.clone()),
+            __Inner_Fs::Locked(h) => __Inner_Fs::Locked(h.clone()),
+        } }
     }
 }
 
-impl __Handle_Fs {
-    pub fn new<__H: Fs + Send + 'static>(inner: __H) -> Self {
-        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+impl Fs {
+    pub fn shared<__H: __Stateless_Fs + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_Fs::Shared(std::sync::Arc::new(inner)) }
     }
-    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Fs + Send>>) -> Self {
-        Self { inner }
+    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_Fs>) -> Self {
+        Self { inner: __Inner_Fs::Shared(inner) }
     }
-}
-
-impl Fs for __Handle_Fs {
-    fn open_read(&mut self, path: &String) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().open_read(path)
+    pub fn locked<__H: __Stateful_Fs + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_Fs::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
     }
-    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().open_read_at(path, offset)
+    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Fs>>) -> Self {
+        Self { inner: __Inner_Fs::Locked(inner) }
     }
-    fn open_write(&mut self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().open_write(path)
+    pub fn open_read(&self, path: &String) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.open_read(path),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().open_read(path),
+        }
     }
-    fn open_append(&mut self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().open_append(path)
+    pub fn open_read_at(&self, path: &String, offset: i64) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.open_read_at(path, offset),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().open_read_at(path, offset),
+        }
     }
-    fn exists(&mut self, path: &String) -> bool {
-        self.inner.lock().unwrap().exists(path)
+    pub fn open_write(&self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.open_write(path),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().open_write(path),
+        }
     }
-    fn metadata(&mut self, path: &String) -> Union2<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().metadata(path)
+    pub fn open_append(&self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.open_append(path),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().open_append(path),
+        }
     }
-    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().list_dir(path)
+    pub fn exists(&self, path: &String) -> bool {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.exists(path),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().exists(path),
+        }
     }
-    fn create_dirs(&mut self, path: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().create_dirs(path)
+    pub fn metadata(&self, path: &String) -> Union2<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.metadata(path),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().metadata(path),
+        }
     }
-    fn delete(&mut self, path: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().delete(path)
+    pub fn list_dir(&self, path: &String) -> Union2<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.list_dir(path),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().list_dir(path),
+        }
     }
-    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().rename_path(from, to)
+    pub fn create_dirs(&self, path: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.create_dirs(path),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().create_dirs(path),
+        }
     }
-    fn read_line(&mut self, s: &InStream) -> Option<String> {
-        self.inner.lock().unwrap().read_line(s)
+    pub fn delete(&self, path: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.delete(path),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().delete(path),
+        }
     }
-    fn read_all(&mut self, s: &InStream) -> Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().read_all(s)
+    pub fn rename_path(&self, from: &String, to: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.rename_path(from, to),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().rename_path(from, to),
+        }
     }
-    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().read_bytes(s, max)
+    pub fn read_line(&self, s: &InStream) -> Option<String> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.read_line(s),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().read_line(s),
+        }
     }
-    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().read_to(s, buf, max)
+    pub fn read_all(&self, s: &InStream) -> Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.read_all(s),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().read_all(s),
+        }
     }
-    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().read_to__2(s, buf)
+    pub fn read_bytes(&self, s: &InStream, max: i32) -> Union2<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.read_bytes(s, max),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().read_bytes(s, max),
+        }
     }
-    fn read_line_to(&mut self, s: &InStream, buf: &mut String) -> bool {
-        self.inner.lock().unwrap().read_line_to(s, buf)
+    pub fn read_to(&self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.read_to(s, buf, max),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().read_to(s, buf, max),
+        }
     }
-    fn position(&mut self, s: &InStream) -> i64 {
-        self.inner.lock().unwrap().position(s)
+    pub fn read_to__2(&self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.read_to__2(s, buf),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().read_to__2(s, buf),
+        }
     }
-    fn close(&mut self, s: InStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().close(s)
+    pub fn read_line_to(&self, s: &InStream, buf: &mut String) -> bool {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.read_line_to(s, buf),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().read_line_to(s, buf),
+        }
     }
-    fn write(&mut self, s: &OutStream, text: &String) -> i64 {
-        self.inner.lock().unwrap().write(s, text)
+    pub fn position(&self, s: &InStream) -> i64 {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.position(s),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().position(s),
+        }
     }
-    fn write_line(&mut self, s: &OutStream, text: &String) -> i64 {
-        self.inner.lock().unwrap().write_line(s, text)
+    pub fn close(&self, s: InStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.close(s),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().close(s),
+        }
     }
-    fn write_bytes(&mut self, s: &OutStream, data: &Vec<u8>) -> i64 {
-        self.inner.lock().unwrap().write_bytes(s, data)
+    pub fn write(&self, s: &OutStream, text: &String) -> i64 {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.write(s, text),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().write(s, text),
+        }
     }
-    fn position__2(&mut self, s: &OutStream) -> i64 {
-        self.inner.lock().unwrap().position__2(s)
+    pub fn write_line(&self, s: &OutStream, text: &String) -> i64 {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.write_line(s, text),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().write_line(s, text),
+        }
     }
-    fn flush(&mut self, s: &OutStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().flush(s)
+    pub fn write_bytes(&self, s: &OutStream, data: &Vec<u8>) -> i64 {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.write_bytes(s, data),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().write_bytes(s, data),
+        }
     }
-    fn close__2(&mut self, s: OutStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.inner.lock().unwrap().close__2(s)
+    pub fn position__2(&self, s: &OutStream) -> i64 {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.position__2(s),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().position__2(s),
+        }
+    }
+    pub fn flush(&self, s: &OutStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.flush(s),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().flush(s),
+        }
+    }
+    pub fn close__2(&self, s: OutStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        match &self.inner {
+            __Inner_Fs::Shared(h) => h.close__2(s),
+            __Inner_Fs::Locked(h) => h.lock().unwrap().close__2(s),
+        }
     }
 }
 
@@ -328,7 +438,7 @@ pub fn lines(s: InStream) -> Lines {
     return Lines { s: s };
 }
 
-pub fn next__13(fs: &mut crate::fs::__Handle_Fs, p: &mut Lines) -> Union2<String, Finished> {
+pub fn next__13(fs: &crate::fs::Fs, p: &mut Lines) -> Union2<String, Finished> {
     let mut line = fs.read_line(&p.s);
     match line {
         Some(_) => {
@@ -340,11 +450,11 @@ pub fn next__13(fs: &mut crate::fs::__Handle_Fs, p: &mut Lines) -> Union2<String
     }
 }
 
-pub fn close(fs: &mut crate::fs::__Handle_Fs, p: Lines) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn close(fs: &crate::fs::Fs, p: Lines) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     return fs.close(p.s);
 }
 
-pub fn open_lines(fs: &mut crate::fs::__Handle_Fs, path: &String) -> Union2<Lines, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn open_lines(fs: &crate::fs::Fs, path: &String) -> Union2<Lines, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
         return Union2::<Lines, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(opened.u2().clone());
@@ -362,7 +472,7 @@ pub fn chunks(s: InStream, size: i32) -> Chunks {
     return Chunks { s: s, size: size };
 }
 
-pub fn next__14(fs: &mut crate::fs::__Handle_Fs, p: &mut Chunks) -> Union2<Vec<u8>, Finished> {
+pub fn next__14(fs: &crate::fs::Fs, p: &mut Chunks) -> Union2<Vec<u8>, Finished> {
     let mut got = fs.read_bytes(&p.s, p.size);
     if matches!(got, Union2::U2(_)) {
         ignore(got.u2().clone());
@@ -375,11 +485,11 @@ pub fn next__14(fs: &mut crate::fs::__Handle_Fs, p: &mut Chunks) -> Union2<Vec<u
     return Union2::<Vec<u8>, Finished>::U1(emitted(data));
 }
 
-pub fn close__2(fs: &mut crate::fs::__Handle_Fs, p: Chunks) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn close__2(fs: &crate::fs::Fs, p: Chunks) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     return fs.close(p.s);
 }
 
-pub fn open_chunks(fs: &mut crate::fs::__Handle_Fs, path: &String, size: i32) -> Union2<Chunks, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn open_chunks(fs: &crate::fs::Fs, path: &String, size: i32) -> Union2<Chunks, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
         return Union2::<Chunks, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(opened.u2().clone());
@@ -387,7 +497,7 @@ pub fn open_chunks(fs: &mut crate::fs::__Handle_Fs, path: &String, size: i32) ->
     return Union2::<Chunks, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(chunks(opened.u1().clone(), size)));
 }
 
-pub fn read_to_str(fs: &mut crate::fs::__Handle_Fs, path: &String) -> Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn read_to_str(fs: &crate::fs::Fs, path: &String) -> Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
         return Union2::<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(opened.u2().clone());
@@ -408,7 +518,7 @@ pub fn read_to_str(fs: &mut crate::fs::__Handle_Fs, path: &String) -> Union2<Str
     return Union2::<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(content.u1().clone());
 }
 
-pub fn read_lines(fs: &mut crate::fs::__Handle_Fs, path: &String) -> Union2<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn read_lines(fs: &crate::fs::Fs, path: &String) -> Union2<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
         return Union2::<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(opened.u2().clone());
@@ -426,7 +536,7 @@ pub fn read_lines(fs: &mut crate::fs::__Handle_Fs, path: &String) -> Union2<Vec<
     return Union2::<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(done));
 }
 
-pub fn write_str(fs: &mut crate::fs::__Handle_Fs, path: &String, content: &String) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn write_str(fs: &crate::fs::Fs, path: &String, content: &String) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut opened = fs.open_write(path);
     if matches!(opened, Union2::U2(_)) {
         return Union2::<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(opened.u2().clone());
@@ -440,7 +550,7 @@ pub fn write_str(fs: &mut crate::fs::__Handle_Fs, path: &String, content: &Strin
     return Union2::<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(written));
 }
 
-pub fn read_to_bytes(fs: &mut crate::fs::__Handle_Fs, path: &String) -> Union2<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn read_to_bytes(fs: &crate::fs::Fs, path: &String) -> Union2<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
         return Union2::<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(opened.u2().clone());
@@ -463,7 +573,7 @@ pub fn read_to_bytes(fs: &mut crate::fs::__Handle_Fs, path: &String) -> Union2<V
     return Union2::<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(done));
 }
 
-pub fn write_bytes_to(fs: &mut crate::fs::__Handle_Fs, path: &String, data: &Vec<u8>) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn write_bytes_to(fs: &crate::fs::Fs, path: &String, data: &Vec<u8>) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut opened = fs.open_write(path);
     if matches!(opened, Union2::U2(_)) {
         return Union2::<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(opened.u2().clone());
@@ -481,7 +591,7 @@ pub fn fs_chunk_size() -> i32 {
     return 65536;
 }
 
-pub fn fill_from(fs: &mut crate::fs::__Handle_Fs, s: &InStream, buf: &mut Vec<u8>) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn fill_from(fs: &crate::fs::Fs, s: &InStream, buf: &mut Vec<u8>) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut total: i64 = 0i64;
     let mut reading = true;
     while reading {
@@ -498,7 +608,7 @@ pub fn fill_from(fs: &mut crate::fs::__Handle_Fs, s: &InStream, buf: &mut Vec<u8
     return Union2::<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(total));
 }
 
-pub fn copy_stream(fs: &mut crate::fs::__Handle_Fs, s: &InStream, w: &OutStream) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn copy_stream(fs: &crate::fs::Fs, s: &InStream, w: &OutStream) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut buf = Vec::<u8>::new();
     let mut total: i64 = 0i64;
     let mut copying = true;
@@ -518,7 +628,7 @@ pub fn copy_stream(fs: &mut crate::fs::__Handle_Fs, s: &InStream, w: &OutStream)
     return Union2::<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(total));
 }
 
-pub fn copy_file(fs: &mut crate::fs::__Handle_Fs, from: &String, to: &String) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+pub fn copy_file(fs: &crate::fs::Fs, from: &String, to: &String) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut opened = fs.open_read(from);
     if matches!(opened, Union2::U2(_)) {
         return Union2::<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(opened.u2().clone());

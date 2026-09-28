@@ -33,7 +33,11 @@ impl crate::wire::__Wire for Fault {
     }
 }
 
-pub trait Faults {
+pub trait __Stateless_Faults: Send + Sync {
+    fn faulted(&self, fault: Fault);
+}
+
+pub trait __Stateful_Faults: Send {
     fn faulted(&mut self, fault: Fault);
 }
 
@@ -47,34 +51,48 @@ impl __Stub_Faults {
     }
 }
 
-impl Faults for __Stub_Faults {
-    fn faulted(&mut self, fault: Fault) {
+impl __Stateless_Faults for __Stub_Faults {
+    fn faulted(&self, fault: Fault) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Faults::Faulted(fault), crate::core_actor::__PROTO_Faults);
     }
 }
 
-pub struct __Handle_Faults {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Faults + Send>>,
+pub struct Faults {
+    inner: __Inner_Faults,
 }
 
-impl Clone for __Handle_Faults {
+pub enum __Inner_Faults {
+    Shared(std::sync::Arc<dyn __Stateless_Faults>),
+    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_Faults>>),
+}
+
+impl Clone for Faults {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self { inner: match &self.inner {
+            __Inner_Faults::Shared(h) => __Inner_Faults::Shared(h.clone()),
+            __Inner_Faults::Locked(h) => __Inner_Faults::Locked(h.clone()),
+        } }
     }
 }
 
-impl __Handle_Faults {
-    pub fn new<__H: Faults + Send + 'static>(inner: __H) -> Self {
-        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+impl Faults {
+    pub fn shared<__H: __Stateless_Faults + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_Faults::Shared(std::sync::Arc::new(inner)) }
     }
-    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Faults + Send>>) -> Self {
-        Self { inner }
+    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_Faults>) -> Self {
+        Self { inner: __Inner_Faults::Shared(inner) }
     }
-}
-
-impl Faults for __Handle_Faults {
-    fn faulted(&mut self, fault: Fault) {
-        self.inner.lock().unwrap().faulted(fault)
+    pub fn locked<__H: __Stateful_Faults + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_Faults::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
+    }
+    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Faults>>) -> Self {
+        Self { inner: __Inner_Faults::Locked(inner) }
+    }
+    pub fn faulted(&self, fault: Fault) {
+        match &self.inner {
+            __Inner_Faults::Shared(h) => h.faulted(fault),
+            __Inner_Faults::Locked(h) => h.lock().unwrap().faulted(fault),
+        }
     }
 }
 

@@ -70,7 +70,7 @@ impl MemFs {
     }
 }
 
-impl Fs for MemFs {
+impl crate::fs::__Stateful_Fs for MemFs {
 
     fn open_read(&mut self, path: &String) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         if !self.files.contains_key(&path) {

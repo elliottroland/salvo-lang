@@ -60,17 +60,17 @@ impl crate::wire::__Wire for FileHandle {
     }
 }
 
-pub fn open_file(console: &mut crate::core_console::__Handle_Console, name: String) -> FileHandle {
+pub fn open_file(console: &crate::core_console::Console, name: String) -> FileHandle {
     println(console, &(format!("1. open {}", name)));
     return FileHandle { name: name };
 }
 
-pub fn close__3(console: &mut crate::core_console::__Handle_Console, handle: FileHandle) {
+pub fn close__3(console: &crate::core_console::Console, handle: FileHandle) {
     println(console, &(format!("1. close {}", handle.name.clone())));
     drop(handle);
 }
 
-pub fn read_size(console: &mut crate::core_console::__Handle_Console, name: String, want: i32) -> i32 {
+pub fn read_size(console: &crate::core_console::Console, name: String, want: i32) -> i32 {
     let mut there_is = (name.chars().count() as i32);
     let mut handle = open_file(console, name);
     if want > there_is {
@@ -98,7 +98,7 @@ pub fn port_of(config: &String) -> ControlFlow<String, i32> {
     return ControlFlow::Continue(port * 1);
 }
 
-pub fn port_from_file(console: &mut crate::core_console::__Handle_Console, name: String, text: &String) -> ControlFlow<String, i32> {
+pub fn port_from_file(console: &crate::core_console::Console, name: String, text: &String) -> ControlFlow<String, i32> {
     let mut handle = open_file(console, name);
     let mut from = handle.name.clone();
     close__3(console, handle);
@@ -117,7 +117,7 @@ pub fn strict_port(text: &String) -> ControlFlow<Union2<String, i32>, i32> {
     return ControlFlow::Continue(n.unwrap());
 }
 
-pub fn report(console: &mut crate::core_console::__Handle_Console, label: &String, config: &String) {
+pub fn report(console: &crate::core_console::Console, label: &String, config: &String) {
     let mut outcome = 'try_1: {
         Union2::<i32, String>::U1(match port_of(config) { ControlFlow::Continue(__v) => __v, ControlFlow::Break(__m) => break 'try_1 Union2::<i32, String>::U2(__m) })
     };
@@ -132,22 +132,22 @@ pub fn report(console: &mut crate::core_console::__Handle_Console, label: &Strin
 }
 
 pub fn main() {
-    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
-    let mut small = read_size(&mut console, "notes.txt".to_string(), 3);
-    println(&mut console, &(format!("1. read {}", small)));
-    let mut clamped = read_size(&mut console, "notes.txt".to_string(), 99);
-    println(&mut console, &(format!("1. read {}", clamped)));
-    report(&mut console, &("good".to_string()), &("8080".to_string()));
-    report(&mut console, &("bad".to_string()), &("http".to_string()));
+    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let mut small = read_size(&console, "notes.txt".to_string(), 3);
+    println(&console, &(format!("1. read {}", small)));
+    let mut clamped = read_size(&console, "notes.txt".to_string(), 99);
+    println(&console, &(format!("1. read {}", clamped)));
+    report(&console, &("good".to_string()), &("8080".to_string()));
+    report(&console, &("bad".to_string()), &("http".to_string()));
     let mut guarded = 'try_2: {
-        Union2::<i32, String>::U1(match port_from_file(&mut console, "ports.txt".to_string(), &("-1".to_string())) { ControlFlow::Continue(__v) => __v, ControlFlow::Break(__m) => break 'try_2 Union2::<i32, String>::U2(__m) })
+        Union2::<i32, String>::U1(match port_from_file(&console, "ports.txt".to_string(), &("-1".to_string())) { ControlFlow::Continue(__v) => __v, ControlFlow::Break(__m) => break 'try_2 Union2::<i32, String>::U2(__m) })
     };
     match guarded {
         Union2::U1(_) => {
-            println(&mut console, &(format!("3. guarded: {}", *guarded.u1())));
+            println(&console, &(format!("3. guarded: {}", *guarded.u1())));
         }
         Union2::U2(_) => {
-            println(&mut console, &(format!("3. guarded: rejected — {}", guarded.u2().clone())));
+            println(&console, &(format!("3. guarded: rejected — {}", guarded.u2().clone())));
         }
     }
     let mut mixed = 'try_3: {
@@ -155,16 +155,16 @@ pub fn main() {
     };
     match mixed {
         Union2::U1(_) => {
-            println(&mut console, &(format!("3. mixed: {}", *mixed.u1())));
+            println(&console, &(format!("3. mixed: {}", *mixed.u1())));
         }
         Union2::U2(_) => {
             let mut why: Union2<String, i32> = mixed.u2().clone();
             match why {
                 Union2::U1(_) => {
-                    println(&mut console, &(format!("3. mixed: message {}", why.u1().clone())));
+                    println(&console, &(format!("3. mixed: message {}", why.u1().clone())));
                 }
                 Union2::U2(_) => {
-                    println(&mut console, &(format!("3. mixed: length {}", *why.u2())));
+                    println(&console, &(format!("3. mixed: length {}", *why.u2())));
                 }
             }
         }
@@ -179,17 +179,17 @@ pub fn main() {
                 got
             }
             Union2::U2(_) => {
-                println(&mut console, &(format!("3. inner caught: {}", inner.u2().clone())));
+                println(&console, &(format!("3. inner caught: {}", inner.u2().clone())));
                 match parse_port(&("also nope".to_string())) { ControlFlow::Continue(__v) => __v, ControlFlow::Break(__m) => break 'try_4 Union2::<i32, String>::U2(__m) }
             }
         })
     };
     match outer {
         Union2::U1(_) => {
-            println(&mut console, &(format!("3. outer: {}", *outer.u1())));
+            println(&console, &(format!("3. outer: {}", *outer.u1())));
         }
         Union2::U2(_) => {
-            println(&mut console, &(format!("3. outer caught: {}", outer.u2().clone())));
+            println(&console, &(format!("3. outer caught: {}", outer.u2().clone())));
         }
     }
 }

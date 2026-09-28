@@ -82,90 +82,90 @@ pub fn count_unique(xs: &Vec<i32>) -> i32 {
 }
 
 pub fn main() {
-    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(StdOutConsole::new());
     let mut primes = vec![2, 3, 5, 7];
     let mut vowels = SalvoSet::from_elements::<HostHash, HostEq, _>(vec!["a".to_string(), "e".to_string(), "i".to_string(), "o".to_string(), "u".to_string()]);
     let mut ages = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![("ada".to_string(), 36), ("grace".to_string(), 45)]);
-    println(&mut console, &(format!("1. list {}", format!("[{}]", primes.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
-    println(&mut console, &(format!("1. set {} of {}", vowels.to_string(), (vowels.len() as i32))));
-    println(&mut console, &(format!("1. map {}", ages.to_string())));
+    println(&console, &(format!("1. list {}", format!("[{}]", primes.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
+    println(&console, &(format!("1. set {} of {}", vowels.to_string(), (vowels.len() as i32))));
+    println(&console, &(format!("1. map {}", ages.to_string())));
     let mut note: Note = Note { text: "still a struct literal".to_string() };
-    println(&mut console, &(format!("1. struct {}", note.text.clone())));
+    println(&console, &(format!("1. struct {}", note.text.clone())));
     let mut seen: SalvoSet<String> = SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]);
     seen.insert("first".to_string());
-    println(&mut console, &(format!("1. empty then filled {}", seen.to_string())));
+    println(&console, &(format!("1. empty then filled {}", seen.to_string())));
     let mut tally: SalvoMap<String, i32> = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![("pear".to_string(), 1), ("apple".to_string(), 2)]);
     tally.insert("fig".to_string(), 3);
     tally.insert("pear".to_string(), 99);
-    println(&mut console, &(format!("2. insertion order kept {}", tally.to_string())));
+    println(&console, &(format!("2. insertion order kept {}", tally.to_string())));
     let mut ranked: SalvoSortedSet<String> = SalvoSortedSet::from_elements::<HostOrd, _>(vec!["pear".to_string(), "apple".to_string(), "fig".to_string()]);
-    println(&mut console, &(format!("2. key order {}", format!("{{{}}}", ranked.to_vec().iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
+    println(&console, &(format!("2. key order {}", format!("{{{}}}", ranked.to_vec().iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
     let mut smallest = ranked.min().cloned();
     if smallest.is_some() {
-        println(&mut console, &(format!("2. min is cheap here {}", smallest.as_ref().unwrap().clone())));
+        println(&console, &(format!("2. min is cheap here {}", smallest.as_ref().unwrap().clone())));
     }
     let mut corners: SalvoSet<Point> = SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]);
     corners.insert(Point { x: 0, y: 0 });
     let mut again = corners.insert(Point { x: 0, y: 0 });
-    println(&mut console, &(format!("3. struct key: size {}, second add {}", (corners.len() as i32), again)));
+    println(&console, &(format!("3. struct key: size {}, second add {}", (corners.len() as i32), again)));
     let mut labels: SalvoMap<Point, String> = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]);
     labels.insert(Point { x: 1, y: 1 }, "diagonal".to_string());
     let mut found = labels.get(&Point { x: 1, y: 1 });
     if found.is_some() {
-        println(&mut console, &(format!("3. looked up by value {}", found.unwrap().clone())));
+        println(&console, &(format!("3. looked up by value {}", found.unwrap().clone())));
     }
     let mut a = Point { x: 1, y: 2 };
     let mut b = Point { x: 1, y: 2 };
     let mut c = Point { x: 1, y: 9 };
     let mut same = eq__7(&a, &b);
     let mut before = cmp__5(&a, &c) < 0;
-    println(&mut console, &(format!("4. equal {}, ordered {}", same, before)));
+    println(&console, &(format!("4. equal {}, ordered {}", same, before)));
     let mut n1 = Note { text: "same".to_string() };
     let mut n2 = Note { text: "same".to_string() };
     let mut notes_equal = eq__8(&n1, &n2);
-    println(&mut console, &(format!("4. plain struct equality {}", notes_equal)));
+    println(&console, &(format!("4. plain struct equality {}", notes_equal)));
     let mut squares = (0..(4)).map(|i| i * i).collect::<Vec<_>>();
-    println(&mut console, &(format!("5. generated {}", format!("[{}]", squares.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
+    println(&console, &(format!("5. generated {}", format!("[{}]", squares.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
     let mut deduped = SalvoSet::from_elements::<HostHash, HostEq, _>(primes.iter().cloned());
-    println(&mut console, &(format!("5. to_set {}", deduped.to_string())));
+    println(&console, &(format!("5. to_set {}", deduped.to_string())));
     let mut words = vec!["alpha".to_string(), "be".to_string()];
     let mut lengths = SalvoMap::from_entries::<HostHash, HostEq, _>(words.iter().map(|w| (w.clone(), (w.chars().count() as i32))));
-    println(&mut console, &(format!("5. to_map with a rule {}", lengths.to_string())));
+    println(&console, &(format!("5. to_map with a rule {}", lengths.to_string())));
     let mut filled = vec!["ada".to_string(), "grace".to_string()];
-    println(&mut console, &(format!("6. first is {}, no optional", first(&filled))));
+    println(&console, &(format!("6. first is {}, no optional", first(&filled))));
     let mut growing: Vec<i32> = vec![];
     growing.push(7);
-    println(&mut console, &(format!("6. after add, first is {}", *first(&growing))));
+    println(&console, &(format!("6. after add, first is {}", *first(&growing))));
     let mut ordered = sort::<i32>(&(vec![40, 10, 30, 20]), &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
-    println(&mut console, &(format!("6. sorted {}", format!("[{}]", ordered.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
+    println(&console, &(format!("6. sorted {}", format!("[{}]", ordered.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
     let mut __is1 = binary_search::<i32>(&ordered, &(30), &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
     if __is1.is_some() {
         let mut at = __is1.unwrap();
-        println(&mut console, &(format!("6. found 30 at {}", at)));
+        println(&console, &(format!("6. found 30 at {}", at)));
     }
     let mut live: Vec<i32> = mut_sort::<i32>(&(vec![10, 30]), &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
     add_sorted::<i32>(&mut live, 20, &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
     add_sorted::<i32>(&mut live, 5, &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
-    println(&mut console, &(format!("6. still sorted {}", format!("[{}]", live.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
+    println(&console, &(format!("6. still sorted {}", format!("[{}]", live.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
     let mut bylen = sort::<String>(&(vec!["alpha".to_string(), "be".to_string(), "z".to_string()]), &mut |__i0, __i1| by_len(__i0, __i1));
-    println(&mut console, &(format!("6. by length {}", format!("[{}]", bylen.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
+    println(&console, &(format!("6. by length {}", format!("[{}]", bylen.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
     let mut __is2 = binary_search::<String>(&bylen, &("hi".to_string()), &mut |__i0, __i1| by_len(__i0, __i1));
     if __is2.is_some() {
         let mut at_len = __is2.unwrap();
-        println(&mut console, &(format!("6. a two-letter word at {}", at_len)));
+        println(&console, &(format!("6. a two-letter word at {}", at_len)));
     }
     let mut unique = deduped.iter().cloned().collect::<Vec<_>>();
-    println(&mut console, &(format!("6. distinct {} of {}", format!("[{}]", unique.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")), count_unique(&unique))));
+    println(&console, &(format!("6. distinct {} of {}", format!("[{}]", unique.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")), count_unique(&unique))));
     let mut __loop1_pass = iter__5(&vowels);
     while let Union2::U1(mut v) = next__11(&mut __loop1_pass) {
         console.print(&v);
     }
-    println(&mut console, &("".to_string()));
+    println(&console, &("".to_string()));
     let mut __loop2_pass = iter__4(&ages);
     while let Union2::U1(mut name) = next__9(&mut __loop2_pass) {
         let mut age = ages.get(&name);
         if age.is_some() {
-            println(&mut console, &(format!("7. {} is {}", name, *age.unwrap())));
+            println(&console, &(format!("7. {} is {}", name, *age.unwrap())));
         }
     }
 }

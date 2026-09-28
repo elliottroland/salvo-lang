@@ -14,12 +14,14 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 
 // `threadsafe platform handler HostTcpTransport` — THE CONTRACT YOU ARE SIGNING:
-// every member below is safe to run concurrently with every other, so
-// any mutable state has its own synchronization (`Mutex`, `RwLock`,
-// atomics). Today the compiler still serializes the instance behind
-// the effect's handle, so the receivers are `&mut self` and the
-// struct must be `Send`; the contract is what lets a later emission
-// drop the lock [threadsafe-platform].
+// this instance is shared across every thread of the program with NO
+// lock around it. Every member below may run concurrently with every
+// other, so the receivers are `&self`, any mutable state needs its own
+// synchronization (`Mutex`, `RwLock`, atomics — a `RefCell` will not
+// compile), and rustc enforces `Send + Sync` on this struct. If the
+// host cannot promise that, delete `threadsafe` from the Salvo
+// declaration: the compiler then serializes the instance for you and
+// the receivers become `&mut self` [threadsafe-platform].
 //
 // Signed 2026-09-26: every table below is behind its own `Mutex`, held only
 // for the table operation — never across a socket write — and a connection
@@ -129,8 +131,8 @@ impl HostTcpTransport {
     }
 }
 
-impl crate::net::Transport for HostTcpTransport {
-    fn listen(&mut self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
+impl crate::net::__Stateless_Transport for HostTcpTransport {
+    fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
         let mut listening = self.listening.lock().unwrap();
         if let Some(slot) = listening.get(at) {
             // A second `listen` at the same endpoint replaces the sink; the
@@ -161,7 +163,7 @@ impl crate::net::Transport for HostTcpTransport {
         Union2::U1(())
     }
 
-    fn unlisten(&mut self, at: &NodeEndpoint) {
+    fn unlisten(&self, at: &NodeEndpoint) {
         if let Some(slot) = self.listening.lock().unwrap().remove(at) {
             *slot.lock().unwrap() = None;
             // Wake the acceptor so it sees the cleared slot and exits.
@@ -170,7 +172,7 @@ impl crate::net::Transport for HostTcpTransport {
         }
     }
 
-    fn deliver(&mut self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    fn deliver(&self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>> {
         let conn = {
             let mut peers = self.peers.lock().unwrap();
             match peers.get(to) {
@@ -200,7 +202,7 @@ impl crate::net::Transport for HostTcpTransport {
         }
     }
 
-    fn local_endpoint(&mut self) -> NodeEndpoint {
+    fn local_endpoint(&self) -> NodeEndpoint {
         self.bind.clone()
     }
 }

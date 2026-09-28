@@ -182,73 +182,117 @@ pub fn minus__3(at: &Tick, d: &Duration) -> Tick {
     return Tick { nanos: at.nanos - d.nanos };
 }
 
-pub trait Ticker {
+pub trait __Stateless_Ticker: Send + Sync {
+    fn tick(&self) -> Tick;
+}
+
+pub trait __Stateful_Ticker: Send {
     fn tick(&mut self) -> Tick;
 }
 
-pub struct __Handle_Ticker {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Ticker + Send>>,
+pub struct Ticker {
+    inner: __Inner_Ticker,
 }
 
-impl Clone for __Handle_Ticker {
+pub enum __Inner_Ticker {
+    Shared(std::sync::Arc<dyn __Stateless_Ticker>),
+    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_Ticker>>),
+}
+
+impl Clone for Ticker {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self { inner: match &self.inner {
+            __Inner_Ticker::Shared(h) => __Inner_Ticker::Shared(h.clone()),
+            __Inner_Ticker::Locked(h) => __Inner_Ticker::Locked(h.clone()),
+        } }
     }
 }
 
-impl __Handle_Ticker {
-    pub fn new<__H: Ticker + Send + 'static>(inner: __H) -> Self {
-        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+impl Ticker {
+    pub fn shared<__H: __Stateless_Ticker + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_Ticker::Shared(std::sync::Arc::new(inner)) }
     }
-    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Ticker + Send>>) -> Self {
-        Self { inner }
+    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_Ticker>) -> Self {
+        Self { inner: __Inner_Ticker::Shared(inner) }
+    }
+    pub fn locked<__H: __Stateful_Ticker + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_Ticker::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
+    }
+    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Ticker>>) -> Self {
+        Self { inner: __Inner_Ticker::Locked(inner) }
+    }
+    pub fn tick(&self) -> Tick {
+        match &self.inner {
+            __Inner_Ticker::Shared(h) => h.tick(),
+            __Inner_Ticker::Locked(h) => h.lock().unwrap().tick(),
+        }
     }
 }
 
-impl Ticker for __Handle_Ticker {
-    fn tick(&mut self) -> Tick {
-        self.inner.lock().unwrap().tick()
-    }
+pub trait __Stateless_Clock: Send + Sync {
+    fn now(&self) -> Instant;
+    fn to_instant(&self, at: &Tick) -> Instant;
+    fn to_tick(&self, at: &Instant) -> Tick;
 }
 
-pub trait Clock {
+pub trait __Stateful_Clock: Send {
     fn now(&mut self) -> Instant;
     fn to_instant(&mut self, at: &Tick) -> Instant;
     fn to_tick(&mut self, at: &Instant) -> Tick;
 }
 
-pub struct __Handle_Clock {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Clock + Send>>,
+pub struct Clock {
+    inner: __Inner_Clock,
 }
 
-impl Clone for __Handle_Clock {
+pub enum __Inner_Clock {
+    Shared(std::sync::Arc<dyn __Stateless_Clock>),
+    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_Clock>>),
+}
+
+impl Clone for Clock {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self { inner: match &self.inner {
+            __Inner_Clock::Shared(h) => __Inner_Clock::Shared(h.clone()),
+            __Inner_Clock::Locked(h) => __Inner_Clock::Locked(h.clone()),
+        } }
     }
 }
 
-impl __Handle_Clock {
-    pub fn new<__H: Clock + Send + 'static>(inner: __H) -> Self {
-        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+impl Clock {
+    pub fn shared<__H: __Stateless_Clock + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_Clock::Shared(std::sync::Arc::new(inner)) }
     }
-    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Clock + Send>>) -> Self {
-        Self { inner }
+    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_Clock>) -> Self {
+        Self { inner: __Inner_Clock::Shared(inner) }
+    }
+    pub fn locked<__H: __Stateful_Clock + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_Clock::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
+    }
+    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Clock>>) -> Self {
+        Self { inner: __Inner_Clock::Locked(inner) }
+    }
+    pub fn now(&self) -> Instant {
+        match &self.inner {
+            __Inner_Clock::Shared(h) => h.now(),
+            __Inner_Clock::Locked(h) => h.lock().unwrap().now(),
+        }
+    }
+    pub fn to_instant(&self, at: &Tick) -> Instant {
+        match &self.inner {
+            __Inner_Clock::Shared(h) => h.to_instant(at),
+            __Inner_Clock::Locked(h) => h.lock().unwrap().to_instant(at),
+        }
+    }
+    pub fn to_tick(&self, at: &Instant) -> Tick {
+        match &self.inner {
+            __Inner_Clock::Shared(h) => h.to_tick(at),
+            __Inner_Clock::Locked(h) => h.lock().unwrap().to_tick(at),
+        }
     }
 }
 
-impl Clock for __Handle_Clock {
-    fn now(&mut self) -> Instant {
-        self.inner.lock().unwrap().now()
-    }
-    fn to_instant(&mut self, at: &Tick) -> Instant {
-        self.inner.lock().unwrap().to_instant(at)
-    }
-    fn to_tick(&mut self, at: &Instant) -> Tick {
-        self.inner.lock().unwrap().to_tick(at)
-    }
-}
-
-pub fn elapsed(ticker: &mut crate::time::__Handle_Ticker, since: &Tick) -> Duration {
+pub fn elapsed(ticker: &crate::time::Ticker, since: &Tick) -> Duration {
     return between__2(since, &(ticker.tick()));
 }
 
@@ -263,9 +307,9 @@ impl DefaultTicker {
     }
 }
 
-impl Ticker for DefaultTicker {
+impl crate::time::__Stateless_Ticker for DefaultTicker {
 
-    fn tick(&mut self) -> Tick {
+    fn tick(&self) -> Tick {
         return Tick { nanos: crate::hosttime::salvo_mono_nanos() };
     }
 }
@@ -284,7 +328,7 @@ impl DefaultClock {
     }
 }
 
-impl Clock for DefaultClock {
+impl crate::time::__Stateful_Clock for DefaultClock {
 
     fn now(&mut self) -> Instant {
         return Instant { nanos: crate::hosttime::salvo_epoch_nanos() };
@@ -315,7 +359,11 @@ impl crate::wire::__Wire for Fired {
     }
 }
 
-pub trait Timer {
+pub trait __Stateless_Timer: Send + Sync {
+    fn after(&self, wait: Duration, done: crate::scheduler::SalvoReply);
+}
+
+pub trait __Stateful_Timer: Send {
     fn after(&mut self, wait: Duration, done: crate::scheduler::SalvoReply);
 }
 
@@ -329,34 +377,48 @@ impl __Stub_Timer {
     }
 }
 
-impl Timer for __Stub_Timer {
-    fn after(&mut self, wait: Duration, done: crate::scheduler::SalvoReply) {
+impl __Stateless_Timer for __Stub_Timer {
+    fn after(&self, wait: Duration, done: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Timer::After(wait, done), crate::time::__PROTO_Timer);
     }
 }
 
-pub struct __Handle_Timer {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Timer + Send>>,
+pub struct Timer {
+    inner: __Inner_Timer,
 }
 
-impl Clone for __Handle_Timer {
+pub enum __Inner_Timer {
+    Shared(std::sync::Arc<dyn __Stateless_Timer>),
+    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_Timer>>),
+}
+
+impl Clone for Timer {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self { inner: match &self.inner {
+            __Inner_Timer::Shared(h) => __Inner_Timer::Shared(h.clone()),
+            __Inner_Timer::Locked(h) => __Inner_Timer::Locked(h.clone()),
+        } }
     }
 }
 
-impl __Handle_Timer {
-    pub fn new<__H: Timer + Send + 'static>(inner: __H) -> Self {
-        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+impl Timer {
+    pub fn shared<__H: __Stateless_Timer + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_Timer::Shared(std::sync::Arc::new(inner)) }
     }
-    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn Timer + Send>>) -> Self {
-        Self { inner }
+    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_Timer>) -> Self {
+        Self { inner: __Inner_Timer::Shared(inner) }
     }
-}
-
-impl Timer for __Handle_Timer {
-    fn after(&mut self, wait: Duration, done: crate::scheduler::SalvoReply) {
-        self.inner.lock().unwrap().after(wait, done)
+    pub fn locked<__H: __Stateful_Timer + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_Timer::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
+    }
+    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Timer>>) -> Self {
+        Self { inner: __Inner_Timer::Locked(inner) }
+    }
+    pub fn after(&self, wait: Duration, done: crate::scheduler::SalvoReply) {
+        match &self.inner {
+            __Inner_Timer::Shared(h) => h.after(wait, done),
+            __Inner_Timer::Locked(h) => h.lock().unwrap().after(wait, done),
+        }
     }
 }
 
@@ -401,9 +463,9 @@ impl DefaultTimer {
     }
 }
 
-impl Timer for DefaultTimer {
+impl crate::time::__Stateless_Timer for DefaultTimer {
 
-    fn after(&mut self, wait: Duration, done: crate::scheduler::SalvoReply) {
+    fn after(&self, wait: Duration, done: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_after((wait).nanos, done, |__at| Box::new(Fired { at: Tick { nanos: __at } }));
     }
 }
@@ -425,7 +487,7 @@ impl __Actor_DefaultTimer {
 impl __Actor_DefaultTimer {
     fn __dispatch(&mut self, msg: crate::time::__Msg_Timer) {
         match msg {
-            crate::time::__Msg_Timer::After(wait, done) => crate::time::Timer::after(&mut self.handler, wait, done),
+            crate::time::__Msg_Timer::After(wait, done) => crate::time::__Stateless_Timer::after(&mut self.handler, wait, done),
         }
     }
 }
@@ -463,7 +525,11 @@ fn __decode_msg_DefaultTimer(proto: &str, payload: &[u8]) -> Option<crate::sched
     None
 }
 
-pub trait TimerCtl {
+pub trait __Stateless_TimerCtl: Send + Sync {
+    fn advance(&self, by: Duration);
+}
+
+pub trait __Stateful_TimerCtl: Send {
     fn advance(&mut self, by: Duration);
 }
 
@@ -477,34 +543,48 @@ impl __Stub_TimerCtl {
     }
 }
 
-impl TimerCtl for __Stub_TimerCtl {
-    fn advance(&mut self, by: Duration) {
+impl __Stateless_TimerCtl for __Stub_TimerCtl {
+    fn advance(&self, by: Duration) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_TimerCtl::Advance(by), crate::time::__PROTO_TimerCtl);
     }
 }
 
-pub struct __Handle_TimerCtl {
-    inner: std::sync::Arc<std::sync::Mutex<dyn TimerCtl + Send>>,
+pub struct TimerCtl {
+    inner: __Inner_TimerCtl,
 }
 
-impl Clone for __Handle_TimerCtl {
+pub enum __Inner_TimerCtl {
+    Shared(std::sync::Arc<dyn __Stateless_TimerCtl>),
+    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_TimerCtl>>),
+}
+
+impl Clone for TimerCtl {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self { inner: match &self.inner {
+            __Inner_TimerCtl::Shared(h) => __Inner_TimerCtl::Shared(h.clone()),
+            __Inner_TimerCtl::Locked(h) => __Inner_TimerCtl::Locked(h.clone()),
+        } }
     }
 }
 
-impl __Handle_TimerCtl {
-    pub fn new<__H: TimerCtl + Send + 'static>(inner: __H) -> Self {
-        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+impl TimerCtl {
+    pub fn shared<__H: __Stateless_TimerCtl + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_TimerCtl::Shared(std::sync::Arc::new(inner)) }
     }
-    pub fn share(inner: std::sync::Arc<std::sync::Mutex<dyn TimerCtl + Send>>) -> Self {
-        Self { inner }
+    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_TimerCtl>) -> Self {
+        Self { inner: __Inner_TimerCtl::Shared(inner) }
     }
-}
-
-impl TimerCtl for __Handle_TimerCtl {
-    fn advance(&mut self, by: Duration) {
-        self.inner.lock().unwrap().advance(by)
+    pub fn locked<__H: __Stateful_TimerCtl + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_TimerCtl::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
+    }
+    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_TimerCtl>>) -> Self {
+        Self { inner: __Inner_TimerCtl::Locked(inner) }
+    }
+    pub fn advance(&self, by: Duration) {
+        match &self.inner {
+            __Inner_TimerCtl::Shared(h) => h.advance(by),
+            __Inner_TimerCtl::Locked(h) => h.lock().unwrap().advance(by),
+        }
     }
 }
 
@@ -554,7 +634,7 @@ impl ManualTime {
     }
 }
 
-impl Timer for ManualTime {
+impl crate::time::__Stateful_Timer for ManualTime {
 
     fn after(&mut self, wait: Duration, done: crate::scheduler::SalvoReply) {
         if wait.nanos <= ((0) as i64) {
@@ -566,7 +646,7 @@ impl Timer for ManualTime {
     }
 }
 
-impl TimerCtl for ManualTime {
+impl crate::time::__Stateful_TimerCtl for ManualTime {
 
     fn advance(&mut self, by: Duration) {
         let mut target = self.now + by.nanos;
@@ -607,12 +687,12 @@ impl __Actor_ManualTime {
 impl __Actor_ManualTime {
     fn __dispatch_Timer(&mut self, msg: crate::time::__Msg_Timer) {
         match msg {
-            crate::time::__Msg_Timer::After(wait, done) => crate::time::Timer::after(&mut self.handler, wait, done),
+            crate::time::__Msg_Timer::After(wait, done) => crate::time::__Stateful_Timer::after(&mut self.handler, wait, done),
         }
     }
     fn __dispatch_TimerCtl(&mut self, msg: crate::time::__Msg_TimerCtl) {
         match msg {
-            crate::time::__Msg_TimerCtl::Advance(by) => crate::time::TimerCtl::advance(&mut self.handler, by),
+            crate::time::__Msg_TimerCtl::Advance(by) => crate::time::__Stateful_TimerCtl::advance(&mut self.handler, by),
         }
     }
 }

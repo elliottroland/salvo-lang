@@ -74,7 +74,7 @@ pub fn kind_name(kind: &Union8<NotFound, PermissionDenied, AlreadyExists, NotADi
     return "other".to_string();
 }
 
-pub fn workflow(fs: &mut crate::fs::__Handle_Fs, console: &mut crate::core_console::__Handle_Console) {
+pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
     let mut wrote = write_str(fs, &("notes.txt".to_string()), &("alpha\nbeta\ngamma\n".to_string()));
     match wrote {
         Union2::U1(_) => {
@@ -354,7 +354,7 @@ pub fn workflow(fs: &mut crate::fs::__Handle_Fs, console: &mut crate::core_conso
     println(console, &("cleaned up".to_string()));
 }
 
-pub fn sandbox_edges(fs: &mut crate::fs::__Handle_Fs, console: &mut crate::core_console::__Handle_Console) {
+pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
     let mut inside = write_str(fs, &("sub/../probe.txt".to_string()), &("inside\n".to_string()));
     match inside {
         Union2::U1(_) => {
@@ -391,28 +391,28 @@ pub fn sandbox_edges(fs: &mut crate::fs::__Handle_Fs, console: &mut crate::core_
 }
 
 pub fn main() {
-    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
-    let mut raw_fs = crate::fs_host::__Handle_RawFs::new(crate::platform_fs_host::HostRawFs::new());
-    let mut fs = crate::fs::__Handle_Fs::new(DefaultFs::new(raw_fs.clone()));
+    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let raw_fs = crate::fs_host::RawFs::locked(crate::platform_fs_host::HostRawFs::new());
+    let fs = crate::fs::Fs::shared(DefaultFs::new(raw_fs.clone()));
     let mut root = "tmp/files-example".to_string();
     let mut made = fs.create_dirs(&root);
     if matches!(made, Union2::U2(_)) {
-        println(&mut console, &(format!("cannot create the working directory: {}", kind_name(&(detach(made.u2().clone()))))));
+        println(&console, &(format!("cannot create the working directory: {}", kind_name(&(detach(made.u2().clone()))))));
         return;
     }
-    println(&mut console, &("-- the real filesystem, scoped to one directory --".to_string()));
+    println(&console, &("-- the real filesystem, scoped to one directory --".to_string()));
     if true {
-        let mut fs2 = crate::fs::__Handle_Fs::new(RestrictedFs::new(root.clone(), fs.clone()));
-        workflow(&mut fs2, &mut console);
-        sandbox_edges(&mut fs2, &mut console);
+        let fs2 = crate::fs::Fs::shared(RestrictedFs::new(root.clone(), fs.clone()));
+        workflow(&fs2, &console);
+        sandbox_edges(&fs2, &console);
     }
     let mut gone = fs.delete(&root);
     if matches!(gone, Union2::U2(_)) {
-        println(&mut console, &(format!("cleanup failed: {}", kind_name(&(detach(gone.u2().clone()))))));
+        println(&console, &(format!("cleanup failed: {}", kind_name(&(detach(gone.u2().clone()))))));
     }
-    println(&mut console, &("-- the same code, with no disk at all --".to_string()));
+    println(&console, &("-- the same code, with no disk at all --".to_string()));
     if true {
-        let mut fs3 = crate::fs::__Handle_Fs::new(MemFs::new());
-        workflow(&mut fs3, &mut console);
+        let fs3 = crate::fs::Fs::locked(MemFs::new());
+        workflow(&fs3, &console);
     }
 }

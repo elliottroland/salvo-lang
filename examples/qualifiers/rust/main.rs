@@ -112,28 +112,28 @@ pub fn handle__Fresh(request: &Request) -> String {
 }
 
 pub fn main() {
-    let mut console = crate::core_console::__Handle_Console::new(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(StdOutConsole::new());
     let mut xs: Vec<i32> = vec![];
     xs.push(3);
-    println(&mut console, &(format!("1. head after add: {}", head(&xs))));
+    println(&console, &(format!("1. head after add: {}", head(&xs))));
     let mut maybe_empty = vec![7, 8];
     if NonEmpty__List_qualifies(&maybe_empty) {
-        println(&mut console, &(format!("2. checked at run time, head is {}", head(&maybe_empty))));
+        println(&console, &(format!("2. checked at run time, head is {}", head(&maybe_empty))));
     }
     let mut plain = 21;
     let mut warm = celsius(21);
-    println(&mut console, &(format!("2. {} vs {}", describe(plain), describe__Celsius(&warm))));
+    println(&console, &(format!("2. {} vs {}", describe(plain), describe__Celsius(&warm))));
     if true {
-        println(&mut console, &(format!("2. widened: {}", describe(warm))));
+        println(&console, &(format!("2. widened: {}", describe(warm))));
     }
-    println(&mut console, &(format!("3. sum {}, head still {}", sum(&xs), head(&xs))));
+    println(&console, &(format!("3. sum {}, head still {}", sum(&xs), head(&xs))));
     compact(&mut xs);
     xs.push(9);
-    println(&mut console, &(format!("3. after compact and add, head is {}", head(&xs))));
+    println(&console, &(format!("3. after compact and add, head is {}", head(&xs))));
     let mut session = authenticate(Request { path: "/orders".to_string(), touches: 0 });
     let mut fresh = freshen(Request { path: "/health".to_string(), touches: 0 });
-    println(&mut console, &(format!("4. before: {} / {}", handle__Authenticated(&session), handle__Fresh(&fresh))));
+    println(&console, &(format!("4. before: {} / {}", handle__Authenticated(&session), handle__Fresh(&fresh))));
     touch(&mut session);
     touch(&mut fresh);
-    println(&mut console, &(format!("4. after:  {} / {}", handle__Authenticated(&session), handle(&fresh))));
+    println(&console, &(format!("4. after:  {} / {}", handle__Authenticated(&session), handle(&fresh))));
 }
