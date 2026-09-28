@@ -3954,16 +3954,57 @@ impl<'s> Parser<'s> {
             return Some(CompCond::Not(Box::new(inner), span));
         }
         let start = self.peek().span;
-        // `binder.name == "…"`, `binder.first`, `binder.last`
+        // `binder.name == "…"`, `binder.first`, `binder.last`,
+        // `x.index == y.index`
         if let TokenKind::Ident(b) = self.kind().clone() {
             if b.starts_with(|c: char| c.is_lowercase())
                 && matches!(self.peek_at(1).kind, TokenKind::Dot)
-                && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if matches!(p.as_str(), "name" | "first" | "last"))
+                && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if matches!(p.as_str(), "name" | "first" | "last" | "index"))
             {
                 let binder = self.ident()?;
                 self.bump();
                 let proj = self.ident()?;
                 match proj.name.as_str() {
+                    "index" => {
+                        let op = match self.kind() {
+                            TokenKind::EqEq => BinaryOp::Eq,
+                            TokenKind::BangEq => BinaryOp::NotEq,
+                            TokenKind::Lt => BinaryOp::Lt,
+                            TokenKind::Gt => BinaryOp::Gt,
+                            TokenKind::LtEq => BinaryOp::LtEq,
+                            TokenKind::GtEq => BinaryOp::GtEq,
+                            other => {
+                                let found = other.describe();
+                                let sp = self.peek().span;
+                                self.error(
+                                    format!(
+                                        "a position is compared to another binder's position: \
+                                         `x.index == y.index` (found {found}) [comptime-inline]"
+                                    ),
+                                    sp,
+                                );
+                                return None;
+                            }
+                        };
+                        self.bump();
+                        let other = self.ident_value("binder")?;
+                        self.expect(&TokenKind::Dot)?;
+                        let what = self.ident_value("`index`")?;
+                        if what.name != "index" {
+                            self.error(
+                                "a position compares to a position: write `y.index` \
+                                 [comptime-inline]",
+                                what.span,
+                            );
+                            return None;
+                        }
+                        return Some(CompCond::IndexCmp {
+                            a: binder,
+                            b: other,
+                            op,
+                            span: start.to(what.span),
+                        });
+                    }
                     "first" | "last" => {
                         return Some(CompCond::Flag {
                             binder,

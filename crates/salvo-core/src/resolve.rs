@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use salvo_syntax::ast::{
-    ParamsDecl,
+    Obligation, ParamsDecl,
     EffectDecl, FnDecl, HandlerDecl, ImportDecl, Item, QualifierDecl, RefnDecl, RenameDecl,
     StructDecl, TypeDecl,
 };
@@ -640,22 +640,21 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                     }
                 }
                 let sig = crate::refine::param_type_signature(&f.params, &generics);
-                if let Some((_, other_structural)) =
+                if let Some((_, other_stamped)) =
                     seen.get(&(f.name.name.as_str(), sig.clone()))
                 {
                     let shown = sig.join(", ");
-                    // [cmp-auto] One of the two is *generated*: the remedy is
-                    // the `default` clause, not the fn. A `default` obligation
-                    // and a hand-written member of the same shape are the
-                    // ordinary duplicate — nothing at a bare call site could
-                    // tell them apart — with a message that names the half the
-                    // author can delete.
-                    let msg = if f.structural || *other_structural {
+                    // [obligation-by] One of the two is *stamped*: the remedy
+                    // is the clause, not the fn. A `by` clause and a hand-written
+                    // member of the same shape are the ordinary duplicate —
+                    // nothing at a bare call site could tell them apart — with a
+                    // message that names the half the author can delete.
+                    let msg = if f.stamped.is_some() || *other_stamped {
                         format!(
                             "`{}({shown})` is declared twice in module `{module}`: a \
-                             `default` obligation generates it, and this file also \
-                             declares it by hand. Keep one — remove `default` from the \
-                             struct, or delete the hand-written fn [cmp-auto]",
+                             `by` clause stamps it, and this file also declares it by \
+                             hand. Keep one — remove the member's group from the `by` \
+                             clause, or delete the hand-written fn [obligation-by]",
                             f.name.name
                         )
                     } else {
@@ -675,7 +674,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                     ));
                     continue;
                 }
-                seen.insert((f.name.name.as_str(), sig), (f.name.span, f.structural));
+                seen.insert((f.name.name.as_str(), sig), (f.name.span, f.stamped.is_some()));
             }
         }
     }
@@ -710,21 +709,36 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         .collect();
     let mut attached: HashMap<FnKey, String> = HashMap::new();
     for items in by_module.values() {
-        for (file_idx, st) in &items.structs {
-            for ob in &st.obligations {
+        // [group-obligation] A `type` declaration carries a clause too
+        // (comptime round 2, R-1), so a named union's fulfilments attach the
+        // same way a struct's do.
+        let declaring: Vec<(usize, &str, &[Obligation])> = items
+            .structs
+            .iter()
+            .map(|(f, st)| (*f, st.name.name.as_str(), st.obligations.as_slice()))
+            .chain(
+                items
+                    .type_aliases
+                    .iter()
+                    .chain(items.opaque_types.iter())
+                    .map(|(f, t)| (*f, t.name.name.as_str(), t.obligations.as_slice())),
+            )
+            .collect();
+        for (file_idx, type_name, obligations) in declaring {
+            for ob in obligations {
                 let Some(group) = groups_by_name.get(ob.group.name.name.as_str()) else {
                     continue;
                 };
                 for member in &group.fns {
                     for (key, f) in &items.fns {
-                        if key.file != *file_idx
+                        if key.file != file_idx
                             || f.name.name != member.name.name
                             || f.scoped_to.is_some()
                         {
                             continue;
                         }
-                        if f.params.iter().any(|p| mentions_type(&p.ty, &st.name.name)) {
-                            attached.insert(*key, st.name.name.clone());
+                        if f.params.iter().any(|p| mentions_type(&p.ty, type_name)) {
+                            attached.insert(*key, type_name.to_string());
                         }
                     }
                 }
@@ -745,7 +759,12 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                 let exported_type = items
                     .structs
                     .iter()
-                    .any(|(_, st)| st.name.name == *target && st.exported);
+                    .any(|(_, st)| st.name.name == *target && st.exported)
+                    || items
+                        .type_aliases
+                        .iter()
+                        .chain(items.opaque_types.iter())
+                        .any(|(_, t)| t.name.name == *target && t.exported);
                 if exported_type && !f.exported {
                     errors.push(FileDiagnostic::error(
                         key.file,

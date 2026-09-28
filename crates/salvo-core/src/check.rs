@@ -26,7 +26,7 @@ use crate::diag::FileDiagnostic;
 use crate::place::{Place, Step};
 use crate::program::{Program, Symbols};
 use crate::resolve::{DefSite, FnKey, ModuleScope, Resolution};
-use crate::types::{compatible, is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
+use crate::types::{is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
 
 /// Table key: (file index, expression span).
 pub type Key = (usize, Span);
@@ -754,13 +754,6 @@ pub struct Checked {
     /// (declared with `[p: proj]` or inferred from the body). Read by the
     /// Rust backend to name the lifetime on lent parameters and the return.
     pub fn_lends: HashMap<FnKey, Vec<usize>>,
-    /// [interp-struct] Interpolations of a **struct** with no `to_str` of its
-    /// own, whose every field renders natively: the struct's name, keyed by
-    /// the interpolated expression's span. The emitters render it field-wise
-    /// (`Person { name: ann, age: 3 }`) — the same text on both, which is why
-    /// the *language* fixes the format rather than deferring to Rust's
-    /// `Debug` or Kotlin's `toString` (those disagree).
-    pub interp_struct: HashMap<Key, String>,
     /// Move-mode bind events [fate-move-mode]: the spans of `let`/
     /// assignment statements (and, for `for` loops, of the iterable
     /// expression) where the binding took ownership of the bound value —
@@ -1212,6 +1205,7 @@ fn check_once<'p>(
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         let mut checker = Checker::new(
             file_idx,
+            file.content.len(),
             file.is_std,
             &resolution.scopes[file_idx],
             resolution,
@@ -1257,6 +1251,7 @@ fn check_once<'p>(
             for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
                 let mut checker = Checker::new(
                     file_idx,
+                    file.content.len(),
                     file.is_std,
                     &resolution.scopes[file_idx],
                     resolution,
@@ -1281,6 +1276,7 @@ fn check_once<'p>(
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         let mut checker = Checker::new(
             file_idx,
+            file.content.len(),
             file.is_std,
             &resolution.scopes[file_idx],
             resolution,
@@ -1626,6 +1622,9 @@ struct Checker<'p, 'r> {
     refinements: &'r crate::refine::Refinements,
     symbols: &'r Symbols<'p>,
     file_idx: usize,
+    /// [comptime-instantiate] The file's length in bytes: a span at or past it
+    /// is synthetic — a stamped copy's — and is redirected when reported.
+    file_len: usize,
     out: &'r mut Checked,
     /// Lexical scope stack of local variables (params + lets + bindings).
     locals: Vec<HashMap<String, LocalVar>>,
@@ -1760,6 +1759,11 @@ struct Checker<'p, 'r> {
     /// The fn currently being checked, when it is a top-level `fn` item
     /// (member fns have no key).
     own_fn: Option<FnKey>,
+    /// [comptime-instantiate] The stamp of the fn being checked, when it was
+    /// produced by a `by` site: a diagnostic inside one of its unrolled copies
+    /// is redirected to the field or arm the copy was for and prefixed with
+    /// what was being stamped, since the copy's own spans are synthetic.
+    own_stamp: Option<&'p ast::Stamp>,
     /// The current fn's effective deduction contract (written list, else
     /// the previous round's inferred facts): decides whether a parameter
     /// root is *owned* (moved by the contract) for move-mode bindings
@@ -2007,6 +2011,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     #[allow(clippy::too_many_arguments)]
     fn new(
         file_idx: usize,
+        file_len: usize,
         is_std: bool,
         scope: &'r ModuleScope<'p>,
         resolution: &'r Resolution<'p>,
@@ -2028,6 +2033,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             inferred,
             refinements,
             file_idx,
+            file_len,
             out,
             locals: Vec::new(),
             generics: HashSet::new(),
@@ -2056,6 +2062,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             param_mutations,
             mut_fields,
             own_fn: None,
+            own_stamp: None,
             own_contract: None,
             own_discharges: std::collections::HashSet::new(),
             own_written: Vec::new(),
@@ -2088,9 +2095,41 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn error(&mut self, span: Span, msg: impl Into<String>) {
+        let (span, msg) = self.redirect_stamped(span, msg.into());
         self.out
             .errors
             .push(FileDiagnostic::error(self.file_idx, span, msg));
+    }
+
+    /// [comptime-instantiate] A diagnostic inside a stamped body lands on the
+    /// field or arm the failing copy was for (or on the `by` site), prefixed
+    /// with the compfn, its scope and the type — so a missing `cmp` for a
+    /// `Double` field reads "in `cmp` from `auto` for `Point.y: Double`: …"
+    /// at the field declaration.
+    fn redirect_stamped(&self, span: Span, msg: String) -> (Span, String) {
+        let Some(stamp) = self.own_stamp else {
+            return (span, msg);
+        };
+        let file_len = self.file_len;
+        if (span.start as usize) < file_len {
+            // A written span (the `by` declaration's own signature): leave it.
+            return (span, msg);
+        }
+        let prefix_at = |label: &str| {
+            format!(
+                "in `{}` from `{}` for `{label}`: {msg}",
+                stamp.compfn, stamp.from
+            )
+        };
+        if let Some(region) = stamp
+            .regions
+            .iter()
+            .rev()
+            .find(|r| span.start >= r.start && span.start < r.end)
+        {
+            return (region.target, prefix_at(&region.label));
+        }
+        (stamp.site, prefix_at(&stamp.at_type))
     }
 
     /// Reports without rejecting: the program still compiles, but
@@ -2160,6 +2199,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // written list when present (never gains claims),
         // else the previous round's inferred facts.
         self.own_fn = Some(key);
+        self.own_stamp = f.stamped.as_ref();
         self.own_written = f
             .deductions
             .as_ref()
@@ -2202,19 +2242,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [free-send-fn] The send kind's refusal list, at the
         // declaration where the author is deciding.
         self.check_free_send_fn(f);
-        // [cmp-auto] `auto fn cmp@Person(…)`: the compiler writes
-        // this body, so what it may be written over is checked
-        // here — the member it names, the type it is scoped to, and
-        // that type's fields.
-        if f.structural {
-            self.check_auto_fn(f);
-        }
         // [task-mint] What this body's sends are attributed to in
         // the deadlock graph.
         self.own_task = f.is_send.then(|| f.name.name.clone());
         self.check_fn(f, &[], &[]);
         self.own_task = None;
         self.own_fn = None;
+        self.own_stamp = None;
         self.own_discharges.clear();
         self.own_written.clear();
         self.own_contract = None;
@@ -2730,6 +2764,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [linear-group] The opaque form of the legal-death
                     // rule, checked where the modifier is written.
                     self.check_linear_opaque(t);
+                    // [group-obligation] [obligation-by] A `type` declaration's
+                    // clause, checked as a struct's is.
+                    self.check_obligation_list(&t.name, &t.generics, &t.obligations, t.obligations.len());
                     self.generics = saved;
                 }
                 _ => {}
@@ -2785,45 +2822,38 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
         }
+        self.check_obligation_list(&s.name, &s.generics, &s.obligations, s.obligations.len());
+    }
+
+    /// [group-obligation] The obligation clause of any type declaration — a
+    /// struct's, or a `type`'s (comptime round 2, R-1: a named union opts in
+    /// with the same clause). Each member of each group must be satisfied by
+    /// a visible fn, `self` standing for the declaring type.
+    fn check_obligation_list(
+        &mut self,
+        name: &'p ast::Ident,
+        generics: &'p [ast::Ident],
+        obligations: &'p [ast::Obligation],
+        _count: usize,
+    ) {
         let scope = self.scope;
-        for (i, entry) in s.obligations.iter().enumerate() {
+        for (i, entry) in obligations.iter().enumerate() {
             let ob = &entry.group;
-            // [cmp-auto] `auto` is legal only where the compiler can write
-            // every member of the group. Elsewhere the word would promise an
-            // implementation nothing provides, so it is an error naming what it
-            // *can* write (user decisions 2026-09-21, 2026-09-22).
-            if entry.auto {
-                if salvo_syntax::auto_members(&ob.name.name).is_none() {
-                    let can: Vec<String> = salvo_syntax::auto_member_names()
-                        .iter()
-                        .map(|m| format!("`{m}`"))
-                        .collect();
-                    self.error(
-                        ob.span,
-                        format!(
-                            "`auto` asks the compiler to write every member of the \
-                             group, and it can write {} — not the members of `{}`. \
-                             Drop `auto` and declare them [cmp-auto]",
-                            can.join(", "),
-                            ob.name.name
-                        ),
-                    );
-                    continue;
-                }
-                // The generator writes the signature over *this* type, so the
-                // argument has to be `self` [group-self].
-                if !ob.args.iter().all(is_self_ref) {
-                    self.error(
-                        ob.span,
-                        format!(
-                            "`auto {}` generates the implementation for the type it \
-                             is written on, so its argument is `self`: write \
-                             `: auto {}<self>` [cmp-auto]",
-                            ob.name.name, ob.name.name
-                        ),
-                    );
-                    continue;
-                }
+            // [obligation-by] `by` stamps the members for the type it is
+            // written on, so the argument has to be `self` [group-self]. The
+            // expansion refuses this too; this is the check for a clause the
+            // expansion skipped (an unknown group).
+            if entry.by.is_some() && !ob.args.iter().all(is_self_ref) {
+                self.error(
+                    ob.span,
+                    format!(
+                        "`by` stamps the implementation for the type it is written on, so \
+                         its argument is `self`: write `: {}<self> by {}` [obligation-by]",
+                        ob.name.name,
+                        entry.by.as_ref().map(|b| b.text()).unwrap_or_default()
+                    ),
+                );
+                continue;
             }
             // [linear-group] The pre-2026-09-12 spelling, caught before the
             // unknown-group error would puzzle: linearity is a declaration
@@ -2838,7 +2868,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             // The same group twice is a mistake, not an emphasis.
-            if s.obligations[..i]
+            if obligations[..i]
                 .iter()
                 .any(|p| p.group.name.name == ob.name.name)
             {
@@ -2883,8 +2913,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // its members mention only their own parameters, so the very same
             // group also spreads as `?Group<...>` implicits [implicit-group].
             let self_ty = Ty::Named {
-                name: s.name.name.clone(),
-                args: s.generics.iter().map(|g| Ty::Var(g.name.clone())).collect(),
+                name: name.name.clone(),
+                args: generics.iter().map(|g| Ty::Var(g.name.clone())).collect(),
             };
             for a in &ob.args {
                 if !is_self_ref(a) {
@@ -2925,7 +2955,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // `for x in s` two answers — drive `s`, or mint from it — so the
             // pair is refused; a type is a source or an iterator struct.
             if group_mentions_iter(group)
-                && s.obligations.iter().any(|p| p.group.name.name == "Yield")
+                && obligations.iter().any(|p| p.group.name.name == "Yield")
             {
                 self.error(
                     ob.span,
@@ -2934,7 +2964,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                          source (`{}` mints an iterator from it) or an iterator struct \
                          (`next` advances it), not both — `for x in {}` would have two \
                          answers",
-                        s.name.name, ob.name.name, ob.name.name, s.name.name
+                        name.name, ob.name.name, ob.name.name, name.name
                     ),
                 );
                 continue;
@@ -2971,7 +3001,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                          -> Emitted {} | Finished`, or a fn of that name \
                                          returning an iterator struct (a type declaring \
                                          `: Yield<self, {}>`)",
-                                        s.name.name,
+                                        name.name,
                                         ob.name.name,
                                         member.name.name,
                                         member.name.name,
@@ -3025,14 +3055,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                                              returns an owned element: write \
                                              `Emitted (proj(p) T) | Finished`, or drop \
                                              the `proj` from the obligation",
-                                            s.name.name, ob.name.name, member.name.name
+                                            name.name, ob.name.name, member.name.name
                                         )
                                     } else {
                                         format!(
                                             "`{}`'s `{}` returns a borrowed element \
                                              (`proj`), so its obligation must say so: \
                                              `: {}<self, proj T>`",
-                                            s.name.name, member.name.name, ob.name.name
+                                            name.name, member.name.name, ob.name.name
                                         )
                                     },
                                 );
@@ -3052,7 +3082,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         format!(
                             "`{}` declares `: {}` but no visible `{}` matches \
                              `fn {}({}) -> {}`",
-                            s.name.name,
+                            name.name,
                             ob.name.name,
                             member.name.name,
                             member.name.name,
@@ -6239,13 +6269,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_fn(&mut self, f: &'p FnDecl, extra_params: &'p [Param], state: &'p [FieldDecl]) {
         let saved_generics = self.enter_generics(&f.generics);
         self.require_explicit_decl(f);
-        // [cmp-auto] An `auto fn` is bodiless too, but nothing is unknown about
-        // it: the compiler writes the body, and what it writes *reads* its
-        // parameters — comparing or hashing a value keeps it — so the clause is
-        // the keep-everything default rather than something the author has to
-        // state. (Which is also what the group member it implements declares
-        // [fn-contract].)
-        if f.body.is_none() && !f.structural {
+        if f.body.is_none() {
             self.require_full_clause(f, "an `intrinsic fn`");
         }
         for p in &f.params {
@@ -8271,6 +8295,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     }
                                 }
                             }
+                            // [comptime-inline] Gone before this runs.
+                            StructLitFieldKind::InlineFor { .. } => {}
                         }
                     }
                     return links;
@@ -8623,58 +8649,24 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             Err(_) => {}
         }
-        // [interp-struct] No `to_str` of its own: a struct whose every field
-        // renders natively is rendered field-wise (user decision 2026-09-11 —
-        // "structs should interpolate by default when all their fields do").
-        // An explicit `to_str` wins, which is why this is tried second.
-        if let Some(name) = self.struct_interp_name(ty) {
-            self.out.interp_struct.insert(self.key(expr.span()), name);
-            return;
-        }
+        // [interp-to-str] No `to_str` in scope. A struct interpolates by
+        // opting in (user decision 2026-09-28, replacing the default-on
+        // derivation): the remedy is one clause.
+        let remedy = match ty.strip_quals() {
+            Ty::Named { name, .. } if self.scope.structs.contains_key(name.as_str()) => format!(
+                " — declare `: ToStr<self> by auto` on `{name}` for the field-wise one, or a \
+                 `to_str` of your own [obligation-by]"
+            ),
+            _ => String::new(),
+        };
         self.error(
             expr.span(),
             format!(
                 "`{ty}` has no text form, so it cannot be interpolated: \
                  declare `fn to_str({ty}) -> Str` (or one that accepts it) \
-                 and it will be used here"
+                 and it will be used here{remedy}"
             ),
         );
-    }
-
-    /// [interp-struct] The struct name to render field-wise, when `ty` is a
-    /// struct every one of whose fields renders natively. Fields that need a
-    /// `to_str` of their own are deliberately *not* followed: the derivation
-    /// exists for the simple cases, and anything else is clearer as a
-    /// hand-written `to_str` (which takes precedence anyway).
-    fn struct_interp_name(&self, ty: &Ty) -> Option<String> {
-        let Ty::Named { name, args } = ty.strip_quals() else {
-            return None;
-        };
-        if !args.is_empty() {
-            // A generic struct's field types need substituting before they
-            // can be judged; out of scope for the derivation.
-            return None;
-        }
-        let decl = self.scope.structs.get(name.as_str())?;
-        if decl.fields.is_empty() {
-            return None;
-        }
-        // Judged on the *written* type: a native name, unqualified and
-        // without type arguments. Reading the AST keeps this a pure query,
-        // and every native type is spelled directly anyway (an alias to one
-        // simply does not qualify — the remedy is a `to_str`).
-        let all_native = decl.fields.iter().all(|f| match &f.ty {
-            ast::Type::Named { qualifiers, base } => {
-                qualifiers.is_empty()
-                    && base.args.is_empty()
-                    && matches!(
-                        base.name.name.as_str(),
-                        "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte" | "Str"
-                    )
-            }
-            _ => false,
-        });
-        all_native.then(|| name.clone())
     }
 
     /// Poisons every live variable fate-linked to `root_id` [fate-poison]:
@@ -10402,22 +10394,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out.promotions.insert(self.key(span), target.clone());
     }
 
-    /// [cmp-auto] Why a field bars the **structural** `eq`: only a function
-    /// value does. Neither backend can compare one (Rust has no equality for a
-    /// closure at all, Kotlin would compare by reference), which is exactly the
-    /// case decision 6 leaves to a hand-written `eq` that ignores the field.
-    fn eq_ineligible(&self, ty: &Ty) -> Option<String> {
-        match ty.strip_quals() {
-            Ty::Fn { .. } => Some(
-                "a function value has no equality either backend can agree on (Rust \
-                 has none at all, Kotlin would compare by reference) — declare an `eq` \
-                 that ignores it instead"
-                    .to_string(),
-            ),
-            _ => None,
-        }
-    }
-
     /// [cmp-groups] Whether a **visible** `cmp`/`eq`/`hash` takes this named
     /// type as its first argument — the "does it have the capability" question,
     /// asked the way the declaration walk can ask it (before any call is
@@ -10547,198 +10523,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .to_string(),
             ),
             other => Some(format!("`{other}` is not orderable")),
-        }
-    }
-
-    /// [cmp-auto] Validates a struct's `auto Hashed<self>` /
-    /// `auto Ordered<self>` obligations where they are written.
-    ///
-    /// Two conditions, both the user's rule (2026-09-12, inherited by `default`
-    /// 2026-09-21): the struct must be **immutable** — a `canbe Mut` struct
-    /// could change under a hash table or a sorted tree, which is the classic
-    /// silent corruption — and every field must itself be hashable/orderable,
-    /// because the generated member is the host's *derived* operation over
-    /// them.
-    fn check_auto_fn(&mut self, f: &'p FnDecl) {
-        // [cmp-auto] The compiler writes the body, so writing one is a
-        // contradiction rather than an extra.
-        if f.body.is_some() {
-            self.error(
-                f.name.span,
-                format!(
-                    "`auto fn {}` writes its own body from the type's fields, so it \
-                     takes none: drop `auto` to write the body yourself, or drop the \
-                     body",
-                    f.name.name
-                ),
-            );
-        }
-        // [cmp-auto] The compiler writes the body from a *type's fields*, so an
-        // `auto fn` has to say which type: the `@` scope it would be the
-        // canonical of [fn-attached]. Without it there is nothing to read.
-        let Some(owner) = &f.scoped_to else {
-            self.error(
-                f.name.span,
-                format!(
-                    "`auto fn {}` writes the implementation for a type, so it has to \
-                     be declared *on* one: write it inside that struct's body, or \
-                     write the obligation instead (`: auto Hashed<self>`), which \
-                     generates `{}` for you [cmp-auto] [fn-attached]",
-                    f.name.name, f.name.name
-                ),
-            );
-            return;
-        };
-        // Only the members the compiler has a generator for.
-        if !salvo_syntax::is_auto_member(&f.name.name) {
-            let can: Vec<String> = salvo_syntax::auto_member_names()
-                .iter()
-                .map(|m| format!("`{m}`"))
-                .collect();
-            self.error(
-                f.name.span,
-                format!(
-                    "the compiler can write {} and nothing else, so `auto fn {}` \
-                     promises an implementation it does not have: write the body \
-                     yourself [cmp-auto]",
-                    can.join(", "),
-                    f.name.name
-                ),
-            );
-            return;
-        }
-        let Some(s) = self.scope.structs.get(owner.name.as_str()).copied() else {
-            // A generated member is scoped to its own struct, so this is only
-            // reachable from a written `auto fn`.
-            let hint = if self.type_name_exists(&owner.name) {
-                " — and the compiler can only read the fields of a `struct`"
-            } else {
-                ""
-            };
-            self.error(
-                owner.span,
-                format!(
-                    "`auto fn {}` is declared on `{}`, which is not a visible \
-                     struct{hint} [fn-attached]",
-                    f.name.name, owner.name
-                ),
-            );
-            return;
-        };
-        // [cmp-auto] The signature is the group member's, over the scoped type:
-        // a mismatch would have the compiler write a body for a shape it never
-        // agreed to.
-        self.check_auto_signature(f, s);
-        // [col-hashed-ordered] What the generated body needs of the type. The
-        // claim is checked *here*, where the mistake is: the error names the
-        // field that is not hashable or orderable rather than surfacing at some
-        // distant `Set<Point>`. Spans point at the struct for a clause
-        // expansion and at the declaration for a written `auto fn`, so either
-        // way the report lands where the author wrote something.
-        let (claim, kind) = match f.name.name.as_str() {
-            "hash" => ("hashed", 0u8),
-            "cmp" => ("ordered", 1),
-            // [cmp-auto] The structural `eq` compares the fields, so a
-            // **fn-typed** field bars it: `Rc<dyn Fn>` has no equality on Rust
-            // and Kotlin would compare by reference. Floats are fine here,
-            // where they are not for hashing or ordering — Salvo owns float
-            // equality [kt-float-eq].
-            _ => ("comparable", 2),
-        };
-        let written = format!("auto fn {}` on `{}", f.name.name, owner.name);
-        // Only a key can be corrupted by mutation; plain equality cannot.
-        if kind != 2 && s.auto_qualifiers.iter().any(|q| q.name.name == "Mut") {
-            self.error(
-                f.name.span,
-                format!(
-                    "`{}` cannot have `{written}`: it is also `canbe Mut`, and a \
-                     value that can change while a collection holds it would \
-                     corrupt the collection's order or lookup. Only an immutable \
-                     struct can be a key",
-                    s.name.name
-                ),
-            );
-            return;
-        }
-        for field in &s.fields {
-            let empty = HashMap::new();
-            let ty = self.lower_type_subst(&field.ty, &empty, 0);
-            let bad = match kind {
-                1 => self.order_ineligible(&ty, 0),
-                2 => self.eq_ineligible(&ty),
-                _ => self.hash_ineligible(&ty, 0),
-            };
-            if let Some(reason) = bad {
-                self.error(
-                    f.name.span,
-                    format!(
-                        "`{}` cannot have `{written}`: its field `{}` is not \
-                         {claim} — {reason}",
-                        s.name.name, field.name.name
-                    ),
-                );
-            }
-        }
-    }
-
-    /// [cmp-auto] An `auto fn`'s signature must be the group member's, over the
-    /// type it is scoped to: `cmp` and `eq` take two of it, `hash` one, and each
-    /// answers what the group declares. Checked rather than assumed, because the
-    /// author writes it and the compiler writes the body.
-    fn check_auto_signature(&mut self, f: &'p FnDecl, s: &'p ast::StructDecl) {
-        let (arity, ret) = match f.name.name.as_str() {
-            "hash" => (1usize, "Long"),
-            "cmp" => (2, "Int"),
-            _ => (2, "Bool"),
-        };
-        let self_ty = Ty::Named {
-            name: s.name.name.clone(),
-            args: s.generics.iter().map(|g| Ty::Var(g.name.clone())).collect(),
-        };
-        let shown = |arity: usize| -> String {
-            let names = if arity == 1 { vec!["value"] } else { vec!["a", "b"] };
-            let params: Vec<String> = names
-                .iter()
-                .map(|n| format!("{n}: {}", s.name.name))
-                .collect();
-            format!("fn {}({}) -> {ret}", f.name.name, params.join(", "))
-        };
-        let ordinary: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
-        if ordinary.len() != arity || ordinary.len() != f.params.len() {
-            self.error(
-                f.name.span,
-                format!(
-                    "`auto fn {}` takes {arity} parameter(s) of `{}` and no implicits: \
-                     `{}` [cmp-auto]",
-                    f.name.name,
-                    s.name.name,
-                    shown(arity)
-                ),
-            );
-            return;
-        }
-        let saved = self.enter_generics(&f.generics);
-        let params: Vec<Ty> = ordinary.iter().map(|p| self.lower_type(&p.ty)).collect();
-        let declared_ret = f
-            .return_type
-            .as_ref()
-            .map(|t| self.lower_type(t))
-            .unwrap_or_else(Ty::none);
-        self.generics = saved;
-        let want_ret = Ty::named(ret);
-        let fits = params.iter().all(|p| compatible(p, &self_ty))
-            && compatible(&declared_ret, &want_ret);
-        if !fits {
-            self.error(
-                f.name.span,
-                format!(
-                    "`auto fn {}` on `{}` must be declared `{}`, since that is what \
-                     the compiler writes [cmp-auto]",
-                    f.name.name,
-                    s.name.name,
-                    shown(arity)
-                ),
-            );
         }
     }
 
@@ -18343,6 +18127,8 @@ fn collect_binder_arg_sites<'p>(
                 Stmt::Use { handler, .. } => expr(handler, name, out),
                 Stmt::Expr(e) => expr(e, name, out),
                 Stmt::Rename(_) => {}
+                // [comptime-inline] Gone before this runs.
+                Stmt::Comp(_) => {}
             }
         }
     }
@@ -18507,6 +18293,8 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
                 match &f.kind {
                     StructLitFieldKind::Named { value, .. } => collect_assigned_expr(value, out),
                     StructLitFieldKind::Spread(e) => collect_assigned_expr(e, out),
+                    // [comptime-inline] Gone before this runs.
+                    StructLitFieldKind::InlineFor { .. } => {}
                 }
             }
         }
@@ -18627,6 +18415,8 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::StructLit { fields, .. } => fields.iter().any(|f| match &f.kind {
             StructLitFieldKind::Named { value, .. } => expr_mentions(value, name),
             StructLitFieldKind::Spread(e) => expr_mentions(e, name),
+            // [comptime-inline] Gone before this runs.
+            StructLitFieldKind::InlineFor { .. } => false,
         }),
         Expr::Unary { operand, .. }
         | Expr::NonNull { operand, .. }
@@ -19352,6 +19142,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [fn-rename] In force from here to the end of the block.
             Stmt::Rename(decl) => {
                 self.declare_rename(decl);
+                Ty::none()
+            }
+            // [comptime-inline] A comptime statement outside a `compfn` is a
+            // parse error; inside one, the expansion removed it. Reaching here
+            // means the expansion did not run, which every driver arranges.
+            Stmt::Comp(c) => {
+                self.error(
+                    c.span(),
+                    "internal: a comptime statement reached the checker — the comptime \
+                     expansion did not run [comptime-inline]",
+                );
                 Ty::none()
             }
             Stmt::Let {
@@ -20638,6 +20439,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         StructLitFieldKind::Spread(e) => {
                             self.fate_move(e, "spread", "a `...` spread", e.span());
                         }
+                        // [comptime-inline] Gone before this runs.
+                        StructLitFieldKind::InlineFor { .. } => {}
                     }
                 }
                 struct_ty
@@ -22871,6 +22674,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     StructLitFieldKind::Spread(e) => {
                         self.check_expr(e, None);
                     }
+                    // [comptime-inline] Gone before this runs.
+                    StructLitFieldKind::InlineFor { .. } => {}
                 }
             }
             return Ty::Unknown;
@@ -22897,6 +22702,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     StructLitFieldKind::Spread(e) => {
                         self.check_expr(e, None);
                     }
+                    // [comptime-inline] Gone before this runs.
+                    StructLitFieldKind::InlineFor { .. } => {}
                 }
             }
             return struct_ty;
@@ -22980,6 +22787,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     has_spread = true;
                     self.check_expr(e, None);
                 }
+                // [comptime-inline] Gone before this runs.
+                StructLitFieldKind::InlineFor { .. } => {}
             }
         }
         if !has_spread {

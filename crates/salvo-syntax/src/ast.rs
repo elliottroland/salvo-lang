@@ -372,6 +372,23 @@ pub struct Stamp {
     pub compfn: String,
     pub from: String,
     pub at_type: String,
+    /// The `by` site: where a diagnostic lands when it is not about one
+    /// field or arm in particular.
+    pub site: Span,
+    /// The unrolled copies: each region of synthetic spans the copy's nodes
+    /// occupy, with the field or arm it was for and a label for the message
+    /// (`Point.y: Double`). Synthetic spans sit past the end of the file, so
+    /// no side table keyed by span collides with a written node.
+    pub regions: Vec<StampRegion>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StampRegion {
+    pub start: u32,
+    pub end: u32,
+    /// Where the diagnostic lands: the field or arm declaration.
+    pub target: Span,
+    pub label: String,
 }
 
 /// [comptime-fields] A compile-time type expression a comptime construct
@@ -454,6 +471,15 @@ pub enum CompCond {
     NameEq { binder: Ident, lit: String, span: Span },
     /// `field.first` / `field.last`.
     Flag { binder: Ident, last: bool, span: Span },
+    /// `x.index == y.index`, `x.index < y.index` — two arm (or field)
+    /// positions compared, which is how a union `cmp` orders arms without an
+    /// intrinsic (comptime round 7's std sketch).
+    IndexCmp {
+        a: Ident,
+        b: Ident,
+        op: BinaryOp,
+        span: Span,
+    },
     Not(Box<CompCond>, Span),
 }
 
@@ -465,6 +491,7 @@ impl CompCond {
             | CompCond::Canbe { span, .. }
             | CompCond::NameEq { span, .. }
             | CompCond::Flag { span, .. }
+            | CompCond::IndexCmp { span, .. }
             | CompCond::Not(_, span) => *span,
         }
     }

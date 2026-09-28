@@ -319,6 +319,8 @@ impl<'p> Walk<'_, '_, 'p> {
                             }
                         }
                         StructLitFieldKind::Spread(inner) => out.extend(self.lends_of_expr(inner)?),
+                        // [comptime-inline] Gone before this runs.
+                        StructLitFieldKind::InlineFor { .. } => {}
                     }
                 }
                 Some(out)

@@ -1165,6 +1165,8 @@ impl<'p> Walk<'_, 'p> {
                         }
                         StructLitFieldKind::Named { value, .. } => self.moving_expr(value),
                         StructLitFieldKind::Spread(v) => self.moving_expr(v),
+                        // [comptime-inline] Gone before this runs.
+                        StructLitFieldKind::InlineFor { .. } => {}
                     }
                 }
             }

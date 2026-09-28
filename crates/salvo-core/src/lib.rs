@@ -3,6 +3,7 @@
 
 pub mod route;
 pub mod check;
+pub mod comptime;
 pub mod deadlock;
 pub mod deduce;
 pub mod diag;

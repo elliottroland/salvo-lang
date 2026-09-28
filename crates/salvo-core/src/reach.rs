@@ -382,6 +382,8 @@ fn block_names<'p>(block: &'p Block, used: &mut HashSet<&'p str>) {
             }
             Stmt::Use { handler, .. } => expr_names(handler, used),
             Stmt::Expr(e) => expr_names(e, used),
+            // [comptime-inline] Gone before this runs.
+            Stmt::Comp(_) => {}
         }
     }
 }
@@ -534,6 +536,8 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
                 match &f.kind {
                     StructLitFieldKind::Named { value, .. } => expr_names(value, used),
                     StructLitFieldKind::Spread(e) => expr_names(e, used),
+                    // [comptime-inline] Gone before this runs.
+                    StructLitFieldKind::InlineFor { .. } => {}
                 }
             }
         }
