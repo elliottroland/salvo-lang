@@ -1309,6 +1309,14 @@ fn target_for(
 ) -> Result<PathBuf, String> {
     if let Some(t) = flag {
         if inputs.backends.len() > 1 {
+            // A scratch directory (`run`, `test`) is per backend, so one
+            // flag names a family; a `compile` output is the deliverable
+            // and cannot be two things at once.
+            if default.is_some() {
+                let mut per = t.clone().into_os_string();
+                per.push(format!("_{backend}"));
+                return Ok(PathBuf::from(per));
+            }
             return Err(format!(
                 "`--target {}` cannot serve both backends: drop it and give each a \
                  `target` in the manifest (`[rust]`, `[kotlin]`), or pass `--backend` \
