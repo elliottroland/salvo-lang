@@ -24,6 +24,7 @@ Module {
                 intrinsic: true,
                 linear: false,
                 noremote: false,
+                comptime: false,
                 name: Ident {
                     name: "Str",
                     span: 782..785,
@@ -834,6 +835,7 @@ Module {
                 fns: [],
                 linear: false,
                 noremote: false,
+                comptime: false,
                 span: 2171..2332,
             },
         ),
@@ -2442,6 +2444,7 @@ Module {
                 fns: [],
                 linear: false,
                 noremote: false,
+                comptime: false,
                 span: 4389..4433,
             },
         ),

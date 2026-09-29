@@ -1,7 +1,9 @@
 // The structural implementations — the ones `by auto` stamps (user decisions
-// 2026-09-28, the comptime rounds). Each is a `compfn` [comptime-bound]:
+// 2026-09-28, the comptime rounds). Each is a `comptime fn` [comptime-bound]:
 // compile-time code over a type's fields or arms, instantiated at a concrete
-// type by a `by` clause and never called as itself.
+// type by a `by` clause and never called as itself. What a body may know about
+// `T` is `core.comptime`'s model: `T.fields` is a `List<Field>`, `T.arms` a
+// `List<Arm>`, and a `[when field.type]` is a `when` over `Type`.
 //
 // [obligation-by] `struct Point : Ordered<self> by auto, Hashed<self> by auto`
 // stamps `cmp`, `hash` and `eq` for `Point`, each declared on the type
@@ -24,8 +26,8 @@
 
 // Lexicographic by field, in declaration order — so field order is part of
 // the meaning, as it always was for the structural `cmp`.
-export compfn cmp<struct T>(a: T, b: T) [] -> Int => a, b {
-    inline for field in T.fields {
+export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
+    [for field in T.fields] {
         let c = cmp(a.[field], b.[field])
         if c != 0 {
             return c
@@ -34,8 +36,8 @@ export compfn cmp<struct T>(a: T, b: T) [] -> Int => a, b {
     return 0
 }
 
-export compfn eq<struct T>(a: T, b: T) [] -> Bool => a, b {
-    inline for field in T.fields {
+export comptime fn eq<T is Struct>(a: T, b: T) [] -> Bool => a, b {
+    [for field in T.fields] {
         if !eq(a.[field], b.[field]) {
             return false
         }
@@ -46,12 +48,12 @@ export compfn eq<struct T>(a: T, b: T) [] -> Bool => a, b {
 // A `canbe Mut` struct is refused: a key that can change while a container
 // holds it corrupts the container's lookup, so only an immutable struct may
 // be one [col-hashed-ordered].
-export compfn hash<struct T>(value: T) [] -> Long => value {
-    inline if T canbe Mut {
-        refuse "a `Mut`-capable struct can change while a collection holds it, so it cannot be a key: drop `canbe Mut`, or hash by hand"
+export comptime fn hash<T is Struct>(value: T) [] -> Long => value {
+    [if T.mutable] {
+        refuse!("a `Mut`-capable struct can change while a collection holds it, so it cannot be a key: drop `canbe Mut`, or hash by hand")
     }
     let h = 17L
-    inline for field in T.fields {
+    [for field in T.fields] {
         h = mix_hash(h, hash(value.[field]))
     }
     return h
@@ -60,10 +62,10 @@ export compfn hash<struct T>(value: T) [] -> Long => value {
 // The literal's own shape, `Point { x: 1, y: 2 }` — identical on both
 // backends, which is the whole reason the language fixes it rather than
 // deferring to `Debug` or `toString` [interp-to-str].
-export compfn to_str<struct T>(value: T) [] -> Str => value {
+export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
     let out: Mut Str = mut_str("${T.name} {")
-    inline for field in T.fields {
-        inline if field.first {
+    [for field in T.fields] {
+        [if field.first] {
             append(out, " ")
         } else {
             append(out, ", ")
@@ -81,14 +83,14 @@ export compfn to_str<struct T>(value: T) [] -> Str => value {
 
 // Arms order by their declared position [union-arm-identity]; two values in
 // the same arm order by the arm's own `cmp`.
-export compfn cmp<union T>(a: T, b: T) [] -> Int => a, b {
-    inline when a {
+export comptime fn cmp<T is Union>(a: T, b: T) [] -> Int => a, b {
+    [when a] {
         [x] {
-            inline when b {
+            [when b] {
                 [y] {
-                    inline if x.index == y.index {
+                    [if x.index == y.index] {
                         // `None` has no `cmp`, and two of them tie.
-                        inline if x.type is None {
+                        [if x.type is None] {
                             return 0
                         } else {
                             return cmp(a, b)
@@ -103,13 +105,13 @@ export compfn cmp<union T>(a: T, b: T) [] -> Int => a, b {
     return 0
 }
 
-export compfn eq<union T>(a: T, b: T) [] -> Bool => a, b {
-    inline when a {
+export comptime fn eq<T is Union>(a: T, b: T) [] -> Bool => a, b {
+    [when a] {
         [x] {
-            inline when b {
+            [when b] {
                 [y] {
-                    inline if x.index == y.index {
-                        inline if x.type is None {
+                    [if x.index == y.index] {
+                        [if x.type is None] {
                             return true
                         } else {
                             return eq(a, b)
@@ -124,10 +126,10 @@ export compfn eq<union T>(a: T, b: T) [] -> Bool => a, b {
     return false
 }
 
-export compfn hash<union T>(value: T) [] -> Long => value {
-    inline when value {
+export comptime fn hash<T is Union>(value: T) [] -> Long => value {
+    [when value] {
         [arm] {
-            inline if arm.type is None {
+            [if arm.type is None] {
                 return to_long(arm.index)
             } else {
                 return mix_hash(to_long(arm.index), hash(value))
@@ -137,10 +139,10 @@ export compfn hash<union T>(value: T) [] -> Long => value {
     return 0L
 }
 
-export compfn to_str<union T>(value: T) [] -> Str => value {
-    inline when value {
+export comptime fn to_str<T is Union>(value: T) [] -> Str => value {
+    [when value] {
         [arm] {
-            inline if arm.type is None {
+            [if arm.type is None] {
                 return "None"
             } else {
                 // The arm's own `to_str`, by ordinary overload ranking (the

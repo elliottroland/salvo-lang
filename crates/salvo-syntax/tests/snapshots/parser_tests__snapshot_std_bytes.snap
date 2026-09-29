@@ -32,6 +32,7 @@ Module {
                 intrinsic: true,
                 linear: false,
                 noremote: false,
+                comptime: false,
                 name: Ident {
                     name: "Bytes",
                     span: 1151..1156,
@@ -2283,6 +2284,7 @@ Module {
                 fns: [],
                 linear: false,
                 noremote: false,
+                comptime: false,
                 span: 5238..5398,
             },
         ),

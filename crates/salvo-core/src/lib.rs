@@ -28,6 +28,7 @@ pub use check::{
     UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };
 pub use deduce::ParamDeduction;
+pub use comptime::CompHover;
 pub use expand::{expand, Expansion, TestCase};
 pub use effects::{
     effect_member_index, effect_member_name, effect_members_named, handler_is_stateful,

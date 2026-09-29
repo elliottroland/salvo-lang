@@ -40,6 +40,10 @@ pub struct Analysis {
     /// the program: this is the slice hover needs, so it is extracted while
     /// the resolution is alive (user request 2026-09-18).
     pub overloads: Vec<HashMap<String, Vec<DefSite>>>,
+    /// [comptime-fields] Hover text for the comptime names inside `comptime
+    /// fn` bodies, recorded by the expansion — the checker never sees those
+    /// bodies, so this is their only source.
+    pub comptime_hovers: Vec<salvo_core::CompHover>,
 }
 
 /// Parses, resolves, and type-checks `src` (plus the embedded std).
@@ -121,6 +125,7 @@ pub fn analyze_sources(
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     diagnostics.extend(expansion.diagnostics);
+    let comptime_hovers = expansion.comptime_hovers;
     diagnostics.sort_by_key(|d| (d.file, d.span.start));
     let parse_broken: std::collections::HashSet<usize> = diagnostics
         .iter()
@@ -157,6 +162,7 @@ pub fn analyze_sources(
         checked,
         io_errors,
         overloads,
+        comptime_hovers,
     })
 }
 

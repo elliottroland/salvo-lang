@@ -307,26 +307,26 @@ const LIT_PRELUDE: &str = concat!(
     "export intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
 );
 
-/// [obligation-by] The structural `compfn`s `by auto` stamps, mirroring
+/// [obligation-by] The structural `comptime fn`s `by auto` stamps, mirroring
 /// `std/core/auto.sv`'s struct half: the tests here are about what a `by`
 /// clause does to a type, not about the bodies.
 const AUTO_PRELUDE: &str = concat!(
     "export intrinsic fn mix_hash(seed: Long, value: Long) [] -> Long => seed, value\n",
-    "export compfn cmp<struct T>(a: T, b: T) [] -> Int => a, b {\n",
-    "    inline for field in T.fields {\n",
+    "export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {\n",
+    "    [for field in T.fields] {\n",
     "        let c = cmp(a.[field], b.[field])\n",
     "        if c != 0 {\n            return c\n        }\n",
     "    }\n    return 0\n}\n",
-    "export compfn eq<struct T>(a: T, b: T) [] -> Bool => a, b {\n",
-    "    inline for field in T.fields {\n",
+    "export comptime fn eq<T is Struct>(a: T, b: T) [] -> Bool => a, b {\n",
+    "    [for field in T.fields] {\n",
     "        if !eq(a.[field], b.[field]) {\n            return false\n        }\n",
     "    }\n    return true\n}\n",
-    "export compfn hash<struct T>(value: T) [] -> Long => value {\n",
-    "    inline if T canbe Mut {\n",
-    "        refuse \"a `Mut`-capable struct can change while a collection holds it, so it cannot be a key\"\n",
+    "export comptime fn hash<T is Struct>(value: T) [] -> Long => value {\n",
+    "    [if T.mutable] {\n",
+    "        refuse!(\"a `Mut`-capable struct can change while a collection holds it, so it cannot be a key\"\n"),
     "    }\n",
     "    let h = 17L\n",
-    "    inline for field in T.fields {\n",
+    "    [for field in T.fields] {\n",
     "        h = mix_hash(h, hash(value.[field]))\n",
     "    }\n    return h\n}\n",
 );

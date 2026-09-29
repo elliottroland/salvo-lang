@@ -131,9 +131,9 @@
           "match": "\\biter(?=\\s+fn\\b)"
         },
         {
-          "comment": "the compile-time function declaration — a keyword by position, not a reserved word",
+          "comment": "the compile-time modifier — a keyword by position, not a reserved word",
           "name": "keyword.declaration.salvo",
-          "match": "\\bcompfn\\b"
+          "match": "\\bcomptime(?=\\s+(fn|struct|type)\\b)"
         },
         {
           "comment": "the stamping clause — a keyword by position, not a reserved word",
@@ -141,14 +141,9 @@
           "match": "\\bby(?=\\s+[a-z])"
         },
         {
-          "comment": "the comptime construct word — a keyword by position, not a reserved word",
-          "name": "keyword.control.salvo",
-          "match": "\\binline(?=\\s+(for|if|when)\\b)"
-        },
-        {
           "comment": "the comptime refusal — a keyword by position, not a reserved word",
           "name": "keyword.control.salvo",
-          "match": "\\brefuse\\b"
+          "match": "\\brefuse(?=!)"
         },
         {
           "comment": "the mailbox slot of a handler — a keyword by position, not a reserved word",

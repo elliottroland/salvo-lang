@@ -97,12 +97,13 @@ pub const THREADSAFE_MODIFIER: &str = "threadsafe";
 /// everywhere but directly before a type-declaring keyword.
 pub const NOREMOTE_MODIFIER: &str = "noremote";
 
-/// [comptime-bound] The contextual declaration word of a compile-time
-/// function: `compfn cmp<struct T>(a: T, b: T) -> Int { … }` (user decision
-/// 2026-09-28 — deliberately ambiguous between "compiled" and "comptime").
-/// Contextual like the other declaration words: at item level, and inside a
-/// struct body, a bare identifier is otherwise a parse error.
-pub const COMPFN_WORD: &str = "compfn";
+/// [comptime-bound] [comptime-fields] The contextual modifier of the whole
+/// compile-time facility: `comptime fn cmp<T is Struct>(…)`, `comptime struct
+/// Field { … }`, `comptime type Type = …` (user decision 2026-09-29, replacing
+/// the standalone `compfn`). Contextual like the other declaration words: at
+/// item level, and inside a struct body, a bare identifier is otherwise a
+/// parse error.
+pub const COMPTIME_WORD: &str = "comptime";
 
 /// [obligation-by] [fn-by] The contextual word naming where a body is stamped
 /// from: `: Ordered<self> by auto`, `fn cmp(a: P, b: P) -> Int by auto`.
@@ -111,14 +112,9 @@ pub const COMPFN_WORD: &str = "compfn";
 /// otherwise the end of the declaration.
 pub const BY_WORD: &str = "by";
 
-/// [comptime-inline] The contextual word every comptime construct is written
-/// with: `inline for`, `inline if`, `inline when` (comptime rounds 1 and 3).
-/// One rule — comptime constructs say `inline` — rather than an exception
-/// where the subject makes it obvious.
-pub const INLINE_WORD: &str = "inline";
-
-/// [comptime-refuse] `refuse "…"`: an error at the instantiation site.
-pub const REFUSE_WORD: &str = "refuse";
+/// [comptime-refuse] `refuse!("…")`: an error at the instantiation site, with
+/// the bang and parens of `assert!`/`unreachable!` [assert-fn].
+pub const REFUSE_FORM: &str = "refuse";
 
 /// [actor-mailbox] The contextual name of an actor handler's settings slot:
 /// `mailbox { capacity: 16 }` (user decision 2026-09-16). Contextual like every
@@ -592,8 +588,47 @@ impl<'s> Parser<'s> {
             // in. Contextual for the reason `iter fn` is: at item level a bare
             // identifier is otherwise a parse error, and `compfn` is not a
             // reserved word (a value may be called that).
-            TokenKind::Ident(name) if name == COMPFN_WORD => {
-                self.parse_compfn().map(Item::Fn)
+            // [comptime-bound] [comptime-fields] `comptime fn`, `comptime struct`,
+            // `comptime type`: the compile-time facility's one modifier.
+            TokenKind::Ident(name) if name == COMPTIME_WORD => {
+                let span = self.peek().span;
+                match self.peek_at(1).kind {
+                    TokenKind::KwFn => self.parse_compfn().map(Item::Fn),
+                    TokenKind::KwStruct => {
+                        self.bump();
+                        let mut s = self.parse_struct(false)?;
+                        s.comptime = true;
+                        Some(Item::Struct(s))
+                    }
+                    TokenKind::KwType => {
+                        self.bump();
+                        let mut t = self.parse_type_decl(false)?;
+                        t.comptime = true;
+                        Some(Item::Type(t))
+                    }
+                    _ => {
+                        let found = self.peek_at(1).kind.describe();
+                        self.error(
+                            format!(
+                                "expected `fn`, `struct` or `type` after `comptime`, found \
+                                 {found} [comptime-bound]"
+                            ),
+                            span,
+                        );
+                        None
+                    }
+                }
+            }
+            // The first spelling (2026-09-28), replaced the next day once the
+            // model gained `comptime struct`: one word for the facility.
+            TokenKind::Ident(name) if name == "compfn" => {
+                let span = self.peek().span;
+                self.error(
+                    "`compfn` is spelled `comptime fn` [comptime-bound]",
+                    span,
+                );
+                self.bump();
+                self.parse_fn(false).map(Item::Fn)
             }
             // [obligation-by] The word this replaced (user decision 2026-09-28): the
             // structural implementations are `compfn`s in `core.auto`, asked
@@ -974,6 +1009,7 @@ impl<'s> Parser<'s> {
             exported: false,
             // [noremote] Set by `parse_declaration`, which peels the word.
             noremote: false,
+            comptime: false,
             docs,
             intrinsic,
             linear,
@@ -1299,7 +1335,7 @@ impl<'s> Parser<'s> {
             // [comptime-bound] A concrete `compfn` inside the body: its own
             // single instantiation, declared on the type like any inner fn
             // (comptime round 2, 12.1).
-            if self.at_word(COMPFN_WORD) {
+            if self.at_word(COMPTIME_WORD) && matches!(self.peek_at(1).kind, TokenKind::KwFn) {
                 fns.push(self.parse_compfn()?);
                 continue;
             }
@@ -1326,6 +1362,8 @@ impl<'s> Parser<'s> {
             exported: false,
             // [noremote] Set by `parse_declaration`, which peels the word.
             noremote: false,
+            // [comptime-fields] Set by `parse_declaration` too.
+            comptime: false,
             docs,
             name,
             fns,
@@ -1401,36 +1439,45 @@ impl<'s> Parser<'s> {
     /// concrete: its own single instantiation.
     fn parse_compfn(&mut self) -> Option<FnDecl> {
         let docs = self.docs_here();
-        let start = self.expect_word(COMPFN_WORD)?;
-        let name = self.ident_value("compfn")?;
+        let start = self.expect_word(COMPTIME_WORD)?;
+        self.expect(&TokenKind::KwFn)?;
+        let name = self.ident_value("comptime fn")?;
         let mut bound = None;
         if self.at(&TokenKind::Lt) {
             self.group_depth += 1;
             self.bump();
-            let kind_word = self.peek().span;
+            // `<T is Struct>` / `<T is Union>`: the bound names an arm of
+            // `core.comptime`'s `Type`, spelled as the narrowing it is — the
+            // same `is` a `[when field.type]` arm tests (user decision
+            // 2026-09-29).
+            let param = self.ident_type("type parameter")?;
+            if self.expect(&TokenKind::KwIs).is_none() {
+                self.group_depth -= 1;
+                return None;
+            }
+            let kind_span = self.peek().span;
             let kind = match self.kind() {
-                TokenKind::KwStruct => CompKind::Struct,
-                TokenKind::Ident(n) if n == "union" => CompKind::Union,
+                TokenKind::Ident(n) if n == "Struct" => CompKind::Struct,
+                TokenKind::Ident(n) if n == "Union" => CompKind::Union,
                 other => {
                     let found = other.describe();
                     self.error(
                         format!(
-                            "a `compfn`'s type parameter is bound to a kind: write \
-                             `<struct T>` or `<union T>` (found {found}) [comptime-bound]"
+                            "a `comptime fn`'s type parameter is bound to a kind: write \
+                             `<T is Struct>` or `<T is Union>` (found {found}) [comptime-bound]"
                         ),
-                        kind_word,
+                        kind_span,
                     );
                     self.group_depth -= 1;
                     return None;
                 }
             };
             self.bump();
-            let param = self.ident_type("type parameter")?;
             if self.at(&TokenKind::Comma) {
                 let sp = self.peek().span;
                 self.error(
-                    "a `compfn` takes exactly one bounded type parameter: the type it \
-                     is stamped at [comptime-bound]",
+                    "a `comptime fn` takes exactly one bounded type parameter: the type \
+                     it is stamped at [comptime-bound]",
                     sp,
                 );
             }
@@ -1450,8 +1497,8 @@ impl<'s> Parser<'s> {
         if f.body.is_none() && f.by.is_none() {
             self.error(
                 format!(
-                    "`compfn {}` has no body: a compfn is the code that is stamped, \
-                     so it always has one [comptime-bound]",
+                    "`comptime fn {}` has no body: it is the code that is stamped, so \
+                     it always has one [comptime-bound]",
                     f.name.name
                 ),
                 f.span,
@@ -1460,8 +1507,8 @@ impl<'s> Parser<'s> {
         if f.by.is_some() {
             self.error(
                 format!(
-                    "`compfn {}` cannot itself say `by`: it is what `by` stamps from \
-                     [comptime-bound]",
+                    "`comptime fn {}` cannot itself say `by`: it is what `by` stamps \
+                     from [comptime-bound]",
                     f.name.name
                 ),
                 f.span,
@@ -1488,7 +1535,19 @@ impl<'s> Parser<'s> {
     /// `name: Type (= default)?`
     fn parse_field_decl(&mut self) -> Option<FieldDecl> {
         let docs = self.docs_here();
-        let name = self.ident_value("field")?;
+        // [comptime-fields] `type` is a keyword, and `Field.type` is the one
+        // field spelled with it — the projection a comptime body reads as
+        // `field.type`. Accepted as a field name here so `core.comptime` can
+        // declare what the body reads.
+        let name = if self.at(&TokenKind::KwType) && matches!(self.peek_at(1).kind, TokenKind::Colon) {
+            let span = self.bump().span;
+            Ident {
+                name: "type".to_string(),
+                span,
+            }
+        } else {
+            self.ident_value("field")?
+        };
         self.expect(&TokenKind::Colon)?;
         let ty = self.parse_type()?;
         let default = if self.eat(&TokenKind::Eq).is_some() {
@@ -3609,25 +3668,35 @@ impl<'s> Parser<'s> {
     fn parse_stmt(&mut self) -> Option<Stmt> {
         match self.kind() {
             TokenKind::KwLet => self.parse_let(),
-            // [comptime-inline] `inline for` / `inline if` / `inline when`.
-            TokenKind::Ident(w)
-                if w == INLINE_WORD
-                    && matches!(
-                        self.peek_at(1).kind,
-                        TokenKind::KwFor | TokenKind::KwIf | TokenKind::KwWhen
-                    ) =>
+            // [comptime-inline] `[for …]` / `[if …]` / `[when …]`: a bracketed
+            // head is a compile-time construct (user decision 2026-09-29,
+            // replacing the `inline` word) — brackets appear exactly where the
+            // same text without them would be runtime Salvo.
+            TokenKind::LBracket
+                if matches!(
+                    self.peek_at(1).kind,
+                    TokenKind::KwFor | TokenKind::KwIf | TokenKind::KwWhen
+                ) =>
             {
                 self.parse_inline().map(Stmt::Comp)
             }
-            // [comptime-refuse] `refuse "…"`.
+            // [comptime-refuse] `refuse!("…")`.
             TokenKind::Ident(w)
-                if w == REFUSE_WORD && matches!(self.peek_at(1).kind, TokenKind::Str(_)) =>
+                if w == REFUSE_FORM && matches!(self.peek_at(1).kind, TokenKind::Bang) =>
             {
                 let start = self.bump().span;
-                self.require_compfn(start, "`refuse`");
-                let message = self.parse_primary()?;
-                let span = start.to(message.span());
-                Some(Stmt::Comp(CompStmt::Refuse { message, span }))
+                self.bump();
+                self.require_compfn(start, "`refuse!`");
+                self.expect(&TokenKind::LParen)?;
+                self.group_depth += 1;
+                let message = self.parse_expr();
+                self.group_depth -= 1;
+                let message = message?;
+                let end = self.expect(&TokenKind::RParen)?.span;
+                Some(Stmt::Comp(CompStmt::Refuse {
+                    message,
+                    span: start.to(end),
+                }))
             }
             // [fn-rename] In force from here to the end of the block.
             TokenKind::KwRename => self.parse_rename().map(Stmt::Rename),
@@ -3734,7 +3803,7 @@ impl<'s> Parser<'s> {
         if !self.in_compfn {
             self.error(
                 format!(
-                    "{what} is comptime syntax and belongs inside a `compfn`: an \
+                    "{what} is comptime syntax and belongs inside a `comptime fn`: an \
                      ordinary fn has no fields to walk or instantiations to refuse \
                      [comptime-inline]"
                 ),
@@ -3747,14 +3816,15 @@ impl<'s> Parser<'s> {
     /// `inline when field.type { is struct { … } … }`, `inline when value {
     /// [arm] { … } }`.
     fn parse_inline(&mut self) -> Option<CompStmt> {
-        let start = self.expect_word(INLINE_WORD)?;
-        self.require_compfn(start, "`inline`");
+        let start = self.expect(&TokenKind::LBracket)?.span;
+        self.require_compfn(start, "a `[for …]`/`[if …]`/`[when …]` head");
         match self.kind() {
             TokenKind::KwFor => {
                 self.bump();
                 let binder = self.ident_value("binder")?;
                 self.expect(&TokenKind::KwIn)?;
                 let seq = self.parse_comp_seq()?;
+                self.expect(&TokenKind::RBracket)?;
                 let body = self.parse_block()?;
                 let span = start.to(body.span);
                 Some(CompStmt::For {
@@ -3767,6 +3837,7 @@ impl<'s> Parser<'s> {
             TokenKind::KwIf => {
                 self.bump();
                 let cond = self.parse_comp_cond()?;
+                self.expect(&TokenKind::RBracket)?;
                 let then = self.parse_block()?;
                 let mut end = then.span;
                 let else_ = if self.at(&TokenKind::KwElse) {
@@ -3788,12 +3859,14 @@ impl<'s> Parser<'s> {
                 self.expect(&TokenKind::KwWhen)?;
                 // A type subject (`T`, `field.type`) opens the kind dispatch; a
                 // value subject the arm dispatch. The brace decides which was
-                // meant: `{ is kind` against `{ [arm]`.
+                // meant: `{ is Kind` against `{ [arm]`.
                 let snap = self.snapshot();
                 if let Some(ty) = self.try_parse_comp_ty() {
-                    if self.at(&TokenKind::LBrace)
-                        && matches!(self.peek_at(1).kind, TokenKind::KwIs | TokenKind::KwElse | TokenKind::RBrace)
+                    if self.at(&TokenKind::RBracket)
+                        && matches!(self.peek_at(1).kind, TokenKind::LBrace)
+                        && matches!(self.peek_at(2).kind, TokenKind::KwIs | TokenKind::KwElse | TokenKind::RBrace)
                     {
+                        self.bump();
                         return self.parse_inline_when_kind(start, ty);
                     }
                 }
@@ -3802,6 +3875,7 @@ impl<'s> Parser<'s> {
                 let value = self.parse_expr();
                 self.no_struct = saved_no_struct;
                 let value = value?;
+                self.expect(&TokenKind::RBracket)?;
                 self.expect(&TokenKind::LBrace)?;
                 self.expect(&TokenKind::LBracket)?;
                 let binder = self.ident_value("arm binder")?;
@@ -3810,7 +3884,7 @@ impl<'s> Parser<'s> {
                 if !self.at(&TokenKind::RBrace) {
                     let sp = self.peek().span;
                     self.error(
-                        "an `inline when` over a union value has exactly one written arm, \
+                        "a `[when value]` over a union has exactly one written arm, \
                          `[arm] { … }`, stamped once per declared arm [comptime-inline]",
                         sp,
                     );
@@ -3851,12 +3925,11 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// `struct`, `union`, `tuple`, `fn`, `opaque`, `basic`, `generic`.
+    /// An arm of `core.comptime`'s `Type`: `Struct`, `Union`, `Tuple`,
+    /// `FnType`, `Opaque` (or its halves `Basic`, `Generic`).
     fn parse_kind_word(&mut self) -> Option<TypeKindWord> {
         let span = self.peek().span;
         let word = match self.kind() {
-            TokenKind::KwStruct => Some(TypeKindWord::Struct),
-            TokenKind::KwFn => Some(TypeKindWord::Fn),
             TokenKind::Ident(n) => TypeKindWord::parse(n),
             _ => None,
         };
@@ -3864,8 +3937,9 @@ impl<'s> Parser<'s> {
             let found = self.kind().describe();
             self.error(
                 format!(
-                    "expected a kind — `struct`, `union`, `tuple`, `fn`, `opaque` (or its \
-                     halves `basic`, `generic`) — found {found} [comptime-inline]"
+                    "expected an arm of `Type` — `Struct`, `Union`, `Tuple`, `FnType`, \
+                     `Opaque` (or its halves `Basic`, `Generic`) — found {found} \
+                     [comptime-inline]"
                 ),
                 span,
             );
@@ -4070,15 +4144,29 @@ impl<'s> Parser<'s> {
             }
         }
         let ty = self.parse_comp_ty()?;
-        if self.eat(&TokenKind::KwCanbe).is_some() {
-            let qual = self.parse_type_ref()?;
-            let span = start.to(qual.span);
-            return Some(CompCond::Canbe { ty, qual, span });
+        // `T.mutable`: the `Struct.mutable` projection as a condition.
+        if self.at(&TokenKind::Dot)
+            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n == "mutable")
+        {
+            self.bump();
+            let end = self.bump().span;
+            return Some(CompCond::Mutable {
+                ty,
+                span: start.to(end),
+            });
+        }
+        if self.at(&TokenKind::KwCanbe) {
+            let sp = self.peek().span;
+            self.error(
+                "a type's mutability is read as `T.mutable` in a comptime condition \
+                 (`core.comptime`'s `Struct.mutable`), not with `canbe` [comptime-inline]",
+                sp,
+            );
+            return None;
         }
         self.expect(&TokenKind::KwIs)?;
-        // A kind word, or a written type.
+        // An arm of `Type` (a kind test), or a written type.
         let is_kind = match self.kind() {
-            TokenKind::KwStruct | TokenKind::KwFn => true,
             TokenKind::Ident(n) => {
                 TypeKindWord::parse(n).is_some()
                     && !matches!(self.peek_at(1).kind, TokenKind::Lt | TokenKind::Dot)
@@ -5389,12 +5477,10 @@ impl<'s> Parser<'s> {
             // is a list inside a collection literal.
             TokenKind::LBracket => {
                 self.in_compfn
-                    && matches!(self.peek_at(2).kind, TokenKind::Ident(_))
-                    && matches!(self.peek_at(3).kind, TokenKind::RBracket)
-                    && matches!(self.peek_at(4).kind, TokenKind::Colon)
-            }
-            TokenKind::Ident(w) if w == INLINE_WORD => {
-                self.in_compfn && matches!(self.peek_at(2).kind, TokenKind::KwFor)
+                    && (matches!(self.peek_at(2).kind, TokenKind::KwFor)
+                        || (matches!(self.peek_at(2).kind, TokenKind::Ident(_))
+                            && matches!(self.peek_at(3).kind, TokenKind::RBracket)
+                            && matches!(self.peek_at(4).kind, TokenKind::Colon)))
             }
             TokenKind::Ident(_) => matches!(self.peek_at(2).kind, TokenKind::Colon),
             _ => false,
@@ -5435,14 +5521,15 @@ impl<'s> Parser<'s> {
                     kind: StructLitFieldKind::Spread(value),
                     span,
                 });
-            } else if self.at_word(INLINE_WORD) && matches!(self.peek_at(1).kind, TokenKind::KwFor)
+            } else if self.at(&TokenKind::LBracket) && matches!(self.peek_at(1).kind, TokenKind::KwFor)
             {
                 let start = self.bump().span;
-                self.require_compfn(start, "`inline for`");
+                self.require_compfn(start, "a `[for …]` head");
                 self.bump();
                 let binder = self.ident_value("binder")?;
                 self.expect(&TokenKind::KwIn)?;
                 let seq = self.parse_comp_seq()?;
+                self.expect(&TokenKind::RBracket)?;
                 self.expect(&TokenKind::LBrace)?;
                 let entries = self.parse_struct_lit_entries()?;
                 let end = self.expect(&TokenKind::RBrace)?.span;

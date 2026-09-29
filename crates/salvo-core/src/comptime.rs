@@ -29,9 +29,28 @@ use salvo_syntax::{Diagnostic, Span};
 
 use crate::source::{ModulePath, SourceFile};
 
+/// [comptime-fields] A hover the expansion recorded inside a `comptime fn`
+/// body: the compile-time type of a comptime name at its written span. The
+/// body itself is never checked (it has no meaning until stamped), so this is
+/// the one source of hover text for `T`, a binder, or a projection.
+#[derive(Clone, Debug)]
+pub struct CompHover {
+    pub file: usize,
+    pub span: Span,
+    /// Markdown: a code line with the name and its `core.comptime` type, then
+    /// a sentence.
+    pub text: String,
+}
+
+pub struct ComptimeOutput {
+    pub diagnostics: Vec<(usize, Diagnostic)>,
+    pub hovers: Vec<CompHover>,
+}
+
 /// Runs the expansion. `modules` is aligned with `files`.
-pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Vec<(usize, Diagnostic)> {
+pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> ComptimeOutput {
     let mut out = Vec::new();
+    let mut hovers: Vec<CompHover> = Vec::new();
 
     // Program-wide tables. Names are flat here — the resolver's visibility
     // rules run later on what this produces — and a collision between two
@@ -76,6 +95,20 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Vec<(usi
         let mut diags: Vec<Diagnostic> = Vec::new();
         let mut virtual_next = file.content.len() as u32 + 1;
         let mut generated: Vec<Item> = Vec::new();
+
+        // [comptime-fields] Hovers over every comptime fn body, at the written
+        // spans, before the bodies are consumed by stamping.
+        for item in &module.items {
+            let Item::Fn(f) = item else { continue };
+            let Some(cf) = &f.compfn else { continue };
+            let mut rec = HoverRecorder {
+                file: file_idx,
+                bound: cf.bound.as_ref().map(|(k, id)| (id.name.clone(), *k)),
+                binders: Vec::new(),
+                out: &mut hovers,
+            };
+            rec.fn_decl(f);
+        }
 
         // [obligation-by] Clause sites: structs and type declarations.
         for item in &module.items {
@@ -225,7 +258,412 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Vec<(usi
         module.items.extend(generated);
         out.extend(diags.into_iter().map(|d| (file_idx, d)));
     }
-    out
+    ComptimeOutput {
+        diagnostics: out,
+        hovers,
+    }
+}
+
+/// [comptime-fields] Walks a comptime fn's written body and records, for
+/// every comptime name, its type in `core.comptime`'s terms: the bound
+/// parameter (`T is Struct`), an `[for …]`/`[when …]` binder (`field: Field`,
+/// `arm: Arm`), and the projections (`field.name: Str`, `field.type: Type`,
+/// `T.fields: List<Field>`, `T.name: Str`). Read-only over the original AST,
+/// so the spans are the file's own and the language server can find them.
+struct HoverRecorder<'w> {
+    file: usize,
+    bound: Option<(String, CompKind)>,
+    /// Binders in scope: name → (`Field`/`Arm`, what it walks).
+    binders: Vec<(String, bool)>,
+    out: &'w mut Vec<CompHover>,
+}
+
+impl HoverRecorder<'_> {
+    fn push(&mut self, span: Span, code: &str, note: &str) {
+        self.out.push(CompHover {
+            file: self.file,
+            span,
+            text: format!("```salvo\n{code}\n```\n\n{note}"),
+        });
+    }
+
+    fn fn_decl(&mut self, f: &FnDecl) {
+        if let Some(cf) = &f.compfn {
+            if let Some((kind, id)) = &cf.bound {
+                self.push(
+                    id.span,
+                    &format!("{} is {}", id.name, kind.word()),
+                    &format!(
+                        "The type this `comptime fn` is stamped at — a `{}` of \
+                         `core.comptime`. In a type position it is the type itself; \
+                         `{}.name` and `{}.{}` read its compile-time description.",
+                        kind.word(),
+                        id.name,
+                        id.name,
+                        if *kind == CompKind::Struct { "fields" } else { "arms" }
+                    ),
+                );
+            }
+        }
+        if let Some(body) = &f.body {
+            self.block(body);
+        }
+    }
+
+    fn block(&mut self, b: &Block) {
+        for s in &b.stmts {
+            self.stmt(s);
+        }
+    }
+
+    fn comp_ty(&mut self, ct: &CompTy) {
+        if ct.via_type {
+            if let Some(is_arm) = self.binder_kind(&ct.root.name) {
+                let owner = if is_arm { "Arm" } else { "Field" };
+                self.push(
+                    ct.span,
+                    &format!("{}.type: Type", ct.root.name),
+                    &format!(
+                        "The `{owner}`'s type, as `core.comptime`'s `Type` — `Struct | Union | \
+                         Tuple | FnType | Opaque`. Usable wherever a type is written inside \
+                         the body; test its arm with `is Struct` or dispatch with `[when …]`."
+                    ),
+                );
+            }
+        } else if let Some((param, kind)) = &self.bound {
+            if *param == ct.root.name {
+                self.push(
+                    ct.span,
+                    &format!("{} is {}", param, kind.word()),
+                    "The bound type parameter, as its compile-time description.",
+                );
+            }
+        }
+    }
+
+    fn binder_kind(&self, name: &str) -> Option<bool> {
+        self.binders.iter().rev().find(|(n, _)| n == name).map(|(_, arm)| *arm)
+    }
+
+    fn seq(&mut self, seq: &CompSeq) {
+        self.comp_ty(&seq.ty);
+        let (what, elem) = if seq.arms { ("arms", "Arm") } else { ("fields", "Field") };
+        self.push(
+            seq.span,
+            &format!("{}.{what}: List<{elem}>", comp_ty_text(&seq.ty)),
+            &format!(
+                "The declared {what}, in declaration order; a `[for …]` over it is \
+                 unrolled, one copy of the body per `{elem}`."
+            ),
+        );
+    }
+
+    fn binder(&mut self, id: &Ident, is_arm: bool) {
+        let ty = if is_arm { "Arm" } else { "Field" };
+        self.push(
+            id.span,
+            &format!("{}: {ty}", id.name),
+            &format!(
+                "A `core.comptime` `{ty}`: `.name: Str`, `.type: Type`, `.index: Int`, \
+                 `.first: Bool`, `.last: Bool`. {}",
+                if is_arm {
+                    "The value dispatched on reads as this arm inside the block."
+                } else {
+                    "`v.[field]` reads the field; `[field]: …` names it in a literal."
+                }
+            ),
+        );
+    }
+
+    fn cond(&mut self, c: &CompCond) {
+        match c {
+            CompCond::Kind { ty, .. } | CompCond::Is { ty, .. } | CompCond::Mutable { ty, .. } => {
+                self.comp_ty(ty);
+                if let CompCond::Mutable { span, .. } = c {
+                    self.push(
+                        *span,
+                        &format!("{}.mutable: Bool", comp_ty_text(ty)),
+                        "Whether the type declares `canbe Mut` (`Struct.mutable`).",
+                    );
+                }
+            }
+            CompCond::NameEq { binder, span, .. } => {
+                if self.binder_kind(&binder.name).is_some() {
+                    self.push(
+                        Span::new(span.start, binder.span.end + 5),
+                        &format!("{}.name: Str", binder.name),
+                        "The declared name, compared to a literal at compile time.",
+                    );
+                }
+            }
+            CompCond::Flag { binder, last, span } => {
+                if self.binder_kind(&binder.name).is_some() {
+                    self.push(
+                        *span,
+                        &format!("{}.{}: Bool", binder.name, if *last { "last" } else { "first" }),
+                        "Whether this copy is for the first/last element.",
+                    );
+                }
+            }
+            CompCond::IndexCmp { a, b, .. } => {
+                for id in [a, b] {
+                    if self.binder_kind(&id.name).is_some() {
+                        self.push(
+                            Span::new(id.span.start, id.span.end + 6),
+                            &format!("{}.index: Int", id.name),
+                            "The declared position, from zero.",
+                        );
+                    }
+                }
+            }
+            CompCond::Not(inner, _) => self.cond(inner),
+        }
+    }
+
+    fn stmt(&mut self, s: &Stmt) {
+        match s {
+            Stmt::Comp(c) => match c {
+                CompStmt::For {
+                    binder,
+                    seq,
+                    body,
+                    ..
+                } => {
+                    self.seq(seq);
+                    self.binder(binder, seq.arms);
+                    self.binders.push((binder.name.clone(), seq.arms));
+                    self.block(body);
+                    self.binders.pop();
+                }
+                CompStmt::If {
+                    cond, then, else_, ..
+                } => {
+                    self.cond(cond);
+                    self.block(then);
+                    if let Some(b) = else_ {
+                        self.block(b);
+                    }
+                }
+                CompStmt::WhenKind { ty, arms, else_, .. } => {
+                    self.comp_ty(ty);
+                    for arm in arms {
+                        self.block(&arm.body);
+                    }
+                    if let Some(b) = else_ {
+                        self.block(b);
+                    }
+                }
+                CompStmt::WhenArms {
+                    value,
+                    binder,
+                    body,
+                    ..
+                } => {
+                    self.expr(value);
+                    self.binder(binder, true);
+                    self.binders.push((binder.name.clone(), true));
+                    self.block(body);
+                    self.binders.pop();
+                }
+                CompStmt::Refuse { message, .. } => self.expr(message),
+            },
+            Stmt::Let { value, ty, .. } => {
+                if let Some(t) = ty {
+                    self.ty(t);
+                }
+                self.expr(value);
+            }
+            Stmt::Assign { target, value, .. } => {
+                self.expr(target);
+                self.expr(value);
+            }
+            Stmt::Use { handler, .. } => self.expr(handler),
+            Stmt::Rename(_) => {}
+            Stmt::Expr(e) => self.expr(e),
+        }
+    }
+
+    fn ty(&mut self, t: &Type) {
+        // `binder.type` in a type position is carried as a dotted name.
+        if let Type::Named { base, .. } = t {
+            if let Some(b) = base.name.name.strip_suffix(".type") {
+                if let Some(is_arm) = self.binder_kind(b) {
+                    let owner = if is_arm { "Arm" } else { "Field" };
+                    self.push(
+                        base.span,
+                        &format!("{b}.type: Type"),
+                        &format!("The `{owner}`'s type, standing here as the type itself."),
+                    );
+                }
+            }
+        }
+    }
+
+    fn expr(&mut self, e: &Expr) {
+        // A small read-only walk: the comptime names an expression can hold
+        // are a `Field` whose base is a binder or the bound parameter, and a
+        // `v.[binder]` access; everything else recurses.
+        match e {
+            Expr::Field { base, field, span } => {
+                if let Some(b) = field.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                    if self.binder_kind(b).is_some() {
+                        self.push(
+                            field.span,
+                            &format!("[{b}]"),
+                            &format!("The field `{b}` is at, in this copy: rewritten to `.name` per field."),
+                        );
+                    }
+                    self.expr(base);
+                    return;
+                }
+                if let Expr::Ident(root) = &**base {
+                    if let Some(is_arm) = self.binder_kind(&root.name) {
+                        let (ty, note) = match field.name.as_str() {
+                            "name" => ("Str", "The declared name, as a literal in each copy."),
+                            "index" => ("Int", "The declared position, from zero."),
+                            "first" => ("Bool", "Whether this copy is for the first element."),
+                            "last" => ("Bool", "Whether this copy is for the last element."),
+                            "type" => ("Type", "The compile-time type (`core.comptime`)."),
+                            _ => ("?", "Not a projection a `Field`/`Arm` has."),
+                        };
+                        let _ = is_arm;
+                        self.push(*span, &format!("{}.{}: {ty}", root.name, field.name), note);
+                        return;
+                    }
+                    if let Some((param, _)) = &self.bound {
+                        if root.name == *param && field.name == "name" {
+                            self.push(*span, &format!("{param}.name: Str"), "The stamped type's declared name, as a literal.");
+                            return;
+                        }
+                    }
+                }
+                self.expr(base);
+            }
+            Expr::Str { parts, .. } => {
+                for p in parts {
+                    if let StrExprPart::Interp(inner) = p {
+                        self.expr(inner);
+                    }
+                }
+            }
+            Expr::Call { callee, args, named, .. } => {
+                self.expr(callee);
+                for a in args {
+                    self.expr(a);
+                }
+                for n in named {
+                    self.expr(&n.value);
+                }
+            }
+            Expr::Unary { operand, .. } | Expr::NonNull { operand, .. } | Expr::IncDec { operand, .. } | Expr::Spread { operand, .. } => self.expr(operand),
+            Expr::Binary { lhs, rhs, .. } => {
+                self.expr(lhs);
+                self.expr(rhs);
+            }
+            Expr::Is { subject, .. } | Expr::Widen { subject, .. } => self.expr(subject),
+            Expr::If { branches, else_block, .. } => {
+                for (c, b) in branches {
+                    self.expr(c);
+                    self.block(b);
+                }
+                if let Some(b) = else_block {
+                    self.block(b);
+                }
+            }
+            Expr::When { subject, branches, .. } => {
+                self.expr(subject);
+                for br in branches {
+                    self.block(&br.body);
+                }
+            }
+            Expr::WhenCond { branches, else_block, .. } => {
+                for (c, b) in branches {
+                    self.expr(c);
+                    self.block(b);
+                }
+                self.block(else_block);
+            }
+            Expr::While { cond, body, else_block, .. } => {
+                self.expr(cond);
+                self.block(body);
+                if let Some(b) = else_block {
+                    self.block(b);
+                }
+            }
+            Expr::For { iterable, body, else_block, .. } => {
+                self.expr(iterable);
+                self.block(body);
+                if let Some(b) = else_block {
+                    self.block(b);
+                }
+            }
+            Expr::Return { value: Some(v), .. } | Expr::Break { value: Some(v), .. } => self.expr(v),
+            Expr::StructLit { fields, .. } => {
+                for f in fields {
+                    match &f.kind {
+                        StructLitFieldKind::Named { name, value } => {
+                            if let Some(b) = name.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                                if self.binder_kind(b).is_some() {
+                                    self.push(name.span, &format!("[{b}]"), "The entry for the field this copy is for.");
+                                }
+                            }
+                            self.expr(value);
+                        }
+                        StructLitFieldKind::Spread(e) => self.expr(e),
+                        StructLitFieldKind::InlineFor { binder, seq, entries } => {
+                            self.seq(seq);
+                            self.binder(binder, seq.arms);
+                            self.binders.push((binder.name.clone(), seq.arms));
+                            for entry in entries {
+                                if let StructLitFieldKind::Named { name, value } = &entry.kind {
+                                    if let Some(b) = name.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                                        if self.binder_kind(b).is_some() {
+                                            self.push(name.span, &format!("[{b}]"), "The entry for the field this copy is for.");
+                                        }
+                                    }
+                                    self.expr(value);
+                                }
+                            }
+                            self.binders.pop();
+                        }
+                    }
+                }
+            }
+            Expr::Elvis { subject, rhs, .. } => {
+                self.expr(subject);
+                self.expr(rhs);
+            }
+            Expr::Try { body, .. } => self.block(body),
+            Expr::Lambda { body, .. } => match body {
+                LambdaBody::Expr(e) => self.expr(e),
+                LambdaBody::Block(b) => self.block(b),
+            },
+            Expr::ArrayLit { elems, .. } | Expr::SetLit { elems, .. } | Expr::Tuple { elems, .. } => {
+                for e in elems {
+                    self.expr(e);
+                }
+            }
+            Expr::MapLit { entries, .. } => {
+                for (k, v) in entries {
+                    self.expr(k);
+                    self.expr(v);
+                }
+            }
+            Expr::Index { base, index, .. } => {
+                self.expr(base);
+                self.expr(index);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn comp_ty_text(ct: &CompTy) -> String {
+    if ct.via_type {
+        format!("{}.type", ct.root.name)
+    } else {
+        ct.root.name.clone()
+    }
 }
 
 fn fallback_body(f: &mut FnDecl) {
@@ -395,8 +833,8 @@ impl World {
             if candidates.is_empty() {
                 diags.push(Diagnostic::error(
                     format!(
-                        "`{module}` has no `compfn {member}`, so `by {}` cannot stamp one \
-                         [obligation-by]",
+                        "`{module}` has no `comptime fn {member}`, so `by {}` cannot stamp \
+                         one [obligation-by]",
                         by.text()
                     ),
                     by.span,
@@ -408,8 +846,8 @@ impl World {
                 0 => {
                     diags.push(Diagnostic::error(
                         format!(
-                            "`{module}` has no `compfn {member}<{} T>`: its `{member}` is not \
-                             written for a {} [comptime-bound]",
+                            "`{module}` has no `comptime fn {member}<T is {}>`: its `{member}` is \
+                             not written for a `{}` [comptime-bound]",
                             kind.word(),
                             kind.word()
                         ),
@@ -421,7 +859,7 @@ impl World {
                 _ => {
                     diags.push(Diagnostic::error(
                         format!(
-                            "`{module}` declares `compfn {member}<{} T>` more than once \
+                            "`{module}` declares `comptime fn {member}<T is {}>` more than once \
                              [comptime-bound]",
                             kind.word()
                         ),
@@ -445,8 +883,8 @@ impl World {
                 n if n > 1 => {
                     diags.push(Diagnostic::error(
                         format!(
-                            "`by {}` names {n} compfns of that name for a {}; write the module \
-                             path instead [fn-by]",
+                            "`by {}` names {n} comptime fns of that name for a `{}`; write the \
+                             module path instead [fn-by]",
                             by.text(),
                             kind.word()
                         ),
@@ -459,8 +897,8 @@ impl World {
         }
         diags.push(Diagnostic::error(
             format!(
-                "`by {}` names neither a module nor a `compfn` — nothing to stamp `{member}` \
-                 from [obligation-by] [fn-by]",
+                "`by {}` names neither a module nor a `comptime fn` — nothing to stamp \
+                 `{member}` from [obligation-by] [fn-by]",
                 by.text()
             ),
             by.span,
@@ -472,7 +910,7 @@ impl World {
         match ty {
             Type::Union { .. } | Type::Nullable { .. } => TypeKindWord::Union,
             Type::Tuple { .. } => TypeKindWord::Tuple,
-            Type::Fn { .. } => TypeKindWord::Fn,
+            Type::Fn { .. } => TypeKindWord::FnType,
             Type::Array { .. } => TypeKindWord::Basic,
             Type::QualifiedGroup { base, .. } => self.classify(base, generics, depth),
             Type::Named { base, .. } => {
@@ -975,7 +1413,7 @@ impl<'w> Expander<'w> {
         let kind = self.world.classify(&ty, &self.generics(), 0);
         if seq.arms {
             if kind != TypeKindWord::Union {
-                self.error(seq.span, format!("`{}` is a {}, and only a union has `.arms` [comptime-fields]", self.world.normalized(&ty), kind.word()));
+                self.error(seq.span, format!("`{}` is a `{}`, and only a `Union` has `.arms` [comptime-fields]", self.world.normalized(&ty), kind.word()));
                 return None;
             }
             let arms = self.arms_of_type(&ty);
@@ -998,7 +1436,7 @@ impl<'w> Expander<'w> {
             );
         }
         if kind != TypeKindWord::Struct {
-            self.error(seq.span, format!("`{}` is a {}, and only a struct has `.fields` [comptime-fields]", self.world.normalized(&ty), kind.word()));
+            self.error(seq.span, format!("`{}` is a `{}`, and only a `Struct` has `.fields` [comptime-fields]", self.world.normalized(&ty), kind.word()));
             return None;
         }
         let Some(name) = named_base(&ty) else { return None };
@@ -1046,14 +1484,14 @@ impl<'w> Expander<'w> {
                 let t = self.resolve_ty(ty)?;
                 Some(self.world.normalized(&t) == self.world.normalized(target))
             }
-            CompCond::Canbe { ty, qual, .. } => {
+            CompCond::Mutable { ty, .. } => {
                 let t = self.resolve_ty(ty)?;
                 if let Some((param, target)) = &self.bound {
                     if !ty.via_type && ty.root.name == *param {
-                        return Some(target.canbe.iter().any(|q| *q == qual.name.name));
+                        return Some(target.canbe.iter().any(|q| q == "Mut"));
                     }
                 }
-                Some(self.world.canbe(&t, &qual.name.name))
+                Some(self.world.canbe(&t, "Mut"))
             }
             CompCond::NameEq { binder, lit, span } => {
                 let Some(b) = self.binding(&binder.name).cloned() else {
@@ -1175,7 +1613,7 @@ impl<'w> Expander<'w> {
                         TypeKindWord::Struct,
                         TypeKindWord::Union,
                         TypeKindWord::Tuple,
-                        TypeKindWord::Fn,
+                        TypeKindWord::FnType,
                         TypeKindWord::Basic,
                         TypeKindWord::Generic,
                     ]
@@ -1187,8 +1625,9 @@ impl<'w> Expander<'w> {
                         self.error(
                             span,
                             format!(
-                                "this `inline when` does not consider every kind: missing {} — add \
-                                 the arms, or an `else` [comptime-inline]",
+                                "this `[when …]` over a type does not consider every arm of `Type`: \
+                                 missing {} — add the arms, or an `else` [comptime-inline] \
+                                 [when-exhaustive]",
                                 missing.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ")
                             ),
                         );
@@ -1201,7 +1640,7 @@ impl<'w> Expander<'w> {
                     .map(|a| a.body)
                     .or(else_);
                 let Some(mut chosen) = chosen else {
-                    self.error(span, format!("`{}` is a {}, which this `inline when` does not handle [comptime-inline]", self.world.normalized(&t), actual.word()));
+                    self.error(span, format!("`{}` is a `{}`, which this `[when …]` does not handle [comptime-inline]", self.world.normalized(&t), actual.word()));
                     return;
                 };
                 self.expand_block(&mut chosen);
@@ -1223,11 +1662,11 @@ impl<'w> Expander<'w> {
                     _ => None,
                 };
                 let Some(subject_ty) = subject_ty else {
-                    self.error(span, "an `inline when` over a value dispatches on a field read (`v.[field]`) or a parameter of the bound type [comptime-inline]");
+                    self.error(span, "a `[when value]` dispatches on a field read (`v.[field]`) or a parameter of the bound type [comptime-inline]");
                     return;
                 };
                 if self.world.classify(&subject_ty, &self.generics(), 0) != TypeKindWord::Union {
-                    self.error(span, format!("`{}` is not a union, so there are no arms to dispatch on [comptime-inline]", self.world.normalized(&subject_ty)));
+                    self.error(span, format!("`{}` is not a `Union`, so there are no arms to dispatch on [comptime-inline]", self.world.normalized(&subject_ty)));
                     return;
                 }
                 visit_mut::walk_expr(self, &mut value);
@@ -1396,7 +1835,7 @@ impl MutVisitor for Expander<'_> {
                         "first" => *expr = Expr::Bool { value: bd.first, span },
                         "last" => *expr = Expr::Bool { value: bd.last, span },
                         other => {
-                            self.error(span, format!("a binder has `.name`, `.type`, `.index`, `.first` and `.last`, not `.{other}` [comptime-fields]"));
+                            self.error(span, format!("a `Field`/`Arm` has `.name`, `.type`, `.index`, `.first` and `.last`, not `.{other}` [comptime-fields]"));
                         }
                     }
                     return;

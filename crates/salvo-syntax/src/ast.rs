@@ -214,6 +214,9 @@ pub struct TypeDecl {
     /// one. The opt-out of serializable-by-default (user decision
     /// 2026-09-26); std marks its process-local handles with it.
     pub noremote: bool,
+    /// [comptime-fields] `comptime type Type = Struct | Union | …`: an alias
+    /// over compile-time structs, itself compile-time only.
+    pub comptime: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// [linear-container] Per-parameter `canbe` opt-ins, exactly as a
@@ -291,6 +294,11 @@ pub struct StructDecl {
     /// not it says so. The opt-out of serializable-by-default (user decision
     /// 2026-09-26).
     pub noremote: bool,
+    /// [comptime-fields] `comptime struct Field { … }`: a type that exists at
+    /// compile time only — what a `comptime fn` may know about a type,
+    /// declared in `core.comptime` so the surface is readable and hoverable.
+    /// Never constructed, never a value; the compiler fills its fields.
+    pub comptime: bool,
     pub span: Span,
 }
 
@@ -332,10 +340,11 @@ impl ByRef {
     }
 }
 
-/// [comptime-bound] The kind a `compfn`'s type parameter is bound to:
-/// `compfn cmp<struct T>(a: T, b: T)` is instantiated at struct types only,
-/// `<union T>` at named union types. Which of a module's same-named compfns
-/// a `by` picks is decided by the target's kind.
+/// [comptime-bound] The kind a `comptime fn`'s type parameter is bound to:
+/// `comptime fn cmp<T is Struct>(a: T, b: T)` is instantiated at struct types
+/// only, `<T is Union>` at named union types — the bound names an arm of
+/// `core.comptime`'s `Type`. Which of a module's same-named comptime fns a
+/// `by` picks is decided by the target's kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompKind {
     Struct,
@@ -345,17 +354,17 @@ pub enum CompKind {
 impl CompKind {
     pub fn word(self) -> &'static str {
         match self {
-            CompKind::Struct => "struct",
-            CompKind::Union => "union",
+            CompKind::Struct => "Struct",
+            CompKind::Union => "Union",
         }
     }
 }
 
-/// [comptime-bound] What makes a fn a `compfn`: the declaration kind, and
-/// its one bounded type parameter — or none, for a **concrete** compfn
-/// (`compfn cmp(a: Reading, b: Reading) -> Int { … }`), which is its own
-/// single instantiation and is declared where a fn is (comptime round 2,
-/// 12.1).
+/// [comptime-bound] What makes a fn a `comptime fn`: the declaration kind, and
+/// its one bounded type parameter (`<T is Struct>` / `<T is Union>`) — or none,
+/// for a **concrete** one (`comptime fn cmp(a: Reading, b: Reading) -> Int {
+/// … }`), which is its own single instantiation and is declared where a fn is
+/// (comptime round 2).
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompFn {
     pub bound: Option<(CompKind, Ident)>,
@@ -414,16 +423,17 @@ pub struct CompSeq {
     pub span: Span,
 }
 
-/// [comptime-inline] The kind words an `inline when` over a type
-/// dispatches on (comptime round 5): `opaque` matches either of its two
-/// halves, `basic` and `generic`, the way `is Person` matches both arms of
-/// `Surname Person | Person`.
+/// [comptime-fields] The kinds of a compile-time `Type` — the arms of
+/// `core.comptime`'s `Type` union (`Struct | Union | Tuple | FnType | Opaque`,
+/// with `Opaque = Basic | Generic`), so a `[when field.type]` is an ordinary
+/// exhaustive `when` over a union and `is Opaque` matches either of its two
+/// arms (comptime rounds 5 and 8).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TypeKindWord {
     Struct,
     Union,
     Tuple,
-    Fn,
+    FnType,
     Opaque,
     Basic,
     Generic,
@@ -432,41 +442,43 @@ pub enum TypeKindWord {
 impl TypeKindWord {
     pub fn parse(word: &str) -> Option<Self> {
         Some(match word {
-            "struct" => TypeKindWord::Struct,
-            "union" => TypeKindWord::Union,
-            "tuple" => TypeKindWord::Tuple,
-            "fn" => TypeKindWord::Fn,
-            "opaque" => TypeKindWord::Opaque,
-            "basic" => TypeKindWord::Basic,
-            "generic" => TypeKindWord::Generic,
+            "Struct" => TypeKindWord::Struct,
+            "Union" => TypeKindWord::Union,
+            "Tuple" => TypeKindWord::Tuple,
+            "FnType" => TypeKindWord::FnType,
+            "Opaque" => TypeKindWord::Opaque,
+            "Basic" => TypeKindWord::Basic,
+            "Generic" => TypeKindWord::Generic,
             _ => return None,
         })
     }
 
     pub fn word(self) -> &'static str {
         match self {
-            TypeKindWord::Struct => "struct",
-            TypeKindWord::Union => "union",
-            TypeKindWord::Tuple => "tuple",
-            TypeKindWord::Fn => "fn",
-            TypeKindWord::Opaque => "opaque",
-            TypeKindWord::Basic => "basic",
-            TypeKindWord::Generic => "generic",
+            TypeKindWord::Struct => "Struct",
+            TypeKindWord::Union => "Union",
+            TypeKindWord::Tuple => "Tuple",
+            TypeKindWord::FnType => "FnType",
+            TypeKindWord::Opaque => "Opaque",
+            TypeKindWord::Basic => "Basic",
+            TypeKindWord::Generic => "Generic",
         }
     }
 }
 
-/// [comptime-inline] A compile-time condition, the subject of an `inline if`
+/// [comptime-inline] A compile-time condition, the subject of a `[if …]`
 /// (comptime round 1, CT-2's restriction; `==` on a name added round 2).
 #[derive(Clone, Debug, PartialEq)]
 pub enum CompCond {
-    /// `field.type is struct` — a kind test.
+    /// `field.type is Struct` — a kind test, against an arm of
+    /// `core.comptime`'s `Type`.
     Kind { ty: CompTy, kind: TypeKindWord, span: Span },
     /// `field.type is Extra<Json>` — equality with a written type, up to
     /// alias expansion.
     Is { ty: CompTy, target: Type, span: Span },
-    /// `T canbe Mut`.
-    Canbe { ty: CompTy, qual: TypeRef, span: Span },
+    /// `T.mutable` — whether the type declares `canbe Mut` (`core.comptime`'s
+    /// `Struct.mutable`).
+    Mutable { ty: CompTy, span: Span },
     /// `field.name == "value"` — the binder's name against a literal.
     NameEq { binder: Ident, lit: String, span: Span },
     /// `field.first` / `field.last`.
@@ -488,7 +500,7 @@ impl CompCond {
         match self {
             CompCond::Kind { span, .. }
             | CompCond::Is { span, .. }
-            | CompCond::Canbe { span, .. }
+            | CompCond::Mutable { span, .. }
             | CompCond::NameEq { span, .. }
             | CompCond::Flag { span, .. }
             | CompCond::IndexCmp { span, .. }
@@ -510,44 +522,46 @@ pub struct KindArm {
 /// leaving ordinary Salvo.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CompStmt {
-    /// `inline for field in T.fields { … }` — one copy of the body per
-    /// field (or arm), each checked with the binder's type concrete.
+    /// `[for field in T.fields] { … }` — one copy of the body per field (or
+    /// arm), each checked with the binder's type concrete.
     For {
         binder: Ident,
         seq: CompSeq,
         body: Block,
         span: Span,
     },
-    /// `inline if <cond> { … } else { … }` — kept or dropped per
-    /// instantiation; the dropped branch is never checked.
+    /// `[if <cond>] { … } else { … }` — kept or dropped per instantiation;
+    /// the dropped branch is never checked.
     If {
         cond: CompCond,
         then: Block,
         else_: Option<Block>,
         span: Span,
     },
-    /// `inline when field.type { is struct { … } is union { … } … }` — a kind
-    /// dispatch over a type. Exhaustive over the five kinds unless an `else`
-    /// closes it, so that a kind added to the language is an error in every
-    /// compfn that did not consider it (comptime round 3).
+    /// `[when field.type] { is Struct { … } is Union { … } … }` — a `when`
+    /// over `core.comptime`'s `Type` union. Exhaustive over its arms unless an
+    /// `else` closes it [when-exhaustive], so that a kind added to the language
+    /// is an error in every comptime fn that did not consider it (round 3).
     WhenKind {
         ty: CompTy,
         arms: Vec<KindArm>,
         else_: Option<Block>,
         span: Span,
     },
-    /// `inline when value { [arm] { … } }` — a dispatch over a **union
-    /// value**: the one written arm is stamped once per declared arm, with
-    /// the value narrowed to `arm.type` inside, so the result is an ordinary
-    /// exhaustive `when` (comptime round 2, R-4).
+    /// `[when value] { [arm] { … } }` — a dispatch over a **union value**:
+    /// the one written arm is stamped once per declared arm, with the value
+    /// narrowed to `arm.type` inside, so the result is an ordinary exhaustive
+    /// `when` (comptime round 2, R-4).
     WhenArms {
         value: Expr,
         binder: Ident,
         body: Block,
         span: Span,
     },
-    /// `refuse "…"` — an error at the instantiation site, in the caller's
-    /// terms, with `${T.name}`-style interpolations substituted.
+    /// `refuse!("…")` — an error at the instantiation site, in the caller's
+    /// terms, with `${T.name}`-style interpolations substituted. Spelled with
+    /// the bang and parens of `assert!`/`unreachable!` [assert-fn]: a place
+    /// that fails.
     Refuse { message: Expr, span: Span },
 }
 
@@ -829,7 +843,7 @@ pub struct FnDecl {
     /// obligation's group has to be resolved first. Read the two together
     /// through the checker's `attached_to`.
     pub scoped_to: Option<Ident>,
-    /// [comptime-bound] `compfn`: a compile-time function, the scope in which
+    /// [comptime-bound] `comptime fn`: a compile-time function, the scope in which
     /// the comptime syntax (`inline for`, `v.[field]`, `T.fields`, `refuse`) is
     /// legal. **Not callable**: a generic one exists only to be instantiated
     /// by `by` [obligation-by] [fn-by], and the expansion removes it before
@@ -1361,8 +1375,8 @@ pub enum Stmt {
     Rename(RenameDecl),
     /// A bare expression statement.
     Expr(Expr),
-    /// [comptime-inline] A comptime construct, legal only inside a `compfn`
-    /// and expanded away before resolution.
+    /// [comptime-inline] A comptime construct, legal only inside a `comptime
+    /// fn` and expanded away before resolution.
     Comp(CompStmt),
 }
 
@@ -1817,8 +1831,8 @@ pub enum StructLitFieldKind {
     Named { name: Ident, value: Expr },
     /// `...expr`
     Spread(Expr),
-    /// [comptime-inline] `inline for field in T.fields { [field]: … }` inside
-    /// a struct literal: the entries, once per field, which is how a compfn
+    /// [comptime-inline] `[for field in T.fields] { [field]: … }` inside a
+    /// struct literal: the entries, once per field, which is how a comptime fn
     /// builds a `T` (comptime round 1, CT-2's construction form).
     InlineFor {
         binder: Ident,

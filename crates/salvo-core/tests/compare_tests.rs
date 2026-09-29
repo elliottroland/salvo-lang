@@ -39,26 +39,26 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn to_long(value: Int) [] -> Long => value\n",
 );
 
-/// [obligation-by] The structural `compfn`s `by auto` stamps, mirroring
+/// [obligation-by] The structural `comptime fn`s `by auto` stamps, mirroring
 /// `std/core/auto.sv`'s struct half: the tests here are about what a `by`
 /// clause does to a type, not about the bodies.
 const AUTO_PRELUDE: &str = concat!(
     "export intrinsic fn mix_hash(seed: Long, value: Long) [] -> Long => seed, value\n",
-    "export compfn cmp<struct T>(a: T, b: T) [] -> Int => a, b {\n",
-    "    inline for field in T.fields {\n",
+    "export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {\n",
+    "    [for field in T.fields] {\n",
     "        let c = cmp(a.[field], b.[field])\n",
     "        if c != 0 {\n            return c\n        }\n",
     "    }\n    return 0\n}\n",
-    "export compfn eq<struct T>(a: T, b: T) [] -> Bool => a, b {\n",
-    "    inline for field in T.fields {\n",
+    "export comptime fn eq<T is Struct>(a: T, b: T) [] -> Bool => a, b {\n",
+    "    [for field in T.fields] {\n",
     "        if !eq(a.[field], b.[field]) {\n            return false\n        }\n",
     "    }\n    return true\n}\n",
-    "export compfn hash<struct T>(value: T) [] -> Long => value {\n",
-    "    inline if T canbe Mut {\n",
-    "        refuse \"a `Mut`-capable struct can change while a collection holds it, so it cannot be a key\"\n",
+    "export comptime fn hash<T is Struct>(value: T) [] -> Long => value {\n",
+    "    [if T.mutable] {\n",
+    "        refuse!(\"a `Mut`-capable struct can change while a collection holds it, so it cannot be a key\"\n"),
     "    }\n",
     "    let h = 17L\n",
-    "    inline for field in T.fields {\n",
+    "    [for field in T.fields] {\n",
     "        h = mix_hash(h, hash(value.[field]))\n",
     "    }\n    return h\n}\n",
 );
@@ -868,7 +868,7 @@ struct Counter : Step<self, Int> by auto canbe Mut {
     // `auto` has no `advance`, and the clause's argument is not `self` either.
     assert!(
         errs.iter()
-            .any(|e| e.contains("its argument is `self`") || e.contains("has no `compfn advance`")),
+            .any(|e| e.contains("its argument is `self`") || e.contains("has no `comptime fn advance`")),
         "expected the stamping to be refused, got: {errs:?}"
     );
 }
@@ -1092,7 +1092,7 @@ struct A : Hashed<self> by auto {
 }
 
 /// [fn-by] What a `by` declaration must be: stamped at a struct or a declared
-/// union (the first parameter's type), from a scope holding a `compfn` of that
+/// union (the first parameter's type), from a scope holding a `comptime fn` of that
 /// name, bodiless, and of the instantiation's own shape. Each refusal names the
 /// remedy rather than leaving a body unwritten.
 #[test]
@@ -1104,7 +1104,7 @@ fn an_auto_fn_is_checked_at_its_declaration() {
         "expected the target requirement: {errs:?}"
     );
 
-    // A member `auto` has no compfn for.
+    // A member `auto` has no comptime fn for.
     let errs = errors(
         r#"
 struct Point {
@@ -1117,8 +1117,8 @@ struct Point {
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("has no `compfn describe`")),
-        "expected the missing compfn to be named: {errs:?}"
+            .any(|e| e.contains("has no `comptime fn describe`")),
+        "expected the missing comptime fn to be named: {errs:?}"
     );
 
     // A body, which the stamping was going to write: a parse error.
@@ -1130,7 +1130,7 @@ struct Point {
         "expected the body to be refused: {diags:?}"
     );
 
-    // The wrong shape for the compfn it names.
+    // The wrong shape for the comptime fn it names.
     let errs = errors(
         r#"
 struct Point {
@@ -1382,35 +1382,35 @@ fn probe(a: A, b: B) [] -> Bool => a, b {
 
 // ===== [comptime-inline] [comptime-refuse] [comptime-instantiate] the comptime forms =====
 
-/// [comptime-inline] Every comptime construct belongs inside a `compfn`; in an
+/// [comptime-inline] Every comptime construct belongs inside a `comptime fn`; in an
 /// ordinary fn each is a parse error naming the scope.
 #[test]
-fn comptime_syntax_outside_a_compfn_is_refused() {
+fn comptime_syntax_outside_a_comptime_fn_is_refused() {
     for src in [
-        "fn f(p: Int) -> Int => p {\n    inline for x in Int.fields { }\n    return p\n}\n",
-        "fn f(p: Int) -> Int => p {\n    refuse \"no\"\n    return p\n}\n",
+        "fn f(p: Int) -> Int => p {\n    [for x in Int.fields] { }\n    return p\n}\n",
+        "fn f(p: Int) -> Int => p {\n    refuse!(\"no\")\n    return p\n}\n",
         "struct P { x: Int }\nfn f(p: P) -> Int => p {\n    return p.[x]\n}\n",
     ] {
         let (_, diags) = salvo_syntax::parse_module(src);
         assert!(
-            diags.iter().any(|d| d.message.contains("belongs inside a `compfn`")),
+            diags.iter().any(|d| d.message.contains("belongs inside a `comptime fn`")),
             "expected the scope to be named for {src:?}: {diags:?}"
         );
     }
 }
 
-/// [comptime-inline] An `inline when` over a type is exhaustive over the kinds
-/// unless an `else` closes it, so a kind a compfn did not consider is an error
+/// [comptime-inline] A `[when …]` over a type is exhaustive over `Type`'s arms
+/// unless an `else` closes it, so a kind a comptime fn did not consider is an error
 /// — the evolution guard (comptime round 3).
 #[test]
-fn an_inline_when_over_kinds_is_exhaustive() {
+fn a_when_over_a_type_is_exhaustive() {
     let errs = errors(
         r#"
-compfn describe<struct T>(v: T) [] -> Int => v {
+comptime fn describe<T is Struct>(v: T) [] -> Int => v {
     let n = 0
-    inline for field in T.fields {
-        inline when field.type {
-            is struct { n = n + 1 }
+    [for field in T.fields] {
+        [when field.type] {
+            is Struct { n = n + 1 }
         }
     }
     return n
@@ -1426,22 +1426,22 @@ params Counted<T> {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("does not consider every kind") && e.contains("`union`")),
+        errs.iter().any(|e| e.contains("does not consider every arm") && e.contains("`Union`")),
         "expected the missing kinds to be named: {errs:?}"
     );
 
     // With `else`, or with every kind, it stamps.
     let ok = errors(
         r#"
-compfn describe<struct T>(v: T) [] -> Int => v {
+comptime fn describe<T is Struct>(v: T) [] -> Int => v {
     let n = 0
-    inline for field in T.fields {
-        inline when field.type {
-            is struct { n = n + 1 }
-            is union { n = n + 2 }
-            is tuple { n = n + 3 }
-            is fn { n = n + 4 }
-            is opaque { n = n + 5 }
+    [for field in T.fields] {
+        [when field.type] {
+            is Struct { n = n + 1 }
+            is Union { n = n + 2 }
+            is Tuple { n = n + 3 }
+            is FnType { n = n + 4 }
+            is Opaque { n = n + 5 }
         }
     }
     return n
@@ -1465,9 +1465,9 @@ params Counted<T> {
 fn a_refuse_lands_at_the_by_site() {
     let errs = errors(
         r#"
-compfn tag<struct T>(v: T) [] -> Int => v {
-    inline if T canbe Mut {
-        refuse "no tags for a mutable ${T.name}"
+comptime fn tag<T is Struct>(v: T) [] -> Int => v {
+    [if T.mutable] {
+        refuse!("no tags for a mutable ${T.name}")
     }
     return 1
 }
@@ -1487,20 +1487,20 @@ struct P : Tagged<self> by tag canbe Mut {
     );
 }
 
-/// [comptime-instantiate] A concrete `compfn` (no bound) is its own single
+/// [comptime-instantiate] A concrete `comptime fn` (no bound) is its own single
 /// instantiation, declared where a fn is — the one-field-by-hand case
 /// (comptime round 2), with `field.name == "…"` selecting it.
 #[test]
-fn a_concrete_compfn_is_its_own_instantiation() {
+fn a_concrete_comptime fn_is_its_own_instantiation() {
     let errs = errors(
         r#"
 struct Reading : Ordered<self> {
     sensor: Str,
     value: Int
 
-    compfn cmp(a: Reading, b: Reading) [] -> Int => a, b {
-        inline for field in Reading.fields {
-            inline if field.name == "value" {
+    comptime fn cmp(a: Reading, b: Reading) [] -> Int => a, b {
+        [for field in Reading.fields] {
+            [if field.name == "value"] {
                 let c = cmp(b.value, a.value)
                 if c != 0 { return c }
             } else {
@@ -1525,9 +1525,9 @@ fn probe(a: Reading, b: Reading) [] -> Bool => a, b {
 struct Reading : Ordered<self> {
     sensor: Str
 
-    compfn cmp(a: Reading, b: Reading) [] -> Int => a, b {
-        inline for field in Reading.fields {
-            inline if field.name == "valeu" {
+    comptime fn cmp(a: Reading, b: Reading) [] -> Int => a, b {
+        [for field in Reading.fields] {
+            [if field.name == "valeu"] {
                 return 0
             }
         }

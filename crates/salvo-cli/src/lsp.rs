@@ -312,6 +312,25 @@ impl Server<'_> {
         let offset = position_to_offset(content, doc.position);
         let link = self.doc_linker(&analysis.program);
 
+        // [comptime-fields] Inside a `comptime fn` body the checker has no
+        // tables (the body is stamped, never checked as itself), so the
+        // expansion's own record of each comptime name's type answers first:
+        // `T is Struct`, `field: Field`, `field.type: Type`, `T.fields:
+        // List<Field>`.
+        let mut best_comp: Option<&salvo_core::CompHover> = None;
+        for h in &analysis.comptime_hovers {
+            if h.file == file_idx
+                && h.span.start <= offset
+                && offset < h.span.end
+                && best_comp.is_none_or(|b| h.span.len() < b.span.len())
+            {
+                best_comp = Some(h);
+            }
+        }
+        if let Some(h) = best_comp {
+            return Some(markdown_hover(h.text.clone(), span_to_range(content, h.span)));
+        }
+
         // A fn name under the cursor hovers as the full signature,
         // including inferred deductions [fn-ref-table].
         let mut best_ref: Option<(Span, FnKey)> = None;

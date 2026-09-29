@@ -1759,6 +1759,9 @@ struct Checker<'p, 'r> {
     /// The fn currently being checked, when it is a top-level `fn` item
     /// (member fns have no key).
     own_fn: Option<FnKey>,
+    /// [comptime-fields] Inside a `comptime struct`/`comptime type` declaration:
+    /// its fields may name the other compile-time types.
+    in_comptime_decl: bool,
     /// [comptime-instantiate] The stamp of the fn being checked, when it was
     /// produced by a `by` site: a diagnostic inside one of its unrolled copies
     /// is redirected to the field or arm the copy was for and prefixed with
@@ -2062,6 +2065,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             param_mutations,
             mut_fields,
             own_fn: None,
+            in_comptime_decl: false,
             own_stamp: None,
             own_contract: None,
             own_discharges: std::collections::HashSet::new(),
@@ -2734,6 +2738,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Struct(s) => {
                     let saved = self.enter_generics(&s.generics);
+                    self.in_comptime_decl = s.comptime;
                     self.validate_auto_quals(&s.auto_qualifiers);
                     self.check_obligations(s);
                     self.check_struct_cycle(s);
@@ -2752,10 +2757,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                             self.locals.pop();
                         }
                     }
+                    self.in_comptime_decl = false;
                     self.generics = saved;
                 }
                 Item::Type(t) => {
                     let saved = self.enter_generics(&t.generics);
+                    self.in_comptime_decl = t.comptime;
                     self.check_fn_slots(&t.name.name, &t.fn_slots, &t.generics);
                     self.validate_auto_quals(&t.auto_qualifiers);
                     if let Some(alias) = &t.alias {
@@ -2767,6 +2774,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [group-obligation] [obligation-by] A `type` declaration's
                     // clause, checked as a struct's is.
                     self.check_obligation_list(&t.name, &t.generics, &t.obligations, t.obligations.len());
+                    self.in_comptime_decl = false;
                     self.generics = saved;
                 }
                 _ => {}
@@ -16388,6 +16396,30 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// value; a group constrains a *named* type and is resolved statically
     /// (user decision 2026-09-08). A rule in its own right, not a
     /// consequence of one.
+    /// [comptime-fields] `core.comptime`'s types (`Type`, `Field`, `Struct`,
+    /// …) exist at compile time only: what a `comptime fn` may know about a
+    /// type, never a value a program holds. Naming one in an ordinary type
+    /// position is refused where it is written; a `comptime struct`'s own
+    /// fields are exempt, since that is where the model is declared.
+    fn reject_comptime_as_data(&mut self, base: &TypeRef) {
+        if self.in_comptime_decl {
+            return;
+        }
+        let name = base.name.name.as_str();
+        let is_comptime = self.scope.structs.get(name).is_some_and(|s| s.comptime)
+            || self.scope.type_aliases.get(name).is_some_and(|t| t.comptime);
+        if is_comptime {
+            self.error(
+                base.span,
+                format!(
+                    "`{name}` is a compile-time type (`core.comptime`): it describes a type \
+                     to a `comptime fn` and is never a value, so it cannot appear in an \
+                     ordinary type position [comptime-fields]"
+                ),
+            );
+        }
+    }
+
     fn reject_group_as_data(&mut self, r: &TypeRef) {
         let name = r.name.name.as_str();
         if self.generics.contains(name)
@@ -16819,6 +16851,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.require_name(base, false);
                 self.reject_effect_as_data(base);
                 self.reject_group_as_data(base);
+                self.reject_comptime_as_data(base);
                 // [col-key-eligible] `Set<Double>` / `Map<Double, V>` are
                 // refused where they are written, which covers every
                 // declaration site this walk reaches.
@@ -22740,6 +22773,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             return struct_ty;
         };
+        // [comptime-fields] A compile-time type is never constructed.
+        if decl.comptime {
+            self.error(
+                span,
+                format!(
+                    "`{}` is a compile-time type (`core.comptime`) and has no values: the \
+                     compiler fills it for a `comptime fn`, and nothing constructs one \
+                     [comptime-fields]",
+                    decl.name.name
+                ),
+            );
+        }
         // [linear-composite] A generic field type hides the store from the
         // struct's own declaration (`struct Box<T> { item: T }`), so the
         // literal is where it surfaces. A field whose *declared* type is

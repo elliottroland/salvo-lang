@@ -160,7 +160,9 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
                 return args.iter().find_map(|a| wire_blocker_at(symbols, a, depth + 1));
             }
             if let Some(alias) = symbols.type_aliases.get(name.as_str()) {
-                if alias.noremote {
+                // [comptime-fields] A compile-time type has no runtime value,
+                // let alone a wire form.
+                if alias.noremote || alias.comptime {
                     return Some(WireBlock::NoRemote(name.clone()));
                 }
                 let subst: HashMap<String, Ty> = alias
@@ -182,7 +184,7 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
             let Some(decl) = symbols.structs.get(name.as_str()) else {
                 return None;
             };
-            if decl.noremote {
+            if decl.noremote || decl.comptime {
                 return Some(WireBlock::NoRemote(name.clone()));
             }
             let subst: HashMap<String, Ty> = decl

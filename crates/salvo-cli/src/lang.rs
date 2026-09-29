@@ -75,11 +75,12 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the iterator-fn modifier",
     ),
-    // [comptime-bound] `compfn cmp<struct T>(…)`: the compile-time function.
+    // [comptime-bound] [comptime-fields] `comptime fn`, `comptime struct`,
+    // `comptime type`: the compile-time facility's modifier.
     (
-        "\\\\bcompfn\\\\b",
+        "\\\\bcomptime(?=\\\\s+(fn|struct|type)\\\\b)",
         "keyword.declaration.salvo",
-        "the compile-time function declaration",
+        "the compile-time modifier",
     ),
     // [obligation-by] [fn-by] `: Ordered<self> by auto`, `-> Int by auto`: the
     // stamping clause, recognised by the lowercase scope that follows.
@@ -88,14 +89,10 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the stamping clause",
     ),
-    // [comptime-inline] `inline for` / `inline if` / `inline when`, and `refuse`.
+    // [comptime-refuse] `refuse!(…)`, the third bang form beside `assert!`
+    // and `unreachable!` [assert-fn].
     (
-        "\\\\binline(?=\\\\s+(for|if|when)\\\\b)",
-        "keyword.control.salvo",
-        "the comptime construct word",
-    ),
-    (
-        "\\\\brefuse\\\\b",
+        "\\\\brefuse(?=!)",
         "keyword.control.salvo",
         "the comptime refusal",
     ),
@@ -584,7 +581,7 @@ mod tests {
         );
         // [obligation-by] The stamping clause and the compfn word.
         assert!(grammar.contains("\\\\bby(?=\\\\s+[a-z])"));
-        assert!(grammar.contains("\\\\bcompfn\\\\b"));
+        assert!(grammar.contains("\\\\bcomptime(?=\\\\s+(fn|struct|type)\\\\b)"));
     }
 
     // [cli-lang] A `[symbol]` doc reference inside a comment is highlighted,

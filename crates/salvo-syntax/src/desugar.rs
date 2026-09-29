@@ -647,6 +647,7 @@ fn expand(
         // [noremote] An iterator holds a position into a value the frame owns;
         // it is never sent anywhere, so the flag is moot — off.
         noremote: false,
+        comptime: false,
         docs: vec![format!(
             "The iterator struct of `iter fn {}`, generated from it [iter-fn].",
             f.name.name

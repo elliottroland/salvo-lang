@@ -338,10 +338,9 @@ pub fn walk_comp_cond<V: MutVisitor>(v: &mut V, c: &mut CompCond) {
             walk_comp_ty(v, ty);
             walk_type(v, target);
         }
-        CompCond::Canbe { ty, qual, span } => {
+        CompCond::Mutable { ty, span } => {
             v.visit_span(span);
             walk_comp_ty(v, ty);
-            walk_type_ref(v, qual);
         }
         CompCond::NameEq { binder, span, .. } | CompCond::Flag { binder, span, .. } => {
             v.visit_span(span);

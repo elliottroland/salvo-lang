@@ -73,6 +73,7 @@ Module {
                 fns: [],
                 linear: false,
                 noremote: false,
+                comptime: false,
                 span: 1452..1470,
             },
         ),

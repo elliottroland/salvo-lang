@@ -436,6 +436,7 @@ Module {
                 intrinsic: false,
                 linear: false,
                 noremote: false,
+                comptime: false,
                 name: Ident {
                     name: "Result",
                     span: 237..243,

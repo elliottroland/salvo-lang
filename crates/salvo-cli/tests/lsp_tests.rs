@@ -412,6 +412,52 @@ fn diagnostics_hover_and_shutdown() {
         "hover should still carry the fate link: {value}"
     );
 
+    // [comptime-fields] Inside a `comptime fn` body the checker has nothing
+    // (the body is stamped, never checked as itself); the expansion's own
+    // record answers, in `core.comptime`'s terms.
+    let comptime_src = "comptime fn tag<T is Struct>(v: T) [] -> Int => v {\n    \
+                        let n = 0\n    \
+                        [for field in T.fields] {\n        \
+                        n = n + field.index\n    \
+                        }\n    \
+                        return n\n}\n";
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": {"uri": uri, "version": 6},
+                "contentChanges": [{"text": comptime_src}]
+            }
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    // `T` in the bound, `field` at its binder, `field.index` in the body.
+    for (line, character, id, expect) in [
+        (0u32, 16u32, 10i64, "T is Struct"),
+        (2, 9, 11, "field: Field"),
+        (3, 16, 12, "field.index: Int"),
+    ] {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/hover",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": line, "character": character}
+                }
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        let value = response["result"]["contents"]["value"]
+            .as_str()
+            .unwrap_or_else(|| panic!("hover contents not markdown: {response}"));
+        assert!(
+            value.starts_with(&format!("```salvo\n{expect}\n```")),
+            "expected `{expect}` at {line}:{character}, got: {value}"
+        );
+    }
+
     // Clean shutdown.
     send(
         &mut lsp.stdin,

@@ -43,6 +43,9 @@ pub struct Expansion {
     /// Every test, in file then declaration order.
     pub tests: Vec<TestCase>,
     pub diagnostics: Vec<FileDiagnostic>,
+    /// [comptime-fields] Hover text for the comptime names inside `comptime
+    /// fn` bodies, which the checker never sees.
+    pub comptime_hovers: Vec<crate::comptime::CompHover>,
 }
 
 /// Expands every `iter fn` [iter-fn] and every `test` block [test-decl] in
@@ -119,7 +122,8 @@ pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
     // [comptime-instantiate] After the per-module expansions (the struct-body
     // hoist has put every `by` declaration at module level) and before the
     // route stubs: every `by` site stamps its compfn, and no compfn survives.
-    for (file_idx, d) in crate::comptime::expand_comptime(files, modules) {
+    let comptime = crate::comptime::expand_comptime(files, modules);
+    for (file_idx, d) in comptime.diagnostics {
         out.diagnostics.push(FileDiagnostic {
             file: file_idx,
             severity: d.severity,
@@ -128,6 +132,7 @@ pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
             suggested_imports: Vec::new(),
         });
     }
+    out.comptime_hovers = comptime.hovers;
     // [route-stub] After the per-module expansions: the stubs read the
     // program's effect declarations, and a module's `use route(…)` may sit
     // inside an expanded test body.

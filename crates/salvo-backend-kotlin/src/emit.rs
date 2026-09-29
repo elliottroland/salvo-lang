@@ -666,7 +666,8 @@ fn tuple_field(i: usize) -> String {
 /// Does this module contain anything that turns into Kotlin code?
 fn module_produces_code(module: &Module) -> bool {
     module.items.iter().any(|item| match item {
-        Item::Struct(_) | Item::Effect(_) => true,
+        Item::Struct(s) => !s.comptime,
+        Item::Effect(_) => true,
         Item::Handler(_) => true,
         Item::Fn(f) => f.body.is_some(),
         Item::Qualifier(q) => q.fns.iter().any(|f| f.body.is_some()),
@@ -1373,6 +1374,9 @@ impl<'p> Emitter<'p> {
                 // [name-dot] Dot-named structs are emitted *inside* their
                 // namespace class, not at the top level.
                 Item::Struct(s) if s.name.name.contains('.') => {}
+                // [comptime-fields] A `comptime struct` exists at compile time
+                // only: nothing to emit.
+                Item::Struct(s) if s.comptime => {}
                 Item::Struct(s) => body.push_str(&self.emit_struct_with_members(s, module)),
                 // [throw] The throw effect has no handlers — `try` delimits
                 // it — so there is nothing to implement: emitting an
