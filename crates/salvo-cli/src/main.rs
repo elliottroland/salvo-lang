@@ -62,15 +62,18 @@ enum CleanTarget {
 enum Command {
     /// Compile Salvo sources to a target language.
     Compile {
-        /// Target backend (defaults to `kotlin`).
-        #[arg(long, default_value = "kotlin")]
-        backend: String,
-        /// Directory containing `.sv` source files.
+        /// Target backend: `rust`, `kotlin`, or `*` for every backend
+        /// (default: the manifest's `[build] backend`, else `kotlin`).
         #[arg(long)]
-        src: PathBuf,
-        /// Output directory for generated sources.
+        backend: Option<String>,
+        /// Directory containing `.sv` source files (default: the manifest's
+        /// `[build] src`) [manifest].
         #[arg(long)]
-        target: PathBuf,
+        src: Option<PathBuf>,
+        /// Output directory for generated sources (default: the manifest's
+        /// `[<backend>] target`, else `[build] target`).
+        #[arg(long)]
+        target: Option<PathBuf>,
         /// Debug: print the parsed AST and stop before code generation.
         /// Bare `--emit-ast` prints the user modules; `--emit-ast=MODULE`
         /// prints one module (std included), e.g. `--emit-ast=core.list`.
@@ -81,19 +84,21 @@ enum Command {
     /// backend's toolchain [cli-run]. The command's exit code is the
     /// program's.
     Run {
-        /// Target backend (defaults to `rust`, whose toolchain is the cheapest
-        /// to start — the same default `salvo test` has).
-        #[arg(long, default_value = "rust")]
-        backend: String,
-        /// Directory containing `.sv` source files. Without `--main`, the
-        /// unique `main` it declares is the entry point.
-        #[arg(long, required_unless_present = "main_file")]
+        /// Target backend: `rust`, `kotlin`, or `*` for every backend
+        /// (default: the manifest's `[build] backend`, else `rust`, whose
+        /// toolchain is the cheapest to start).
+        #[arg(long)]
+        backend: Option<String>,
+        /// Directory containing `.sv` source files (default: the manifest's
+        /// `[build] src`). Without `--main`, the unique `main` it declares is
+        /// the entry point.
+        #[arg(long)]
         src: Option<PathBuf>,
         /// The `.sv` file declaring `main` — how you choose between several
-        /// entry points. Without `--src` it also implies
-        /// `--src $(dirname <file>)`; with it, the file must be somewhere
-        /// inside that directory.
-        #[arg(long = "main", required_unless_present = "src")]
+        /// entry points (default: the manifest's `[build] main`). Without
+        /// `--src` it also implies `--src $(dirname <file>)`; with it, the
+        /// file must be somewhere inside that directory.
+        #[arg(long = "main")]
         main_file: Option<PathBuf>,
         /// Output directory for generated sources (default:
         /// `.salvo_tmp_run` in the working directory). It may not overlap
@@ -107,13 +112,14 @@ enum Command {
     /// Run the tests a source tree declares [test-run]: every
     /// `test "name" { … }` block in a `<module>.test.sv` annex.
     Test {
-        /// Target backend (defaults to `rust`, whose toolchain is the
-        /// cheapest to start).
-        #[arg(long, default_value = "rust")]
-        backend: String,
-        /// Directory containing `.sv` source files, annexes included.
+        /// Target backend: `rust`, `kotlin`, or `*` (default: the manifest's
+        /// `[build] backend`, else `rust`).
         #[arg(long)]
-        src: PathBuf,
+        backend: Option<String>,
+        /// Directory containing `.sv` source files, annexes included
+        /// (default: the manifest's `[build] src`).
+        #[arg(long)]
+        src: Option<PathBuf>,
         /// Run only tests whose id contains this text — `module :: name`,
         /// so one word selects a module, a test, or a family [test-filter].
         filter: Option<String>,
@@ -133,9 +139,10 @@ enum Command {
     /// Parse, resolve, and type-check sources without generating code
     /// [cli-analyze].
     Analyze {
-        /// Directory containing `.sv` source files.
+        /// Directory containing `.sv` source files (default: the manifest's
+        /// `[build] src`).
         #[arg(long)]
-        src: PathBuf,
+        src: Option<PathBuf>,
         /// Output format for diagnostics.
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
@@ -167,17 +174,18 @@ enum PlatformCommand {
     /// generated interface is a target-language compile error rather than
     /// something the compiler has to merge.
     Generate {
-        /// Target backend, which decides the language of the skeleton.
+        /// Target backend, which decides the language of the skeleton
+        /// (default: the manifest's `[build] backend`; `*` writes both).
         #[arg(long)]
-        backend: String,
+        backend: Option<String>,
         /// Directory containing `.sv` source files — also where the
-        /// `platform/` tree is written.
-        #[arg(long, required_unless_present = "main_file")]
+        /// `platform/` tree is written (default: the manifest's `[build] src`).
+        #[arg(long)]
         src: Option<PathBuf>,
         /// The `.sv` file declaring `main`, as for `salvo run`: it picks
         /// between several entry points, and on its own implies its own
         /// directory as the source directory.
-        #[arg(long = "main", required_unless_present = "src")]
+        #[arg(long = "main")]
         main_file: Option<PathBuf>,
     },
 }
@@ -201,15 +209,15 @@ fn main() -> ExitCode {
             src,
             target,
             emit_ast,
-        } => compile(&backend, &src, &target, emit_ast.as_deref()),
+        } => compile(backend, src, target, emit_ast.as_deref()),
         Command::Run {
             backend,
             src,
             main_file,
             target,
             clean_target,
-        } => run(&backend, src, main_file, target, clean_target),
-        Command::Analyze { src, format } => analyze(&src, format),
+        } => run(backend, src, main_file, target, clean_target),
+        Command::Analyze { src, format } => analyze(src, format),
         Command::Test {
             backend,
             src,
@@ -217,7 +225,7 @@ fn main() -> ExitCode {
             list,
             target,
             clean_target,
-        } => test(&backend, &src, filter.as_deref(), list, target, clean_target),
+        } => test(backend, src, filter.as_deref(), list, target, clean_target),
         Command::Lsp => lsp::run(),
         Command::Lang { command } => match command {
             LangCommand::TmGrammar { out } => lang::run_tm_grammar(out.as_ref()),
@@ -227,7 +235,7 @@ fn main() -> ExitCode {
                 backend,
                 src,
                 main_file,
-            } => platform_generate(&backend, src, main_file),
+            } => platform_generate(backend, src, main_file),
         },
     }
 }
@@ -246,7 +254,16 @@ fn registry() -> BackendRegistry {
 /// There is no `--backend`: checking is backend-neutral, and nothing a
 /// backend selects participates in it (companions are copied, never
 /// checked).
-fn analyze(src: &PathBuf, format: Format) -> ExitCode {
+fn analyze(src: Option<PathBuf>, format: Format) -> ExitCode {
+    // [manifest] `--src` or the manifest's source root.
+    let src = match resolve_inputs(src, None, None, "rust", false) {
+        Ok(i) => i.layout.src,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let src = &src;
     let analysis = match analysis::analyze_sources(src, "", &Default::default()) {
         Ok(analysis) => analysis,
         Err(msg) => {
@@ -396,6 +413,7 @@ fn assemble(
     layout: &Layout,
     emit_ast: Option<&str>,
     verbose: bool,
+    project: Option<&salvo_core::Project>,
 ) -> Result<Option<Assembled>, ExitCode> {
     // Assemble sources: embedded std first (implicitly imported), then the
     // user's source directory.
@@ -422,6 +440,11 @@ fn assemble(
         if verbose {
             eprintln!("note: {note}");
         }
+    }
+    // [manifest] `[project] std = true`: the tree *is* the standard library,
+    // so a module the embedded copy lacks (a new file) is std too.
+    if project.is_some_and(|p| p.is_std()) {
+        sources.mark_std_tree();
     }
 
     // Parse every module and collect diagnostics. The `iter fn` and `test`
@@ -550,16 +573,25 @@ fn build(
     target: &PathBuf,
     emit_ast: Option<&str>,
     verbose: bool,
+    project: Option<&salvo_core::Project>,
 ) -> Result<Option<Built>, ExitCode> {
     let Some(Assembled {
         program,
         main_module,
         ambiguous,
         tests: _,
-    }) = assemble(backend, layout, emit_ast, verbose)?
+    }) = assemble(backend, layout, emit_ast, verbose, project)?
     else {
         return Ok(None);
     };
+    // [protocol-lock] Before emission: a protocol that changed under a
+    // deployed version is refused whether or not the code compiles.
+    if let Some(p) = project {
+        if let Err(msg) = reconcile_lock(p, &program) {
+            eprintln!("error: {msg}");
+            return Err(ExitCode::FAILURE);
+        }
+    }
     let emitted = match backend.emit(&program, target, main_module.as_ref()) {
         Ok(emitted) => emitted,
         // Codegen messages are rendered diagnostics: they carry their own
@@ -622,25 +654,36 @@ fn build(
 }
 
 fn compile(
-    backend_name: &str,
-    src: &PathBuf,
-    target: &PathBuf,
+    backend_name: Option<String>,
+    src: Option<PathBuf>,
+    target: Option<PathBuf>,
     emit_ast: Option<&str>,
 ) -> ExitCode {
     let registry = registry();
-    let Some(backend) = registry.get(backend_name) else {
-        eprintln!("{}", unknown_backend(&registry, backend_name));
-        return ExitCode::FAILURE;
+    let inputs = match resolve_inputs(src, None, backend_name, "kotlin", false) {
+        Ok(i) => i,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
     };
-    let layout = Layout {
-        src: src.clone(),
-        main_file: None,
-        tests: false,
-    };
-    match build(backend, &layout, target, emit_ast, true) {
-        Ok(_) => ExitCode::SUCCESS,
-        Err(code) => code,
+    for name in &inputs.backends {
+        let Some(backend) = registry.get(name) else {
+            eprintln!("{}", unknown_backend(&registry, name));
+            return ExitCode::FAILURE;
+        };
+        let target = match target_for(&inputs, name, target.as_ref(), None) {
+            Ok(t) => t,
+            Err(msg) => {
+                eprintln!("error: {msg}");
+                return ExitCode::FAILURE;
+            }
+        };
+        if let Err(code) = build(backend, &inputs.layout, &target, emit_ast, true, inputs.project.as_ref()) {
+            return code;
+        }
     }
+    ExitCode::SUCCESS
 }
 
 /// The default `--target` for `salvo run` [cli-run]: dot-prefixed, so it is
@@ -653,41 +696,62 @@ const DEFAULT_RUN_TARGET: &str = ".salvo_tmp_run";
 /// backend's toolchain [cli-run]. The command's exit code is the
 /// *program's*, so `salvo run` is a drop-in for running the binary.
 fn run(
-    backend_name: &str,
+    backend_name: Option<String>,
     src: Option<PathBuf>,
     main_file: Option<PathBuf>,
     target: Option<PathBuf>,
     clean: CleanTarget,
 ) -> ExitCode {
     let registry = registry();
-    let Some(backend) = registry.get(backend_name) else {
-        eprintln!("{}", unknown_backend(&registry, backend_name));
-        return ExitCode::FAILURE;
-    };
-
     // `--src` and `--main` each supply a default for the other (user
-    // decision 2026-09-05).
-    let layout = match layout_of(src, main_file) {
-        Ok(layout) => layout,
+    // decision 2026-09-05), and the manifest supplies both [manifest].
+    let inputs = match resolve_inputs(src, main_file, backend_name, "rust", false) {
+        Ok(i) => i,
         Err(msg) => {
             eprintln!("error: {msg}");
             return ExitCode::FAILURE;
         }
     };
+    let mut worst = ExitCode::SUCCESS;
+    for name in &inputs.backends {
+        let Some(backend) = registry.get(name) else {
+            eprintln!("{}", unknown_backend(&registry, name));
+            return ExitCode::FAILURE;
+        };
+        let target = match target_for(&inputs, name, target.as_ref(), Some(DEFAULT_RUN_TARGET)) {
+            Ok(t) => t,
+            Err(msg) => {
+                eprintln!("error: {msg}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let code = run_one(backend, &inputs, &target, clean);
+        if code != ExitCode::SUCCESS {
+            worst = code;
+        }
+    }
+    worst
+}
 
-    let target = target.unwrap_or_else(|| PathBuf::from(DEFAULT_RUN_TARGET));
-    if let Err(msg) = check_target_overlap(&layout.src, &target) {
+fn run_one(
+    backend: &dyn salvo_backend::Backend,
+    inputs: &Inputs,
+    target: &PathBuf,
+    clean: CleanTarget,
+) -> ExitCode {
+    let layout = &inputs.layout;
+    if let Err(msg) = check_target_overlap(&layout.src, target) {
         eprintln!("error: {msg}");
         return ExitCode::FAILURE;
     }
     // Both `--clean-target` modes clear the target first: a run must not
     // pick up a previous run's output.
-    if let Err(msg) = clear_target(&target) {
+    if let Err(msg) = clear_target(target) {
         eprintln!("error: {msg}");
         return ExitCode::FAILURE;
     }
 
-    let built = match build(backend, &layout, &target, None, false) {
+    let built = match build(backend, layout, target, None, false, inputs.project.as_ref()) {
         Ok(Some(built)) => built,
         Ok(None) => return ExitCode::SUCCESS,
         Err(code) => return code,
@@ -700,12 +764,12 @@ fn run(
         return ExitCode::FAILURE;
     };
 
-    let outcome = backend.run(&target, &main_module, &built.written);
+    let outcome = backend.run(target, &main_module, &built.written);
 
     // The target is deleted after the run only with `--clean-target both`,
     // and never before the program's output has been produced.
     if clean == CleanTarget::Both {
-        if let Err(msg) = clear_target(&target) {
+        if let Err(msg) = clear_target(target) {
             eprintln!("warning: {msg}");
         }
     }
@@ -733,24 +797,55 @@ const DEFAULT_TEST_TARGET: &str = ".salvo_tmp_test";
 /// the report [test-report]. Nothing here is backend-specific — the harness is
 /// a Salvo program.
 fn test(
-    backend_name: &str,
-    src: &Path,
+    backend_name: Option<String>,
+    src: Option<PathBuf>,
     filter: Option<&str>,
     list: bool,
     target: Option<PathBuf>,
     clean: CleanTarget,
 ) -> ExitCode {
     let registry = registry();
-    let Some(backend) = registry.get(backend_name) else {
-        eprintln!("{}", unknown_backend(&registry, backend_name));
-        return ExitCode::FAILURE;
+    let inputs = match resolve_inputs(src, None, backend_name, "rust", true) {
+        Ok(i) => i,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
     };
-    let layout = Layout {
-        src: src.to_path_buf(),
-        main_file: None,
-        tests: true,
-    };
-    let Some(mut assembled) = (match assemble(backend, &layout, None, false) {
+    let mut worst = ExitCode::SUCCESS;
+    for name in &inputs.backends {
+        let Some(backend) = registry.get(name) else {
+            eprintln!("{}", unknown_backend(&registry, name));
+            return ExitCode::FAILURE;
+        };
+        let target = match target_for(&inputs, name, target.as_ref(), Some(DEFAULT_TEST_TARGET)) {
+            Ok(t) => t,
+            Err(msg) => {
+                eprintln!("error: {msg}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let code = test_one(backend, &inputs, filter, list, target, clean);
+        if code != ExitCode::SUCCESS {
+            worst = code;
+        }
+        if list {
+            break;
+        }
+    }
+    worst
+}
+
+fn test_one(
+    backend: &dyn salvo_backend::Backend,
+    inputs: &Inputs,
+    filter: Option<&str>,
+    list: bool,
+    target: PathBuf,
+    clean: CleanTarget,
+) -> ExitCode {
+    let layout = &inputs.layout;
+    let Some(mut assembled) = (match assemble(backend, layout, None, false, inputs.project.as_ref()) {
         Ok(assembled) => assembled,
         Err(code) => return code,
     }) else {
@@ -774,7 +869,7 @@ fn test(
                 Some(f) => format!("match `{f}` "),
                 None => String::new(),
             },
-            src.display()
+            layout.src.display()
         );
         return ExitCode::SUCCESS;
     }
@@ -791,12 +886,11 @@ fn test(
         eprintln!(
             "error: `{}` declares a module called `{}`, which is the name the test \
              harness is generated under — rename it",
-            src.display(),
+            layout.src.display(),
             harness_module
         );
         return ExitCode::FAILURE;
     }
-    let target = target.unwrap_or_else(|| PathBuf::from(DEFAULT_TEST_TARGET));
     if let Err(msg) = check_target_overlap(&layout.src, &target) {
         eprintln!("error: {msg}");
         return ExitCode::FAILURE;
@@ -1029,23 +1123,34 @@ fn run_test_pass(
 /// *target* compiler, so there is nothing for this command to merge and no
 /// reason for it to touch code a human has edited.
 fn platform_generate(
-    backend_name: &str,
+    backend_name: Option<String>,
     src: Option<PathBuf>,
     main_file: Option<PathBuf>,
 ) -> ExitCode {
     let registry = registry();
-    let Some(backend) = registry.get(backend_name) else {
-        eprintln!("{}", unknown_backend(&registry, backend_name));
-        return ExitCode::FAILURE;
-    };
-    let layout = match layout_of(src, main_file) {
-        Ok(layout) => layout,
+    let inputs = match resolve_inputs(src, main_file, backend_name, "kotlin", false) {
+        Ok(i) => i,
         Err(msg) => {
             eprintln!("error: {msg}");
             return ExitCode::FAILURE;
         }
     };
-    let Some(assembled) = (match assemble(backend, &layout, None, false) {
+    for name in &inputs.backends {
+        let Some(backend) = registry.get(name) else {
+            eprintln!("{}", unknown_backend(&registry, name));
+            return ExitCode::FAILURE;
+        };
+        let code = platform_generate_one(backend, &inputs);
+        if code != ExitCode::SUCCESS {
+            return code;
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) -> ExitCode {
+    let layout = &inputs.layout;
+    let Some(assembled) = (match assemble(backend, layout, None, false, inputs.project.as_ref()) {
         Ok(assembled) => assembled,
         Err(code) => return code,
     }) else {
@@ -1100,7 +1205,8 @@ fn platform_generate(
     }
     eprintln!(
         "generated {written} host file(s){}; implement the stubbed members, then \
-         `salvo run --backend {backend_name}`",
+         `salvo run --backend {}`",
+        backend.name(),
         if kept == 0 {
             String::new()
         } else {
@@ -1126,6 +1232,131 @@ fn unknown_backend(registry: &BackendRegistry, name: &str) -> String {
 /// `main` the directory declares. Given both, the entry file must live inside
 /// the source directory — at any depth, which is the one thing `--main` alone
 /// cannot express.
+/// [manifest] What a command resolved its inputs to, flag over manifest over
+/// default: the source layout, the project the sources belong to (if any),
+/// and the backends to build for — one, or both under `backend = "*"`.
+struct Inputs {
+    layout: Layout,
+    project: Option<salvo_core::Project>,
+    backends: Vec<String>,
+}
+
+/// [manifest-discovery] Finds the project for a command: the nearest
+/// `salvo.toml` above `--src`, else above `--main`, else above the working
+/// directory. `--src`/`--main` given on the command line win over what the
+/// manifest states; the manifest fills whatever was not.
+fn resolve_inputs(
+    src: Option<PathBuf>,
+    main_file: Option<PathBuf>,
+    backend: Option<String>,
+    default_backend: &str,
+    tests: bool,
+) -> Result<Inputs, String> {
+    let start = src
+        .clone()
+        .or_else(|| main_file.as_ref().and_then(|m| m.parent().map(Path::to_path_buf)))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let project = salvo_core::Project::find(&start)?;
+    let (src, main_file) = match (&project, src, main_file) {
+        // Neither flag: the manifest supplies both (or `main` stays open).
+        (Some(p), None, None) => (Some(p.src()), p.main()),
+        // `--src` alone: the manifest's `main` applies only inside that src.
+        (Some(p), Some(s), None) => {
+            let m = p.main().filter(|m| absolute(m).starts_with(absolute(&s)));
+            (Some(s), m)
+        }
+        (_, s, m) => (s, m),
+    };
+    if src.is_none() && main_file.is_none() {
+        return Err(format!(
+            "no `{}` found above `{}`: pass `--src` (or `--main`), or write a manifest \
+             [manifest-discovery]",
+            salvo_core::MANIFEST_FILE,
+            start.display()
+        ));
+    }
+    let mut layout = layout_of(src, main_file)?;
+    layout.tests = tests;
+    let backends = match backend {
+        Some(b) if b == "*" => vec!["rust".to_string(), "kotlin".to_string()],
+        Some(b) => vec![b],
+        None => project
+            .as_ref()
+            .and_then(|p| p.backends())
+            .unwrap_or_else(|| vec![default_backend.to_string()]),
+    };
+    Ok(Inputs {
+        layout,
+        project,
+        backends,
+    })
+}
+
+/// The output directory for one backend: the flag, else the manifest's
+/// per-backend or shared `target`, else `default` (when the command has
+/// one). A single `--target` cannot serve two backends.
+fn target_for(
+    inputs: &Inputs,
+    backend: &str,
+    flag: Option<&PathBuf>,
+    default: Option<&str>,
+) -> Result<PathBuf, String> {
+    if let Some(t) = flag {
+        if inputs.backends.len() > 1 {
+            return Err(format!(
+                "`--target {}` cannot serve both backends: drop it and give each a \
+                 `target` in the manifest (`[rust]`, `[kotlin]`), or pass `--backend` \
+                 [manifest]",
+                t.display()
+            ));
+        }
+        return Ok(t.clone());
+    }
+    if let Some(t) = inputs.project.as_ref().and_then(|p| p.target(backend)) {
+        return Ok(t);
+    }
+    match default {
+        Some(d) if inputs.backends.len() == 1 => Ok(PathBuf::from(d)),
+        Some(d) => Ok(PathBuf::from(format!("{d}_{backend}"))),
+        None => Err(format!(
+            "no output directory for `{backend}`: pass `--target`, or state one in the \
+             manifest (`[build] target`, or `[{backend}] target`) [manifest]"
+        )),
+    }
+}
+
+/// [protocol-lock] Reconciles the project's lock file with the protocols this
+/// build declares. Std's protocols are not the project's; a protocol with no
+/// wire form has no hash and is not listed.
+fn reconcile_lock(project: &salvo_core::Project, program: &Program) -> Result<(), String> {
+    let symbols = salvo_core::Symbols::collect(program);
+    let mut current = std::collections::BTreeMap::new();
+    for unit in program.units() {
+        if unit.file.is_std {
+            continue;
+        }
+        for item in &unit.ast.items {
+            let salvo_syntax::ast::Item::Effect(e) = item else { continue };
+            if !e.is_actor || !salvo_core::effect_has_wire_form(&symbols, e) {
+                continue;
+            }
+            let canonical = salvo_core::protocol_canonical(&symbols, e);
+            current.insert(e.name.name.clone(), salvo_core::protocol_hash(&canonical));
+        }
+    }
+    match salvo_core::reconcile_lock(
+        &project.lock_path(),
+        project.manifest.project.version.as_deref(),
+        &current,
+    )? {
+        salvo_core::LockOutcome::Written => {
+            eprintln!("wrote {}", project.lock_path().display());
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn layout_of(src: Option<PathBuf>, main_file: Option<PathBuf>) -> Result<Layout, String> {
     let Some(main) = main_file else {
         // clap guarantees one of the two is present.

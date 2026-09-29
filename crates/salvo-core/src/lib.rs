@@ -48,7 +48,8 @@ pub use program::{Program, Symbols};
 pub use erase::{erase_effect_generics, erased_generics, Erased};
 pub use reach::reachable_modules;
 pub use wire::{
-    approx_ty, protocol_canonical, protocol_hash, struct_has_wire_form, wire_blocker, WireBlock,
+    approx_ty, effect_has_wire_form, protocol_canonical, protocol_hash, struct_has_wire_form,
+    wire_blocker, WireBlock,
 };
 pub use resolve::{resolve, DefSite, FnKey, ModuleScope, Resolution};
 pub use source::{

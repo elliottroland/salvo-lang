@@ -387,6 +387,18 @@ impl SourceSet {
     /// without it the two copies would collide as duplicate declarations
     /// [mod-collision] — a confusing error for what is a reasonable thing to
     /// do. Returns one note per replaced module, for a driver to report.
+    /// [manifest] [std-shadow] Every non-std file becomes a std file — the
+    /// tree declared `std = true` in its manifest. A shadowing file already
+    /// is; this reaches the modules the embedded copy does not have.
+    pub fn mark_std_tree(&mut self) {
+        for file in &mut self.files {
+            if !file.is_std {
+                file.is_std = true;
+                file.is_shadow = true;
+            }
+        }
+    }
+
     pub fn apply_std_shadow(&mut self) -> Vec<String> {
         let shadowed: Vec<ModulePath> = self
             .files

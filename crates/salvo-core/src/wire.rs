@@ -305,6 +305,19 @@ pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>) -> Option<Ty> {
 /// nodes may talk on `E` exactly when their canonical forms agree; the hash
 /// is exchanged in the handshake and compared at `attach`/`join` (steps
 /// ④/⑤), never at decode.
+/// [protocol-hash] Whether every payload of an actor effect's `send fn`
+/// members has a wire form — the predicate under "this protocol has a hash",
+/// shared by both emitters and the lock file [protocol-lock].
+pub fn effect_has_wire_form(symbols: &Symbols<'_>, e: &EffectDecl) -> bool {
+    let empty = HashMap::new();
+    e.fns.iter().filter(|f| f.is_send).all(|f| {
+        f.params
+            .iter()
+            .filter(|p| !p.implicit)
+            .all(|p| approx_ty(&p.ty, &empty).is_some_and(|t| wire_blocker(symbols, &t).is_none()))
+    })
+}
+
 pub fn protocol_canonical(symbols: &Symbols<'_>, effect: &EffectDecl) -> String {
     let mut out = String::new();
     for f in &effect.fns {

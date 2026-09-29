@@ -2738,13 +2738,7 @@ impl<'p> Emitter<'p> {
 
     /// [wire-format] Whether every payload of an actor effect has a wire form.
     fn effect_has_wire_form(&self, e: &EffectDecl) -> bool {
-        let empty = HashMap::new();
-        e.fns.iter().filter(|f| f.is_send).all(|f| {
-            f.params.iter().filter(|p| !p.implicit).all(|p| {
-                salvo_core::approx_ty(&p.ty, &empty)
-                    .is_some_and(|t| salvo_core::wire_blocker(self.symbols, &t).is_none())
-            })
-        })
+        salvo_core::effect_has_wire_form(self.symbols, e)
     }
 
     /// [addr-routable] [wire-format] The reply decoder for an answer of a
