@@ -311,7 +311,13 @@ impl SourceSet {
                         .file_name()
                         .and_then(|n| n.to_str())
                         .is_some_and(|n| n.starts_with('.'));
-                    if hidden || path.join("CACHEDIR.TAG").is_file() || is_ignored(&path) {
+                    // [manifest-discovery] A nested project's tree is its own
+                    // program, not part of this one.
+                    if hidden
+                        || path.join("CACHEDIR.TAG").is_file()
+                        || is_ignored(&path)
+                        || crate::manifest::is_nested_project(root, &path)
+                    {
                         continue;
                     }
                     stack.push(path);

@@ -11,6 +11,8 @@ pub mod effects;
 pub mod erase;
 pub mod expand;
 pub mod lends;
+pub mod lock;
+pub mod manifest;
 pub mod place;
 pub mod platform;
 pub mod program;
@@ -35,6 +37,8 @@ pub use effects::{
     handler_member_faces, has_any_router, effect_only_args,
 };
 pub use diag::FileDiagnostic;
+pub use lock::{reconcile as reconcile_lock, Lock, LockOutcome};
+pub use manifest::{is_nested_project, Manifest, Project, LOCK_FILE, MANIFEST_FILE};
 pub use place::{Place, Step};
 pub use platform::{
     declares_platform_effect, host_file, host_rel_path, missing_handler_host_error,
