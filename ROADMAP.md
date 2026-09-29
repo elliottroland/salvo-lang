@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Twelve worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, one of them consuming the first dependency
-(`modules/aws/`). 1642 tests green.
+(`modules/aws/`). 1651 tests green.
 
 ## The sequence
 
@@ -360,10 +360,7 @@ made in the design sitting — but each has a shape to settle at implementation.
    `InStream` alone broke the same-file rule, so streams move *as a layer*:
    `stream` owns `InStream`/`OutStream` and one effect `Streams` with every
    stream operation; `fs` keeps paths and mints into it. In order:
-   a. **Effect prerequisites** — `effect Fs [Streams]`: wherever `Fs` is,
-      `Streams` is (transitively, fn types included); every handler of `Fs`
-      reaches `Streams` as an implicit dependency; `use` of an `Fs` handler
-      needs a `Streams` bound; cycles refused. A prerequisite, not inheritance.
+   a. ✅ **Effect prerequisites** — built 2026-09-29 ([effect-prereq]).
    b. **One handle counter** for every stream table.
    c. **The split**: `Streams` with the synchronous members moved from `Fs`,
       `Lines`/`Chunks`/`copy_stream` with them, `StreamError`, `HostStreams`

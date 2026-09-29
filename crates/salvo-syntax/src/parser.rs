@@ -1966,6 +1966,13 @@ impl<'s> Parser<'s> {
         let start = self.expect(&TokenKind::KwEffect)?.span;
         let name = self.ident_type("effect")?;
         let generics = self.parse_generics();
+        // [effect-prereq] `effect Fs [Streams] { … }` — the dependency-list
+        // spelling a handler already uses for "needs this from the scope".
+        let prereqs = if self.at(&TokenKind::LBracket) {
+            self.parse_effect_list()?
+        } else {
+            Vec::new()
+        };
         self.expect(&TokenKind::LBrace)?;
         let mut fns = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
@@ -1980,6 +1987,7 @@ impl<'s> Parser<'s> {
             is_actor,
             name,
             generics,
+            prereqs,
             fns,
             span: start.to(end),
         })

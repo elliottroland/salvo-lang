@@ -7547,8 +7547,15 @@ fn mentions_ident(code: &str, name: &str) -> bool {
     while let Some(at) = code[from..].find(name) {
         let start = from + at;
         let end = start + name.len();
+        // A path segment (`crate::files::Files`) is never a variable: an
+        // effect handle called `files` beside a module called `files` is the
+        // ordinary case, and taking the type annotation of a closure for a use
+        // hoisted it into a `let`, where rustc cannot infer its reference
+        // parameters as higher-ranked (found 2026-09-29 with [effect-prereq]).
+        let in_path = code[..start].ends_with("::") || code[end..].starts_with("::");
         let before_ok = start == 0 || !is_ident_byte(bytes[start - 1]);
         let after_ok = end == bytes.len() || !is_ident_byte(bytes[end]);
+        let before_ok = before_ok && !in_path;
         if before_ok && after_ok {
             return true;
         }

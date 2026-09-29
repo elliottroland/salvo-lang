@@ -3269,7 +3269,11 @@ Conventions:
   replacing constructor parameters of effect type — the names could not be
   used for anything, and an effect in a data position is now always
   [effect-not-data]). Declared on the *handler*, not the effect —
-  implementations differ in what they need (user decision 2026-09-04).
+  implementations differ in what they need (user decision 2026-09-04). What
+  *every* implementation needs is an effect prerequisite instead
+  [effect-prereq]. The list is written in the handler's file and **resolves
+  in that file's scope** wherever the handler is bound (fixed 2026-09-29: it
+  used to be lowered against the binding file's imports).
   * The handler's member bodies may use those effects, exactly as if they had
     declared them — which they may not ([effect-member-no-effects]): the
     dependency belongs to the implementation, so it is stated once.
@@ -3312,6 +3316,41 @@ Conventions:
     *fusion* threading the dependency per call for every other dependent
     handler, chosen by `handler_handle_deps` — are recorded in COMPLETED.md
     ("One shape for effects").
+* [effect-prereq] **An effect may name prerequisites: `effect Fs [Streams] { … }`**
+  (user decision 2026-09-29, R2 of the stream layering; built the same day).
+  The spelling is a handler's dependency list, which already means "needs this
+  from the enclosing scope". A **prerequisite, not inheritance** — the user
+  first proposed `effect Fs : Streams` meaning inheritance, and inheritance
+  would give every handler of `Fs` its own `Streams`, which is exactly the
+  split the stream layering exists to remove.
+  * **Effect lists**: an entry naming `Fs` — in a fn's list or a fn *type*'s —
+    implies `Streams`, transitively, with a generic effect's arguments
+    substituted (`Log<T> [Sink<T>]` at `Log<Str>` implies `Sink<Str>`).
+  * **Handlers**: every non-platform, non-intrinsic handler of `Fs` gains
+    `Streams` as a dependency, unless it wears `Streams` as a face itself
+    (`of Fs, Streams`). A `use` without a `Streams` bound reports the
+    prerequisite by name (`handler \`MemFs\` implements \`Fs\`, which needs
+    \`Streams\` in scope`), recognised by the implied entry's synthetic span.
+  * **An expansion before resolution** (`prereq::expand_prerequisites`, the
+    last step of `expand`): the implied entries are written into the AST with
+    an empty span at offset 0, so the checker and both emitters see an
+    ordinary program and agree by construction. A module that must name an
+    implied effect it cannot see gets a synthetic `import` of it (same span).
+    Name resolution inside the pass is a reduced copy of the resolver's
+    ladder for effect names (own module, the tested module for an annex, a
+    named import by last segment or alias, a whole-module import, `core.*`).
+  * **Refused at the declaration**: `use`/`spawn`/`any E` entries; an unknown
+    name; an `actor effect` with prerequisites, or one as a prerequisite; an
+    exported effect with a private prerequisite; a cycle (named as a chain).
+    At a site: a module whose own `Streams` would shadow the implied one.
+  * Found building it: a handler's dependency list was lowered in the
+    *using* file's scope, so any dependent handler bound from a module that
+    did not import its dependencies failed with "unknown effect" — fixed at
+    the root [effect-handler-deps]; and the Rust emitter's argument hoisting
+    took a path segment (`crate::files::Files`) for a use of the effect
+    variable `files`, hoisting a closure into a `let` where rustc cannot infer
+    its reference parameters as higher-ranked — `mentions_ident` now skips
+    path segments.
 * [effect-fn-deps] A fn's `[E1, E2<T>]` list declares its effect
   dependencies. Calling a fn requires each of its effects to be available
   in the caller (declared or `use`d) — validated by the checker at every

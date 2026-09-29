@@ -16,6 +16,7 @@ Module {
                     span: 14..21,
                 },
                 generics: [],
+                prereqs: [],
                 fns: [
                     FnDecl {
                         docs: [

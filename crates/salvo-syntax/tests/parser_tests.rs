@@ -718,6 +718,28 @@ fn docs_keep_indentation_after_the_marker() {
     );
 }
 
+// [effect-prereq] `effect Fs [Streams] { … }`: the prerequisite list is a
+// handler-style effect list between the generics and the body.
+#[test]
+fn an_effect_parses_its_prerequisites() {
+    let (module, diagnostics) = salvo_syntax::parse_module(
+        "export effect Fs<T> [Streams, Log<T>] {\n    fn open(p: Str) -> Str => p\n}\neffect Bare {\n    fn b() -> Int\n}\n",
+    );
+    assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
+    let names = |i: usize| -> Vec<String> {
+        let salvo_syntax::ast::Item::Effect(e) = &module.items[i] else { panic!() };
+        e.prereqs
+            .iter()
+            .map(|p| match p {
+                salvo_syntax::ast::EffectRef::Effect(r) => r.name.name.clone(),
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    };
+    assert_eq!(names(0), ["Streams", "Log"]);
+    assert!(names(1).is_empty());
+}
+
 // ===== Module docs [doc-module] =====
 
 /// The module docs of `src`, and the docs of its first fn (if any).

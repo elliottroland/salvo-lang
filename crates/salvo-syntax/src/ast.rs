@@ -716,6 +716,14 @@ pub struct EffectDecl {
     pub is_actor: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
+    /// [effect-prereq] `effect Fs [Streams] { … }`: the effects that must be
+    /// in scope wherever this one is. Not inheritance — a handler of `Fs`
+    /// does not implement `Streams`; it *reaches* the `Streams` bound around
+    /// it, as a handler dependency does, and an effect list naming `Fs`
+    /// implies `Streams` (user decision 2026-09-29, R2). Parsed as an effect
+    /// list so its spelling is a handler's dependency list; only plain named
+    /// entries are legal, which `prereq::expand_prerequisites` checks.
+    pub prereqs: Vec<EffectRef>,
     pub fns: Vec<FnDecl>,
     pub span: Span,
 }

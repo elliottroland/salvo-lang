@@ -145,6 +145,18 @@ pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
             suggested_imports: Vec::new(),
         });
     }
+    // [effect-prereq] Last: every fn, handler and fn type in the program —
+    // test bodies, stamped compfns and route stubs included — gets the
+    // effects its effects imply.
+    for (file_idx, d) in crate::prereq::expand_prerequisites(files, modules) {
+        out.diagnostics.push(FileDiagnostic {
+            file: file_idx,
+            severity: d.severity,
+            message: d.message,
+            span: d.span,
+            suggested_imports: Vec::new(),
+        });
+    }
     out
 }
 

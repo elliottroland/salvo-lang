@@ -135,6 +135,28 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Effect prerequisites (2026-09-29; §4b step 3a).** `effect Fs [Streams]`
+built as [effect-prereq]: parsed as a handler-style effect list on the effect
+(`EffectDecl.prereqs`), then written into the program by an expansion before
+resolution — implied entries in every fn's and fn type's effect list, implied
+dependencies on every handler of the effect (not platform or intrinsic ones,
+not where the handler wears the prerequisite as a face), and a synthetic
+import where a module must name an effect it cannot see. Declaration rules:
+plain entries only, no actor effects either side, an exported effect's
+prerequisites exported, no cycles; a site whose own name would shadow the
+implied effect is refused. A `use` missing the prerequisite names it. Tests:
+seven core (`prereq_tests.rs`), one parser, one CLI run on both backends with
+identical output. **Two pre-existing defects found and fixed:** (1) a handler's
+dependency list was lowered in the *binding* file's scope, so `use HY()` from a
+module that did not import `HY`'s dependency `X` failed with "unknown effect
+`X`" — now lowered in the handler's own file (`Resolution::handler_files`),
+diagnostics about the list left to that file; (2) the Rust emitter's
+effect-argument hoisting matched `files` inside the path `crate::files::Files`
+in a closure's parameter annotation, hoisted the closure into a `let`, and
+rustc could no longer infer its reference parameters as higher-ranked
+("implementation of `FnMut` is not general enough") — `mentions_ident` skips
+path segments. **1651 tests.**
+
 **The stream layering (2026-09-29, user decisions 20–27; not yet built).**
 Starting §4b step 3 found that `InStream` cannot move to `stream`: the
 same-file rule puts a linear type's terminal in its own file, and `Fs.close`
@@ -18692,7 +18714,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1642)
+## Test inventory (all green: 1651)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -19898,6 +19920,13 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **An expansion that writes names into another module's AST must make them
+  resolvable there** (2026-09-29, [effect-prereq]). The implied `Streams` is
+  written into files that never import it; without the synthetic `import` the
+  checker reports "unknown effect `Streams`" at a span the user never wrote.
+  The same trap hid in the checker for years: a handler's dependency list was
+  resolved against whichever file bound it.
 
 - **Check `git status` before trusting a std-checking test failure**
   (2026-09-29). An uncommitted edit to `std/heap.sv` (a sketch with `heapify`

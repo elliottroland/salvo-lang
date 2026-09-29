@@ -8077,15 +8077,57 @@ impl<'p, 'r> Checker<'p, 'r> {
                         id.name
                     ),
                 ),
-                None => self.error(
-                    span,
-                    format!(
-                        "handler `{}` depends on effect `{want}`, which has no \
-                         handler in scope here: register one before it, or supply it \
-                         with `with {want}Handler(...)`",
-                        id.name
-                    ),
-                ),
+                None => {
+                    // [effect-prereq] A dependency the handler never wrote is a
+                    // prerequisite of an effect it implements: say which, since
+                    // the reader looking at the handler will not find it.
+                    let want_name = match want.strip_quals() {
+                        Ty::Named { name, .. } => Some(name.clone()),
+                        _ => None,
+                    };
+                    let implied_by = want_name.as_deref().and_then(|w| {
+                        let h = self.symbols.handlers.get(id.name.as_str())?;
+                        let implied = h.effects.iter().flatten().any(|e| {
+                            matches!(e, EffectRef::Effect(r)
+                                if r.name.name == w && r.span.start == 0 && r.span.end == 0)
+                        });
+                        if !implied {
+                            return None;
+                        }
+                        h.of.iter().find_map(|of| match of {
+                            Type::Named { base, .. } => self
+                                .symbols
+                                .effects
+                                .get(base.name.name.as_str())
+                                .filter(|e| {
+                                    e.prereqs.iter().any(|p| {
+                                        matches!(p, EffectRef::Effect(r) if r.name.name == w)
+                                    })
+                                })
+                                .map(|_| base.name.name.clone()),
+                            _ => None,
+                        })
+                    });
+                    match implied_by {
+                        Some(face) => self.error(
+                            span,
+                            format!(
+                                "handler `{}` implements `{face}`, which needs `{want}` in \
+                                 scope [effect-prereq]: `use` a handler of `{want}` before it",
+                                id.name
+                            ),
+                        ),
+                        None => self.error(
+                            span,
+                            format!(
+                                "handler `{}` depends on effect `{want}`, which has no \
+                                 handler in scope here: register one before it, or supply it \
+                                 with `with {want}Handler(...)`",
+                                id.name
+                            ),
+                        ),
+                    }
+                }
             }
         }
         // [with-clause] Anything left over was supplied for nothing — worth
@@ -16307,6 +16349,32 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `use` and `Throw` are refused — a handler registers nothing, and a
     /// throw needs a delimiter rather than a handler [throw].
     fn handler_dep_effects(&mut self, h: &'p ast::HandlerDecl) -> Vec<EffectAvail> {
+        // [effect-handler-deps] The list is written in the handler's own file
+        // and names what *that* file can see, so it is lowered in that file's
+        // scope — a `use` in a module that never imports the dependency
+        // resolved it against the wrong scope before (found 2026-09-29 with
+        // [effect-prereq], whose implied dependencies are never imported at a
+        // use site). Diagnostics about the list itself belong to the
+        // handler's file, which reports them when it is checked; lowering
+        // under another file's name drops them rather than misfiling them.
+        let own = self
+            .resolution
+            .handler_files
+            .get(&(h as *const ast::HandlerDecl as usize))
+            .copied();
+        if let Some(own) = own.filter(|f| *f != self.file_idx) {
+            let saved_scope = self.scope;
+            let saved_errors = self.out.errors.len();
+            self.scope = &self.resolution.scopes[own];
+            let out = self.handler_dep_effects_here(h);
+            self.scope = saved_scope;
+            self.out.errors.truncate(saved_errors);
+            return out;
+        }
+        self.handler_dep_effects_here(h)
+    }
+
+    fn handler_dep_effects_here(&mut self, h: &'p ast::HandlerDecl) -> Vec<EffectAvail> {
         let mut out: Vec<EffectAvail> = Vec::new();
         for eff in h.effects.iter().flatten() {
             let (r, any) = match eff {

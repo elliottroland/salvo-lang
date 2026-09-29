@@ -804,3 +804,42 @@ fn a_dependency_is_loaded_from_the_modules_directory() {
     assert!(stderr.contains("gcp/salvo.toml") && stderr.contains("does not exist"), "{stderr}");
     __stamp.verified();
 }
+
+/// [effect-prereq] End to end on both backends: `effect Files [Streams]`, a
+/// handler of `Files` reaching `Streams` without writing it, a fn declaring
+/// `[Files]` calling a `Streams` member from a module that never imports it,
+/// and a fn value of type `(Str) [Files] -> Str`. Same stdout on both.
+#[test]
+fn effect_prerequisites_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("effect_prerequisites", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("prereq");
+    fs::write(
+        dir.join("streams.sv"),
+        "export effect Streams {\n    fn next_id() -> Int\n}\n\nexport handler Counter() of Streams {\n    n: Int = 0\n    fn next_id() -> Int {\n        n = n + 1\n        return n\n    }\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("files.sv"),
+        "import streams.Streams\n\nexport effect Files [Streams] {\n    fn open(path: Str) -> Str => path\n}\n\nexport handler MemFiles() of Files {\n    fn open(path: Str) -> Str => path {\n        return \"${path}#${next_id()}\"\n    }\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("main.sv"),
+        "import files.Files\nimport files.MemFiles\nimport streams.Counter\n\n\
+         fn work(f: (Str) [Files] -> Str) [Files] -> Str {\n    return \"${f(\"a\")} ${next_id()}\"\n}\n\n\
+         fn opener(p: Str) [Files] -> Str => p {\n    return open(p)\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole()\n    use Counter()\n    use MemFiles()\n    println(opener(\"x\"))\n    println(work(opener))\n}\n",
+    )
+    .unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "x#1\na#2 3\n", "{backend}");
+    }
+    __stamp.verified();
+}

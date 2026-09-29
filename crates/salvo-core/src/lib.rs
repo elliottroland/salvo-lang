@@ -15,6 +15,7 @@ pub mod lock;
 pub mod manifest;
 pub mod place;
 pub mod platform;
+pub mod prereq;
 pub mod program;
 pub mod reach;
 pub mod refine;

@@ -178,6 +178,10 @@ impl<'p> ModuleScope<'p> {
 pub struct Resolution<'p> {
     /// One scope per file, aligned with `program.files`.
     pub scopes: Vec<ModuleScope<'p>>,
+    /// [effect-handler-deps] The file each handler is declared in, keyed by
+    /// the declaration's address: a handler's dependency list is written in
+    /// *its* file and resolves there, whatever file binds it.
+    pub handler_files: HashMap<usize, usize>,
     /// Whole-program declaration index: name -> (declaring module,
     /// importable item). For most declarations the item is the name
     /// itself; for effect members it is the owning *effect* (importing
@@ -892,8 +896,18 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         scopes.push(scope);
     }
 
+    let mut handler_files: HashMap<usize, usize> = HashMap::new();
+    for (file_idx, ast) in program.modules.iter().enumerate() {
+        for item in &ast.items {
+            if let Item::Handler(h) = item {
+                handler_files.insert(h as *const HandlerDecl as usize, file_idx);
+            }
+        }
+    }
+
     Resolution {
         scopes,
+        handler_files,
         declared_in,
         private_in,
         attached,

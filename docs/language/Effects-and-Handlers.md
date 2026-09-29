@@ -155,6 +155,26 @@ Both of these rest on shadowing, which is worth stating on its own: a `use` for 
 
 One thing a handler cannot do yet: call **its own** effect's other members. `Twice.greet` cannot call `greet` on itself — a handler does not dispatch to itself, and declaring the effect as a dependency means the handler *outside*, not this one. Move the shared logic into a function both members call; the diagnostic says as much.
 
+## Prerequisites: an effect that needs another in scope
+
+Some capabilities only make sense beside another one. A filesystem that opens files hands back streams, and the streams are read through a separate `Streams` effect — so every function that uses the filesystem needs both. An effect can say so once, in the same bracketed list a handler uses for its dependencies:
+
+```
+export effect Fs [Streams] {
+    fn open_read(path: Str) -> Ok InStream | Err Checked<FsError> => path
+}
+```
+
+`Streams` is a **prerequisite** of `Fs`. Three things follow:
+
+* **Wherever `Fs` is, `Streams` is.** A function declaring `[Fs]` may call `Streams` members, and so may a function value of type `(Str) [Fs] -> Str`. Prerequisites are transitive, and the implied effect is in scope even in a module that never imports it.
+* **Every handler of `Fs` reaches `Streams`** as though it had declared the dependency — `handler MemFs of Fs` may call `from_bytes` without writing `[Streams]`.
+* **Binding an `Fs` handler needs a `Streams` already bound**, exactly as a dependent handler does, and the error names the prerequisite: `use HostStreams()` first, then `use DefaultFs()`.
+
+A prerequisite is not inheritance. A handler of `Fs` does not implement `Streams`; it uses the one bound around it. That is the point: every producer of streams — the filesystem, a network client, a test's buffers — mints into the same `Streams` instance, so one stream type is read the same way whoever opened it. A handler that wants to supply the prerequisite itself wears both faces (`of Fs, Streams`) and then depends on nothing for it.
+
+The rules at the declaration: a prerequisite names a plain effect (not `use`, `spawn`, or `any E`); an exported effect's prerequisites are exported too, since every module naming the effect needs them; the prerequisites may not form a cycle; and actor effects neither have nor are prerequisites, for now.
+
 ## Starting up: `init` and `self@Face`
 
 A handler's state fields have initialisers, but an initialiser is an expression that sees only the constructor parameters. Anything a handler must *do* as it starts — register itself somewhere, compute state from a dependency — goes in its **`init` block**, which runs once, first:
