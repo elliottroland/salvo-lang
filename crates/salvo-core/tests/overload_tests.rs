@@ -363,6 +363,31 @@ fn at_module_picks_that_modules_overload() {
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
 
+/// [mod-suffix] A module is named by any unambiguous **suffix** of its path
+/// (user decision 2026-09-29): `size@string` is `size@core.string`. A suffix
+/// that fits two modules is refused, naming both.
+#[test]
+fn at_module_accepts_an_unambiguous_suffix() {
+    let src = probe("    let s = \"abc\"\n    let _core: Int = size@string(s)");
+    assert!(messages(&src).is_empty(), "{:?}", messages(&src));
+
+    // Two modules ending in `list`, both declaring a fitting `size`.
+    let msgs = messages_files(&[
+        (
+            "shop/list.sv",
+            "export fn size(v: Any) [] -> Str => !v { return \"mine\" }\n",
+        ),
+        (
+            "main.sv",
+            "import shop.list\nfn probe() [] -> None {\n    let xs: List<Int> = list_of(1)\n    let _n = size@list(xs)\n}\n",
+        ),
+    ]);
+    assert!(
+        msgs.iter().any(|m| m.contains("`@list` is ambiguous") && m.contains("`core.list`") && m.contains("`shop.list`")),
+        "{msgs:?}"
+    );
+}
+
 /// Naming a module that declares no fitting overload is an error listing the
 /// ones that do — not a silent fallback.
 #[test]

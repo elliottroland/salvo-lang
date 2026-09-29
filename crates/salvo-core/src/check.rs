@@ -26,6 +26,7 @@ use crate::diag::FileDiagnostic;
 use crate::place::{Place, Step};
 use crate::program::{Program, Symbols};
 use crate::resolve::{DefSite, FnKey, ModuleScope, Resolution};
+use crate::source::ModulePath;
 use crate::types::{is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
 
 /// Table key: (file index, expression span).
@@ -4894,7 +4895,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 None => true,
                 Some(sel) => {
                     self.attached_to(e.key, e.decl).as_deref() == Some(sel)
-                        || e.module.to_string() == sel
+                        || ModulePath::text_matches_suffix(&e.module.to_string(), sel)
                 }
             })
             .collect();
@@ -5145,7 +5146,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .copied()
                 .filter(|e| match sel {
-                    Selector::Module(_) => e.module.to_string() == wanted,
+                    Selector::Module(_) => {
+                        ModulePath::text_matches_suffix(&e.module.to_string(), &wanted)
+                    }
                     // [fn-attached] `cmp@Person` as a *value*, which is what
                     // `cmp = cmp@Person` writes [implicit-override]: the
                     // candidates are the fns `@`-scoped to that type. Value
@@ -5157,6 +5160,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 })
                 .collect();
+            // [mod-suffix] A suffix fitting two modules is refused, as at a call.
+            if matches!(sel, Selector::Module(_)) {
+                let mut modules: Vec<String> = named.iter().map(|e| e.module.to_string()).collect();
+                modules.sort();
+                modules.dedup();
+                if modules.len() > 1 {
+                    self.error(
+                        name_span,
+                        format!(
+                            "`@{wanted}` is ambiguous: it is a suffix of {} — write more of the \
+                             path [mod-suffix] [fn-overload-at]",
+                            modules.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(" and ")
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+            }
             if named.is_empty() {
                 self.error(
                     name_span,
@@ -5551,7 +5571,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .copied()
                 .filter(|&i| match sel {
-                    Selector::Module(_) => viable[i].module == wanted,
+                    Selector::Module(_) => {
+                        ModulePath::text_matches_suffix(&viable[i].module, &wanted)
+                    }
                     // [fn-attached] Only the canonicals of that type.
                     Selector::Type(_) => viable[i]
                         .key
@@ -5561,6 +5583,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }),
                 })
                 .collect();
+            // [mod-suffix] A suffix that fits two modules is refused rather than
+            // guessed: `size@list` with a `core.list` and a `shop.list` both
+            // declaring `size` names both.
+            if matches!(sel, Selector::Module(_)) {
+                let mut modules: Vec<&str> = selected.iter().map(|&i| viable[i].module.as_str()).collect();
+                modules.sort();
+                modules.dedup();
+                if modules.len() > 1 {
+                    self.error(
+                        span,
+                        format!(
+                            "`@{wanted}` is ambiguous: it is a suffix of {} — write more of the \
+                             path [mod-suffix] [fn-overload-at]",
+                            modules.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(" and ")
+                        ),
+                    );
+                    return None;
+                }
+            }
             if selected.is_empty() {
                 // [qual-refn-at] The place may be one that **refines** the
                 // callee rather than declaring it: `add@mymodule` names this
@@ -5771,7 +5812,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.refinements
             .for_call(self.file_idx, key)
             .iter()
-            .any(|g| g.sources.iter().any(|s| s.module == module))
+            .any(|g| g.sources.iter().any(|s| ModulePath::text_matches_suffix(&s.module, module)))
     }
 
     /// How a candidate reads in a diagnostic: `name(ParamTy, ParamTy)`, from
@@ -15965,7 +16006,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [fn-attached]) or a module (`size@core.list` [fn-overload-at]).
     fn fn_exists_at(&self, name: &str, at: &str) -> bool {
         self.overloads_of(name).iter().any(|e| {
-            self.attached_to(e.key, e.decl).as_deref() == Some(at) || e.module.to_string() == at
+            self.attached_to(e.key, e.decl).as_deref() == Some(at)
+                || ModulePath::text_matches_suffix(&e.module.to_string(), at)
         })
     }
 
@@ -17330,7 +17372,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let mine: Vec<crate::refine::RefnStatement> = g
                     .stated
                     .iter()
-                    .filter(|st| st.module == module)
+                    .filter(|st| ModulePath::text_matches_suffix(&st.module, module))
                     .cloned()
                     .collect();
                 if mine.is_empty() {

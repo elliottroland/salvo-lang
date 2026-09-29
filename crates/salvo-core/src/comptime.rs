@@ -883,12 +883,12 @@ impl World {
         diags: &mut Vec<Diagnostic>,
     ) -> Option<FnDecl> {
         let path: Vec<&str> = by.path.iter().map(|p| p.name.as_str()).collect();
-        // The module reading: matched by path suffix, so `by auto` reaches
-        // `core.auto` without an import (an open question — ROADMAP §2c).
+        // The module reading: any unambiguous suffix of the path [mod-suffix],
+        // so `by auto` reaches `core.auto` as `size@list` reaches `core.list`.
         let modules: Vec<&ModulePath> = self
             .module_paths
             .iter()
-            .filter(|m| m.0.len() >= path.len() && m.0[m.0.len() - path.len()..] == path[..])
+            .filter(|m| m.matches_suffix(&path))
             .collect();
         let mut seen = std::collections::HashSet::new();
         let modules: Vec<&ModulePath> = modules.into_iter().filter(|m| seen.insert(m.to_string())).collect();
@@ -900,9 +900,9 @@ impl World {
                 .filter(|c| c.decl.name.name == path[0])
                 .filter(|c| c.decl.compfn.as_ref().and_then(|c| c.bound.as_ref()).is_some_and(|(k, _)| *k == kind))
                 .filter(|c| match &by.at {
-                    Some(ByAt::Module(sel)) => {
+                    Some(ByAt::Fn(sel)) => {
                         let sel: Vec<&str> = sel.iter().map(|p| p.name.as_str()).collect();
-                        c.module.0.len() >= sel.len() && c.module.0[c.module.0.len() - sel.len()..] == sel[..]
+                        c.module.matches_suffix(&sel)
                     }
                     _ => true,
                 })
@@ -919,7 +919,7 @@ impl World {
             diags.push(Diagnostic::error(
                 format!(
                     "`by {0}` is ambiguous: `{0}` is a module (`{module}`) and a `comptime fn` \
-                     (in `{fn_module}`). Write `by {0}@import` for the module, or \
+                     (in `{fn_module}`). Write `by @{0}` for the module, or \
                      `by {0}@{fn_module}` for the function [obligation-by]",
                     by.text()
                 ),
@@ -928,8 +928,8 @@ impl World {
             return None;
         }
         let want_module = match &by.at {
-            Some(ByAt::Import(_)) => true,
-            Some(ByAt::Module(_)) => false,
+            Some(ByAt::Module(_)) => true,
+            Some(ByAt::Fn(_)) => false,
             None => !modules.is_empty(),
         };
         if want_module {
@@ -948,7 +948,7 @@ impl World {
             }
             let Some(module) = modules.first() else {
                 diags.push(Diagnostic::error(
-                    format!("`by {}@import` names no module [obligation-by]", by.text()),
+                    format!("`by @{}` names no module [obligation-by]", by.text()),
                     by.span,
                 ));
                 return None;

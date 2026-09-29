@@ -25,12 +25,14 @@ struct's body: it travels with the type, `cmp@Point` names it, an implicit
 `?cmp` resolves to it, and it carries the struct's own `export`.
 
 `auto` is `core.auto`, which holds `cmp`, `eq`, `hash` and `to_str` for
-structs and for unions. Being in `core` means it can be named without an
-import, and nothing more: **nothing is stamped unless you ask**. `X` may also
+structs and for unions — named by its suffix, as any module may be
+(`size@list` is `size@core.list`). Being in `core` means it can be named
+without an import, and nothing more: **nothing is stamped unless you ask**. `X` may also
 be a comptime fn named directly (`fn cmp(a: P, b: P) -> Int by by_age`); a name
-that is both a module and a comptime fn is refused as ambiguous, and
-`by tag@import` (the module) or `by tag@mymod` (the function declared in
-`mymod`) says which. Hovering the `by` shows what it stamps, from where. A struct with
+that is both a module and a comptime fn is refused as ambiguous, and `by @tag`
+(the module: a module stands on the right of an `@`, as in `size@list`) or
+`by tag@mymod` (the function declared in `mymod`) says which. Hovering the `by`
+shows what it stamps, from where. A struct with
 no clause has no `cmp` and cannot be compared, and one with no `to_str` does
 not interpolate.
 

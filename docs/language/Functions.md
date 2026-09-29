@@ -96,9 +96,14 @@ Two ways, both compile-time only and both erased from the output.
 
 ```
 size@core.list(xs)      // std's, though this module declares its own
+size@list(xs)           // the same: a module is named by any unambiguous suffix of its path
 size@main(xs)           // this module's, said explicitly (and no warning)
 xs.size@core.list()     // dot-notation, since `@` attaches to the name
 ```
+
+The suffix rule holds everywhere a module is named — `@module`, `import`,
+`by` — and a suffix that fits two modules (`@list` with a `core.list` and a
+`shop.list` in play) is refused naming both; write more of the path.
 
 **`rename` gives one overload a name of its own**, which is how an ambiguity is settled:
 

@@ -13,6 +13,24 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModulePath(pub Vec<String>);
 
+impl ModulePath {
+    /// [mod-suffix] Whether a written module reference names this module: the
+    /// full path, or any **suffix** of it (`list` for `core.list`, `mem` for
+    /// `fs.mem`). One rule for every place a module is referenced — `@module`
+    /// selectors, `by`, `import` — with a reference that fits two modules
+    /// refused as ambiguous rather than defaulted (user decision 2026-09-29).
+    pub fn matches_suffix(&self, segs: &[&str]) -> bool {
+        !segs.is_empty()
+            && self.0.len() >= segs.len()
+            && self.0[self.0.len() - segs.len()..].iter().map(|s| s.as_str()).eq(segs.iter().copied())
+    }
+
+    /// [mod-suffix] The same over rendered text (`core.list` against `list`).
+    pub fn text_matches_suffix(module: &str, reference: &str) -> bool {
+        module == reference || module.ends_with(&format!(".{reference}"))
+    }
+}
+
 impl fmt::Display for ModulePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0.join("."))

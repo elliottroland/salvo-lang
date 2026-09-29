@@ -3704,15 +3704,14 @@ Conventions:
   export type Source = Manual | Imported : ToStr<self> by auto
   ```
 
-  `X` is a **module**, matched by path suffix so `by auto` reaches `core.auto`
-  with no import (being in `core` means nameable, nothing more — whether that
-  should be `by core.auto`, consistent with `size@core.list`, is open: ROADMAP
-  §2c), or a `comptime fn` named directly [fn-by]. **A name that is both** is
-  refused as ambiguous rather than defaulted, and each reading has a spelling
-  (user decision 2026-09-29): `by auto@import` is the module, `by auto@mymod`
-  the comptime fn `auto` declared in `mymod` — the call selector
-  [fn-overload-at] reused, with `@import` the one word that names the other
-  reading. For each member of the group the comptime fn of that name
+  `X` is a **module**, named by any unambiguous suffix of its path
+  [mod-suffix] so `by auto` reaches `core.auto` as `size@list` reaches
+  `core.list`, or a `comptime fn` named directly [fn-by]. **A name that is
+  both** is refused as ambiguous rather than defaulted, and each reading has a
+  spelling (user decisions 2026-09-29): `by @auto` is the module — a module
+  stands on the right of an `@`, as it does in `size@list` — and `by
+  auto@mymod` the comptime fn `auto` declared in `mymod`, the call selector
+  [fn-overload-at] reused. For each member of the group the comptime fn of that name
   **and of the type's kind** (`<T is Struct>` for a struct, `<T is Union>` for a
   named union) is instantiated at the type, and the result is an ordinary fn
   **declared on the type** [fn-attached]: it travels with it, `cmp@Point`
@@ -7375,6 +7374,20 @@ between endpoints and delivers what arrives into the scheduler.
   resolves ambiguity. Unresolved/ambiguous imports are errors.
   * Import prefixes match module paths exactly or as a leading path
     (`import core.Str` finds `core.string`).
+* [mod-suffix] **A module is referenced by any unambiguous suffix of its
+  path** (user decision 2026-09-29), and the rule is the same everywhere a
+  module is named: `size@list` for `size@core.list` [fn-overload-at], `import
+  mem` for `import fs.mem` and `import list.size` for `core.list`'s `size`
+  [mod-import] [mod-import-module], `by auto` for `core.auto` [obligation-by].
+  A reference that fits two modules is refused naming both — "`@list` is
+  ambiguous: it is a suffix of `core.list` and `shop.list`" — and the remedy
+  is more of the path. The full path always works. Chosen over requiring the
+  full path (`by core.auto`, verbose at the most common clause) and over
+  special-casing `by`, so that a later `std.` prefix on std's modules changes
+  no program that did not spell it.
+  * `ModulePath::matches_suffix` / `text_matches_suffix` in `salvo-core` are
+    the one predicate; the selector sites in the checker, `resolve_import` and
+    the comptime expansion all read it.
 * [mod-import-module] `import time` imports a whole **module** — every name
   in it (user decision 2026-09-18, with `core.time` moved out to module
   `time`: a std surface that is not implicitly visible needs one line to

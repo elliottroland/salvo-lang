@@ -135,6 +135,31 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Module references by suffix, and the `by` selector (2026-09-29, user
+decisions).** Two things fell out of the round-8 review. (1) **The LSP**: `export`
+did not highlight before `comptime`/`noremote`/`threadsafe`; `type:` as a field
+name (`Field.type`) coloured as the keyword; and a `by` site and a comptime fn's
+declaration had no hover (the checker never sees either) — the expansion now
+records both, and the `by` hover lists each comptime fn it stamps with its
+module and docs. (2) **`by X` where `X` is both a module and a comptime fn**
+was ambiguous and defaulted to the module; it is refused, and each reading has
+a spelling: `by @auto` for the module — a module always stands on the right of
+an `@`, as in `size@list`; the `@import` first proposed was withdrawn the same
+morning because it confuses where a module *goes* — and `by auto@mymod` for the
+fn (the call selector). Fixing it exposed that a clause-form `by tag` stamped
+the fn under its own name rather than the member's, so `: Tagged<self> by tag`
+never fulfilled `cmp`; corrected. (3) **The consistency question** — `by auto`
+against `size@core.list` and `import fs.mem` — was settled the other way from
+the recommendation: **a module is referenced by any unambiguous suffix of its
+path, everywhere** [mod-suffix]. `size@list`, `import mem`, `import list.size`,
+`by auto` all resolve; a suffix two modules share is refused naming both.
+`ModulePath::matches_suffix`/`text_matches_suffix` are the one predicate, read
+by the checker's selector sites, `resolve_import` and the comptime expansion.
+The user preferred it to requiring the full path (verbose at the most common
+clause) because it also lets `size@list` be written in ordinary code, and a
+later `std.` prefix on std's modules then changes no program that did not spell
+it. **1621 tests.**
+
 **Comptime, round 8 — the spelling, the declared model, and hover
 (2026-09-29, user decisions; built the same morning).** After the first slice
 landed the user iterated on how it reads and how a writer learns the surface.

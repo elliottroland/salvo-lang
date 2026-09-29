@@ -1543,9 +1543,9 @@ struct Reading : Ordered<self> {
 }
 
 /// [obligation-by] A name that is both a module and a `comptime fn` is refused
-/// as ambiguous rather than defaulted, and each reading has a spelling:
-/// `@import` for the module, `@<module>` for the function (user decision
-/// 2026-09-29).
+/// as ambiguous rather than defaulted, and each reading has a spelling: `by
+/// @tag` for the module (a module stands right of `@`), `by tag@<module>` for
+/// the function (user decisions 2026-09-29).
 #[test]
 fn a_by_name_that_is_both_a_module_and_a_fn_is_ambiguous() {
     let files: &[(&str, &str)] = &[
@@ -1576,12 +1576,12 @@ struct P : Tagged<self> by tag {
     ];
     let errs = errors_in(files);
     assert!(
-        errs.iter().any(|e| e.contains("is ambiguous") && e.contains("`by tag@import`") && e.contains("`by tag@main`")),
+        errs.iter().any(|e| e.contains("is ambiguous") && e.contains("`by @tag`") && e.contains("`by tag@main`")),
         "expected the two spellings: {errs:?}"
     );
 
     // Each selector settles it.
-    let module_src = files[1].1.replace("by tag {", "by tag@import {");
+    let module_src = files[1].1.replace("by tag {", "by @tag {");
     let module_form = errors_in(&[files[0], ("main.sv", &module_src)]);
     assert!(module_form.is_empty(), "unexpected errors: {module_form:?} for {module_src}");
     let fn_form = errors_in(&[files[0], ("main.sv", &files[1].1.replace("by tag {", "by tag@main {"))]);

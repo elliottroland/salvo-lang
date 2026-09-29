@@ -1421,6 +1421,13 @@ impl<'s> Parser<'s> {
             return Some(None);
         }
         let start = self.bump().span;
+        // [obligation-by] `by @auto`: a leading `@` says the path is a module
+        // (a module stands on the right of `@`, as in `size@list`).
+        let mut at = None;
+        if self.at(&TokenKind::At) && self.same_line() {
+            let sp = self.bump().span;
+            at = Some(ByAt::Module(sp));
+        }
         let mut path = vec![self.ident_value("scope after `by`")?];
         while self.at(&TokenKind::Dot)
             && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
@@ -1429,26 +1436,26 @@ impl<'s> Parser<'s> {
             path.push(self.ident()?);
         }
         let mut end = path.last().map(|p| p.span).unwrap_or(start);
-        // [obligation-by] `@import` / `@module.path`: which reading of a
-        // one-segment name is meant.
-        let mut at = None;
+        // `by auto@mymod`: the comptime fn `auto` of module `mymod`.
         if self.at(&TokenKind::At) && self.same_line() {
-            self.bump();
-            if self.at(&TokenKind::KwImport) {
-                let sp = self.bump().span;
-                end = sp;
-                at = Some(ByAt::Import(sp));
-            } else {
-                let mut sel = vec![self.ident_value("module after `@`")?];
-                while self.at(&TokenKind::Dot)
-                    && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
-                {
-                    self.bump();
-                    sel.push(self.ident()?);
-                }
-                end = sel.last().map(|p| p.span).unwrap_or(end);
-                at = Some(ByAt::Module(sel));
+            let at_span = self.bump().span;
+            if at.is_some() {
+                self.error(
+                    "`by @x@y` says both readings: `by @x` is the module `x`, `by x@y` the \
+                     comptime fn `x` of module `y` [obligation-by]",
+                    at_span,
+                );
+                return None;
             }
+            let mut sel = vec![self.ident_value("module after `@`")?];
+            while self.at(&TokenKind::Dot)
+                && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
+            {
+                self.bump();
+                sel.push(self.ident()?);
+            }
+            end = sel.last().map(|p| p.span).unwrap_or(end);
+            at = Some(ByAt::Fn(sel));
         }
         let span = start.to(end);
         Some(Some(ByRef { path, at, span }))

@@ -259,6 +259,13 @@ in build order:
   `[comptime-*]`, `[obligation-by]`, `[fn-by]`. COMPTIME.md was deleted with the
   rounds in COMPLETED.md's log; SERDE.md's SD-3 carries a superseding note.
 
+Settled 2026-09-29 (user decisions): a module is referenced by any
+**unambiguous suffix** of its path, everywhere — `size@list`, `import mem`, `by
+auto` — with a shared predicate and an ambiguity refusal [mod-suffix]; and a
+`by` name that is both a module and a comptime fn is disambiguated as `by
+@auto` (the module) or `by auto@mymod` (the fn), `@import` having been
+withdrawn because it confuses where a module *goes*.
+
 Known and recorded: two `to_str` overloads that both fit a *narrowed* value
 (`to_str(Manual)` beside a stamped `to_str(Source)` where `value: Source` is
 narrowed to `Manual`) make `${value}` ambiguous at the interpolation while

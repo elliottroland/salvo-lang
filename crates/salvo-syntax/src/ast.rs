@@ -328,21 +328,22 @@ pub struct Obligation {
 pub struct ByRef {
     pub path: Vec<Ident>,
     /// [obligation-by] The `@` selector, when written, settling the two
-    /// readings a one-segment path can have: `by auto@import` names the
-    /// **module** `auto`, `by auto@mymod` the **comptime fn** `auto` declared
-    /// in module `mymod` — the same selector a call uses [fn-overload-at].
-    /// Without one, a name that is both a module and a comptime fn is refused
-    /// as ambiguous (user decision 2026-09-29).
+    /// readings a one-segment path can have: `by @auto` names the **module**
+    /// `auto` — a module always stands on the right of an `@`, as in
+    /// `size@list` — and `by auto@mymod` the **comptime fn** `auto` declared in
+    /// module `mymod`, the call selector [fn-overload-at]. Without one, a name
+    /// that is both a module and a comptime fn is refused as ambiguous (user
+    /// decisions 2026-09-29).
     pub at: Option<ByAt>,
     pub span: Span,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ByAt {
-    /// `@import`: the path is a module.
-    Import(Span),
-    /// `@module.path`: the path is a comptime fn declared in that module.
-    Module(Vec<Ident>),
+    /// `by @auto`: the path is a module.
+    Module(Span),
+    /// `by auto@module.path`: the path is a comptime fn declared in that module.
+    Fn(Vec<Ident>),
 }
 
 impl ByRef {

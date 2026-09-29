@@ -80,8 +80,8 @@ pub fn walk_fn<V: MutVisitor>(v: &mut V, f: &mut FnDecl) {
             v.visit_ident(p);
         }
         match &mut by.at {
-            Some(ByAt::Import(sp)) => v.visit_span(sp),
-            Some(ByAt::Module(sel)) => {
+            Some(ByAt::Module(sp)) => v.visit_span(sp),
+            Some(ByAt::Fn(sel)) => {
                 for p in sel {
                     v.visit_ident(p);
                 }

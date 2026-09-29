@@ -1361,10 +1361,29 @@ fn resolve_import<'p>(
         .all(|seg| !seg.name.starts_with(|c: char| c.is_uppercase()));
     if all_lower {
         let prefix: Vec<&str> = import.path.iter().map(|i| i.name.as_str()).collect();
-        let named: Option<&&ModulePath> = by_module
+        // [mod-suffix] A module is named by any unambiguous suffix of its
+        // path (`import mem` for `fs.mem`), the one rule every module
+        // reference follows (user decision 2026-09-29).
+        let mut named: Vec<&&ModulePath> = by_module
             .keys()
-            .find(|path| path.0.len() == prefix.len() && path.0.iter().eq(prefix.iter()));
-        if let Some(module) = named {
+            .filter(|path| path.matches_suffix(&prefix))
+            .collect();
+        named.sort_by_key(|m| m.to_string());
+        named.dedup_by_key(|m| m.to_string());
+        if named.len() > 1 {
+            ctx.errors.push(FileDiagnostic::error(
+                file_idx,
+                import.span,
+                format!(
+                    "`import {}` is ambiguous: it is a suffix of {} — write more of the \
+                     path [mod-suffix] [mod-import-module]",
+                    prefix.join("."),
+                    named.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(" and ")
+                ),
+            ));
+            return;
+        }
+        if let Some(module) = named.first() {
             if let Some(alias) = &import.alias {
                 ctx.errors.push(FileDiagnostic::error(
                     file_idx,
@@ -1385,7 +1404,7 @@ fn resolve_import<'p>(
             // the same declaration at two rungs, which the refinement
             // matcher counts [qual-refn-match].
             let is_core = module.0.first().is_some_and(|p| p == "core");
-            if is_core || **module == *own_module {
+            if is_core || ***module == *own_module {
                 ctx.errors.push(FileDiagnostic::warning(
                     file_idx,
                     import.span,
@@ -1538,15 +1557,17 @@ fn resolve_import<'p>(
         .map(|i| i.name.as_str())
         .collect();
 
-    // Candidate modules: path equals the prefix, or the prefix is a leading
-    // path of the module (`import core.Str` finds `core.string`).
+    // Candidate modules: path equals the prefix, the prefix is a leading path
+    // of the module (`import core.Str` finds `core.string`), or the prefix is
+    // a suffix of it (`import list.size` finds `core.list`) [mod-suffix].
     let mut matches: Vec<&&ModulePath> = Vec::new();
     for (path, items) in by_module {
         let exact = path.0.len() == prefix.len()
             && path.0.iter().zip(&prefix).all(|(a, b)| a == b);
         let prefixed = path.0.len() > prefix.len()
             && path.0.iter().zip(&prefix).all(|(a, b)| a == b);
-        if (exact || prefixed) && items.has_name(item_name) {
+        let suffixed = path.matches_suffix(&prefix);
+        if (exact || prefixed || suffixed) && items.has_name(item_name) {
             matches.push(by_module.get_key_value(path).unwrap().0);
         }
     }
