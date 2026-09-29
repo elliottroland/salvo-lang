@@ -57,6 +57,6 @@ pub use wire::{
 };
 pub use resolve::{resolve, DefSite, FnKey, ModuleScope, Resolution};
 pub use source::{
-    CompanionFile, ModulePath, SourceFile, SourceSet, PLATFORM_DIR, TEST_SUFFIX,
+    dependencies_with_reached_platform, CompanionFile, ModulePath, SourceFile, SourceSet, PLATFORM_DIR, TEST_SUFFIX,
 };
 pub use types::{is_subtype, Qual, QualEffect, Ty};

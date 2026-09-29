@@ -1612,12 +1612,15 @@ impl<K: fmt::Display, V: fmt::Display> fmt::Display for SalvoMap<K, V> {
     }
 }
 
-// `{:?}` is how an interpolated struct renders its fields [rs-display], so
-// a struct holding a map needs this; it prints the language's format
-// rather than Rust's, for the same reason `to_str` does.
-impl<K: fmt::Display, V: fmt::Display> fmt::Debug for SalvoMap<K, V> {
+// A struct derives `Debug`, so a struct holding a map needs this. Nothing
+// renders a Salvo value through `Debug` any more — interpolation goes through
+// `to_str` [interp-to-str] — so the bound is `Debug`, not the `Display` it was
+// while `{:?}` rendered structs: that bound made every struct with a
+// `Map<Str, SomeStruct>` field a rustc error (found 2026-09-29, the aws
+// generator's `message_attributes`).
+impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for SalvoMap<K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self)
+        f.debug_map().entries(self.iter()).finish()
     }
 }
 
@@ -1729,9 +1732,9 @@ impl<T: fmt::Display> fmt::Display for SalvoSet<T> {
     }
 }
 
-impl<T: fmt::Display> fmt::Debug for SalvoSet<T> {
+impl<T: fmt::Debug> fmt::Debug for SalvoSet<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self)
+        f.debug_set().entries(self.entries.keys()).finish()
     }
 }
 

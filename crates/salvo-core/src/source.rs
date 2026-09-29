@@ -557,6 +557,55 @@ impl SourceSet {
     }
 }
 
+/// [platform-host-deps] The dependencies whose **platform code** a program can
+/// reach: every module reachable by import from the project's own files (and
+/// through the dependencies' files in turn) that belongs to a dependency and
+/// has a companion. By imports rather than by use, so it can only include too
+/// much — a dependency imported but unused keeps its libraries — never too
+/// little.
+pub fn dependencies_with_reached_platform(
+    files: &[SourceFile],
+    modules: &[salvo_syntax::ast::Module],
+    companions: &[CompanionFile],
+) -> std::collections::HashSet<String> {
+    use salvo_syntax::ast::Item;
+    let by_path: std::collections::HashMap<&ModulePath, usize> =
+        files.iter().enumerate().map(|(i, f)| (&f.module, i)).collect();
+    let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut stack: Vec<usize> = files
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.is_std && f.dependency.is_none())
+        .map(|(i, _)| i)
+        .collect();
+    while let Some(i) = stack.pop() {
+        if !seen.insert(i) {
+            continue;
+        }
+        let Some(ast) = modules.get(i) else { continue };
+        for item in &ast.items {
+            let Item::Import(imp) = item else { continue };
+            let segs: Vec<String> = imp.path.iter().map(|p| p.name.clone()).collect();
+            // A whole-module import names the module; a named one, its parent.
+            for cut in [segs.len(), segs.len().saturating_sub(1)] {
+                if let Some(&j) = by_path.get(&ModulePath(segs[..cut].to_vec())) {
+                    stack.push(j);
+                }
+            }
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    for &i in &seen {
+        let f = &files[i];
+        if let Some(dep) = &f.dependency {
+            if companions.iter().any(|c| c.module == f.module) {
+                out.insert(dep.clone());
+            }
+        }
+    }
+    out
+}
+
 /// Parses `<root>/.svignore` [mod-ignore]: one entry per line, `/`-separated
 /// and relative to the root, naming a file or a directory subtree to skip.
 /// Blank lines and lines starting with `#` are ignored; trailing `/` on

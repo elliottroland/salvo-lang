@@ -1013,3 +1013,51 @@ fn a_type_namespace_runs_on_both_backends() {
     }
     __stamp.verified();
 }
+
+/// [platform-host-deps] A dependency's host libraries join a build only when
+/// its platform code is reached: here the dependency declares a crate that
+/// does not exist, and a program that imports only its surface still builds
+/// with bare `rustc`; importing its host module brings the crate in, which
+/// `compile` shows by writing the `Cargo.toml`.
+#[test]
+fn a_dependency_brings_its_host_libraries_only_when_reached() {
+    let Some(__stamp) = e2e_stamp("host_deps_reached", &["rustc"]) else { return };
+    let dir = work_dir("host_deps_reached");
+    let lib = dir.join("salvo_modules/lib");
+    fs::create_dir_all(lib.join("salvo/lib")).unwrap();
+    fs::create_dir_all(lib.join("salvo/platform/lib")).unwrap();
+    fs::write(
+        lib.join("salvo.toml"),
+        "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\n\n\
+         [rust]\ncrates = { no-such-crate-salvo-test = \"9.9.9\" }\n",
+    )
+    .unwrap();
+    fs::write(lib.join("salvo/lib.sv"), "export effect Greet {\n    fn greet() -> Str\n}\n\n\
+         export handler Plain() of Greet {\n    fn greet() -> Str { return \"plain\" }\n}\n").unwrap();
+    fs::write(lib.join("salvo/lib/host.sv"), "import lib\n\nexport platform handler HostGreet of Greet\n").unwrap();
+    fs::write(lib.join("salvo/platform/lib/host.rs"), "use crate::lib::*;\npub struct HostGreet;\n\
+         impl HostGreet { pub fn new() -> Self { HostGreet } }\n\
+         impl crate::lib::__Stateful_Greet for HostGreet { fn greet(&mut self) -> String { \"host\".into() } }\n").unwrap();
+    fs::create_dir_all(dir.join("salvo")).unwrap();
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\n\
+         modules = \"salvo_modules\"\n\n[dependencies]\nlib = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(dir.join("salvo/main.sv"), "import lib\n\nfn main() [use] {\n    use StdOutConsole()\n    \
+         use Plain()\n    println(greet())\n}\n").unwrap();
+    let out = salvo_in(&dir, &["run"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "the unreached crate must not be fetched: {stderr}");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "plain\n");
+
+    // Reaching the host module brings the crate: the manifest is written.
+    fs::write(dir.join("salvo/main.sv"), "import lib\nimport lib.host\n\nfn main() [use] {\n    \
+         use StdOutConsole()\n    use HostGreet()\n    println(greet())\n}\n").unwrap();
+    let out = salvo_in(&dir, &["compile", "--target", "out"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let cargo = fs::read_to_string(dir.join("out/Cargo.toml")).unwrap();
+    assert!(cargo.contains("no-such-crate-salvo-test"), "{cargo}");
+    __stamp.verified();
+}

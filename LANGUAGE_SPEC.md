@@ -8201,6 +8201,14 @@ replaced the working document TESTING.md).
     [kt-classpath].
   * `clean_stale` skips hidden directories: `.salvo_bin` now holds cargo's own
     generated sources, which are not ours to delete.
+  * **A dependency's libraries join only when its platform code is reached**
+    (2026-09-29, the aws module's first customer): `dependencies_with_reached_platform`
+    follows imports from the project's own files and includes a dependency
+    whose reached modules have companions; everything else it declares stays
+    out, so a program using only `aws.sqs`'s fakes builds with bare `rustc`
+    and no jars. By imports, not by use, so it can over-include (a host module
+    imported and unused) but never under-include. The project's own
+    declarations always join.
   * Not done: Maven resolution; a lock for host versions; per-companion (as
     opposed to per-project) declarations.
 * [effect-member-unique] Within one effect a member **signature** is

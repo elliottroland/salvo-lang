@@ -36,3 +36,10 @@ vscode/*.vsix
 
 # Wiki -- a sub-directory which is its own git repo
 wiki/
+
+# The aws module's fetched Kotlin SDK jars (`./gradlew fetchKotlinSdk`), its
+# generator's build output, and the demo's scratch trees.
+modules/aws/lib/
+modules/aws/codegen/build/
+modules/aws/codegen/.gradle/
+modules/aws/demo/*/out/

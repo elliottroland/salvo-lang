@@ -20,3 +20,26 @@ class Union2Codec<T1, T2>(private val c1: WireCodec<T1>, private val c2: WireCod
             else -> throw WireError()
         }
 }
+
+sealed interface Union3<out T1, out T2, out T3> {
+    val value: Any?
+}
+data class U3_1<out T1, out T2, out T3>(override val value: T1) : Union3<T1, T2, T3>
+data class U3_2<out T1, out T2, out T3>(override val value: T2) : Union3<T1, T2, T3>
+data class U3_3<out T1, out T2, out T3>(override val value: T3) : Union3<T1, T2, T3>
+
+class Union3Codec<T1, T2, T3>(private val c1: WireCodec<T1>, private val c2: WireCodec<T2>, private val c3: WireCodec<T3>) : WireCodec<Union3<T1, T2, T3>> {
+    override fun enc(v: Union3<T1, T2, T3>, out: WireOut) {
+        when (v) {
+            is U3_1 -> { out.u8(0); c1.enc(v.value, out) }
+            is U3_2 -> { out.u8(1); c2.enc(v.value, out) }
+            is U3_3 -> { out.u8(2); c3.enc(v.value, out) }
+        }
+    }
+    override fun dec(inp: WireIn): Union3<T1, T2, T3> = when (inp.u8()) {
+            0 -> U3_1(c1.dec(inp))
+            1 -> U3_2(c2.dec(inp))
+            2 -> U3_3(c3.dec(inp))
+            else -> throw WireError()
+        }
+}

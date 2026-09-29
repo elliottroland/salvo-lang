@@ -445,10 +445,20 @@ impl Project {
     /// [platform-host-deps] The host libraries this build needs: the
     /// project's own declarations and every dependency's, merged.
     pub fn host_deps(&self) -> Result<HostDeps, String> {
+        self.host_deps_for(&|_| true)
+    }
+
+    /// [platform-host-deps] The same, with a dependency's declarations joining
+    /// only when [include] says so — a dependency whose platform code the build
+    /// never reaches brings no host libraries (the aws module's fakes build
+    /// without either SDK). The project's own always join.
+    pub fn host_deps_for(&self, include: &dyn Fn(&str) -> bool) -> Result<HostDeps, String> {
         let mut deps = HostDeps::default();
         deps.merge(self, "this project")?;
         for dep in self.dependencies()? {
-            deps.merge(&dep.project, &format!("dependency `{}`", dep.name))?;
+            if include(&dep.name) {
+                deps.merge(&dep.project, &format!("dependency `{}`", dep.name))?;
+            }
         }
         Ok(deps)
     }

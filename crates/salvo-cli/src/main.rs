@@ -374,6 +374,27 @@ fn json_str(s: &str) -> String {
 struct Built {
     written: Vec<PathBuf>,
     main_module: Option<salvo_core::ModulePath>,
+    /// [platform-host-deps] The host libraries this program actually needs.
+    host: salvo_core::HostDeps,
+}
+
+/// [platform-host-deps] The host libraries of a program: the project's own, and
+/// each dependency's only when that dependency's platform code is reached — a
+/// program using only the aws module's fakes builds without either SDK.
+fn effective_host(
+    program: &Program,
+    project: Option<&salvo_core::Project>,
+    all: &salvo_core::HostDeps,
+) -> Result<salvo_core::HostDeps, String> {
+    let Some(project) = project else {
+        return Ok(all.clone());
+    };
+    let reached = salvo_core::dependencies_with_reached_platform(
+        &program.files,
+        &program.modules,
+        &program.companions,
+    );
+    project.host_deps_for(&|name| reached.contains(name))
 }
 
 /// The source layout of a build: the directory to scan, plus (with
@@ -601,6 +622,14 @@ fn build(
             return Err(ExitCode::FAILURE);
         }
     }
+    let host = match effective_host(&program, project, host) {
+        Ok(h) => h,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return Err(ExitCode::FAILURE);
+        }
+    };
+    let host = &host;
     let emitted = match backend.emit(&program, target, main_module.as_ref()) {
         Ok(emitted) => emitted,
         // Codegen messages are rendered diagnostics: they carry their own
@@ -671,6 +700,7 @@ fn build(
     Ok(Some(Built {
         written,
         main_module,
+        host: host.clone(),
     }))
 }
 
@@ -785,7 +815,7 @@ fn run_one(
         return ExitCode::FAILURE;
     };
 
-    let outcome = backend.run(target, &main_module, &built.written, &inputs.host);
+    let outcome = backend.run(target, &main_module, &built.written, &built.host);
 
     // The target is deleted after the run only with `--clean-target both`,
     // and never before the program's output has been produced.
@@ -873,6 +903,13 @@ fn test_one(
         return ExitCode::SUCCESS;
     };
 
+    let host = match effective_host(&assembled.program, inputs.project.as_ref(), &inputs.host) {
+        Ok(h) => h,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
     let selected = salvo_test::select(&assembled.tests, filter);
     if list {
         for test in &selected {
@@ -946,7 +983,7 @@ fn test_one(
             &remaining,
             &target,
             color,
-            &inputs.host,
+            &host,
         ) {
             Ok(pass) => pass,
             Err(code) => return code,
