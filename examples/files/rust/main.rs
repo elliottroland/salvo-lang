@@ -39,8 +39,14 @@ pub mod fs_host;
 pub mod fs_mem;
 #[path = "fs/restricted.rs"]
 pub mod fs_restricted;
+#[path = "stream.rs"]
+pub mod stream;
+#[path = "stream/host.rs"]
+pub mod stream_host;
 #[path = "platform/fs/host.rs"]
 pub mod platform_fs_host;
+#[path = "platform/stream/host.rs"]
+pub mod platform_stream_host;
 
 use crate::core_bytes::*;
 use crate::core_checked::*;
@@ -56,26 +62,35 @@ use crate::fs::*;
 use crate::fs_host::*;
 use crate::fs_mem::*;
 use crate::fs_restricted::*;
+use crate::stream::*;
+use crate::stream_host::*;
 use crate::unions::*;
 
-pub fn kind_name(kind: &Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>) -> String {
-    if matches!(kind, Union8::U1(_)) {
+pub fn kind_name(kind: &Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> String {
+    if matches!(kind, Union7::U1(_)) {
         return "not found".to_string();
     }
-    if matches!(kind, Union8::U4(_)) {
+    if matches!(kind, Union7::U4(_)) {
         return "not a directory".to_string();
     }
-    if matches!(kind, Union8::U5(_)) {
+    if matches!(kind, Union7::U5(_)) {
         return "escapes the sandbox".to_string();
     }
-    if matches!(kind, Union8::U6(_)) {
+    if matches!(kind, Union7::U7(_)) {
+        return kind_name__2(&kind.u7().clone().error);
+    }
+    return "other".to_string();
+}
+
+pub fn kind_name__2(kind: &Union2<InvalidUtf8, StreamFailed>) -> String {
+    if matches!(kind, Union2::U1(_)) {
         return "not valid UTF-8".to_string();
     }
     return "other".to_string();
 }
 
-pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
-    let mut wrote = write_str(fs, &("notes.txt".to_string()), &("alpha\nbeta\ngamma\n".to_string()));
+pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, streams: &crate::stream::Streams) {
+    let mut wrote = write_str(fs, streams, &("notes.txt".to_string()), &("alpha\nbeta\ngamma\n".to_string()));
     match wrote {
         Union2::U1(_) => {
             println(console, &(format!("wrote {} bytes", *wrote.u1())));
@@ -84,7 +99,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
             println(console, &(format!("write failed: {}", kind_name(&(detach(wrote.u2().clone()))))));
         }
     }
-    let mut text = read_to_str(fs, &("notes.txt".to_string()));
+    let mut text = read_to_str(fs, streams, &("notes.txt".to_string()));
     match text {
         Union2::U1(_) => {
             println(console, &(format!("read back {} bytes", (text.u1().len() as i64))));
@@ -97,12 +112,12 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
     match opened {
         Union2::U1(_) => {
             let mut p = lines(opened.u1().clone());
-            while let Union2::U1(mut line) = next__13(fs, &mut p) {
+            while let Union2::U1(mut line) = next__13(streams, &mut p) {
                 println(console, &(format!("line: {}", line)));
             }
-            let mut closed = close(fs, p);
+            let mut closed = close(streams, p);
             if matches!(closed, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name(&(detach(closed.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach(closed.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
@@ -113,18 +128,18 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
     match out {
         Union2::U1(_) => {
             let mut w: OutStream = out.u1().clone();
-            let mut at = fs.position__2(&w);
-            let mut n = fs.write_line(&w, &("delta".to_string()));
+            let mut at = streams.position__2(&w);
+            let mut n = streams.write_line(&w, &("delta".to_string()));
             println(console, &(format!("appended {} bytes at offset {}", n, at)));
-            let mut shut = fs.close__2(w);
+            let mut shut = streams.close__2(w);
             if matches!(shut, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name(&(detach(shut.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach(shut.u2().clone()))))));
             }
             let mut resumed = fs.open_read_at(&("notes.txt".to_string()), at);
             match resumed {
                 Union2::U1(_) => {
                     let mut s: InStream = resumed.u1().clone();
-                    let mut line = fs.read_line(&s);
+                    let mut line = streams.read_line(&s);
                     match line {
                         Some(_) => {
                             println(console, &(format!("at {}: {}", at, line.as_ref().unwrap().clone())));
@@ -133,9 +148,9 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
                             println(console, &(format!("at {}: end of file", at)));
                         }
                     }
-                    let mut done = fs.close(s);
+                    let mut done = streams.close(s);
                     if matches!(done, Union2::U2(_)) {
-                        println(console, &(format!("close failed: {}", kind_name(&(detach(done.u2().clone()))))));
+                        println(console, &(format!("close failed: {}", kind_name__2(&(detach(done.u2().clone()))))));
                     }
                 }
                 Union2::U2(_) => {
@@ -152,12 +167,12 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
         Union2::U1(_) => {
             let mut w: OutStream = bin.u1().clone();
             let mut data = vec![(((0) as i32) as u8), (((255) as i32) as u8), (((200) as i32) as u8)];
-            let mut n = fs.write_bytes(&w, &data);
-            let mut m = fs.write(&w, &("hé".to_string()));
+            let mut n = streams.write_bytes(&w, &data);
+            let mut m = streams.write(&w, &("hé".to_string()));
             println(console, &(format!("wrote {} raw bytes and {} encoded", n, m)));
-            let mut shut = fs.close__2(w);
+            let mut shut = streams.close__2(w);
             if matches!(shut, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name(&(detach(shut.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach(shut.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
@@ -168,27 +183,27 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
     match raw {
         Union2::U1(_) => {
             let mut s: InStream = raw.u1().clone();
-            let mut head = fs.read_bytes(&s, 3);
+            let mut head = streams.read_bytes(&s, 3);
             match head {
                 Union2::U1(_) => {
                     println(console, &(format!("first three: {} = {}", format!("[{}]", head.u1().clone().iter().map(|__b| __b.to_string()).collect::<Vec<String>>().join(", ")), head.u1().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
                 }
                 Union2::U2(_) => {
-                    println(console, &(format!("byte read failed: {}", kind_name(&(detach(head.u2().clone()))))));
+                    println(console, &(format!("byte read failed: {}", kind_name__2(&(detach(head.u2().clone()))))));
                 }
             }
-            let mut tail = fs.read_all(&s);
+            let mut tail = streams.read_all(&s);
             match tail {
                 Union2::U1(_) => {
                     println(console, &(format!("the rest, as text: {}", tail.u1().clone())));
                 }
                 Union2::U2(_) => {
-                    println(console, &(format!("decode failed: {}", kind_name(&(detach(tail.u2().clone()))))));
+                    println(console, &(format!("decode failed: {}", kind_name__2(&(detach(tail.u2().clone()))))));
                 }
             }
-            let mut done = fs.close(s);
+            let mut done = streams.close(s);
             if matches!(done, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name(&(detach(done.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach(done.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
@@ -199,22 +214,22 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
     match split {
         Union2::U1(_) => {
             let mut s: InStream = split.u1().clone();
-            let mut broken = fs.read_all(&s);
+            let mut broken = streams.read_all(&s);
             match broken {
                 Union2::U1(_) => {
                     println(console, &(format!("unexpected: {} decoded", broken.u1().clone())));
                 }
                 Union2::U2(_) => {
-                    println(console, &(format!("mid-character: {}", kind_name(&(detach(broken.u2().clone()))))));
+                    println(console, &(format!("mid-character: {}", kind_name__2(&(detach(broken.u2().clone()))))));
                 }
             }
-            let mut done = fs.close(s);
+            let mut done = streams.close(s);
             match done {
                 Union2::U1(_) => {
                     println(console, &("unexpected: the failure was not recorded".to_string()));
                 }
                 Union2::U2(_) => {
-                    println(console, &(format!("and again at close: {}", kind_name(&(detach(done.u2().clone()))))));
+                    println(console, &(format!("and again at close: {}", kind_name__2(&(detach(done.u2().clone()))))));
                 }
             }
         }
@@ -232,7 +247,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
             let mut reading = true;
             while reading {
                 buf.clear();
-                let mut got = fs.read_to(&s, &mut buf, 4);
+                let mut got = streams.read_to(&s, &mut buf, 4);
                 match got {
                     Union2::U1(_) => {
                         let mut n: i32 = *got.u1();
@@ -244,15 +259,15 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
                         }
                     }
                     Union2::U2(_) => {
-                        println(console, &(format!("fill failed: {}", kind_name(&(detach(got.u2().clone()))))));
+                        println(console, &(format!("fill failed: {}", kind_name__2(&(detach(got.u2().clone()))))));
                         reading = false;
                     }
                 }
             }
             println(console, &(format!("filled {} bytes in {} reads, one buffer", moved, steps)));
-            let mut done = fs.close(s);
+            let mut done = streams.close(s);
             if matches!(done, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name(&(detach(done.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach(done.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
@@ -268,7 +283,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
             let mut reading = true;
             while reading {
                 line.clear();
-                if fs.read_line_to(&s, &mut line) {
+                if streams.read_line_to(&s, &mut line) {
                     if ((line.chars().count() as i32) > longest) {
                         longest = (line.chars().count() as i32);
                     }
@@ -277,34 +292,34 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
                 }
             }
             println(console, &(format!("longest line: {} characters", longest)));
-            let mut done = fs.close(s);
+            let mut done = streams.close(s);
             if matches!(done, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name(&(detach(done.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach(done.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
             println(console, &(format!("lines open failed: {}", kind_name(&(detach(lined.u2().clone()))))));
         }
     }
-    let mut ch = open_chunks(fs, &("raw.bin".to_string()), 4);
+    let mut ch = open_chunks(fs, streams, &("raw.bin".to_string()), 4);
     match ch {
         Union2::U1(_) => {
             let mut p = ch.u1().clone();
             let mut seen = 0;
-            while let Union2::U1(mut chunk) = next__14(fs, &mut p) {
+            while let Union2::U1(mut chunk) = next__14(streams, &mut p) {
                 seen = seen + (chunk.len() as i32);
             }
             println(console, &(format!("chunks saw {} bytes", seen)));
-            let mut done = close__2(fs, p);
+            let mut done = close__2(streams, p);
             if matches!(done, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name(&(detach(done.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach(done.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
             println(console, &(format!("chunks failed: {}", kind_name(&(detach(ch.u2().clone()))))));
         }
     }
-    let mut copied = copy_file(fs, &("notes.txt".to_string()), &("notes-copy.txt".to_string()));
+    let mut copied = copy_file(fs, streams, &("notes.txt".to_string()), &("notes-copy.txt".to_string()));
     match copied {
         Union2::U1(_) => {
             println(console, &(format!("copied {} bytes", *copied.u1())));
@@ -313,7 +328,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
             println(console, &(format!("copy failed: {}", kind_name(&(detach(copied.u2().clone()))))));
         }
     }
-    let mut whole = read_to_bytes(fs, &("raw.bin".to_string()));
+    let mut whole = read_to_bytes(fs, streams, &("raw.bin".to_string()));
     match whole {
         Union2::U1(_) => {
             println(console, &(format!("raw.bin is {} bytes: {}", (whole.u1().len() as i32), whole.u1().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
@@ -322,8 +337,8 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
             println(console, &(format!("byte read failed: {}", kind_name(&(detach(whole.u2().clone()))))));
         }
     }
-    let mut failures: Vec<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> = vec![];
-    let mut missing = read_to_str(fs, &("nope.txt".to_string()));
+    let mut failures: Vec<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = vec![];
+    let mut missing = read_to_str(fs, streams, &("nope.txt".to_string()));
     match missing {
         Union2::U1(_) => {
             println(console, &(format!("unexpected: {}", missing.u1().clone())));
@@ -354,8 +369,8 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
     println(console, &("cleaned up".to_string()));
 }
 
-pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console) {
-    let mut inside = write_str(fs, &("sub/../probe.txt".to_string()), &("inside\n".to_string()));
+pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console, streams: &crate::stream::Streams) {
+    let mut inside = write_str(fs, streams, &("sub/../probe.txt".to_string()), &("inside\n".to_string()));
     match inside {
         Union2::U1(_) => {
             println(console, &(format!("through `..`: wrote {} bytes", *inside.u1())));
@@ -364,7 +379,7 @@ pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console)
             println(console, &(format!("through `..`: {}", kind_name(&(detach(inside.u2().clone()))))));
         }
     }
-    let mut up = read_to_str(fs, &("../secret.txt".to_string()));
+    let mut up = read_to_str(fs, streams, &("../secret.txt".to_string()));
     match up {
         Union2::U1(_) => {
             println(console, &("unexpected: read outside the sandbox".to_string()));
@@ -373,7 +388,7 @@ pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console)
             println(console, &(format!("climbing out: {}", kind_name(&(detach(up.u2().clone()))))));
         }
     }
-    let mut absolute = read_to_str(fs, &("/etc/hosts".to_string()));
+    let mut absolute = read_to_str(fs, streams, &("/etc/hosts".to_string()));
     match absolute {
         Union2::U1(_) => {
             println(console, &("unexpected: an absolute path resolved".to_string()));
@@ -392,8 +407,10 @@ pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console)
 
 pub fn main() {
     let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let raw_streams = crate::stream_host::RawStreams::shared(crate::platform_stream_host::HostRawStreams::new());
+    let streams = crate::stream::Streams::shared(DefaultStreams::new(raw_streams.clone()));
     let raw_fs = crate::fs_host::RawFs::locked(crate::platform_fs_host::HostRawFs::new());
-    let fs = crate::fs::Fs::shared(DefaultFs::new(raw_fs.clone()));
+    let fs = crate::fs::Fs::shared(DefaultFs::new(raw_fs.clone(), streams.clone()));
     let mut root = "tmp/files-example".to_string();
     let mut made = fs.create_dirs(&root);
     if matches!(made, Union2::U2(_)) {
@@ -402,9 +419,9 @@ pub fn main() {
     }
     println(&console, &("-- the real filesystem, scoped to one directory --".to_string()));
     if true {
-        let fs2 = crate::fs::Fs::shared(RestrictedFs::new(root.clone(), fs.clone()));
-        workflow(&fs2, &console);
-        sandbox_edges(&fs2, &console);
+        let fs2 = crate::fs::Fs::shared(RestrictedFs::new(root.clone(), fs.clone(), streams.clone()));
+        workflow(&fs2, &console, &streams);
+        sandbox_edges(&fs2, &console, &streams);
     }
     let mut gone = fs.delete(&root);
     if matches!(gone, Union2::U2(_)) {
@@ -412,7 +429,9 @@ pub fn main() {
     }
     println(&console, &("-- the same code, with no disk at all --".to_string()));
     if true {
-        let fs3 = crate::fs::Fs::locked(MemFs::new());
-        workflow(&fs3, &console);
+        let __inst = std::sync::Arc::new(std::sync::Mutex::new(MemFs::new()));
+        let fs4 = crate::fs::Fs::share_locked(__inst.clone());
+        let streams2 = crate::stream::Streams::share_locked(__inst.clone());
+        workflow(&fs4, &console, &streams2);
     }
 }

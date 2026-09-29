@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Twelve worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, one of them consuming the first dependency
-(`modules/aws/`). 1651 tests green.
+(`modules/aws/`). 1652 tests green.
 
 ## The sequence
 
@@ -362,10 +362,8 @@ made in the design sitting — but each has a shape to settle at implementation.
    stream operation; `fs` keeps paths and mints into it. In order:
    a. ✅ **Effect prerequisites** — built 2026-09-29 ([effect-prereq]).
    b. ✅ **One handle counter** — built 2026-09-29 ([stream-handle]).
-   c. **The split**: `Streams` with the synchronous members moved from `Fs`,
-      `Lines`/`Chunks`/`copy_stream` with them, `StreamError`, `HostStreams`
-      (owning the process table `HostRawFs` registers into), `MemStreams`;
-      the sweep of `fs*`, `examples/files`, Files.md and the fs tests.
+   c. ✅ **The split** — built 2026-09-29 ([stream-layer] [stream-table]
+      [stream-provider]; COMPLETED.md has the entry).
    d. **Non-blocking**: `receive` (answering `Received = Ok Packet | End | Err
       Checked<StreamError>`), `from_bytes`, `pipe`; `Reply<T canbe linear>`.
 4. **Provider-checked stream handles** (DESIGN §9, decision 10 of 2026-09-29's

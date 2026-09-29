@@ -283,24 +283,24 @@ fn main() [use] {
   borrow: `proj(list) T` returns an element without copying it, a
   struct with `proj` fields is a view, and a copy happens only where the
   program writes `copy`.
-- **Files**: `std`'s filesystem is the whole language in one surface, imported
-  rather than implicit (`import fs`, with `fs.host`, `fs.mem` and
-  `fs.restricted` beside it) — an
-  `Fs` effect whose members cover paths *and* streams (so a double fakes all
-  of it), linear `InStream`/`OutStream` tokens that must be closed, a linear
-  error a caller cannot drop in silence (`Checked<FsError>` — `ignore` it, or
-  `detach` it to read or keep it), a `Lines` iterator for `for line in p`, one-shots
+- **Files and streams**: `std`'s filesystem is the whole language in one
+  surface, imported rather than implicit (`import fs`, with `fs.host`, `fs.mem`
+  and `fs.restricted` beside it). Two effects, layered: **`Streams`** (`import
+  stream`) owns the linear `InStream`/`OutStream` tokens and every read and
+  write on them — whoever opened the stream, a file or a network body — and
+  **`Fs`** is the path operations, minting into the `Streams` in scope.
+  `Streams` is a *prerequisite* of `Fs` (`effect Fs [Streams]`), so file code
+  still declares `[Fs]` alone. A linear error a caller cannot drop in silence
+  (`Checked<FsError>`, `Checked<StreamError>` — `ignore` it, or `detach` it to
+  read or keep it), a `Lines` iterator for `for line in p`, one-shots
   (`read_to_str`, `read_lines`, `write_str`, `copy_file`) for the common case,
   bytes as themselves (`read_bytes`/`write_bytes` over `Bytes`, sharing one
   stream and one position with the text reads), a fill-a-buffer read for the
-  loop that cannot afford a payload per step (`read_to`, `read_line_to`,
-  and a `chunks` iterator), and exact byte offsets —
-  `write` answers its byte count, `position` reports one, and
-  `open_read_at(path, offset)` reopens at one, since streams stay
-  forward-only. The machine's filesystem is a `platform handler` at the
-  bottom, so swapping it swaps the world the program runs in — for
-  `RestrictedFs(root)`, which scopes it to one directory, or `MemFs`, which
-  runs the same code with no disk at all.
+  loop that cannot afford a payload per step (`read_to`, `read_line_to`, and a
+  `chunks` iterator), and exact byte offsets. The machine's streams and files
+  are `platform handler`s at the bottom over one process-wide stream table;
+  `MemFs` fakes both at once with no disk, and `RestrictedFs(root)` scopes a
+  filesystem to one directory.
 - **Interop**: a `platform effect` declares what the program needs from its
   target language, and a `platform handler` is a host implementation of an
   *ordinary* Salvo effect — registered with `use` like any handler, so the

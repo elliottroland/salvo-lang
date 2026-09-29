@@ -3380,6 +3380,32 @@ impl<'p> Emitter<'p> {
                 imports.insert(format!("import {}.*", kotlin_package(module)));
             }
         }
+        // [effect-handler-multi] [effect-prereq] …and the effects a `use` binds:
+        // `use MemFs()` binds `Fs` and `Streams` by their Kotlin names whether
+        // or not the file names either (found 2026-09-29 — the handler's faces
+        // are the file's business only through the binding).
+        let bound: Vec<String> = self
+            .checked
+            .use_effects
+            .iter()
+            .filter(|((file, _), _)| *file == self.file_idx)
+            .flat_map(|(_, tys)| tys.iter())
+            .filter_map(|ty| match ty.strip_quals() {
+                Ty::Named { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        for name in bound {
+            for unit in self.program.units() {
+                let declares = unit.ast.items.iter().any(|item| {
+                    matches!(item, Item::Effect(e) if e.name.name == name)
+                });
+                let module = &unit.file.module;
+                if declares && module != own && emitted_modules.contains(module) {
+                    imports.insert(format!("import {}.*", kotlin_package(module)));
+                }
+            }
+        }
         for item in &ast.items {
             let Item::Import(imp) = item else { continue };
             let (Some(alias), Some(item_name)) = (&imp.alias, imp.path.last()) else {
@@ -7010,8 +7036,16 @@ impl<'p> Emitter<'p> {
                 StrExprPart::Text(text) => out.push_str(&escape_string(text)),
                 StrExprPart::Interp(expr) => {
                     let mut code = self.emit_expr(expr);
-                    // Union-wrapped values interpolate their payload.
-                    if let Some(repr) = self.emitted_repr(expr) {
+                    // Union-wrapped values interpolate their payload — unless
+                    // the checker resolved a `to_str` for the value, which
+                    // takes the union itself (found 2026-09-29: `"${detach(r)}"`
+                    // of a `Checked<A | B>` emitted `to_str(….value)`, a type
+                    // error for kotlinc).
+                    let has_to_str = self
+                        .checked
+                        .interp_to_str
+                        .contains_key(&(self.file_idx, expr.span()));
+                    if let Some(repr) = self.emitted_repr(expr).filter(|_| !has_to_str) {
                         if repr.is_wrapper_union() {
                             let access = if repr.has_none_arm() { "?" } else { "" };
                             code = format!("{code}{access}.value");
@@ -8587,6 +8621,24 @@ impl<'p> Emitter<'p> {
                 // A non-`Mut` list is read-only [type-canbe-mut].
                 "List" => args.iter().all(|a| self.ty_immutable(a, visiting)),
                 _ => {
+                    // A type alias is what it names (found 2026-09-29: a
+                    // struct field of alias type — `fs.Streaming { error:
+                    // StreamError }` — made the struct look mutable).
+                    if let Some(alias) = self
+                        .symbols
+                        .type_aliases
+                        .get(name.as_str())
+                        .and_then(|d| d.alias.as_ref())
+                    {
+                        if visiting.iter().any(|v| v == name) {
+                            return true;
+                        }
+                        visiting.push(name.clone());
+                        let ok = Self::approx_ty(alias, &HashMap::new())
+                            .is_some_and(|t| self.ty_immutable(&t, visiting));
+                        visiting.pop();
+                        return ok;
+                    }
                     let Some(s) = self.symbols.structs.get(name.as_str()) else {
                         return false;
                     };

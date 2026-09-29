@@ -101,10 +101,10 @@ fun abs(d: Duration): Duration {
     return d
 }
 
-fun to_str__5(d: Duration): String {
+fun to_str__6(d: Duration): String {
     if (d.nanos < 0) {
         val positive = Duration(nanos = 0L - d.nanos)
-        return "-${to_str__5(positive)}"
+        return "-${to_str__6(positive)}"
     }
     if (d.nanos == (0).toLong()) {
         return "0s"

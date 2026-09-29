@@ -42,9 +42,9 @@ use crate::time::*;
 pub fn verdict(started: &Tick, at: &Tick, budget: &Duration) -> String {
     let mut took = between__2(started, at);
     if cmp__2(&took, budget) > 0 {
-        return format!("late by {}", to_str__5(&minus(&took, budget)));
+        return format!("late by {}", to_str__6(&minus(&took, budget)));
     }
-    return format!("in time, {} to spare", to_str__5(&minus(budget, &took)));
+    return format!("in time, {} to spare", to_str__6(&minus(budget, &took)));
 }
 
 pub fn overdue(ticker: &crate::time::Ticker, started: &Tick, budget: &Duration) -> bool {
@@ -430,7 +430,7 @@ impl crate::__Stateful_Sleeper for Napping {
     }
 
     fn woke(&mut self, started: Tick, out: crate::scheduler::SalvoReply, f: Fired) {
-        crate::scheduler::salvo_reply_wire::<String>(out, format!("napped {}", to_str__5(&elapsed(&self.__dep_Ticker, &started))));
+        crate::scheduler::salvo_reply_wire::<String>(out, format!("napped {}", to_str__6(&elapsed(&self.__dep_Ticker, &started))));
     }
 }
 
@@ -497,7 +497,7 @@ pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Session".to_string(), crate::__PROTO_Session.to_string()), ("Sleeper".to_string(), crate::__PROTO_Sleeper.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string())]);
     let console = crate::core_console::Console::shared(StdOutConsole::new());
     let mut budget = millis(1500i64);
-    println(&console, &(format!("budget {}, doubled {}, in millis {}", to_str__5(&budget), to_str__5(&times(&budget, 2i64)), to_millis(&budget))));
+    println(&console, &(format!("budget {}, doubled {}, in millis {}", to_str__6(&budget), to_str__6(&times(&budget, 2i64)), to_millis(&budget))));
     let mut stamp = epoch_milli(1700000000000i64);
     println(&console, &(format!("stamp {}s, a minute later {}s", to_epoch_second(&stamp), to_epoch_second(&(plus__2(&stamp, &(minutes(1i64))))))));
     let clock = crate::time::Clock::locked(DefaultClock::new());

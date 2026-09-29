@@ -1,0 +1,149 @@
+// Host implementation of the platform declarations of Salvo module `stream.host`.
+//
+// Generated once by `salvo platform generate`, then written by hand: the
+// process's stream table lives in the runtime (`salvo.SalvoStreams`,
+// [stream-table]), and this class reads and writes whatever is registered
+// there — a file `HostRawFs` opened, a network body, a buffer.
+package salvo.platform.stream.host
+
+import salvo.*
+import salvo.stream.*
+import salvo.stream.host.*
+
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
+
+/** `stream.StreamError`, as the generated union. */
+private typealias Kind = Union2<InvalidUtf8, StreamFailed>
+
+private fun kind(source: String, fault: SalvoFault): Kind = when (fault) {
+    is SalvoFault.Utf8 -> U2_1(InvalidUtf8(source))
+    is SalvoFault.Failed -> U2_2(StreamFailed(source, fault.message))
+}
+
+/** Strict UTF-8, recording `InvalidUtf8` against the stream; null on failure. */
+private fun decode(stream: SalvoIn, bytes: ByteArray): String? =
+    try {
+        StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+    } catch (e: java.nio.charset.CharacterCodingException) {
+        stream.utf8Failed()
+        null
+    }
+
+// `threadsafe platform handler HostRawStreams` — THE CONTRACT: every member
+// below is safe to run concurrently with every other. The state is the
+// runtime's table, which locks per stream (each entry is its own monitor).
+class HostRawStreams : RawStreams {
+    override fun raw_read_line(handle: Long): String? {
+        val stream = SalvoStreams.inStream(handle)
+        synchronized(stream) {
+            val bytes = try {
+                stream.readLineBytes()
+            } catch (e: SalvoFaultException) {
+                return null
+            } ?: return null
+            return decode(stream, bytes)
+        }
+    }
+
+    override fun raw_read_all(handle: Long): Union2<String, Kind> {
+        val stream = SalvoStreams.inStream(handle)
+        synchronized(stream) {
+            val bytes = try {
+                stream.readAllBytes()
+            } catch (e: SalvoFaultException) {
+                return U2_2(kind(stream.source, e.fault))
+            }
+            val text = decode(stream, bytes) ?: return U2_2(kind(stream.source, SalvoFault.Utf8))
+            return U2_1(text)
+        }
+    }
+
+    override fun raw_read_bytes(handle: Long, max: Int): Union2<SalvoBytes, Kind> {
+        val out = SalvoBytes()
+        return when (val filled = raw_read_to_bytes(handle, out, max)) {
+            is U2_2 -> U2_2(filled.value)
+            else -> U2_1(out)
+        }
+    }
+
+    override fun raw_read_to_bytes(handle: Long, buf: SalvoBytes, max: Int): Union2<Int, Kind> {
+        val stream = SalvoStreams.inStream(handle)
+        synchronized(stream) {
+            val got = try {
+                stream.readUpTo(max)
+            } catch (e: SalvoFaultException) {
+                return U2_2(kind(stream.source, e.fault))
+            }
+            buf.appendArray(got, got.size)
+            return U2_1(got.size)
+        }
+    }
+
+    override fun raw_read_to_str(handle: Long, buf: StringBuilder): Union2<Long, Kind> {
+        return when (val all = raw_read_all(handle)) {
+            is U2_2 -> U2_2(all.value)
+            is U2_1 -> {
+                val text = all.value
+                buf.append(text)
+                U2_1(text.toByteArray(StandardCharsets.UTF_8).size.toLong())
+            }
+        }
+    }
+
+    override fun raw_read_line_to_str(handle: Long, buf: StringBuilder): Boolean {
+        val line = raw_read_line(handle) ?: return false
+        buf.append(line)
+        return true
+    }
+
+    override fun raw_read_position(handle: Long): Long {
+        val stream = SalvoStreams.inStream(handle)
+        synchronized(stream) { return stream.position }
+    }
+
+    override fun raw_close_read(handle: Long): Union2<Unit, Kind> {
+        val stream = SalvoStreams.takeIn(handle)
+        synchronized(stream) {
+            stream.closeInput()
+            val failed = stream.failed ?: return U2_1(Unit)
+            return U2_2(kind(stream.source, failed))
+        }
+    }
+
+    override fun raw_write(handle: Long, text: String): Long {
+        val stream = SalvoStreams.outStream(handle)
+        synchronized(stream) { return stream.writeData(text.toByteArray(StandardCharsets.UTF_8)) }
+    }
+
+    override fun raw_write_bytes(handle: Long, data: SalvoBytes): Long {
+        val stream = SalvoStreams.outStream(handle)
+        synchronized(stream) { return stream.writeData(data.toByteArray()) }
+    }
+
+    override fun raw_write_position(handle: Long): Long {
+        val stream = SalvoStreams.outStream(handle)
+        synchronized(stream) { return stream.position }
+    }
+
+    override fun raw_flush(handle: Long): Union2<Unit, Kind> {
+        val stream = SalvoStreams.outStream(handle)
+        synchronized(stream) {
+            val failed = stream.flushData() ?: return U2_1(Unit)
+            return U2_2(kind(stream.source, failed))
+        }
+    }
+
+    override fun raw_close_write(handle: Long): Union2<Unit, Kind> {
+        val stream = SalvoStreams.takeOut(handle)
+        synchronized(stream) {
+            val failed = stream.closeOutput() ?: return U2_1(Unit)
+            return U2_2(kind(stream.source, failed))
+        }
+    }
+}

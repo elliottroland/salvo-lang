@@ -21,6 +21,7 @@
 // Resolution is right to left, counting the `..` segments still owed, which
 // is how `a/../b` stays inside while `../b` does not — and needs no stack.
 import fs
+import stream
 
 fn fs_resolve(root: Str, path: Str) [] -> Str? => root, path {
     if starts_with(path, "/") {
@@ -155,64 +156,5 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
             return err(fs_escaped(to))
         }
         return rename_path(real_from, real_to)
-    }
-
-    // The stream members are pass-throughs: the policy lives entirely in the
-    // opens, and a token this handler forwarded was minted by the handler it
-    // wraps — which is where it goes back to.
-    fn read_line(s: InStream) -> Str | None => s {
-        return read_line(s)
-    }
-
-    fn read_all(s: InStream) -> Ok Str | Err Checked<FsError> => s {
-        return read_all(s)
-    }
-
-    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err Checked<FsError> => s {
-        return read_bytes(s, max)
-    }
-
-    fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err Checked<FsError> => s, buf: Mut {
-        return read_to(s, buf, max)
-    }
-
-    fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err Checked<FsError> => s, buf: Mut {
-        return read_to(s, buf)
-    }
-
-    fn read_line_to(s: InStream, buf: Mut Str) -> Bool => s, buf: Mut {
-        return read_line_to(s, buf)
-    }
-
-    fn position(s: InStream) -> Long => s {
-        return position(s)
-    }
-
-    fn close(s: InStream) -> Ok None | Err Checked<FsError> => !s {
-        return close(s)
-    }
-
-    fn write(s: OutStream, text: Str) -> Long => s, text {
-        return write(s, text)
-    }
-
-    fn write_line(s: OutStream, text: Str) -> Long => s, text {
-        return write_line(s, text)
-    }
-
-    fn write_bytes(s: OutStream, data: Bytes) -> Long => s, data {
-        return write_bytes(s, data)
-    }
-
-    fn position(s: OutStream) -> Long => s {
-        return position(s)
-    }
-
-    fn flush(s: OutStream) -> Ok None | Err Checked<FsError> => s {
-        return flush(s)
-    }
-
-    fn close(s: OutStream) -> Ok None | Err Checked<FsError> => !s {
-        return close(s)
     }
 }

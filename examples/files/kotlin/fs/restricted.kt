@@ -10,6 +10,7 @@ import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 import salvo.fs.*
+import salvo.stream.*
 
 fun fs_resolve(root: String, path: String): String? {
     if (path.startsWith("/")) {
@@ -20,7 +21,7 @@ fun fs_resolve(root: String, path: String): String? {
     var skip = 0
     var i = segs.size - 1
     while (i >= 0) {
-        val seg = (segs.getOrNull(i) ?: throw AssertionError("salvo: value is absent at fs.restricted:34:19"))
+        val seg = (segs.getOrNull(i) ?: throw AssertionError("salvo: value is absent at fs.restricted:35:19"))
         if (seg == "..") {
             skip = skip + 1
         } else {
@@ -41,7 +42,7 @@ fun fs_resolve(root: String, path: String): String? {
     val parts: MutableList<String> = mutableListOf<String>()
     var j = kept.size - 1
     while (j >= 0) {
-        parts.add((kept.getOrNull(j) ?: throw AssertionError("salvo: value is absent at fs.restricted:57:24")))
+        parts.add((kept.getOrNull(j) ?: throw AssertionError("salvo: value is absent at fs.restricted:58:24")))
         j = j - 1
     }
     val rel = parts.joinToString("/")
@@ -51,40 +52,40 @@ fun fs_resolve(root: String, path: String): String? {
     return "$root/$rel"
 }
 
-fun fs_escaped(path: String): Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
-    return checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_5<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(PathEscapes(path = path)))
+fun fs_escaped(path: String): Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    return checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(U7_5<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(PathEscapes(path = path)))
 }
 
-class RestrictedFs(private val root: String, private val __dep_Fs: Fs) : Fs {
+class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private val __dep_Streams: Streams) : Fs {
 
-    override fun open_read(path: String): Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+    override fun open_read(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fs_resolve(root, path)
         if (real == null) {
-            return U2_2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(fs_escaped(path)))
+            return U2_2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_escaped(path)))
         }
         return __dep_Fs.open_read(real)
     }
 
-    override fun open_read_at(path: String, offset: Long): Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+    override fun open_read_at(path: String, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fs_resolve(root, path)
         if (real == null) {
-            return U2_2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(fs_escaped(path)))
+            return U2_2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_escaped(path)))
         }
         return __dep_Fs.open_read_at(real, offset)
     }
 
-    override fun open_write(path: String): Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+    override fun open_write(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fs_resolve(root, path)
         if (real == null) {
-            return U2_2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(fs_escaped(path)))
+            return U2_2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_escaped(path)))
         }
         return __dep_Fs.open_write(real)
     }
 
-    override fun open_append(path: String): Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+    override fun open_append(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fs_resolve(root, path)
         if (real == null) {
-            return U2_2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(fs_escaped(path)))
+            return U2_2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_escaped(path)))
         }
         return __dep_Fs.open_append(real)
     }
@@ -97,103 +98,47 @@ class RestrictedFs(private val root: String, private val __dep_Fs: Fs) : Fs {
         return __dep_Fs.exists(real)
     }
 
-    override fun metadata(path: String): Union2<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+    override fun metadata(path: String): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fs_resolve(root, path)
         if (real == null) {
-            return U2_2<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(fs_escaped(path)))
+            return U2_2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_escaped(path)))
         }
         return __dep_Fs.metadata(real)
     }
 
-    override fun list_dir(path: String): Union2<List<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+    override fun list_dir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fs_resolve(root, path)
         if (real == null) {
-            return U2_2<List<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(fs_escaped(path)))
+            return U2_2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_escaped(path)))
         }
         return __dep_Fs.list_dir(real)
     }
 
-    override fun create_dirs(path: String): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+    override fun create_dirs(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fs_resolve(root, path)
         if (real == null) {
-            return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(fs_escaped(path)))
+            return U2_2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_escaped(path)))
         }
         return __dep_Fs.create_dirs(real)
     }
 
-    override fun delete(path: String): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+    override fun delete(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fs_resolve(root, path)
         if (real == null) {
-            return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(fs_escaped(path)))
+            return U2_2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_escaped(path)))
         }
         return __dep_Fs.delete(real)
     }
 
-    override fun rename_path(from: String, to: String): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+    override fun rename_path(from: String, to: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real_from = fs_resolve(root, from)
         if (real_from == null) {
-            return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(fs_escaped(from)))
+            return U2_2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_escaped(from)))
         }
         val real_to = fs_resolve(root, to)
         if (real_to == null) {
-            return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(fs_escaped(to)))
+            return U2_2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_escaped(to)))
         }
         return __dep_Fs.rename_path(real_from, real_to)
-    }
-
-    override fun read_line(s: InStream): String? {
-        return __dep_Fs.read_line(s)
-    }
-
-    override fun read_all(s: InStream): Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        return __dep_Fs.read_all(s)
-    }
-
-    override fun read_bytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        return __dep_Fs.read_bytes(s, max)
-    }
-
-    override fun read_to(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        return __dep_Fs.read_to(s, buf, max)
-    }
-
-    override fun read_to__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        return __dep_Fs.read_to__2(s, buf)
-    }
-
-    override fun read_line_to(s: InStream, buf: StringBuilder): Boolean {
-        return __dep_Fs.read_line_to(s, buf)
-    }
-
-    override fun position(s: InStream): Long {
-        return __dep_Fs.position(s)
-    }
-
-    override fun close(s: InStream): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        return __dep_Fs.close(s)
-    }
-
-    override fun write(s: OutStream, text: String): Long {
-        return __dep_Fs.write(s, text)
-    }
-
-    override fun write_line(s: OutStream, text: String): Long {
-        return __dep_Fs.write_line(s, text)
-    }
-
-    override fun write_bytes(s: OutStream, data: salvo.SalvoBytes): Long {
-        return __dep_Fs.write_bytes(s, data)
-    }
-
-    override fun position__2(s: OutStream): Long {
-        return __dep_Fs.position__2(s)
-    }
-
-    override fun flush(s: OutStream): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        return __dep_Fs.flush(s)
-    }
-
-    override fun close__2(s: OutStream): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        return __dep_Fs.close__2(s)
     }
 }

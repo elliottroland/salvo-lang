@@ -40,5 +40,5 @@ pub fn main() {
     println(&console, &(format!("profile: {}", creds.profile.clone())));
     println(&console, &(format!("path:    {}", creds.path.clone())));
     let mut staging = ProfileCredentials { profile: "staging".to_string(), path: "/etc/aws/credentials".to_string() };
-    println(&console, &(format!("{}", to_str__6(&staging))));
+    println(&console, &(format!("{}", to_str__7(&staging))));
 }

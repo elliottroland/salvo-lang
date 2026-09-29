@@ -12131,11 +12131,20 @@ fn bytes_ships_one_runtime_class_for_both_shapes() {
 const FS_PROGRAM: &str = r#"
 import fs
 import fs.host
+import stream
+import stream.host
 
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
         return "not found"
     }
+    if e is Streaming {
+        return describe(e.error)
+    }
+    return "other"
+}
+
+fn describe(e: StreamError) [] -> Str => e {
     if e is InvalidUtf8 {
         return "not utf-8"
     }
@@ -12144,6 +12153,8 @@ fn describe(e: FsError) [] -> Str => e {
 
 fn main() [use] -> None {
     use StdOutConsole()
+    use HostRawStreams()
+    use DefaultStreams()
     use HostRawFs()
     use DefaultFs()
 
@@ -12423,57 +12434,58 @@ fn fs_program() -> String {
 #[test]
 fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
     let files = generate_files(&[("main.sv", &fs_program())]);
-    let surface = &files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("fs.kt"))
-        .expect("fs.kt")
-        .content;
+    let file = |rel: &str| -> String {
+        files
+            .iter()
+            .find(|f| f.rel_path == std::path::Path::new(rel))
+            .unwrap_or_else(|| panic!("{rel} was not emitted"))
+            .content
+            .clone()
+    };
+    let surface = file("fs.kt");
     assert!(
         surface.contains("interface Fs {"),
         "expected the effect interface in:\n{surface}"
     );
-    // [effect-available] One overload set: the pass's discharger is a *fn*
-    // named `close`, beside the two members of that name.
+    // [effect-available] The stream operations are `stream`'s now, and the
+    // pass's discharger is a *fn* named `close` beside `Streams`' members.
+    let streams = file("stream.kt");
     assert!(
-        surface.contains("fun close(fs: Fs, p: Lines)"),
-        "expected the pass discharger as a fn named `close` in:\n{surface}"
+        streams.contains("interface Streams {"),
+        "expected the stream effect in:\n{streams}"
+    );
+    assert!(
+        streams.contains("fun close(streams: Streams, p: Lines)"),
+        "expected the pass discharger as a fn named `close` in:\n{streams}"
     );
     // The host seam is its own module [mod-used-only]: a program that never
-    // opens a file links none of it.
-    let host = &files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("fs/host.kt"))
-        .expect("fs/host.kt")
-        .content;
-    for expected in [
-        "interface RawFs {",
-        "fun raw_close_read(handle: Long)",
-        "class DefaultFs(private val __dep_RawFs: RawFs) : Fs",
-    ] {
+    // opens a file links none of it. [effect-prereq] `DefaultFs` reaches the
+    // `Streams` in scope as a dependency it never wrote.
+    let host = file("fs/host.kt");
+    for expected in ["interface RawFs {", "class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Streams) : Fs"] {
         assert!(host.contains(expected), "expected `{expected}` in:\n{host}");
     }
     assert!(
         !host.contains("class HostRawFs"),
         "the platform handler's class is the host's:\n{host}"
     );
+    let stream_host = file("stream/host.kt");
+    for expected in ["interface RawStreams {", "fun raw_close_read(handle: Long)", "class DefaultStreams("] {
+        assert!(stream_host.contains(expected), "expected `{expected}` in:\n{stream_host}");
+    }
     // The `use` site constructs the shipped host class through its package.
-    let main = files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
-        .expect("main.kt");
+    let main = file("main.kt");
     assert!(
-        main.content
-            .contains("__Mon_RawFs(salvo.platform.fs.host.HostRawFs())"),
-        "expected the shipped host class at the `use` site, got:\n{}",
-        main.content
+        main.contains("__Mon_RawFs(salvo.platform.fs.host.HostRawFs())"),
+        "expected the shipped host class at the `use` site, got:\n{main}"
     );
-    // std ships the host file, and it travels into the output.
-    assert!(
-        files
-            .iter()
-            .any(|f| f.rel_path == std::path::Path::new("platform/fs/host.kt")),
-        "expected std's host companion to be emitted"
-    );
+    // std ships the host files, and they travel into the output.
+    for rel in ["platform/fs/host.kt", "platform/stream/host.kt"] {
+        assert!(
+            files.iter().any(|f| f.rel_path == std::path::Path::new(rel)),
+            "expected std's host companion {rel} to be emitted"
+        );
+    }
 }
 
 fn kotlinc_compiles_and_runs_the_fs_surface() -> KotlinCase {
@@ -12498,6 +12510,7 @@ const MEMFS_PROGRAM: &str = r#"
 import fs
 import fs.mem
 import fs.restricted
+import stream
 
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
@@ -12509,6 +12522,13 @@ fn describe(e: FsError) [] -> Str => e {
     if e is NotADirectory {
         return "not a directory"
     }
+    if e is Streaming {
+        return describe(e.error)
+    }
+    return "other"
+}
+
+fn describe(e: StreamError) [] -> Str => e {
     if e is InvalidUtf8 {
         return "not utf-8"
     }

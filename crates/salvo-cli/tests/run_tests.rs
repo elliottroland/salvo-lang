@@ -843,3 +843,37 @@ fn effect_prerequisites_run_on_both_backends() {
     }
     __stamp.verified();
 }
+
+/// [stream-provider] A stream belongs to the table that minted it: a handle
+/// the host's table never minted traps on both backends, naming the rule, and
+/// so does one handed to `MemFs`. The program never gets to print.
+#[test]
+fn a_stream_from_another_provider_traps() {
+    let Some(__stamp) = e2e_stamp("stream_provider", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("stream_provider");
+    let program = |imports: &str, uses: &str| {
+        format!(
+            "import stream\n{imports}\n\nfn main() [use] {{\n    use StdOutConsole()\n{uses}\
+             \n    let s = InStream {{ handle: 987654 }}\n    let line = read_line(s)\n    \
+             println(\"read ${{line is None}}\")\n    let closed = close(s)\n    when closed {{\n        \
+             is Ok {{ println(\"closed\") }}\n        is Err {{ ignore(closed) }}\n    }}\n}}\n"
+        )
+    };
+    for (label, imports, uses) in [
+        ("host", "import stream.host", "    use HostRawStreams()\n    use DefaultStreams()"),
+        ("mem", "import fs.mem", "    use MemFs()"),
+    ] {
+        fs::write(dir.join("main.sv"), program(imports, uses)).unwrap();
+        for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+            if !have(tool) {
+                continue;
+            }
+            let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(!out.status.success(), "{label}/{backend} should trap");
+            assert!(stderr.contains("987654") && stderr.contains("[stream-provider]"), "{label}/{backend}: {stderr}");
+            assert!(!String::from_utf8_lossy(&out.stdout).contains("read"), "{label}/{backend}");
+        }
+    }
+    __stamp.verified();
+}

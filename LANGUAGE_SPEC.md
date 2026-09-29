@@ -4048,14 +4048,57 @@ Conventions:
 
 ### The filesystem (std, module `fs` and the three under it)
 
-* [fs-surface] Module **`fs`** declares the **surface**: an `FsError` union
-  (8 arms) carried by `Checked<FsError>` [checked-type], the linear stream tokens
-  `InStream`/`OutStream`, `FileInfo`, the `Fs` effect (path operations
-  *and* stream operations as members [effect-member-overload]), the `Lines`
-  iterator, the `Chunks` iterator, and the one-shots (`read_to_str`, `read_lines`,
-  `write_str`, `open_lines`, `read_to_bytes`, `write_bytes_to`, `copy_stream`,
-  `copy_file`). Application code declares `[Fs]` and nothing else, as the std
-  forwarders themselves do.
+* [stream-layer] **Streams are a layer of their own** (user decisions
+  2026-09-29, 20–31; built the same day). Module **`stream`** owns the linear
+  tokens `InStream`/`OutStream`, `StreamError = InvalidUtf8 | StreamFailed`
+  (each `{ source, … }` — a stream need not have a path), and **one effect,
+  `Streams`**, with every stream operation: the reads (`read_line`,
+  `read_all`, `read_bytes`, both `read_to`s, `read_line_to`), `position`, the
+  writes, `flush`, and both `close`s — every consuming member beside the
+  types, as the same-file rule [linear-group] requires. The iterators
+  `Lines`/`Chunks` (`lines(s)`, `chunks(s, size)`), `fill_from` and
+  `copy_stream` are `stream`'s too. Producers mint into the `Streams` in scope
+  and never read: `fs` opens paths into it, a network client will hand out
+  bodies the same way.
+  * Why a layer and not a move: `InStream` alone could not leave `fs`, since
+    `Fs.close` and a second effect's `close` cannot both be declared in the
+    type's file — and a discharge grant or an exported terminal were the
+    alternatives (the second makes linearity advisory). The layering puts every
+    consuming member beside the type and needs no rule change.
+  * `stream.host` is the `fs.host` shape: `RawStreams` (plain handles and
+    errors), `threadsafe platform handler HostRawStreams`, and `DefaultStreams
+    [RawStreams] of Streams`, which wraps failures in `Checked<StreamError>`
+    and discharges the tokens in Salvo.
+* [stream-table] **One host stream table per process**, in each backend's
+  runtime (`scheduler.rs` / `scheduler.kt`, which every program carries):
+  `salvo_stream_register_in/out` (Rust) and `SalvoStreams.registerIn/Out`
+  (Kotlin) take a source description and an `io::Read`/`InputStream` (or the
+  write side), answer a handle from [stream-handle], and `HostRawStreams`
+  reads and writes the entries — line splitting, strict UTF-8, and a
+  consumed-byte `position` that counts read-ahead only once handed out. The
+  table is locked to find an entry and each entry has its own lock, so a slow
+  read of one stream never blocks another. `HostRawFs` registers what it
+  opens; it holds no state of its own any more.
+* [stream-provider] **A stream belongs to the provider that minted it.** A
+  handle from another table — a `MemFs` stream read by the host's `Streams`,
+  or the reverse — is a program bug and **traps**, naming the rule (user
+  decision 2026-09-29, 10); `StaleHandle` is gone from the error kinds with
+  it. With one handle counter the wrong table always finds an unknown handle,
+  never another live stream. Making it a compile-time error is ROADMAP §4b
+  item 4.
+* [fs-surface] Module **`fs`** declares the **path surface**: an `FsError`
+  union — `NotFound | PermissionDenied | AlreadyExists | NotADirectory |
+  PathEscapes | IoError | Streaming` — carried by `Checked<FsError>`
+  [checked-type], `FileInfo`, **`effect Fs [Streams]`** (the path operations;
+  the opens mint into the `Streams` in scope [effect-prereq]), `open_lines`,
+  `open_chunks`, and the one-shots (`read_to_str`, `read_lines`, `write_str`,
+  `read_to_bytes`, `write_bytes_to`, `copy_file`). Application code declares
+  `[Fs]` and nothing else: the prerequisite brings `Streams`.
+  * **`Streaming { error: StreamError }`** is how a one-shot that opens *and*
+    reads reports a read failure through one type. It wraps rather than
+    merging `stream`'s kinds into the union, so a value of either type has
+    exactly one text form [interp-to-str] — with the kinds merged, an
+    interpolated `StreamError` found two `to_str`s and interpolated as neither.
   * Fallible members return `Ok T | Err Checked<FsError>`: an effect member may
     declare no effects, so there is no `[Throw]` here
     [effect-member-no-effects]. The `Err` arm is linear, so a result that
@@ -4078,14 +4121,15 @@ Conventions:
   * Consequences: `Mut` appears nowhere in the fs surface, the tokens need
     no `canbe Mut`, and a token in a field (`Lines`) is read without
     projecting a `Mut` out of it.
-  * A token that outlives its minting handler's `use` scope is a clean
-    `Err StaleHandle`, not undefined behavior: handler id namespaces are
-    per handler.
+  * A token handed to a handler that did not mint it traps
+    [stream-provider].
 * [fs-errors-at-close] Read and write errors are **recorded** by the
   handler and surface at `close` (and `flush`): `read_line` reports the end
   of the stream either way, and `write` returns only the byte count, so a
   loop never narrows a result per line. `close` on both token types returns
-  `Ok None | Err Checked<FsError>`, so dropping it on the floor does not compile.
+  `Ok None | Err Checked<StreamError>`, so dropping it on the floor does not
+  compile. (The stream members are `Streams`' since [stream-layer]; the rules
+  kept their `fs-` labels.)
 * [fs-bytes] Bytes are part of the v1 surface: `read_bytes(s, max) ->
   Ok List<Byte> | Err Checked<FsError>` answers **up to** `max` bytes (fewer means
   the stream ended, none means it had ended already) and
@@ -4093,8 +4137,8 @@ Conventions:
   anything — a file that is not text is read and written by the same effect.
   * **One stream, one position, counted in bytes**: text and byte
     operations interleave on a stream, so a `read_all` continues exactly
-    where a `read_bytes` stopped. This is why the host handlers buffer
-    *bytes* below the decoder (`std/platform/fs/host.{kt,rs}`) rather
+    where a `read_bytes` stopped. This is why the host buffers *bytes*
+    below the decoder (the runtime's stream table [stream-table]) rather
     than reusing a character-counting reader.
   * A ranged open that lands mid-codepoint is a **legal seek** — an offset
     is bytes, and bytes have no characters. The strict decode afterwards is
@@ -4114,7 +4158,7 @@ Conventions:
     "only the first n are meaningful" convention exists; `clear(buf)` between
     steps is what makes one buffer serve a loop. It is also what lets `MemFs`
     implement them with `append` alone [fs-double].
-  * `RawFs`'s mirror splits the names (`raw_read_to_bytes`,
+  * `RawStreams`' mirror splits the names (`raw_read_to_bytes`,
     `raw_read_to_str`, `raw_read_line_to_str`) rather than overloading: the
     host file is *hand-written*, and an overload set would make it implement
     mangled names [fs-host-split].
@@ -4140,7 +4184,8 @@ Conventions:
     and 136 lines of union wrappers — **1,398 lines** of generated code across
     the two backends, for a program whose behaviour did not change.
 * [fs-host-split] The host-backed filesystem is its own module, **`fs.host`**:
-  `effect RawFs` (plain `Long` handles, bare `FsError`s),
+  `effect RawFs` (the path operations and the opens; plain `Long` handles into
+  the host stream table [stream-table], bare `FsError`s),
   `platform handler HostRawFs of RawFs` (std ships
   `std/platform/fs/host.{kt,rs}` [platform-handler]) and
   `handler DefaultFs [RawFs] of Fs`, which mints the tokens, wraps failures
@@ -4151,11 +4196,14 @@ Conventions:
     is one shape and the split is a matter of what a module drags in.
   * `[RawFs]` stays greppable as the audit: nothing but a composition root
     (`use HostRawFs()`) and `DefaultFs` reaches raw handles.
-* [fs-double] `fs.mem` ships **`MemFs of Fs`**: an in-memory filesystem
-  in pure Salvo, with no dependency and no host anywhere, so a test that
-  registers it touches no disk. It fakes the *whole* surface — streams
-  included — which is what putting the stream operations on the effect buys
-  [fs-surface].
+* [fs-double] `fs.mem` ships **`MemFs of Fs, Streams`**: an in-memory
+  filesystem *and* stream table in pure Salvo, with no dependency and no host
+  anywhere, so a test that registers it touches no disk. One handler wearing
+  both faces (user decision 2026-09-29, 29), because a write stream must
+  publish into the file map on close, and under [effect-prereq] a handler that
+  wears the prerequisite depends on nothing for it. A read stream reads a
+  snapshot of the file's bytes taken at the open. No separate `MemStreams`
+  until a test with no filesystem needs one.
   * A fresh `MemFs` is **empty**; write into it with the ordinary surface.
     (Seeding it from a constructor argument would need an immutable `Map` to
     become a `Mut Map`, which std has no route for [type-canbe-mut].)
@@ -4188,9 +4236,8 @@ Conventions:
     symlink-safe** — a symlink inside the root pointing out of it escapes.
     Closing that needs the host (`openat2(RESOLVE_BENEATH)`, cap-std), which
     under this layering belongs to `RawFs`; recorded as the hardening path.
-  * The policy lives entirely in the **opens**: the stream members are
-    pass-throughs, and a token it forwarded was minted by the handler it
-    wraps, which is where the token goes back to.
+  * The policy lives entirely in the **opens**, and it intercepts `Fs` only:
+    what they open is read by the `Streams` in scope as usual.
 * [fs-v1-cuts] Not in v1, and each an error rather than a surprise: seek
   (a ranged `open_read_at` replaces it, so streams stay forward-only),
   recursive walk or delete, temp files, watching, permissions, symlink
@@ -8047,7 +8094,7 @@ replaced the working document TESTING.md).
   `stream.fresh_handle()`, an `intrinsic` lowered to the runtime's atomic
   (`salvo_fresh_handle` / `SalvoSched.freshHandle()`), used by `MemFs` and by
   `HostRawFs`. A handle handed to the wrong table is therefore *unknown* there
-  — `StaleHandle`, or a trap — and never another live stream, which is what
+  — a trap [stream-provider] — and never another live stream, which is what
   per-table counters starting at 1 made likely. Making the mismatch a
   compile-time error is ROADMAP §4b item 4.
 * [platform-reply] **Host code can complete a `Reply` later, from any thread**

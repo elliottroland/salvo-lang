@@ -135,6 +135,41 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The fs/stream split (2026-09-29; §4b step 3c, decisions 20–31).** [stream-layer]
+[stream-table] [stream-provider]: `std/stream.sv` holds `InStream`/`OutStream`,
+`StreamError = InvalidUtf8 | StreamFailed` (field `source`, not `path`), the
+`Streams` effect with every stream member moved out of `Fs`, the
+`Lines`/`Chunks` iterators, `fill_from` and `copy_stream`; `std/stream/host.sv`
+the `RawStreams`/`HostRawStreams`/`DefaultStreams` layering. `fs` keeps the path
+operations as `effect Fs [Streams]`; its one-shots report a read failure as a
+new `FsError` arm **`Streaming { error: StreamError }`**. `MemFs` became `of Fs,
+Streams`, reading a snapshot taken at the open; `RestrictedFs` intercepts `Fs`
+only. The host table lives in each runtime's scheduler file behind
+`io::Read`/`InputStream`; `HostRawFs` registers into it and holds no state;
+`HostRawStreams` implements line splitting, strict UTF-8 and positions over it.
+A handle no table minted traps on both backends, and `StaleHandle` is gone.
+`examples/files` binds four handlers and prints its expected output unchanged
+on both backends. Tests: the fs surface assertions moved to `stream.rs`/
+`stream.kt`, the fs programs describe `StreamError` separately, and one new CLI
+test traps a foreign handle on the host and in `MemFs`, on both backends.
+
+*Choices made while building, within the decisions:* **`StaleHandle` dropped**
+rather than kept unused, since decision 10 turned its case into a trap;
+**`Streaming` wraps** instead of `FsError` absorbing `stream`'s arms — merged,
+an interpolated `StreamError` found both `fs.to_str` and `stream.to_str`,
+interpolation's implicit resolution declared it ambiguous and reported "no
+text form"; **mem reads snapshot** the file's bytes at the open, which is what
+`from_bytes` needs next.
+
+*Defects found and fixed on the way (all Kotlin emission):* (1) an interpolated
+`detach(r)` of a `Checked<A | B>` with a user `to_str` emitted
+`to_str(….value)` — the payload unwrap is for native interpolation only; (2)
+the `copy` immutability analysis did not see through a type alias in a struct
+field, so `copy` of an `FsError` (holding `Streaming { error: StreamError }`)
+was refused; (3) a file that `use`s a multi-face handler binds effects it never
+names (`use MemFs()` binds `Fs` and `Streams`) and did not import their
+packages. **1652 tests.**
+
 **One handle counter for every stream table (2026-09-29; §4b step 3b).**
 [stream-handle]: `std/stream.sv` begins with `fresh_handle()`, an intrinsic over
 a process-wide atomic in each runtime; `MemFs` loses its `next_handle` state and
@@ -18721,7 +18756,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1651)
+## Test inventory (all green: 1652)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

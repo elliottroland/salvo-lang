@@ -1,5 +1,9 @@
 // The filesystem of the machine the program runs on: the raw host seam and
-// the handler that turns it into `fs`'s `Fs`.
+// the handler that turns it into `fs`'s `Fs`. What it opens is registered in
+// the host's stream table, so the streams are read by `stream.host`'s
+// `DefaultStreams` — which is why a host filesystem is bound over host streams:
+// `use HostRawStreams()`, `use DefaultStreams()`, then `use HostRawFs()`,
+// `use DefaultFs()`.
 //
 // Its own module, and deliberately: a program that fakes the filesystem
 // (`fs.mem`) imports `fs` without reaching this module at all. `DefaultFs` is
@@ -8,6 +12,7 @@
 // must not arrive with the surface.
 
 import fs
+import stream
 
 // ===== the raw seam =====
 
@@ -17,10 +22,8 @@ import fs
 // but a composition root and `DefaultFs` does — which is what keeps the
 // audit a grep.
 //
-// Read errors are *recorded* by the host rather than returned: a failed
-// `raw_read_line` reports the end of the stream and `raw_close_read`
-// reports why. Write errors behave the same way, surfacing at
-// `raw_flush`/`raw_close_write`.
+// The opens answer a handle in the host's *stream* table: reading and writing
+// it is `stream.host`'s `RawStreams`, whose host class reads the same table.
 export effect RawFs {
     // Opens a file for reading, from the beginning.
     fn raw_open_read(path: Str) -> Ok Long | Err FsError => path
@@ -42,37 +45,6 @@ export effect RawFs {
     fn raw_delete(path: Str) -> Ok None | Err FsError => path
     // Renames a path, replacing the destination if it exists.
     fn raw_rename_path(from: Str, to: Str) -> Ok None | Err FsError => from, to
-
-    // The next line, without its terminator; absent at the end of the
-    // stream *or* after a recorded failure.
-    fn raw_read_line(handle: Long) -> Str | None
-    // Everything left in the stream.
-    fn raw_read_all(handle: Long) -> Ok Str | Err FsError
-    // Up to `max` bytes, undecoded.
-    fn raw_read_bytes(handle: Long, max: Int) -> Ok Bytes | Err FsError
-    // Up to `max` bytes appended to `buf`, answering how many.
-    fn raw_read_to_bytes(handle: Long, buf: Mut Bytes, max: Int) -> Ok Int | Err FsError => buf: Mut
-    // Everything left, decoded strictly and appended to `buf`, answering how
-    // many bytes were consumed.
-    fn raw_read_to_str(handle: Long, buf: Mut Str) -> Ok Long | Err FsError => buf: Mut
-    // The next line, without its terminator, appended to `buf`; `false` at the
-    // end of the stream or after a recorded failure.
-    fn raw_read_line_to_str(handle: Long, buf: Mut Str) -> Bool => buf: Mut
-    // Bytes consumed so far, counted below the decoder.
-    fn raw_read_position(handle: Long) -> Long
-    // Releases the read handle, reporting any failure recorded on it.
-    fn raw_close_read(handle: Long) -> Ok None | Err FsError
-
-    // Accepts text, answering how many bytes of it were written.
-    fn raw_write(handle: Long, text: Str) -> Long => text
-    // Accepts bytes as they are, answering how many were written.
-    fn raw_write_bytes(handle: Long, data: Bytes) -> Long => data
-    // Bytes accepted so far.
-    fn raw_write_position(handle: Long) -> Long
-    // Pushes accepted bytes to the host, reporting a recorded failure.
-    fn raw_flush(handle: Long) -> Ok None | Err FsError
-    // Flushes and releases the write handle.
-    fn raw_close_write(handle: Long) -> Ok None | Err FsError
 }
 
 // The one implementation of `RawFs`: a host class per backend, shipped with
@@ -153,91 +125,6 @@ export handler DefaultFs [RawFs] of Fs {
 
     fn rename_path(from: Str, to: Str) -> Ok None | Err Checked<FsError> => from, to {
         let r = raw_rename_path(from, to)
-        when r {
-            is Ok { return ok(None) }
-            is Err { return err(checked<FsError>(r)) }
-        }
-    }
-
-    fn read_line(s: InStream) -> Str | None => s {
-        return raw_read_line(s.handle)
-    }
-
-    fn read_all(s: InStream) -> Ok Str | Err Checked<FsError> => s {
-        let r = raw_read_all(s.handle)
-        when r {
-            is Ok { return ok(r) }
-            is Err { return err(checked<FsError>(r)) }
-        }
-    }
-
-    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err Checked<FsError> => s {
-        let r = raw_read_bytes(s.handle, max)
-        when r {
-            is Ok { return ok(r) }
-            is Err { return err(checked<FsError>(r)) }
-        }
-    }
-
-    fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err Checked<FsError> => s, buf: Mut {
-        let r = raw_read_to_bytes(s.handle, buf, max)
-        when r {
-            is Ok { return ok(r) }
-            is Err { return err(checked<FsError>(r)) }
-        }
-    }
-
-    fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err Checked<FsError> => s, buf: Mut {
-        let r = raw_read_to_str(s.handle, buf)
-        when r {
-            is Ok { return ok(r) }
-            is Err { return err(checked<FsError>(r)) }
-        }
-    }
-
-    fn read_line_to(s: InStream, buf: Mut Str) -> Bool => s, buf: Mut {
-        return raw_read_line_to_str(s.handle, buf)
-    }
-
-    fn position(s: InStream) -> Long => s {
-        return raw_read_position(s.handle)
-    }
-    fn close(s: InStream) -> Ok None | Err Checked<FsError> => !s {
-        let r = raw_close_read(s.handle)
-        discard(s)
-        when r {
-            is Ok { return ok(None) }
-            is Err { return err(checked<FsError>(r)) }
-        }
-    }
-
-    fn write(s: OutStream, text: Str) -> Long => s, text {
-        return raw_write(s.handle, text)
-    }
-
-    fn write_line(s: OutStream, text: Str) -> Long => s, text {
-        return raw_write(s.handle, "${text}\n")
-    }
-
-    fn write_bytes(s: OutStream, data: Bytes) -> Long => s, data {
-        return raw_write_bytes(s.handle, data)
-    }
-
-    fn position(s: OutStream) -> Long => s {
-        return raw_write_position(s.handle)
-    }
-
-    fn flush(s: OutStream) -> Ok None | Err Checked<FsError> => s {
-        let r = raw_flush(s.handle)
-        when r {
-            is Ok { return ok(None) }
-            is Err { return err(checked<FsError>(r)) }
-        }
-    }
-
-    fn close(s: OutStream) -> Ok None | Err Checked<FsError> => !s {
-        let r = raw_close_write(s.handle)
-        discard(s)
         when r {
             is Ok { return ok(None) }
             is Err { return err(checked<FsError>(r)) }

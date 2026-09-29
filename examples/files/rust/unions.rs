@@ -68,60 +68,55 @@ where
     }
 }
 
-impl<T1: crate::wire::__Wire, T2: crate::wire::__Wire, T3: crate::wire::__Wire, T4: crate::wire::__Wire, T5: crate::wire::__Wire, T6: crate::wire::__Wire, T7: crate::wire::__Wire, T8: crate::wire::__Wire> crate::wire::__Wire for Union8<T1, T2, T3, T4, T5, T6, T7, T8> {
+impl<T1: crate::wire::__Wire, T2: crate::wire::__Wire, T3: crate::wire::__Wire, T4: crate::wire::__Wire, T5: crate::wire::__Wire, T6: crate::wire::__Wire, T7: crate::wire::__Wire> crate::wire::__Wire for Union7<T1, T2, T3, T4, T5, T6, T7> {
     fn __enc(&self, out: &mut Vec<u8>) {
         match self {
-            Union8::U1(v) => {
+            Union7::U1(v) => {
                 out.push(0);
                 crate::wire::__Wire::__enc(v, out);
             }
-            Union8::U2(v) => {
+            Union7::U2(v) => {
                 out.push(1);
                 crate::wire::__Wire::__enc(v, out);
             }
-            Union8::U3(v) => {
+            Union7::U3(v) => {
                 out.push(2);
                 crate::wire::__Wire::__enc(v, out);
             }
-            Union8::U4(v) => {
+            Union7::U4(v) => {
                 out.push(3);
                 crate::wire::__Wire::__enc(v, out);
             }
-            Union8::U5(v) => {
+            Union7::U5(v) => {
                 out.push(4);
                 crate::wire::__Wire::__enc(v, out);
             }
-            Union8::U6(v) => {
+            Union7::U6(v) => {
                 out.push(5);
                 crate::wire::__Wire::__enc(v, out);
             }
-            Union8::U7(v) => {
+            Union7::U7(v) => {
                 out.push(6);
-                crate::wire::__Wire::__enc(v, out);
-            }
-            Union8::U8(v) => {
-                out.push(7);
                 crate::wire::__Wire::__enc(v, out);
             }
         }
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
         match r.u8()? {
-            0 => Some(Union8::U1(crate::wire::__Wire::__dec(r)?)),
-            1 => Some(Union8::U2(crate::wire::__Wire::__dec(r)?)),
-            2 => Some(Union8::U3(crate::wire::__Wire::__dec(r)?)),
-            3 => Some(Union8::U4(crate::wire::__Wire::__dec(r)?)),
-            4 => Some(Union8::U5(crate::wire::__Wire::__dec(r)?)),
-            5 => Some(Union8::U6(crate::wire::__Wire::__dec(r)?)),
-            6 => Some(Union8::U7(crate::wire::__Wire::__dec(r)?)),
-            7 => Some(Union8::U8(crate::wire::__Wire::__dec(r)?)),
+            0 => Some(Union7::U1(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(Union7::U2(crate::wire::__Wire::__dec(r)?)),
+            2 => Some(Union7::U3(crate::wire::__Wire::__dec(r)?)),
+            3 => Some(Union7::U4(crate::wire::__Wire::__dec(r)?)),
+            4 => Some(Union7::U5(crate::wire::__Wire::__dec(r)?)),
+            5 => Some(Union7::U6(crate::wire::__Wire::__dec(r)?)),
+            6 => Some(Union7::U7(crate::wire::__Wire::__dec(r)?)),
             _ => None,
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Union8<T1, T2, T3, T4, T5, T6, T7, T8> {
+pub enum Union7<T1, T2, T3, T4, T5, T6, T7> {
     U1(T1),
     U2(T2),
     U3(T3),
@@ -129,109 +124,96 @@ pub enum Union8<T1, T2, T3, T4, T5, T6, T7, T8> {
     U5(T5),
     U6(T6),
     U7(T7),
-    U8(T8),
 }
 
-impl<T1, T2, T3, T4, T5, T6, T7, T8> Union8<T1, T2, T3, T4, T5, T6, T7, T8> {
+impl<T1, T2, T3, T4, T5, T6, T7> Union7<T1, T2, T3, T4, T5, T6, T7> {
     pub fn u1(&self) -> &T1 {
         match self {
-            Union8::U1(v) => v,
+            Union7::U1(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u1_mut(&mut self) -> &mut T1 {
         match self {
-            Union8::U1(v) => v,
+            Union7::U1(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u2(&self) -> &T2 {
         match self {
-            Union8::U2(v) => v,
+            Union7::U2(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u2_mut(&mut self) -> &mut T2 {
         match self {
-            Union8::U2(v) => v,
+            Union7::U2(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u3(&self) -> &T3 {
         match self {
-            Union8::U3(v) => v,
+            Union7::U3(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u3_mut(&mut self) -> &mut T3 {
         match self {
-            Union8::U3(v) => v,
+            Union7::U3(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u4(&self) -> &T4 {
         match self {
-            Union8::U4(v) => v,
+            Union7::U4(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u4_mut(&mut self) -> &mut T4 {
         match self {
-            Union8::U4(v) => v,
+            Union7::U4(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u5(&self) -> &T5 {
         match self {
-            Union8::U5(v) => v,
+            Union7::U5(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u5_mut(&mut self) -> &mut T5 {
         match self {
-            Union8::U5(v) => v,
+            Union7::U5(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u6(&self) -> &T6 {
         match self {
-            Union8::U6(v) => v,
+            Union7::U6(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u6_mut(&mut self) -> &mut T6 {
         match self {
-            Union8::U6(v) => v,
+            Union7::U6(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u7(&self) -> &T7 {
         match self {
-            Union8::U7(v) => v,
+            Union7::U7(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
     pub fn u7_mut(&mut self) -> &mut T7 {
         match self {
-            Union8::U7(v) => v,
-            _ => panic!("unreachable union arm"),
-        }
-    }
-    pub fn u8(&self) -> &T8 {
-        match self {
-            Union8::U8(v) => v,
-            _ => panic!("unreachable union arm"),
-        }
-    }
-    pub fn u8_mut(&mut self) -> &mut T8 {
-        match self {
-            Union8::U8(v) => v,
+            Union7::U7(v) => v,
             _ => panic!("unreachable union arm"),
         }
     }
 }
 
-impl<T1, T2, T3, T4, T5, T6, T7, T8> std::fmt::Display for Union8<T1, T2, T3, T4, T5, T6, T7, T8>
+impl<T1, T2, T3, T4, T5, T6, T7> std::fmt::Display for Union7<T1, T2, T3, T4, T5, T6, T7>
 where
     T1: std::fmt::Display,
     T2: std::fmt::Display,
@@ -240,18 +222,16 @@ where
     T5: std::fmt::Display,
     T6: std::fmt::Display,
     T7: std::fmt::Display,
-    T8: std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Union8::U1(v) => write!(f, "{}", v),
-            Union8::U2(v) => write!(f, "{}", v),
-            Union8::U3(v) => write!(f, "{}", v),
-            Union8::U4(v) => write!(f, "{}", v),
-            Union8::U5(v) => write!(f, "{}", v),
-            Union8::U6(v) => write!(f, "{}", v),
-            Union8::U7(v) => write!(f, "{}", v),
-            Union8::U8(v) => write!(f, "{}", v),
+            Union7::U1(v) => write!(f, "{}", v),
+            Union7::U2(v) => write!(f, "{}", v),
+            Union7::U3(v) => write!(f, "{}", v),
+            Union7::U4(v) => write!(f, "{}", v),
+            Union7::U5(v) => write!(f, "{}", v),
+            Union7::U6(v) => write!(f, "{}", v),
+            Union7::U7(v) => write!(f, "{}", v),
         }
     }
 }

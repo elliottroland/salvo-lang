@@ -1,8 +1,8 @@
 # files
 
-Reading and writing files: one `Fs` effect for paths *and* streams, linear
-stream tokens, a linear error, text and bytes off the same stream — and the
-same program run against three filesystems.
+Reading and writing files: an `Fs` effect for paths over a `Streams` effect
+for what they open, linear stream tokens, a linear error, text and bytes off
+the same stream — and the same program run against three filesystems.
 
 Run it:
 
@@ -19,9 +19,11 @@ removes everything it made.
 **The output prints twice, identically.** The first block is the real
 filesystem; the second is `MemFs`, an in-memory fake with no host handler
 anywhere. Nothing in `workflow()` changes between them — it declares `[Fs]`,
-and `use` decides what that means. That is what putting the stream operations
-*on the effect* buys: a double can fake reading and writing, not just opening,
-so a test of file code needs no files. The fake stores bytes and counts byte
+which brings `Streams` with it (`effect Fs [Streams]`, a *prerequisite*), and
+`use` decides what both mean. The host binds four handlers (streams, then the
+filesystem, each as a host class under a Salvo handler); `MemFs` wears both
+faces at once, so a double fakes reading and writing, not just opening, and a
+test of file code needs no files. The fake stores bytes and counts byte
 offsets, so `position` answers 17 in both blocks; a fake that stored text and
 counted characters would agree here and disagree on the first non-ASCII file.
 

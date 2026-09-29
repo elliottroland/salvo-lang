@@ -1,32 +1,37 @@
 // The filesystem, end to end.
 //
-// One effect, `Fs`, carries both the path operations and the stream
-// operations. Everything below is written against `[Fs]` and nothing else, so
-// the *same* code runs against three filesystems in this one program: the
-// machine's, a sandbox scoped to one directory, and an in-memory fake with no
-// disk at all. The output of the last two blocks is identical, which is the
-// point of the design — a double that fakes the whole surface makes a test of
-// file code a test with no files.
+// Two effects: `Fs` for paths, and `Streams` for what opening a path hands
+// back — the one effect that reads and writes every stream in a program, a
+// file's or a network body's. `Streams` is a *prerequisite* of `Fs`
+// (`effect Fs [Streams]`), so everything below is still written against
+// `[Fs]` alone and reads what it opened. The *same* code runs against three
+// filesystems in this one program: the machine's, a sandbox scoped to one
+// directory, and an in-memory fake with no disk at all. The output of the last
+// two blocks is identical, which is the point of the design — a double that
+// fakes the whole surface makes a test of file code a test with no files.
 //
 // The two things the compiler will not let you forget:
 //
 //   * an **open stream** is linear — the token must be closed on every path,
 //     and `close` is what discharges it;
-//   * an **error** must be acknowledged too — `Err Checked<FsError>` carries
-//     the obligation, discharged by `ignore`, by `detach` (which hands back
-//     the failure itself), or by narrowing the result to its `Ok` arm.
+//   * an **error** must be acknowledged too — `Err Checked<FsError>` (a path
+//     operation) or `Err Checked<StreamError>` (a read or a write) carries the
+//     obligation, discharged by `ignore`, by `detach` (which hands back the
+//     failure itself), or by narrowing the result to its `Ok` arm.
 
 // The name of a failure without the path it happened to. Paths differ between
 // the real filesystem (where the sandbox has rebased them) and the fake, so
 // naming the *kind* is what keeps the two runs comparable — and `is` narrowing
 // over the union is how you read one.
-// The filesystem is `std`'s, imported: the surface, the host's
-// implementation, and the two doubles. A whole-module import names one
+// The filesystem and the streams are `std`'s, imported: the surfaces, the
+// host's implementations, and the two doubles. A whole-module import names one
 // module, so each is its own line [mod-import-module].
 import fs
 import fs.host
 import fs.mem
 import fs.restricted
+import stream
+import stream.host
 
 fn kind_name(kind: FsError) [] -> Str => kind {
     if kind is NotFound {
@@ -38,6 +43,16 @@ fn kind_name(kind: FsError) [] -> Str => kind {
     if kind is PathEscapes {
         return "escapes the sandbox"
     }
+    // A one-shot that opens *and* reads reports a read failure as the
+    // filesystem's, wrapped.
+    if kind is Streaming {
+        return kind_name(kind.error)
+    }
+    return "other"
+}
+
+// The same, for a failure reading or writing a stream.
+fn kind_name(kind: StreamError) [] -> Str => kind {
     if kind is InvalidUtf8 {
         return "not valid UTF-8"
     }
@@ -345,10 +360,14 @@ fn sandbox_edges() [Fs, Console] -> None {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    // The machine's filesystem, in two layers: `HostRawFs` is the host
-    // implementation (a class shipped per backend, no obligations in it), and
-    // `DefaultFs` is the Salvo handler above it that mints the linear tokens
-    // and maps host failures into `FsError`.
+    // The machine's streams and filesystem, each in two layers: `HostRawStreams`
+    // and `HostRawFs` are the host implementations (classes shipped per
+    // backend, no obligations in them), and `DefaultStreams` and `DefaultFs`
+    // the Salvo handlers above them that mint and discharge the linear tokens
+    // and map host failures into `StreamError` and `FsError`. Streams first:
+    // `Fs` needs them bound [effect-prereq].
+    use HostRawStreams()
+    use DefaultStreams()
     use HostRawFs()
     use DefaultFs()
 
@@ -381,10 +400,10 @@ fn main() [use] -> None {
 
     println("-- the same code, with no disk at all --")
     if true {
-        // `MemFs` fakes the whole of `Fs`, streams included, and shadows the
-        // handler registered above for the length of the block. Its files are
-        // bytes and its offsets are byte offsets, so the block below prints
-        // exactly what the disk printed.
+        // `MemFs` fakes `Fs` and `Streams` both — one handler, two faces — and
+        // shadows the handlers registered above for the length of the block.
+        // Its files are bytes and its offsets are byte offsets, so the block
+        // below prints exactly what the disk printed.
         use MemFs()
         workflow()
     }

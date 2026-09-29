@@ -9793,11 +9793,20 @@ fn bytes_is_a_vec_of_u8() {
 const FS_PROGRAM: &str = r#"
 import fs
 import fs.host
+import stream
+import stream.host
 
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
         return "not found"
     }
+    if e is Streaming {
+        return describe(e.error)
+    }
+    return "other"
+}
+
+fn describe(e: StreamError) [] -> Str => e {
     if e is InvalidUtf8 {
         return "not utf-8"
     }
@@ -9806,6 +9815,8 @@ fn describe(e: FsError) [] -> Str => e {
 
 fn main() [use] -> None {
     use StdOutConsole()
+    use HostRawStreams()
+    use DefaultStreams()
     use HostRawFs()
     use DefaultFs()
 
@@ -10085,52 +10096,51 @@ fn fs_program() -> String {
 #[test]
 fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
     let files = generate(&[("main.sv", &fs_program())]);
-    let surface = &files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("fs.rs"))
-        .expect("fs.rs")
-        .content;
+    let file = |rel: &str| -> String {
+        files
+            .iter()
+            .find(|f| f.rel_path == std::path::Path::new(rel))
+            .unwrap_or_else(|| panic!("{rel} was not emitted"))
+            .content
+            .clone()
+    };
+    let surface = file("stream.rs");
     for expected in [
-        "pub trait __Stateful_Fs: Send {",
+        "pub trait __Stateful_Streams: Send {",
         // The token is consumed: by value, not `&InStream`.
         "fn close(&mut self, s: InStream)",
         // …and kept members borrow it.
         "fn read_line(&mut self, s: &InStream) -> Option<String>",
         // [effect-available] One overload set: the pass's discharger is a
-        // *fn* named `close`, beside the two members of that name, and the
-        // program calls both.
-        "pub fn close(fs: &crate::fs::Fs, p: Lines)",
+        // *fn* named `close`, beside the two members of that name.
+        "pub fn close(streams: &crate::stream::Streams, p: Lines)",
     ] {
         assert!(
             surface.contains(expected),
             "expected `{expected}` in:\n{surface}"
         );
     }
-    // The host seam is its own module [mod-used-only]: a program that never
-    // opens a file links none of it.
-    let host = &files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("fs/host.rs"))
-        .expect("fs/host.rs")
-        .content;
-    for expected in [
-        "pub trait __Stateful_RawFs: Send {",
-        "fn raw_close_read(&mut self, handle: i64)",
-        "pub struct DefaultFs",
-    ] {
+    // The host seams are their own modules [mod-used-only]: a program that
+    // never opens a file links none of them.
+    let host = file("fs/host.rs");
+    for expected in ["pub trait __Stateful_RawFs: Send {", "pub struct DefaultFs"] {
         assert!(host.contains(expected), "expected `{expected}` in:\n{host}");
     }
     assert!(
         !host.contains("pub struct HostRawFs"),
         "the platform handler's struct is the host's:\n{host}"
     );
-    // std ships the host file, and it travels into the output.
-    assert!(
-        files
-            .iter()
-            .any(|f| f.rel_path == std::path::Path::new("platform/fs/host.rs")),
-        "expected std's host companion to be emitted"
-    );
+    let stream_host = file("stream/host.rs");
+    for expected in ["fn raw_close_read(&self, handle: i64)", "pub struct DefaultStreams"] {
+        assert!(stream_host.contains(expected), "expected `{expected}` in:\n{stream_host}");
+    }
+    // std ships the host files, and they travel into the output.
+    for rel in ["platform/fs/host.rs", "platform/stream/host.rs"] {
+        assert!(
+            files.iter().any(|f| f.rel_path == std::path::Path::new(rel)),
+            "expected std's host companion {rel} to be emitted"
+        );
+    }
 }
 
 #[test]
@@ -10160,6 +10170,7 @@ const MEMFS_PROGRAM: &str = r#"
 import fs
 import fs.mem
 import fs.restricted
+import stream
 
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
@@ -10171,6 +10182,13 @@ fn describe(e: FsError) [] -> Str => e {
     if e is NotADirectory {
         return "not a directory"
     }
+    if e is Streaming {
+        return describe(e.error)
+    }
+    return "other"
+}
+
+fn describe(e: StreamError) [] -> Str => e {
     if e is InvalidUtf8 {
         return "not utf-8"
     }

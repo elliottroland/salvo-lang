@@ -1,5 +1,9 @@
-// An in-memory filesystem: a `MemFs` fakes the whole of `Fs`, streams
-// included, so a test needs no disk and no host handler at all.
+// An in-memory filesystem: a `MemFs` fakes the whole of `Fs` *and* `Streams`
+// — one handler wearing both faces, since a write stream has to publish into
+// the file map when it closes — so a test needs no disk and no host handler
+// at all. A test of anything else that produces streams (a fake network
+// client minting bodies) binds `MemFs` too: its streams are the `Streams` in
+// scope.
 //
 // A fresh `MemFs` is **empty**; write into it with the ordinary surface
 // (`write_str`, `open_write`) and read it back. Directories are implicit:
@@ -14,29 +18,31 @@
 // reported by `close` — the host's behavior, reproduced rather than
 // approximated.
 
-// What an open read stream is: which file, how far into its bytes the reader
-// has consumed, and whether a strict decode has already failed on it (which
-// ends iteration and surfaces at `close`).
 import fs
-import stream.fresh_handle
+import stream
 
-struct MemRead { path: Str, at: Int, failed: Bool }
+// What an open read stream is: what it reads — a snapshot of the file's bytes
+// when it was opened, and a description for errors — how far the reader has
+// consumed, and whether a strict decode has already failed on it (which ends
+// iteration and surfaces at `close`).
+struct MemRead { source: Str, data: Bytes, at: Int, failed: Bool }
 
 // What an open write stream is: which file, and the bytes written so far.
 // Closing (or flushing) publishes the buffer.
 struct MemWrite { path: Str, buffer: Bytes }
 
-export handler MemFs of Fs {
+export handler MemFs of Fs, Streams {
     files: Mut Map<Str, Bytes> = mut_map_of()
     reads: Mut Map<Long, MemRead> = mut_map_of()
     writes: Mut Map<Long, MemWrite> = mut_map_of()
 
     fn open_read(path: Str) -> Ok InStream | Err Checked<FsError> => path {
-        if !contains_key(files, path) {
+        let content = get(files, path)
+        if content is None {
             return err(checked<FsError>(NotFound { path: copy(path) }))
         }
         let handle = fresh_handle()
-        put(reads, copy(handle), MemRead { path: copy(path), at: 0, failed: false })
+        put(reads, copy(handle), MemRead { source: copy(path), data: copy(content), at: 0, failed: false })
         return ok(InStream { handle: copy(handle) })
     }
 
@@ -57,7 +63,7 @@ export handler MemFs of Fs {
             at = end
         }
         let handle = fresh_handle()
-        put(reads, copy(handle), MemRead { path: copy(path), at: at, failed: false })
+        put(reads, copy(handle), MemRead { source: copy(path), data: copy(content), at: at, failed: false })
         return ok(InStream { handle: copy(handle) })
     }
 
@@ -160,22 +166,22 @@ export handler MemFs of Fs {
     // handler member may not call a member of the effect it implements, and
     // the shared logic has to live somewhere both can reach.
     fn read_line(s: InStream) -> Str | None => s {
-        return mem_read_line(reads, files, s.handle)
+        return mem_read_line(reads, s.handle)
     }
 
-    fn read_all(s: InStream) -> Ok Str | Err Checked<FsError> => s {
-        return mem_read_all(reads, files, s.handle)
+    fn read_all(s: InStream) -> Ok Str | Err Checked<StreamError> => s {
+        return mem_read_all(reads, s.handle)
     }
 
-    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err Checked<FsError> => s {
-        return mem_read_bytes(reads, files, s.handle, max)
+    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err Checked<StreamError> => s {
+        return mem_read_bytes(reads, s.handle, max)
     }
 
     // The fill-a-buffer reads [fs-read-to]: each is its returning sibling with
     // the destination handed in, so the fake has the same three shapes the
     // host does.
-    fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err Checked<FsError> => s, buf: Mut {
-        let got = mem_read_bytes(reads, files, s.handle, max)
+    fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err Checked<StreamError> => s, buf: Mut {
+        let got = mem_read_bytes(reads, s.handle, max)
         if got is Err {
             return got
         }
@@ -184,8 +190,8 @@ export handler MemFs of Fs {
         return ok(size(data))
     }
 
-    fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err Checked<FsError> => s, buf: Mut {
-        let got = mem_read_all(reads, files, s.handle)
+    fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err Checked<StreamError> => s, buf: Mut {
+        let got = mem_read_all(reads, s.handle)
         if got is Err {
             return got
         }
@@ -195,7 +201,7 @@ export handler MemFs of Fs {
     }
 
     fn read_line_to(s: InStream, buf: Mut Str) -> Bool => s, buf: Mut {
-        let line = mem_read_line(reads, files, s.handle)
+        let line = mem_read_line(reads, s.handle)
         when line {
             is Str {
                 buf.append(line)
@@ -206,26 +212,18 @@ export handler MemFs of Fs {
     }
 
     fn position(s: InStream) -> Long => s {
-        let open = get(reads, s.handle)
-        if open is None {
-            return 0
-        }
         // The bytes consumed, and nothing to convert: the store *is* bytes.
-        return to_long(open.at)
+        return to_long(mem_read_state(reads, s.handle).at)
     }
-    fn close(s: InStream) -> Ok None | Err Checked<FsError> => !s {
-        let open = get(reads, s.handle)
-        let failed = false
-        let path = "<stream>"
-        if open is MemRead {
-            failed = copy(open.failed)
-            path = copy(open.path)
-        }
+    fn close(s: InStream) -> Ok None | Err Checked<StreamError> => !s {
+        let open = mem_read_state(reads, s.handle)
+        let failed = copy(open.failed)
+        let source = copy(open.source)
         remove(reads, s.handle)
         discard(s)
         if failed {
             // The recorded read failure, reported where the host reports it.
-            return err(checked<FsError>(InvalidUtf8 { path: path }))
+            return err(checked<StreamError>(InvalidUtf8 { source: source }))
         }
         return ok(None)
     }
@@ -243,28 +241,17 @@ export handler MemFs of Fs {
     }
 
     fn position(s: OutStream) -> Long => s {
-        let open = get(writes, s.handle)
-        if open is None {
-            return 0
-        }
-        return to_long(size(open.buffer))
+        return to_long(size(mem_write_state(writes, s.handle).buffer))
     }
 
-    fn flush(s: OutStream) -> Ok None | Err Checked<FsError> => s {
-        let open = get(writes, s.handle)
-        if open is None {
-            return err(checked<FsError>(StaleHandle { path: "<stream>" }))
-        }
+    fn flush(s: OutStream) -> Ok None | Err Checked<StreamError> => s {
+        let open = mem_write_state(writes, s.handle)
         put(files, copy(open.path), copy(open.buffer))
         return ok(None)
     }
 
-    fn close(s: OutStream) -> Ok None | Err Checked<FsError> => !s {
-        let open = get(writes, s.handle)
-        if open is None {
-            discard(s)
-            return err(checked<FsError>(StaleHandle { path: "<stream>" }))
-        }
+    fn close(s: OutStream) -> Ok None | Err Checked<StreamError> => !s {
+        let open = mem_write_state(writes, s.handle)
         put(files, copy(open.path), copy(open.buffer))
         remove(writes, s.handle)
         discard(s)
@@ -302,10 +289,7 @@ fn mem_find_newline(data: Bytes, from: Int) [] -> Int => data {
 // it took — the one place all three write members meet, since they differ
 // only in what they turn into bytes.
 fn mem_append(writes: Mut Map<Long, MemWrite>, handle: Long, data: Bytes) [] -> Long => writes: Mut, handle, data {
-    let open = get(writes, handle)
-    if open is None {
-        return 0
-    }
+    let open = mem_write_state(writes, handle)
     let grown = mut_bytes(open.buffer)
     grown.append(data)
     let buffer: Bytes = grown
@@ -314,27 +298,38 @@ fn mem_append(writes: Mut Map<Long, MemWrite>, handle: Long, data: Bytes) [] -> 
 }
 
 
+// [stream-provider] The state of an open stream, or a trap: a handle this
+// table never minted is a stream from another provider — a host stream handed
+// to `MemFs` — which is a program bug, not a condition to report.
+fn mem_read_state(reads: Map<Long, MemRead>, handle: Long) [] -> MemRead => reads, handle {
+    let open = get(reads, handle)
+    if open is None {
+        unreachable!("stream handle ${handle} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]")
+    }
+    return MemRead { source: copy(open.source), data: copy(open.data), at: open.at, failed: open.failed }
+}
+
+fn mem_write_state(writes: Map<Long, MemWrite>, handle: Long) [] -> MemWrite => writes, handle {
+    let open = get(writes, handle)
+    if open is None {
+        unreachable!("stream handle ${handle} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]")
+    }
+    return MemWrite { path: copy(open.path), buffer: copy(open.buffer) }
+}
+
 // The reads, as functions over the handler's own state — see the note on the
 // members that call them.
 
 // The next line at the stream's position, without its terminator; absent at
-// the end of the file or after a strict-decode failure (which is recorded, so
-// `close` can report it).
-fn mem_read_line(reads: Mut Map<Long, MemRead>, files: Map<Str, Bytes>, handle: Long) [] -> Str | None => reads: Mut, files, handle {
-    let open = get(reads, handle)
-    if open is None {
-        return None
-    }
+// the end of the stream or after a strict-decode failure (which is recorded,
+// so `close` can report it).
+fn mem_read_line(reads: Mut Map<Long, MemRead>, handle: Long) [] -> Str | None => reads: Mut, handle {
+    let open = mem_read_state(reads, handle)
     if open.failed {
         return None
     }
     let at = open.at
-    let path: Str = copy(open.path)
-    let content = get(files, path)
-    if content is None {
-        return None
-    }
-    let bytes: Bytes = copy(content)
+    let bytes: Bytes = copy(open.data)
     let end = size(bytes)
     if at >= end {
         return None
@@ -348,55 +343,41 @@ fn mem_read_line(reads: Mut Map<Long, MemRead>, files: Map<Str, Bytes>, handle: 
     }
     let text = str_of_bytes(line)
     if text is None {
-        put(reads, copy(handle), MemRead { path: copy(path), at: next_at, failed: true })
+        put(reads, copy(handle), MemRead { source: copy(open.source), data: bytes, at: next_at, failed: true })
         return None
     }
-    put(reads, copy(handle), MemRead { path: copy(path), at: next_at, failed: false })
+    put(reads, copy(handle), MemRead { source: copy(open.source), data: bytes, at: next_at, failed: false })
     // `\r\n` and `\n` both end a line, and neither is part of it.
     return trim_suffix(text, "\r")
 }
 
 // Everything left in the stream, decoded strictly.
-fn mem_read_all(reads: Mut Map<Long, MemRead>, files: Map<Str, Bytes>, handle: Long) [] -> Ok Str | Err Checked<FsError> => reads: Mut, files, handle {
-    let open = get(reads, handle)
-    if open is None {
-        return err(checked<FsError>(StaleHandle { path: "<stream>" }))
-    }
-    let path: Str = copy(open.path)
+fn mem_read_all(reads: Mut Map<Long, MemRead>, handle: Long) [] -> Ok Str | Err Checked<StreamError> => reads: Mut, handle {
+    let open = mem_read_state(reads, handle)
+    let source: Str = copy(open.source)
     if open.failed {
-        return err(checked<FsError>(InvalidUtf8 { path: path }))
+        return err(checked<StreamError>(InvalidUtf8 { source: source }))
     }
-    let content = get(files, path)
-    if content is None {
-        return err(checked<FsError>(NotFound { path: copy(path) }))
-    }
-    let bytes: Bytes = copy(content)
+    let bytes: Bytes = copy(open.data)
     let end = size(bytes)
     let rest = slice(bytes, open.at, end)!
     let text = str_of_bytes(rest)
     if text is None {
-        put(reads, copy(handle), MemRead { path: copy(path), at: end, failed: true })
-        return err(checked<FsError>(InvalidUtf8 { path: copy(path) }))
+        put(reads, copy(handle), MemRead { source: copy(source), data: bytes, at: end, failed: true })
+        return err(checked<StreamError>(InvalidUtf8 { source: copy(source) }))
     }
-    put(reads, copy(handle), MemRead { path: copy(path), at: end, failed: false })
+    put(reads, copy(handle), MemRead { source: copy(source), data: bytes, at: end, failed: false })
     return ok(text)
 }
 
 // Up to [max] bytes from the stream's position, undecoded.
-fn mem_read_bytes(reads: Mut Map<Long, MemRead>, files: Map<Str, Bytes>, handle: Long, max: Int) [] -> Ok Bytes | Err Checked<FsError> => reads: Mut, files, handle {
-    let open = get(reads, handle)
-    if open is None {
-        return err(checked<FsError>(StaleHandle { path: "<stream>" }))
-    }
-    let path: Str = copy(open.path)
+fn mem_read_bytes(reads: Mut Map<Long, MemRead>, handle: Long, max: Int) [] -> Ok Bytes | Err Checked<StreamError> => reads: Mut, handle {
+    let open = mem_read_state(reads, handle)
+    let source: Str = copy(open.source)
     if open.failed {
-        return err(checked<FsError>(InvalidUtf8 { path: path }))
+        return err(checked<StreamError>(InvalidUtf8 { source: source }))
     }
-    let content = get(files, path)
-    if content is None {
-        return err(checked<FsError>(NotFound { path: copy(path) }))
-    }
-    let bytes: Bytes = copy(content)
+    let bytes: Bytes = copy(open.data)
     let stop = open.at + max
     if max < 0 {
         stop = open.at
@@ -406,6 +387,6 @@ fn mem_read_bytes(reads: Mut Map<Long, MemRead>, files: Map<Str, Bytes>, handle:
         stop = end
     }
     let taken = slice(bytes, open.at, stop)!
-    put(reads, copy(handle), MemRead { path: copy(path), at: stop, failed: false })
+    put(reads, copy(handle), MemRead { source: copy(source), data: bytes, at: stop, failed: false })
     return ok(taken)
 }

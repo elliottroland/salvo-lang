@@ -15,7 +15,7 @@ object __Codec_ProfileCredentials : salvo.WireCodec<ProfileCredentials> {
     override fun dec(inp: salvo.WireIn): ProfileCredentials = ProfileCredentials(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp))
 }
 
-fun to_str__6(value: ProfileCredentials): String {
+fun to_str__7(value: ProfileCredentials): String {
     val out: StringBuilder = StringBuilder(listOf("ProfileCredentials {").joinToString(""))
     out.append(" ")
     out.append("profile: ${value.profile}")
