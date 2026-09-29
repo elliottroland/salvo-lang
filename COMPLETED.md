@@ -135,6 +135,50 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The `aws` module's design (2026-09-29, user decisions D1–D8; written up, not
+built).** `modules/aws/DESIGN.md` is the record; ROADMAP §4b holds what the
+compiler must grow first. The calls, in the order they were made: **wrap the
+host SDKs** through generated platform handlers rather than implement the AWS
+protocols in Salvo (the `smithy-dafny` precedent — a transpiled language with
+no runtime generating host glue per target); the generator is a **`smithy-build`
+plugin under `modules/aws/codegen/`**, not a `salvo` subcommand — the user's
+constraint that the module be a self-contained *user* of Salvo, with any
+language growth specified AWS-neutrally — and on the JVM rather than in Rust
+because the host SDKs' member names come from `smithy-kotlin`'s and
+`smithy-rs`'s symbol providers, which a JVM plugin can call and a Rust tool
+would have to mirror; **S3 in scope from the start** for the non-file streaming
+case; **non-blocking by construction**: a service is a *plain* effect whose
+members take a `Reply` and return at once, the host completing the reply from
+its coroutine/future the way `fire_after` does — which replaced the first
+proposal (a platform handler of an actor effect) after checking that
+[actor-effect-kind] admits only `send fn` members and refuses mixed kinds, and
+that [mixed-handler] is a different construct (a plain-effect handler with an
+internal servant), so the user's assumption that mixed handlers had opened
+actor effects to plain members did not hold; streaming as **one effect in
+scope reading any stream** — the user's shape, replacing an actor per body —
+named `ByteSource`, with the **linear stream token threaded through the reply**
+because a borrow cannot span an asynchronous read and the checker cannot see a
+pending reply; the mint **folded in** (`from_bytes`), consistent with `Fs`
+bundling open/read/close; and **`InStream` reused** and moved to `std.stream`
+rather than a second stream type — one concept, one type, one host stream
+table behind `HostRawFs` and `HostByteSource`, no adapter. Enums as unions of
+unit tags; SQS first, then S3; models vendored from `aws/api-models-aws`.
+*Found while designing:* `Reply<T>` lacks `canbe linear`, which `Reply<Read>`
+needs. *Second sitting, the same evening:* nineteen open points put to the user
+with recommendations, all taken as recommended (DESIGN.md's numbered table) —
+among them `cargo` only when crates are declared, a directory of jars for
+Kotlin fetched by the module's own Gradle build until the compiler resolves
+Maven, a process-global stream table from day one, `Err Checked<StreamError>`,
+a wrong-provider handle trapping *and* a roadmap item to make it a compile-time
+error (the user's addition: §4b item 4, domains as provenance), enum tags
+namespaced under the enum's type (needs dot-names under a `type`, §4b item 5),
+an `Unknown Str` arm per enum, `AwsConfig` with a `Credentials` union and an
+`endpoint` override, and generated recording fakes. One correction to D2:
+smithy-rs's codegen is not published to Maven, so the plugin borrows
+`smithy-kotlin-codegen` and reimplements the (small) Rust naming rules. The
+mem pair (`MemFs`, `MemByteSource`) does not share handles, deliberately —
+handler state is not global — which is the concrete case item 4 exists for.
+
 **Module doc comments, and the first slice of dependencies (2026-09-29, user
 decisions; built the same day).** Two requests in one sitting. **1638 tests.**
 

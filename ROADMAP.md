@@ -334,9 +334,81 @@ modules`, `modules/aws/` consumed by `examples/aws_profile/`; COMPLETED.md has
 the entry). **What that slice left for later**: transitive dependencies (a
 dependency's own `[dependencies]` are not followed), version ranges and
 resolution, a fetcher that fills `salvo_modules/` from anywhere, a dependency's
-own `.svignore` and companions beyond `platform/`, and the `aws` module's actual
-content — the services as actors, each with its own design notes (the user's
-stated plan).
+own `.svignore` and companions beyond `platform/`. The `aws` module's content is
+designed (`modules/aws/DESIGN.md`) and needs three things of the compiler first —
+§4b.
+
+### 4b — What the first dependency needs of the language (decided 2026-09-29, not built)
+
+`modules/aws/DESIGN.md` records the design (user decisions D1–D8 that day):
+services generated from the public Smithy models by a `smithy-build` plugin
+living in `modules/aws/codegen/`, wrapping aws-sdk-kotlin and aws-sdk-rust through
+generated platform handlers (the `smithy-dafny` pattern), non-blocking by taking
+a `Reply` and returning at once, streaming bodies through one std effect. The
+module is a *user* of Salvo and must not extend the CLI; what it needs is three
+AWS-neutral extensions, in this order. None is a **DECISION** — the calls were
+made in the design sitting — but each has a shape to settle at implementation.
+
+1. **Host dependencies of platform code** (DESIGN §7.1). A companion wrapping a
+   library needs that library on the host: `[rust] crates = [...]` and
+   `[kotlin] artifacts = [...]` in the manifest, a dependency's included when it
+   is loaded [manifest-deps]; the Rust backend emits a `Cargo.toml` and `run`
+   builds through cargo when crates are declared; the Kotlin backend assembles a
+   classpath (how artifacts are fetched — a local directory first, Maven
+   coordinates later — is the shape to settle). Any platform handler over any
+   library needs this; today `salvo run` calls `rustc`/`kotlinc` bare.
+2. **Host-completed continuations** (DESIGN §7.2). Expose to platform companions
+   the runtime entry point that discharges a `Reply<T>` from host code — what
+   `fire_after` uses privately in each backend's runtime — with the exactly-once
+   contract in the generated skeleton and a test that a host thread completing a
+   reply wakes the parked continuation on the right actor. No language change:
+   a plain effect member taking a `Reply` is already legal, which is why the
+   service effects are plain effects rather than actor effects (D3; the actor
+   kind cannot be host-implemented — a platform handler has no mailbox — and
+   [actor-effect-kind] refuses mixed kinds).
+3. **`std.stream`** (DESIGN §5, §7.3). `InStream`/`OutStream` **move from `fs`**
+   to `stream` (the sweep: `std/fs*`, `examples/files/`, the fs tests, the
+   [fs-…] rules and their "open-file table" wording → "stream table"); a plain
+   effect `ByteSource { read(stream, reply: Reply<Read>); close(stream);
+   from_bytes(bytes) -> InStream }` with the linear token **threaded through the
+   reply** (`Chunk { bytes, stream }`, `Read = Ok Chunk | End | Err StreamError`)
+   so one read is in flight and a mid-read `close` is unwritable;
+   `HostByteSource` (threadsafe platform handler) over a runtime stream table
+   **shared with `HostRawFs`**, so a file reads asynchronously with no adapter;
+   `MemByteSource` in pure Salvo; `Reply<T canbe linear>` in `core.actor`, since
+   `Chunk` is linear. Deferred and recorded in DESIGN §9: a writer pair for
+   Salvo-produced bodies consumed by the host, asynchronous `Lines`, a
+   consumer-only face.
+
+4. **Provider-checked stream handles** (DESIGN §9, decision 10 of 2026-09-29's
+   second sitting). A `MemFs` stream handed to `HostByteSource` traps at
+   runtime; the user wants the compiler to see it. Sketch to start from: a
+   handle carries its **domain** as a provenance qualifier (`Host InStream`,
+   `Mem InStream`), each handler declares the domain its handles live in, and
+   at a `use` the effects in scope must agree on one — an error at the binding,
+   not at the read. **DECISION** at implementation time: qualifier vs. a type
+   parameter on the effect vs. a property of the handler declaration, and how a
+   program that legitimately mixes domains says so. Not blocking §4b 1–3.
+5. **Dot-names under a `type`** (decision 16). Generated enums are unions of
+   unit tags namespaced under the enum's type — `StorageClass.Standard` — and
+   today a dot-name's namespace must be a *struct* in the same file
+   ([Modules.md](docs/language/Modules.md) "Namespaced names"). Extend the
+   namespace to a `type` declaration; the two-segment rule and the
+   concatenation-must-stay-free rule carry over unchanged. Needed by step 4's
+   generator, not by 1–3.
+
+The second sitting's other calls (DESIGN.md's numbered table) fix the shapes
+above: `Cargo.toml` only when crates are declared; a **directory of jars** for
+Kotlin now (`[kotlin] libs`), Maven later; host-dependency version conflicts
+refused; an undischarged reply reported to the fault sink where detectable;
+provider-sized non-empty chunks; `Err Checked<StreamError>`; a wrong-provider
+handle traps; `InStream` and `OutStream` both move.
+
+Then, outside the compiler: the generator (depending on `smithy-kotlin-codegen`,
+Rust naming reimplemented — smithy-rs's codegen is not on Maven), a generated
+recording fake per service, `AwsConfig` with a `Credentials` union and an
+`endpoint` override, SQS end to end against the fake, S3 `GetObject`/`PutObject`
+over `ByteSource` (DESIGN §8).
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
