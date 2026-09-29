@@ -7,7 +7,9 @@
 // each in its own file under `aws/`, with design notes of their own.
 //
 // Arrives by being declared: `aws = "0.1.0"` under `[dependencies]`, then
-// `import aws.ProfileCredentials` or `import aws`.
+// `import aws.ProfileCredentials` or `import aws`. The design — generation from
+// the Smithy models, host SDKs wrapped, non-blocking through `Reply`, bodies as
+// `std.stream` — is `DESIGN.md` beside this module's manifest.
 
 // Where a **named profile's** credentials are read from: the profile's name
 // and the credentials file that holds it, in the layout the AWS CLI writes
