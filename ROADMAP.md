@@ -48,9 +48,9 @@ effects on both backends (every binding a handle, no fusion, no `local`), and
 the first comptime slice (`comptime fn` and `by auto`, replacing `auto`: the
 structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
-Twelve worked examples in `examples/` carry the checked-in generated code for both
+Thirteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, one of them consuming the first dependency
-(`modules/aws/`). 1655 tests green.
+(`modules/aws/`). 1656 tests green.
 
 ## The sequence
 
@@ -396,11 +396,15 @@ refused; an undischarged reply reported to the fault sink where detectable;
 provider-sized non-empty chunks; `Err Checked<StreamError>`; a wrong-provider
 handle traps; `InStream` and `OutStream` both move.
 
-Then, outside the compiler: the generator (depending on `smithy-kotlin-codegen`,
-Rust naming reimplemented — smithy-rs's codegen is not on Maven), a generated
-recording fake per service, `AwsConfig` with a `Credentials` union and an
-`endpoint` override, SQS end to end against the fake, S3 `GetObject`/`PutObject`
-over `ByteSource` (DESIGN §8).
+Then, outside the compiler — **built 2026-09-29 for SQS**: the generator
+(`modules/aws/codegen`, a smithy-build plugin; `modules/aws/README.md` has the
+from-scratch setup), `aws.sqs` for six operations with a recording `FakeSqs`,
+`AwsConfig` with a `Credentials` union and an `endpoint` override,
+`examples/aws_sqs` in the suite, and `modules/aws/demo/sqs_live` run by hand
+against both SDKs through a local stand-in. **Next: S3** `GetObject`/`PutObject`
+over `Streams` — the generator's `@streaming` blob mapping onto `InStream`, and
+glue that registers SDK bodies in the host stream table — then timestamps
+(`time.Instant`), Smithy unions, paginators.
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
@@ -869,17 +873,10 @@ several are "revisit only if a customer appears".
   first. Likely a small fix in the arg-fits rule; needs its own test on both
   backends because the Rust borrow of a union arm is what `proj` renders.
 
-- **A one-off fresh-run failure of `kotlinc_compiles_and_runs_every_case`**
-  (2026-09-28, under `SALVO_E2E_FRESH=1 cargo nextest run` with the whole
-  suite contending): FAIL at 185s after the node-group-connects change; the
-  same test passed fresh in isolation (131s), fresh with the Kotlin crate
-  alone (154s), and in the next full fresh run (205s, 1614/1614). The
-  driver's failure output was not captured that time, so the cause is
-  unknown — the suspects are a timing-dependent net case (the in-process
-  double's two nodes meeting under `settle` delays) or a kotlinc batch under
-  memory pressure (`JAVA_OPTS=-Xmx3g` per batch, several batches at once
-  with rustc tests beside them). If it recurs: run with `--no-capture` so the
-  per-case diff survives, and check which case it names.
+- ~~**A one-off fresh-run failure of `kotlinc_compiles_and_runs_every_case`**~~ —
+  diagnosed and closed 2026-09-29 (COMPLETED.md): the `net-node-groups` case
+  slept a fixed 500ms for three gossiping nodes to converge, which a fully
+  loaded fresh run does not always give it; it now polls, bounded.
 
 - **Lock-free scope-local bindings** (2026-09-28, the one item left of the
   lock-free pass the one-shape decision deferred; the stateless half landed

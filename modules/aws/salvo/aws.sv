@@ -26,3 +26,33 @@ export struct ProfileCredentials : ToStr<self> by auto {
     // The credentials file, as a path the host filesystem understands.
     path: Str = "~/.aws/credentials"
 }
+
+// Credentials from the process environment: `AWS_ACCESS_KEY_ID`,
+// `AWS_SECRET_ACCESS_KEY` and, when set, `AWS_SESSION_TOKEN`.
+export struct EnvironmentCredentials {}
+
+// The SDKs' default provider chain: environment, then the shared profile
+// files, then the container and instance metadata endpoints — what a program
+// running inside AWS wants.
+export struct DefaultChain {}
+
+// Where a service client's credentials come from.
+export type Credentials = ProfileCredentials | EnvironmentCredentials | DefaultChain
+
+// An AWS region by its code: `eu-west-1`, `us-east-1`.
+export struct Region { code: Str }
+
+// How to reach a service: whose credentials, which region, and — for a local
+// stand-in such as LocalStack — an endpoint to use instead of the region's.
+export struct AwsConfig {
+    credentials: Credentials = DefaultChain {},
+    region: Region,
+    // A full URL (`http://localhost:4566`); absent means the region's endpoint.
+    endpoint: Str? = None
+}
+
+// A failure the service model does not name: throttling the model did not
+// declare, an authentication or signing failure, a transport error, a response
+// the SDK could not parse. [code] is the service's error code when it sent
+// one, otherwise a short description of the kind of failure.
+export struct AwsError { code: Str, message: Str }

@@ -1,0 +1,17 @@
+[project]
+name = "aws_sqs"
+version = "0.1.0"
+
+[build]
+src = "salvo"
+backend = "*"
+modules = "../../modules"
+
+[dependencies]
+aws = "0.1.0"
+
+[rust]
+target = "rust"
+
+[kotlin]
+target = "kotlin"

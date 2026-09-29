@@ -1,0 +1,13 @@
+-- FakeSqs --
+created ?
+sent ?
+received 0 message(s)
+deleted
+calls: [create_queue, send_message, receive_message, delete_queue]
+-- MemSqs --
+created mem://orders
+sent m1
+received 1 message(s)
+  hello from Salvo
+deleted
+get_queue_url: no such queue

@@ -1,0 +1,26 @@
+{
+    "version": "1.0",
+    "projections": {
+        "sqs": {
+            "imports": ["models/sqs-2012-11-05.json"],
+            "plugins": {
+                "salvo-client-codegen": {
+                    "service": "com.amazonaws.sqs#AmazonSQS",
+                    "module": "aws.sqs",
+                    "effect": "Sqs",
+                    "rustCrate": "aws_sdk_sqs",
+                    "kotlinPackage": "aws.sdk.kotlin.services.sqs",
+                    "modelFile": "models/sqs-2012-11-05.json",
+                    "operations": [
+                        "CreateQueue",
+                        "GetQueueUrl",
+                        "SendMessage",
+                        "ReceiveMessage",
+                        "DeleteMessage",
+                        "DeleteQueue"
+                    ]
+                }
+            }
+        }
+    }
+}

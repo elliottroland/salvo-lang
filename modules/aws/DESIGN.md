@@ -94,6 +94,37 @@ layering, not a rule change, and it **replaces decisions 11–13 and the
 | 32 | Bindings | a host program binds four handlers; **handler bundles** are a recorded future item (ROADMAP §4b item 6), with streams + fs their first customer |
 | 27 | The host table | owned by `HostStreams`, one per process; `HostRawFs` registers opened files into it, so a file is an S3 body with no adapter (PutObject from a file) |
 
+### Built: the generator and SQS (2026-09-29)
+
+§8 steps 3 and 4 are built: `codegen/` (a `smithy-build` plugin plus a driver,
+Gradle wrapper checked in), `aws.sqs` for six operations (CreateQueue,
+GetQueueUrl, SendMessage, ReceiveMessage, DeleteMessage, DeleteQueue),
+`examples/aws_sqs` in the suite (the generated fake and a hand-written
+in-memory double), and `demo/sqs_live` run by hand against the real SDKs and
+the stand-in `local_sqs.py`, printing the same on both backends. Choices made
+while building, within the decisions above — worth a second look:
+
+- **Errors are `Err Checked<SqsError>`**, one **service-wide** union of every
+  error the selected operations name plus `AwsError`, rather than a union per
+  operation: `Checked` for consistency with `std.fs`/`std.stream`; one union
+  so a caller's error handling is one function.
+- **An `operations` allowlist** in `smithy-build.json` rather than the whole
+  service: the first slice is what a program uses, and adding an operation is a
+  line.
+- **Enum-keyed maps are `Map<Str, V>`** keyed by the enum's wire value; an enum
+  used as a value is the union of unit tags (decision 16/17).
+- **The fake answers an empty success** wherever the output has no required
+  members, else `AwsError { code: "NotStubbed" }`, and records operation names
+  through a second face `SqsCalls` — recording inputs is left for when a test
+  wants it.
+- **Rust names use smithy-kotlin's word-boundary splitter**, which is the one
+  smithy-rs copied (decision 14); the Kotlin names come from smithy-kotlin's
+  own `NamingKt`. Enums cross by wire value on both sides (`fromValue` /
+  `from`), so variant naming never has to match.
+- **The Kotlin artifact list lives twice** — `salvo.toml`'s `[kotlin] artifacts`
+  and `codegen/build.gradle.kts`'s `kotlinSdk` — until the compiler resolves
+  Maven itself.
+
 ## 3. Layout
 
 ```

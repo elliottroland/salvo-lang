@@ -135,6 +135,43 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The aws generator and `aws.sqs` (2026-09-29; DESIGN §8 steps 3–4).**
+`modules/aws/codegen` is a `smithy-build` plugin (`salvo-client-codegen`, Java,
+Gradle 9.8 wrapper checked in) and a driver (`./gradlew generate`) that writes
+`aws/sqs.sv`, `aws/sqs/host.sv` and the host glue `platform/aws/sqs/host.{rs,kt}`
+from the pinned model (`models/`, api-models-aws at `430b75c`). The surface:
+enums as unions of unit tags namespaced under the type with an `Unknown` arm,
+structures (required, defaulted and optional members), a service-wide
+`SqsError` union plus `AwsError`, `effect Sqs` whose members take a `Reply` and
+return at once, and `FakeSqs of Sqs, SqsCalls`. The glue: Rust over
+aws-sdk-sqs on a tokio runtime the handler owns, Kotlin over aws-sdk-kotlin on a
+coroutine scope, both converting values field by field, mapping each modeled
+error to its arm and everything else to `AwsError`, and completing the reply
+from the SDK's task [platform-reply]. Kotlin member names come from
+smithy-kotlin's `NamingKt`; Rust names from the same word-boundary splitter.
+`examples/aws_sqs` runs the fake and a hand-written `MemSqs` in the suite on
+both backends with no SDK; `demo/sqs_live` + `local_sqs.py` (an awsJson1.0
+stand-in) runs create/send/receive/delete and a modeled error through both real
+SDKs with identical output. `modules/aws/README.md` records the from-scratch
+setup (the user's request). The choices made within the design are listed in
+DESIGN.md "Built".
+
+*Compiler changes it needed:* a dependency's host libraries now join a build
+only when its platform code is reached (`dependencies_with_reached_platform`,
+`Project::host_deps_for`) — otherwise every program using the fakes would have
+fetched both SDKs; one CLI test. *Defect found and fixed:* the Rust runtime's
+`Debug` for `SalvoMap`/`SalvoSet` still required `Display` of the elements, a
+leftover of when `{:?}` rendered structs, so any struct with a `Map<Str,
+SomeStruct>` field failed rustc. *Found in the stand-in, not the compiler:*
+aws-sdk-rust classifies SQS errors by the `x-amzn-query-error` header
+(`awsQueryCompatible`), aws-sdk-kotlin by `__type`; the stand-in sends both, as
+real SQS does. *And a flake explained:* the ROADMAP's "one-off fresh-run
+failure of `kotlinc_compiles_and_runs_every_case`" reproduced twice in a row
+under this sitting's fresh runs as `net-node-groups` printing `mesh: x sees 1,
+y sees 0, z sees 1` — the case slept a fixed 500ms for three gossiping nodes to
+converge; the Rust and Kotlin copies now poll, bounded at five seconds. **1656
+tests.**
+
 **Dot-names under a `type` (2026-09-29; §4b item 5, decision 16).** `type
 StorageClass = StorageClass.Standard | …` with the members declared beside it:
 `check_dot_names` accepts a `type` with a definition as a namespace (not an
@@ -18801,7 +18838,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1655)
+## Test inventory (all green: 1656)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -20007,6 +20044,12 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Overriding `HOME` hides rustup** (2026-09-29, the aws demo). Pointing `HOME`
+  at a throwaway directory to feed the SDK a credentials file also makes
+  `cargo` fail with "rustup could not choose a version of cargo"; set
+  `RUSTUP_HOME` and `CARGO_HOME` explicitly. The JVM's `user.home` does *not*
+  follow `HOME`, so the Kotlin glue reads `HOME` first to agree with Rust.
 
 - **An expansion that writes names into another module's AST must make them
   resolvable there** (2026-09-29, [effect-prereq]). The implied `Streams` is

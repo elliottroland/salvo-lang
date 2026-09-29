@@ -1,0 +1,11 @@
+[project]
+name = "sqs_live"
+version = "0.1.0"
+
+[build]
+src = "salvo"
+backend = "rust"
+modules = "../../.."
+
+[dependencies]
+aws = "0.1.0"
