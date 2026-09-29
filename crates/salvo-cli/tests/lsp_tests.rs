@@ -1648,3 +1648,81 @@ fn main() [use] {
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
+
+/// [manifest-discovery] A workspace holding two projects: each document is
+/// analysed under its own `salvo.toml`, so a name declared in one is not a
+/// duplicate of the same name in the other, and a project's `main` is not
+/// ambiguous with the other's. A file with no manifest above it falls back to
+/// the workspace root and is told so.
+#[test]
+fn documents_are_analysed_under_their_own_manifest() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_manifests");
+    let _ = std::fs::remove_dir_all(&root);
+    for name in ["one", "two"] {
+        let dir = root.join(name).join("salvo");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            root.join(name).join("salvo.toml"),
+            format!("[project]\nname = \"{name}\"\n\n[build]\nsrc = \"salvo\"\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("main.sv"),
+            "struct Shared { x: Int }\nfn main() [use] {\n    use StdOutConsole()\n    println(\"hi\")\n}\n",
+        )
+        .unwrap();
+    }
+    std::fs::create_dir_all(root.join("loose")).unwrap();
+    std::fs::write(root.join("loose/stray.sv"), "fn helper() -> Int { return 1 }\n").unwrap();
+
+    let mut lsp = start(&root);
+    let one = root.join("one/salvo/main.sv");
+    let uri = format!("file://{}", one.display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1,
+                "text": std::fs::read_to_string(&one).unwrap()
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(params["uri"].as_str().unwrap(), uri);
+    let diags = params["diagnostics"].as_array().unwrap();
+    assert!(diags.is_empty(), "a project analysed alone is clean: {diags:?}");
+
+    // The stray file: analysed under the workspace root, and told so.
+    let stray = root.join("loose/stray.sv");
+    let stray_uri = format!("file://{}", stray.display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": stray_uri, "languageId": "salvo", "version": 1,
+                "text": std::fs::read_to_string(&stray).unwrap()
+            }}
+        }),
+    );
+    let mut saw_note = false;
+    for _ in 0..2 {
+        let params = expect_diagnostics(&lsp.rx);
+        if params["uri"].as_str().unwrap() == stray_uri {
+            let diags = params["diagnostics"].as_array().unwrap();
+            saw_note = diags.iter().any(|d| {
+                d["message"].as_str().unwrap().contains("no `salvo.toml` above this file")
+            });
+        }
+    }
+    assert!(saw_note, "the fallback should be stated at the file");
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null}),
+    );
+    let _ = expect_response(&lsp.rx, 3);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    let _ = lsp.child.wait();
+}

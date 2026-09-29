@@ -17,6 +17,12 @@ static STD_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../std");
 
 /// The result of analyzing a source directory.
 pub struct Analysis {
+    /// [manifest-discovery] The source root the analysis ran over — the
+    /// project's `src`, or the workspace root when no manifest was found —
+    /// against which every `SourceFile.name` resolves to a path.
+    pub root: PathBuf,
+    /// The project the root belongs to, when a manifest was found.
+    pub project: Option<salvo_core::Project>,
     pub program: Program,
     /// Parse + resolution + type diagnostics [diag-structured], in file
     /// order (checker diagnostics after parse diagnostics).
@@ -60,6 +66,33 @@ pub fn analyze_sources(
     native_ext: &str,
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Analysis, String> {
+    analyze_project(src, None, native_ext, overlay)
+}
+
+/// [manifest-discovery] `analyze_sources` for a document: the nearest
+/// manifest above `path` decides the source root and whether the tree is
+/// std; with none, `fallback` (the workspace root) is analysed as before and
+/// the analysis says so (`manifest_missing`).
+pub fn analyze_for_document(
+    path: &Path,
+    fallback: &Path,
+    overlay: &HashMap<PathBuf, String>,
+) -> Result<Analysis, String> {
+    match salvo_core::Project::find(path)? {
+        Some(project) => {
+            let src = project.src();
+            analyze_project(&src, Some(project), "", overlay)
+        }
+        None => analyze_project(fallback, None, "", overlay),
+    }
+}
+
+fn analyze_project(
+    src: &Path,
+    project: Option<salvo_core::Project>,
+    native_ext: &str,
+    overlay: &HashMap<PathBuf, String>,
+) -> Result<Analysis, String> {
     if !src.is_dir() {
         return Err(format!(
             "source directory `{}` does not exist",
@@ -76,6 +109,10 @@ pub fn analyze_sources(
     let io_errors = sources.add_dir(&root, native_ext, false, true);
     // [std-shadow] A tree that declares std's own modules replaces them.
     sources.apply_std_shadow();
+    // [manifest] `std = true`: the whole tree is std.
+    if project.as_ref().is_some_and(|p| p.is_std()) {
+        sources.mark_std_tree();
+    }
 
     // Overlay: open-editor contents win over the disk [cli-lsp]. Files
     // not on disk yet (new unsaved buffers under the root) are added.
@@ -157,6 +194,8 @@ pub fn analyze_sources(
     };
 
     Ok(Analysis {
+        root,
+        project,
         program,
         diagnostics,
         checked,

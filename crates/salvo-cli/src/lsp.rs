@@ -15,7 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use lsp_server::{Connection, Message, Notification, Request, Response};
@@ -44,7 +44,7 @@ use salvo_syntax::ast::{FnDecl, Item, QualSubject};
 use salvo_syntax::diag::Severity;
 use salvo_syntax::Span;
 
-use crate::analysis::{analyze_sources, Analysis};
+use crate::analysis::{analyze_for_document, Analysis};
 use crate::docs;
 
 /// Runs the server until the client disconnects or asks for shutdown.
@@ -205,8 +205,11 @@ impl Server<'_> {
         Ok(())
     }
 
-    fn analyze(&self) -> Option<Analysis> {
-        match analyze_sources(&self.root, "", &self.overlay) {
+    /// [manifest-discovery] The analysis a document belongs to: its
+    /// project's source root, or the workspace root when no manifest is
+    /// above it.
+    fn analyze_for(&self, path: &Path) -> Option<Analysis> {
+        match analyze_for_document(path, &self.root, &self.overlay) {
             Ok(analysis) => Some(analysis),
             Err(err) => {
                 eprintln!("salvo lsp: {err}");
@@ -215,12 +218,10 @@ impl Server<'_> {
         }
     }
 
-    /// Re-analyzes the workspace and publishes diagnostics per file URI,
-    /// clearing files that no longer have any [cli-lsp].
+    /// Re-analyzes every project an open document belongs to and publishes
+    /// diagnostics per file URI, clearing files that no longer have any
+    /// [cli-lsp] [manifest-discovery].
     fn publish_diagnostics(&mut self) -> Result<(), Box<dyn Error + Sync + Send>> {
-        let Some(analysis) = self.analyze() else {
-            return Ok(());
-        };
         // Every open document gets a publish — an explicit empty list
         // tells the client the file was re-checked and is clean, and
         // clears anything it showed before.
@@ -229,30 +230,66 @@ impl Server<'_> {
             .values()
             .map(|uri| (uri.clone(), Vec::new()))
             .collect();
-        for diag in &analysis.diagnostics {
-            let file = &analysis.program.files[diag.file];
-            if file.is_std && !file.is_shadow {
-                // Embedded std has no on-disk URI; it should be clean.
-                // [std-shadow] A shadowing file is on disk — the standard
-                // library being developed — so its diagnostics go to the
-                // editor like any file's.
-                eprintln!("salvo lsp: diagnostic in std: {}", diag.message);
+        // One analysis per project root: documents under one manifest share
+        // it, and a workspace holding several projects analyses each as its
+        // own program.
+        let mut done: HashSet<PathBuf> = HashSet::new();
+        let docs: Vec<PathBuf> = if self.doc_uris.is_empty() {
+            vec![self.root.clone()]
+        } else {
+            self.doc_uris.keys().cloned().collect()
+        };
+        for doc in docs {
+            let Some(analysis) = self.analyze_for(&doc) else { continue };
+            if !done.insert(analysis.root.clone()) {
                 continue;
             }
-            // Open documents keep the URI the client opened them under
-            // (clients compare URIs exactly).
-            let path = self.root.join(&file.name);
-            let uri = match self.doc_uris.get(&path) {
-                Some(uri) => uri.clone(),
-                None => match Url::from_file_path(&path) {
-                    Ok(uri) => uri,
-                    Err(()) => continue,
-                },
-            };
-            by_uri
-                .entry(uri)
-                .or_default()
-                .push(to_lsp_diagnostic(diag, &file.content));
+            if analysis.project.is_none() && doc.is_file() && self.workspace_has_manifests() {
+                // No manifest above this document, in a workspace that has
+                // projects: the fallback is visible rather than silent, since
+                // it is what makes a repository of several trees check as one
+                // program. A workspace with no manifest anywhere is one
+                // project, as it always was, and gets no note.
+                if let Some(uri) = self.doc_uris.get(&doc) {
+                    by_uri.entry(uri.clone()).or_default().push(Diagnostic {
+                        range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+                        severity: Some(DiagnosticSeverity::INFORMATION),
+                        message: format!(
+                            "no `{}` above this file: analysed under the workspace root `{}` \
+                             [manifest-discovery]",
+                            salvo_core::MANIFEST_FILE,
+                            self.root.display()
+                        ),
+                        source: Some("salvo".to_string()),
+                        ..Diagnostic::default()
+                    });
+                }
+            }
+            for diag in &analysis.diagnostics {
+                let file = &analysis.program.files[diag.file];
+                if file.is_std && !file.is_shadow {
+                    // Embedded std has no on-disk URI; it should be clean.
+                    // [std-shadow] A shadowing file is on disk — the standard
+                    // library being developed — so its diagnostics go to the
+                    // editor like any file's.
+                    eprintln!("salvo lsp: diagnostic in std: {}", diag.message);
+                    continue;
+                }
+                // Open documents keep the URI the client opened them under
+                // (clients compare URIs exactly).
+                let path = analysis.root.join(&file.name);
+                let uri = match self.doc_uris.get(&path) {
+                    Some(uri) => uri.clone(),
+                    None => match Url::from_file_path(&path) {
+                        Ok(uri) => uri,
+                        Err(()) => continue,
+                    },
+                };
+                by_uri
+                    .entry(uri)
+                    .or_default()
+                    .push(to_lsp_diagnostic(diag, &file.content));
+            }
         }
 
         let current: HashSet<Url> = by_uri.keys().cloned().collect();
@@ -264,6 +301,29 @@ impl Server<'_> {
         }
         self.published = current;
         Ok(())
+    }
+
+    /// [manifest-discovery] Whether any `salvo.toml` lies under the
+    /// workspace root (a few levels down), which is what makes a file with
+    /// none above it worth a note.
+    fn workspace_has_manifests(&self) -> bool {
+        fn walk(dir: &Path, depth: u32) -> bool {
+            if dir.join(salvo_core::MANIFEST_FILE).is_file() {
+                return true;
+            }
+            if depth == 0 {
+                return false;
+            }
+            let Ok(entries) = std::fs::read_dir(dir) else { return false };
+            entries.flatten().any(|e| {
+                let p = e.path();
+                p.is_dir()
+                    && !p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with('.'))
+                    && p.file_name().and_then(|n| n.to_str()) != Some("target")
+                    && walk(&p, depth - 1)
+            })
+        }
+        walk(&self.root, 3)
     }
 
     fn send_diagnostics(
@@ -300,14 +360,14 @@ impl Server<'_> {
     fn hover(&self, params: &HoverParams) -> Option<Hover> {
         let doc = &params.text_document_position_params;
         let path = file_path(&doc.text_document.uri)?;
-        let analysis = self.analyze()?;
+        let analysis = self.analyze_for(&path)?;
         let checked = analysis.checked.as_ref()?;
 
         let file_idx = analysis
             .program
             .files
             .iter()
-            .position(|f| (!f.is_std || f.is_shadow) && self.root.join(&f.name) == path)?;
+            .position(|f| (!f.is_std || f.is_shadow) && analysis.root.join(&f.name) == path)?;
         let content = &analysis.program.files[file_idx].content;
         let offset = position_to_offset(content, doc.position);
         let link = self.doc_linker(&analysis.program);
@@ -847,14 +907,14 @@ impl Server<'_> {
     fn goto_definition(&self, params: &GotoDefinitionParams) -> Option<GotoDefinitionResponse> {
         let doc = &params.text_document_position_params;
         let path = file_path(&doc.text_document.uri)?;
-        let analysis = self.analyze()?;
+        let analysis = self.analyze_for(&path)?;
         let checked = analysis.checked.as_ref()?;
 
         let file_idx = analysis
             .program
             .files
             .iter()
-            .position(|f| (!f.is_std || f.is_shadow) && self.root.join(&f.name) == path)?;
+            .position(|f| (!f.is_std || f.is_shadow) && analysis.root.join(&f.name) == path)?;
         let content = &analysis.program.files[file_idx].content;
         let offset = position_to_offset(content, doc.position);
 
