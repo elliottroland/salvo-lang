@@ -1,6 +1,7 @@
 package salvo.fs.mem
 
 import salvo.*
+import salvo.core.actor.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
 import salvo.core.list.*
@@ -228,6 +229,33 @@ class MemFs : Fs, Streams {
         return U2_1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
     }
 
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    override fun receive(s: InStream, reply: salvo.SalvoReply) {
+        val got = mem_read_bytes(reads, s.handle, 65536)
+        if (got is U2_2<*, *>) {
+            val open = mem_read_state(reads, s.handle)
+            reads.remove(s.handle)
+            (s).let {}
+            reply.send(U3_3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(U2_2<InvalidUtf8, StreamFailed>(StreamFailed(source = open.source, message = "read failed"))))))
+            ignore((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+            return
+        }
+        val data: salvo.SalvoBytes = (got.value as salvo.SalvoBytes)
+        if (data.size == 0) {
+            reads.remove(s.handle)
+            (s).let {}
+            reply.send(U3_2<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(End()))
+            return
+        }
+        reply.send(U3_1<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Packet(bytes = data, stream = s))))
+    }
+
+    override fun from_bytes(data: salvo.SalvoBytes): InStream {
+        val handle = salvo.SalvoSched.freshHandle()
+        reads.put(handle, MemRead(source = "<bytes>", data = data, at = 0, failed = false))
+        return InStream(handle = handle)
+    }
+
     override fun write(s: OutStream, text: String): Long {
         return mem_append(writes, s.handle, salvo.SalvoBytes.ofUtf8(text))
     }
@@ -273,7 +301,7 @@ fun mem_find_newline(data: salvo.SalvoBytes, from: Int): Int {
     val end = data.size
     var i = from
     while (i < end) {
-        if (((data.getOrNull(i) ?: throw AssertionError("salvo: value is absent at fs.mem:280:19"))).toInt() == 10) {
+        if (((data.getOrNull(i) ?: throw AssertionError("salvo: value is absent at fs.mem:311:19"))).toInt() == 10) {
             return i
         }
         i = i + 1
@@ -293,7 +321,7 @@ fun mem_append(writes: MutableMap<Long, MemWrite>, handle: Long, data: salvo.Sal
 fun mem_read_state(reads: Map<Long, MemRead>, handle: Long): MemRead {
     val open = reads[handle]
     if (open == null) {
-        throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:307:9"))
+        throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:338:9"))
     }
     return MemRead(source = open.source, data = salvo.SalvoBytes(open.data), at = open.at, failed = open.failed)
 }
@@ -301,7 +329,7 @@ fun mem_read_state(reads: Map<Long, MemRead>, handle: Long): MemRead {
 fun mem_write_state(writes: Map<Long, MemWrite>, handle: Long): MemWrite {
     val open = writes[handle]
     if (open == null) {
-        throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:315:9"))
+        throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:346:9"))
     }
     return MemWrite(path = open.path, buffer = salvo.SalvoBytes(open.buffer))
 }
@@ -318,7 +346,7 @@ fun mem_read_line(reads: MutableMap<Long, MemRead>, handle: Long): String? {
         return null
     }
     val stop = mem_find_newline(bytes, at)
-    val line = (bytes.slice(at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:339:16"))
+    val line = (bytes.slice(at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:370:16"))
     var next_at = stop
     if (stop < end) {
         next_at = stop + 1
@@ -340,7 +368,7 @@ fun mem_read_all(reads: MutableMap<Long, MemRead>, handle: Long): Union2<String,
     }
     val bytes: salvo.SalvoBytes = salvo.SalvoBytes(open.data)
     val end = bytes.size
-    val rest = (bytes.slice(open.at, end) ?: throw AssertionError("salvo: value is absent at fs.mem:363:16"))
+    val rest = (bytes.slice(open.at, end) ?: throw AssertionError("salvo: value is absent at fs.mem:394:16"))
     val text = rest.asString()
     if (text == null) {
         reads.put(handle, MemRead(source = source, data = bytes, at = end, failed = true))
@@ -365,7 +393,7 @@ fun mem_read_bytes(reads: MutableMap<Long, MemRead>, handle: Long, max: Int): Un
     if (stop > end) {
         stop = end
     }
-    val taken = (bytes.slice(open.at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:389:17"))
+    val taken = (bytes.slice(open.at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:420:17"))
     reads.put(handle, MemRead(source = source, data = bytes, at = stop, failed = false))
     return U2_1<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(taken))
 }

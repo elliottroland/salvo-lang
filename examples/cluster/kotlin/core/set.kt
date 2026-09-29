@@ -18,6 +18,14 @@ data class SetYield<T>(
     var at: Int,
 )
 
+class __Codec_SetYield<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCodec<SetYield<T>> {
+    override fun enc(v: SetYield<T>, out: salvo.WireOut) {
+        salvo.ListCodec(__c_T).enc(v.items, out)
+        salvo.IntCodec.enc(v.at, out)
+    }
+    override fun dec(inp: salvo.WireIn): SetYield<T> = SetYield(salvo.ListCodec(__c_T).dec(inp), salvo.IntCodec.dec(inp))
+}
+
 fun<T> next__11(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {

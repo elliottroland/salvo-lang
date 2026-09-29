@@ -40,7 +40,11 @@ export intrinsic fn eq<E>(a: Addr<E>, b: Addr<E>) [] -> Bool => a, b
 // A `Reply<T>` is an addr with a single send member, so `send(r, v)` — or
 // `r.send(v)` — is the ordinary operation it looks like. [T] is what the
 // awaiting continuation receives.
-export linear intrinsic type Reply<T>
+//
+// [linear-generics] [T] may be linear (`Reply<InStream>`, a stream threaded
+// through an answer): the reply carries the obligation from `send` to the
+// continuation that receives it, which then owes it like any linear value.
+export linear intrinsic type Reply<T canbe linear>
 
 // [actor-replyto] Answer a request: delivers [value] to the continuation
 // [reply] was minted for, and discharges the token by consuming it. Enqueue,
@@ -50,7 +54,7 @@ export linear intrinsic type Reply<T>
 //
 // Sending to an actor that has already died is a silent no-op, as every
 // send is.
-export intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
+export intrinsic fn send<T canbe linear>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 
 // [actor-mailbox] An actor's mailbox, declared by its handler:
 // `mailbox { capacity: 16 }` (user decision 2026-09-16). The block is this

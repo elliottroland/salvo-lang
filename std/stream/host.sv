@@ -50,6 +50,28 @@ export effect RawStreams {
     fn raw_flush(handle: Long) -> Ok None | Err StreamError
     // Flushes and releases the write handle.
     fn raw_close_write(handle: Long) -> Ok None | Err StreamError
+
+    // [stream-receive] Reads the next bytes on a thread of the host's own and
+    // answers on [reply] [platform-reply]: the bytes (never empty), or `End`,
+    // or a failure. At `End` or a failure the host has already released the
+    // handle, so there is nothing left to close.
+    fn raw_receive(handle: Long, reply: Reply<Ok Bytes | End | Err StreamError>) -> None => !reply
+    // [stream-from-bytes] Registers a readable stream over [data] in the
+    // process's table, answering its handle.
+    fn raw_from_bytes(data: Bytes) -> Long => !data
+}
+
+// [stream-receive] The host's answer, turned into a `Received`: the token the
+// request gave up is minted again around the same handle, so it travels back
+// to the caller inside the packet. At `End` or a failure the host released the
+// handle, so no token is minted and nothing is owed.
+send fn host_received(reply: Reply<Received>, handle: Long, got: Ok Bytes | End | Err StreamError)
+=> !reply, !handle, !got {
+    when got {
+        is Ok { reply.send(ok(Packet { bytes: got, stream: InStream { handle: handle } })) }
+        is End { reply.send(got) }
+        is Err { reply.send(err(checked<StreamError>(got))) }
+    }
 }
 
 // The one implementation of `RawStreams`: a host class per backend, shipped
@@ -112,6 +134,19 @@ export handler DefaultStreams [RawStreams] of Streams {
             is Ok { return ok(None) }
             is Err { return err(checked<StreamError>(r)) }
         }
+    }
+
+    // [stream-receive] The token is given up here — `receive` consumes it, so
+    // this is a discharge context [linear-group] — and the handle alone goes
+    // to the host, which completes the continuation from its own thread.
+    fn receive(s: InStream, reply: Reply<Received>) -> None => !s, !reply {
+        let handle = copy(s.handle)
+        discard(s)
+        raw_receive(copy(handle), replyto host_received(reply, handle))
+    }
+
+    fn from_bytes(data: Bytes) -> InStream => !data {
+        return InStream { handle: raw_from_bytes(data) }
     }
 
     fn write(s: OutStream, text: Str) -> Long => s, text {

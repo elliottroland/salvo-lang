@@ -6842,6 +6842,24 @@ impl<'p> Emitter<'p> {
                         }
                     }
                 }
+                // [type-alias] An alias expands structurally, as the written-type
+                // path does: a checker type has usually expanded it already,
+                // but one built from a written type (`approx_ty`, the reply
+                // decoders) keeps the alias's name (found 2026-09-29 — a
+                // `Reply<Ok Int | Err E>` decoded into an undeclared Rust `E`).
+                if let Some(alias) = self.symbols.type_aliases.get(name.as_str()) {
+                    if let Some(target) = alias.alias.as_ref() {
+                        let subst: HashMap<String, Ty> = alias
+                            .generics
+                            .iter()
+                            .map(|g| g.name.clone())
+                            .zip(args.iter().cloned())
+                            .collect();
+                        if let Some(expanded) = salvo_core::approx_ty(target, &subst) {
+                            return self.rust_ty(&expanded);
+                        }
+                    }
+                }
                 // [effect-generic-decl] An erased declaration's instance has
                 // no arguments in the output.
                 if self.erased.is_erased(name) {
@@ -15456,7 +15474,16 @@ impl<'p> Emitter<'p> {
                     // the same. A `Copy` state field hid it: the first
                     // asynchronous test's `sum: Int` copied (found
                     // 2026-09-15).
-                    self.emit_owned(arg)
+                    //
+                    // [union-arm-identity] …and the checker's representation
+                    // change applies here as at any other position: a value
+                    // narrowed to one arm of the parameter's union is wrapped
+                    // back into it. Without it `d.send(r)` with `r` narrowed to
+                    // `Err E` handed a `Reply<Ok Int | Err E>` the bare arm —
+                    // a rustc error on the typed path, a downcast panic at
+                    // run time on the untyped one (found 2026-09-29).
+                    let code = self.emit_owned(arg);
+                    self.apply_coercion(arg.span(), code)
                 }
                 // [rs-narrow-mut] A parameter the declaration types `Mut` is a
                 // **mutable use** of its argument, so a narrowed place unwraps

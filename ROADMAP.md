@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Twelve worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, one of them consuming the first dependency
-(`modules/aws/`). 1652 tests green.
+(`modules/aws/`). 1653 tests green.
 
 ## The sequence
 
@@ -364,8 +364,11 @@ made in the design sitting — but each has a shape to settle at implementation.
    b. ✅ **One handle counter** — built 2026-09-29 ([stream-handle]).
    c. ✅ **The split** — built 2026-09-29 ([stream-layer] [stream-table]
       [stream-provider]; COMPLETED.md has the entry).
-   d. **Non-blocking**: `receive` (answering `Received = Ok Packet | End | Err
-      Checked<StreamError>`), `from_bytes`, `pipe`; `Reply<T canbe linear>`.
+   d. ✅ **Non-blocking** — built 2026-09-29 ([stream-receive]
+      [stream-from-bytes] [stream-pipe]; `Reply<T canbe linear>`).
+   Left from step 3: the writer pair for Salvo-produced bodies a host consumes,
+   asynchronous `Lines`, a consumer-only face, and `MemStreams` for a test with
+   no filesystem (DESIGN §9).
 4. **Provider-checked stream handles** (DESIGN §9, decision 10 of 2026-09-29's
    second sitting). A `MemFs` stream handed to `HostByteSource` traps at
    runtime; the user wants the compiler to see it. Sketch to start from: a

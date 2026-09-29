@@ -1,4 +1,5 @@
 use crate::collections::*;
+use crate::core_actor::*;
 use crate::core_bytes::*;
 use crate::core_checked::*;
 use crate::core_iterator::*;
@@ -256,6 +257,32 @@ impl crate::stream::__Stateful_Streams for MemFs {
         return Union2::<(), Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(()));
     }
 
+    fn receive(&mut self, s: InStream, reply: crate::scheduler::SalvoReply) {
+        let mut got = mem_read_bytes(&mut self.reads, s.handle, 65536);
+        if matches!(got, Union2::U2(_)) {
+            let mut open = mem_read_state(&self.reads, s.handle);
+            self.reads.remove(&s.handle);
+            drop(s);
+            (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3(err(checked(Union2::<InvalidUtf8, StreamFailed>::U2(StreamFailed { source: open.source.clone(), message: "read failed".to_string() }))))));
+            ignore(got.u2().clone());
+            return;
+        }
+        let mut data: Vec<u8> = got.u1().clone();
+        if ((data.len() as i32) == 0) {
+            self.reads.remove(&s.handle);
+            drop(s);
+            (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(End {  })));
+            return;
+        }
+        (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(Packet { bytes: data, stream: s }))));
+    }
+
+    fn from_bytes(&mut self, data: Vec<u8>) -> InStream {
+        let mut handle = crate::scheduler::salvo_fresh_handle();
+        self.reads.insert(handle.clone(), MemRead { source: "<bytes>".to_string(), data: data, at: 0, failed: false });
+        return InStream { handle: handle.clone() };
+    }
+
     fn write(&mut self, s: &OutStream, text: &String) -> i64 {
         return mem_append(&mut self.writes, s.handle, &(text.as_bytes().to_vec()));
     }
@@ -301,7 +328,7 @@ pub fn mem_find_newline(data: &Vec<u8>, from: i32) -> i32 {
     let mut end = (data.len() as i32);
     let mut i = from;
     while i < end {
-        if (((data.get((i) as i64 as usize).copied().expect("salvo: value is absent at fs.mem:280:19")) as i32) == 10) {
+        if (((data.get((i) as i64 as usize).copied().expect("salvo: value is absent at fs.mem:311:19")) as i32) == 10) {
             return i;
         }
         i = i + 1;
@@ -321,7 +348,7 @@ pub fn mem_append(writes: &mut SalvoMap<i64, MemWrite>, handle: i64, data: &Vec<
 pub fn mem_read_state(reads: &SalvoMap<i64, MemRead>, handle: i64) -> MemRead {
     let mut open = reads.get(&handle);
     if open.is_none() {
-        panic!("salvo: {} at fs.mem:307:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
+        panic!("salvo: {} at fs.mem:338:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
     }
     return MemRead { source: open.unwrap().clone().source.clone(), data: open.unwrap().clone().data.clone(), at: open.unwrap().clone().at, failed: open.unwrap().clone().failed };
 }
@@ -329,7 +356,7 @@ pub fn mem_read_state(reads: &SalvoMap<i64, MemRead>, handle: i64) -> MemRead {
 pub fn mem_write_state(writes: &SalvoMap<i64, MemWrite>, handle: i64) -> MemWrite {
     let mut open = writes.get(&handle);
     if open.is_none() {
-        panic!("salvo: {} at fs.mem:315:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
+        panic!("salvo: {} at fs.mem:346:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
     }
     return MemWrite { path: open.unwrap().clone().path.clone(), buffer: open.unwrap().clone().buffer.clone() };
 }
@@ -346,7 +373,7 @@ pub fn mem_read_line(reads: &mut SalvoMap<i64, MemRead>, handle: i64) -> Option<
         return None;
     }
     let mut stop = mem_find_newline(&bytes, *at);
-    let mut line = { let __d = &bytes; let __i = *at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at fs.mem:339:16");
+    let mut line = { let __d = &bytes; let __i = *at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at fs.mem:370:16");
     let mut next_at = stop;
     if stop < end {
         next_at = stop + 1;
@@ -368,7 +395,7 @@ pub fn mem_read_all(reads: &mut SalvoMap<i64, MemRead>, handle: i64) -> Union2<S
     }
     let mut bytes: Vec<u8> = open.data.clone();
     let mut end = (bytes.len() as i32);
-    let mut rest = { let __d = &bytes; let __i = open.at; let __j = end; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at fs.mem:363:16");
+    let mut rest = { let __d = &bytes; let __i = open.at; let __j = end; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at fs.mem:394:16");
     let mut text = String::from_utf8(rest.clone()).ok();
     if text.is_none() {
         reads.insert(handle.clone(), MemRead { source: source.clone(), data: bytes, at: end, failed: true });
@@ -393,7 +420,7 @@ pub fn mem_read_bytes(reads: &mut SalvoMap<i64, MemRead>, handle: i64, max: i32)
     if stop > end {
         stop = end;
     }
-    let mut taken = { let __d = &bytes; let __i = open.at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at fs.mem:389:17");
+    let mut taken = { let __d = &bytes; let __i = open.at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at fs.mem:420:17");
     reads.insert(handle.clone(), MemRead { source: source.clone(), data: bytes, at: stop, failed: false });
     return Union2::<Vec<u8>, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(taken));
 }

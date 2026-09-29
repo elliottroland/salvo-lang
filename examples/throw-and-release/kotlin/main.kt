@@ -26,7 +26,7 @@ fun open_file(console: Console, name: String): FileHandle {
     return FileHandle(name = name)
 }
 
-fun close__3(console: Console, handle: FileHandle) {
+fun close__4(console: Console, handle: FileHandle) {
     println(console, "1. close ${handle.name}")
     (handle).let {}
 }
@@ -36,10 +36,10 @@ fun read_size(console: Console, name: String, want: Int): Int {
     val handle = open_file(console, name)
     if (want > there_is) {
         println(console, "1. asked for more than there is")
-        close__3(console, handle)
+        close__4(console, handle)
         return there_is
     }
-    close__3(console, handle)
+    close__4(console, handle)
     return want
 }
 
@@ -62,7 +62,7 @@ fun port_of(config: String): Int {
 fun port_from_file(console: Console, name: String, text: String): Int {
     val handle = open_file(console, name)
     val from = handle.name
-    close__3(console, handle)
+    close__4(console, handle)
     println(console, "2. reading a port out of $from")
     return parse_port(text)
 }

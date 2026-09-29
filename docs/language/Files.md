@@ -108,6 +108,23 @@ while reading {
 
 Or hand the loop over: `chunks(s, size)` is an iterator over a stream's bytes (a fresh buffer per step) as `lines(s)` is over its lines — both `stream`'s, since they work on any stream — and the one-shots keep the buffer out of sight entirely: `copy_stream(s, w)` (`stream`'s), and `copy_file(from, to)`, `read_to_bytes(path)`, `write_bytes_to(path, data)` (`fs`'s).
 
+A read can also **not block**. `receive(s, reply)` hands the stream and a continuation to the provider and returns at once; the answer arrives on the reply — the bytes and the stream back, or `End`, or a failure (both of which have closed the stream):
+
+```
+send fn on_chunk(total: Long, got: Received) [Streams, Console] => !total, !got {
+    when got {
+        is Ok {
+            let {bytes, stream} = got              // the stream comes back with the bytes
+            receive(stream, replyto on_chunk(total + to_long(size(bytes))))
+        }
+        is End { println("${total} bytes") }       // closed already: nothing owed
+        is Err { ignore(got) }
+    }
+}
+```
+
+Because the read consumes the stream and the answer returns it, one read is in flight and a `close` in the middle of one cannot be written. The host reads on a thread of its own and completes the reply from there, so no worker waits while a slow source is slow. `pipe(from, to, done)` is the copy built this way, and `from_bytes(data)` makes a stream out of a buffer — so a request body and a file are the same kind of thing: `pipe(from_bytes(body), open_write(path), done)`, or `pipe(open_read(path), upload, done)`.
+
 Two more handlers ship beside the surface, each in its own module, and neither is a special case of anything:
 
 ```

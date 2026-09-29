@@ -1,6 +1,7 @@
 package salvo.stream.host
 
 import salvo.*
+import salvo.core.actor.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
 import salvo.core.result.*
@@ -22,6 +23,8 @@ interface RawStreams {
     fun raw_write_position(handle: Long): Long
     fun raw_flush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
     fun raw_close_write(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
+    fun raw_receive(handle: Long, reply: salvo.SalvoReply)
+    fun raw_from_bytes(data: salvo.SalvoBytes): Long
 }
 
 class __Mon_RawStreams(private val inner: RawStreams) : RawStreams {
@@ -51,6 +54,25 @@ class __Mon_RawStreams(private val inner: RawStreams) : RawStreams {
         synchronized(inner) { inner.raw_flush(handle) }
     override fun raw_close_write(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> =
         synchronized(inner) { inner.raw_close_write(handle) }
+    override fun raw_receive(handle: Long, reply: salvo.SalvoReply) =
+        synchronized(inner) { inner.raw_receive(handle, reply) }
+    override fun raw_from_bytes(data: salvo.SalvoBytes): Long =
+        synchronized(inner) { inner.raw_from_bytes(data) }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun host_received(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>) {
+    when (got) {
+        is U3_1<*, *, *> -> {
+            reply.send(U3_1<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Packet(bytes = (got.value as salvo.SalvoBytes), stream = InStream(handle = handle)))))
+        }
+        is U3_2<*, *, *> -> {
+            reply.send(U3_2<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as End)))
+        }
+        is U3_3<*, *, *> -> {
+            reply.send(U3_3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((got.value as Union2<InvalidUtf8, StreamFailed>)))))
+        }
+    }
 }
 
 class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
@@ -131,6 +153,16 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
                 return U2_2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
             }
         }
+    }
+
+    override fun receive(s: InStream, reply: salvo.SalvoReply) {
+        val handle = s.handle
+        (s).let {}
+        __dep_RawStreams.raw_receive(handle, run { val __c0 = reply; val __c1 = handle; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union3Codec(salvo.BytesCodec, __Codec_End, salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed))) }) { __v -> host_received(__c0, __c1, __v as Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>) } })
+    }
+
+    override fun from_bytes(data: salvo.SalvoBytes): InStream {
+        return InStream(handle = __dep_RawStreams.raw_from_bytes(data))
     }
 
     override fun write(s: OutStream, text: String): Long {

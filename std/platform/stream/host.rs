@@ -137,6 +137,47 @@ impl crate::stream_host::__Stateless_RawStreams for HostRawStreams {
         }
     }
 
+    /// [stream-receive] Reads on a thread of its own and completes `reply`
+    /// from there [platform-reply]: the caller's worker never waits. At the
+    /// end, or on a failure, the stream is released before answering, so the
+    /// caller has nothing left to close.
+    fn raw_receive(&self, handle: i64, reply: crate::scheduler::SalvoReply) {
+        let reply = reply.hosted();
+        let slot = crate::scheduler::salvo_stream_in(handle);
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let got = {
+                let mut stream = slot.lock().unwrap();
+                match stream.read_up_to(&mut buf, 65536) {
+                    Ok(_) => Ok(()),
+                    Err(f) => Err(kind(&stream.source, f)),
+                }
+            };
+            let answer: Union3<Vec<u8>, End, Kind> = match got {
+                Ok(()) if !buf.is_empty() => Union3::U1(buf),
+                Ok(()) => {
+                    crate::scheduler::salvo_stream_take_in(handle);
+                    Union3::U2(End {})
+                }
+                Err(k) => {
+                    crate::scheduler::salvo_stream_take_in(handle);
+                    Union3::U3(k)
+                }
+            };
+            reply.send(answer);
+        });
+    }
+
+    /// [stream-from-bytes] A readable stream over `data`, registered in the
+    /// process's table.
+    fn raw_from_bytes(&self, data: Vec<u8>) -> i64 {
+        crate::scheduler::salvo_stream_register_in(
+            "<bytes>".to_string(),
+            Box::new(std::io::Cursor::new(data)),
+            0,
+        )
+    }
+
     fn raw_close_write(&self, handle: i64) -> Union2<(), Kind> {
         let slot = crate::scheduler::salvo_stream_take_out(handle);
         let mut stream = slot.lock().unwrap();

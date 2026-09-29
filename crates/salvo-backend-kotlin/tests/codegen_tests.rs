@@ -1648,7 +1648,7 @@ fn a_raw_pass_is_driven_in_place_with_no_finally() {
     );
     assert!(
         // Suffixed: std declares a `close` too [fs-surface].
-        src.contains("close__3(console, lines)"),
+        src.contains("close__4(console, lines)"),
         "expected the program's own explicit close:\n{src}"
     );
 }
@@ -12455,7 +12455,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
         "expected the stream effect in:\n{streams}"
     );
     assert!(
-        streams.contains("fun close(streams: Streams, p: Lines)"),
+        streams.contains("fun close__2(streams: Streams, p: Lines)"),
         "expected the pass discharger as a fn named `close` in:\n{streams}"
     );
     // The host seam is its own module [mod-used-only]: a program that never

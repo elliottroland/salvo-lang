@@ -23955,6 +23955,20 @@ impl<'p, 'r> Checker<'p, 'r> {
             remaining.retain(|arm| !matched.contains(arm));
         }
         self.merge_fallthrough(&fallthrough, span);
+        // [linear-obligation] Every arm left (each `return`/`break`/diverging
+        // call checked the obligations live at it), so the code after this
+        // `when` is unreachable and nothing there owes — the end-of-frame check
+        // must not report the subject a branch consumed. `if`'s guard idiom
+        // reaches the same state through its else-narrows; a `when` has none,
+        // so it says so directly (found 2026-09-29: `when o { is Ok { return
+        // close(o) } is Err { return … } }` reported `o` as leaked).
+        if remaining.is_empty() && !branches.is_empty() && fallthrough.is_empty() {
+            for frame in self.locals.iter_mut() {
+                for var in frame.values_mut() {
+                    var.linear_settled = true;
+                }
+            }
+        }
         if !remaining.is_empty() && !unresolved_check {
             let missing: Vec<String> = remaining.iter().map(|a| a.to_string()).collect();
             self.error(

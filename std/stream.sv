@@ -63,6 +63,31 @@ export noremote linear struct InStream { handle: Long }
 // A stream open for writing. Its `close` flushes.
 export noremote linear struct OutStream { handle: Long }
 
+// ===== a non-blocking read's answer =====
+
+// One non-blocking read's bytes, and the stream back: a read consumes the
+// stream and its answer returns it, so exactly one read is ever in flight and
+// a `close` mid-read cannot be written — the checker cannot see a pending
+// reply, so the token's absence is what makes the rule hold. Linear by
+// containment: the stream still has to be closed. [bytes] is never empty.
+export linear struct Packet { bytes: Bytes, stream: InStream }
+
+// What `receive` answers: bytes and the stream back, or the end — the provider
+// has closed the stream, so nothing is left to close — or a failure, likewise
+// closed.
+export type Received = Ok Packet | End | Err Checked<StreamError>
+
+// The stream has ended. The provider closed it, so there is no token here.
+export struct End {}
+
+// Gives up a packet's stream before its end: `close` on the stream inside,
+// the bytes dropped. The usual way to consume a `Packet` is to take it apart —
+// `let {bytes, stream} = packet` — and carry on reading `stream`.
+export fn close(p: Packet) [Streams] -> Ok None | Err Checked<StreamError> => !p {
+    let {bytes, stream} = p
+    return close(stream)
+}
+
 // ===== the effect =====
 
 // Every operation on a stream. Producers (`Fs`, a network client) mint the
@@ -113,6 +138,60 @@ export effect Streams {
     fn flush(s: OutStream) -> Ok None | Err Checked<StreamError> => s
     // Flushes and releases the stream.
     fn close(s: OutStream) -> Ok None | Err Checked<StreamError> => !s
+
+    // [stream-receive] The next bytes, **without blocking**: hands the stream
+    // and a continuation to the provider and returns at once. The answer
+    // arrives on [reply] — the bytes and the stream back, or `End`, or a
+    // failure (both of which have closed the stream). A host provider reads on
+    // a thread of its own and completes the reply from there [platform-reply];
+    // an in-memory one answers straight away.
+    fn receive(s: InStream, reply: Reply<Received>) -> None => !s, !reply
+
+    // [stream-from-bytes] A stream over bytes already in hand — a request
+    // body, a test's fixture. Minted in this `Streams`' own table, so it is
+    // read like any other stream here, and only here [stream-provider].
+    fn from_bytes(data: Bytes) -> InStream => !data
+}
+
+// ===== copying without blocking =====
+
+// [stream-pipe] Copies everything left in [from] into [to] **without blocking a
+// worker**, answering on [done] how many bytes moved. Each chunk is a
+// `receive`; the copy runs as a chain of continuations on the pool this was
+// called on, so a slow producer (a network body) occupies no thread while it
+// is slow. Both streams are closed when the copy ends, whatever happened, and
+// the first failure is the one reported. The synchronous shape is
+// [copy_stream].
+export fn pipe(from: InStream, to: OutStream, done: Reply<Ok Long | Err Checked<StreamError>>) [Streams] -> None
+=> !from, !to, !done {
+    receive(from, replyto pipe_step(to, done, 0))
+}
+
+// One step of [pipe]: write what arrived and ask for more, or finish.
+send fn pipe_step(to: OutStream, done: Reply<Ok Long | Err Checked<StreamError>>, moved: Long, got: Received) [Streams]
+=> !to, !done, !moved, !got {
+    when got {
+        is Ok {
+            let {bytes, stream} = got
+            let written = write_bytes(to, bytes)
+            receive(stream, replyto pipe_step(to, done, moved + written))
+        }
+        is End {
+            let closed = close(to)
+            when closed {
+                is Ok { done.send(ok(moved)) }
+                is Err { done.send(closed) }
+            }
+        }
+        is Err {
+            let closed = close(to)
+            when closed {
+                is Ok {}
+                is Err { ignore(closed) }
+            }
+            done.send(got)
+        }
+    }
 }
 
 // ===== reading lines as a sequence =====

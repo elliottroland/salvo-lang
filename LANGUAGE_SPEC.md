@@ -4079,6 +4079,33 @@ Conventions:
   table is locked to find an entry and each entry has its own lock, so a slow
   read of one stream never blocks another. `HostRawFs` registers what it
   opens; it holds no state of its own any more.
+* [stream-receive] **`Streams.receive(s, reply: Reply<Received>)` reads
+  without blocking** (§4b step 3d, 2026-09-29): it consumes the stream and the
+  answer hands it back — `Received = Ok Packet | End | Err
+  Checked<StreamError>`, `linear struct Packet { bytes, stream }` — so one read
+  is in flight, and a `close` mid-read cannot be written because the token is
+  not there to write it with. At `End` or a failure the provider has already
+  closed the stream, so nothing is owed. A `Packet` is taken apart with
+  `let {bytes, stream} = packet`, and `close(Packet)` gives up the stream
+  inside. Chunks are provider-sized (64 KiB on the host and in memory) and
+  never empty (decision 8).
+  * Host: `DefaultStreams.receive` discharges the token, hands the handle to
+    `RawStreams.raw_receive`, and mints it back in `host_received`, the
+    continuation the host completes. `HostRawStreams.raw_receive` reads on a
+    thread of its own and completes the reply from there [platform-reply], so
+    no Salvo worker waits.
+  * Memory: `MemFs.receive` answers at once (still as a later activation).
+* [stream-from-bytes] **`Streams.from_bytes(data) -> InStream`** mints a
+  stream over bytes in hand, in the table of the `Streams` in scope — the host
+  table (`RawStreams.raw_from_bytes`, an `io::Cursor` / `ByteArrayInputStream`)
+  or `MemFs`'s. A request body a program built, a test's fixture.
+* [stream-pipe] **`pipe(from, to, done: Reply<Ok Long | Err
+  Checked<StreamError>>) [Streams]`** copies without blocking a worker: a
+  chain of `receive`s through the free `send fn pipe_step`, on the pool it was
+  called on; both streams are closed at the end and the first failure is
+  reported. With [stream-table]'s one host table this is PutObject from a file
+  and GetObject to a file with no adapter — the shape `examples`-level tests
+  exercise on both backends.
 * [stream-provider] **A stream belongs to the provider that minted it.** A
   handle from another table — a `MemFs` stream read by the host's `Streams`,
   or the reverse — is a program bug and **traps**, naming the rule (user
@@ -7140,6 +7167,13 @@ between endpoints and delivers what arrives into the scheduler.
     `intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply,
     !value` is std's, and it is why "a `Reply` is a one-shot `Addr` with a
     single send member" is true in the type system rather than only in prose.
+  * **The answer may be linear** (2026-09-29, §4b step 3d): `Reply<T canbe
+    linear>` and `send<T canbe linear>`, so a stream can travel back inside an
+    answer (`Reply<Received>`, whose `Ok` arm holds a `Packet` holding an
+    `InStream`). The obligation moves with the value: `send` consumes it, and
+    the continuation — a `waitfor`'s value or a `send fn`'s last parameter —
+    owes it on arrival, checked like any linear value (a continuation that
+    drops it is the ordinary leak diagnostic).
   * Only an `intrinsic type` may carry it, never an **alias**: an alias is a
     second name for a type that has already decided whether it owes.
     `intrinsic` is std-only [intrinsic-std-only], so a linear opaque type is

@@ -24,6 +24,14 @@ data class MapKeyYield<K>(
     var at: Int,
 )
 
+class __Codec_MapKeyYield<K>(private val __c_K: salvo.WireCodec<K>) : salvo.WireCodec<MapKeyYield<K>> {
+    override fun enc(v: MapKeyYield<K>, out: salvo.WireOut) {
+        salvo.ListCodec(__c_K).enc(v.items, out)
+        salvo.IntCodec.enc(v.at, out)
+    }
+    override fun dec(inp: salvo.WireIn): MapKeyYield<K> = MapKeyYield(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
+}
+
 fun<K> next__9(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {

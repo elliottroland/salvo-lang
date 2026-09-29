@@ -4,6 +4,13 @@ data class Checked<T>(
     val value: T,
 )
 
+class __Codec_Checked<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCodec<Checked<T>> {
+    override fun enc(v: Checked<T>, out: salvo.WireOut) {
+        __c_T.enc(v.value, out)
+    }
+    override fun dec(inp: salvo.WireIn): Checked<T> = Checked(__c_T.dec(inp))
+}
+
 fun<T> checked(value: T): Checked<T> {
     return Checked(value = value)
 }

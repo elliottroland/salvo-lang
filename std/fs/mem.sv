@@ -228,6 +228,37 @@ export handler MemFs of Fs, Streams {
         return ok(None)
     }
 
+    // [stream-receive] In memory there is nothing to wait for, so the answer
+    // is sent at once — still as a later activation, never inside this call.
+    // A read of up to 64 KiB, as the host's is: the chunk size is the
+    // provider's [stream-receive].
+    fn receive(s: InStream, reply: Reply<Received>) -> None => !s, !reply {
+        let got = mem_read_bytes(reads, s.handle, 65536)
+        if got is Err {
+            let open = mem_read_state(reads, s.handle)
+            remove(reads, s.handle)
+            discard(s)
+            reply.send(err(checked<StreamError>(StreamFailed { source: copy(open.source), message: "read failed" })))
+            ignore(got)
+            return None
+        }
+        let data: Bytes = got
+        if size(data) == 0 {
+            remove(reads, s.handle)
+            discard(s)
+            reply.send(End {})
+            return None
+        }
+        reply.send(ok(Packet { bytes: data, stream: s }))
+    }
+
+    // [stream-from-bytes] A stream over [data], in this table.
+    fn from_bytes(data: Bytes) -> InStream => !data {
+        let handle = fresh_handle()
+        put(reads, copy(handle), MemRead { source: "<bytes>", data: data, at: 0, failed: false })
+        return InStream { handle: copy(handle) }
+    }
+
     fn write(s: OutStream, text: Str) -> Long => s, text {
         return mem_append(writes, s.handle, to_bytes(text))
     }

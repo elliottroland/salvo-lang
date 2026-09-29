@@ -65,7 +65,7 @@ pub fn open_file(console: &crate::core_console::Console, name: String) -> FileHa
     return FileHandle { name: name };
 }
 
-pub fn close__3(console: &crate::core_console::Console, handle: FileHandle) {
+pub fn close__4(console: &crate::core_console::Console, handle: FileHandle) {
     println(console, &(format!("1. close {}", handle.name.clone())));
     drop(handle);
 }
@@ -75,10 +75,10 @@ pub fn read_size(console: &crate::core_console::Console, name: String, want: i32
     let mut handle = open_file(console, name);
     if want > there_is {
         println(console, &("1. asked for more than there is".to_string()));
-        close__3(console, handle);
+        close__4(console, handle);
         return there_is;
     }
-    close__3(console, handle);
+    close__4(console, handle);
     return want;
 }
 
@@ -101,7 +101,7 @@ pub fn port_of(config: &String) -> ControlFlow<String, i32> {
 pub fn port_from_file(console: &crate::core_console::Console, name: String, text: &String) -> ControlFlow<String, i32> {
     let mut handle = open_file(console, name);
     let mut from = handle.name.clone();
-    close__3(console, handle);
+    close__4(console, handle);
     println(console, &(format!("2. reading a port out of {}", from)));
     return ControlFlow::Continue(parse_port(text)?);
 }

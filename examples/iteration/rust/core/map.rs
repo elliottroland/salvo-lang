@@ -26,6 +26,19 @@ pub struct MapKeyYield<K: Clone + 'static> {
     pub at: i32,
 }
 
+impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyYield<K> {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.items, out);
+        crate::wire::__Wire::__enc(&self.at, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            items: crate::wire::__Wire::__dec(r)?,
+            at: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub fn next__9<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     let mut key = p.items.get((p.at) as i64 as usize).cloned();
     if key.is_none() {

@@ -1,3 +1,4 @@
+use crate::core_actor::*;
 use crate::core_bytes::*;
 use crate::core_checked::*;
 use crate::core_iterator::*;
@@ -21,6 +22,8 @@ pub trait __Stateless_RawStreams: Send + Sync {
     fn raw_write_position(&self, handle: i64) -> i64;
     fn raw_flush(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>>;
     fn raw_close_write(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>>;
+    fn raw_receive(&self, handle: i64, reply: crate::scheduler::SalvoReply);
+    fn raw_from_bytes(&self, data: Vec<u8>) -> i64;
 }
 
 pub trait __Stateful_RawStreams: Send {
@@ -37,6 +40,8 @@ pub trait __Stateful_RawStreams: Send {
     fn raw_write_position(&mut self, handle: i64) -> i64;
     fn raw_flush(&mut self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>>;
     fn raw_close_write(&mut self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>>;
+    fn raw_receive(&mut self, handle: i64, reply: crate::scheduler::SalvoReply);
+    fn raw_from_bytes(&mut self, data: Vec<u8>) -> i64;
 }
 
 pub struct RawStreams {
@@ -148,6 +153,32 @@ impl RawStreams {
             __Inner_RawStreams::Locked(h) => h.lock().unwrap().raw_close_write(handle),
         }
     }
+    pub fn raw_receive(&self, handle: i64, reply: crate::scheduler::SalvoReply) {
+        match &self.inner {
+            __Inner_RawStreams::Shared(h) => h.raw_receive(handle, reply),
+            __Inner_RawStreams::Locked(h) => h.lock().unwrap().raw_receive(handle, reply),
+        }
+    }
+    pub fn raw_from_bytes(&self, data: Vec<u8>) -> i64 {
+        match &self.inner {
+            __Inner_RawStreams::Shared(h) => h.raw_from_bytes(data),
+            __Inner_RawStreams::Locked(h) => h.lock().unwrap().raw_from_bytes(data),
+        }
+    }
+}
+
+pub fn host_received(reply: crate::scheduler::SalvoReply, handle: i64, got: Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>) {
+    match got {
+        Union3::U1(_) => {
+            (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(Packet { bytes: got.u1().clone(), stream: InStream { handle: handle } }))));
+        }
+        Union3::U2(_) => {
+            (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(got.u2().clone())));
+        }
+        Union3::U3(_) => {
+            (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3(err(checked(got.u3().clone())))));
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -236,6 +267,16 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
                 return Union2::<(), Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(err(checked(r.u2().clone())));
             }
         }
+    }
+
+    fn receive(&self, s: InStream, reply: crate::scheduler::SalvoReply) {
+        let mut handle = s.handle;
+        drop(s);
+        self.__dep_RawStreams.raw_receive(handle.clone(), ({ let __c0 = reply; let __c1 = handle; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), Box::new(move |__v| host_received(__c0, __c1, *__v.downcast::<Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>>().expect("the awaited answer"))), (|__b: &[u8]| crate::wire::salvo_decode::<Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))) }));
+    }
+
+    fn from_bytes(&self, data: Vec<u8>) -> InStream {
+        return InStream { handle: self.__dep_RawStreams.raw_from_bytes(data) };
     }
 
     fn write(&self, s: &OutStream, text: &String) -> i64 {

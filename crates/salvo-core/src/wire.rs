@@ -228,9 +228,17 @@ pub fn struct_has_wire_form(symbols: &Symbols<'_>, name: &str) -> bool {
     if decl.noremote {
         return false;
     }
+    // The generic parameters are left *out* rather than passed as free
+    // variables: a free variable is a block (`WireBlock::Generic`), which
+    // made every generic struct codec-less while an instantiation such as
+    // `Box<Int>` was judged wire-capable — so a `Reply<Box<Int>>` took the
+    // encoding path to a codec that did not exist (found 2026-09-29 with
+    // `Reply<Ok Long | Err Checked<StreamError>>`). Without arguments the
+    // fields' parameters stay unresolved names, which block nothing: the codec
+    // is conditional on its arguments, and the instantiation decides.
     let ty = Ty::Named {
         name: name.to_string(),
-        args: decl.generics.iter().map(|g| Ty::Var(g.name.clone())).collect(),
+        args: Vec::new(),
     };
     wire_blocker(symbols, &ty).is_none()
 }

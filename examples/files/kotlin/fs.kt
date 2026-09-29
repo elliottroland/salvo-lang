@@ -225,7 +225,7 @@ fun read_lines(fs: Fs, streams: Streams, path: String): Union2<List<String>, Che
         val line = __loop1_step.value
         out.add(line)
     }
-    val closed = close(streams, p)
+    val closed = close__2(streams, p)
     if (closed is U2_2<*, *>) {
         return U2_2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_stream_error((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }

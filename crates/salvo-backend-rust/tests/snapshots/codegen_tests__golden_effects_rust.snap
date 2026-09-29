@@ -10,6 +10,17 @@ pub struct Checked<T: Clone + 'static> {
     pub value: T,
 }
 
+impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for Checked<T> {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.value, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            value: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub fn checked<T: Clone>(value: T) -> Checked<T> {
     return Checked { value: value };
 }
@@ -337,6 +348,19 @@ pub struct MapKeyYield<K: Clone + 'static> {
     pub at: i32,
 }
 
+impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyYield<K> {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.items, out);
+        crate::wire::__Wire::__enc(&self.at, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            items: crate::wire::__Wire::__dec(r)?,
+            at: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub fn next__9<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     let mut key = p.items.get((p.at) as i64 as usize).cloned();
     if key.is_none() {
@@ -367,6 +391,19 @@ pub fn iter__5<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
 pub struct SetYield<T: Clone + 'static> {
     pub items: Vec<T>,
     pub at: i32,
+}
+
+impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetYield<T> {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.items, out);
+        crate::wire::__Wire::__enc(&self.at, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            items: crate::wire::__Wire::__dec(r)?,
+            at: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn next__11<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {

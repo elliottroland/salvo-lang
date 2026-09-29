@@ -340,7 +340,7 @@ pub fn read_lines(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &S
     while let Union2::U1(mut line) = next__13(streams, &mut p) {
         out.push(line);
     }
-    let mut closed = close(streams, p);
+    let mut closed = close__2(streams, p);
     if matches!(closed, Union2::U2(_)) {
         return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error(closed.u2().clone())));
     }

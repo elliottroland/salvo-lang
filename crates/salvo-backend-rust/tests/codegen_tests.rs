@@ -1288,12 +1288,12 @@ fn discard_lowers_to_drop() {
     // name, one overload set, and the emitters spell every overload after
     // the first apart.
     assert!(
-        main.content.contains("close__3(h)"),
+        main.content.contains("close__4(h)"),
         "generated:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("close__3(temp)"),
+        main.content.contains("close__4(temp)"),
         "generated:\n{}",
         main.content
     );
@@ -4718,7 +4718,7 @@ fn a_raw_pass_is_driven_in_place_and_closed_explicitly() {
     );
     assert!(
         // Suffixed: std declares a `close` too [fs-surface].
-        main.content.contains("close__3(console, lines);"),
+        main.content.contains("close__4(console, lines);"),
         "expected the program's own explicit close:\n{}",
         main.content
     );
@@ -10113,7 +10113,7 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
         "fn read_line(&mut self, s: &InStream) -> Option<String>",
         // [effect-available] One overload set: the pass's discharger is a
         // *fn* named `close`, beside the two members of that name.
-        "pub fn close(streams: &crate::stream::Streams, p: Lines)",
+        "pub fn close__2(streams: &crate::stream::Streams, p: Lines)",
     ] {
         assert!(
             surface.contains(expected),

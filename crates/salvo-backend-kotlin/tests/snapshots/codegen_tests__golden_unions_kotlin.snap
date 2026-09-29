@@ -9,6 +9,13 @@ data class Checked<T>(
     val value: T,
 )
 
+class __Codec_Checked<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCodec<Checked<T>> {
+    override fun enc(v: Checked<T>, out: salvo.WireOut) {
+        __c_T.enc(v.value, out)
+    }
+    override fun dec(inp: salvo.WireIn): Checked<T> = Checked(__c_T.dec(inp))
+}
+
 fun<T> checked(value: T): Checked<T> {
     return Checked(value = value)
 }
@@ -273,6 +280,14 @@ data class MapKeyYield<K>(
     var at: Int,
 )
 
+class __Codec_MapKeyYield<K>(private val __c_K: salvo.WireCodec<K>) : salvo.WireCodec<MapKeyYield<K>> {
+    override fun enc(v: MapKeyYield<K>, out: salvo.WireOut) {
+        salvo.ListCodec(__c_K).enc(v.items, out)
+        salvo.IntCodec.enc(v.at, out)
+    }
+    override fun dec(inp: salvo.WireIn): MapKeyYield<K> = MapKeyYield(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
+}
+
 fun<K> next__9(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
@@ -315,6 +330,14 @@ data class SetYield<T>(
     var items: List<T>,
     var at: Int,
 )
+
+class __Codec_SetYield<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCodec<SetYield<T>> {
+    override fun enc(v: SetYield<T>, out: salvo.WireOut) {
+        salvo.ListCodec(__c_T).enc(v.items, out)
+        salvo.IntCodec.enc(v.at, out)
+    }
+    override fun dec(inp: salvo.WireIn): SetYield<T> = SetYield(salvo.ListCodec(__c_T).dec(inp), salvo.IntCodec.dec(inp))
+}
 
 fun<T> next__11(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)

@@ -72,7 +72,7 @@ fun workflow(fs: Fs, console: Console, streams: Streams) {
                 val line = __loop1_step.value
                 println(console, "line: $line")
             }
-            val closed = close(streams, p)
+            val closed = close__2(streams, p)
             if (closed is U2_2<*, *>) {
                 println(console, "close failed: ${kind_name__2(detach((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
             }
@@ -270,7 +270,7 @@ fun workflow(fs: Fs, console: Console, streams: Streams) {
                 seen = seen + chunk.size
             }
             println(console, "chunks saw $seen bytes")
-            val done = close__2(streams, p)
+            val done = close__3(streams, p)
             if (done is U2_2<*, *>) {
                 println(console, "close failed: ${kind_name__2(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
             }
@@ -368,6 +368,7 @@ fun sandbox_edges(fs: Fs, console: Console, streams: Streams) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
+    salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults)))
     val console: Console = StdOutConsole()
     val raw_streams: RawStreams = salvo.platform.stream.host.HostRawStreams()
     val streams: Streams = DefaultStreams(raw_streams)

@@ -11,6 +11,8 @@ pub mod scheduler;
 pub mod hosttime;
 #[path = "wire.rs"]
 pub mod wire;
+#[path = "core/actor.rs"]
+pub mod core_actor;
 #[path = "core/bytes.rs"]
 pub mod core_bytes;
 #[path = "core/checked.rs"]
@@ -115,7 +117,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             while let Union2::U1(mut line) = next__13(streams, &mut p) {
                 println(console, &(format!("line: {}", line)));
             }
-            let mut closed = close(streams, p);
+            let mut closed = close__2(streams, p);
             if matches!(closed, Union2::U2(_)) {
                 println(console, &(format!("close failed: {}", kind_name__2(&(detach(closed.u2().clone()))))));
             }
@@ -310,7 +312,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
                 seen = seen + (chunk.len() as i32);
             }
             println(console, &(format!("chunks saw {} bytes", seen)));
-            let mut done = close__2(streams, p);
+            let mut done = close__3(streams, p);
             if matches!(done, Union2::U2(_)) {
                 println(console, &(format!("close failed: {}", kind_name__2(&(detach(done.u2().clone()))))));
             }
@@ -406,6 +408,7 @@ pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console,
 }
 
 pub fn main() {
+    crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string())]);
     let console = crate::core_console::Console::shared(StdOutConsole::new());
     let raw_streams = crate::stream_host::RawStreams::shared(crate::platform_stream_host::HostRawStreams::new());
     let streams = crate::stream::Streams::shared(DefaultStreams::new(raw_streams.clone()));

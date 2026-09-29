@@ -1,6 +1,7 @@
 package salvo.stream
 
 import salvo.*
+import salvo.core.actor.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
 import salvo.core.iterator.*
@@ -55,6 +56,26 @@ data class OutStream(
     val handle: Long,
 )
 
+data class Packet(
+    val bytes: salvo.SalvoBytes,
+    val stream: InStream,
+)
+
+class End
+
+object __Codec_End : salvo.WireCodec<End> {
+    override fun enc(v: End, out: salvo.WireOut) {
+    }
+    override fun dec(inp: salvo.WireIn): End = End()
+}
+
+fun close(streams: Streams, p: Packet): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    val __destructured1 = p
+    val bytes = __destructured1.bytes
+    val stream = __destructured1.stream
+    return streams.close(stream)
+}
+
 interface Streams {
     fun read_line(s: InStream): String?
     fun read_all(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>
@@ -70,6 +91,8 @@ interface Streams {
     fun position__2(s: OutStream): Long
     fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>
+    fun receive(s: InStream, reply: salvo.SalvoReply)
+    fun from_bytes(data: salvo.SalvoBytes): InStream
 }
 
 class __Mon_Streams(private val inner: Streams) : Streams {
@@ -101,6 +124,49 @@ class __Mon_Streams(private val inner: Streams) : Streams {
         synchronized(inner) { inner.flush(s) }
     override fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> =
         synchronized(inner) { inner.close__2(s) }
+    override fun receive(s: InStream, reply: salvo.SalvoReply) =
+        synchronized(inner) { inner.receive(s, reply) }
+    override fun from_bytes(data: salvo.SalvoBytes): InStream =
+        synchronized(inner) { inner.from_bytes(data) }
+}
+
+fun pipe(streams: Streams, from: InStream, to: OutStream, done: salvo.SalvoReply) {
+    streams.receive(from, run { val __e0 = streams; val __c0 = to; val __c1 = done; val __c2 = 0L; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { _: ByteArray -> Pair(false, null) }) { __v -> pipe_step(__e0, __c0, __c1, __c2, __v as Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) } })
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun pipe_step(streams: Streams, to: OutStream, done: salvo.SalvoReply, moved: Long, got: Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) {
+    when (got) {
+        is U3_1<*, *, *> -> {
+            val __destructured2 = (got.value as Packet)
+            val bytes = __destructured2.bytes
+            val stream = __destructured2.stream
+            val written = streams.write_bytes(to, bytes)
+            streams.receive(stream, run { val __e0 = streams; val __c0 = to; val __c1 = done; val __c2 = moved + written; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { _: ByteArray -> Pair(false, null) }) { __v -> pipe_step(__e0, __c0, __c1, __c2, __v as Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) } })
+        }
+        is U3_2<*, *, *> -> {
+            val closed = streams.close__2(to)
+            when (closed) {
+                is U2_1<*, *> -> {
+                    salvo.SalvoSched.replyWire(done, U2_1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(moved)), salvo.Union2Codec(salvo.LongCodec, __Codec_Checked(salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed))))
+                }
+                is U2_2<*, *> -> {
+                    salvo.SalvoSched.replyWire(done, U2_2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>)), salvo.Union2Codec(salvo.LongCodec, __Codec_Checked(salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed))))
+                }
+            }
+        }
+        is U3_3<*, *, *> -> {
+            val closed = streams.close__2(to)
+            when (closed) {
+                is U2_1<*, *> -> {
+                }
+                is U2_2<*, *> -> {
+                    ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+                }
+            }
+            salvo.SalvoSched.replyWire(done, U2_2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>)), salvo.Union2Codec(salvo.LongCodec, __Codec_Checked(salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed))))
+        }
+    }
 }
 
 data class Lines(
@@ -123,7 +189,7 @@ fun next__13(streams: Streams, p: Lines): Union2<String, Finished> {
     }
 }
 
-fun close(streams: Streams, p: Lines): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+fun close__2(streams: Streams, p: Lines): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     return streams.close(p.s)
 }
 
@@ -150,7 +216,7 @@ fun next__14(streams: Streams, p: Chunks): Union2<salvo.SalvoBytes, Finished> {
     return U2_1<salvo.SalvoBytes, Finished>(emitted(data))
 }
 
-fun close__2(streams: Streams, p: Chunks): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+fun close__3(streams: Streams, p: Chunks): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     return streams.close(p.s)
 }
 

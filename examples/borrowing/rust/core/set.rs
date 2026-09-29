@@ -16,6 +16,19 @@ pub struct SetYield<T: Clone + 'static> {
     pub at: i32,
 }
 
+impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetYield<T> {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.items, out);
+        crate::wire::__Wire::__enc(&self.at, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            items: crate::wire::__Wire::__dec(r)?,
+            at: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub fn next__11<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {

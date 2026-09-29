@@ -139,6 +139,40 @@ class HostRawStreams : RawStreams {
         }
     }
 
+    /**
+     * [stream-receive] Reads on a thread of its own and completes [reply] from
+     * there [platform-reply]: the caller's worker never waits. At the end, or
+     * on a failure, the stream is released before answering, so the caller has
+     * nothing left to close.
+     */
+    override fun raw_receive(handle: Long, reply: SalvoReply) {
+        val host = reply.hosted()
+        val stream = SalvoStreams.inStream(handle)
+        val reader = Thread {
+            val answer: Union3<SalvoBytes, End, Kind> = synchronized(stream) {
+                try {
+                    val got = stream.readUpTo(65536)
+                    if (got.isNotEmpty()) {
+                        U3_1(SalvoBytes(got))
+                    } else {
+                        SalvoStreams.takeIn(handle)
+                        U3_2(End())
+                    }
+                } catch (e: SalvoFaultException) {
+                    SalvoStreams.takeIn(handle)
+                    U3_3(kind(stream.source, e.fault))
+                }
+            }
+            host.send(answer)
+        }
+        reader.isDaemon = true
+        reader.start()
+    }
+
+    /** [stream-from-bytes] A readable stream over [data], registered in the process's table. */
+    override fun raw_from_bytes(data: SalvoBytes): Long =
+        SalvoStreams.registerIn("<bytes>", java.io.ByteArrayInputStream(data.toByteArray()), 0)
+
     override fun raw_close_write(handle: Long): Union2<Unit, Kind> {
         val stream = SalvoStreams.takeOut(handle)
         synchronized(stream) {

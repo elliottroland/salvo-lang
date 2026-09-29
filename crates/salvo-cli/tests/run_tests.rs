@@ -877,3 +877,102 @@ fn a_stream_from_another_provider_traps() {
     }
     __stamp.verified();
 }
+
+/// [stream-receive] [stream-pipe] [stream-from-bytes] Non-blocking copies, end
+/// to end on both backends and against both worlds: a buffer piped into a file
+/// (GetObject-to-a-file's shape), and a file piped into another (a file is a
+/// body: PutObject-from-a-file's). On the host, `receive` reads on a host
+/// thread and completes its reply from there [platform-reply]; in memory it
+/// answers at once. Same stdout everywhere.
+#[test]
+fn streams_pipe_without_blocking_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("stream_pipe", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("stream_pipe");
+    fs::write(dir.join("main.sv"), PIPE_PROGRAM).unwrap();
+    let expected = "-- host --\npiped 27 bytes\nlines: [hello, streams, second line]\npiped 27 bytes\n\
+                    copy of the copy: 27 bytes\n-- mem --\npiped 27 bytes\nlines: [hello, streams, second line]\n\
+                    piped 27 bytes\ncopy of the copy: 27 bytes\n";
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), expected, "{backend}");
+    }
+    __stamp.verified();
+}
+
+const PIPE_PROGRAM: &str = r#"import fs
+import fs.host
+import fs.mem
+import stream
+import stream.host
+
+fn describe(r: Ok Long | Err Checked<StreamError>) [] -> Str => !r {
+    when r {
+        is Ok { return "piped ${r} bytes" }
+        is Err { return "failed: ${detach(r)}" }
+    }
+}
+
+// GetObject-to-a-file's shape: a stream from somewhere, into a file, without
+// blocking a worker.
+fn copy_in(body: InStream, path: Str) [Fs] -> Str => !body, path {
+    let out = open_write(path)
+    when out {
+        is Ok {
+            let result = waitfor done: Reply<Ok Long | Err Checked<StreamError>> {
+                pipe(body, out, done)
+            }
+            return describe(result)
+        }
+        is Err {
+            let closed = close(body)
+            if closed is Err { ignore(closed) }
+            return "open failed: ${detach(out)}"
+        }
+    }
+}
+
+fn run() [Fs, Console] {
+    let body = from_bytes(to_bytes("hello, streams\nsecond line\n"))
+    println(copy_in(body, "piped.txt"))
+    let back = read_lines("piped.txt")
+    when back {
+        is Ok { println("lines: ${back}") }
+        is Err { println("read: ${detach(back)}") }
+    }
+    // A file is a body too: PutObject-from-a-file's shape.
+    let file = open_read("piped.txt")
+    when file {
+        is Ok { println(copy_in(file, "piped2.txt")) }
+        is Err { println("reopen: ${detach(file)}") }
+    }
+    let n = read_to_str("piped2.txt")
+    when n {
+        is Ok { println("copy of the copy: ${byte_size(n)} bytes") }
+        is Err { println("read2: ${detach(n)}") }
+    }
+    let a = delete("piped.txt")
+    if a is Err { ignore(a) }
+    let b = delete("piped2.txt")
+    if b is Err { ignore(b) }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use HostRawStreams()
+    use DefaultStreams()
+    use HostRawFs()
+    use DefaultFs()
+    println("-- host --")
+    run()
+    println("-- mem --")
+    if true {
+        use MemFs()
+        run()
+    }
+}
+"#;

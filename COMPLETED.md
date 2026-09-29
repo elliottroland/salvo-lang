@@ -135,6 +135,40 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Non-blocking streams: `receive`, `from_bytes`, `pipe` (2026-09-29; §4b step
+3d).** [stream-receive] [stream-from-bytes] [stream-pipe]: `Streams.receive(s,
+reply: Reply<Received>)` consumes the stream and the answer returns it —
+`Received = Ok Packet | End | Err Checked<StreamError>`, `linear struct Packet
+{ bytes, stream }` — so one read is in flight and a mid-read `close` is
+unwritable; `from_bytes` mints a stream over a buffer; `pipe` is the
+non-blocking copy, a chain of `receive`s through a free `send fn`. The host
+reads on a thread of its own and completes the reply from there
+[platform-reply]: `DefaultStreams.receive` discharges the token, `raw_receive`
+takes the handle, and the continuation `host_received` mints it back. `MemFs`
+answers at once. `Reply<T canbe linear>` and `send<T canbe linear>` in
+`core.actor` so a linear answer can travel; the continuation owes it on arrival.
+PutObject-from-a-file and GetObject-to-a-file are `pipe(open_read(path), …)`
+and `pipe(body, open_write(path), …)` with no adapter, run end to end on both
+backends against the host and against `MemFs` (one CLI test), plus two std
+tests of `receive`/`pipe` in memory.
+
+*Defects found on the way, all fixed at the root:* (1) **a `when` whose every
+arm exits** left the subject's obligation live for the end-of-frame check, so
+`when o { is Ok { return close(o) } is Err { return … } }` reported `o` leaked —
+the `if` form was fine only because its guard idiom installs else-narrows; the
+code after such a `when` is unreachable and every exit already checked its own
+obligations, so nothing after it owes. (2) **Generic struct codecs were never
+emitted**: `struct_has_wire_form` passed the generics as free variables, which
+block, while a concrete instance (`Checked<StreamError>`, `Box2<Int>`) was
+judged wire-capable — a `Reply` of one took the typed path to a codec that did
+not exist, on both backends. (3) **Rust's `rust_ty` did not expand type
+aliases**, so a reply decoder built from a written type named an undeclared
+Rust type (`Union2<i32, E>`). (4) **Rust's intrinsic arguments in consumed
+positions skipped the union re-wrap**, so `reply.send(r)` with `r` narrowed to
+one arm sent the bare arm — a rustc error on the typed path and a downcast
+panic at run time on the untyped one. Four tests pinned overload suffixes
+(`close__3`) that `close(Packet)` shifted by one; updated. **1653 tests.**
+
 **The fs/stream split (2026-09-29; §4b step 3c, decisions 20–31).** [stream-layer]
 [stream-table] [stream-provider]: `std/stream.sv` holds `InStream`/`OutStream`,
 `StreamError = InvalidUtf8 | StreamFailed` (field `source`, not `path`), the
@@ -18756,7 +18790,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1652)
+## Test inventory (all green: 1653)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
