@@ -518,6 +518,11 @@ Conventions:
   * Because the member is a plain nested class, the namespace struct must
     not be generic (enforced in `resolve`): a nested class cannot use the
     outer class's type parameters.
+  * A **`type` namespace** [name-dot] has no class of its own — Kotlin expands
+    a Salvo `type` structurally — so its members nest in an `object` of the
+    type's name (`object StorageClass { class Standard … }`), and references
+    keep the dotted spelling unchanged. Codecs for the members follow the
+    object at top level, as for a struct namespace.
   * Dot-named *qualifiers* emit nothing (qualifiers erase
     [qual-erasure]); they only reach output through mangling, where the
     dot canonicalizes to the flat spelling

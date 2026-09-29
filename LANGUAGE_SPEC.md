@@ -7639,6 +7639,16 @@ between endpoints and delivers what arrives into the scheduler.
     Backends translate at the point
     a Salvo name becomes target syntax: Kotlin renders it verbatim (a
     valid nested reference), Rust flattens it in `rs_ident`.
+  * **A `type` may be the namespace** (user decision 2026-09-29, the aws
+    design's 16; ROADMAP §4b item 5): `type StorageClass =
+    StorageClass.Standard | …` with `struct StorageClass.Standard {}` beside
+    it — how a generated enum keeps its cases apart from another enum's
+    `Standard`. Same rules: same file, not generic, two segments, the
+    concatenation free; an `intrinsic type` has no body and cannot be one.
+    Importing the type brings its members, by the same name-prefix rule
+    [name-dot-import]. Kotlin nests the members in an `object StorageClass`
+    [kt-nested-dot-name] (the type itself is expanded structurally, so the
+    name is free); Rust concatenates as for a struct.
 * [name-dot-import] `import path.Ns.Name` imports a dot-named item; the
   path splits by casing — trailing uppercase segments are the item name
   (two of them for a dot-name), everything before is the module prefix,

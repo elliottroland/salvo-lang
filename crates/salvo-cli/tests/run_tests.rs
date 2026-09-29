@@ -976,3 +976,40 @@ fn main() [use] {
     }
 }
 "#;
+
+/// [name-dot] [kt-nested-dot-name] A `type` namespacing its members — the
+/// shape the aws generator uses for Smithy enums — runs on both backends:
+/// Rust concatenates the names, Kotlin nests the members in an `object`
+/// named for the type.
+#[test]
+fn a_type_namespace_runs_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("type_namespace", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("type_namespace");
+    fs::write(
+        dir.join("sc.sv"),
+        "export type StorageClass = StorageClass.Standard | StorageClass.Glacier | StorageClass.Unknown\n\
+         export struct StorageClass.Standard {}\nexport struct StorageClass.Glacier {}\n\
+         export struct StorageClass.Unknown { value: Str }\n\n\
+         export fn describe(c: StorageClass) [] -> Str => c {\n    when c {\n        \
+         is StorageClass.Standard { return \"standard\" }\n        is StorageClass.Glacier { return \"glacier\" }\n        \
+         is StorageClass.Unknown { return \"unknown: ${c.value}\" }\n    }\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("main.sv"),
+        "import sc.StorageClass\nimport sc.describe\n\nfn main() [use] {\n    use StdOutConsole()\n    \
+         let one: StorageClass = StorageClass.Glacier {}\n    println(describe(one))\n    \
+         println(describe(StorageClass.Standard {}))\n    println(describe(StorageClass.Unknown { value: \"DEEP\" }))\n}\n",
+    )
+    .unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "glacier\nstandard\nunknown: DEEP\n", "{backend}");
+    }
+    __stamp.verified();
+}

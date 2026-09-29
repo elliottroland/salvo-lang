@@ -1380,6 +1380,42 @@ impl<'p> Emitter<'p> {
                 // only: nothing to emit.
                 Item::Struct(s) if s.comptime => {}
                 Item::Struct(s) => body.push_str(&self.emit_struct_with_members(s, module)),
+                // [name-dot] [kt-nested-dot-name] A `type` namespacing structs
+                // (`StorageClass.Standard`): Kotlin expands the alias itself
+                // structurally, so the name is free for an `object` holding
+                // the members as nested classes, and every reference keeps
+                // its dotted spelling.
+                Item::Type(t) if t.alias.is_some() => {
+                    let prefix = format!("{}.", t.name.name);
+                    let members: Vec<&StructDecl> = module
+                        .items
+                        .iter()
+                        .filter_map(|item| match item {
+                            Item::Struct(m) if m.name.name.starts_with(&prefix) => Some(m),
+                            _ => None,
+                        })
+                        .collect();
+                    if !members.is_empty() {
+                        let mut nested = String::new();
+                        let mut codecs = String::new();
+                        for m in members {
+                            for line in self.emit_struct(m).lines() {
+                                if line.is_empty() {
+                                    nested.push('\n');
+                                } else {
+                                    nested.push_str(&format!("    {line}\n"));
+                                }
+                            }
+                            if salvo_core::struct_has_wire_form(self.symbols, &m.name.name) {
+                                codecs.push_str(&self.emit_struct_codec(m));
+                            }
+                        }
+                        body.push_str(&format!(
+                            "\nobject {} {{\n{nested}}}\n{codecs}",
+                            kt_ident(&t.name.name)
+                        ));
+                    }
+                }
                 // [throw] The throw effect has no handlers — `try` delimits
                 // it — so there is nothing to implement: emitting an
                 // interface for it would be dead, misleading code.

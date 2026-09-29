@@ -246,9 +246,19 @@ let env = Environment {
 }
 ```
 
+A `type` declaration can be a namespace too, which is how an enumeration keeps its cases under its own name:
+
+```
+type StorageClass = StorageClass.Standard | StorageClass.Glacier | StorageClass.Unknown
+
+struct StorageClass.Standard {}
+struct StorageClass.Glacier {}
+struct StorageClass.Unknown { value: Str }
+```
+
 Three rules apply:
 
-* `Ns` must be a struct **in the same file**, and it must not be generic.
+* `Ns` must be a struct or a `type` with a definition **in the same file**, and it must not be generic. (An `intrinsic type` has no body, so it cannot be one.)
 * A dot-name has exactly two segments: `A.B.C` is an error, and a dot-named struct cannot itself be a namespace.
 * Nothing else visible in the file may be called `NsName` — the concatenation. The Rust backend renders `Environment.Id` as `EnvironmentId`, so that spelling has to stay free.
 
@@ -259,7 +269,7 @@ import env.types.Environment.Id     // just the member
 import env.types.Environment        // the struct *and* Environment.Id
 ```
 
-Backends differ, deliberately. Kotlin emits a nested class, so `Environment.Id` is the same name in the generated code. Rust concatenates, because Rust modules and structs share one namespace and a `mod Environment` next to a `struct Environment` would not compile.
+Backends differ, deliberately. Kotlin emits a nested class, so `Environment.Id` is the same name in the generated code; a `type`'s members nest in an `object` named for the type, since Kotlin expands the type itself structurally and leaves the name free. Rust concatenates, because Rust modules and structs share one namespace and a `mod Environment` next to a `struct Environment` would not compile.
 
 ## Documentation comments
 

@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Twelve worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, one of them consuming the first dependency
-(`modules/aws/`). 1653 tests green.
+(`modules/aws/`). 1655 tests green.
 
 ## The sequence
 
@@ -378,14 +378,8 @@ made in the design sitting — but each has a shape to settle at implementation.
    not at the read. **DECISION** at implementation time: qualifier vs. a type
    parameter on the effect vs. a property of the handler declaration, and how a
    program that legitimately mixes domains says so. Not blocking §4b 1–3.
-5. **Dot-names under a `type`** (decision 16). Generated enums are unions of
-   unit tags namespaced under the enum's type — `StorageClass.Standard` — and
-   today a dot-name's namespace must be a *struct* in the same file
-   ([Modules.md](docs/language/Modules.md) "Namespaced names"). Extend the
-   namespace to a `type` declaration; the two-segment rule and the
-   concatenation-must-stay-free rule carry over unchanged. Needed by step 4's
-   generator, not by 1–3.
-
+5. ✅ **Dot-names under a `type`** — built 2026-09-29 ([name-dot]; Kotlin nests
+   the members in an `object`).
 6. **Handler bundles** (recorded 2026-09-29, **DECISION**, not scheduled). A
    production composition root binds a whole collection of handlers, and the
    stream layering makes even a host filesystem four lines (`use
@@ -864,6 +858,16 @@ several are "revisit only if a customer appears".
   1 decided against for everything else; the remedy `hash by auto, eq by auto`
   at the call (section 2c) is one line, and the missing-identity diagnostic
   should name it.
+
+- **A `for` element of a union-typed list does not fit a parameter of that
+  union** (found 2026-09-29 building §4b item 5, not fixed; unrelated to it).
+  Repro: `struct A {}` `struct B {}` `type AB = A | B` `fn d(x: AB) [] -> Str
+  => x { return "x" }`, then `for c in list_of<AB>(A {}, B {}) { d(c) }` —
+  "no matching overload for `d(proj (A | B))`". The element is a `proj` view of
+  the union, and the overload fit does not see through `proj` on a union the
+  way it does on a struct. Workaround: bind the element to a typed local
+  first. Likely a small fix in the arg-fits rule; needs its own test on both
+  backends because the Rust borrow of a union arm is what `proj` renders.
 
 - **A one-off fresh-run failure of `kotlinc_compiles_and_runs_every_case`**
   (2026-09-28, under `SALVO_E2E_FRESH=1 cargo nextest run` with the whole

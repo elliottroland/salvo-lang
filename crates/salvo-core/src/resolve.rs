@@ -1060,11 +1060,21 @@ fn check_dot_names(
             || scope.type_aliases.contains_key(name)
             || scope.opaque_types.contains_key(name)
     };
-    // Structs declared in this file, with their generic arity.
+    // Namespaces declared in this file, with their generic arity: every
+    // struct, and every `type` declaration with a definition — an enum's arms
+    // live under the enum's name (`StorageClass.Standard`), user decision
+    // 2026-09-29 (the aws design's 16). An opaque `intrinsic type` has no body
+    // to be the namespace of.
     let mut local_structs: HashMap<&str, usize> = HashMap::new();
     for item in &ast.items {
-        if let Item::Struct(s) = item {
-            local_structs.insert(s.name.name.as_str(), s.generics.len());
+        match item {
+            Item::Struct(s) => {
+                local_structs.insert(s.name.name.as_str(), s.generics.len());
+            }
+            Item::Type(t) if t.alias.is_some() && !t.name.name.contains('.') => {
+                local_structs.insert(t.name.name.as_str(), t.generics.len());
+            }
+            _ => {}
         }
     }
     let mut dotted: Vec<(&str, Span)> = Vec::new();
@@ -1084,8 +1094,8 @@ fn check_dot_names(
                 file_idx,
                 span,
                 format!(
-                    "`{ns}` in the dot-name `{name}` must be a struct declared in this \
-                     file [name-dot]"
+                    "`{ns}` in the dot-name `{name}` must be a struct or a `type` declared \
+                     in this file [name-dot]"
                 ),
             )),
             Some(0) => {}

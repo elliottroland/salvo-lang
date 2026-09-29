@@ -135,6 +135,17 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Dot-names under a `type` (2026-09-29; §4b item 5, decision 16).** `type
+StorageClass = StorageClass.Standard | …` with the members declared beside it:
+`check_dot_names` accepts a `type` with a definition as a namespace (not an
+`intrinsic type`, not a generic one); imports bring the members by the existing
+prefix rule; Rust concatenates as for structs; Kotlin, which never emits a type
+alias, nests the members in an `object` of the type's name so every reference
+keeps its dotted spelling. One resolver test, one CLI test on both backends.
+Found and recorded, not fixed (ROADMAP defects): a `for` element of a
+union-typed list (`proj (A | B)`) does not fit a parameter of that union.
+**1655 tests.**
+
 **Non-blocking streams: `receive`, `from_bytes`, `pipe` (2026-09-29; §4b step
 3d).** [stream-receive] [stream-from-bytes] [stream-pipe]: `Streams.receive(s,
 reply: Reply<Received>)` consumes the stream and the answer returns it —
@@ -18790,7 +18801,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1653)
+## Test inventory (all green: 1655)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

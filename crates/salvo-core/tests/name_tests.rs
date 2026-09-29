@@ -107,9 +107,30 @@ fn namespace_must_be_a_struct_in_the_same_file() {
     assert!(
         errors
             .iter()
-            .any(|m| m.contains("must be a struct declared in this file")),
+            .any(|m| m.contains("must be a struct or a `type` declared in this file")),
         "got {errors:?}"
     );
+}
+
+// [name-dot] A `type` declaration namespaces its members too — an enum's
+// arms live under the enum (`StorageClass.Standard`, user decision
+// 2026-09-29) — and the members are reached through an import of the type, as
+// a struct's are [name-dot-import]. An opaque `intrinsic type` has no body to
+// be the namespace of, and a generic `type` is refused as a generic struct is.
+#[test]
+fn a_type_namespaces_its_members() {
+    let sc = "export type StorageClass = StorageClass.Standard | StorageClass.Unknown\n\
+              export struct StorageClass.Standard {}\n\
+              export struct StorageClass.Unknown { value: Str }\n";
+    let main = "import sc.StorageClass\n\n\
+                fn pick(u: Bool) [] -> StorageClass {\n    \
+                if u {\n        return StorageClass.Unknown { value: \"x\" }\n    }\n    \
+                return StorageClass.Standard {}\n}\n";
+    let errors = resolve_errors(&[("sc.sv", sc), ("main.sv", main)]);
+    assert!(errors.is_empty(), "{errors:?}");
+    let generic = "type Gen<T> = Gen.A | T\nstruct Gen.A {}\n";
+    let errors = resolve_errors(&[("main.sv", generic)]);
+    assert!(errors.iter().any(|m| m.contains("is generic, so it cannot namespace")), "{errors:?}");
 }
 
 // [name-dot] A generic namespace cannot nest a member: Kotlin's nested
