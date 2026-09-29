@@ -4517,6 +4517,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlin_example_time,
     kotlin_example_cluster,
     kotlin_example_aws_profile,
+    kotlin_example_aws_sqs,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -9399,10 +9400,21 @@ fn main() [use, spawn] {
     let gx = boot_node(copy(x), [copy(x)], copy(net2))
     let gy = boot_node(copy(y), [copy(x)], copy(net2))
     let gz = boot_node(copy(z), [copy(x)], copy(net2))
-    let _t3 = waitfor f: Reply<Fired> { timer.after(millis(500), f) }
+    // Converging takes a few gossip rounds, and how long those take depends on
+    // the machine's load: poll, bounded, rather than sleep a fixed time (a
+    // fixed 500ms failed under a fully loaded fresh run, 2026-09-29).
+    let _t3 = waitfor f: Reply<Fired> { timer.after(millis(200), f) }
     let sx = waitfor out: Reply<List<Node>> { gx.members(out) }
     let sy = waitfor out: Reply<List<Node>> { gy.members(out) }
     let sz = waitfor out: Reply<List<Node>> { gz.members(out) }
+    let tries = 0
+    while (size(sx) < 2 || size(sy) < 2 || size(sz) < 2) && tries < 50 {
+        let _t4 = waitfor f: Reply<Fired> { timer.after(millis(100), f) }
+        sx = waitfor out: Reply<List<Node>> { gx.members(out) }
+        sy = waitfor out: Reply<List<Node>> { gy.members(out) }
+        sz = waitfor out: Reply<List<Node>> { gz.members(out) }
+        tries = tries + 1
+    }
     println("mesh: x sees ${size(sx)}, y sees ${size(sy)}, z sees ${size(sz)}")
 }
 
@@ -14549,6 +14561,10 @@ fn kotlin_example_cluster() -> KotlinCase {
 
 fn kotlin_example_aws_profile() -> KotlinCase {
     example_case("aws_profile")
+}
+
+fn kotlin_example_aws_sqs() -> KotlinCase {
+    example_case("aws_sqs")
 }
 
 /// Every example has a case above — checked here rather than
