@@ -305,6 +305,8 @@ pub fn fn_call(
         // to the time surface. Everything else (`Duration`, `between`, the
         // correlation `DefaultClock` keeps) is ordinary Salvo over these.
         ("monotonic_nanos", None) => "crate::hosttime::salvo_mono_nanos()".to_string(),
+        // [stream-handle] One counter for every stream table in the process.
+        ("fresh_handle", None) => "crate::scheduler::salvo_fresh_handle()".to_string(),
         ("epoch_nanos", None) => "crate::hosttime::salvo_epoch_nanos()".to_string(),
         // [time-timer] [rs-time] Registering a deadline hands the scheduler
         // the token *and* a builder for the `Fired` it will carry — the

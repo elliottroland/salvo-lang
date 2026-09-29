@@ -3150,6 +3150,15 @@ pub fn salvo_on_idle(pool: usize, notify: SalvoReply, idle: IdleOf) {
 /// work — a listener is open. Pair with `salvo_external_end` when it closes.
 /// While any source is registered, neither the idle hook nor the deadlock
 /// report fires: an answer may still arrive from outside.
+/// [stream-handle] A handle for a new stream, unique in the process: the
+/// host's stream tables and the in-memory ones all draw from this counter, so
+/// a handle reaching the wrong table is unknown there rather than another
+/// stream's. Starts at 1; never reused.
+pub fn salvo_fresh_handle() -> i64 {
+    static NEXT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn salvo_external_begin() {
     let (lock, _) = state();
     lock.lock().unwrap().externals += 1;

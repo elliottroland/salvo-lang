@@ -361,7 +361,7 @@ made in the design sitting — but each has a shape to settle at implementation.
    `stream` owns `InStream`/`OutStream` and one effect `Streams` with every
    stream operation; `fs` keeps paths and mints into it. In order:
    a. ✅ **Effect prerequisites** — built 2026-09-29 ([effect-prereq]).
-   b. **One handle counter** for every stream table.
+   b. ✅ **One handle counter** — built 2026-09-29 ([stream-handle]).
    c. **The split**: `Streams` with the synchronous members moved from `Fs`,
       `Lines`/`Chunks`/`copy_stream` with them, `StreamError`, `HostStreams`
       (owning the process table `HostRawFs` registers into), `MemStreams`;

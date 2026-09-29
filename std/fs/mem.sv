@@ -18,6 +18,7 @@
 // has consumed, and whether a strict decode has already failed on it (which
 // ends iteration and surfaces at `close`).
 import fs
+import stream.fresh_handle
 
 struct MemRead { path: Str, at: Int, failed: Bool }
 
@@ -29,15 +30,14 @@ export handler MemFs of Fs {
     files: Mut Map<Str, Bytes> = mut_map_of()
     reads: Mut Map<Long, MemRead> = mut_map_of()
     writes: Mut Map<Long, MemWrite> = mut_map_of()
-    next_handle: Long = 0
 
     fn open_read(path: Str) -> Ok InStream | Err Checked<FsError> => path {
         if !contains_key(files, path) {
             return err(checked<FsError>(NotFound { path: copy(path) }))
         }
-        next_handle = next_handle + 1
-        put(reads, copy(next_handle), MemRead { path: copy(path), at: 0, failed: false })
-        return ok(InStream { handle: copy(next_handle) })
+        let handle = fresh_handle()
+        put(reads, copy(handle), MemRead { path: copy(path), at: 0, failed: false })
+        return ok(InStream { handle: copy(handle) })
     }
 
     fn open_read_at(path: Str, offset: Long) -> Ok InStream | Err Checked<FsError> => path {
@@ -56,16 +56,16 @@ export handler MemFs of Fs {
         if at > end {
             at = end
         }
-        next_handle = next_handle + 1
-        put(reads, copy(next_handle), MemRead { path: copy(path), at: at, failed: false })
-        return ok(InStream { handle: copy(next_handle) })
+        let handle = fresh_handle()
+        put(reads, copy(handle), MemRead { path: copy(path), at: at, failed: false })
+        return ok(InStream { handle: copy(handle) })
     }
 
     fn open_write(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
-        next_handle = next_handle + 1
+        let handle = fresh_handle()
         let empty = mut_bytes()
-        put(writes, copy(next_handle), MemWrite { path: copy(path), buffer: empty })
-        return ok(OutStream { handle: copy(next_handle) })
+        put(writes, copy(handle), MemWrite { path: copy(path), buffer: empty })
+        return ok(OutStream { handle: copy(handle) })
     }
 
     fn open_append(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
@@ -76,9 +76,9 @@ export handler MemFs of Fs {
         } else {
             start.append(existing)
         }
-        next_handle = next_handle + 1
-        put(writes, copy(next_handle), MemWrite { path: copy(path), buffer: start })
-        return ok(OutStream { handle: copy(next_handle) })
+        let handle = fresh_handle()
+        put(writes, copy(handle), MemWrite { path: copy(path), buffer: start })
+        return ok(OutStream { handle: copy(handle) })
     }
 
     fn exists(path: Str) -> Bool => path {

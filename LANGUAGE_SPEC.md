@@ -8042,6 +8042,14 @@ replaced the working document TESTING.md).
   * Both backends' host files coexist in one tree, because discovery only
     ever picks up the active backend's extension — the same sources build
     for both targets.
+* [stream-handle] **Every stream table draws its handles from one process-wide
+  counter** (user decision 2026-09-29, 22; built the same day):
+  `stream.fresh_handle()`, an `intrinsic` lowered to the runtime's atomic
+  (`salvo_fresh_handle` / `SalvoSched.freshHandle()`), used by `MemFs` and by
+  `HostRawFs`. A handle handed to the wrong table is therefore *unknown* there
+  — `StaleHandle`, or a trap — and never another live stream, which is what
+  per-table counters starting at 1 made likely. Making the mismatch a
+  compile-time error is ROADMAP §4b item 4.
 * [platform-reply] **Host code can complete a `Reply` later, from any thread**
   (ROADMAP §4b item 2, 2026-09-29; the `aws` design's D3 — a service is a plain
   effect whose members take a `Reply` and return at once). A `platform effect`

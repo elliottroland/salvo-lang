@@ -94,14 +94,11 @@ private class Writing(val path: String, val stream: BufferedOutputStream, var po
 // [threadsafe-platform]. Reviewed 2026-09-26: an open-file table keyed by
 // handle is inherently one-writer state, so undeclared is the right call.
 class HostRawFs : RawFs {
-    private var nextHandle: Long = 0
     private val reading = HashMap<Long, Reading>()
     private val writing = HashMap<Long, Writing>()
 
-    private fun mint(): Long {
-        nextHandle += 1
-        return nextHandle
-    }
+    /** [stream-handle] From the process-wide counter every stream table shares. */
+    private fun mint(): Long = salvo.SalvoSched.freshHandle()
 
     override fun raw_open_read(path: String): Union2<Long, Kind> {
         return try {

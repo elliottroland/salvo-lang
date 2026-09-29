@@ -92,7 +92,6 @@ struct Writing {
 // [threadsafe-platform]. Reviewed 2026-09-26: an open-file table keyed by
 // handle is inherently one-writer state, so undeclared is the right call.
 pub struct HostRawFs {
-    next_handle: i64,
     reading: HashMap<i64, Reading>,
     writing: HashMap<i64, Writing>,
 }
@@ -100,15 +99,15 @@ pub struct HostRawFs {
 impl HostRawFs {
     pub fn new() -> Self {
         Self {
-            next_handle: 0,
             reading: HashMap::new(),
             writing: HashMap::new(),
         }
     }
 
+    /// [stream-handle] From the process-wide counter every stream table
+    /// shares, so a handle from another provider is unknown here.
     fn mint(&mut self) -> i64 {
-        self.next_handle += 1;
-        self.next_handle
+        crate::scheduler::salvo_fresh_handle()
     }
 
     /// Decodes strictly, recording `InvalidUtf8` against the stream.

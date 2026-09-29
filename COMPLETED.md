@@ -135,6 +135,13 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**One handle counter for every stream table (2026-09-29; §4b step 3b).**
+[stream-handle]: `std/stream.sv` begins with `fresh_handle()`, an intrinsic over
+a process-wide atomic in each runtime; `MemFs` loses its `next_handle` state and
+`HostRawFs` its counter on both hosts. A foreign handle is now unknown rather
+than a live collision. One std test (`stream.test.sv`); goldens and example
+trees regenerated for the runtime addition.
+
 **Effect prerequisites (2026-09-29; §4b step 3a).** `effect Fs [Streams]`
 built as [effect-prereq]: parsed as a handler-style effect list on the effect
 (`EffectDecl.prereqs`), then written into the program by an expansion before

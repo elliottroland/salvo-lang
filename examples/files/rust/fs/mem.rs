@@ -56,7 +56,6 @@ pub struct MemFs {
     files: SalvoMap<String, Vec<u8>>,
     reads: SalvoMap<i64, MemRead>,
     writes: SalvoMap<i64, MemWrite>,
-    next_handle: i64,
 }
 
 impl MemFs {
@@ -65,7 +64,6 @@ impl MemFs {
             files: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
             reads: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
             writes: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
-            next_handle: 0i64,
         }
     }
 }
@@ -76,9 +74,9 @@ impl crate::fs::__Stateful_Fs for MemFs {
         if !self.files.contains_key(&path) {
             return Union2::<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }))));
         }
-        self.next_handle = self.next_handle + ((1) as i64);
-        self.reads.insert(self.next_handle.clone(), MemRead { path: path.clone(), at: 0, failed: false });
-        return Union2::<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(InStream { handle: self.next_handle.clone() }));
+        let mut handle = crate::scheduler::salvo_fresh_handle();
+        self.reads.insert(handle.clone(), MemRead { path: path.clone(), at: 0, failed: false });
+        return Union2::<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(InStream { handle: handle.clone() }));
     }
 
     fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
@@ -94,16 +92,16 @@ impl crate::fs::__Stateful_Fs for MemFs {
         if at > end {
             at = end;
         }
-        self.next_handle = self.next_handle + ((1) as i64);
-        self.reads.insert(self.next_handle.clone(), MemRead { path: path.clone(), at: at, failed: false });
-        return Union2::<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(InStream { handle: self.next_handle.clone() }));
+        let mut handle = crate::scheduler::salvo_fresh_handle();
+        self.reads.insert(handle.clone(), MemRead { path: path.clone(), at: at, failed: false });
+        return Union2::<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(InStream { handle: handle.clone() }));
     }
 
     fn open_write(&mut self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        self.next_handle = self.next_handle + ((1) as i64);
+        let mut handle = crate::scheduler::salvo_fresh_handle();
         let mut empty = Vec::<u8>::new();
-        self.writes.insert(self.next_handle.clone(), MemWrite { path: path.clone(), buffer: empty });
-        return Union2::<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(OutStream { handle: self.next_handle.clone() }));
+        self.writes.insert(handle.clone(), MemWrite { path: path.clone(), buffer: empty });
+        return Union2::<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(OutStream { handle: handle.clone() }));
     }
 
     fn open_append(&mut self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
@@ -113,9 +111,9 @@ impl crate::fs::__Stateful_Fs for MemFs {
         } else {
             start.extend_from_slice(&existing.unwrap().clone()[..]);
         }
-        self.next_handle = self.next_handle + ((1) as i64);
-        self.writes.insert(self.next_handle.clone(), MemWrite { path: path.clone(), buffer: start });
-        return Union2::<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(OutStream { handle: self.next_handle.clone() }));
+        let mut handle = crate::scheduler::salvo_fresh_handle();
+        self.writes.insert(handle.clone(), MemWrite { path: path.clone(), buffer: start });
+        return Union2::<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(OutStream { handle: handle.clone() }));
     }
 
     fn exists(&mut self, path: &String) -> bool {

@@ -43,15 +43,14 @@ class MemFs : Fs {
     private var files: MutableMap<String, salvo.SalvoBytes> = linkedMapOf<String, salvo.SalvoBytes>().also { __m -> __m.putAll(listOf()) }
     private var reads: MutableMap<Long, MemRead> = linkedMapOf<Long, MemRead>().also { __m -> __m.putAll(listOf()) }
     private var writes: MutableMap<Long, MemWrite> = linkedMapOf<Long, MemWrite>().also { __m -> __m.putAll(listOf()) }
-    private var next_handle: Long = 0L
 
     override fun open_read(path: String): Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         if (!files.containsKey(path)) {
             return U2_2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
         }
-        next_handle = next_handle + 1
-        reads.put(next_handle, MemRead(path = path, at = 0, failed = false))
-        return U2_1<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(InStream(handle = next_handle)))
+        val handle = salvo.SalvoSched.freshHandle()
+        reads.put(handle, MemRead(path = path, at = 0, failed = false))
+        return U2_1<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(InStream(handle = handle)))
     }
 
     override fun open_read_at(path: String, offset: Long): Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
@@ -67,16 +66,16 @@ class MemFs : Fs {
         if (at > end) {
             at = end
         }
-        next_handle = next_handle + 1
-        reads.put(next_handle, MemRead(path = path, at = at, failed = false))
-        return U2_1<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(InStream(handle = next_handle)))
+        val handle = salvo.SalvoSched.freshHandle()
+        reads.put(handle, MemRead(path = path, at = at, failed = false))
+        return U2_1<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(InStream(handle = handle)))
     }
 
     override fun open_write(path: String): Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
-        next_handle = next_handle + 1
+        val handle = salvo.SalvoSched.freshHandle()
         val empty = salvo.SalvoBytes.joined()
-        writes.put(next_handle, MemWrite(path = path, buffer = empty))
-        return U2_1<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(OutStream(handle = next_handle)))
+        writes.put(handle, MemWrite(path = path, buffer = empty))
+        return U2_1<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(OutStream(handle = handle)))
     }
 
     override fun open_append(path: String): Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
@@ -86,9 +85,9 @@ class MemFs : Fs {
         } else {
             start.append(existing)
         }
-        next_handle = next_handle + 1
-        writes.put(next_handle, MemWrite(path = path, buffer = start))
-        return U2_1<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(OutStream(handle = next_handle)))
+        val handle = salvo.SalvoSched.freshHandle()
+        writes.put(handle, MemWrite(path = path, buffer = start))
+        return U2_1<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(OutStream(handle = handle)))
     }
 
     override fun exists(path: String): Boolean {

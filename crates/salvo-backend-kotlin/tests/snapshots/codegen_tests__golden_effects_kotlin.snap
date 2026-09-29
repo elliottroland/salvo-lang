@@ -1235,6 +1235,15 @@ object SalvoSched {
     private val here = ThreadLocal.withInitial { SalvoHere(MAIN_POOL, null) }
 
     /** [threadsafe-platform] A host thread that may inject work is open. */
+    private val nextHandle = java.util.concurrent.atomic.AtomicLong(1)
+
+    /**
+     * [stream-handle] A handle for a new stream, unique in the process: every
+     * stream table, host and in-memory, draws from this counter, so a handle
+     * reaching the wrong table is unknown there rather than another stream's.
+     */
+    fun freshHandle(): Long = nextHandle.getAndIncrement()
+
     fun externalBegin() {
         lock.withLock { externals += 1 }
     }
