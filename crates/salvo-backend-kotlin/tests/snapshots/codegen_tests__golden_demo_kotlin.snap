@@ -1669,6 +1669,31 @@ object SalvoSched {
         }
     }
 
+    /** [platform-reply] See [SalvoReply.hosted]. */
+    internal fun hostReply(reply: SalvoReply): SalvoHostReply {
+        lock.withLock {
+            untrack(reply)
+            externals += 1
+            cv.signalAll()
+        }
+        return SalvoHostReply(reply)
+    }
+
+    /** [platform-reply] See [SalvoHostReply.send]. */
+    internal fun sendHostReply(reply: SalvoReply, value: Any?) {
+        if (reply.target is SalvoTargetRemote) {
+            error(
+                "salvo: a host-completed reply to a token minted on another node is not " +
+                    "supported yet [platform-reply]"
+            )
+        }
+        lock.withLock {
+            deliverReply(reply, value)
+            if (externals > 0) externals -= 1
+            cv.signalAll()
+        }
+    }
+
     /** Delivery under the lock: reserved capacity, no-op to the dead. */
     private fun deliverReply(reply: SalvoReply, value: Any?) {
         // [actor-on-idle] The obligation is met here, whatever the target does
@@ -2731,6 +2756,37 @@ class SalvoReply internal constructor(internal val target: SalvoTarget, internal
     internal var tracked: Boolean = true
 
     fun send(value: Any?) = SalvoSched.sendReply(this, value)
+
+    /**
+     * [platform-reply] Hands the token to **host code** that will complete it
+     * later, from any thread — a coroutine, a callback, an SDK's future. From
+     * here the host owes the answer: the token stops counting against the
+     * program [actor-on-idle], and until it is sent the scheduler counts one
+     * outside source of work [threadsafe-platform], so a frame waiting on it
+     * is neither idle nor deadlocked. Exactly once: an unsent host reply is
+     * not detected on this backend (the JVM has no drop), so a host that
+     * loses one leaves its waiter waiting — the documented best-effort half
+     * of the rule (user decision 2026-09-29).
+     */
+    fun hosted(): SalvoHostReply = SalvoSched.hostReply(this)
+}
+
+/**
+ * [platform-reply] A reply the host has taken on: [send] completes it from any
+ * thread, exactly once. Made by [SalvoReply.hosted].
+ */
+class SalvoHostReply internal constructor(private val reply: SalvoReply) {
+    private val sent = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * Completes the reply with [value]: the continuation it was minted for
+     * runs as a later activation, never inside this call. A second `send` is
+     * refused — it would answer one question twice.
+     */
+    fun send(value: Any?) {
+        check(sent.compareAndSet(false, true)) { "salvo: a host reply was sent twice [platform-reply]" }
+        SalvoSched.sendHostReply(reply, value)
+    }
 }
 
 /**

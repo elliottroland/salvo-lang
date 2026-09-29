@@ -1070,6 +1070,79 @@ impl SalvoReply {
         deliver_reply(&mut s, self, value);
         cv.notify_all();
     }
+
+    /// [platform-reply] Hands the token to **host code** that will complete
+    /// it later, from any thread — an SDK's future, a callback, a thread of
+    /// its own. From here the host owes the answer: the token stops counting
+    /// against the program [actor-on-idle], and until it is sent the
+    /// scheduler counts one outside source of work [threadsafe-platform], so
+    /// a frame waiting on it is neither idle nor deadlocked.
+    ///
+    /// Exactly once, as for any reply: `send` consumes the host reply.
+    /// Dropping it unsent is reported to the pool's fault sink — best-effort,
+    /// since only this backend can see a drop (user decision 2026-09-29).
+    pub fn hosted(self) -> SalvoHostReply {
+        let (lock, cv) = state();
+        let mut s = lock.lock().unwrap();
+        let reply = untrack(&mut s, self);
+        s.externals += 1;
+        cv.notify_all();
+        SalvoHostReply { reply: Some(reply) }
+    }
+}
+
+/// [platform-reply] A reply the host has taken on: `send` completes it from
+/// any thread. Made by [`SalvoReply::hosted`].
+pub struct SalvoHostReply {
+    reply: Option<SalvoReply>,
+}
+
+impl SalvoHostReply {
+    /// Completes the reply with `value`, consuming it: the continuation it was
+    /// minted for runs as a later activation, never inside this call. The
+    /// value is the Salvo type the reply was declared with (`Reply<Int>` takes
+    /// an `i32`).
+    pub fn send<T: Any + Send>(mut self, value: T) {
+        let reply = self.reply.take().expect("a host reply holds its token until sent");
+        if let Target::Remote { .. } = reply.target {
+            // Remote tokens need the typed wire path; not reachable from a
+            // platform member in this slice.
+            panic!(
+                "salvo: a host-completed reply to a token minted on another node is not \
+                 supported yet [platform-reply]"
+            );
+        }
+        let (lock, cv) = state();
+        let mut s = lock.lock().unwrap();
+        deliver_reply(&mut s, reply, Box::new(value));
+        s.externals = s.externals.saturating_sub(1);
+        cv.notify_all();
+    }
+}
+
+impl Drop for SalvoHostReply {
+    /// [platform-reply] The host dropped a reply without sending it: the
+    /// continuation will never run. Reported rather than swallowed, and the
+    /// outside source is closed, so a frame waiting on it now reports the
+    /// deadlock it is in instead of waiting forever in silence.
+    fn drop(&mut self) {
+        let Some(reply) = self.reply.take() else { return };
+        let (lock, cv) = state();
+        let mut s = lock.lock().unwrap();
+        s.externals = s.externals.saturating_sub(1);
+        let pool = match reply.target {
+            Target::Proc(addr) => Some(s.actors[addr].pool),
+            Target::Task(pool, _, _) => Some(pool),
+            Target::Waiter(wid) => Some(s.waiters[wid].pool),
+            Target::Remote { .. } => None,
+        };
+        let reason = "a host reply was dropped without being sent [platform-reply]".to_string();
+        match pool {
+            Some(pool) => report_fault(&mut s, pool, reason),
+            None => eprintln!("salvo: {reason}"),
+        }
+        cv.notify_all();
+    }
 }
 
 /// Runs one activation to completion: takes the entry out of the queue,

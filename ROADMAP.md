@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Twelve worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, one of them consuming the first dependency
-(`modules/aws/`). 1641 tests green.
+(`modules/aws/`). 1642 tests green.
 
 ## The sequence
 
@@ -353,15 +353,9 @@ made in the design sitting — but each has a shape to settle at implementation.
    ([platform-host-deps] [rs-cargo] [kt-classpath]; COMPLETED.md has the entry).
    Left: Maven resolution of `[kotlin] artifacts` by the compiler (they are
    recorded and conflict-checked, not fetched), a lock for host versions.
-2. **Host-completed continuations** (DESIGN §7.2). Expose to platform companions
-   the runtime entry point that discharges a `Reply<T>` from host code — what
-   `fire_after` uses privately in each backend's runtime — with the exactly-once
-   contract in the generated skeleton and a test that a host thread completing a
-   reply wakes the parked continuation on the right actor. No language change:
-   a plain effect member taking a `Reply` is already legal, which is why the
-   service effects are plain effects rather than actor effects (D3; the actor
-   kind cannot be host-implemented — a platform handler has no mailbox — and
-   [actor-effect-kind] refuses mixed kinds).
+2. ✅ **Host-completed continuations** — built 2026-09-29 ([platform-reply];
+   COMPLETED.md has the entry). Left: a host reply to a remote-minted token (the
+   typed wire path), and detecting a lost reply on Kotlin.
 3. **`std.stream`** (DESIGN §5, §7.3). `InStream`/`OutStream` **move from `fs`**
    to `stream` (the sweep: `std/fs*`, `examples/files/`, the fs tests, the
    [fs-…] rules and their "open-file table" wording → "stream table"); a plain

@@ -154,6 +154,22 @@ platform handler HostRawFs of RawFs
 
 `salvo platform generate` prints whichever contract the declaration made into the skeleton it writes, so the person implementing the host signs what the compiler assumes — and regenerating after adding or removing the word changes the skeleton's shape (the Rust receivers switch between `&self` and `&mut self`).
 
+A member may take a `Reply<T>` — a continuation — and **return at once**, answering later from host code. The host calls `hosted()` on the token, which tells the scheduler the answer is coming from outside (so a `waitfor` on it is not reported as a deadlock), and completes it with `send(value)` from any thread, exactly once. This is how an asynchronous host API — a Kotlin coroutine, a Rust future — becomes a Salvo call that blocks no worker:
+
+```
+platform effect Slow {
+    fn later(n: Int, done: Reply<Int>) [] -> None => !n, !done
+}
+```
+```kotlin
+override fun later(n: Int, done: salvo.SalvoReply) {
+    val host = done.hosted()
+    Thread { Thread.sleep(50); host.send(n + 1) }.start()
+}
+```
+
+On Rust a host reply dropped without being sent is reported to the pool's fault sink; the JVM cannot observe that, so on Kotlin a lost reply leaves its waiter waiting.
+
 A host file may use any library of its language, provided the manifest declares it — `[rust] crates`, `[kotlin] libs` and `artifacts`; see [Modules](Modules.md) "Host libraries". Rust then builds with `cargo` instead of bare `rustc`, and Kotlin puts the declared jars on the classpath.
 
 The two forms answer different questions. Use a `platform effect` when the *capability* is the host's and the program is a guest in the host's process — the host constructs everything and owns `main`. Use a `platform handler` when the capability is the language's, several implementations exist, and one of them is host code: a real filesystem beside an in-memory one, a host clock beside a fake, an S3-backed store beside a local directory. The standard library uses the second form itself, and ships its host classes the same way — under `std`'s own `platform/` tree, one file per backend.

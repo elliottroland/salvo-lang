@@ -44,7 +44,8 @@ pub use manifest::{
 pub use place::{Place, Step};
 pub use platform::{
     declares_platform_effect, host_file, host_rel_path, missing_handler_host_error,
-    missing_host_error, platform_effects, platform_entry, platform_handlers,
+    missing_host_error, platform_effects, platform_entry, platform_handlers, reply_contract_comment,
+    reply_params,
 };
 pub use program::{Program, Symbols};
 pub use erase::{erase_effect_generics, erased_generics, Erased};

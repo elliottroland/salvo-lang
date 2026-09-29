@@ -8003,6 +8003,32 @@ replaced the working document TESTING.md).
   * Both backends' host files coexist in one tree, because discovery only
     ever picks up the active backend's extension — the same sources build
     for both targets.
+* [platform-reply] **Host code can complete a `Reply` later, from any thread**
+  (ROADMAP §4b item 2, 2026-09-29; the `aws` design's D3 — a service is a plain
+  effect whose members take a `Reply` and return at once). A `platform effect`
+  or `platform handler` member may take a `Reply<T>` parameter — that was
+  already legal, and renders as the runtime's reply type in both host
+  signatures (verified, decision 7). What was missing was the runtime half:
+  a reply sent from a host thread raced the scheduler, which saw a waiter with
+  nothing queued and reported a deadlock before the answer arrived.
+  * `reply.hosted()` — `SalvoReply::hosted` on Rust, `SalvoReply.hosted()` on
+    Kotlin — hands the token to host code: it stops counting as an obligation
+    the program owes [actor-on-idle], and the scheduler counts **one outside
+    source of work** [threadsafe-platform] until it is sent, so the waiter is
+    neither idle nor deadlocked. `send(value)` on the host reply delivers
+    (enqueue only; the continuation runs as a later activation, never inside
+    the call) and closes the source. The same mechanism `fire_after` uses
+    privately, made a host-facing surface.
+  * **Exactly once.** A host reply dropped unsent is reported to the pool's
+    fault sink on Rust (`Drop`) and the source is closed, so the waiter then
+    reports its deadlock rather than hanging in silence; Kotlin cannot see a
+    drop, so there the loss is undetected — **best-effort and documented**
+    (user decision 2026-09-29, point 5). Kotlin refuses a second `send`.
+  * The skeleton `salvo platform generate` writes states the contract above
+    every member with a `Reply` parameter (`salvo_core::reply_contract_comment`).
+  * Not in this slice: a host reply to a token **minted on another node**
+    (refused with a message — it needs the typed wire path), and host
+    *minting* of replies (decision 6, deferred with the writer pair).
 * [platform-host-deps] **A project declares the target-language libraries its
   platform companions need in its manifest** (user decisions 2026-09-29, the
   `aws` module's first requirement of the language — ROADMAP §4b item 1; built

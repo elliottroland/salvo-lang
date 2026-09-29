@@ -135,6 +135,27 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Host-completed continuations (2026-09-29; ROADMAP §4b item 2).** A platform
+member taking a `Reply<T>` was already legal and rendered as the runtime's reply
+type on both hosts (decision 7's verification: yes). What failed was the
+runtime: a host thread sending later raced the scheduler, which saw a waiter
+and an empty queue and printed "deadlock: nothing can run while main waits"
+before the answer arrived. [platform-reply] adds `SalvoReply.hosted()` on both
+runtimes — untrack the token, count one outside source of work (the counter
+`HostTcpTransport` already used), and return a `SalvoHostReply` whose `send`
+delivers and closes the source. Rust's `Drop` reports an unsent host reply to
+the pool's fault sink and closes the source, so the waiter's deadlock is named
+instead of hanging; Kotlin cannot see a drop (documented best-effort, decision
+5) and refuses a second `send`. Skeletons now carry the contract above a member
+with a `Reply` parameter. One CLI test on both backends: a `waitfor` answered
+from a host thread, a free `send fn` continuation answered the same way, the
+skeleton's contract comment, and on Rust the dropped-reply report. A remote-
+minted token is refused at `send` with a message; the typed wire path is
+recorded as left. The runtime additions change every emitted program, so the
+goldens and every checked-in example tree were regenerated (additions only);
+`examples/actors` and `examples/time` gained the `salvo.lock` a `compile` from
+inside them writes, which had never been checked in. **1642 tests.**
+
 **Host libraries for platform code (2026-09-29; ROADMAP §4b item 1, shapes
 decided in the aws design's second sitting).** A platform companion can now use
 a library of its target language. `[rust] crates = { … }` (Cargo's own
@@ -18652,7 +18673,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1641)
+## Test inventory (all green: 1642)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

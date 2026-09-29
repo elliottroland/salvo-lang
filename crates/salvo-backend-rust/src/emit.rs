@@ -3509,6 +3509,7 @@ impl<'p> Emitter<'p> {
                 self.emit_member_implicits(f)
             );
             let ret = self.emit_return_type(f.return_type.as_ref());
+            out.push_str(&salvo_core::reply_contract_comment(f));
             out.push_str(&format!(
                 "    fn {}(&mut self{params}){ret} {{\n        \
                  todo!(\"implement {}.{}\")\n    }}\n",
@@ -3628,6 +3629,7 @@ impl<'p> Emitter<'p> {
                 self.emit_member_implicits(f)
             );
             let ret = self.emit_return_type(f.return_type.as_ref());
+            out.push_str(&salvo_core::reply_contract_comment(f));
             out.push_str(&format!(
                 "    fn {}({receiver}{params}){ret} {{\n        \
                  todo!(\"implement {}.{}\")\n    }}\n",

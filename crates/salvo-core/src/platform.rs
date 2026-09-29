@@ -120,3 +120,38 @@ pub fn host_rel_path(module: &ModulePath, native_ext: &str) -> std::path::PathBu
     path.set_extension(native_ext);
     path
 }
+
+/// [platform-reply] The parameters of a platform member that are
+/// continuations — declared `Reply<T>` — by name. A host skeleton states the
+/// contract above such a member: take the token with `hosted()`, complete it
+/// exactly once, from any thread.
+pub fn reply_params(f: &FnDecl) -> Vec<&str> {
+    f.params
+        .iter()
+        .filter(|p| {
+            matches!(&p.ty, salvo_syntax::ast::Type::Named { base, .. } if base.name.name == "Reply")
+        })
+        .map(|p| p.name.name.as_str())
+        .collect()
+}
+
+/// [platform-reply] The comment a host skeleton carries above a member that
+/// takes a continuation, in the host language's line-comment syntax (both
+/// backends use `//`). Empty when the member takes none.
+pub fn reply_contract_comment(f: &FnDecl) -> String {
+    let names = reply_params(f);
+    if names.is_empty() {
+        return String::new();
+    }
+    let list = names
+        .iter()
+        .map(|n| format!("`{n}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "    // {list}: a continuation [platform-reply]. Return at once and answer\n\
+         \x20   // later: `.hosted()` hands it to host code, whose `send(value)` completes it\n\
+         \x20   // exactly once, from any thread. Until then the scheduler counts the\n\
+         \x20   // work as pending, so a waiter is not reported deadlocked.\n"
+    )
+}

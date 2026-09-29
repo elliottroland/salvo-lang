@@ -2121,6 +2121,7 @@ impl<'p> Emitter<'p> {
             let member_saved = self.enter_generics(&f.generics);
             let params = self.emit_member_param_list_with_implicits(f);
             let ret = self.emit_return_type(f.return_type.as_ref());
+            out.push_str(&salvo_core::reply_contract_comment(f));
             out.push_str(&format!(
                 "    override fun {}({params}){ret} {{\n        \
                  TODO(\"implement {}.{}\")\n    }}\n",
@@ -2201,6 +2202,7 @@ impl<'p> Emitter<'p> {
             let member_saved = self.enter_generics(&f.generics);
             let params = self.emit_member_param_list_with_implicits(f);
             let ret = self.emit_return_type(f.return_type.as_ref());
+            out.push_str(&salvo_core::reply_contract_comment(f));
             out.push_str(&format!(
                 "    override fun {}({params}){ret} {{\n        \
                  TODO(\"implement {}.{}\")\n    }}\n",

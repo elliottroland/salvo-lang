@@ -553,3 +553,92 @@ fn conflicting_host_libraries_are_refused() {
         "{stderr}"
     );
 }
+
+/// [platform-reply] A platform member that takes a `Reply` returns at once and
+/// completes the reply later from a host thread: `.hosted()` takes the token,
+/// `send` completes it. Checked on both backends with two continuations — a
+/// `waitfor` in `main`, and a free `send fn` whose own answer `main` waits on —
+/// and the skeleton states the contract. On Rust, a host reply dropped unsent
+/// reaches the fault sink and the waiter reports its deadlock instead of
+/// hanging (the JVM cannot see a drop, so Kotlin is not asked to).
+#[test]
+fn a_host_thread_completes_a_reply() {
+    let Some(__stamp) = e2e_stamp("a_host_thread_completes_a_reply", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    const PROGRAM: &str = "\
+platform effect Slow {
+    fn later(n: Int, done: Reply<Int>) [] -> None => !n, !done
+}
+
+send fn labelled(label: Str, out: Reply<Str>, n: Int) => !label, !out, !n {
+    out.send(\"${label} ${n}\")
+}
+
+fn main() [use, Slow] {
+    use StdOutConsole()
+    let n = waitfor done: Reply<Int> {
+        later(41, done)
+    }
+    println(\"waited for ${n}\")
+    let line = waitfor out: Reply<Str> {
+        later(1, replyto labelled(\"continued with\", out))
+    }
+    println(line)
+}
+";
+    let expected = "waited for 42\ncontinued with 2\n";
+    for (backend, tool, ext, stub, body) in [
+        (
+            "rust",
+            "rustc",
+            "rs",
+            "todo!(\"implement Slow.later\")",
+            "let done = done.hosted();\n        std::thread::spawn(move || {\n            std::thread::sleep(std::time::Duration::from_millis(50));\n            if n >= 0 { done.send(n + 1) } else { drop(done) }\n        });",
+        ),
+        (
+            "kotlin",
+            "kotlinc",
+            "kt",
+            "TODO(\"implement Slow.later\")",
+            "val host = done.hosted()\n        Thread { Thread.sleep(50); host.send(n + 1) }.start()",
+        ),
+    ] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("reply_{backend}"));
+        fs::write(dir.join("main.sv"), PROGRAM).unwrap();
+        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let host = dir.join("platform").join(format!("main.{ext}"));
+        let src = fs::read_to_string(&host).unwrap();
+        assert!(
+            src.contains("`done`: a continuation [platform-reply]") && src.contains(".hosted()"),
+            "{backend} skeleton states no contract:\n{src}"
+        );
+        fs::write(&host, src.replace(stub, body)).unwrap();
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend} run failed: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), expected, "{backend} (stderr: {stderr})");
+
+        if backend == "rust" {
+            // Dropped unsent: reported, and the waiter's deadlock is named.
+            fs::write(
+                dir.join("main.sv"),
+                PROGRAM.replace("later(41, done)", "later(-1, done)"),
+            )
+            .unwrap();
+            let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                stderr.contains("a host reply was dropped without being sent")
+                    && stderr.contains("deadlock"),
+                "{stderr}"
+            );
+        }
+    }
+    __stamp.verified();
+}
