@@ -259,9 +259,10 @@ in build order:
   `[comptime-*]`, `[obligation-by]`, `[fn-by]`. COMPTIME.md was deleted with the
   rounds in COMPLETED.md's log; SERDE.md's SD-3 carries a superseding note.
 
-Settled 2026-09-29 (user decisions): a module is referenced by any
-**unambiguous suffix** of its path, everywhere — `size@list`, `import mem`, `by
-auto` — with a shared predicate and an ambiguity refusal [mod-suffix]; and a
+Settled 2026-09-29 (user decisions): a module *selector* names a module by any
+**unambiguous suffix** of its path — `size@list`, `by auto`; an `import` stays
+fully qualified — with a shared predicate and an ambiguity refusal
+[mod-suffix]; and a
 `by` name that is both a module and a comptime fn is disambiguated as `by
 @auto` (the module) or `by auto@mymod` (the fn), `@import` having been
 withdrawn because it confuses where a module *goes*.

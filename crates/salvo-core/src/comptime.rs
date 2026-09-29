@@ -60,7 +60,24 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
     let mut structs: HashMap<String, StructDecl> = HashMap::new();
     let mut types: HashMap<String, TypeDecl> = HashMap::new();
     let mut groups: HashMap<String, ParamsDecl> = HashMap::new();
+    // [std-shadow] The repository root opened as a workspace loads `std/` a
+    // second time as user files (`std.core.auto` beside the embedded
+    // `core.auto`, ROADMAP §4). A copy — same content, module ending in the
+    // std module's path — is not a second candidate for `by auto`.
+    let shadow_copy = |idx: usize| -> bool {
+        let f = &files[idx];
+        !f.is_std
+            && files.iter().any(|g| {
+                g.is_std
+                    && g.content == f.content
+                    && f.module.matches_suffix(&g.module.0.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+                    && f.module.0.len() > g.module.0.len()
+            })
+    };
     for (idx, (file, module)) in files.iter().zip(modules.iter()).enumerate() {
+        if shadow_copy(idx) {
+            continue;
+        }
         for item in &module.items {
             match item {
                 Item::Fn(f) if f.compfn.as_ref().is_some_and(|c| c.bound.is_some()) => {
@@ -88,7 +105,12 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
         structs,
         types,
         groups,
-        module_paths: files.iter().map(|f| f.module.clone()).collect(),
+        module_paths: files
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !shadow_copy(*i))
+            .map(|(_, f)| f.module.clone())
+            .collect(),
     };
 
     for (file_idx, (file, module)) in files.iter().zip(modules.iter_mut()).enumerate() {

@@ -150,11 +150,16 @@ fn (the call selector). Fixing it exposed that a clause-form `by tag` stamped
 the fn under its own name rather than the member's, so `: Tagged<self> by tag`
 never fulfilled `cmp`; corrected. (3) **The consistency question** — `by auto`
 against `size@core.list` and `import fs.mem` — was settled the other way from
-the recommendation: **a module is referenced by any unambiguous suffix of its
-path, everywhere** [mod-suffix]. `size@list`, `import mem`, `import list.size`,
-`by auto` all resolve; a suffix two modules share is refused naming both.
+the recommendation: **a module *selector* names a module by any unambiguous
+suffix of its path** [mod-suffix]. `size@list` and `by auto` resolve; a suffix
+two modules share is refused naming both. An `import` is not a selector and
+stays fully qualified (first built for imports too, reverted the same hour at
+the user's clarification: an import says where a name comes from).
 `ModulePath::matches_suffix`/`text_matches_suffix` are the one predicate, read
-by the checker's selector sites, `resolve_import` and the comptime expansion.
+by the checker's selector sites and the comptime expansion. A shadow copy of
+std under a repository-root workspace (`std.core.auto` beside `core.auto`,
+ROADMAP §4) had made `by auto` name two modules in the editor; the expansion
+skips a same-content copy whose module ends in the std module's path.
 The user preferred it to requiring the full path (verbose at the most common
 clause) because it also lets `size@list` be written in ordinary code, and a
 later `std.` prefix on std's modules then changes no program that did not spell

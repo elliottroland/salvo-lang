@@ -101,9 +101,10 @@ size@main(xs)           // this module's, said explicitly (and no warning)
 xs.size@core.list()     // dot-notation, since `@` attaches to the name
 ```
 
-The suffix rule holds everywhere a module is named — `@module`, `import`,
-`by` — and a suffix that fits two modules (`@list` with a `core.list` and a
-`shop.list` in play) is refused naming both; write more of the path.
+The suffix rule holds for every module *selector* — `@module` and `by` — and a
+suffix that fits two modules (`@list` with a `core.list` and a `shop.list` in
+play) is refused naming both; write more of the path. An `import` is not a
+selector: it says where a name comes from, and writes the whole path.
 
 **`rename` gives one overload a name of its own**, which is how an ambiguity is settled:
 

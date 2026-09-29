@@ -7374,20 +7374,25 @@ between endpoints and delivers what arrives into the scheduler.
   resolves ambiguity. Unresolved/ambiguous imports are errors.
   * Import prefixes match module paths exactly or as a leading path
     (`import core.Str` finds `core.string`).
-* [mod-suffix] **A module is referenced by any unambiguous suffix of its
-  path** (user decision 2026-09-29), and the rule is the same everywhere a
-  module is named: `size@list` for `size@core.list` [fn-overload-at], `import
-  mem` for `import fs.mem` and `import list.size` for `core.list`'s `size`
-  [mod-import] [mod-import-module], `by auto` for `core.auto` [obligation-by].
-  A reference that fits two modules is refused naming both — "`@list` is
-  ambiguous: it is a suffix of `core.list` and `shop.list`" — and the remedy
-  is more of the path. The full path always works. Chosen over requiring the
-  full path (`by core.auto`, verbose at the most common clause) and over
-  special-casing `by`, so that a later `std.` prefix on std's modules changes
-  no program that did not spell it.
+* [mod-suffix] **A module *selector* names a module by any unambiguous suffix
+  of its path** (user decision 2026-09-29), and the rule is the same for every
+  selector: `size@list` for `size@core.list` [fn-overload-at], `by auto` for
+  `core.auto` [obligation-by]. A suffix that fits two modules is refused naming
+  both — "`@list` is ambiguous: it is a suffix of `core.list` and `shop.list`"
+  — and the remedy is more of the path. The full path always works. **An
+  `import` is not a selector and stays fully qualified** [mod-import]
+  [mod-import-module]: it says where a name comes from, so it writes the whole
+  path. Chosen over requiring the full path at selectors (`by core.auto`,
+  verbose at the most common clause) and over special-casing `by`, so that a
+  later `std.` prefix on std's modules changes no selector that did not spell
+  it.
+  * A shadow copy of std (the repository root opened as a workspace loads
+    `std/` again as `std.core.auto` beside the embedded `core.auto`, ROADMAP
+    §4) is not a second candidate for `by`: same content, module ending in the
+    std module's path, the copy is skipped [std-shadow].
   * `ModulePath::matches_suffix` / `text_matches_suffix` in `salvo-core` are
-    the one predicate; the selector sites in the checker, `resolve_import` and
-    the comptime expansion all read it.
+    the one predicate; the selector sites in the checker and the comptime
+    expansion read it.
 * [mod-import-module] `import time` imports a whole **module** — every name
   in it (user decision 2026-09-18, with `core.time` moved out to module
   `time`: a std surface that is not implicitly visible needs one line to
