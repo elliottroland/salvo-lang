@@ -130,8 +130,8 @@ sequence left behind, by step — each a leftover, none a blocker:
   deterministic clock across nodes first (virtual time is per process today,
   and messages between virtual nodes run on other threads). N-10's user-facing
   half — the manifest's `version` plus a lock file, so a protocol change
-  without a bump fails the build — **waits on section 4's manifest DECISION**
-  (that section notes it as its second customer).
+  without a bump fails the build — **built 2026-09-29** with the manifest
+  (`salvo.lock`, [protocol-lock]).
 
 Both groups stay **actors until the sugar pass** (section 13), which thereby
 gains two concrete targets: `members()` as a plain read (the answering stub)
@@ -311,41 +311,25 @@ What the second one left open, deliberately, is the reading it chose *against*:
   diagnostic per clause, naming every source, and silent where the return is
   concrete.
 
-### 4 — Project manifest and LSP source-root discovery (DECISION, then build)
+### 4 — ✅ Project manifest and LSP source-root discovery (built 2026-09-29)
 
-**The defect**: editing std with the *repository root* as the editor's workspace
-folder produces ~750 lines of spurious diagnostics, because the LSP takes the
-client's `rootUri` as the analysis root and the repo's independent trees (`std/`,
-`examples/*/salvo/`, `demo/`, test corpora) are then analyzed as one program. The
-reported symptom was at `std/core/list.sv:86` — a `preserve Idx` promise
-apparently ignored — and it is collateral: under the repo root the on-disk file
-classifies as module `std.core.list` while the embedded copy is `core.list`, so
-[std-shadow] misses, both copies load, and the duplicated `swap` makes the
-refinements refuse to attach. Repro without an editor:
+Decided (M-1…M-7) and built the same day; COMPLETED.md's log has the entry.
+`salvo.toml` with `[project]`/`[build]`/`[rust]`/`[kotlin]`, discovery by
+nearest ancestor with nested manifests as boundaries, every command reading it
+flag > manifest > default, `backend = "*"`, per-document analysis in the LSP,
+`std = true` for `std/`, and `salvo.lock` for the protocol hashes (section 2's
+step-8 customer, now closed). The repo-root defect is gone: `std/`, every
+`examples/*/` and `demo/` carry manifests, so the root opens as several
+programs.
 
-```bash
-cargo run -- analyze --src .      # from the repo root: errors in std
-cargo run -- analyze --src std    # the correct root: clean
-```
-
-The **workaround** meanwhile: open `std/` as its own workspace folder.
-
-**The decided direction** (user, 2026-09-24): per-document source-root discovery
-in the LSP, anchored by a **project manifest** — option (b) of that round, chosen
-over widening [std-shadow] to strip a leading `std/` (fixes only this case, and
-silently re-classifies a user's own `std/` tree) and over documenting the
-workaround alone.
-
-**DECISION — the manifest's shape**: what the file is called, what it may state
-(source root certainly; backend, main and target dir are the obvious candidates,
-each a CLI flag today), whether `run`/`compile`/`test` read it too (they should,
-or the LSP and the CLI disagree about what a project is), and what root discovery
-does with no manifest in sight (fall back to `rootUri`, today's behaviour).
-**A second customer since 2026-09-26**: the network sequence's version label
-(section 2, step 8) wants a `version` field in the manifest plus a lock file the
-build maintains — effect → (declared version, protocol hash) — so a protocol
-change without a version bump fails the build. The manifest's shape should be
-decided with that in view.
+Left behind, none blocking: dependencies between projects (one manifest naming
+another) are **out of scope** — a project is one tree plus std, and `name`
+exists for the lock and for the LSP's labelling; `salvo lock` as an explicit
+command was not added (a build writes the file); the `--target` flag under
+`backend = "*"` is per-backend for `run`/`test` (suffixed) and refused for
+`compile`; only a build (`compile`, `run`, `test`) reconciles `salvo.lock` —
+`analyze` and the language server read the manifest but never write the lock,
+so an editor session cannot produce one.
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 

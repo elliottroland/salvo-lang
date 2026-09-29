@@ -78,6 +78,50 @@ for itself: it stays unknown, compatible with everything, so a single
 mistake produces a single error instead of a cascade of follow-on
 complaints.
 
+## Projects and the manifest
+
+A **project** is a directory holding a `salvo.toml`. It says what the sources
+are, where the program starts, and what to build for, so the command line and
+the editor agree on what a project is:
+
+```toml
+[project]
+name = "collections"
+version = "0.1.0"
+
+[build]
+src = "salvo"          # the source root, relative to this file (default: here)
+main = "salvo/main.sv" # the entry point, when several files declare one (optional)
+backend = "*"          # rust, kotlin, or * for every backend
+
+[rust]
+target = "rust"        # where `salvo compile` writes each backend's output
+
+[kotlin]
+target = "kotlin"
+```
+
+Every command reads it — `salvo run`, `compile`, `test`, `analyze`, `platform
+generate`, the language server — and a flag on the command line wins over what
+the manifest states. Under `backend = "*"` a command runs once per backend:
+`salvo compile` in an example directory regenerates both checked-in trees.
+
+A file **belongs to the nearest manifest above it**, and a nested manifest is
+a boundary: a directory holding several projects (this repository, with `std/`
+and every `examples/*/`) is several programs, and the editor analyses each
+document under its own. A file with no manifest above it is analysed under the
+editor's workspace root, and told so when that workspace does hold projects.
+
+`[project] std = true` marks the standard library's own tree, so its files are
+std to the checker and replace the copy built into the compiler.
+
+Beside the manifest the compiler keeps **`salvo.lock`**: the protocol hash of
+every `actor effect` the project declares, at the project's version. A build
+whose protocol changed without a version bump is refused naming the effect —
+so two versions of one protocol never meet in a rolling fleet under one name —
+and bumping `version` relocks. See [Concurrency](Concurrency.md) for what a
+protocol hash is.
+
 ## Naming rules
 
 Casing is part of the language, not a convention:

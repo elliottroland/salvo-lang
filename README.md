@@ -31,8 +31,23 @@ output it prints — [ROADMAP.md](ROADMAP.md) for what is still to come, and
 cargo build        # build the compiler
 cargo test         # run the test suite
 
-# Compile and run in one step (requires the backend's toolchain on PATH).
-# `--backend` defaults to rust, as it does for `salvo test`:
+# A project is a directory with a `salvo.toml`:
+#
+#   [project]
+#   name = "my_project"
+#   version = "0.1.0"
+#
+#   [build]
+#   src = "salvo"        # the source root (default: the manifest's directory)
+#   backend = "rust"     # or "kotlin", or "*" for both
+#
+# Every command reads it, so from inside the project the commands below need
+# no flags; a flag given on the command line wins over the manifest.
+cargo run -- run
+cargo run -- compile           # into `[rust] target` / `[kotlin] target`
+
+# Or say everything on the command line (requires the backend's toolchain on
+# PATH). `--backend` defaults to rust, as it does for `salvo test`:
 cargo run -- run --src ./my_project
 cargo run -- run --backend kotlin --src ./my_project
 

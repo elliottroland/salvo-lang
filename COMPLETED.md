@@ -135,6 +135,48 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The project manifest, per-document analysis, and the protocol lock
+(2026-09-29, user decisions M-1…M-7; built the same day).** ROADMAP §4's
+defect — the repository root opened as a workspace analysed `std/`, every
+example and `demo/` as one program, ~750 spurious diagnostics — closed by the
+direction decided 2026-09-24: a manifest anchors per-document source-root
+discovery. **1628 tests.**
+
+*The decisions:* `salvo.toml` (TOML; `toml`+`serde` are the new deps),
+`[project] name/version/std`, `[build] src/main/backend/target` with `backend =
+"*"` for every backend, `[rust]`/`[kotlin]` per-backend `target` (the user's
+tweak: (b) and (c) of M-2, keeping `[build]` for the default backend and the
+shared target); every command reads it, flag > manifest > default; discovery by
+nearest ancestor, nested manifests are boundaries, no manifest falls back to
+`rootUri`/`--src` with a note in the editor when the workspace does hold
+projects; manifests at `std/` (`std = true`), every `examples/*/` (`src =
+"salvo"`, `backend = "*"`, targets `rust`/`kotlin`) and `demo/`; `salvo.lock`
+written by every build, locking the project's own actor protocols with a wire
+form at the manifest's version, a changed hash at one version refused with the
+bump as the only remedy; dependencies between projects out of scope.
+
+*What landed.* `salvo-core::manifest` (model, `Project::find`, `is_nested_project`
+consulted by `SourceSet::add_dir`), `salvo-core::lock` (`reconcile` with its
+outcomes), `effect_has_wire_form` moved into `salvo-core::wire` so the lock and
+both emitters share the predicate, `SourceSet::mark_std_tree`. CLI:
+`resolve_inputs`/`target_for`/`reconcile_lock`; `compile`/`run`/`test`/`platform
+generate` loop over the backends `"*"` names; `analyze` reads `src` from the
+manifest. LSP: `analyze_for_document`, one analysis per project root among the
+open documents, `Analysis.root`/`project`, the fallback note. Tests: the LSP
+session test with two projects and a stray file; CLI tests for a flagless `run`,
+discovery from a subdirectory, a bad backend value, and the lock's refuse/relock
+cycle. Rules [manifest] [manifest-discovery] [protocol-lock]; Modules.md
+"Projects and the manifest"; README and examples/README.
+
+*What building it found:* `run`/`test` must **not** read the manifest's
+`target` — the first version did, and a `salvo run` in an example cleaned its
+checked-in `rust/` tree before compiling into it; the manifest's target is
+`compile`'s deliverable, the scratch directories are `run`/`test`'s. A
+`--target` under `backend = "*"` is per-backend (suffixed) for the scratch
+commands and refused for `compile`. The "no manifest above this file" note must
+be silent in a workspace with no manifests at all, or every plain project's
+files carry it.
+
 **Module references by suffix, and the `by` selector (2026-09-29, user
 decisions).** Two things fell out of the round-8 review. (1) **The LSP**: `export`
 did not highlight before `comptime`/`noremote`/`threadsafe`; `type:` as a field

@@ -7719,7 +7719,49 @@ replaced the working document TESTING.md).
     survives, exactly as it does for `run` (user decision 2026-09-26). The
     default differs, and deliberately: `before`, so the generated harness is
     still there to read after a failure. `both` deletes it after the report.
-* [std-shadow] A source tree may **replace** modules of the embedded standard
+* [manifest] **A project is described by `salvo.toml`** in its root (user
+  decisions 2026-09-24 for the direction, 2026-09-29 for the shape; ROADMAP
+  §4 built the same day): `[project] name`, `version`, and `std = true` for the
+  standard library's own tree; `[build] src` (the source root, relative to the
+  manifest, default `.`), `main` (the entry file, when there are several),
+  `backend` (`rust`, `kotlin`, or `*` for every backend) and `target` (one
+  output directory for all backends); `[rust]`/`[kotlin]` sections each with a
+  `target` that overrides it. Every command reads it — `run`, `compile`,
+  `test`, `analyze`, `platform generate`, the language server — with one
+  precedence: a CLI flag, then the manifest, then the built-in default. Under
+  `backend = "*"` a command runs for each backend in turn (a `compile` into
+  each backend's own `target`; a `run`/`test` into a per-backend scratch
+  directory), which is how every example regenerates both trees with a bare
+  `salvo compile`. A `main` is optional: without one, `analyze` and `test`
+  work and `run` says there is nothing to run. Unknown keys and an unknown
+  backend value are refused naming the file. `run`/`test` never read the
+  manifest's `target`: they clean their directory, and the manifest's is where
+  `compile` keeps the checked-in output.
+* [manifest-discovery] **A file belongs to the nearest ancestor directory
+  holding `salvo.toml`**; a nested manifest is a boundary, so a parent
+  project's source walk does not enter it. The CLI discovers from `--src`,
+  else from `--main`'s directory, else from the working directory; with no
+  manifest above, it needs `--src` or `--main` as before. The language server
+  discovers **per document**, analysing each open document under its own
+  project — one analysis per project root — so a workspace holding several
+  projects (this repository: `std/`, every `examples/*/`, `demo/`) checks each
+  as its own program. A document with no manifest above it is analysed under
+  the workspace root, as before, and — in a workspace that does hold projects
+  — carries an information diagnostic saying so.
+* [protocol-lock] **`salvo.lock` beside the manifest locks the protocol hash of
+  every actor effect the project declares** (the network round's N-9, 2026-09-26,
+  shaped 2026-09-29): `version = "…"` and `[protocols] Effect = "hash"`, for the
+  project's own `actor effect`s with a wire form (never std's). Every build
+  reconciles it before emission: absent, or the manifest's `version` changed,
+  it is written; a hash that changed **at the same version** is an error
+  naming the effect and both hashes, with the remedy "bump `[project] version`"
+  — there is no `--relock`, since a silent protocol change is what the file
+  exists to stop. A protocol added or removed relocks without error. Std
+  shares the predicate (`effect_has_wire_form`) with both emitters, so what is
+  locked is exactly what carries a `__PROTO_E` constant [protocol-hash].
+* [std-shadow] (`std/salvo.toml` says `std = true` [manifest], which marks the
+  whole tree std — a new module the embedded copy lacks included — and is what
+  makes the repository root openable in an editor.) A source tree may **replace** modules of the embedded standard
   library: every module a loaded file declares that an embedded std file also
   declares drops the embedded copy, and the disk file takes over with its
   std-ness (so its `intrinsic` declarations stay legal). This is what
@@ -8078,7 +8120,7 @@ replaced the working document TESTING.md).
     non-empty); the LSP carries them on `Diagnostic.data` and serves
     `textDocument/codeAction` quickfixes ("Add `import …`") that insert
     the import line after the file's last import (or at the top).
-* [cli-analyze] `salvo analyze --src DIR [--format text|json]`
+* [cli-analyze] `salvo analyze [--src DIR] [--format text|json]` (`--src` from the manifest when omitted [manifest])
   runs the front half of the pipeline — parse,
   resolve, type-check — and reports every diagnostic without generating
   code. Exit code is nonzero iff any diagnostic is an error.
@@ -8094,8 +8136,9 @@ replaced the working document TESTING.md).
     `{file, line, col, start, end, severity, message}` objects to
     stdout (line/col 1-based, start/end byte offsets); text mode
     renders to stderr with a summary line.
-* [cli-run] `salvo run [--backend NAME] (--src DIR | --main FILE)
-  [--target DIR] [--clean-target before|both]` compiles and then runs the
+* [cli-run] `salvo run [--backend NAME|*] [--src DIR] [--main FILE]
+  [--target DIR] [--clean-target before|both]` (backend, src and main from the
+  manifest when omitted [manifest]) compiles and then runs the
   program with the backend's own toolchain (user decisions 2026-09-05).
   One command from `.sv` source to program output.
   * `--backend` **defaults to `rust`** (user decision 2026-09-26), which is

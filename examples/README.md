@@ -36,10 +36,12 @@ Every example is one directory:
 ```
 <example>/
 ├── README.md      what the program is chosen to show, and what to look for
+├── salvo.toml     the manifest: `src = "salvo"`, `backend = "*"`, the two targets
 ├── salvo/         the Salvo source (the only hand-written code)
 ├── rust/          the generated Rust, exactly as `salvo compile` wrote it
 ├── kotlin/        the generated Kotlin, likewise
-└── expected.txt   the stdout — byte-identical on both backends
+├── expected.txt   the stdout — byte-identical on both backends
+└── salvo.lock     the protocol lock, where the example declares actor effects
 ```
 
 The generated trees sit *beside* the sources rather than inside them: a `.rs`
@@ -48,6 +50,18 @@ hand-written companion file [backend-companion], so it would be picked up by
 the next build.
 
 ## Running and regenerating one
+
+Each example is a project: its `salvo.toml` names `salvo/` as the source root,
+`backend = "*"`, and `rust/`/`kotlin/` as the two targets, so from inside the
+directory both trees regenerate with no flags:
+
+```bash
+cd examples/iteration
+cargo run -q --manifest-path ../../Cargo.toml -- compile    # both backends, into rust/ and kotlin/
+cargo run -q --manifest-path ../../Cargo.toml -- run        # runs both
+```
+
+The flag forms below still work and are what the test suite spells out.
 
 ```bash
 cargo run -- run --backend rust   --src examples/iteration/salvo
