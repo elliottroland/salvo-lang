@@ -70,6 +70,25 @@ Correction (decision 14): `smithy-rs`'s codegen is not published to Maven
 and a reserved-word list, a page of code — which leaves the Kotlin half, the
 larger one, still borrowed rather than mirrored.
 
+### Third sitting (2026-09-29, evening): the stream layering
+
+Building §7.3 found that moving `InStream` out of `fs` breaks the same-file
+rule [linear-group] — a linear value's terminal belongs to the type's own
+file, and `Fs.close` and `ByteSource.close` cannot both live there. The fix is a
+layering, not a rule change, and it **replaces decisions 11–13 and the
+`ByteSource` sketch** (§5 below is rewritten to match):
+
+| # | Decision | Chosen |
+|---|---|---|
+| 20 | Who owns streams | **`std.stream`**: `InStream`, `OutStream` and **one effect `Streams`** with every stream operation — the synchronous reads and writes moved out of `Fs`, the non-blocking `receive`, `close`, `from_bytes`, the `Lines`/`Chunks` iterators and `copy_stream`. `fs` keeps paths and *mints* into the `Streams` in scope; S3 mints bodies the same way. All-host and all-mem are each consistent; mixing traps |
+| 21 | The same-file rule | **kept** — the terminal stays with the type; the layering puts every consuming member beside it |
+| 22 | Handles | **one process-wide counter** for every stream table, host and mem, so a foreign handle is unknown, never a collision |
+| 23 | `[Fs, Streams]` everywhere | **effect prerequisites**: `effect Fs [Streams]` — wherever `Fs` is, `Streams` is too (transitively); every `Fs` handler has `Streams` as an implicit dependency; binding an `Fs` handler requires a `Streams` already bound. A *prerequisite*, not inheritance: inheritance would give each producer its own stream table |
+| 24 | Names | `Streams`, `HostStreams`, `MemStreams`; `receive(s, reply: Reply<Received>)`, `Received = Ok Packet \| End \| Err Checked<StreamError>`, `Packet { bytes, stream }`; `FsError` keeps the path kinds, `StreamError` takes `InvalidUtf8`, `StaleHandle` and an `IoError` of its own |
+| 25 | Non-blocking copy | `pipe(from: InStream, to: OutStream, done: Reply<Ok Long \| Err Checked<StreamError>>)` beside the synchronous `copy_stream` — GetObject to a file |
+| 26 | Synchronous reads of a network stream | allowed, blocking the worker as a slow disk does, and documented; `receive`/`pipe` are the non-blocking route |
+| 27 | The host table | owned by `HostStreams`, one per process; `HostRawFs` registers opened files into it, so a file is an S3 body with no adapter (PutObject from a file) |
+
 ## 3. Layout
 
 ```
@@ -152,95 +171,56 @@ union of `ProfileCredentials` (already there; maps onto both SDKs' profile
 providers), `EnvironmentCredentials` and `DefaultChain` — plus `region` and an
 optional `endpoint` override, which is what running against LocalStack needs.
 
-## 5. Streaming: `std.stream` and `ByteSource`
+## 5. Streaming: `std.stream` and `Streams`
 
 S3 bodies are `@streaming blob` in both directions, and the host SDKs expose
-them as asynchronous byte streams (`ByteStream` / `SdkBody`). The general piece
-is a std module, with nothing AWS in it.
-
-### The stream type is `InStream`
-
-`InStream` (and `OutStream`) **move from `fs` to `std.stream`**; `fs` imports
-them. Both a file and a network body are forward-only byte inputs with a linear
-`close`; the differences — blocking versus asynchronous reading, `FsError`
-versus `StreamError` — belong to the *effect reading them*, not to the stream.
-One type means no adapter: a file opened by `Fs.open_read` can be read
-asynchronously by `ByteSource.read`, provided each host keeps **one stream
-table** behind `HostRawFs` and `HostByteSource`. Handle provenance was already a
-runtime matter (a `MemFs` stream handed to `HostRawFs` fails at runtime today);
-reusing the type adds no new hole and `stream`'s docs state the existing one. A
-handle from the wrong provider **traps** with a message (10): it is a program
-bug, not a condition to handle. The host pair shares handles through the table;
-the mem pair (`MemFs`, `MemByteSource`) does not — handler state is not global,
-deliberately — so a test may `use` both as long as it does not cross them, and
-`MemHost of Fs, ByteSource` is the combined handler for when it must (13). That
-asymmetry is the case for making the mismatch a *compile-time* error, recorded
-in §9.
-
-### One effect reads every stream
+them as asynchronous byte streams. The general piece is a std module with
+nothing AWS in it, and it is where *every* stream lives — files included
+(decisions 20–27).
 
 ```
 // std.stream
 export noremote linear struct InStream { handle: Long }
+export noremote linear struct OutStream { handle: Long }
 
-// One read's answer. `Chunk` returns the stream for the next read; `End` and
-// `Err` mean the provider has closed it — nothing left to close, nothing leaked.
-export linear struct Chunk { bytes: Bytes, stream: InStream }     // `bytes` is never empty (8)
-export type Read = Ok Chunk | End | Err Checked<StreamError>      // linear like `FsError` (9)
+export struct Packet { bytes: Bytes, stream: InStream }            // linear by containment; bytes never empty
+export type Received = Ok Packet | End | Err Checked<StreamError>
 
-export effect ByteSource {
-    // Non-blocking: hands the stream and the continuation to the provider and
-    // returns. The stream travels with the request and comes back inside the
-    // answer, so exactly one read is ever in flight and nobody can `close` a
-    // stream mid-read — the checker cannot see a pending reply, so the token's
-    // absence is what makes the rule hold.
-    fn read(stream: InStream, reply: Reply<Read>) -> None => !stream, !reply
-    // Gives a stream up before its end.
-    fn close(stream: InStream) -> None => !stream
-    // A stream over a buffer already in hand (D5: the mint lives here).
+export effect Streams {
+    // …every synchronous read and write `Fs` used to carry…
+    fn read_line(s: InStream) -> Str | None => s
+    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err Checked<StreamError> => s
+    fn close(s: InStream) -> Ok None | Err Checked<StreamError> => !s
+    …
+    // Non-blocking: the stream travels with the request and comes back in
+    // the answer, so one read is in flight and a mid-read `close` is
+    // unwritable.
+    fn receive(s: InStream, reply: Reply<Received>) -> None => !s, !reply
+    // A stream over a buffer already in hand.
     fn from_bytes(bytes: Bytes) -> InStream => !bytes
 }
 
-export threadsafe platform handler HostByteSource() of ByteSource
-export handler MemByteSource() of ByteSource      // pure Salvo; `read` answers at once
+export threadsafe platform handler HostStreams() of Streams   // the one process table
+export handler MemStreams() of Streams                         // pure Salvo
+
+// Copies without blocking a worker: `receive` into `write`, until `End`.
+export fn pipe(from: InStream, to: OutStream, done: Reply<Ok Long | Err Checked<StreamError>>) [Streams]
 ```
 
-Reading is the parked-continuation idiom, and the linear token makes the loop
-shape mandatory rather than conventional:
+`fs` declares `effect Fs [Streams]` (decision 23): a function declaring `[Fs]`
+may read the streams `Fs` opens, every `Fs` handler reaches the `Streams` in
+scope, and `use DefaultFs()` needs a `Streams` bound first. `HostRawFs`
+registers what it opens in `HostStreams`' table; `MemFs.open_read` is
+`from_bytes(content)` on whatever `Streams` is bound. So:
 
-```
-send fn on_chunk(r: Read, out: Mut Bytes) [ByteSource] {
-    when r {
-        is Ok  { append(out, r.bytes); read(r.stream, replyto on_chunk(out)) }
-        is End { done(out) }
-        is Err { report(r) }
-    }
-}
-```
-
-A `GetObjectOutput` holding an `InStream` is linear by the container rule, so a
-caller that forgets a body gets a compile error — the property the actor-per-
-body shape could not enforce. `Reply<T>` must admit a linear `T` (`Chunk`);
-`std/core/actor.sv` declares `Reply<T>` without `canbe linear` today, and that
-is one of the std changes in §7.
-
-### Producers
-
-Consumers always go through the effect. Producers come from two sides:
-
-- **Host producers** register an asynchronous byte producer in the runtime's
-  stream table and get a handle: the S3 glue for a `GetObject` body, an SDK
-  stream from anywhere else, and `HostRawFs` for files (the same table).
-- **Salvo producers** use `from_bytes`. A fake S3 mints bodies with it; a real
-  `PutObject` caller mints one from a buffer.
-
-The asymmetry, stated: a **host consumer** (the real `PutObject`) can only pull
-from a stream the *host* registered, so its body comes from
-`HostByteSource.from_bytes` or from a host-registered file, not from a Salvo
-producer that generates chunks over time. That wants a writer pair
-(`from_writer() -> (InStream, OutStream)` pushing into a host queue) and is
-deferred until something needs it. Also deferred: asynchronous line reading
-(`Lines` stays `Fs`-only).
+- **PutObject from a file**: `put_object(input, open_read(path), reply)` — the
+  host glue reads the body through the same table.
+- **GetObject to a file**: `pipe(output.body, open_write(path), done)`.
+- **All-mem tests**: `MemFs` files and a fake S3's bodies are the same kind of
+  stream in one `MemStreams`.
+- **Mixing host and mem** is an unknown handle, which traps; with one handle
+  counter (decision 22) it can never be someone else's live stream. Making it
+  a compile-time error is §9's provider-checked handles.
 
 ## 6. Host glue
 
@@ -274,10 +254,10 @@ types without them.
    `fire_after` uses privately — on both backends, with the exactly-once
    contract stated in the generated skeleton. No language change: a plain
    effect member taking a `Reply` is already legal.
-3. **`std.stream`.** `InStream`/`OutStream` moved from `fs` (the sweep:
-   `std/fs*`, `examples/files/`, the fs tests, the [fs-…] rules), `ByteSource`,
-   `Chunk`/`Read`/`StreamError`, `HostByteSource` with a runtime stream table
-   shared with `HostRawFs`, `MemByteSource`; `Reply<T canbe linear>`.
+3. **`std.stream`** (third sitting): effect prerequisites (`effect Fs
+   [Streams]`), one handle counter, the `fs`/`stream` split with `Streams`,
+   `HostStreams`/`MemStreams`, then `receive`, `from_bytes` and `pipe`;
+   `Reply<T canbe linear>`.
 
 ## 8. Sequence
 
@@ -289,7 +269,7 @@ types without them.
 4. SQS end to end: generated module, a fake in `tests/`, an example that sends
    and receives one message against the fake (the real handler needs
    credentials and runs by hand).
-5. S3 `GetObject`/`PutObject` over `ByteSource`.
+5. S3 `GetObject`/`PutObject` over `Streams`, to and from files included.
 
 ## 9. Deferred, recorded
 

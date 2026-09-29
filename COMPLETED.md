@@ -135,6 +135,25 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The stream layering (2026-09-29, user decisions 20–27; not yet built).**
+Starting §4b step 3 found that `InStream` cannot move to `stream`: the
+same-file rule puts a linear type's terminal in its own file, and `Fs.close`
+and `ByteSource.close` cannot both be there. Three options were put (a
+discharge grant, `ByteSource` in `fs`, a separate `ByteStream`); the user
+leaned to separation on the ground that closing a file stream through
+`ByteSource` should be a type error, then — told that host-to-host sharing is
+legitimate and only mem/host mixing is not — asked whether an effect's
+`=> !s` really needs the same-file rule at all. It does: under the alternative
+the terminal must still be reachable, and an exported one makes linearity
+advisory. What was wrong was the layering. **Decided:** `stream` owns the types
+*and* one `Streams` effect with every stream operation; `fs` keeps paths and
+mints into the `Streams` in scope; one process-wide handle counter; one host
+table; `pipe` for non-blocking copies; the naming table (DESIGN.md decision
+24). The user then proposed `effect Fs : Streams` so `[Fs]` suffices, meaning
+inheritance; inheritance would give every producer its own stream table, so the
+decision is a **prerequisite** (R2) spelled `effect Fs [Streams]`, the
+spelling a handler's dependency list already uses for the same meaning.
+
 **Host-completed continuations (2026-09-29; ROADMAP §4b item 2).** A platform
 member taking a `Reply<T>` was already legal and rendered as the runtime's reply
 type on both hosts (decision 7's verification: yes). What failed was the

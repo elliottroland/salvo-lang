@@ -356,20 +356,21 @@ made in the design sitting — but each has a shape to settle at implementation.
 2. ✅ **Host-completed continuations** — built 2026-09-29 ([platform-reply];
    COMPLETED.md has the entry). Left: a host reply to a remote-minted token (the
    typed wire path), and detecting a lost reply on Kotlin.
-3. **`std.stream`** (DESIGN §5, §7.3). `InStream`/`OutStream` **move from `fs`**
-   to `stream` (the sweep: `std/fs*`, `examples/files/`, the fs tests, the
-   [fs-…] rules and their "open-file table" wording → "stream table"); a plain
-   effect `ByteSource { read(stream, reply: Reply<Read>); close(stream);
-   from_bytes(bytes) -> InStream }` with the linear token **threaded through the
-   reply** (`Chunk { bytes, stream }`, `Read = Ok Chunk | End | Err StreamError`)
-   so one read is in flight and a mid-read `close` is unwritable;
-   `HostByteSource` (threadsafe platform handler) over a runtime stream table
-   **shared with `HostRawFs`**, so a file reads asynchronously with no adapter;
-   `MemByteSource` in pure Salvo; `Reply<T canbe linear>` in `core.actor`, since
-   `Chunk` is linear. Deferred and recorded in DESIGN §9: a writer pair for
-   Salvo-produced bodies consumed by the host, asynchronous `Lines`, a
-   consumer-only face.
-
+3. **`std.stream`** (DESIGN §5; decisions 20–27, the third sitting). Moving
+   `InStream` alone broke the same-file rule, so streams move *as a layer*:
+   `stream` owns `InStream`/`OutStream` and one effect `Streams` with every
+   stream operation; `fs` keeps paths and mints into it. In order:
+   a. **Effect prerequisites** — `effect Fs [Streams]`: wherever `Fs` is,
+      `Streams` is (transitively, fn types included); every handler of `Fs`
+      reaches `Streams` as an implicit dependency; `use` of an `Fs` handler
+      needs a `Streams` bound; cycles refused. A prerequisite, not inheritance.
+   b. **One handle counter** for every stream table.
+   c. **The split**: `Streams` with the synchronous members moved from `Fs`,
+      `Lines`/`Chunks`/`copy_stream` with them, `StreamError`, `HostStreams`
+      (owning the process table `HostRawFs` registers into), `MemStreams`;
+      the sweep of `fs*`, `examples/files`, Files.md and the fs tests.
+   d. **Non-blocking**: `receive` (answering `Received = Ok Packet | End | Err
+      Checked<StreamError>`), `from_bytes`, `pipe`; `Reply<T canbe linear>`.
 4. **Provider-checked stream handles** (DESIGN §9, decision 10 of 2026-09-29's
    second sitting). A `MemFs` stream handed to `HostByteSource` traps at
    runtime; the user wants the compiler to see it. Sketch to start from: a
