@@ -12,13 +12,13 @@ struct Point : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto 
 }
 ```
 
-This page is the other side of that line: what `by` does, what a `compfn` is,
+This page is the other side of that line: what `by` does, what a `comptime fn` is,
 and how to write one of your own.
 
 ## `by`: stamping
 
 `by X` on an obligation clause says where the group's members come from. `X`
-is a module, and for each member the module's `compfn` of that name is
+is a module, and for each member the module's `comptime fn` of that name is
 **instantiated at this type** — stamped — and the result is an ordinary
 function declared on the type, exactly as if you had written it inside the
 struct's body: it travels with the type, `cmp@Point` names it, an implicit
@@ -39,7 +39,7 @@ type Source = Manual | Imported : ToStr<self> by auto
 ```
 
 A free union — `Str | Int`, or any `T?` — has no declaration to carry a
-clause, so it has no functions of its own; a compfn over a struct that holds
+clause, so it has no functions of its own; a comptime fn over a struct that holds
 one reaches its arms through the field (below).
 
 `by` also works on one function, keeping its full signature, which is how a
@@ -77,19 +77,20 @@ A stamping can also be refused outright: `core.auto`'s `hash` refuses a
 `canbe Mut` struct, because a key that can change while a collection holds it
 corrupts the collection, and that refusal lands at the clause.
 
-## `compfn`: what gets stamped
+## `comptime fn`: what gets stamped
 
-A `compfn` is a function over a **kind** of type rather than a type. Its one
-type parameter carries the kind as a bound, `<struct T>` or `<union T>`, and
-inside its body the compile-time syntax is legal. It is not callable: it exists
-to be instantiated by `by`, and by the time the program is checked every use
-of one has been stamped and the compfn itself is gone.
+A `comptime fn` is a function over a **kind** of type rather than a type. Its one
+type parameter is bound with `is` to an arm of `Type` — `<T is Struct>` or
+`<T is Union>`, the same test a `when` arm makes — and inside its body the
+compile-time syntax is legal. It is not callable: it exists to be instantiated
+by `by`, and by the time the program is checked every use of one has been
+stamped and the comptime fn itself is gone.
 
 Here is `core.auto`'s `cmp` for structs, in full:
 
 ```
-export compfn cmp<struct T>(a: T, b: T) [] -> Int => a, b {
-    inline for field in T.fields {
+export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
+    [for field in T.fields] {
         let c = cmp(a.[field], b.[field])
         if c != 0 {
             return c
@@ -101,12 +102,12 @@ export compfn cmp<struct T>(a: T, b: T) [] -> Int => a, b {
 
 Three things in it are compile-time:
 
-- **`T.fields`** is the struct's fields, in declaration order, and `inline for`
+- **`T.fields`** is the struct's fields, in declaration order, and `[for …]`
   unrolls the loop: one copy of the body per field, each checked with that
   field's type concrete. So `cmp(a.[field], b.[field])` in the copy for `x` is
   an ordinary call `cmp(a.x, b.x)`, resolved like any other, and a field with
   no `cmp` fails there.
-- **`a.[field]`** reads the field the enclosing `inline for` is at. Inside a
+- **`a.[field]`** reads the field the enclosing `[for …]` is at. Inside a
   struct literal, `[field]: value` is the same entry.
 - The binder exposes **`field.name`** (a string literal), **`field.type`**
   (usable wherever a type is written), **`field.index`**, **`field.first`** and
@@ -114,10 +115,10 @@ Three things in it are compile-time:
   them:
 
 ```
-export compfn to_str<struct T>(value: T) [] -> Str => value {
+export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
     let out: Mut Str = mut_str("${T.name} {")
-    inline for field in T.fields {
-        inline if field.first {
+    [for field in T.fields] {
+        [if field.first] {
             append(out, " ")
         } else {
             append(out, ", ")
@@ -129,21 +130,21 @@ export compfn to_str<struct T>(value: T) [] -> Str => value {
 }
 ```
 
-`inline if` keeps or drops a branch per instantiation, and the dropped branch is
+`[if …]` keeps or drops a branch per instantiation, and the dropped branch is
 never checked. Its conditions are compile-time facts: `field.first`,
 `field.last`, `field.name == "value"`, `x.index == y.index` (and the other
-orderings), `T canbe Mut`, `field.type is Str` (a type, up to aliases), and
-`field.type is struct` (a kind).
+orderings), `T.mutable`, `field.type is Str` (a type, up to aliases), and
+`field.type is Struct` (a kind — an arm of `Type`, below).
 
-A compfn can **refuse** an instantiation, with a message in the caller's terms:
+A comptime fn can **refuse** an instantiation, with a message in the caller's terms:
 
 ```
-export compfn hash<struct T>(value: T) [] -> Long => value {
-    inline if T canbe Mut {
-        refuse "a `Mut`-capable struct can change while a collection holds it, so it cannot be a key"
+export comptime fn hash<T is Struct>(value: T) [] -> Long => value {
+    [if T.mutable] {
+        refuse!("a `Mut`-capable struct can change while a collection holds it, so it cannot be a key")
     }
     let h = 17L
-    inline for field in T.fields {
+    [for field in T.fields] {
         h = mix_hash(h, hash(value.[field]))
     }
     return h
@@ -152,16 +153,16 @@ export compfn hash<struct T>(value: T) [] -> Long => value {
 
 ### Unions
 
-A compfn over a union walks its arms. `inline when value { [arm] { … } }`
+A comptime fn over a union walks its arms. `[when value] { [arm] { … } }`
 dispatches on a union value: the one written arm is stamped once per declared
 arm, with `value` narrowed to that arm inside, producing an ordinary exhaustive
 `when`. `None` is an arm like any other, with `arm.type` `None`:
 
 ```
-export compfn to_str<union T>(value: T) [] -> Str => value {
-    inline when value {
+export comptime fn to_str<T is Union>(value: T) [] -> Str => value {
+    [when value] {
         [arm] {
-            inline if arm.type is None {
+            [if arm.type is None] {
                 return "None"
             } else {
                 return to_str(value)
@@ -176,30 +177,55 @@ export compfn to_str<union T>(value: T) [] -> Str => value {
 position, which is how the union `cmp` orders across arms. A union field of a
 struct is reached the same way, through `value.[field]`.
 
-### Kinds
+### The model: `core.comptime`
 
-A compfn that treats field types differently dispatches on their **kind** with
-`inline when`, which is exhaustive over the kinds unless an `else` closes it:
+Everything a comptime fn may know about a type is declared, as compile-time
+structs in `core.comptime`:
 
 ```
-inline when field.type {
-    is struct { … }
-    is union  { … }
-    is tuple  { … }
-    is fn     { … }
-    is opaque { … }
+comptime struct Struct  { name: Str, fields: List<Field>, mutable: Bool }
+comptime struct Union   { name: Str, arms: List<Arm> }
+comptime struct Tuple   { elems: List<Type> }
+comptime struct FnType  {}
+comptime struct Basic   { name: Str }      // declared `intrinsic type`
+comptime struct Generic { name: Str }      // a type parameter of the struct being stamped
+comptime type Opaque = Basic | Generic
+comptime type Type   = Struct | Union | Tuple | FnType | Opaque
+
+comptime struct Field { name: Str, type: Type, index: Int, first: Bool, last: Bool }
+comptime struct Arm   { name: Str, type: Type, index: Int, first: Bool, last: Bool }
+```
+
+The bound `T` is a `Struct` or a `Union`; a `[for …]` binder is a `Field` or
+an `Arm`; `field.type` is a `Type`. These exist at compile time only — the
+compiler fills them, nothing constructs one, and naming one in an ordinary
+type position is an error — but they are ordinary declarations to read, and
+the language server shows them: hovering `T`, `field` or `field.index` inside
+a comptime fn body answers `T is Struct`, `field: Field`, `field.index: Int`.
+
+Because `Type` is a union, a comptime fn that treats field types differently
+dispatches on it with an ordinary `when`, exhaustive over the arms unless an
+`else` closes it:
+
+```
+[when field.type] {
+    is Struct { … }
+    is Union  { … }
+    is Tuple  { … }
+    is FnType { … }
+    is Opaque { … }
 }
 ```
 
-`opaque` is a type the compfn cannot look inside — an intrinsic type such as
-`Int`, or a type parameter — and it matches either of its two halves, `basic`
-and `generic`, when a compfn does not care which. The exhaustiveness is
-deliberate: when the language gains a kind, every compfn that did not consider
-it stops compiling rather than silently skipping it.
+`Opaque` is a type the comptime fn cannot look inside — an `Int`, or a type
+parameter — and `is Opaque` matches either of its arms, `Basic` and `Generic`,
+when the body does not care which. The exhaustiveness is deliberate: when the
+language gains a kind, every comptime fn that did not consider it stops
+compiling rather than silently skipping it.
 
-### A concrete compfn
+### A concrete comptime fn
 
-A `compfn` with no type parameter is its own single instantiation, declared
+A `comptime fn` with no type parameter is its own single instantiation, declared
 where a function is. It is how one field gets handled by hand while the rest
 stay structural — a `Double` that needs a total order, say:
 
@@ -209,9 +235,9 @@ struct Reading : Ordered<self> {
     unit: Str,
     value: Double
 
-    compfn cmp(a: Reading, b: Reading) -> Int => a, b {
-        inline for field in Reading.fields {
-            inline if field.name == "value" {
+    comptime fn cmp(a: Reading, b: Reading) -> Int => a, b {
+        [for field in Reading.fields] {
+            [if field.name == "value"] {
                 let c = total_cmp(a.value, b.value)
                 if c != 0 { return c }
             } else {
@@ -228,9 +254,9 @@ A field name no field has is an error at the declaration.
 
 ### Your own module
 
-`core.auto` is not special. A module of your own holding `compfn cmp<struct
+`core.auto` is not special. A module of your own holding `comptime fn cmp<struct
 T>(…)`, `eq` and `hash` — comparing an `id` field only, say — is reached by
-`by ids`, for every entity in a program. A compfn is like an `intrinsic fn` in
+`by ids`, for every entity in a program. A comptime fn is like an `intrinsic fn` in
 what it writes down (its effect list, deductions and return type), and one that
 a `params` member is fulfilled by must be effect-free, since an implicit
 parameter may resolve to it.

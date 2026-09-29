@@ -122,9 +122,9 @@ fn main() [use] {
   `eq(a, b)` and `a < b` is `cmp(a, b) < 0`, so equality is opt-in and a type
   joins in by declaring the function — `: Hashed<self> by auto` stamps `hash`
   and `eq`, `: Ordered<self> by auto` a `cmp` too, checked where they are
-  declared. What `by auto` stamps is a **`compfn`** in the standard library: a
+  declared. What `by auto` stamps is a **`comptime fn`** in the standard library: a
   function written once over the fields of any struct or the arms of any union
-  (`inline for field in T.fields { … }`) and instantiated at your type, so the
+  (`[for field in T.fields] { … }`) and instantiated at your type, so the
   next structural function is a module rather than a compiler change — and
   nothing is stamped unless a type asks, so `: ToStr<self> by auto` is how a
   struct prints in its literal's shape. A structure that *stays* ordered names the ordering it holds as a

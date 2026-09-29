@@ -222,7 +222,7 @@ idiom is `satisfies Record<keyof T, …>` to force an object to mention every
 key. The lesson is consistent: **exhaustive is the safe default and the
 opt-out is one token.** Informs SD-2.
 
-### Zig: `inline for` over `@typeInfo`
+### Zig: `[for …]` over `@typeInfo`
 
 A generic serializer is written once as a compile-time loop over the fields
 of any struct, each iteration monomorphic. It is the strongest form of "the
@@ -486,8 +486,8 @@ the price is the sweep and a token on every ordinary construction.
 ## 5. SD-3 — The derived codec, and how a hand-written one takes over
 
 > **Superseded in part (2026-09-28).** The comptime rounds (COMPLETED.md's log, "Comptime, first slice") adopted this section's *shape-changing alternative*:
-> `auto` is gone, the structural functions are `compfn`s in `core.auto` asked
-> for with `by auto`, and the JSON pair is to be `compfn to_json<struct T>` /
+> `auto` is gone, the structural functions are `comptime fn`s in `core.auto` asked
+> for with `by auto`, and the JSON pair is to be `comptime fn to_json<T is Struct>` /
 > `from_json` in a `json` module spelled `by json` (ROADMAP §2c). Option A's
 > "grow `auto`" is no longer available; Option B (the record layer) stands as
 > the customization pattern, and the `Json` value type of SD-1 is the

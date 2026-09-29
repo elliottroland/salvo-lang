@@ -45,7 +45,7 @@ bridge), time, free concurrency, shareable-by-default handlers, refinement types
 group borrowing, the testing framework, the comparison/hashing capabilities,
 actors across machines (`net`, the whole network sequence), one shape for
 effects on both backends (every binding a handle, no fusion, no `local`), and
-the first comptime slice (`compfn` and `by auto`, replacing `auto`: the
+the first comptime slice (`comptime fn` and `by auto`, replacing `auto`: the
 structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Ten worked examples in `examples/` carry the checked-in generated code for both
@@ -198,18 +198,22 @@ left three follow-ups the user has asked for, in this order.
   in, which is its honest lowering anyway. After it, no user-visible
   intrinsic reads a type argument. Small; do it when `decode` is next touched.
 
-### 2c — Comptime, the rest of the decided design (first slice built 2026-09-28)
+### 2c — Comptime, the rest of the decided design (first slice built 2026-09-28; round 8 built 2026-09-29)
 
 Seven rounds of user decisions (2026-09-28; COMPLETED.md's log, "Comptime, first
 slice") and the first slice built the
-same day: `compfn` with `<struct T>`/`<union T>` bounds and concrete compfns,
+same day: `comptime fn` with `<T is Struct>`/`<T is Union>` bounds and concrete comptime fns,
 `by X` on obligation clauses (structs and `type` declarations) and on fn
-declarations, `inline for`/`inline if`/`inline when` (kinds `struct`, `union`,
+declarations, `[for …]`/`[if …]`/`[when …]` (kinds `struct`, `union`,
 `tuple`, `fn`, `opaque` = `basic` | `generic`), `v.[field]`, `[field]:` in a
-literal, `refuse`, `T.name`/`field.name`/`field.type`/`field.index`/
+literal, `refuse!`, `T.name`/`field.name`/`field.type`/`field.index`/
 `field.first`/`field.last`, `core.auto` with `cmp`/`eq`/`hash`/`to_str` for
-structs and unions, `auto` deleted, [interp-struct] made opt-in. What the
-decided design still owes, in build order:
+structs and unions, `auto` deleted, [interp-struct] made opt-in. Round 8
+(2026-09-29) respelled it — `comptime fn/struct/type`, `<T is Struct>`,
+bracketed heads, `refuse!(…)` — declared the model in `core.comptime` as
+compile-time-only structs with `Type` a union the kind `when` dispatches over,
+and added hover inside comptime fn bodies. What the decided design still owes,
+in build order:
 
 - **Implicits on stamped fns for generic structs** (ROADMAP §2c, decided
   "from the start", built as a refusal with the remedy named). `struct
@@ -237,7 +241,7 @@ decided design still owes, in build order:
   Landing it deletes those intrinsics and the conditional derives.
 - **`by` at a call** (ROADMAP §2c, decided): `mut_set_of(hash by auto, eq
   by auto)` stamps the implicit at the type the call binds — a third `by` site,
-  emitted in the calling module once per (compfn, type), paired by
+  emitted in the calling module once per (comptime fn, type), paired by
   [implicit-with], printed as the stamped root. The only way a tuple gets an
   identity, and the missing-tuple-identity diagnostic should name it meanwhile.
 - **Typed implicit overrides** (ROADMAP §2c, decided): `to_str(xs,
@@ -249,7 +253,7 @@ decided design still owes, in build order:
 - **`field.default`** (a compile-time optional of the declared `= expr`), for
   the codec slice's `from_json` — recorded, unbuilt.
 - **The `json` module** (`Json` union per SERDE.md SD-1, `to_json`/`from_json`
-  compfns spelled `by json`, tag rules per SD-4) — waits on SERDE.md's SD-1 and
+  comptime fns spelled `by json`, tag rules per SD-4) — waits on SERDE.md's SD-1 and
   SD-4 decisions and on section 6 for container fields.
 - **Docs**: a `Compile-Time-Functions.md` page exists; LANGUAGE_SPEC has
   `[comptime-*]`, `[obligation-by]`, `[fn-by]`. COMPTIME.md was deleted with the
@@ -258,7 +262,7 @@ decided design still owes, in build order:
 Known and recorded: two `to_str` overloads that both fit a *narrowed* value
 (`to_str(Manual)` beside a stamped `to_str(Source)` where `value: Source` is
 narrowed to `Manual`) make `${value}` ambiguous at the interpolation while
-`to_str(value)` resolves by [fn-overload-rank]; the compfn bodies therefore call
+`to_str(value)` resolves by [fn-overload-rank]; the comptime fn bodies therefore call
 `to_str(value)` rather than interpolating an arm. Pre-existing
 [implicit-resolve] locality, not a comptime defect.
 
@@ -400,7 +404,7 @@ COMPLETED.md's comptime entry holds the argument):
    backend's conditional derives are deleted when it lands, and `xs == ys` on
    two `List<Person>` then consults `Person`'s declared `eq`.
 6. Recursion applies **everywhere resolution runs**: calls, picks,
-   interpolation's `to_str` lookup, and the copies inside a compfn.
+   interpolation's `to_str` lookup, and the copies inside a comptime fn.
 
 Waiting on it: `Checked<T>`'s `to_str` [checked-type], `expect_eq` on a generic
 container [interp-to-str], property testing's `?generate`, section 2c's
@@ -784,10 +788,10 @@ several are "revisit only if a customer appears".
   pending `using` rename in [actor-use-addr]. Decide together with lock-free
   scope-local bindings below, which touches the same shape.
 
-- **Implicit compfn resolution** (2026-09-28, comptime round 5, punted): an
-  implicit that finds no candidate for a tuple could stamp `core.auto`'s compfn
+- **Implicit comptime fn resolution** (2026-09-28, comptime round 5, punted): an
+  implicit that finds no candidate for a tuple could stamp `core.auto`'s comptime fn
   without being asked, making `mut_set_of()` over a tuple work bare. Deferred
-  because it is the one place a compfn would apply without a `by`, which round
+  because it is the one place a comptime fn would apply without a `by`, which round
   1 decided against for everything else; the remedy `hash by auto, eq by auto`
   at the call (section 2c) is one line, and the missing-identity diagnostic
   should name it.

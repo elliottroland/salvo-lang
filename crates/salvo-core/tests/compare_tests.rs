@@ -55,7 +55,7 @@ const AUTO_PRELUDE: &str = concat!(
     "    }\n    return true\n}\n",
     "export comptime fn hash<T is Struct>(value: T) [] -> Long => value {\n",
     "    [if T.mutable] {\n",
-    "        refuse!(\"a `Mut`-capable struct can change while a collection holds it, so it cannot be a key\"\n"),
+    "        refuse!(\"a `Mut`-capable struct can change while a collection holds it, so it cannot be a key\")\n",
     "    }\n",
     "    let h = 17L\n",
     "    [for field in T.fields] {\n",
@@ -1491,7 +1491,7 @@ struct P : Tagged<self> by tag canbe Mut {
 /// instantiation, declared where a fn is — the one-field-by-hand case
 /// (comptime round 2), with `field.name == "…"` selecting it.
 #[test]
-fn a_concrete_comptime fn_is_its_own_instantiation() {
+fn a_concrete_comptime_fn_is_its_own_instantiation() {
     let errs = errors(
         r#"
 struct Reading : Ordered<self> {

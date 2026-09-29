@@ -135,6 +135,46 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Comptime, round 8 — the spelling, the declared model, and hover
+(2026-09-29, user decisions; built the same morning).** After the first slice
+landed the user iterated on how it reads and how a writer learns the surface.
+**1619 tests**, warning-free, fresh Kotlin driver green.
+
+*The decisions:*
+
+1. **Brackets replace `inline`.** `[for field in T.fields] { … }`, `[if …] {
+   … } else { … }`, `[when field.type] { … }`, `[when value] { [arm] { … } }`
+   — every `[]` marks a fold, and the rule is now *a bracket appears exactly
+   where the same text without it would be runtime Salvo with another
+   meaning*; `else`, `is Struct` arms and the binder projections stay bare.
+2. **`refuse!("…")`**, with the bang and parens of `assert!`/`unreachable!`.
+3. **The model is declared** — option (c) of the round: `core.comptime` holds
+   `comptime struct Struct/Union/Tuple/FnType/Basic/Generic/Field/Arm` and
+   `comptime type Opaque = Basic | Generic`, `Type = Struct | Union | Tuple |
+   FnType | Opaque`. Compile-time only (never emitted, no wire form, not
+   constructible, refused in an ordinary type position), but ordinary
+   declarations to read and hover. The kind `when` is thereby an ordinary
+   `when` over a union: the special exhaustiveness rule is [when-exhaustive]
+   applied, `is Opaque` matching `Basic`/`Generic` is a nested-alias arm, the
+   kind words go uppercase, and `T canbe Mut` becomes `T.mutable`.
+4. **One modifier for the facility, `comptime`**: `comptime fn` replaces
+   `compfn` (the ambiguity that earned the word stood alone; beside `comptime
+   struct` it was the odd one out), and `comptime type`.
+5. **The bound is spelled `<T is Struct>`** — first `<T: Struct>`, then
+   steered to `is` mid-build because it is the narrowing language the `when`
+   arms use.
+6. **Hover inside a comptime fn body.** The body is never checked as itself,
+   so the expansion records each comptime name's type at its written span
+   (`T is Struct`, `field: Field`, `field.type: Type`, `T.fields:
+   List<Field>`, `field.index: Int`) and the language server answers from that
+   record before its usual tables. Verified through the real LSP session test.
+
+*What building it found:* `type` is a keyword and `Field.type` is the one
+field spelled with it — the parser accepts `type:` as a field name so the
+model can be declared; a `comptime struct`'s own fields are the one place a
+compile-time type may be named. The interpolation sub-parser and the `by`
+type-sequence rule from the first slice carried over unchanged.
+
 **Comptime, first slice — `compfn` and `by auto` replace `auto` (2026-09-28,
 user decisions in seven rounds, built the same day).** The structural
 `cmp`/`eq`/`hash`/`to_str` are **std functions written once over the fields of

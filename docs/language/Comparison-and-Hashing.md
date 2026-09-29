@@ -100,7 +100,7 @@ struct Point : Ordered<self> by auto, Hashed<self> by auto { x: Int, y: Int }
 ```
 
 `by X` on an obligation says where the members come from: `X` is a module
-holding a `compfn` per member (`auto` is `core.auto`, nameable without an
+holding a `comptime fn` per member (`auto` is `core.auto`, nameable without an
 import because it is in `core`), and each is instantiated at this type. What
 comes out is an ordinary function declared on `Point` — `cmp@Point` names it,
 it travels with the type, and its body is the per-field comparison you would
@@ -154,7 +154,7 @@ Writing a member by hand *and* stamping it is a duplicate: keep one.
 Nothing is stamped unless you ask. A struct with no `cmp` cannot be compared,
 one with no `to_str` does not interpolate, and being in `core` only means
 `auto` can be named — so a type says `: ToStr<self> by auto` to print in its
-literal's shape. How a `compfn` is written, for a convention of your own, is
+literal's shape. How a `comptime fn` is written, for a convention of your own, is
 [Compile-time functions](Compile-Time-Functions.md).
 
 A *generic* function has to ask, because nothing about an opaque `T` is

@@ -3696,7 +3696,7 @@ Conventions:
     route is available — and `core.*` is implicitly visible everywhere, which
     is the travelling that attachment exists to provide.
 * [obligation-by] **`by X` on an obligation clause stamps every member of the
-  group from `X`'s `compfn`s** (user decisions 2026-09-28, the comptime
+  group from `X`'s `comptime fn`s** (user decisions 2026-09-28, the comptime
   rounds; replaces `auto`, which is deleted from the grammar):
 
   ```
@@ -3705,9 +3705,9 @@ Conventions:
   ```
 
   `X` is a **module**, matched by path suffix so `by auto` reaches `core.auto`
-  with no import (being in `core` means nameable, nothing more), or a `compfn`
-  named directly [fn-by]. For each member of the group the compfn of that name
-  **and of the type's kind** (`<struct T>` for a struct, `<union T>` for a
+  with no import (being in `core` means nameable, nothing more), or a `comptime fn`
+  named directly [fn-by]. For each member of the group the comptime fn of that name
+  **and of the type's kind** (`<T is Struct>` for a struct, `<T is Union>` for a
   named union) is instantiated at the type, and the result is an ordinary fn
   **declared on the type** [fn-attached]: it travels with it, `cmp@Point`
   names it, `?cmp` resolves to it by default, and it carries the type's own
@@ -3718,12 +3718,12 @@ Conventions:
   * A `type` declaration carries the clause too, **after** the alias — which is
     how a **named union** opts in (comptime round 2, R-1). A free union
     (`Str | Int`, every `T?`) has no declaration and no functions of its own;
-    a compfn over a struct reaches its arms through the field
+    a comptime fn over a struct reaches its arms through the field
     [comptime-inline].
   * The clause's argument is `self` [group-self]; two groups asking for the
     same member (`Eq<self> by auto, Hashed<self> by auto`) ask for one
     declaration.
-  * **Where the stamping fails** — a field with no `cmp` in scope, a `refuse`
+  * **Where the stamping fails** — a field with no `cmp` in scope, a `refuse!`
     — the error lands at the *field* the copy was for, prefixed with what was
     being stamped [comptime-instantiate]. A hand-written member of the same
     shape beside a stamped one is the ordinary duplicate
@@ -3762,71 +3762,106 @@ Conventions:
   `by` is a parse error. The declaration attaches as any inner fn or
   fulfilment does [fn-attached]. `by` is contextual: it closes a type
   sequence, since a type or qualifier is uppercase by rule [name-casing].
-* [comptime-bound] **`compfn` is a compile-time function**: the one scope the
-  comptime syntax is legal in, and **not callable** — a generic compfn exists
-  only to be instantiated by `by`, and the expansion removes it before
-  resolution (COMPLETED.md's comptime entry, decision 2). Its type parameter carries a **kind bound**,
-  `compfn cmp<struct T>(a: T, b: T) -> Int` or `<union T>`, at most one, and a
-  module's same-named compfns of different kinds are the overloads a `by` picks
-  between by the target's kind. A `compfn` **with no bound** is concrete — its
-  own single instantiation — and is declared where a fn is (in a struct body
-  or at top level), which is the one-field-by-hand case (comptime round 2,
-  12.1). Like an `intrinsic fn` it writes its effect list, deductions and
-  return type; an instantiation reached by implicit resolution must be
-  effect-free [implicit-fn-only]. `core.auto` holds `cmp`, `eq`, `hash` and
-  `to_str` for structs and unions; a user module may hold its own, reached by
-  `by mymodule`.
-* [comptime-fields] **What a compfn may know about a type**: `T.fields` (a
-  struct's fields, in declaration order) and `T.arms` (a named union's
-  declared arms, `None` included, in declaration order [union-arm-identity]) as
-  the sequences an `inline for` walks; `T.name` as a `Str` literal; and, for a
-  binder, `field.name` (`Str` literal), `field.type` (usable wherever a type is
-  written inside the body), `field.index`, `field.first`, `field.last`, and
-  the same on an arm binder. `T` is the bound parameter, or the concrete type
-  a concrete compfn names (`Reading.fields`); `field.type.arms` reaches a
-  union field's arms. Nothing else is exposed: no attached functions, no
-  qualifiers on the value, no defaults yet (`field.default` is recorded for
-  the codec slice).
-* [comptime-inline] **The comptime constructs**, each written with `inline`
-  (one rule: comptime constructs say `inline`; the user's call, round 3):
-  * `inline for field in T.fields { … }` — one copy of the body per field, each
+* [comptime-bound] **`comptime fn` is a compile-time function** (user decision
+  2026-09-29: one modifier, `comptime`, for the whole facility — `comptime fn`,
+  `comptime struct`, `comptime type` — replacing the standalone `compfn` of the
+  day before): the one scope the comptime syntax is legal in, and **not
+  callable** — a generic one exists only to be instantiated by `by`, and the
+  expansion removes it before resolution (COMPLETED.md's comptime entry,
+  decision 2). Its type parameter carries a **kind bound spelled as the
+  narrowing it is**, `comptime fn cmp<T is Struct>(a: T, b: T) -> Int` or `<T
+  is Union>` — the same `is` a `[when field.type]` arm tests, against an arm of
+  `core.comptime`'s `Type` — at most one, and a module's same-named comptime
+  fns of different kinds are the overloads a `by` picks between by the
+  target's kind. A `comptime fn` **with no bound** is concrete — its own single
+  instantiation — and is declared where a fn is (in a struct body or at top
+  level), which is the one-field-by-hand case (comptime round 2). Like an
+  `intrinsic fn` it writes its effect list, deductions and return type; an
+  instantiation reached by implicit resolution must be effect-free
+  [implicit-fn-only]. `core.auto` holds `cmp`, `eq`, `hash` and `to_str` for
+  structs and unions; a user module may hold its own, reached by `by mymodule`.
+* [comptime-fields] **What a comptime fn may know about a type is a declared
+  model, `core.comptime`** (user decision 2026-09-29, round 8): compile-time
+  structs, readable and hoverable, never values —
+
+  ```
+  comptime struct Struct  { name: Str, fields: List<Field>, mutable: Bool }
+  comptime struct Union   { name: Str, arms: List<Arm> }
+  comptime struct Tuple   { elems: List<Type> }
+  comptime struct FnType  {}
+  comptime struct Basic   { name: Str }      // declared `intrinsic type`
+  comptime struct Generic { name: Str }      // a type parameter of the struct being stamped
+  comptime type Opaque = Basic | Generic
+  comptime type Type   = Struct | Union | Tuple | FnType | Opaque
+  comptime struct Field { name: Str, type: Type, index: Int, first: Bool, last: Bool }
+  comptime struct Arm   { name: Str, type: Type, index: Int, first: Bool, last: Bool }
+  ```
+
+  Inside a body the bound `T` is a `Struct` or `Union` by its bound, `T.fields`
+  / `T.arms` the sequence a `[for …]` walks (arms in declaration order, `None`
+  included [union-arm-identity]), `T.name` and `T.mutable` its projections; a
+  binder is a `Field` or `Arm` with its five projections; `field.type` is
+  usable **as a type** wherever one is written inside the body, and
+  `field.type.arms` reaches a union field's arms. A concrete comptime fn names
+  its type directly (`Reading.fields`). Nothing else is exposed — no attached
+  functions, no qualifiers on the value, no defaults yet (`field.default` is
+  recorded for the codec slice).
+  * **Compile-time only.** `comptime struct`/`comptime type` are never emitted,
+    have no wire form, cannot be constructed, and are refused in an ordinary
+    type position where they are written; only another `comptime struct`'s
+    fields may name them. The compiler's own kind classification is what fills
+    them; the declarations mirror it, and `type` is accepted as a field name so
+    `Field.type` can be declared.
+  * **Hover** (2026-09-29): a comptime fn body is never checked as itself, so
+    the expansion records each comptime name's type at its written span — `T
+    is Struct`, `field: Field`, `field.type: Type`, `T.fields: List<Field>` —
+    and the language server answers from that record before its usual tables.
+* [comptime-inline] **The comptime constructs are written in brackets** (user
+  decision 2026-09-29, replacing the `inline` word): a bracket appears exactly
+  where the same text without it would be runtime Salvo with another meaning
+  — `[for …]` against a runtime loop, `v.[field]` against a field literally
+  called `field` — and where no runtime reading competes (`field.name`,
+  `T.fields`, `is Struct`, `else`) nothing is bracketed.
+  * `[for field in T.fields] { … }` — one copy of the body per field, each
     checked with `field.type` concrete; locals a copy declares are renamed so
     two copies in one block do not redeclare [var-no-shadow].
-  * `inline if <cond> { … } else { … }` — kept or dropped per instantiation;
-    the dropped branch is never checked. Conditions: `X is <kind>`, `X is
-    <Type>` (equality up to alias expansion, qualifiers erased), `X canbe Mut`,
-    `field.name == "literal"` (a name no field has is an error at the
-    declaration), `field.first`/`field.last`, `x.index == y.index` and its
+  * `[if <cond>] { … } else { … }` — kept or dropped per instantiation; the
+    dropped branch is never checked. Conditions: `X is Struct` (an arm of
+    `Type`), `X is <Type>` (equality up to alias expansion, qualifiers erased),
+    `T.mutable`, `field.name == "literal"` (a name no field has is an error at
+    the declaration), `field.first`/`field.last`, `x.index == y.index` and its
     orderings, and `!` of any.
-  * `inline when field.type { is struct { … } is union { … } is tuple { … } is
-    fn { … } is opaque { … } }` — a kind dispatch over a type, **exhaustive**
-    over the kinds unless an `else` closes it, so that a kind added to the
-    language is an error in every compfn that did not consider it. `opaque`
-    matches either of its halves, `basic` (a type declared `intrinsic type`)
-    and `generic` (a type parameter of the struct being stamped), the way `is
-    Person` matches both arms of `Surname Person | Person`.
-  * `inline when value { [arm] { … } }` — a dispatch over a **union value**
-    (a field read `v.[field]`, or a parameter of the bound or written type):
-    the one written arm is stamped once per declared arm with `value` narrowed
-    to `arm.type`, producing an ordinary exhaustive `when` [when-exhaustive].
-  * Every form is legal only inside a `compfn`; elsewhere it is a parse error
-    naming the scope. An interpolation inside a compfn body may read the
-    comptime forms like the body around it.
-* [comptime-access] **`v.[field]`** reads the field an enclosing `inline for`
+  * `[when field.type] { is Struct { … } is Union { … } is Tuple { … } is FnType
+    { … } is Opaque { … } }` — an ordinary `when` over `core.comptime`'s `Type`,
+    **exhaustive** over its arms unless an `else` closes it [when-exhaustive],
+    so that a kind added to the language is an error in every comptime fn that
+    did not consider it. `is Opaque` matches either of its arms, `Basic` and
+    `Generic`, the way `is Person` matches both arms of `Surname Person |
+    Person`.
+  * `[when value] { [arm] { … } }` — a dispatch over a **union value** (a field
+    read `v.[field]`, or a parameter of the bound or written type): the one
+    written arm is stamped once per declared arm with `value` narrowed to
+    `arm.type`, producing an ordinary exhaustive `when`.
+  * Every form is legal only inside a `comptime fn`; elsewhere it is a parse
+    error naming the scope. An interpolation inside a comptime fn body may read
+    the comptime forms like the body around it.
+* [comptime-access] **`v.[field]`** reads the field an enclosing `[for …]`
   is at (the binder in brackets), rewritten by the expansion to `v.name`;
   **`[field]: expr`** is the same entry in a struct literal, and `inline for
   field in T.fields { [field]: … }` inside a literal produces one entry per
-  field — how a compfn builds a `T`, exhaustively by construction (parsed and
+  field — how a comptime fn builds a `T`, exhaustively by construction (parsed and
   expanded; its first customer is the codec slice).
-* [comptime-refuse] **`refuse "…"`** is an error at the instantiation site
+* [comptime-refuse] **`refuse!("…")`** is an error at the instantiation site
   (the `by`), in the caller's terms: the literal text with `${T.name}`-style
-  names substituted, prefixed "`P` refused:". Legal only inside a compfn.
-  `core.auto`'s `hash` refuses a `canbe Mut` struct this way, which is the rule
-  `canbe hashed` used to carry and the compiler used to check.
+  names substituted, prefixed "`P` refused:". Spelled with the bang and parens
+  of `assert!`/`unreachable!` [assert-fn] — a place that fails (user decision
+  2026-09-29). Legal only inside a comptime fn. `core.auto`'s `hash` refuses a
+  `canbe Mut` struct this way (`[if T.mutable]`), which is the rule `canbe
+  hashed` used to carry and the compiler used to check.
 * [comptime-instantiate] **Instantiation is concrete and happens at a `by`
   site only** — an obligation clause or a fn declaration (a third site, an
   implicit override `eq by auto` at a call, is decided and deferred; ROADMAP
-  §2c). One specialization per (compfn, type), pushed into the target's
+  §2c). One specialization per (comptime fn, type), pushed into the target's
   module beside the type on both backends. The expansion runs over the whole
   source set before resolution (`salvo_core::comptime`), so a `by auto` in any
   file reads `core.auto` and the target's declaration.
