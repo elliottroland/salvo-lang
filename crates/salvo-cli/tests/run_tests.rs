@@ -625,3 +625,87 @@ fn run_defaults_to_the_rust_backend() {
     );
     __stamp.verified();
 }
+
+/// [manifest] [manifest-discovery] With a `salvo.toml` above the working
+/// directory, `salvo run` needs no flags: the manifest supplies the source
+/// root, the entry point and the backend. A flag still wins over it.
+#[test]
+fn a_manifest_supplies_what_the_flags_would() {
+    if !have("rustc") {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let dir = work_dir("manifest");
+    let sources = dir.join("salvo");
+    fs::create_dir_all(&sources).unwrap();
+    fs::write(sources.join("main.sv"), HELLO).unwrap();
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\n",
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["run"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), HELLO_STDOUT);
+
+    // From a subdirectory too: discovery walks up.
+    let out = salvo_in(&sources, &["analyze"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert!(stderr.contains("no errors"), "{stderr}");
+
+    // A wrong `backend` value is refused at the manifest, naming the file.
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"hello\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"jvm\"\n",
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["analyze"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(stderr.contains("salvo.toml") && stderr.contains("[build] backend"), "{stderr}");
+}
+
+/// [protocol-lock] A project's actor protocols are locked at its version: a
+/// changed protocol at the same version fails the build naming the effect,
+/// and a version bump relocks.
+#[test]
+fn a_changed_protocol_needs_a_version_bump() {
+    let dir = work_dir("lock");
+    let sources = dir.join("salvo");
+    fs::create_dir_all(&sources).unwrap();
+    let program = |member: &str| {
+        format!(
+            "actor effect Counter {{\n    send fn bump(n: {member}) => !n\n}}\n\
+             handler Counting() of Counter {{\n    mailbox {{ capacity: 4 }}\n    send fn bump(n: {member}) {{ }}\n}}\n\
+             fn main() [use] {{\n    use StdOutConsole()\n    println(\"ok\")\n}}\n"
+        )
+    };
+    let manifest = |version: &str| {
+        format!("[project]\nname = \"lock\"\nversion = \"{version}\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\n")
+    };
+    fs::write(sources.join("main.sv"), program("Int")).unwrap();
+    fs::write(dir.join("salvo.toml"), manifest("0.1.0")).unwrap();
+    let out = salvo_in(&dir, &["compile", "--target", "out"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let lock = fs::read_to_string(dir.join("salvo.lock")).unwrap();
+    assert!(lock.contains("version = \"0.1.0\"") && lock.contains("Counter = "), "{lock}");
+
+    // The protocol changes, the version does not: refused.
+    fs::write(sources.join("main.sv"), program("Str")).unwrap();
+    let out = salvo_in(&dir, &["compile", "--target", "out"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("protocol changed without a version bump") && stderr.contains("`Counter`"),
+        "{stderr}"
+    );
+
+    // Bumped: relocked.
+    fs::write(dir.join("salvo.toml"), manifest("0.2.0")).unwrap();
+    let out = salvo_in(&dir, &["compile", "--target", "out"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let lock = fs::read_to_string(dir.join("salvo.lock")).unwrap();
+    assert!(lock.contains("version = \"0.2.0\""), "{lock}");
+}
