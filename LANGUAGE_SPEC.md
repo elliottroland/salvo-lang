@@ -8003,6 +8003,42 @@ replaced the working document TESTING.md).
   * Both backends' host files coexist in one tree, because discovery only
     ever picks up the active backend's extension — the same sources build
     for both targets.
+* [platform-host-deps] **A project declares the target-language libraries its
+  platform companions need in its manifest** (user decisions 2026-09-29, the
+  `aws` module's first requirement of the language — ROADMAP §4b item 1; built
+  the same day). `[rust] crates = { name = "1.0", other = { path = "…" } }`
+  as Cargo spells a dependency; `[kotlin] artifacts = ["group:artifact:version"]`
+  and `[kotlin] libs = "lib/kotlin"`, a directory of jars. Any platform handler
+  over any library needs this; before it, `salvo run` called `rustc`/`kotlinc`
+  bare and a companion could reach nothing the standard library did not ship.
+  * **Merged across the build**: the project's declarations plus every
+    dependency's [manifest-deps] (`Project::host_deps` → `HostDeps`), resolved
+    once in `resolve_inputs` so a conflict is reported before anything is
+    built. **The same crate or the same `group:artifact` at two versions is
+    refused**, naming both parties — the build cannot settle it by picking
+    (decision 4). A `path` in a crate spec is made absolute against the
+    manifest that wrote it, since Cargo resolves it against the emitted file.
+    Identical declarations deduplicate.
+  * **Rust: Cargo only when crates are declared** (decision 2). With none the
+    bare `rustc` path — and every checked-in example tree — is unchanged. With
+    crates, the backend writes a `Cargo.toml` beside the crate root
+    (`write_host_manifest`, called by `compile`, `run` and `test` after
+    emission) and `program_command` runs `cargo build` into the same hidden
+    `.salvo_bin` directory; `entry_hint` names cargo. A manifest the backend
+    wrote earlier is removed when the crates go, recognised by its header —
+    a hand-written one is never touched. See [rs-cargo].
+  * **Kotlin: a directory of jars now, resolution later** (decision 3). Every
+    `*.jar` under the declared `libs` directories goes on the classpath of the
+    `kotlinc` compile and the `kotlin` run; `artifacts` are recorded and
+    conflict-checked but **not fetched** — the project's own tooling fills
+    `libs` (for `modules/aws`, its Gradle build) until the compiler resolves
+    Maven coordinates itself. A `libs` directory that does not exist
+    contributes nothing, and the missing symbol is `kotlinc`'s error. See
+    [kt-classpath].
+  * `clean_stale` skips hidden directories: `.salvo_bin` now holds cargo's own
+    generated sources, which are not ours to delete.
+  * Not done: Maven resolution; a lock for host versions; per-companion (as
+    opposed to per-project) declarations.
 * [effect-member-unique] Within one effect a member **signature** is
   unique: two members with the same name *and* the same parameter types are
   an error at the second declaration (source order, so the diagnostic is

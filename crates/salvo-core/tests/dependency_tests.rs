@@ -233,3 +233,78 @@ fn module_selectors_are_recorded_with_their_resolved_module() {
         ]
     );
 }
+
+// [platform-host-deps] The host libraries a build needs: the project's
+// `[rust] crates` / `[kotlin] artifacts` / `[kotlin] libs` merged with every
+// dependency's; a `path` made absolute against the manifest that wrote it; the
+// same crate or artifact at two versions refused naming both parties.
+#[test]
+fn host_dependencies_merge_across_the_project_and_its_dependencies() {
+    let root = dir("host_deps");
+    write_dependency(&root, "aws", "", "aws.sv", "export struct P { path: Str }\n");
+    fs::write(
+        root.join("salvo_modules/aws/salvo.toml"),
+        "[project]\nname = \"aws\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\n\n\
+         [rust]\ncrates = { aws-sdk-s3 = \"1.0\", shared = { path = \"vendor/shared\" } }\n\n\
+         [kotlin]\nartifacts = [\"aws.sdk.kotlin:s3:1.0.0\"]\nlibs = \"lib/kotlin\"\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("salvo_modules/aws/lib/kotlin")).unwrap();
+    fs::write(root.join("salvo_modules/aws/lib/kotlin/a.jar"), "").unwrap();
+    fs::write(root.join("salvo_modules/aws/lib/kotlin/notes.txt"), "").unwrap();
+    fs::write(
+        root.join("salvo.toml"),
+        "[build]\nmodules = \"salvo_modules\"\n\n[dependencies]\naws = \"0.1.0\"\n\n\
+         [rust]\ncrates = { serde = \"1\", aws-sdk-s3 = \"1.0\" }\n\n\
+         [kotlin]\nartifacts = [\"org.example:util:2.0\", \"aws.sdk.kotlin:s3:1.0.0\"]\n",
+    )
+    .unwrap();
+    let project = Project::load(&root.join("salvo.toml")).unwrap();
+    let host = project.host_deps().unwrap();
+    assert!(host.has_rust());
+    let names: Vec<&String> = host.rust_crates.keys().collect();
+    assert_eq!(names, ["aws-sdk-s3", "serde", "shared"]);
+    // The dependency's `path` is absolute, against *its* manifest.
+    let shared = host.rust_crates["shared"].as_table().unwrap();
+    let path = std::path::PathBuf::from(shared["path"].as_str().unwrap());
+    assert!(path.is_absolute() && path.ends_with("salvo_modules/aws/vendor/shared"), "{path:?}");
+    // Coordinates deduplicated, jars listed, non-jars ignored.
+    assert_eq!(host.kotlin_artifacts, ["org.example:util:2.0", "aws.sdk.kotlin:s3:1.0.0"]);
+    let jars = host.kotlin_jars();
+    assert_eq!(jars.len(), 1);
+    assert!(jars[0].ends_with("a.jar"));
+    // The Cargo section renders as Cargo reads it.
+    let section = host.cargo_dependencies_section();
+    assert!(section.contains("[dependencies]"), "{section}");
+    assert!(section.contains("serde = \"1\""), "{section}");
+    assert!(section.contains("[dependencies.shared]"), "{section}");
+
+    // Two versions of one crate: refused, naming both.
+    fs::write(
+        root.join("salvo.toml"),
+        "[build]\nmodules = \"salvo_modules\"\n\n[dependencies]\naws = \"0.1.0\"\n\n\
+         [rust]\ncrates = { aws-sdk-s3 = \"2.0\" }\n",
+    )
+    .unwrap();
+    let err = Project::load(&root.join("salvo.toml")).unwrap().host_deps().unwrap_err();
+    assert!(
+        err.contains("`aws-sdk-s3`") && err.contains("`2.0`") && err.contains("`1.0`") && err.contains("dependency `aws`"),
+        "{err}"
+    );
+    // Same for an artifact.
+    fs::write(
+        root.join("salvo.toml"),
+        "[build]\nmodules = \"salvo_modules\"\n\n[dependencies]\naws = \"0.1.0\"\n\n\
+         [kotlin]\nartifacts = [\"aws.sdk.kotlin:s3:1.1.0\"]\n",
+    )
+    .unwrap();
+    let err = Project::load(&root.join("salvo.toml")).unwrap().host_deps().unwrap_err();
+    assert!(err.contains("`aws.sdk.kotlin:s3`") && err.contains("1.1.0"), "{err}");
+    // A malformed coordinate is refused at the manifest.
+    fs::write(root.join("salvo.toml"), "[kotlin]\nartifacts = [\"nocolon\"]\n").unwrap();
+    let err = Project::load(&root.join("salvo.toml")).unwrap().host_deps().unwrap_err();
+    assert!(err.contains("group:artifact:version"), "{err}");
+    // Nothing declared: nothing to build with.
+    fs::write(root.join("salvo.toml"), "[build]\nsrc = \".\"\n").unwrap();
+    assert_eq!(Project::load(&root.join("salvo.toml")).unwrap().host_deps().unwrap(), salvo_core::HostDeps::default());
+}

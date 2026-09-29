@@ -405,3 +405,151 @@ fn the_platform_tree_mirrors_the_source_tree() {
     }
     __stamp.verified();
 }
+
+/// [platform-host-deps] [rs-cargo] [kt-classpath] A platform companion that
+/// uses a host library: the manifest declares it — a `path` crate under
+/// `[rust] crates`, a jar directory under `[kotlin] libs` — and `salvo run`
+/// builds with it: Rust through an emitted `Cargo.toml` and `cargo build`,
+/// Kotlin with the jars on both classpaths. Same source, same stdout. The
+/// Rust half also checks that `compile` writes the manifest and the hint
+/// names cargo, and that dropping the crates removes the stale manifest.
+#[test]
+fn a_companion_can_use_a_declared_host_library() {
+    let Some(__stamp) =
+        e2e_stamp("a_companion_can_use_a_declared_host_library", &["kotlinc", "rustc", "cargo"])
+    else {
+        return;
+    };
+    const PROGRAM: &str = "\
+platform effect Greeter {
+    fn greet(n: Int) [] -> Str => n
+}
+
+fn main() [use, Greeter] {
+    use StdOutConsole()
+    println(greet(7))
+}
+";
+    // ---- Rust: a local path crate.
+    if have("rustc") && have("cargo") {
+        let dir = work_dir("hostdeps_rust");
+        fs::create_dir_all(dir.join("salvo")).unwrap();
+        fs::create_dir_all(dir.join("vendor/greeter/src")).unwrap();
+        fs::write(
+            dir.join("vendor/greeter/Cargo.toml"),
+            "[package]\nname = \"greeter\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[workspace]\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("vendor/greeter/src/lib.rs"),
+            "pub fn greet(n: i64) -> String { format!(\"hello #{n}\") }\n",
+        )
+        .unwrap();
+        let manifest = |crates: &str| {
+            format!(
+                "[project]\nname = \"hd\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\n\n[rust]\n{crates}"
+            )
+        };
+        fs::write(dir.join("salvo.toml"), manifest("crates = { greeter = { path = \"vendor/greeter\" } }\n")).unwrap();
+        fs::write(dir.join("salvo/main.sv"), PROGRAM).unwrap();
+        let out = salvo_in(&dir, &["platform", "generate"]);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let host = dir.join("salvo/platform/main.rs");
+        let src = fs::read_to_string(&host).unwrap();
+        fs::write(&host, src.replace("todo!(\"implement Greeter.greet\")", "greeter::greet(n as i64)")).unwrap();
+
+        let out = salvo_in(&dir, &["run"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "rust run failed: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "hello #7\n");
+
+        // `compile` writes the manifest beside the crate root, absolute path
+        // inside, and the hint names cargo.
+        let out = salvo_in(&dir, &["compile", "--target", "out"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{stderr}");
+        let cargo_toml = fs::read_to_string(dir.join("out/Cargo.toml")).unwrap();
+        assert!(cargo_toml.contains("[dependencies.greeter]"), "{cargo_toml}");
+        assert!(cargo_toml.contains(&dir.join("vendor/greeter").display().to_string()), "{cargo_toml}");
+        assert!(cargo_toml.contains("[workspace]"), "{cargo_toml}");
+        assert!(stderr.contains("cargo build --manifest-path"), "{stderr}");
+
+        // Crates gone: the manifest we wrote goes with them, the hint is rustc's.
+        fs::write(dir.join("salvo.toml"), manifest("")).unwrap();
+        fs::write(&host, &src).unwrap();
+        let out = salvo_in(&dir, &["compile", "--target", "out"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{stderr}");
+        assert!(!dir.join("out/Cargo.toml").exists(), "stale Cargo.toml kept");
+        assert!(stderr.contains("rustc --edition"), "{stderr}");
+    } else {
+        eprintln!("skipping rust: rustc or cargo not found on PATH");
+    }
+
+    // ---- Kotlin: a jar built with kotlinc, in a `libs` directory.
+    if have("kotlinc") {
+        let dir = work_dir("hostdeps_kotlin");
+        fs::create_dir_all(dir.join("salvo")).unwrap();
+        fs::create_dir_all(dir.join("lib/kotlin")).unwrap();
+        fs::create_dir_all(dir.join("ktsrc")).unwrap();
+        fs::write(
+            dir.join("ktsrc/Greeter.kt"),
+            "package greeter\nfun greet(n: Int): String = \"hello #$n\"\n",
+        )
+        .unwrap();
+        let status = Command::new("kotlinc")
+            .current_dir(&dir)
+            .args(["ktsrc/Greeter.kt", "-d", "lib/kotlin/greeter.jar"])
+            .status()
+            .expect("kotlinc");
+        assert!(status.success(), "building the library jar failed");
+        fs::write(
+            dir.join("salvo.toml"),
+            "[project]\nname = \"hd\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"kotlin\"\n\n\
+             [kotlin]\nartifacts = [\"example:greeter:0.1.0\"]\nlibs = \"lib/kotlin\"\n",
+        )
+        .unwrap();
+        fs::write(dir.join("salvo/main.sv"), PROGRAM).unwrap();
+        let out = salvo_in(&dir, &["platform", "generate"]);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let host = dir.join("salvo/platform/main.kt");
+        let src = fs::read_to_string(&host).unwrap();
+        fs::write(&host, src.replace("TODO(\"implement Greeter.greet\")", "return greeter.greet(n)")).unwrap();
+        let out = salvo_in(&dir, &["run"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "kotlin run failed: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "hello #7\n");
+    } else {
+        eprintln!("skipping kotlin: kotlinc not found on PATH");
+    }
+    __stamp.verified();
+}
+
+/// [platform-host-deps] The same crate at two versions across a project and
+/// its dependency is refused before anything is built, naming both.
+#[test]
+fn conflicting_host_libraries_are_refused() {
+    let dir = work_dir("hostdeps_conflict");
+    fs::create_dir_all(dir.join("salvo")).unwrap();
+    fs::create_dir_all(dir.join("salvo_modules/lib/salvo")).unwrap();
+    fs::write(
+        dir.join("salvo_modules/lib/salvo.toml"),
+        "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\n\n[rust]\ncrates = { serde = \"1.0\" }\n",
+    )
+    .unwrap();
+    fs::write(dir.join("salvo_modules/lib/salvo/lib.sv"), "export struct L { n: Int }\n").unwrap();
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\nmodules = \"salvo_modules\"\n\n\
+         [dependencies]\nlib = \"0.1.0\"\n\n[rust]\ncrates = { serde = \"2.0\" }\n",
+    )
+    .unwrap();
+    fs::write(dir.join("salvo/main.sv"), "fn main() [use] {\n    use StdOutConsole()\n    println(\"x\")\n}\n").unwrap();
+    let out = salvo_in(&dir, &["analyze"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("`serde`") && stderr.contains("`1.0`") && stderr.contains("`2.0`") && stderr.contains("[platform-host-deps]"),
+        "{stderr}"
+    );
+}

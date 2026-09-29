@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use salvo_core::{ModulePath, Program};
+use salvo_core::{HostDeps, ModulePath, Program};
 
 #[derive(Debug)]
 pub enum BackendError {
@@ -128,10 +128,26 @@ pub trait Backend {
         )))
     }
 
+    /// [platform-host-deps] Writes whatever the host build needs beside the
+    /// emitted sources to know about the declared host libraries — a
+    /// `Cargo.toml` for Rust when crates are declared — and returns the files
+    /// written (relative to `target_dir`). Called by `compile`, `run` and
+    /// `test` after [`Backend::emit`]. Nothing by default.
+    fn write_host_manifest(
+        &self,
+        target_dir: &Path,
+        main_module: &ModulePath,
+        host: &HostDeps,
+    ) -> Result<Vec<PathBuf>, BackendError> {
+        let _ = (target_dir, main_module, host);
+        Ok(Vec::new())
+    }
+
     /// Builds the emitted sources with the target toolchain and returns the
     /// **command that launches the program** [cli-run] [test-run].
     /// `emitted` is what [`Backend::emit`] wrote (relative to `target_dir`),
-    /// so the backend need not re-discover it.
+    /// so the backend need not re-discover it; `host` is what the platform
+    /// companions need of the target language [platform-host-deps].
     ///
     /// The build happens here; the caller decides how the program is run —
     /// with inherited stdio ([`Backend::run`]), or with its output captured
@@ -143,8 +159,9 @@ pub trait Backend {
         target_dir: &Path,
         main_module: &ModulePath,
         emitted: &[PathBuf],
+        host: &HostDeps,
     ) -> Result<std::process::Command, BackendError> {
-        let _ = (target_dir, main_module, emitted);
+        let _ = (target_dir, main_module, emitted, host);
         Err(BackendError::Unsupported(format!(
             "backend `{}` cannot run programs",
             self.name()
@@ -162,8 +179,9 @@ pub trait Backend {
         target_dir: &Path,
         main_module: &ModulePath,
         emitted: &[PathBuf],
+        host: &HostDeps,
     ) -> Result<i32, BackendError> {
-        let mut command = self.program_command(target_dir, main_module, emitted)?;
+        let mut command = self.program_command(target_dir, main_module, emitted, host)?;
         let program = command.get_program().to_string_lossy().to_string();
         match command.status() {
             Ok(status) => Ok(status.code().unwrap_or(1)),

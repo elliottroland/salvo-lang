@@ -10,7 +10,7 @@ pub use emit::{
 use std::path::{Path, PathBuf};
 
 use salvo_backend::{run_tool, Backend, BackendError, Emitted};
-use salvo_core::{ModulePath, Program};
+use salvo_core::{HostDeps, ModulePath, Program};
 
 /// Where `kotlinc` puts the compiled classes inside the target directory
 /// [kt-run]. Dot-prefixed so a target nested in the source tree stays
@@ -130,11 +130,15 @@ impl Backend for KotlinBackend {
     /// class. Companion files [backend-companion] are `.kt` too, so they
     /// are part of `emitted` and compile with the rest — including the
     /// platform host [platform-tree].
+    /// [kt-classpath] The declared `libs` directories' jars
+    /// [platform-host-deps] go on the classpath of both the compile and the
+    /// run; with none declared the invocations are as before.
     fn program_command(
         &self,
         target_dir: &Path,
         main_module: &ModulePath,
         emitted: &[PathBuf],
+        host: &HostDeps,
     ) -> Result<std::process::Command, BackendError> {
         use std::ffi::OsStr;
 
@@ -149,10 +153,22 @@ impl Backend for KotlinBackend {
                 "nothing to run: no Kotlin sources were emitted".to_string(),
             ));
         }
+        let jars = host.kotlin_jars();
+        let classpath = |leading: &Path| {
+            std::env::join_paths(std::iter::once(leading.to_path_buf()).chain(jars.iter().cloned()))
+                .map_err(|e| BackendError::Other(format!("cannot build a classpath: {e}")))
+        };
 
         let mut args: Vec<&OsStr> = sources.iter().map(|p| p.as_os_str()).collect();
         args.push(OsStr::new("-d"));
         args.push(classes.as_os_str());
+        let jar_cp;
+        if !jars.is_empty() {
+            jar_cp = std::env::join_paths(jars.iter().cloned())
+                .map_err(|e| BackendError::Other(format!("cannot build a classpath: {e}")))?;
+            args.push(OsStr::new("-cp"));
+            args.push(jar_cp.as_os_str());
+        }
         let code = run_tool("kotlinc", &args)?;
         if code != 0 {
             return Err(BackendError::Other(format!(
@@ -162,7 +178,7 @@ impl Backend for KotlinBackend {
 
         let entry = self.entry_hint(target_dir, main_module, emitted);
         let mut command = std::process::Command::new("kotlin");
-        command.arg("-cp").arg(&classes).arg(&entry);
+        command.arg("-cp").arg(classpath(&classes)?).arg(&entry);
         Ok(command)
     }
 }

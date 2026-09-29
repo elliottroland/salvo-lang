@@ -45,6 +45,11 @@ cargo test         # run the test suite
 #   [dependencies]
 #   aws = "0.1.0"        # salvo_modules/aws/salvo.toml, at that version
 #
+#   [rust]
+#   crates = { aws-sdk-s3 = "1.0" }     # host libraries the platform/ code needs;
+#   [kotlin]                            # with crates declared, Rust builds via cargo
+#   libs = "lib/kotlin"                 # a directory of jars for the classpath
+#
 # Every command reads it, so from inside the project the commands below need
 # no flags; a flag given on the command line wins over the manifest.
 cargo run -- run

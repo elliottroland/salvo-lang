@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Twelve worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, one of them consuming the first dependency
-(`modules/aws/`). 1638 tests green.
+(`modules/aws/`). 1641 tests green.
 
 ## The sequence
 
@@ -349,14 +349,10 @@ module is a *user* of Salvo and must not extend the CLI; what it needs is three
 AWS-neutral extensions, in this order. None is a **DECISION** — the calls were
 made in the design sitting — but each has a shape to settle at implementation.
 
-1. **Host dependencies of platform code** (DESIGN §7.1). A companion wrapping a
-   library needs that library on the host: `[rust] crates = [...]` and
-   `[kotlin] artifacts = [...]` in the manifest, a dependency's included when it
-   is loaded [manifest-deps]; the Rust backend emits a `Cargo.toml` and `run`
-   builds through cargo when crates are declared; the Kotlin backend assembles a
-   classpath (how artifacts are fetched — a local directory first, Maven
-   coordinates later — is the shape to settle). Any platform handler over any
-   library needs this; today `salvo run` calls `rustc`/`kotlinc` bare.
+1. ✅ **Host dependencies of platform code** — built 2026-09-29
+   ([platform-host-deps] [rs-cargo] [kt-classpath]; COMPLETED.md has the entry).
+   Left: Maven resolution of `[kotlin] artifacts` by the compiler (they are
+   recorded and conflict-checked, not fetched), a lock for host versions.
 2. **Host-completed continuations** (DESIGN §7.2). Expose to platform companions
    the runtime entry point that discharges a `Reply<T>` from host code — what
    `fire_after` uses privately in each backend's runtime — with the exactly-once

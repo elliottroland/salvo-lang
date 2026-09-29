@@ -733,6 +733,15 @@ nothing but the monitor.
     *effect* declaration and bodies from `intrinsics::handler_member`. A
     value-returning member keeps the `return run { … }` shape
     [kt-handler-template-return].
+* [kt-classpath] [platform-host-deps] **Declared jars go on both classpaths.**
+  Every `*.jar` under the merged `HostDeps::kotlin_libs` directories is passed
+  to `kotlinc` as `-cp` (joined with the platform's path separator) and
+  prepended to the `kotlin -cp` of the run after the classes directory. With
+  no `libs` declared both invocations are exactly what they were. `artifacts`
+  are not consulted here: they are recorded in the manifest for the resolver
+  the compiler does not have yet, and a jar directory the project's own
+  tooling fills is what makes a companion's `import aws.sdk.kotlin.…` compile
+  today.
 * [kt-platform-host] [platform-tree] [cli-platform] The host file for module
   `M` is `platform/<M>.kt`, and its Kotlin package is
   **`salvo.platform.<M>`** — not `salvo.<M>`. Kotlin names a file's facade

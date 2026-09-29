@@ -582,6 +582,7 @@ fn build(
     emit_ast: Option<&str>,
     verbose: bool,
     project: Option<&salvo_core::Project>,
+    host: &salvo_core::HostDeps,
 ) -> Result<Option<Built>, ExitCode> {
     let Some(Assembled {
         program,
@@ -622,7 +623,19 @@ fn build(
     for msg in &emitted.warnings {
         eprintln!("{msg}");
     }
-    let written = emitted.files;
+    let mut written = emitted.files;
+    // [platform-host-deps] What the host build needs to know about the
+    // declared libraries — a `Cargo.toml` for Rust — beside the sources.
+    // Only a program with an entry point is buildable at all, so only then.
+    if let Some(module) = &main_module {
+        match backend.write_host_manifest(target, module, host) {
+            Ok(more) => written.extend(more),
+            Err(err) => {
+                eprintln!("error: {err}");
+                return Err(ExitCode::FAILURE);
+            }
+        }
+    }
     if verbose {
         for path in &written {
             eprintln!("wrote {}", target.join(path).display());
@@ -687,7 +700,7 @@ fn compile(
                 return ExitCode::FAILURE;
             }
         };
-        if let Err(code) = build(backend, &inputs.layout, &target, emit_ast, true, inputs.project.as_ref()) {
+        if let Err(code) = build(backend, &inputs.layout, &target, emit_ast, true, inputs.project.as_ref(), &inputs.host) {
             return code;
         }
     }
@@ -759,7 +772,7 @@ fn run_one(
         return ExitCode::FAILURE;
     }
 
-    let built = match build(backend, layout, target, None, false, inputs.project.as_ref()) {
+    let built = match build(backend, layout, target, None, false, inputs.project.as_ref(), &inputs.host) {
         Ok(Some(built)) => built,
         Ok(None) => return ExitCode::SUCCESS,
         Err(code) => return code,
@@ -772,7 +785,7 @@ fn run_one(
         return ExitCode::FAILURE;
     };
 
-    let outcome = backend.run(target, &main_module, &built.written);
+    let outcome = backend.run(target, &main_module, &built.written, &inputs.host);
 
     // The target is deleted after the run only with `--clean-target both`,
     // and never before the program's output has been produced.
@@ -933,6 +946,7 @@ fn test_one(
             &remaining,
             &target,
             color,
+            &inputs.host,
         ) {
             Ok(pass) => pass,
             Err(code) => return code,
@@ -1020,6 +1034,7 @@ fn run_test_pass(
     tests: &[salvo_core::TestCase],
     target: &Path,
     color: salvo_test::Color,
+    host: &salvo_core::HostDeps,
 ) -> Result<TestPass, ExitCode> {
     let source = salvo_test::harness_source(tests);
     let (ast, diagnostics) = salvo_syntax::parse_module_deferred(&source);
@@ -1064,8 +1079,17 @@ fn run_test_pass(
     for msg in &emitted.warnings {
         eprintln!("{msg}");
     }
+    // [platform-host-deps] The harness is a program like any other.
+    let mut files = emitted.files;
+    match backend.write_host_manifest(target, harness_module, host) {
+        Ok(more) => files.extend(more),
+        Err(err) => {
+            eprintln!("error: {err}");
+            return Err(ExitCode::FAILURE);
+        }
+    }
 
-    let mut command = match backend.program_command(target, harness_module, &emitted.files) {
+    let mut command = match backend.program_command(target, harness_module, &files, host) {
         Ok(command) => command,
         Err(err) => {
             eprintln!("error: {err}");
@@ -1215,12 +1239,12 @@ fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) 
     eprintln!(
         "generated {written} host file(s){}; implement the stubbed members, then \
          `salvo run --backend {}`",
-        backend.name(),
         if kept == 0 {
             String::new()
         } else {
             format!(", left {kept} existing file(s) alone")
-        }
+        },
+        backend.name()
     );
     ExitCode::SUCCESS
 }
@@ -1248,6 +1272,9 @@ struct Inputs {
     layout: Layout,
     project: Option<salvo_core::Project>,
     backends: Vec<String>,
+    /// [platform-host-deps] What the platform companions need of each target
+    /// language: the project's declarations merged with its dependencies'.
+    host: salvo_core::HostDeps,
 }
 
 /// [manifest-discovery] Finds the project for a command: the nearest
@@ -1294,10 +1321,17 @@ fn resolve_inputs(
             .and_then(|p| p.backends())
             .unwrap_or_else(|| vec![default_backend.to_string()]),
     };
+    // [platform-host-deps] Merged here, so a conflict is reported before
+    // anything is built and every command sees one answer.
+    let host = match &project {
+        Some(p) => p.host_deps()?,
+        None => salvo_core::HostDeps::default(),
+    };
     Ok(Inputs {
         layout,
         project,
         backends,
+        host,
     })
 }
 
@@ -1584,6 +1618,11 @@ fn clean_stale(target: &PathBuf, ext: &str, written: &[PathBuf]) -> Vec<PathBuf>
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
+                // A hidden directory is a toolchain's (`.salvo_bin`, where
+                // cargo keeps its own generated sources [rs-cargo]), not ours.
+                if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with('.')) {
+                    continue;
+                }
                 stack.push(path);
             } else if path.extension().is_some_and(|e| e == ext)
                 && !written.contains(&path)

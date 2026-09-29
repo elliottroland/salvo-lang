@@ -33,6 +33,30 @@
 //! std to the checker (`intrinsic` allowed) and shadow the embedded copy
 //! [std-shadow], which is what makes the repository root openable.
 //!
+//! [platform-host-deps] **Host dependencies**: the target-language libraries
+//! a project's platform companions need (user decisions 2026-09-29, the aws
+//! module's first requirement of the language):
+//!
+//! ```toml
+//! [rust]
+//! crates = { aws-sdk-s3 = "1.0", mylib = { path = "vendor/mylib" } }
+//!
+//! [kotlin]
+//! artifacts = ["aws.sdk.kotlin:s3:1.0.0"]   # recorded; resolved by tooling outside the compiler
+//! libs = "lib/kotlin"                        # a directory of jars, on the classpath
+//! ```
+//!
+//! `crates` is rendered verbatim into a `Cargo.toml` the Rust backend emits
+//! beside the program *only when crates are declared* (a `path` is made
+//! absolute against the declaring manifest, since Cargo resolves it against
+//! the emitted file); with none, the bare `rustc` path is unchanged. `libs`
+//! names a directory whose `*.jar` files go on the Kotlin classpath;
+//! `artifacts` are Maven coordinates the compiler records and checks for
+//! conflicts but does not fetch — the project's own tooling fills `libs`
+//! until it does. A dependency's [manifest-deps] declarations merge into the
+//! build; the same crate or artifact declared at two versions is refused,
+//! naming both projects.
+//!
 //! [manifest-deps] **Dependencies** are other projects, found by name under
 //! one directory (user decisions 2026-09-29):
 //!
@@ -70,9 +94,9 @@ pub struct Manifest {
     #[serde(default)]
     pub build: BuildSection,
     #[serde(default)]
-    pub rust: BackendSection,
+    pub rust: RustSection,
     #[serde(default)]
-    pub kotlin: BackendSection,
+    pub kotlin: KotlinSection,
     /// [manifest-deps] Dependency name → required version. Sorted, so the
     /// load order is stable.
     #[serde(default)]
@@ -108,8 +132,162 @@ pub struct BuildSection {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
-pub struct BackendSection {
+pub struct RustSection {
     pub target: Option<String>,
+    /// [platform-host-deps] Crates the platform companions need, as Cargo
+    /// writes them: `name = "1.0"` or `name = { path = "…", features = […] }`.
+    #[serde(default)]
+    pub crates: BTreeMap<String, toml::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct KotlinSection {
+    pub target: Option<String>,
+    /// [platform-host-deps] Maven coordinates (`group:artifact:version`) the
+    /// platform companions need. Recorded and conflict-checked, not fetched.
+    #[serde(default)]
+    pub artifacts: Vec<String>,
+    /// [platform-host-deps] A directory of jars for the classpath, relative
+    /// to the manifest's directory.
+    pub libs: Option<String>,
+}
+
+/// [platform-host-deps] The host-language libraries a whole build needs: the
+/// project's declarations merged with every dependency's.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HostDeps {
+    /// Crate name → its Cargo dependency spec, with any `path` absolute.
+    pub rust_crates: BTreeMap<String, toml::Value>,
+    /// Maven coordinates, deduplicated.
+    pub kotlin_artifacts: Vec<String>,
+    /// Absolute directories of jars.
+    pub kotlin_libs: Vec<PathBuf>,
+}
+
+impl HostDeps {
+    /// Whether anything is declared for the Rust backend — the switch between
+    /// the bare `rustc` build and a Cargo one.
+    pub fn has_rust(&self) -> bool {
+        !self.rust_crates.is_empty()
+    }
+
+    /// Adds `project`'s declarations. `Err` when a crate or an artifact is
+    /// already present at a different version: two projects wanting two
+    /// versions of one library is not something the build can settle by
+    /// picking, so it names both (user decision 2026-09-29, point 4).
+    pub fn merge(&mut self, project: &Project, declared_by: &str) -> Result<(), String> {
+        for (name, spec) in &project.manifest.rust.crates {
+            let spec = absolutize_path(spec, &project.dir);
+            match self.rust_crates.get(name) {
+                Some(existing) if *existing != spec => {
+                    return Err(format!(
+                        "crate `{name}` is declared twice at different versions: `{}` by {declared_by} \
+                         and `{}` earlier in the build — one version per crate [platform-host-deps]",
+                        render_spec(&spec),
+                        render_spec(existing)
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    self.rust_crates.insert(name.clone(), spec);
+                }
+            }
+        }
+        for coord in &project.manifest.kotlin.artifacts {
+            let (ga, version) = split_coordinate(coord).ok_or_else(|| {
+                format!(
+                    "`{}`: artifact `{coord}` is not `group:artifact:version` [platform-host-deps]",
+                    project.dir.join(MANIFEST_FILE).display()
+                )
+            })?;
+            if let Some(other) = self
+                .kotlin_artifacts
+                .iter()
+                .find(|c| split_coordinate(c).is_some_and(|(g, v)| g == ga && v != version))
+            {
+                return Err(format!(
+                    "artifact `{ga}` is declared twice at different versions: `{coord}` by \
+                     {declared_by} and `{other}` earlier in the build — one version per artifact \
+                     [platform-host-deps]"
+                ));
+            }
+            if !self.kotlin_artifacts.contains(coord) {
+                self.kotlin_artifacts.push(coord.clone());
+            }
+        }
+        if let Some(libs) = &project.manifest.kotlin.libs {
+            let dir = project.dir.join(libs);
+            let dir = dir.canonicalize().unwrap_or(dir);
+            if !self.kotlin_libs.contains(&dir) {
+                self.kotlin_libs.push(dir);
+            }
+        }
+        Ok(())
+    }
+
+    /// Every `*.jar` under the declared `libs` directories, sorted, for a
+    /// classpath. A directory that does not exist contributes nothing — the
+    /// jars are the project's tooling's to fetch, and their absence is a
+    /// `kotlinc` error naming the missing symbol rather than ours.
+    pub fn kotlin_jars(&self) -> Vec<PathBuf> {
+        let mut jars = Vec::new();
+        for dir in &self.kotlin_libs {
+            let Ok(entries) = std::fs::read_dir(dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "jar") {
+                    jars.push(path);
+                }
+            }
+        }
+        jars.sort();
+        jars
+    }
+
+    /// The `[dependencies]` section of the emitted `Cargo.toml` — header
+    /// included, each spec rendered as Cargo reads it (a table spec becomes a
+    /// `[dependencies.<name>]` section).
+    pub fn cargo_dependencies_section(&self) -> String {
+        let mut deps = toml::Table::new();
+        for (name, spec) in &self.rust_crates {
+            deps.insert(name.clone(), spec.clone());
+        }
+        let mut root = toml::Table::new();
+        root.insert("dependencies".into(), toml::Value::Table(deps));
+        toml::to_string(&root).unwrap_or_default()
+    }
+}
+
+/// `group:artifact:version` → (`group:artifact`, `version`).
+fn split_coordinate(coord: &str) -> Option<(&str, &str)> {
+    let (ga, version) = coord.rsplit_once(':')?;
+    (ga.contains(':') && !version.is_empty()).then_some((ga, version))
+}
+
+/// A Cargo `path` dependency is resolved against the `Cargo.toml` that names
+/// it, which will be the emitted one — so the path is made absolute against
+/// the manifest that actually wrote it.
+fn absolutize_path(spec: &toml::Value, dir: &Path) -> toml::Value {
+    let mut spec = spec.clone();
+    if let Some(table) = spec.as_table_mut() {
+        if let Some(toml::Value::String(p)) = table.get("path").cloned() {
+            let path = Path::new(&p);
+            if path.is_relative() {
+                let abs = dir.join(path);
+                let abs = abs.canonicalize().unwrap_or(abs);
+                table.insert("path".into(), toml::Value::String(abs.display().to_string()));
+            }
+        }
+    }
+    spec
+}
+
+fn render_spec(spec: &toml::Value) -> String {
+    match spec {
+        toml::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
 }
 
 /// A manifest found on disk, with where it was found.
@@ -262,6 +440,17 @@ impl Project {
 
     pub fn is_std(&self) -> bool {
         self.manifest.project.std
+    }
+
+    /// [platform-host-deps] The host libraries this build needs: the
+    /// project's own declarations and every dependency's, merged.
+    pub fn host_deps(&self) -> Result<HostDeps, String> {
+        let mut deps = HostDeps::default();
+        deps.merge(self, "this project")?;
+        for dep in self.dependencies()? {
+            deps.merge(&dep.project, &format!("dependency `{}`", dep.name))?;
+        }
+        Ok(deps)
     }
 
     pub fn lock_path(&self) -> PathBuf {

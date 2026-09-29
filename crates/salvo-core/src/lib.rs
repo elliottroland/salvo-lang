@@ -38,7 +38,9 @@ pub use effects::{
 };
 pub use diag::FileDiagnostic;
 pub use lock::{reconcile as reconcile_lock, Lock, LockOutcome};
-pub use manifest::{is_nested_project, Dependency, Manifest, Project, LOCK_FILE, MANIFEST_FILE};
+pub use manifest::{
+    is_nested_project, Dependency, HostDeps, Manifest, Project, LOCK_FILE, MANIFEST_FILE,
+};
 pub use place::{Place, Step};
 pub use platform::{
     declares_platform_effect, host_file, host_rel_path, missing_handler_host_error,

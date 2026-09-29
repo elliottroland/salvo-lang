@@ -1435,6 +1435,19 @@ facts worth knowing") and keeps the history ("One shape for effects").
   * An `intrinsic handler` is the mirror image: struct + `new()` + trait
     impl, with member signatures from the *effect* declaration and bodies
     from `intrinsics::handler_member`.
+* [rs-cargo] [platform-host-deps] **With crates declared, the program is a
+  Cargo package.** `write_host_manifest` writes `Cargo.toml` beside the crate
+  root: `[package] name = <entry module's last segment>`, `[[bin]] path =
+  <crate root>`, an **empty `[workspace]`** — so a target directory nested
+  inside another workspace (this repository's `examples/`) is its own root
+  rather than an unlisted member cargo refuses — and `[dependencies]` rendered
+  verbatim from the merged `HostDeps` (a table spec becomes a
+  `[dependencies.<name>]` section; a `path` is already absolute).
+  `program_command` then runs `cargo build --quiet --manifest-path … --target-dir
+  <target>/.salvo_bin` and launches `.salvo_bin/debug/<name>`; `entry_hint`
+  names the cargo command. With **no** crates declared nothing changes: bare
+  `rustc`, no manifest — and a manifest this backend wrote earlier (recognised
+  by its first line, `CARGO_HEADER`) is removed, a hand-written one left alone.
 * [rs-platform-host] [platform-tree] [cli-platform] The host file for module
   `M` is `platform/<M>.rs`, mounted from the crate root as
   `#[path = "platform/<M>.rs"] pub mod platform_<M>;` — the module's own mod

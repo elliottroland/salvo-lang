@@ -11,12 +11,19 @@ pub use emit::{
 use std::path::{Path, PathBuf};
 
 use salvo_backend::{run_tool, Backend, BackendError, Emitted};
-use salvo_core::{ModulePath, Program};
+use salvo_core::{HostDeps, ModulePath, Program};
 
 /// Where the linked binary goes inside the target directory [rs-run].
 /// Dot-prefixed so a target nested in the source tree stays invisible to
 /// source discovery [mod-ignore].
 const BIN_DIR: &str = ".salvo_bin";
+/// [rs-cargo] The Cargo manifest written beside the crate root when crates are
+/// declared [platform-host-deps].
+const CARGO_MANIFEST: &str = "Cargo.toml";
+/// The first line of a manifest this backend wrote — how a stale one is told
+/// from a hand-written one before being removed.
+const CARGO_HEADER: &str =
+    "# Written by `salvo`: the host libraries the platform companions declared [platform-host-deps].";
 
 pub struct RustBackend;
 
@@ -66,6 +73,14 @@ impl Backend for RustBackend {
         _emitted: &[PathBuf],
     ) -> String {
         let root = target_dir.join(crate_root(main_module));
+        // [rs-cargo] A written `Cargo.toml` means the build is Cargo's.
+        if target_dir.join(CARGO_MANIFEST).is_file() {
+            return format!(
+                "{} (build with: cargo build --manifest-path {})",
+                root.display(),
+                target_dir.join(CARGO_MANIFEST).display()
+            );
+        }
         format!(
             "{} (build with: rustc --edition 2021 {})",
             root.display(),
@@ -86,15 +101,56 @@ impl Backend for RustBackend {
             .collect())
     }
 
+    /// [rs-cargo] With crates declared [platform-host-deps], the program is a
+    /// Cargo package: a `Cargo.toml` beside the crate root naming the binary,
+    /// the dependencies verbatim, and an empty `[workspace]` so a target
+    /// directory nested inside some other workspace (this repository's
+    /// examples) is its own root rather than an unlisted member.
+    fn write_host_manifest(
+        &self,
+        target_dir: &Path,
+        main_module: &ModulePath,
+        host: &HostDeps,
+    ) -> Result<Vec<PathBuf>, BackendError> {
+        let manifest_path = target_dir.join(CARGO_MANIFEST);
+        if !host.has_rust() {
+            // A manifest a previous build wrote is stale now; only ours is
+            // removed, recognised by its header.
+            if std::fs::read_to_string(&manifest_path)
+                .is_ok_and(|text| text.starts_with(CARGO_HEADER))
+            {
+                std::fs::remove_file(&manifest_path)?;
+            }
+            return Ok(Vec::new());
+        }
+        let root = crate_root(main_module);
+        let name = bin_name(main_module);
+        let manifest = format!(
+            "{CARGO_HEADER}\n\
+             [package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n\
+             [[bin]]\nname = \"{name}\"\npath = \"{}\"\n\n\
+             [workspace]\n\n\
+             {}",
+            root.display(),
+            host.cargo_dependencies_section()
+        );
+        std::fs::create_dir_all(target_dir)?;
+        std::fs::write(&manifest_path, manifest)?;
+        Ok(vec![PathBuf::from(CARGO_MANIFEST)])
+    }
+
     /// [rs-run] The module declaring `main` is the crate root, so one
     /// `rustc` invocation on that file builds the whole program (the other
     /// modules are reached through its `mod` declarations). The binary goes
-    /// inside the target directory, then runs.
+    /// inside the target directory, then runs. [rs-cargo] With crates
+    /// declared, `cargo build` on the emitted `Cargo.toml` replaces the
+    /// `rustc` call, building into the same hidden directory.
     fn program_command(
         &self,
         target_dir: &Path,
         main_module: &ModulePath,
         _emitted: &[PathBuf],
+        host: &HostDeps,
     ) -> Result<std::process::Command, BackendError> {
         use std::ffi::OsStr;
 
@@ -107,7 +163,35 @@ impl Backend for RustBackend {
         }
         let bin_dir = target_dir.join(BIN_DIR);
         std::fs::create_dir_all(&bin_dir)?;
-        let bin = bin_dir.join(main_module.0.last().map(String::as_str).unwrap_or("program"));
+        let name = bin_name(main_module);
+        let bin = bin_dir.join(&name);
+
+        if host.has_rust() {
+            let manifest = target_dir.join(CARGO_MANIFEST);
+            if !manifest.is_file() {
+                return Err(BackendError::Other(format!(
+                    "crates are declared but `{}` was not written [rs-cargo]",
+                    manifest.display()
+                )));
+            }
+            let code = run_tool(
+                "cargo",
+                &[
+                    OsStr::new("build"),
+                    OsStr::new("--quiet"),
+                    OsStr::new("--manifest-path"),
+                    manifest.as_os_str(),
+                    OsStr::new("--target-dir"),
+                    bin_dir.as_os_str(),
+                ],
+            )?;
+            if code != 0 {
+                return Err(BackendError::Other(format!(
+                    "cargo build failed with exit code {code}"
+                )));
+            }
+            return Ok(std::process::Command::new(bin_dir.join("debug").join(&name)));
+        }
 
         let code = run_tool(
             "rustc",
@@ -126,6 +210,11 @@ impl Backend for RustBackend {
         }
         Ok(std::process::Command::new(bin))
     }
+}
+
+/// The binary's name: the entry module's last segment.
+fn bin_name(main_module: &ModulePath) -> String {
+    main_module.0.last().cloned().unwrap_or_else(|| "program".to_string())
 }
 
 /// The emitted crate-root path for the module declaring `main`

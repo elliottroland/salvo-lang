@@ -135,6 +135,30 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Host libraries for platform code (2026-09-29; ROADMAP §4b item 1, shapes
+decided in the aws design's second sitting).** A platform companion can now use
+a library of its target language. `[rust] crates = { … }` (Cargo's own
+spelling), `[kotlin] artifacts = [ … ]` and `[kotlin] libs = "dir"` in the
+manifest; `Project::host_deps` merges the project's with every dependency's,
+refusing one crate or one `group:artifact` at two versions, naming both, and
+making a crate `path` absolute against the manifest that wrote it. The backend
+trait gained `write_host_manifest` (called after `emit` by `compile`, `run` and
+the test harness) and a `HostDeps` argument on `program_command`/`run`. Rust
+writes a `Cargo.toml` — with an empty `[workspace]`, since examples sit inside
+this repository's — and builds with `cargo` **only when crates are declared**;
+otherwise nothing changes, and a stale manifest it wrote is removed by header.
+Kotlin puts every jar under `libs` on both classpaths; `artifacts` are recorded,
+not fetched. Tests: one core (merge, absolute paths, dedup, jar listing,
+rendering, both conflict kinds, a bad coordinate), two CLI (a companion using a
+local crate on Rust and a `kotlinc`-built jar on Kotlin, same stdout; the
+`compile` output and hint; the stale manifest; a conflict across a dependency).
+*Found:* `toml::to_string` of a bare table of table-valued entries renders them
+as sections with the wrong header, so the section is rendered from a root
+table holding `dependencies`; `clean_stale` walked into `.salvo_bin`, where
+cargo now keeps sources, and skips hidden directories; the `platform generate`
+closing message had its two arguments swapped (`host file(s)rust; … --backend `),
+fixed. **1641 tests.**
+
 **The `aws` module's design (2026-09-29, user decisions D1–D8; written up, not
 built).** `modules/aws/DESIGN.md` is the record; ROADMAP §4b holds what the
 compiler must grow first. The calls, in the order they were made: **wrap the
@@ -18628,7 +18652,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1638)
+## Test inventory (all green: 1641)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

@@ -156,6 +156,30 @@ In the editor a file inside a dependency belongs to the dependency's own
 manifest and is analysed as its own project; from the using project's side,
 hovering a name that came from a dependency says which one.
 
+### Host libraries
+
+A `platform` companion may need a library of its target language — an AWS SDK,
+a JSON parser. The manifest says which, per backend:
+
+```toml
+[rust]
+crates = { aws-sdk-s3 = "1.0", mylib = { path = "vendor/mylib" } }   # as Cargo writes them
+
+[kotlin]
+artifacts = ["aws.sdk.kotlin:s3:1.0.0"]   # Maven coordinates, recorded and checked
+libs = "lib/kotlin"                        # a directory of jars, put on the classpath
+```
+
+With crates declared the Rust backend writes a `Cargo.toml` beside the emitted
+sources and builds with `cargo`; with none, it calls `rustc` on the crate root
+as it always has, so a program that needs no host library pays nothing. The
+Kotlin backend puts every jar under `libs` on the classpath of the compile and
+the run. It does not fetch `artifacts` yet: the coordinates are recorded so a
+resolver can consume them later, and until then the project's own tooling fills
+`libs`. A dependency's declarations join the build with it. The same crate, or
+the same artifact, declared at two versions anywhere in the build is an error
+naming both — one version per library, and the build will not choose.
+
 Beside the manifest the compiler keeps **`salvo.lock`**: the protocol hash of
 every `actor effect` the project declares, at the project's version. A build
 whose protocol changed without a version bump is refused naming the effect —
