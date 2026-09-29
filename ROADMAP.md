@@ -385,6 +385,15 @@ made in the design sitting — but each has a shape to settle at implementation.
    concatenation-must-stay-free rule carry over unchanged. Needed by step 4's
    generator, not by 1–3.
 
+6. **Handler bundles** (recorded 2026-09-29, **DECISION**, not scheduled). A
+   production composition root binds a whole collection of handlers, and the
+   stream layering makes even a host filesystem four lines (`use
+   HostRawStreams()`, `use DefaultStreams()`, `use HostRawFs()`, `use
+   DefaultFs()`). A named bundle — one declaration that binds several handlers
+   in dependency order — would make that one `use`. First customer: streams +
+   fs; the shape (a declaration form, a fn that `use`s, how a bundle composes
+   with `with` and interception) is the user's call when it is picked up.
+
 The second sitting's other calls (DESIGN.md's numbered table) fix the shapes
 above: `Cargo.toml` only when crates are declared; a **directory of jars** for
 Kotlin now (`[kotlin] libs`), Maven later; host-dependency version conflicts

@@ -87,6 +87,11 @@ layering, not a rule change, and it **replaces decisions 11–13 and the
 | 24 | Names | `Streams`, `HostStreams`, `MemStreams`; `receive(s, reply: Reply<Received>)`, `Received = Ok Packet \| End \| Err Checked<StreamError>`, `Packet { bytes, stream }`; `FsError` keeps the path kinds, `StreamError` takes `InvalidUtf8`, `StaleHandle` and an `IoError` of its own |
 | 25 | Non-blocking copy | `pipe(from: InStream, to: OutStream, done: Reply<Ok Long \| Err Checked<StreamError>>)` beside the synchronous `copy_stream` — GetObject to a file |
 | 26 | Synchronous reads of a network stream | allowed, blocking the worker as a slow disk does, and documented; `receive`/`pipe` are the non-blocking route |
+| 28 | Host layering for streams | `RawStreams` (plain handles and errors) + `threadsafe platform handler HostRawStreams` + `DefaultStreams [RawStreams] of Streams` in Salvo — the `RawFs`/`HostRawFs`/`DefaultFs` shape, since a host class never holds an obligation. Replaces "HostStreams" |
+| 29 | The mem world | **`handler MemFs of Fs, Streams`**: one table, one file map, both faces (a write stream must publish into the file map on close); no separate `MemStreams` until a test without a filesystem needs one |
+| 30 | Stream error kinds | `InvalidUtf8 { source }`, `StaleHandle { source }`, `StreamFailed { source, message }` — `source` rather than `path`, since an S3 body has none; `fs.IoError` stays with the path operations |
+| 31 | The host table's home | each backend's runtime, behind a small read/write/flush/close interface, so every host file registers into it whatever modules a program reaches |
+| 32 | Bindings | a host program binds four handlers; **handler bundles** are a recorded future item (ROADMAP §4b item 6), with streams + fs their first customer |
 | 27 | The host table | owned by `HostStreams`, one per process; `HostRawFs` registers opened files into it, so a file is an S3 body with no adapter (PutObject from a file) |
 
 ## 3. Layout
