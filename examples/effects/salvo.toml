@@ -1,0 +1,13 @@
+[project]
+name = "effects"
+version = "0.1.0"
+
+[build]
+src = "salvo"
+backend = "*"
+
+[rust]
+target = "rust"
+
+[kotlin]
+target = "kotlin"

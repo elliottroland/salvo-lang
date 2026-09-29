@@ -1292,9 +1292,15 @@ fn resolve_inputs(
     })
 }
 
-/// The output directory for one backend: the flag, else the manifest's
-/// per-backend or shared `target`, else `default` (when the command has
-/// one). A single `--target` cannot serve two backends.
+/// The output directory for one backend: the flag, else — for `compile`,
+/// whose output is the deliverable — the manifest's per-backend or shared
+/// `target`, else `default` (the scratch directory `run`/`test` have). A
+/// single `--target` cannot serve two backends.
+///
+/// `run` and `test` never read the manifest's `target`: they clean their
+/// directory before and after, and the manifest's is where `compile` keeps
+/// the checked-in output (found the hard way, 2026-09-29: a `salvo run` in an
+/// example deleted its generated tree).
 fn target_for(
     inputs: &Inputs,
     backend: &str,
@@ -1312,8 +1318,10 @@ fn target_for(
         }
         return Ok(t.clone());
     }
-    if let Some(t) = inputs.project.as_ref().and_then(|p| p.target(backend)) {
-        return Ok(t);
+    if default.is_none() {
+        if let Some(t) = inputs.project.as_ref().and_then(|p| p.target(backend)) {
+            return Ok(t);
+        }
     }
     match default {
         Some(d) if inputs.backends.len() == 1 => Ok(PathBuf::from(d)),

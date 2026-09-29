@@ -1,0 +1,11 @@
+# The standard library's own manifest [manifest]: `std = true` says this tree
+# *is* std, so its files check as std (`intrinsic` allowed) and shadow the copy
+# embedded in the compiler [std-shadow] — which is what lets the repository
+# root be opened in an editor with std/ analysed as its own program.
+[project]
+name = "std"
+version = "0.1.0"
+std = true
+
+[build]
+backend = "*"
