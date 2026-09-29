@@ -3,6 +3,33 @@ source: crates/salvo-syntax/tests/parser_tests.rs
 expression: "parse_clean(&std_core(\"compare.sv\"))"
 ---
 Module {
+    docs: [
+        "Comparison, equality and hashing — the three capabilities, declared the",
+        "way iteration is declared: as **params groups** [implicit-group], not as",
+        "traits (user decisions 2026-09-21, the ordering round).",
+        "",
+        "[cmp-groups] A capability is \"a function of this shape is in scope\", and",
+        "nothing more: `cmp` orders, `eq` decides equality, `hash` digests. Each is",
+        "an ordinary overloadable fn, so a type joins in by declaring one — and a",
+        "generic fn reaches the capability by asking for it, `?Ordered<T>` at the",
+        "signature, the caller's own resolution filling it [implicit-resolve].",
+        "There is no interface, no dispatch table and no runtime representation on",
+        "either backend.",
+        "",
+        "The contracts, which the language trusts rather than checks:",
+        "",
+        "  * `cmp(a, b)` is negative when `a` sorts before `b`, zero when they tie",
+        "    and positive when `a` sorts after — a **total order**: consistent",
+        "    (`cmp(a, b) == -cmp(b, a)`), transitive, and tying exactly when `eq`",
+        "    says equal. `Double`/`Float` therefore have no `cmp` (`NaN` ties with",
+        "    nothing, so no total order exists), which is also why a sorted",
+        "    collection of them stays refused [col-sorted].",
+        "  * `eq(a, b)` is an equivalence: reflexive, symmetric, transitive.",
+        "  * `hash(a)` agrees with `eq`: `eq(a, b)` implies `hash(a) == hash(b)`",
+        "    [cmp-hash-values]. The converse is not promised — a collision is",
+        "    ordinary — and neither is the *value*, which differs between backends",
+        "    by design.",
+    ],
     items: [
         Params(
             ParamsDecl {

@@ -3,6 +3,7 @@ source: crates/salvo-syntax/tests/parser_tests.rs
 expression: module
 ---
 Module {
+    docs: [],
     items: [
         Struct(
             StructDecl {

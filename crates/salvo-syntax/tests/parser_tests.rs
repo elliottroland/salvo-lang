@@ -718,6 +718,95 @@ fn docs_keep_indentation_after_the_marker() {
     );
 }
 
+// ===== Module docs [doc-module] =====
+
+/// The module docs of `src`, and the docs of its first fn (if any).
+fn module_docs_of(src: &str) -> (Vec<String>, Vec<String>) {
+    let (module, diagnostics) = salvo_syntax::parse_module(src);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "parse errors: {errors:?}");
+    let first_fn = module
+        .items
+        .iter()
+        .find_map(|item| match item {
+            salvo_syntax::ast::Item::Fn(f) => Some(f.docs.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    (module.docs, first_fn)
+}
+
+// [doc-module] The first comment run is the module's when a blank line
+// follows it — it then documents no declaration. Leading blank lines do not
+// matter, and the run keeps its paragraph breaks like any doc block.
+#[test]
+fn a_leading_comment_followed_by_a_blank_line_documents_the_module() {
+    let (module, first_fn) = module_docs_of(
+        "\n\
+         // The geometry module.\n\
+         //\n\
+         // Shapes and their areas.\n\
+         \n\
+         // Doubles [n].\n\
+         fn double(n: Int) -> Int {\n    return n * 2\n}\n",
+    );
+    assert_eq!(
+        module,
+        vec![
+            "The geometry module.".to_string(),
+            String::new(),
+            "Shapes and their areas.".to_string()
+        ]
+    );
+    assert_eq!(first_fn, vec!["Doubles [n].".to_string()]);
+}
+
+// [doc-module] A run sitting directly above the first declaration is that
+// declaration's docs [doc-comment], and the module has none — the two are
+// never the same block.
+#[test]
+fn a_leading_comment_directly_above_a_declaration_is_its_docs() {
+    let (module, first_fn) = module_docs_of(
+        "// Doubles [n].\n\
+         fn double(n: Int) -> Int {\n    return n * 2\n}\n",
+    );
+    assert!(module.is_empty(), "{module:?}");
+    assert_eq!(first_fn, vec!["Doubles [n].".to_string()]);
+}
+
+// [doc-module] An `import` carries no docs, so a run directly above the
+// file's first import is the module's: the header-then-imports layout needs
+// no blank line (user decision 2026-09-29, option (b)).
+#[test]
+fn a_leading_comment_directly_above_the_first_import_documents_the_module() {
+    let (module, first_fn) = module_docs_of(
+        "// Talks to the clock.\n\
+         import time.Duration\n\
+         import time.Instant\n\
+         \n\
+         fn f(d: Duration) -> Duration {\n    return d\n}\n",
+    );
+    assert_eq!(module, vec!["Talks to the clock.".to_string()]);
+    assert!(first_fn.is_empty(), "{first_fn:?}");
+}
+
+// [doc-module] Only the *first* run counts, and a file that opens with code
+// has no module docs however many comments follow.
+#[test]
+fn only_the_first_comment_run_can_document_the_module() {
+    let (module, _) = module_docs_of(
+        "import time.Duration\n\
+         \n\
+         // Not the module's: code came first.\n\
+         \n\
+         fn f(d: Duration) -> Duration {\n    return d\n}\n",
+    );
+    assert!(module.is_empty(), "{module:?}");
+    // A file of nothing but a comment documents itself.
+    let (module, _) = module_docs_of("// An empty module, for now.\n");
+    assert_eq!(module, vec!["An empty module, for now.".to_string()]);
+}
+
 
 // [try] `try` takes a block and is an *expression* — the throw delimiter.
 #[test]

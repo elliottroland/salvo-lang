@@ -17,6 +17,7 @@ compiler generated for it and the output it prints.
 | [`files/`](files/) | the filesystem: one `Fs` effect for paths and streams, linear tokens and a linear error, `Bytes` and text off one stream, the fill-a-buffer reads and the copy one-shots — and one program run against the disk, a sandbox and an in-memory double |
 | [`time/`](time/) | time: spans and the two timelines, reading a clock as a capability, time-as-data as the posture, a deadline as a message, and virtual time in a test — `ManualTime`'s two faces, and a test clock the timer itself backs |
 | [`cluster/`](cluster/) | actors across machines: two virtual nodes over the in-memory transport, actor groups found by name, a singleton behind an election (`Elected`), shards by `Key` (`Sharded`), scatter and hedge as hand-written routers `of any E`, and failover when a node leaves |
+| [`aws_profile/`](aws_profile/) | a **dependency**: the `aws` module from `modules/aws/`, named under `[dependencies]` and found under `[build] modules`; a dependency's modules as ordinary modules, and a module's own doc comment |
 
 Every one of these is **checked by the test suite** (added 2026-09-16, after
 `examples/effects/` was found broken for a day): each backend asserts that the
@@ -36,7 +37,10 @@ Every example is one directory:
 ```
 <example>/
 ├── README.md      what the program is chosen to show, and what to look for
-├── salvo.toml     the manifest: `src = "salvo"`, `backend = "*"`, the two targets
+├── salvo.toml     the manifest: `src = "salvo"`, `backend = "*"`, the two targets —
+│                  and, for an example using a dependency, `modules = "../../modules"`
+│                  plus a `[dependencies]` table (the shared modules live in `modules/`
+│                  at the repository root, so a module is written once)
 ├── salvo/         the Salvo source (the only hand-written code)
 ├── rust/          the generated Rust, exactly as `salvo compile` wrote it
 ├── kotlin/        the generated Kotlin, likewise

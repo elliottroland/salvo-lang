@@ -12496,6 +12496,14 @@ fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "rs", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
+    // [manifest-deps] The example's manifest names its dependencies, loaded
+    // between std and the example's own tree as `salvo compile` does.
+    let project = salvo_core::Project::load(&examples_dir().join(example).join("salvo.toml"))
+        .unwrap_or_else(|e| panic!("examples/{example}/salvo.toml: {e}"));
+    for dep in project.dependencies().unwrap_or_else(|e| panic!("{e}")) {
+        let errors = sources.add_dependency(&dep, "rs");
+        assert!(errors.is_empty(), "failed to load dependency `{}`: {errors:?}", dep.name);
+    }
     let src = examples_dir().join(example).join("salvo");
     let errors = sources.add_dir(&src, "rs", false, false);
     assert!(errors.is_empty(), "failed to read {example}: {errors:?}");

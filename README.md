@@ -40,6 +40,10 @@ cargo test         # run the test suite
 #   [build]
 #   src = "salvo"        # the source root (default: the manifest's directory)
 #   backend = "rust"     # or "kotlin", or "*" for both
+#   modules = "salvo_modules"   # where dependencies live (only with [dependencies])
+#
+#   [dependencies]
+#   aws = "0.1.0"        # salvo_modules/aws/salvo.toml, at that version
 #
 # Every command reads it, so from inside the project the commands below need
 # no flags; a flag given on the command line wins over the manifest.
@@ -308,7 +312,13 @@ fn main() [use] {
   exported from `core`, or by an `import` — of one name (`import time.Duration`)
   or of a whole module (`import time` — that module, not the tree under it).
   Using a private name says so and names
-  the fix, rather than claiming the name does not exist.
+  the fix, rather than claiming the name does not exist. A **dependency** is
+  another project: named under `[dependencies]` in `salvo.toml`, found by name
+  under the `[build] modules` directory at the version it declares, and its
+  modules arrive by `import` like any other — paths from its own layout, no
+  prefix, and no way to redefine the standard library on its users unless its
+  own manifest says it is one. `modules/aws/` is the first, consumed by
+  `examples/aws_profile/`.
 - **Testing**: a test is a declaration named by a string —
   `test "an empty cart totals to zero" { ... }` — living in a companion file
   (`cart.test.sv` beside `cart.sv`) that is part of the module, so a test reaches
@@ -320,8 +330,11 @@ fn main() [use] {
 - **Documentation**: the `//` comment block above a declaration is its
   documentation — markdown, with `[symbol]` references to parameters,
   fields and types; struct fields, effect and handler members are
-  documented individually. The language server shows these on hover,
-  alongside a variable's type as narrowed at the cursor.
+  documented individually, and a file's leading comment — one followed by a
+  blank line or by the first `import` — documents the **module**, shown
+  wherever the module is named (an import line, an `@module` selector). The
+  language server shows these on hover, alongside a variable's type as
+  narrowed at the cursor.
 
 ## Status
 

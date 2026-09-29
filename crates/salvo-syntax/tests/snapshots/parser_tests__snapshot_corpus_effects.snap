@@ -3,6 +3,7 @@ source: crates/salvo-syntax/tests/parser_tests.rs
 expression: "parse_clean(&corpus(\"effects.sv\"))"
 ---
 Module {
+    docs: [],
     items: [
         Effect(
             EffectDecl {

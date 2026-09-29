@@ -1726,3 +1726,146 @@ fn documents_are_analysed_under_their_own_manifest() {
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     let _ = lsp.child.wait();
 }
+
+/// [doc-module] [manifest-deps] A module's leading comment is its
+/// documentation, shown wherever the module is named: the module part of an
+/// `import` (a whole-module import and the segments before an item), and an
+/// `@module` selector. A dependency's modules hover the same way, saying which
+/// dependency they came from — and a declaration reached from one names the
+/// dependency in its origin line.
+#[test]
+fn hover_shows_module_docs_where_a_module_is_named() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_module_docs");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("salvo/shop")).unwrap();
+    std::fs::create_dir_all(root.join("salvo_modules/aws/salvo")).unwrap();
+    std::fs::write(
+        root.join("salvo.toml"),
+        "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nmodules = \"salvo_modules\"\n\n[dependencies]\naws = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("salvo_modules/aws/salvo.toml"),
+        "[project]\nname = \"aws\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\n",
+    )
+    .unwrap();
+    // A header directly above the first import is the module's (rule (b)).
+    std::fs::write(
+        root.join("salvo_modules/aws/salvo/aws.sv"),
+        "// AWS services, modelled as actors.\n\
+         //\n\
+         // Start with [ProfileCredentials].\n\
+         import time.Duration\n\
+         \n\
+         // Where a profile's credentials are read from.\n\
+         export struct ProfileCredentials {\n    profile: Str = \"default\",\n    path: Str\n}\n",
+    )
+    .unwrap();
+    // A header followed by a blank line is the module's; the run above
+    // `label` is `label`'s.
+    std::fs::write(
+        root.join("salvo/shop/shapes.sv"),
+        "// Shapes for the shop.\n\
+         \n\
+         // Labels [n].\n\
+         export fn label(n: Int) -> Str {\n    return \"shape ${n}\"\n}\n",
+    )
+    .unwrap();
+    // Line numbers matter below; keep this source in sync with them.
+    let source = "\
+import aws.ProfileCredentials
+import shop.shapes.label
+import time
+
+fn label(n: Int) -> Str {
+    return \"own ${n}\"
+}
+
+fn main() [Console] {
+    let creds = ProfileCredentials {path: \"~/.aws/credentials\"}
+    println(creds.path)
+    println(label@shapes(1))
+    println(label@main(2))
+}
+";
+    std::fs::write(root.join("salvo/main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("salvo/main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "diagnostics: {params}"
+    );
+
+    // The module segment of a named import, from a dependency: the module's
+    // docs, a `[symbol]` reference resolved against that module, and the
+    // dependency named.
+    let value = hover(&mut lsp, 30, &uri, 0, 8);
+    assert!(value.starts_with("```salvo\nmodule aws\n```"), "unexpected module hover: {value}");
+    assert!(value.contains("AWS services, modelled as actors."), "{value}");
+    assert!(value.contains("[`ProfileCredentials`](file://"), "{value}");
+    assert!(value.contains("Dependency `aws`, in `"), "{value}");
+    assert!(value.contains("salvo_modules/aws/salvo/aws.sv`"), "{value}");
+
+    // A two-segment module part is one name: hovering `shop` covers
+    // `shop.shapes`, and the header before the blank line is the module's
+    // (not `label`'s).
+    let value = hover(&mut lsp, 31, &uri, 1, 8);
+    assert!(value.starts_with("```salvo\nmodule shop.shapes\n```"), "{value}");
+    assert!(value.contains("Shapes for the shop."), "{value}");
+    assert!(!value.contains("Labels"), "the fn's docs are not the module's: {value}");
+    assert!(value.contains("In `shop/shapes.sv`."), "{value}");
+    let value = hover(&mut lsp, 32, &uri, 1, 13);
+    assert!(value.starts_with("```salvo\nmodule shop.shapes\n```"), "{value}");
+
+    // A whole-module import of a std module: std's own header comment, and
+    // the standard library named.
+    let value = hover(&mut lsp, 33, &uri, 2, 8);
+    assert!(value.starts_with("```salvo\nmodule time\n```"), "{value}");
+    assert!(value.contains("The standard library."), "{value}");
+
+    // An `@module` selector, written as a suffix [mod-suffix]: the full path.
+    let value = hover(&mut lsp, 34, &uri, 11, 20);
+    assert!(value.starts_with("```salvo\nmodule shop.shapes\n```"), "{value}");
+    assert!(value.contains("Shapes for the shop."), "{value}");
+
+    // The item imported from the dependency hovers as usual, and its origin
+    // line names the dependency.
+    let value = hover(&mut lsp, 35, &uri, 9, 18);
+    assert!(value.contains("struct ProfileCredentials"), "{value}");
+    assert!(value.contains("Where a profile's credentials are read from."), "{value}");
+
+    // The fn at `label@shapes(1)` is the other module's — the origin line
+    // says so — and `@main` hovers as this file.
+    let value = hover(&mut lsp, 36, &uri, 11, 14);
+    assert!(value.contains("From `shop.shapes`."), "{value}");
+    let value = hover(&mut lsp, 38, &uri, 12, 19);
+    assert!(value.starts_with("```salvo\nmodule main\n```"), "{value}");
+    assert!(value.contains("This file."), "{value}");
+
+    // Go-to-definition on a module name lands at the top of its file.
+    let location = definition(&mut lsp, 37, &uri, 0, 8);
+    assert!(
+        location["uri"].as_str().unwrap().ends_with("salvo_modules/aws/salvo/aws.sv"),
+        "{location}"
+    );
+    assert_eq!(location["range"]["start"]["line"], 0);
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}

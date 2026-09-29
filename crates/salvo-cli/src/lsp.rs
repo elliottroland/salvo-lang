@@ -38,7 +38,7 @@ use lsp_types::{
 };
 
 use salvo_core::{
-    Checked, DefSite, FileDiagnostic, FnKey, ParamDeduction, Program, QualEffect, Ty,
+    Checked, DefSite, FileDiagnostic, FnKey, ModulePath, ParamDeduction, Program, QualEffect, Ty,
 };
 use salvo_syntax::ast::{FnDecl, Item, QualSubject};
 use salvo_syntax::diag::Severity;
@@ -388,7 +388,41 @@ impl Server<'_> {
             }
         }
         if let Some(h) = best_comp {
-            return Some(markdown_hover(h.text.clone(), span_to_range(content, h.span)));
+            // [doc-module] A `by` site names a module too: its docs follow the
+            // comptime fn's.
+            let module = h
+                .module
+                .as_ref()
+                .and_then(|m| self.module_section(&analysis, m, file_idx, &link));
+            let mut text = h.text.clone();
+            if let Some(section) = module {
+                text.push_str("\n\n---\n\n");
+                text.push_str(&section);
+            }
+            return Some(markdown_hover(text, span_to_range(content, h.span)));
+        }
+
+        // [doc-module] A module *name*: an `@module` selector the checker
+        // resolved, or the module part of an `import` path. Its hover is the
+        // module's own documentation — the file's leading comment — and where
+        // the module lives.
+        if let Some((span, module)) = module_at(&analysis, checked, file_idx, offset) {
+            let module_file = module_file(&analysis, &module)?;
+            let ast = analysis.program.modules.get(module_file)?;
+            let source = &analysis.program.files.get(module_file)?.content;
+            let scope = docs::DocScope {
+                locals: Vec::new(),
+                file: module_file,
+                source,
+                modules: &analysis.program.modules,
+                link: &link,
+            };
+            let docs = docs::render(&ast.docs, &scope);
+            let origin = self.module_origin(&analysis, module_file, file_idx);
+            return Some(markdown_hover(
+                docs::hover_markdown(&format!("module {module}"), &[docs, origin]),
+                span_to_range(content, span),
+            ));
         }
 
         // A fn name under the cursor hovers as the full signature,
@@ -568,6 +602,10 @@ impl Server<'_> {
         if file.is_std {
             return Some(format!("From `{module}` — the standard library."));
         }
+        // [manifest-deps] A dependency's module says which dependency.
+        if let Some(dep) = &file.dependency {
+            return Some(format!("From `{module}` — dependency `{dep}`."));
+        }
         if decl_file == here {
             return Some("Declared in this file.".to_string());
         }
@@ -581,6 +619,59 @@ impl Server<'_> {
         } else {
             format!("From `{module}`.")
         })
+    }
+
+    /// [doc-module] Where a *module* lives, as a hover section: the standard
+    /// library, a dependency (named), the file being edited, or another file
+    /// of the program (its path).
+    fn module_origin(&self, analysis: &Analysis, module_file: usize, here: usize) -> Option<String> {
+        let file = analysis.program.files.get(module_file)?;
+        if file.is_std && !file.is_shadow {
+            return Some("The standard library.".to_string());
+        }
+        if let Some(dep) = &file.dependency {
+            return Some(format!("Dependency `{dep}`, in `{}`.", file.name));
+        }
+        if module_file == here {
+            return Some("This file.".to_string());
+        }
+        Some(format!(
+            "In `{}`{}.",
+            file.name,
+            if file.is_std { " — the standard library" } else { "" }
+        ))
+    }
+
+    /// [doc-module] A module's documentation as a hover section of its own,
+    /// for a site whose hover is about something else (a `by` site): the
+    /// module named, then its docs when it has any.
+    fn module_section(
+        &self,
+        analysis: &Analysis,
+        module: &ModulePath,
+        here: usize,
+        link: &dyn Fn(usize, Span) -> Option<String>,
+    ) -> Option<String> {
+        let module_file = module_file(analysis, module)?;
+        let ast = analysis.program.modules.get(module_file)?;
+        let source = &analysis.program.files.get(module_file)?.content;
+        let scope = docs::DocScope {
+            locals: Vec::new(),
+            file: module_file,
+            source,
+            modules: &analysis.program.modules,
+            link,
+        };
+        let mut out = format!("Module `{module}`");
+        match self.module_origin(analysis, module_file, here) {
+            Some(origin) => out.push_str(&format!(" — {}", lowercase_first(&origin))),
+            None => out.push('.'),
+        }
+        if let Some(docs) = docs::render(&ast.docs, &scope) {
+            out.push_str("\n\n");
+            out.push_str(&docs);
+        }
+        Some(out)
     }
 
     /// A markdown link target for a definition site, or `None` for the
@@ -945,7 +1036,21 @@ impl Server<'_> {
             consider(*span, *site, &mut best);
         }
 
-        let (_, site) = best?;
+        let (_, site) = match best {
+            Some(found) => found,
+            // [doc-module] A module name jumps to the top of its file.
+            None => {
+                let (_, module) = module_at(&analysis, checked, file_idx, offset)?;
+                let file = module_file(&analysis, &module)?;
+                (
+                    Span::new(0, 0),
+                    DefSite {
+                        file,
+                        span: Span::new(0, 0),
+                    },
+                )
+            }
+        };
         let target = analysis.program.files.get(site.file)?;
         if target.is_std && !target.is_shadow {
             // The embedded std is not on disk; nothing to navigate to.
@@ -1289,6 +1394,87 @@ fn span_text(source: &str, span: Span) -> &str {
     source
         .get(span.start as usize..span.end as usize)
         .unwrap_or("")
+}
+
+/// A sentence with its first letter lowered, for splicing after a dash.
+fn lowercase_first(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(c) => c.to_lowercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// [doc-module] The file declaring `module` — the one non-annex file with
+/// that path, since a module is a file.
+fn module_file(analysis: &Analysis, module: &ModulePath) -> Option<usize> {
+    analysis
+        .program
+        .files
+        .iter()
+        .position(|f| !f.is_test && f.module == *module)
+}
+
+/// [doc-module] The module *named* under the cursor, with the span of the
+/// name: an `@module` selector the checker resolved (`Checked::module_refs`
+/// [fn-overload-at]), or the module part of an `import` path — every
+/// segment of a whole-module import [mod-import-module], the segments before
+/// the item of a named one. The module part is one name however many
+/// segments it has, so the hover covers all of it: `fs.mem` in
+/// `import fs.mem.MemFs`, whichever segment the cursor is on.
+fn module_at(
+    analysis: &Analysis,
+    checked: &Checked,
+    file_idx: usize,
+    offset: u32,
+) -> Option<(Span, ModulePath)> {
+    let mut best: Option<(Span, ModulePath)> = None;
+    for ((file, span), module) in &checked.module_refs {
+        if *file == file_idx
+            && span.start <= offset
+            && offset < span.end
+            && best.as_ref().is_none_or(|(b, _)| span.len() < b.len())
+        {
+            best = Some((*span, module.clone()));
+        }
+    }
+    if best.is_some() {
+        return best;
+    }
+    let items = &analysis.program.modules.get(file_idx)?.items;
+    for item in items {
+        let Item::Import(decl) = item else { continue };
+        let Some(first) = decl.path.first() else { continue };
+        let Some(last) = decl.path.last() else { continue };
+        if !(first.span.start <= offset && offset < last.span.end) {
+            continue;
+        }
+        // Whole-module import, or the module part of a named one.
+        let full: Vec<&str> = decl.path.iter().map(|p| p.name.as_str()).collect();
+        let is_module = |segs: &[&str]| {
+            analysis
+                .program
+                .files
+                .iter()
+                .any(|f| !f.is_test && f.module.0.iter().map(String::as_str).eq(segs.iter().copied()))
+        };
+        let module_len = if is_module(&full) {
+            full.len()
+        } else if full.len() > 1 && is_module(&full[..full.len() - 1]) {
+            full.len() - 1
+        } else {
+            return None;
+        };
+        let end = decl.path[module_len - 1].span.end;
+        if offset >= end {
+            // On the item name, which `import_target` answers.
+            return None;
+        }
+        let span = Span::new(first.span.start, end);
+        let module = ModulePath(full[..module_len].iter().map(|s| s.to_string()).collect());
+        return Some((span, module));
+    }
+    None
 }
 
 /// [doc-qualifies-body] The *condition* a predicate qualifier holds under,

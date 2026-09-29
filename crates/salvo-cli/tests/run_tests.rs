@@ -709,3 +709,98 @@ fn a_changed_protocol_needs_a_version_bump() {
     let lock = fs::read_to_string(dir.join("salvo.lock")).unwrap();
     assert!(lock.contains("version = \"0.2.0\""), "{lock}");
 }
+
+/// [manifest-deps] A project's `[dependencies]` are loaded from `[build]
+/// modules` by name and compile into the program like any module: the
+/// dependency's `main` is not an entry point, its actor protocols do not
+/// enter this project's lock, a dependency declaring a std module is refused
+/// unless its own manifest says `std = true`, and a missing dependency is an
+/// error naming the path.
+#[test]
+fn a_dependency_is_loaded_from_the_modules_directory() {
+    if !have("rustc") {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let Some(__stamp) = e2e_stamp("dependency", &["rustc"]) else { return };
+    let dir = work_dir("dependency");
+    let sources = dir.join("salvo");
+    let aws = dir.join("salvo_modules/aws/salvo");
+    fs::create_dir_all(&sources).unwrap();
+    fs::create_dir_all(&aws).unwrap();
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\n\
+         modules = \"salvo_modules\"\n\n[dependencies]\naws = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("salvo_modules/aws/salvo.toml"),
+        "[project]\nname = \"aws\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nmain = \"salvo/aws.sv\"\n",
+    )
+    .unwrap();
+    // The dependency has a `main` of its own and an actor protocol: neither
+    // is the project's business.
+    fs::write(
+        aws.join("aws.sv"),
+        "// AWS services, modelled as actors.\n\n\
+         export struct ProfileCredentials {\n    profile: Str = \"default\",\n    path: Str\n}\n\n\
+         export actor effect Bucket {\n    send fn put(key: Str) => !key\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole()\n    println(\"the dependency's own main\")\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        sources.join("main.sv"),
+        "import aws.ProfileCredentials\n\n\
+         fn main() [use] {\n    use StdOutConsole()\n    \
+         let creds = ProfileCredentials {path: \"~/.aws/credentials\"}\n    \
+         println(\"${creds.profile}: ${creds.path}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["run"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "default: ~/.aws/credentials\n");
+    // Not the project's protocol: no lock entry for `Bucket`, and the lock
+    // exists only when there is something to lock.
+    let lock = fs::read_to_string(dir.join("salvo.lock")).unwrap_or_default();
+    assert!(!lock.contains("Bucket"), "{lock}");
+
+    // A dependency may not redefine std unless its manifest says it is std.
+    fs::create_dir_all(aws.join("core")).unwrap();
+    fs::write(aws.join("core/list.sv"), "export fn size2() -> Int { return 0 }\n").unwrap();
+    let out = salvo_in(&dir, &["analyze"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("`core.list`") && stderr.contains("std = true") && stderr.contains("[manifest-deps]"),
+        "{stderr}"
+    );
+    fs::remove_dir_all(aws.join("core")).unwrap();
+
+    // The declared version has to be the dependency's own.
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\n\
+         modules = \"salvo_modules\"\n\n[dependencies]\naws = \"0.2.0\"\n",
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["analyze"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(stderr.contains("`0.2.0`") && stderr.contains("`0.1.0`"), "{stderr}");
+
+    // A dependency nothing on disk backs is an error naming the manifest it
+    // looked for.
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\n\
+         modules = \"salvo_modules\"\n\n[dependencies]\ngcp = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["analyze"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(stderr.contains("gcp/salvo.toml") && stderr.contains("does not exist"), "{stderr}");
+    __stamp.verified();
+}

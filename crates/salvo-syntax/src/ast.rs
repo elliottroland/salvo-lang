@@ -16,6 +16,14 @@ pub struct Ident {
 /// A parsed source file.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Module {
+    /// [doc-module] The module's own documentation: the first `//` comment
+    /// run in the file, when it documents no declaration — a blank line
+    /// follows it, or the file's first `import` (an import carries no docs,
+    /// so a run directly above one is the module's). One entry per line,
+    /// `//` and one leading space stripped, as for [doc-comment]. Empty when
+    /// the file opens with code, or when its first comment run sits directly
+    /// above a declaration (that run is the declaration's).
+    pub docs: Vec<String>,
     pub items: Vec<Item>,
 }
 

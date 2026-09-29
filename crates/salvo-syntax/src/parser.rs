@@ -197,6 +197,36 @@ impl<'s> Parser<'s> {
         self.docs_before(self.peek().span.start)
     }
 
+    /// [doc-module] The module's own documentation: the **first** comment run
+    /// in the file — leading blank lines allowed — provided it documents no
+    /// declaration. It is the module's when a blank line follows it, or when
+    /// the file's first token is `import` on the very next line (an import
+    /// carries no docs, so the run cannot be anyone else's). A run sitting
+    /// directly above a declaration is that declaration's [doc-comment], and
+    /// the module then has no docs of its own (user decision 2026-09-29,
+    /// option (b): the header-then-imports layout needs no blank line).
+    fn module_docs(&self) -> Vec<String> {
+        // The first line holding code; every comment before it is a
+        // candidate. A file of nothing but comments has no such line.
+        let first_code = self.tokens.first().filter(|t| !matches!(t.kind, TokenKind::Eof))
+            .map(|t| self.line_of(t.span.start));
+        let limit = first_code.unwrap_or(u32::MAX);
+        let Some(start) = (0..limit).find(|line| self.comments.contains_key(line)) else {
+            return Vec::new();
+        };
+        let mut end = start;
+        while end + 1 < limit && self.comments.contains_key(&(end + 1)) {
+            end += 1;
+        }
+        let documents_code = first_code.is_some_and(|code| end + 1 == code);
+        if documents_code
+            && !matches!(self.tokens.first().map(|t| &t.kind), Some(TokenKind::KwImport))
+        {
+            return Vec::new();
+        }
+        (start..=end).map(|line| self.comments[&line].clone()).collect()
+    }
+
     // --- Token helpers ---
 
     fn peek(&self) -> &Token {
@@ -364,6 +394,9 @@ impl<'s> Parser<'s> {
     // --- Module / items ---
 
     pub fn parse_module(&mut self) -> Module {
+        // [doc-module] Read before any item is parsed: the rule looks at the
+        // file's first token, which is still where the parser stands.
+        let docs = self.module_docs();
         let mut items = Vec::new();
         while !self.at_eof() {
             let before = self.pos;
@@ -376,7 +409,7 @@ impl<'s> Parser<'s> {
                 self.bump();
             }
         }
-        Module { items }
+        Module { docs, items }
     }
 
     /// Skips tokens until something that can plausibly start a top-level item.

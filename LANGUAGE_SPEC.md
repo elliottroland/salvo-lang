@@ -7724,9 +7724,10 @@ replaced the working document TESTING.md).
   §4 built the same day): `[project] name`, `version`, and `std = true` for the
   standard library's own tree; `[build] src` (the source root, relative to the
   manifest, default `.`), `main` (the entry file, when there are several),
-  `backend` (`rust`, `kotlin`, or `*` for every backend) and `target` (one
-  output directory for all backends); `[rust]`/`[kotlin]` sections each with a
-  `target` that overrides it. Every command reads it — `run`, `compile`,
+  `backend` (`rust`, `kotlin`, or `*` for every backend), `target` (one
+  output directory for all backends) and `modules` (where dependencies live
+  [manifest-deps]); `[rust]`/`[kotlin]` sections each with a `target` that
+  overrides it; `[dependencies]` [manifest-deps]. Every command reads it — `run`, `compile`,
   `test`, `analyze`, `platform generate`, the language server — with one
   precedence: a CLI flag, then the manifest, then the built-in default. Under
   `backend = "*"` a command runs for each backend in turn (a `compile` into
@@ -7768,6 +7769,49 @@ replaced the working document TESTING.md).
   `salvo test --src std` rests on — it tests the checkout, not the std
   compiled into the binary — and without it the two copies would collide as
   duplicate declarations [mod-collision].
+* [manifest-deps] **A project's dependencies are other projects, named under
+  `[dependencies]` and found by name under `[build] modules`** (user decisions
+  2026-09-29; the 2026-09-29 manifest entry had parked "dependencies between
+  projects" as out of scope, and this is the first slice). `aws = "0.1.0"`
+  means `<modules>/aws/salvo.toml` exists and its `[project] version` is
+  `0.1.0`; a missing directory, a version mismatch, or a `[dependencies]`
+  table without `modules` is an error naming the manifest. A directory under
+  `modules` that no entry names is not loaded. Loaded **between the embedded
+  std and the project's own tree** (`analysis::load_dependencies`,
+  `SourceSet::add_dependency`), by every command and the language server.
+  * **No prefix**: a dependency's module paths come from its own layout
+    exactly as std's and the project's do (`salvo/aws.sv` is `aws`;
+    `salvo/aws/s3.sv` is `aws.s3`) — one path rule, and the dependency's
+    author owns its namespace by its tree. Two files declaring one path are
+    the ordinary [mod-collision].
+  * **Std-ness follows the dependency's own manifest.** A dependency
+    declaring a module the embedded std also declares is refused, naming the
+    file and the fix (`[project] std = true` in *its* manifest) — a library
+    must not redefine `core.list` on its users. With `std = true` it *is* a
+    standard library: its files are std and replace the embedded copies they
+    name, as [std-shadow] lets a tree do. `mark_std_tree` and
+    `apply_std_shadow` leave dependency files alone; `add_dependency` has
+    already settled them.
+  * A dependency's files are tagged (`SourceFile.dependency: Some(name)`),
+    named by **absolute path** (they sit outside the source root, so a
+    root-relative name would lie), and loaded with tests off. Its `main` is
+    never an entry point [cli-run]; its actor protocols are not the project's
+    to lock [protocol-lock]; `salvo platform generate` writes no skeleton for
+    its platform effects — but its **companions are loaded** (host files under
+    its `platform/`, user decision 2026-09-29): a dependency's platform effects
+    need their implementations as much as the project's do.
+  * Hover: a declaration reached from a dependency says ``From `m` —
+    dependency `name`.`` [lsp-fn-origin]; a module from one says so too
+    [doc-module]. In the editor a file *inside* a dependency belongs to its
+    own manifest [manifest-discovery] and is analysed as its own project.
+  * **Not yet**: transitive dependencies (a dependency's `[dependencies]` are
+    not followed), version *ranges* or resolution, a fetcher filling
+    `salvo_modules` from anywhere, and a check that a dependency's own tree
+    does not need a `[build] modules` of its own. The repository's first
+    dependency is `modules/aws/` (`ProfileCredentials`, the services to
+    follow as actors), consumed by `examples/aws_profile/` through `modules =
+    "../../modules"` — the setting pointing anywhere is what makes
+    `salvo_modules` a convention rather than a rule.
 
 ## Backends
 
@@ -8075,6 +8119,35 @@ replaced the working document TESTING.md).
     declaration by line number.
   * Backing modifiers do not interfere: `intrinsic` and
     `provenance` sit on the declaration's own line.
+* [doc-module] **A module's documentation is the first comment run in its
+  file, when that run documents no declaration** (user decision 2026-09-29,
+  option (b)). Leading blank lines do not matter. The run is the module's
+  when a blank line follows it — it then sits above nothing — *or* when the
+  file's first token is `import` on the very next line: an import carries no
+  docs, so a run directly above the first import cannot be anyone else's, and
+  the header-then-imports layout needs no blank line. A run sitting directly
+  above the first declaration is that declaration's [doc-comment], and the
+  module then has no docs. Only the first run can qualify: a file opening
+  with code has none. A file holding nothing but a comment documents itself.
+  * Carried on the AST as `Module.docs: Vec<String>`, lines stripped as for
+    [doc-comment]; the parser decides it before parsing the first item
+    (`Parser::module_docs`), from the first token's line.
+  * **Shown wherever a module is named** [cli-lsp]: the module part of an
+    `import` line — all of a whole-module import [mod-import-module], the
+    segments before the item of a named one, *as one name* however many
+    segments it has, so the hover covers `shop.shapes` whichever segment the
+    cursor is on; an `@module` selector [fn-overload-at] [mod-suffix], which
+    the checker records at the selector's span as `Checked::module_refs`
+    mapped to the **full** path it resolved to (a selector that matched
+    nothing or two modules is not recorded — it has a diagnostic); and a `by`
+    site, whose hover appends a **Module** section for the module its comptime
+    fn came from (`CompHover.module`). The hover's code line is `module
+    <full path>`; below it the docs, with `[symbol]` references resolved
+    against the module's top-level declarations [doc-symbol-ref]; then where
+    it lives — the standard library, a dependency by name [manifest-deps], or
+    the file. Go-to-definition on a module name lands at the top of its file.
+  * Every std module with a header comment now carries it as module docs;
+    the parser snapshots record them.
 
 ## Tooling
 

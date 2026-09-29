@@ -256,15 +256,16 @@ fn registry() -> BackendRegistry {
 /// checked).
 fn analyze(src: Option<PathBuf>, format: Format) -> ExitCode {
     // [manifest] `--src` or the manifest's source root.
-    let src = match resolve_inputs(src, None, None, "rust", false) {
-        Ok(i) => i.layout.src,
+    let inputs = match resolve_inputs(src, None, None, "rust", false) {
+        Ok(i) => i,
         Err(msg) => {
             eprintln!("error: {msg}");
             return ExitCode::FAILURE;
         }
     };
-    let src = &src;
-    let analysis = match analysis::analyze_sources(src, "", &Default::default()) {
+    let src = &inputs.layout.src;
+    // [manifest-deps] The project is what names the dependencies to load.
+    let analysis = match analysis::analyze_sources(src, inputs.project.clone(), "", &Default::default()) {
         Ok(analysis) => analysis,
         Err(msg) => {
             eprintln!("error: {msg}");
@@ -427,7 +428,12 @@ fn assemble(
         );
         return Err(ExitCode::FAILURE);
     }
-    let io_errors = sources.add_dir(&layout.src, backend.file_extension(), false, layout.tests);
+    // [manifest-deps] Dependencies load between std and the project's own
+    // tree, companions included: a dependency's platform effects need their
+    // host files as much as the project's do.
+    let mut io_errors =
+        analysis::load_dependencies(&mut sources, project, backend.file_extension());
+    io_errors.extend(sources.add_dir(&layout.src, backend.file_extension(), false, layout.tests));
     for err in &io_errors {
         eprintln!("error: {err}");
     }
@@ -517,8 +523,10 @@ fn assemble(
         .iter()
         .zip(&modules)
         .filter(|(file, module)| {
+            // [manifest-deps] A dependency's `main` is its own business.
             !file.is_std
                 && !file.is_test
+                && file.dependency.is_none()
                 && module.items.iter().any(|item| {
                     matches!(item, salvo_syntax::ast::Item::Fn(f)
                         if f.name.name == "main" && f.body.is_some())
@@ -1034,6 +1042,7 @@ fn run_test_pass(
         // it `std.test` without an import line, which is also what keeps it
         // clear of an `import <module>.test` for an annex of `test` itself.
         is_test: true,
+        dependency: None,
     });
     program.modules.push(ast);
     let emitted = backend.emit(program, target, Some(harness_module));
@@ -1348,7 +1357,8 @@ fn reconcile_lock(project: &salvo_core::Project, program: &Program) -> Result<()
     let symbols = salvo_core::Symbols::collect(program);
     let mut current = std::collections::BTreeMap::new();
     for unit in program.units() {
-        if unit.file.is_std {
+        // [manifest-deps] A dependency's protocols are locked by its own file.
+        if unit.file.is_std || unit.file.dependency.is_some() {
             continue;
         }
         for item in &unit.ast.items {

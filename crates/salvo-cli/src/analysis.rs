@@ -57,16 +57,19 @@ pub struct Analysis {
 /// `native_ext` is the active backend's companion extension
 /// ([backend-companion]); an empty string loads `.sv` files only, which is
 /// what backend-neutral analysis wants — companions are copied, never
-/// checked. `overlay` maps absolute file paths to in-editor contents that
+/// checked. `project` is the manifest the sources belong to, when one was
+/// found: it names the dependencies to load [manifest-deps] and whether the
+/// tree is std. `overlay` maps absolute file paths to in-editor contents that
 /// replace (or add to) what is on disk [cli-lsp].
 ///
 /// Errors only when `src` is not a directory.
 pub fn analyze_sources(
     src: &Path,
+    project: Option<salvo_core::Project>,
     native_ext: &str,
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Analysis, String> {
-    analyze_project(src, None, native_ext, overlay)
+    analyze_project(src, project, native_ext, overlay)
 }
 
 /// [manifest-discovery] `analyze_sources` for a document: the nearest
@@ -103,10 +106,12 @@ fn analyze_project(
 
     let mut sources = SourceSet::default();
     load_embedded_std(&mut sources, native_ext);
+    // [manifest-deps] Dependencies come between std and the project's tree.
+    let mut io_errors = load_dependencies(&mut sources, project.as_ref(), native_ext);
     // [test-file] `analyze` checks test annexes: a broken test is a broken
     // program, and the language server wants diagnostics in the file being
     // edited (user decision 2026-09-23).
-    let io_errors = sources.add_dir(&root, native_ext, false, true);
+    io_errors.extend(sources.add_dir(&root, native_ext, false, true));
     // [std-shadow] A tree that declares std's own modules replaces them.
     sources.apply_std_shadow();
     // [manifest] `std = true`: the whole tree is std.
@@ -254,6 +259,29 @@ fn overload_index(resolution: &salvo_core::Resolution<'_>) -> Vec<HashMap<String
     out
 }
 
+/// [manifest-deps] Loads the project's dependencies into `sources`, after
+/// the embedded std and **before** the project's own tree (so the project's
+/// [std-shadow] sees a std dependency's modules as std). No project, or a
+/// project without `[dependencies]`, loads nothing. Returns one rendered
+/// message per problem: a dependency that cannot be found or is at the wrong
+/// version, or a file that cannot be loaded.
+pub fn load_dependencies(
+    sources: &mut SourceSet,
+    project: Option<&salvo_core::Project>,
+    native_ext: &str,
+) -> Vec<String> {
+    let Some(project) = project else { return Vec::new() };
+    let deps = match project.dependencies() {
+        Ok(deps) => deps,
+        Err(msg) => return vec![msg],
+    };
+    let mut errors = Vec::new();
+    for dep in &deps {
+        errors.extend(sources.add_dependency(dep, native_ext));
+    }
+    errors
+}
+
 /// Loads the embedded standard library: every `.sv` module, plus std's own
 /// host companions for the backend in play — `std/platform/**.<native_ext>`,
 /// the implementations of std's `platform handler` declarations
@@ -332,7 +360,7 @@ mod tests {
              fn describe(s: Str) [] -> Str {\n    return s\n}\n",
         )
         .unwrap();
-        let analysis = analyze_sources(&root, "", &HashMap::new()).expect("analysis");
+        let analysis = analyze_sources(&root, None, "", &HashMap::new()).expect("analysis");
         let file_idx = analysis
             .program
             .files

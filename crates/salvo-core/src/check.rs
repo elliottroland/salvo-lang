@@ -114,6 +114,19 @@ impl<'p> Selector<'p> {
             Selector::Type(t) => t.name.clone(),
         }
     }
+
+    /// [doc-module] The span a module selector covers, from its first segment
+    /// to its last — the range the module hover answers on.
+    fn module_span(self) -> Option<Span> {
+        match self {
+            Selector::Module(path) => {
+                let first = path.first()?;
+                let last = path.last()?;
+                Some(Span::new(first.span.start, last.span.end))
+            }
+            Selector::Type(_) => None,
+        }
+    }
 }
 
 struct LeadCandidate {
@@ -729,6 +742,12 @@ pub struct Checked {
     /// `base.field` mapped to where the field's declaration is written.
     /// Drives go-to-definition and doc hover on fields [doc-comment].
     pub field_refs: HashMap<Key, DefSite>,
+    /// [doc-module] Module references [fn-overload-at] [mod-suffix]: the span
+    /// of a written `@module` selector (`size@list`, `describe@main`), mapped
+    /// to the **full path** of the one module it resolved to. Drives the
+    /// module hover; a selector that matched no module or two is not
+    /// recorded (it has its own diagnostic).
+    pub module_refs: HashMap<Key, ModulePath>,
     /// Reads of fate-linked (derived) variables [fate-link], keyed by the
     /// identifier span: the roots the variable shares fate with, and
     /// where each link was bound. Presentation-only: tooling renders the
@@ -5176,6 +5195,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     return Ty::Unknown;
                 }
+                // [doc-module] The one module the selector named, for hover.
+                if let (Some(module), Some(at_span)) = (modules.first(), sel.module_span()) {
+                    self.out.module_refs.insert(self.key(at_span), ModulePath::parse(module));
+                }
             }
             if named.is_empty() {
                 self.error(
@@ -5600,6 +5623,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         ),
                     );
                     return None;
+                }
+                // [doc-module] The one module the selector named, for hover.
+                if let (Some(module), Some(at_span)) = (modules.first(), sel.module_span()) {
+                    self.out.module_refs.insert(self.key(at_span), ModulePath::parse(module));
                 }
             }
             if selected.is_empty() {

@@ -3,6 +3,22 @@ source: crates/salvo-syntax/tests/parser_tests.rs
 expression: "parse_clean(&std_core(\"iterator.sv\"))"
 ---
 Module {
+    docs: [
+        "[iter-protocol] The *pull* iteration protocol, written in Salvo rather than",
+        "built into the compiler: an **iterator struct** is a type declaring",
+        "`: Yield<self, T>`, and its `next` reports either an element or the end of",
+        "the sequence. A **source** is a type an `iter` mints an iterator from,",
+        "declared with `: Iter<self, T>`.",
+        "",
+        "This is what makes `zip`, `merge`, anything reading two sources at once,",
+        "anything wanting explicit control of its state, writable by hand. An",
+        "`iter fn` is the sugar (the compiler writes the struct) [iter-fn]; a struct",
+        "with a `next` is the manual form; `for` drives either, because both answer",
+        "the same declaration.",
+        "",
+        "Own module so a program that never iterates by hand emits nothing for it",
+        "[mod-used-only]; `core.*` is implicitly visible, so no import is needed.",
+    ],
     items: [
         Qualifier(
             QualifierDecl {

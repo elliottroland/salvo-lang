@@ -1,0 +1,3 @@
+profile: default
+path:    ~/.aws/credentials
+ProfileCredentials { profile: staging, path: /etc/aws/credentials }

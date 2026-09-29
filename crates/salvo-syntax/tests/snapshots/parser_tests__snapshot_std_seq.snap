@@ -3,6 +3,31 @@ source: crates/salvo-syntax/tests/parser_tests.rs
 expression: "parse_clean(&std_core(\"seq.sv\"))"
 ---
 Module {
+    docs: [
+        "[seq-iterator] Sequence functions over **iterators** [iter-protocol]: the subject",
+        "is an iterator, and its `next` arrives as an implicit parameter through the",
+        "`?Yield<It, T>` spread [implicit-group] — so these work on std's container",
+        "iterators (`map(iter(xs), f)`), on an `iter fn`'s result, and on an iterator",
+        "type of your own the moment it declares `: Yield<self, T>`.",
+        "",
+        "The subject is written as the iterator rather than as the container (user",
+        "decision 2026-09-09): a container is iterated by writing its `iter`, which",
+        "is one call more at the use site and no cross-implicit inference in the",
+        "compiler. The `List` fast paths at the bottom keep the short spelling for",
+        "the common case.",
+        "",
+        "**Eager**: `map` and `filter` return a `Mut List<U>`. Nothing here is lazy —",
+        "the lazy pair was removed 2026-09-10 (user decision) and laziness is",
+        "reconsidered after concurrency lands; see ROADMAP.md. A *composed* iterator is",
+        "still perfectly writable by hand, since an iterator is only a struct with a",
+        "`next` [iter-protocol].",
+        "",
+        "",
+        "Driving is an ordinary `for`: the `?Yield<It, T>` spread is the declaration",
+        "the loop reads [iter-generic-drive], so a generic iterator is driven exactly as a",
+        "named one is. `=> it: Mut` says the iterator is advanced **in place** and handed",
+        "back, which is what lets a caller drive it further.",
+    ],
     items: [
         Fn(
             FnDecl {

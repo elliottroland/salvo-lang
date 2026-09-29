@@ -135,6 +135,78 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Module doc comments, and the first slice of dependencies (2026-09-29, user
+decisions; built the same day).** Two requests in one sitting. **1638 tests.**
+
+*Module docs [doc-module].* A file's first comment run documents the *module*
+when it documents no declaration. The user picked option (b) of two offered:
+the run is the module's when a blank line follows it **or** when the file's
+first `import` is on the very next line — an import carries no docs, so the
+header-then-imports layout needs no blank line (option (a) would have required
+one). A run directly above the first declaration stays that declaration's
+[doc-comment]. `Module.docs` on the AST, decided by `Parser::module_docs` from
+the first token's line before any item parses; every std file with a header
+now carries it (16 parser snapshots). Shown wherever a module is *named*: the
+module part of an import line as one name however many segments (`shop.shapes`
+hovers whole from either segment), an `@module` selector — the checker now
+records `Checked::module_refs` at the selector span, mapped to the **full**
+path [mod-suffix] resolved to — and a `by` site, whose `CompHover` carries the
+module its comptime fn came from and gets a Module section. Hover reads
+`module <path>`, docs with `[symbol]` resolved against the module's top-level
+declarations, then where it lives; go-to-definition on a module opens its file.
+
+*Dependencies [manifest-deps].* Parked as out of scope in the manifest entry
+below; the user asked to start small. Decisions: (2b) `[dependencies] aws =
+"0.1.0"` **plus** `[build] modules = "salvo_modules"` — a version claim checked
+against the dependency's own manifest, a `[dependencies]` table without
+`modules` refused at load, a directory no entry names ignored (over (2a), the
+folder as the whole list: the user wanted the Cargo shape from the start);
+(3a) **no prefix** — a dependency's module paths come from its own layout as
+std's and the project's do (over (3b), prefixing by project name); a dependency
+**may not declare std modules unless its own manifest says `std = true`** (the
+user's addition), in which case it replaces the embedded copies as
+[std-shadow] lets a tree do; (5a) the module lives at **`modules/aws/`** at the
+repository root, consumed by `examples/aws_profile/` through `modules =
+"../../modules"` (over a `salvo_modules/` copy inside the example) — the
+setting pointing anywhere is what makes the name a convention. On (4), the
+operational list, the user corrected one item: a dependency's **platform
+companions are loaded** — "if we build with a dependency then surely we'll
+need to load their platform companions" — and they are (`add_dependency`
+walks companions; only `salvo platform generate` skips writing skeletons for
+a dependency). The rest as proposed: tests off, `main` never an entry point,
+protocols not the project's to lock, absolute file names, files tagged
+`SourceFile.dependency`, loaded between std and the project's tree by every
+command and the LSP, a file inside a dependency analysed under its own
+manifest. `Project::dependencies()`, `SourceSet::add_dependency`,
+`analysis::load_dependencies`; hover origin lines name the dependency.
+
+*What landed for `aws`:* `modules/aws/salvo/aws.sv` with one struct,
+`ProfileCredentials : ToStr<self> by auto` (profile + credentials path, the
+CLI's defaults) and a module doc header stating the plan — services as actors,
+each with design notes, later. `examples/aws_profile/` prints it on both
+backends; both example harnesses load a manifest's dependencies as `salvo
+compile` does. Tests: 4 parser (`parser_tests.rs` "Module docs"), 4 core
+(`dependency_tests.rs`: manifest lookup and its three refusals, loading as an
+ordinary tree, the std rule both ways, `module_refs`), 1 LSP
+(`hover_shows_module_docs_where_a_module_is_named`: import segments, a whole
+std import, `@suffix`, `@main`, the dependency's origin line, definition to the
+file top), 1 CLI (`a_dependency_is_loaded_from_the_modules_directory`: run,
+the dependency's `main` and protocol ignored, the std refusal, version
+mismatch, missing directory). Rules [doc-module] [manifest-deps]; Modules.md
+gained "Dependencies" and a module-docs paragraph; README, examples/README.
+
+*What building it found:* (1) A named import and the file's own declaration
+sit on the **same rung**, so `import shop.shapes.label` beside a local `label`
+makes a bare `label(2)` ambiguous — the LSP test writes `label@main(2)`; not a
+defect, but worth knowing when a test imports a name it also declares. (2)
+`salvo analyze` went through `analyze_sources` with `project: None`, so it
+would have loaded no dependencies while `run` did; `analyze_sources` now takes
+the project. (3) A left-behind edit in the working tree (`std/heap.sv` with
+`heapify` commented out) made every std-checking CLI test fail with a
+`heap.sv` error that had nothing to do with the change; bisecting by
+re-applying the diff crate by crate found it. The two user sketches
+(`std/heap.sv`, `demo/demo.sv`) were stashed, not committed — see the gotcha.
+
 **The project manifest, per-document analysis, and the protocol lock
 (2026-09-29, user decisions M-1…M-7; built the same day).** ROADMAP §4's
 defect — the repository root opened as a workspace analysed `std/`, every
@@ -18512,7 +18584,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1613)
+## Test inventory (all green: 1638)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -19718,6 +19790,22 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Check `git status` before trusting a std-checking test failure**
+  (2026-09-29). An uncommitted edit to `std/heap.sv` (a sketch with `heapify`
+  commented out) made every test that loads the on-disk std — the CLI
+  `run`/`analyze` tests, the LSP tests — fail with a `heap.sv` type error that
+  no change in the session had touched. The embedded std is compiled in at
+  build time from `std/`, so a dirty `std/` is a dirty compiler. The sketches
+  were stashed (`git stash list`) rather than reverted; the fix for the day
+  was to look at the diff before bisecting the session's own changes.
+- **A dependency loads *before* the project's tree, or [std-shadow] misfires**
+  (2026-09-29). `apply_std_shadow` marks every non-std module that collides
+  with an embedded std module as a shadow. A `std = true` dependency has to
+  have replaced its embedded modules already when the project's files are
+  classified, and a non-std dependency's collision has to have been refused
+  already — so `add_dependency` settles std-ness itself and the two shadow
+  passes skip files with `dependency.is_some()`.
 
 - **A stamped copy's spans must be synthetic, and each copy's own**
   (2026-09-28). The checker's side tables are keyed by span, so two unrolled

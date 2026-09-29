@@ -747,7 +747,9 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
     let mut files = Vec::new();
     let mut errors = Vec::new();
     for (file_idx, unit) in program.units().enumerate() {
-        if unit.file.is_std {
+        // [manifest-deps] A dependency's host files are the dependency's to
+        // ship, beside its own sources — not skeletons under this project.
+        if unit.file.is_std || unit.file.dependency.is_some() {
             continue;
         }
         let effects = salvo_core::platform_effects(unit.ast);

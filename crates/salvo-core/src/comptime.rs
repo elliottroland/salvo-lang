@@ -40,6 +40,11 @@ pub struct CompHover {
     /// Markdown: a code line with the name and its `core.comptime` type, then
     /// a sentence.
     pub text: String,
+    /// [doc-module] The module a `by` site took its comptime fn from, when
+    /// the hover is a `by` site: the language server appends that module's
+    /// own documentation, since `by @auto` names the module as much as
+    /// `size@list` does.
+    pub module: Option<ModulePath>,
 }
 
 pub struct ComptimeOutput {
@@ -129,6 +134,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                 file: file_idx,
                 span: f.name.span,
                 text: compfn_hover_text(f, &file.module, None),
+                module: None,
             });
             let mut rec = HoverRecorder {
                 file: file_idx,
@@ -181,6 +187,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                             && f.scoped_to.as_ref().is_some_and(|t| t.name == name.name)))
                 });
                 let mut site_hover: Vec<String> = Vec::new();
+                let mut site_module: Option<ModulePath> = None;
                 for member in members {
                     let Some((template, module)) =
                         world.pick_with_module(&member.name.name, by, target.kind, &mut diags)
@@ -188,6 +195,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                         continue;
                     };
                     site_hover.push(compfn_hover_text(&template, &module, Some(&name.name)));
+                    site_module = Some(module);
                     let stamp = Stamper::new(&world, &target, &template, by, &mut virtual_next);
                     match stamp.stamp_whole(by.span) {
                         Ok(mut f) => {
@@ -206,6 +214,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                         file: file_idx,
                         span: by.span,
                         text: site_hover.join("\n\n---\n\n"),
+                        module: site_module,
                     });
                 }
             }
@@ -259,6 +268,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                     file: file_idx,
                     span: by.span,
                     text: compfn_hover_text(&template, &module, Some(&target.name)),
+                    module: Some(module.clone()),
                 });
                 let stamper = Stamper::new(&world, &target, &template, &by, &mut virtual_next);
                 match stamper.stamp_into(f) {
@@ -330,6 +340,7 @@ impl HoverRecorder<'_> {
             file: self.file,
             span,
             text: format!("```salvo\n{code}\n```\n\n{note}"),
+            module: None,
         });
     }
 

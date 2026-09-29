@@ -115,6 +115,47 @@ editor's workspace root, and told so when that workspace does hold projects.
 `[project] std = true` marks the standard library's own tree, so its files are
 std to the checker and replace the copy built into the compiler.
 
+### Dependencies
+
+A project can use the modules of **other projects**. It names them under
+`[dependencies]`, and says where they are found with `[build] modules`:
+
+```toml
+[build]
+modules = "salvo_modules"   # the directory dependencies live under, relative to this file
+
+[dependencies]
+aws = "0.1.0"               # `salvo_modules/aws/salvo.toml`, at that version
+```
+
+Each entry is a directory `<modules>/<name>/` holding a `salvo.toml` of its
+own — a dependency is a project, and its own manifest says where its sources
+are. The version is checked against the one that manifest states, so the line
+is a claim about what is on disk; a mismatch, a directory that is not there, or
+a `[dependencies]` table with no `modules` setting is an error naming the file.
+A directory under `modules` that no entry names is not loaded.
+
+A dependency's modules are ordinary modules. Their paths come from the
+dependency's own layout with no prefix — `salvo_modules/aws/salvo/aws.sv` is
+module `aws`, and `salvo/aws/s3.sv` would be `aws.s3` — so the dependency's
+author owns its namespace by how the tree is laid out, and two projects
+declaring one path collide as two files of your own would. What a dependency
+does not export stays private to it. Its `main` is not your program's entry
+point; its actor protocols are locked in its own `salvo.lock`, not yours; its
+test annexes are never loaded; and its `platform/` host files are loaded with
+it, since its platform effects need them as much as yours do.
+
+A dependency **may not declare a standard-library module** — a library must
+not be able to redefine `core.list` on the programs that use it — unless its
+own manifest says `[project] std = true`, in which case it *is* a standard
+library and replaces the embedded modules it declares, exactly as a source
+tree may. Nothing is transitive yet: a dependency's own `[dependencies]` are
+not followed.
+
+In the editor a file inside a dependency belongs to the dependency's own
+manifest and is analysed as its own project; from the using project's side,
+hovering a name that came from a dependency says which one.
+
 Beside the manifest the compiler keeps **`salvo.lock`**: the protocol hash of
 every `actor effect` the project declares, at the project's version. A build
 whose protocol changed without a version bump is refused naming the effect —
@@ -206,6 +247,18 @@ Docs are **markdown**. The `//` and one following space come off; everything aft
 
 Structs document their fields individually — the comment above a field belongs to that field, and tooling shows the struct's own docs followed by a list of its fields. The same goes for anything else declared inside a declaration: an effect's or handler's member functions, and a handler's state.
 
+**A module has documentation too**: the first comment run in the file, when it documents no declaration. A blank line after it makes it the module's — the run then sits above nothing — and so does the file's first `import` on the very next line, since an import carries no docs of its own; the header-then-imports layout needs no blank line. A run sitting directly above the first declaration is that declaration's, and the module then has none. `[symbol]` references in a module's docs resolve against its top-level declarations.
+
+```
+// The shop's geometry: shapes and their areas.
+//
+// Start with [Shape].
+import core.list.size
+
+// A closed figure.
+struct Shape { ... }
+```
+
 ```
 // A person we know about.
 //
@@ -234,4 +287,6 @@ fn describe(person: Person) -> Str {
 
 The language server shows these on hover — for a declaration, for a *use* of it, and for anything nested inside one: hovering a field, wherever it is written, shows that field's own documentation and says which struct declares it. It also shows a variable's type as it is *known at the position you hover* — narrowed by any `is` test or `when` arm you are inside, qualifiers included, with the declared type named below when the two differ.
 
-Three things it adds beyond the declaration text. A **`params` group** hovers with its members, since those are the point of it. A **predicate qualifier** shows the condition it holds under when its `qualifies` is a single `return` — just the expression, so `Positive` reads as "Holds when `int > 0`." A longer body is hidden, and its doc comment explains it instead. And a variable that **shares fate** with another says so, naming what it was derived from and where, down to the field (`p.name`, not all of `p`) — with the reminder that reads are free, that moving or mutating it is rejected, and that `copy` makes an independent value. Names reached through an `import` hover like local ones, on the import line itself as well as at each use — as do the group name in a struct's obligation clause (`: Show<self>`) and the qualifier in an `is` check (`i is Positive`). A function's hover also says **where it came from** — the module of the overload that actually won, named the way an `@module` selector would spell it, since with scope-based overloading the signature alone does not tell you which `size` you are looking at.
+Three things it adds beyond the declaration text. A **`params` group** hovers with its members, since those are the point of it. A **predicate qualifier** shows the condition it holds under when its `qualifies` is a single `return` — just the expression, so `Positive` reads as "Holds when `int > 0`." A longer body is hidden, and its doc comment explains it instead. And a variable that **shares fate** with another says so, naming what it was derived from and where, down to the field (`p.name`, not all of `p`) — with the reminder that reads are free, that moving or mutating it is rejected, and that `copy` makes an independent value. Names reached through an `import` hover like local ones, on the import line itself as well as at each use — as do the group name in a struct's obligation clause (`: Show<self>`) and the qualifier in an `is` check (`i is Positive`). A function's hover also says **where it came from** — the module of the overload that actually won, named the way an `@module` selector would spell it, since with scope-based overloading the signature alone does not tell you which `size` you are looking at — and for a declaration from a dependency, which dependency.
+
+**A module hovers wherever it is named**: the module part of an `import` line (all of `import time`, the `shop.shapes` of `import shop.shapes.label`, as one name however many segments), an `@module` selector (`size@list`, `by @auto`), and the module a `by` site took its comptime fn from. The hover is `module <full path>` — the full path, whatever suffix was written — then the module's own documentation, then where it lives: the standard library, a dependency by name, or the file. Go-to-definition on a module name opens its file.

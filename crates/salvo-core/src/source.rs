@@ -14,6 +14,11 @@ use std::path::{Path, PathBuf};
 pub struct ModulePath(pub Vec<String>);
 
 impl ModulePath {
+    /// The path a rendered module name spells (`core.list`).
+    pub fn parse(text: &str) -> ModulePath {
+        ModulePath(text.split('.').map(str::to_string).collect())
+    }
+
     /// [mod-suffix] Whether a written module reference names this module: the
     /// full path, or any **suffix** of it (`list` for `core.list`, `mem` for
     /// `fs.mem`). One rule for every place a module is referenced — `@module`
@@ -63,6 +68,12 @@ pub struct SourceFile {
     /// lives in, so a test cannot declare an `intrinsic`
     /// [intrinsic-std-only] (user decision 2026-09-23).
     pub is_test: bool,
+    /// [manifest-deps] The name of the **dependency** this file came from,
+    /// for a file loaded from another project through `[dependencies]`.
+    /// Its `name` is then an absolute path (it sits outside the source
+    /// root); its `main` is never an entry point, its protocols are not the
+    /// project's to lock, and it is std only if its own manifest says so.
+    pub dependency: Option<String>,
 }
 
 /// The source-root directory holding host implementations of platform
@@ -195,6 +206,7 @@ impl SourceSet {
             is_std,
             is_shadow: false,
             is_test: false,
+            dependency: None,
         });
     }
 
@@ -209,6 +221,7 @@ impl SourceSet {
             is_std: false,
             is_shadow: false,
             is_test: true,
+            dependency: None,
         });
     }
 
@@ -390,9 +403,12 @@ impl SourceSet {
     /// [manifest] [std-shadow] Every non-std file becomes a std file — the
     /// tree declared `std = true` in its manifest. A shadowing file already
     /// is; this reaches the modules the embedded copy does not have.
+    /// [manifest-deps] A dependency's files are left alone: they are std
+    /// only if *their* manifest says so, and `add_dependency` has already
+    /// settled that.
     pub fn mark_std_tree(&mut self) {
         for file in &mut self.files {
-            if !file.is_std {
+            if !file.is_std && file.dependency.is_none() {
                 file.is_std = true;
                 file.is_shadow = true;
             }
@@ -400,10 +416,13 @@ impl SourceSet {
     }
 
     pub fn apply_std_shadow(&mut self) -> Vec<String> {
+        // [manifest-deps] Dependency files never shadow from here: a std
+        // dependency was already merged as std, and a non-std one colliding
+        // with std was already refused.
         let shadowed: Vec<ModulePath> = self
             .files
             .iter()
-            .filter(|f| !f.is_std && !f.is_test)
+            .filter(|f| !f.is_std && !f.is_test && f.dependency.is_none())
             .map(|f| f.module.clone())
             .filter(|m| self.files.iter().any(|f| f.is_std && f.module == *m))
             .collect();
@@ -414,7 +433,7 @@ impl SourceSet {
             .retain(|f| !f.is_std || !shadowed.contains(&f.module));
         let mut notes = Vec::new();
         for file in &mut self.files {
-            if !file.is_test && shadowed.contains(&file.module) {
+            if !file.is_test && file.dependency.is_none() && shadowed.contains(&file.module) {
                 file.is_std = true;
                 file.is_shadow = true;
                 notes.push(format!(
@@ -425,6 +444,68 @@ impl SourceSet {
         }
         notes.sort();
         notes
+    }
+
+    /// [manifest-deps] Loads one **dependency**: the source tree of another
+    /// project, found by `Project::dependencies`. Its files are walked like
+    /// the project's own (companions included — a dependency's platform
+    /// effects need their host files as much as the project's do) but with
+    /// tests off, named by absolute path (they sit outside the source root),
+    /// and tagged with the dependency's name.
+    ///
+    /// Std-ness follows the dependency's *own* manifest (user decision
+    /// 2026-09-29): a `std = true` dependency is std and replaces the embedded
+    /// modules it declares, as [std-shadow] lets a source tree do; any other
+    /// dependency declaring a module the embedded standard library also
+    /// declares is refused, naming the file — a library must not be able to
+    /// redefine `core.list` on its users. Call this **before** the project's
+    /// own tree is added, so the project's [std-shadow] sees the merged std.
+    ///
+    /// Returns one rendered message per problem.
+    pub fn add_dependency(&mut self, dep: &crate::manifest::Dependency, native_ext: &str) -> Vec<String> {
+        let src = dep.project.src();
+        if !src.is_dir() {
+            return vec![format!(
+                "dependency `{}`: source directory `{}` does not exist [manifest-deps]",
+                dep.name,
+                src.display()
+            )];
+        }
+        let root = src.canonicalize().unwrap_or(src);
+        let mut loaded = SourceSet::default();
+        let mut errors = loaded.add_dir(&root, native_ext, dep.project.is_std(), false);
+        let is_std = dep.project.is_std();
+        for file in &mut loaded.files {
+            file.name = root.join(&file.name).display().to_string();
+            file.dependency = Some(dep.name.clone());
+            let embedded: Vec<usize> = self
+                .files
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| f.is_std && !f.is_shadow && f.module == file.module)
+                .map(|(i, _)| i)
+                .collect();
+            if embedded.is_empty() {
+                continue;
+            }
+            if is_std {
+                // [std-shadow] The dependency's copy takes over.
+                file.is_shadow = true;
+                for i in embedded.into_iter().rev() {
+                    self.files.remove(i);
+                }
+            } else {
+                errors.push(format!(
+                    "`{}`: dependency `{}` declares module `{}`, which is the standard \
+                     library's — a dependency may replace std modules only if its own \
+                     manifest says `[project] std = true` [manifest-deps]",
+                    file.name, dep.name, file.module
+                ));
+            }
+        }
+        self.files.extend(loaded.files);
+        self.companions.extend(loaded.companions);
+        errors
     }
 
     /// [test-file] The two things a test annex needs of its surroundings: a

@@ -4516,6 +4516,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlin_example_throw_and_release,
     kotlin_example_time,
     kotlin_example_cluster,
+    kotlin_example_aws_profile,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -14399,6 +14400,14 @@ fn emit_example(example: &str) -> Vec<salvo_backend_kotlin::EmittedFile> {
     let mut sources = SourceSet::default();
     let errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
+    // [manifest-deps] The example's manifest names its dependencies, loaded
+    // between std and the example's own tree as `salvo compile` does.
+    let project = salvo_core::Project::load(&examples_dir().join(example).join("salvo.toml"))
+        .unwrap_or_else(|e| panic!("examples/{example}/salvo.toml: {e}"));
+    for dep in project.dependencies().unwrap_or_else(|e| panic!("{e}")) {
+        let errors = sources.add_dependency(&dep, "kt");
+        assert!(errors.is_empty(), "failed to load dependency `{}`: {errors:?}", dep.name);
+    }
     let src = examples_dir().join(example).join("salvo");
     let errors = sources.add_dir(&src, "kt", false, false);
     assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
@@ -14516,6 +14525,10 @@ fn kotlin_example_time() -> KotlinCase {
 
 fn kotlin_example_cluster() -> KotlinCase {
     example_case("cluster")
+}
+
+fn kotlin_example_aws_profile() -> KotlinCase {
+    example_case("aws_profile")
 }
 
 /// Every example has a case above — checked here rather than

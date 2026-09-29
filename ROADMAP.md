@@ -48,8 +48,9 @@ effects on both backends (every binding a handle, no fusion, no `local`), and
 the first comptime slice (`comptime fn` and `by auto`, replacing `auto`: the
 structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
-Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1619 tests green.
+Twelve worked examples in `examples/` carry the checked-in generated code for both
+targets and the output they print, one of them consuming the first dependency
+(`modules/aws/`). 1638 tests green.
 
 ## The sequence
 
@@ -322,14 +323,20 @@ step-8 customer, now closed). The repo-root defect is gone: `std/`, every
 `examples/*/` and `demo/` carry manifests, so the root opens as several
 programs.
 
-Left behind, none blocking: dependencies between projects (one manifest naming
-another) are **out of scope** — a project is one tree plus std, and `name`
-exists for the lock and for the LSP's labelling; `salvo lock` as an explicit
-command was not added (a build writes the file); the `--target` flag under
-`backend = "*"` is per-backend for `run`/`test` (suffixed) and refused for
-`compile`; only a build (`compile`, `run`, `test`) reconciles `salvo.lock` —
-`analyze` and the language server read the manifest but never write the lock,
-so an editor session cannot produce one.
+Left behind, none blocking: `salvo lock` as an explicit command was not added
+(a build writes the file); the `--target` flag under `backend = "*"` is
+per-backend for `run`/`test` (suffixed) and refused for `compile`; only a build
+(`compile`, `run`, `test`) reconciles `salvo.lock` — `analyze` and the language
+server read the manifest but never write the lock, so an editor session cannot
+produce one. Dependencies between projects, parked here as out of scope, got
+their first slice on 2026-09-29 ([manifest-deps]: `[dependencies]` + `[build]
+modules`, `modules/aws/` consumed by `examples/aws_profile/`; COMPLETED.md has
+the entry). **What that slice left for later**: transitive dependencies (a
+dependency's own `[dependencies]` are not followed), version ranges and
+resolution, a fetcher that fills `salvo_modules/` from anywhere, a dependency's
+own `.svignore` and companions beyond `platform/`, and the `aws` module's actual
+content — the services as actors, each with its own design notes (the user's
+stated plan).
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
