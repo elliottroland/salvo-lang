@@ -3705,8 +3705,14 @@ Conventions:
   ```
 
   `X` is a **module**, matched by path suffix so `by auto` reaches `core.auto`
-  with no import (being in `core` means nameable, nothing more), or a `comptime fn`
-  named directly [fn-by]. For each member of the group the comptime fn of that name
+  with no import (being in `core` means nameable, nothing more — whether that
+  should be `by core.auto`, consistent with `size@core.list`, is open: ROADMAP
+  §2c), or a `comptime fn` named directly [fn-by]. **A name that is both** is
+  refused as ambiguous rather than defaulted, and each reading has a spelling
+  (user decision 2026-09-29): `by auto@import` is the module, `by auto@mymod`
+  the comptime fn `auto` declared in `mymod` — the call selector
+  [fn-overload-at] reused, with `@import` the one word that names the other
+  reading. For each member of the group the comptime fn of that name
   **and of the type's kind** (`<T is Struct>` for a struct, `<T is Union>` for a
   named union) is instantiated at the type, and the result is an ordinary fn
   **declared on the type** [fn-attached]: it travels with it, `cmp@Point`

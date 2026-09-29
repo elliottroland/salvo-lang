@@ -101,6 +101,13 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
         for item in &module.items {
             let Item::Fn(f) = item else { continue };
             let Some(cf) = &f.compfn else { continue };
+            // The declaration's own name: the checker never sees a generic
+            // comptime fn, so this is its one hover.
+            hovers.push(CompHover {
+                file: file_idx,
+                span: f.name.span,
+                text: compfn_hover_text(f, &file.module, None),
+            });
             let mut rec = HoverRecorder {
                 file: file_idx,
                 bound: cf.bound.as_ref().map(|(k, id)| (id.name.clone(), *k)),
@@ -151,21 +158,33 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                         if f.name.name == m.name.name
                             && f.scoped_to.as_ref().is_some_and(|t| t.name == name.name)))
                 });
+                let mut site_hover: Vec<String> = Vec::new();
                 for member in members {
-                    let Some(template) =
-                        world.pick(&member.name.name, by, target.kind, &mut diags)
+                    let Some((template, module)) =
+                        world.pick_with_module(&member.name.name, by, target.kind, &mut diags)
                     else {
                         continue;
                     };
+                    site_hover.push(compfn_hover_text(&template, &module, Some(&name.name)));
                     let stamp = Stamper::new(&world, &target, &template, by, &mut virtual_next);
                     match stamp.stamp_whole(by.span) {
                         Ok(mut f) => {
                             f.exported = exported;
                             f.scoped_to = Some(name.clone());
+                            // The function form (`by tag`) fulfils the member
+                            // under the *member's* name.
+                            f.name.name = member.name.name.clone();
                             generated.push(Item::Fn(f));
                         }
                         Err(errs) => diags.extend(errs),
                     }
+                }
+                if !site_hover.is_empty() {
+                    hovers.push(CompHover {
+                        file: file_idx,
+                        span: by.span,
+                        text: site_hover.join("\n\n---\n\n"),
+                    });
                 }
             }
         }
@@ -210,10 +229,15 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                     fallback_body(f);
                     continue;
                 };
-                let Some(template) = world.pick(&f.name.name, &by, target.kind, &mut diags) else {
+                let Some((template, module)) = world.pick_with_module(&f.name.name, &by, target.kind, &mut diags) else {
                     fallback_body(f);
                     continue;
                 };
+                hovers.push(CompHover {
+                    file: file_idx,
+                    span: by.span,
+                    text: compfn_hover_text(&template, &module, Some(&target.name)),
+                });
                 let stamper = Stamper::new(&world, &target, &template, &by, &mut virtual_next);
                 match stamper.stamp_into(f) {
                     Ok(()) => {}
@@ -703,6 +727,43 @@ struct CompFnDecl {
     decl: FnDecl,
 }
 
+/// [comptime-fields] The signature of a comptime fn as a hover code line —
+/// `comptime fn cmp<T is Struct>(a: T, b: T) -> Int` — with its module, for
+/// the `by` site and the declaration itself.
+fn compfn_signature(decl: &FnDecl) -> String {
+    let bound = decl
+        .compfn
+        .as_ref()
+        .and_then(|c| c.bound.as_ref())
+        .map(|(k, id)| format!("<{} is {}>", id.name, k.word()))
+        .unwrap_or_default();
+    let params: Vec<String> = decl
+        .params
+        .iter()
+        .map(|p| format!("{}{}: {}", if p.implicit { "?" } else { "" }, p.name.name, p.ty))
+        .collect();
+    let ret = decl
+        .return_type
+        .as_ref()
+        .map(|t| format!(" -> {t}"))
+        .unwrap_or_default();
+    format!("comptime fn {}{bound}({}){ret}", decl.name.name, params.join(", "))
+}
+
+fn compfn_hover_text(decl: &FnDecl, module: &ModulePath, at_type: Option<&str>) -> String {
+    let mut text = format!("```salvo\n{}\n```\n\n", compfn_signature(decl));
+    text.push_str(&format!("From `{module}`"));
+    if let Some(t) = at_type {
+        text.push_str(&format!(", stamped at `{t}`"));
+    }
+    text.push_str(". Instantiated by `by`, never called as itself [comptime-bound].");
+    if !decl.docs.is_empty() {
+        text.push_str("\n\n");
+        text.push_str(&decl.docs.join("\n"));
+    }
+    text
+}
+
 /// What a `by` site stamps at.
 #[derive(Clone)]
 struct Target {
@@ -793,7 +854,28 @@ impl World {
     /// [obligation-by] [fn-by] Which compfn a `by` names for `member` at a
     /// type of `kind`: a module's compfn of that name and kind, or a compfn
     /// named directly (the function form).
-    fn pick(
+    /// The module a picked comptime fn lives in, beside it.
+    fn module_of(&self, decl: &FnDecl) -> ModulePath {
+        self.compfns
+            .iter()
+            .find(|c| std::ptr::eq(&c.decl, decl) || (c.decl.name.span == decl.name.span && c.decl.name.name == decl.name.name))
+            .map(|c| c.module.clone())
+            .unwrap_or(ModulePath(vec![]))
+    }
+
+    fn pick_with_module(
+        &self,
+        member: &str,
+        by: &ByRef,
+        kind: CompKind,
+        diags: &mut Vec<Diagnostic>,
+    ) -> Option<(FnDecl, ModulePath)> {
+        let decl = self.pick_inner(member, by, kind, diags)?;
+        let module = self.module_of(&decl);
+        Some((decl, module))
+    }
+
+    fn pick_inner(
         &self,
         member: &str,
         by: &ByRef,
@@ -801,8 +883,8 @@ impl World {
         diags: &mut Vec<Diagnostic>,
     ) -> Option<FnDecl> {
         let path: Vec<&str> = by.path.iter().map(|p| p.name.as_str()).collect();
-        // A module: matched by path suffix, so `by auto` reaches `core.auto`
-        // without an import — being in `core` means nameable, nothing more.
+        // The module reading: matched by path suffix, so `by auto` reaches
+        // `core.auto` without an import (an open question — ROADMAP §2c).
         let modules: Vec<&ModulePath> = self
             .module_paths
             .iter()
@@ -810,20 +892,67 @@ impl World {
             .collect();
         let mut seen = std::collections::HashSet::new();
         let modules: Vec<&ModulePath> = modules.into_iter().filter(|m| seen.insert(m.to_string())).collect();
-        if modules.len() > 1 {
-            let names: Vec<String> = modules.iter().map(|m| format!("`{m}`")).collect();
+        // The function reading: a comptime fn of that name, of the target's
+        // kind, in any module — or in the module the `@` selector names.
+        let fn_candidates: Vec<&CompFnDecl> = if path.len() == 1 {
+            self.compfns
+                .iter()
+                .filter(|c| c.decl.name.name == path[0])
+                .filter(|c| c.decl.compfn.as_ref().and_then(|c| c.bound.as_ref()).is_some_and(|(k, _)| *k == kind))
+                .filter(|c| match &by.at {
+                    Some(ByAt::Module(sel)) => {
+                        let sel: Vec<&str> = sel.iter().map(|p| p.name.as_str()).collect();
+                        c.module.0.len() >= sel.len() && c.module.0[c.module.0.len() - sel.len()..] == sel[..]
+                    }
+                    _ => true,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        // [obligation-by] Both readings fit and nothing was written to choose:
+        // refused, naming the two spellings, rather than defaulting to one
+        // (user decision 2026-09-29).
+        if by.at.is_none() && !modules.is_empty() && !fn_candidates.is_empty() {
+            let module = modules[0];
+            let fn_module = &fn_candidates[0].module;
             diags.push(Diagnostic::error(
                 format!(
-                    "`by {}` names {} modules — {}; write more of the path [obligation-by]",
-                    by.text(),
-                    modules.len(),
-                    names.join(", ")
+                    "`by {0}` is ambiguous: `{0}` is a module (`{module}`) and a `comptime fn` \
+                     (in `{fn_module}`). Write `by {0}@import` for the module, or \
+                     `by {0}@{fn_module}` for the function [obligation-by]",
+                    by.text()
                 ),
                 by.span,
             ));
             return None;
         }
-        if let Some(module) = modules.first() {
+        let want_module = match &by.at {
+            Some(ByAt::Import(_)) => true,
+            Some(ByAt::Module(_)) => false,
+            None => !modules.is_empty(),
+        };
+        if want_module {
+            if modules.len() > 1 {
+                let names: Vec<String> = modules.iter().map(|m| format!("`{m}`")).collect();
+                diags.push(Diagnostic::error(
+                    format!(
+                        "`by {}` names {} modules — {}; write more of the path [obligation-by]",
+                        by.text(),
+                        modules.len(),
+                        names.join(", ")
+                    ),
+                    by.span,
+                ));
+                return None;
+            }
+            let Some(module) = modules.first() else {
+                diags.push(Diagnostic::error(
+                    format!("`by {}@import` names no module [obligation-by]", by.text()),
+                    by.span,
+                ));
+                return None;
+            };
             let mut candidates: Vec<&FnDecl> = self
                 .compfns
                 .iter()
@@ -869,31 +998,24 @@ impl World {
                 }
             };
         }
-        // The function form: a compfn named directly.
-        if path.len() == 1 {
-            let candidates: Vec<&FnDecl> = self
-                .compfns
-                .iter()
-                .filter(|c| c.decl.name.name == path[0])
-                .filter(|c| c.decl.compfn.as_ref().and_then(|c| c.bound.as_ref()).is_some_and(|(k, _)| *k == kind))
-                .map(|c| &c.decl)
-                .collect();
-            match candidates.len() {
-                1 => return Some(candidates[0].clone()),
-                n if n > 1 => {
-                    diags.push(Diagnostic::error(
-                        format!(
-                            "`by {}` names {n} comptime fns of that name for a `{}`; write the \
-                             module path instead [fn-by]",
-                            by.text(),
-                            kind.word()
-                        ),
-                        by.span,
-                    ));
-                    return None;
-                }
-                _ => {}
+        match fn_candidates.len() {
+            1 => return Some(fn_candidates[0].decl.clone()),
+            n if n > 1 => {
+                let places: Vec<String> = fn_candidates.iter().map(|c| format!("`{}`", c.module)).collect();
+                diags.push(Diagnostic::error(
+                    format!(
+                        "`by {}` names {n} comptime fns of that name for a `{}` (in {}); select \
+                         one with `by {}@<module>` [fn-by]",
+                        by.text(),
+                        kind.word(),
+                        places.join(", "),
+                        by.text()
+                    ),
+                    by.span,
+                ));
+                return None;
             }
+            _ => {}
         }
         diags.push(Diagnostic::error(
             format!(

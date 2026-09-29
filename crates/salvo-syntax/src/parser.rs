@@ -1428,8 +1428,30 @@ impl<'s> Parser<'s> {
             self.bump();
             path.push(self.ident()?);
         }
-        let span = start.to(path.last().map(|p| p.span).unwrap_or(start));
-        Some(Some(ByRef { path, span }))
+        let mut end = path.last().map(|p| p.span).unwrap_or(start);
+        // [obligation-by] `@import` / `@module.path`: which reading of a
+        // one-segment name is meant.
+        let mut at = None;
+        if self.at(&TokenKind::At) && self.same_line() {
+            self.bump();
+            if self.at(&TokenKind::KwImport) {
+                let sp = self.bump().span;
+                end = sp;
+                at = Some(ByAt::Import(sp));
+            } else {
+                let mut sel = vec![self.ident_value("module after `@`")?];
+                while self.at(&TokenKind::Dot)
+                    && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
+                {
+                    self.bump();
+                    sel.push(self.ident()?);
+                }
+                end = sel.last().map(|p| p.span).unwrap_or(end);
+                at = Some(ByAt::Module(sel));
+            }
+        }
+        let span = start.to(end);
+        Some(Some(ByRef { path, at, span }))
     }
 
     /// [comptime-bound] `compfn cmp<struct T>(a: T, b: T) -> Int => a, b { … }`:

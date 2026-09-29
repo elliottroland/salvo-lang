@@ -103,8 +103,9 @@
           "match": "\\b(if|elif|else|when|while|for|in|return|break|continue|try)\\b"
         },
         {
+          "comment": "[comptime-fields] `type:` is a field name (`Field.type` in core.comptime), not the keyword",
           "name": "keyword.declaration.salvo",
-          "match": "\\b(fn|let|struct|qualifier|effect|handler|params|type|intrinsic|platform|import|provenance|refn|rename|state)\\b"
+          "match": "\\b(fn|let|struct|qualifier|effect|handler|params|type|intrinsic|platform|import|provenance|refn|rename|state)\\b(?!\\s*:)"
         },
         {
           "name": "keyword.other.salvo",
@@ -113,7 +114,7 @@
         {
           "comment": "the export modifier — a keyword by position, not a reserved word",
           "name": "keyword.declaration.salvo",
-          "match": "\\bexport(?=\\s+(fn|struct|effect|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send)\\b)"
+          "match": "\\bexport(?=\\s+(fn|struct|effect|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe)\\b)"
         },
         {
           "comment": "the actor-effect modifier — a keyword by position, not a reserved word",

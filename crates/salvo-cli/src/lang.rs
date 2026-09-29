@@ -54,7 +54,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
     // first of all the modifiers, so the lookahead is every word that can
     // start a declaration (including the other contextual ones).
     (
-        "\\\\bexport(?=\\\\s+(fn|struct|effect|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send)\\\\b)",
+        "\\\\bexport(?=\\\\s+(fn|struct|effect|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe)\\\\b)",
         "keyword.declaration.salvo",
         "the export modifier",
     ),
@@ -325,8 +325,9 @@ pub fn tm_grammar() -> String {
           "match": "\\b({control})\\b"
         }},
         {{
+          "comment": "[comptime-fields] `type:` is a field name (`Field.type` in core.comptime), not the keyword",
           "name": "keyword.declaration.salvo",
-          "match": "\\b({declaration})\\b"
+          "match": "\\b({declaration})\\b(?!\\s*:)"
         }},
         {{
           "name": "keyword.other.salvo",
@@ -549,7 +550,8 @@ mod tests {
         // refuses the middle three outright, and the other two are not items).
         for word in [
             "fn", "struct", "effect", "handler", "qualifier", "type", "params", "intrinsic",
-            "linear", "platform", "provenance", "actor", "iter", "send",
+            "linear", "platform", "provenance", "actor", "iter", "send", "comptime",
+            "noremote", "threadsafe",
         ] {
             assert!(
                 regex.contains(word),

@@ -79,6 +79,15 @@ pub fn walk_fn<V: MutVisitor>(v: &mut V, f: &mut FnDecl) {
         for p in &mut by.path {
             v.visit_ident(p);
         }
+        match &mut by.at {
+            Some(ByAt::Import(sp)) => v.visit_span(sp),
+            Some(ByAt::Module(sel)) => {
+                for p in sel {
+                    v.visit_ident(p);
+                }
+            }
+            None => {}
+        }
     }
     if let Some(c) = &mut f.compfn {
         v.visit_span(&mut c.span);

@@ -420,7 +420,8 @@ fn diagnostics_hover_and_shutdown() {
                         [for field in T.fields] {\n        \
                         n = n + field.index\n    \
                         }\n    \
-                        return n\n}\n";
+                        return n\n}\n\
+                        struct Point : Ordered<self> by auto {\n    x: Int\n}\n";
     send(
         &mut lsp.stdin,
         json!({
@@ -437,6 +438,10 @@ fn diagnostics_hover_and_shutdown() {
         (0u32, 16u32, 10i64, "T is Struct"),
         (2, 9, 11, "field: Field"),
         (3, 16, 12, "field.index: Int"),
+        // The declaration's own name: its signature.
+        (0, 13, 13, "comptime fn tag<T is Struct>(v: T) -> Int"),
+        // The `by auto` site: what it stamps, from where.
+        (7, 33, 14, "comptime fn cmp<T is Struct>(a: T, b: T) -> Int"),
     ] {
         send(
             &mut lsp.stdin,
