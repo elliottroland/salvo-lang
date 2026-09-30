@@ -420,7 +420,7 @@ impl<'p> Walk<'_, '_, 'p> {
             Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::Bool { .. }
-            | Expr::Char { .. }
+            | Expr::Char { .. } | Expr::HostLeaf { .. }
             | Expr::Str { .. }
             | Expr::Is { .. }
             | Expr::Binary { .. }

@@ -6540,6 +6540,8 @@ impl<'p> Emitter<'p> {
             }
             Expr::Bool { value, .. } => value.to_string(),
             Expr::Char { value, .. } => format!("'{}'", escape_char(*value)),
+            // [host-splice] Host code inside a hole, as it was written.
+            Expr::HostLeaf { text, .. } => text.clone(),
             Expr::Str { parts, .. } => self.emit_string(parts),
             Expr::Ident(id) => {
                 if id.name == "None" {
@@ -9683,6 +9685,7 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
 
 fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        Expr::HostLeaf { .. } => {}
         // [assert-fn] A condition or a message may mutate, like any expression.
         Expr::Assert { cond, message, .. } => {
             collect_mutated_expr(cond, out);

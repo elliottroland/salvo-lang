@@ -11466,6 +11466,8 @@ impl<'p> Emitter<'p> {
             }
             Expr::Bool { value, .. } => value.to_string(),
             Expr::Char { value, .. } => format!("'{}'", escape_char(*value)),
+            // [host-splice] Host code inside a hole, as it was written.
+            Expr::HostLeaf { text, .. } => text.clone(),
             Expr::Str { parts, .. } => self.emit_string(parts),
             Expr::Ident(_) | Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
                 unreachable!("place expressions are handled by the callers")
@@ -17508,6 +17510,7 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
 
 fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        Expr::HostLeaf { .. } => {}
         // [assert-fn] A condition or a message may mutate, like any expression.
         Expr::Assert { cond, message, .. } => {
             collect_mutated_expr(cond, out);
@@ -17737,6 +17740,7 @@ fn collect_pattern_names(pattern: &Pattern, out: &mut HashSet<String>) {
 
 fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        Expr::HostLeaf { .. } => {}
         Expr::Assert { cond, message, .. } => {
             collect_declared_expr(cond, out);
             if let Some(m) = message {
@@ -18001,6 +18005,7 @@ fn block_terminates(block: &Block) -> bool {
 
 fn expr_terminates(expr: &Expr) -> bool {
     match expr {
+        Expr::HostLeaf { .. } => false,
         // [assert-fn] `unreachable!()` panics, so the statement after it is
         // unreachable — which is what this answers for `return` and `throw`.
         Expr::Unreachable { .. } => true,

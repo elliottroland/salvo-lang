@@ -814,6 +814,13 @@ pub struct HandlerDecl {
     /// State fields with initializers, e.g. `i: Int = 0`.
     pub state: Vec<FieldDecl>,
     pub fns: Vec<FnDecl>,
+    /// [host-splice] A `platform handler` written with a body: its members'
+    /// bodies are host blocks, and `host` holds the handler-level blocks —
+    /// host fields and helpers (Kotlin: inside the class; Rust: beside the
+    /// impl, declaring `struct H` and its `new`). `false` for a platform
+    /// handler whose class is a hand-written companion [platform-tree].
+    pub spliced: bool,
+    pub host: Vec<HostBlock>,
     pub span: Span,
 }
 
@@ -918,6 +925,36 @@ pub struct FnDecl {
     pub constructs: Option<TypeRef>,
     /// `None` for signatures (`intrinsic fn`, effect members).
     pub body: Option<Block>,
+    /// [host-splice] The body written in the host languages instead: one
+    /// fenced block per backend (`` ```kotlin … ``` ``). Non-empty means
+    /// `body` is `None` and the declaration's written clause is its whole
+    /// contract, as for a bodiless one [decl-explicit].
+    pub host: Vec<HostBlock>,
+    pub span: Span,
+}
+
+/// [host-splice] A fenced block of host code: its language, and the text
+/// with `@{ … }` holes the compiler renders.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HostBlock {
+    pub lang: String,
+    pub parts: Vec<HostBlockPart>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum HostBlockPart {
+    Text(String),
+    Hole(Hole),
+}
+
+/// [host-splice] A hole: `@{ e }` renders `e`, `@{ e : T }` renders `e` as a
+/// value of `T` (the wrap into a union a host call cannot see), `@{ : T }`
+/// renders the type `T`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hole {
+    pub expr: Option<Expr>,
+    pub ty: Option<Type>,
     pub span: Span,
 }
 
@@ -1554,6 +1591,9 @@ pub enum Expr {
     Char { value: char, span: Span },
     /// String literal with interpolation parts.
     Str { parts: Vec<StrExprPart>, span: Span },
+    /// [host-splice] `` `…` ``: host code inside a hole, written through
+    /// verbatim; it takes the type the hole expects of it.
+    HostLeaf { text: String, span: Span },
     /// A variable or type-name reference.
     Ident(Ident),
     /// `expr.field`
@@ -2026,6 +2066,7 @@ impl Expr {
             | Expr::Bool { span, .. }
             | Expr::Char { span, .. }
             | Expr::Str { span, .. }
+            | Expr::HostLeaf { span, .. }
             | Expr::Field { span, .. }
             | Expr::TupleIndex { span, .. }
             | Expr::Scoped { span, .. }

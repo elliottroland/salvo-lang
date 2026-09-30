@@ -637,7 +637,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::Bool { .. }
-        | Expr::Char { .. }
+        | Expr::Char { .. } | Expr::HostLeaf { .. }
         | Expr::Error { .. } => {}
     }
 }

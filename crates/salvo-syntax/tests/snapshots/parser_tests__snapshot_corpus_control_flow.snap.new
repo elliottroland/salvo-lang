@@ -1,0 +1,2414 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+assertion_line: 123
+expression: "parse_clean(&corpus(\"control_flow.sv\"))"
+---
+Module {
+    docs: [],
+    items: [
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: false,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "full_name",
+                    span: 3..12,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "person",
+                            span: 13..19,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Person",
+                                    span: 21..27,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 21..27,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 13..27,
+                    },
+                ],
+                implicit_groups: [],
+                effects: None,
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "person",
+                                    span: 39..45,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 39..45,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 32..35,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 32..35,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                If {
+                                    branches: [
+                                        (
+                                            Is {
+                                                subject: Field {
+                                                    base: Ident(
+                                                        Ident {
+                                                            name: "person",
+                                                            span: 56..62,
+                                                        },
+                                                    ),
+                                                    field: Ident {
+                                                        name: "surname",
+                                                        span: 63..70,
+                                                    },
+                                                    span: 56..70,
+                                                },
+                                                check: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Str",
+                                                            span: 74..77,
+                                                        },
+                                                        args: [],
+                                                        value_args: [],
+                                                        from: [],
+                                                        at: None,
+                                                        binder: false,
+                                                        established: false,
+                                                        alias: None,
+                                                        span: 74..77,
+                                                    },
+                                                ],
+                                                binding: None,
+                                                span: 56..77,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Return {
+                                                            value: Some(
+                                                                Str {
+                                                                    parts: [
+                                                                        Interp(
+                                                                            Field {
+                                                                                base: Ident(
+                                                                                    Ident {
+                                                                                        name: "person",
+                                                                                        span: 99..105,
+                                                                                    },
+                                                                                ),
+                                                                                field: Ident {
+                                                                                    name: "name",
+                                                                                    span: 106..110,
+                                                                                },
+                                                                                span: 99..110,
+                                                                            },
+                                                                        ),
+                                                                        Text(
+                                                                            " ",
+                                                                        ),
+                                                                        Interp(
+                                                                            Field {
+                                                                                base: Ident(
+                                                                                    Ident {
+                                                                                        name: "person",
+                                                                                        span: 114..120,
+                                                                                    },
+                                                                                ),
+                                                                                field: Ident {
+                                                                                    name: "surname",
+                                                                                    span: 121..128,
+                                                                                },
+                                                                                span: 114..128,
+                                                                            },
+                                                                        ),
+                                                                    ],
+                                                                    span: 96..130,
+                                                                },
+                                                            ),
+                                                            span: 89..130,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 79..136,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: None,
+                                    span: 52..136,
+                                },
+                            ),
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Field {
+                                            base: Ident(
+                                                Ident {
+                                                    name: "person",
+                                                    span: 148..154,
+                                                },
+                                            ),
+                                            field: Ident {
+                                                name: "name",
+                                                span: 155..159,
+                                            },
+                                            span: 148..159,
+                                        },
+                                    ),
+                                    span: 141..159,
+                                },
+                            ),
+                        ],
+                        span: 46..161,
+                    },
+                ),
+                host: [],
+                span: 0..161,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: false,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "union_moves",
+                    span: 166..177,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [],
+                implicit_groups: [],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 183..187,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 183..187,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "string_or_number",
+                                        span: 198..214,
+                                    },
+                                ),
+                                ty: Some(
+                                    Union {
+                                        arms: [
+                                            Named {
+                                                qualifiers: [],
+                                                base: TypeRef {
+                                                    name: Ident {
+                                                        name: "Str",
+                                                        span: 216..219,
+                                                    },
+                                                    args: [],
+                                                    value_args: [],
+                                                    from: [],
+                                                    at: None,
+                                                    binder: false,
+                                                    established: false,
+                                                    alias: None,
+                                                    span: 216..219,
+                                                },
+                                            },
+                                            Named {
+                                                qualifiers: [],
+                                                base: TypeRef {
+                                                    name: Ident {
+                                                        name: "Int",
+                                                        span: 222..225,
+                                                    },
+                                                    args: [],
+                                                    value_args: [],
+                                                    from: [],
+                                                    at: None,
+                                                    binder: false,
+                                                    established: false,
+                                                    alias: None,
+                                                    span: 222..225,
+                                                },
+                                            },
+                                        ],
+                                        span: 216..225,
+                                    },
+                                ),
+                                value: Call {
+                                    callee: Ident(
+                                        Ident {
+                                            name: "func",
+                                            span: 228..232,
+                                        },
+                                    ),
+                                    type_args: [],
+                                    args: [],
+                                    named: [],
+                                    span: 228..234,
+                                },
+                                span: 194..234,
+                            },
+                            Expr(
+                                If {
+                                    branches: [
+                                        (
+                                            Is {
+                                                subject: Ident(
+                                                    Ident {
+                                                        name: "string_or_number",
+                                                        span: 242..258,
+                                                    },
+                                                ),
+                                                check: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Str",
+                                                            span: 262..265,
+                                                        },
+                                                        args: [],
+                                                        value_args: [],
+                                                        from: [],
+                                                        at: None,
+                                                        binder: false,
+                                                        established: false,
+                                                        alias: None,
+                                                        span: 262..265,
+                                                    },
+                                                ],
+                                                binding: Some(
+                                                    Ident {
+                                                        name: "s",
+                                                        span: 266..267,
+                                                    },
+                                                ),
+                                                span: 242..267,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "println",
+                                                                    span: 278..285,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Ident(
+                                                                    Ident {
+                                                                        name: "s",
+                                                                        span: 286..287,
+                                                                    },
+                                                                ),
+                                                            ],
+                                                            named: [],
+                                                            span: 278..288,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 268..294,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: None,
+                                    span: 239..294,
+                                },
+                            ),
+                            Expr(
+                                While {
+                                    cond: Is {
+                                        subject: Ident(
+                                            Ident {
+                                                name: "string_or_number",
+                                                span: 305..321,
+                                            },
+                                        ),
+                                        check: [
+                                            TypeRef {
+                                                name: Ident {
+                                                    name: "Int",
+                                                    span: 325..328,
+                                                },
+                                                args: [],
+                                                value_args: [],
+                                                from: [],
+                                                at: None,
+                                                binder: false,
+                                                established: false,
+                                                alias: None,
+                                                span: 325..328,
+                                            },
+                                        ],
+                                        binding: Some(
+                                            Ident {
+                                                name: "i",
+                                                span: 329..330,
+                                            },
+                                        ),
+                                        span: 305..330,
+                                    },
+                                    body: Block {
+                                        stmts: [
+                                            Assign {
+                                                target: Ident(
+                                                    Ident {
+                                                        name: "string_or_number",
+                                                        span: 341..357,
+                                                    },
+                                                ),
+                                                value: Call {
+                                                    callee: Ident(
+                                                        Ident {
+                                                            name: "func",
+                                                            span: 360..364,
+                                                        },
+                                                    ),
+                                                    type_args: [],
+                                                    args: [],
+                                                    named: [],
+                                                    span: 360..366,
+                                                },
+                                                span: 341..366,
+                                            },
+                                        ],
+                                        span: 331..372,
+                                    },
+                                    else_block: None,
+                                    span: 299..372,
+                                },
+                            ),
+                        ],
+                        span: 188..374,
+                    },
+                ),
+                host: [],
+                span: 163..374,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: false,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "describe",
+                    span: 379..387,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "result",
+                            span: 388..394,
+                        },
+                        ty: Union {
+                            arms: [
+                                Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Ok",
+                                                span: 396..398,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 396..398,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Str",
+                                            span: 399..402,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 399..402,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Err",
+                                                span: 405..408,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 405..408,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Str",
+                                            span: 409..412,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 409..412,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Err",
+                                                span: 415..418,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 415..418,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Bool",
+                                            span: 419..423,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 419..423,
+                                    },
+                                },
+                            ],
+                            span: 396..423,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 388..423,
+                    },
+                ],
+                implicit_groups: [],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 428..431,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 428..431,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "value",
+                                        span: 442..447,
+                                    },
+                                ),
+                                ty: None,
+                                value: When {
+                                    subject: Ident(
+                                        Ident {
+                                            name: "result",
+                                            span: 455..461,
+                                        },
+                                    ),
+                                    branches: [
+                                        WhenBranch {
+                                            check: [
+                                                TypeRef {
+                                                    name: Ident {
+                                                        name: "Ok",
+                                                        span: 475..477,
+                                                    },
+                                                    args: [],
+                                                    value_args: [],
+                                                    from: [],
+                                                    at: None,
+                                                    binder: false,
+                                                    established: false,
+                                                    alias: None,
+                                                    span: 475..477,
+                                                },
+                                            ],
+                                            binding: None,
+                                            widen: false,
+                                            body: Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Ident(
+                                                            Ident {
+                                                                name: "result",
+                                                                span: 492..498,
+                                                            },
+                                                        ),
+                                                    ),
+                                                ],
+                                                span: 478..508,
+                                            },
+                                            span: 472..508,
+                                        },
+                                        WhenBranch {
+                                            check: [
+                                                TypeRef {
+                                                    name: Ident {
+                                                        name: "Err",
+                                                        span: 520..523,
+                                                    },
+                                                    args: [],
+                                                    value_args: [],
+                                                    from: [],
+                                                    at: None,
+                                                    binder: false,
+                                                    established: false,
+                                                    alias: None,
+                                                    span: 520..523,
+                                                },
+                                            ],
+                                            binding: None,
+                                            widen: false,
+                                            body: Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "println",
+                                                                    span: 538..545,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "Error: ",
+                                                                        ),
+                                                                        Interp(
+                                                                            Ident(
+                                                                                Ident {
+                                                                                    name: "result",
+                                                                                    span: 556..562,
+                                                                                },
+                                                                            ),
+                                                                        ),
+                                                                    ],
+                                                                    span: 546..564,
+                                                                },
+                                                            ],
+                                                            named: [],
+                                                            span: 538..565,
+                                                        },
+                                                    ),
+                                                    Expr(
+                                                        Return {
+                                                            value: Some(
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "error",
+                                                                        ),
+                                                                    ],
+                                                                    span: 585..592,
+                                                                },
+                                                            ),
+                                                            span: 578..592,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 524..602,
+                                            },
+                                            span: 517..602,
+                                        },
+                                    ],
+                                    span: 450..608,
+                                },
+                                span: 438..608,
+                            },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "value",
+                                                span: 620..625,
+                                            },
+                                        ),
+                                    ),
+                                    span: 613..625,
+                                },
+                            ),
+                        ],
+                        span: 432..627,
+                    },
+                ),
+                host: [],
+                span: 376..627,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: false,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "precise_checks",
+                    span: 632..646,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "result",
+                            span: 647..653,
+                        },
+                        ty: Union {
+                            arms: [
+                                Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Ok",
+                                                span: 655..657,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 655..657,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Str",
+                                            span: 658..661,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 658..661,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Err",
+                                                span: 664..667,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 664..667,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Str",
+                                            span: 668..671,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 668..671,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Err",
+                                                span: 674..677,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 674..677,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Bool",
+                                            span: 678..682,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 678..682,
+                                    },
+                                },
+                            ],
+                            span: 655..682,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 647..682,
+                    },
+                ],
+                implicit_groups: [],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 687..691,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 687..691,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                If {
+                                    branches: [
+                                        (
+                                            Is {
+                                                subject: Ident(
+                                                    Ident {
+                                                        name: "result",
+                                                        span: 701..707,
+                                                    },
+                                                ),
+                                                check: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Err",
+                                                            span: 711..714,
+                                                        },
+                                                        args: [],
+                                                        value_args: [],
+                                                        from: [],
+                                                        at: None,
+                                                        binder: false,
+                                                        established: false,
+                                                        alias: None,
+                                                        span: 711..714,
+                                                    },
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Str",
+                                                            span: 715..718,
+                                                        },
+                                                        args: [],
+                                                        value_args: [],
+                                                        from: [],
+                                                        at: None,
+                                                        binder: false,
+                                                        established: false,
+                                                        alias: None,
+                                                        span: 715..718,
+                                                    },
+                                                ],
+                                                binding: None,
+                                                span: 701..718,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "println",
+                                                                    span: 729..736,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "string error",
+                                                                        ),
+                                                                    ],
+                                                                    span: 737..751,
+                                                                },
+                                                            ],
+                                                            named: [],
+                                                            span: 729..752,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 719..758,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: None,
+                                    span: 698..758,
+                                },
+                            ),
+                            Expr(
+                                If {
+                                    branches: [
+                                        (
+                                            Is {
+                                                subject: Ident(
+                                                    Ident {
+                                                        name: "result",
+                                                        span: 766..772,
+                                                    },
+                                                ),
+                                                check: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Err",
+                                                            span: 776..779,
+                                                        },
+                                                        args: [],
+                                                        value_args: [],
+                                                        from: [],
+                                                        at: None,
+                                                        binder: false,
+                                                        established: false,
+                                                        alias: None,
+                                                        span: 776..779,
+                                                    },
+                                                ],
+                                                binding: None,
+                                                span: 766..779,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "println",
+                                                                    span: 790..797,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "any error",
+                                                                        ),
+                                                                    ],
+                                                                    span: 798..809,
+                                                                },
+                                                            ],
+                                                            named: [],
+                                                            span: 790..810,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 780..816,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: None,
+                                    span: 763..816,
+                                },
+                            ),
+                        ],
+                        span: 692..818,
+                    },
+                ),
+                host: [],
+                span: 629..818,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[when-condition] Without a subject, `when` is a condition chain: bare",
+                    "boolean branch heads and a mandatory `else`, which is what makes it",
+                    "exhaustive (and keeps `None` out of its value, unlike an `if` chain).",
+                ],
+                exported: false,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "classify",
+                    span: 1040..1048,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "n",
+                            span: 1049..1050,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 1052..1055,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1052..1055,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1049..1055,
+                    },
+                ],
+                implicit_groups: [],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 1060..1063,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1060..1063,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        WhenCond {
+                                            branches: [
+                                                (
+                                                    Binary {
+                                                        op: Lt,
+                                                        lhs: Ident(
+                                                            Ident {
+                                                                name: "n",
+                                                                span: 1092..1093,
+                                                            },
+                                                        ),
+                                                        rhs: Int {
+                                                            value: 0,
+                                                            long: false,
+                                                            span: 1096..1097,
+                                                        },
+                                                        span: 1092..1097,
+                                                    },
+                                                    Block {
+                                                        stmts: [
+                                                            Expr(
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "negative",
+                                                                        ),
+                                                                    ],
+                                                                    span: 1100..1110,
+                                                                },
+                                                            ),
+                                                        ],
+                                                        span: 1098..1112,
+                                                    },
+                                                ),
+                                                (
+                                                    Binary {
+                                                        op: Eq,
+                                                        lhs: Ident(
+                                                            Ident {
+                                                                name: "n",
+                                                                span: 1121..1122,
+                                                            },
+                                                        ),
+                                                        rhs: Int {
+                                                            value: 0,
+                                                            long: false,
+                                                            span: 1126..1127,
+                                                        },
+                                                        span: 1121..1127,
+                                                    },
+                                                    Block {
+                                                        stmts: [
+                                                            Expr(
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "zero",
+                                                                        ),
+                                                                    ],
+                                                                    span: 1130..1136,
+                                                                },
+                                                            ),
+                                                        ],
+                                                        span: 1128..1138,
+                                                    },
+                                                ),
+                                            ],
+                                            else_block: Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Str {
+                                                            parts: [
+                                                                Text(
+                                                                    "positive",
+                                                                ),
+                                                            ],
+                                                            span: 1154..1164,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 1152..1166,
+                                            },
+                                            span: 1077..1172,
+                                        },
+                                    ),
+                                    span: 1070..1172,
+                                },
+                            ),
+                        ],
+                        span: 1064..1174,
+                    },
+                ),
+                host: [],
+                span: 1037..1174,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[when-condition] The heads are ordinary boolean expressions, so `is`",
+                    "narrows its branch and the `else` sees the arm removed.",
+                ],
+                exported: false,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "describe",
+                    span: 1310..1318,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1319..1324,
+                        },
+                        ty: Union {
+                            arms: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Str",
+                                            span: 1326..1329,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 1326..1329,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Int",
+                                            span: 1332..1335,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 1332..1335,
+                                    },
+                                },
+                            ],
+                            span: 1326..1335,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1319..1335,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [
+                        Effect(
+                            TypeRef {
+                                name: Ident {
+                                    name: "Console",
+                                    span: 1338..1345,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1338..1345,
+                            },
+                        ),
+                    ],
+                ),
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 1350..1354,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1350..1354,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                WhenCond {
+                                    branches: [
+                                        (
+                                            Is {
+                                                subject: Ident(
+                                                    Ident {
+                                                        name: "value",
+                                                        span: 1376..1381,
+                                                    },
+                                                ),
+                                                check: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Str",
+                                                            span: 1385..1388,
+                                                        },
+                                                        args: [],
+                                                        value_args: [],
+                                                        from: [],
+                                                        at: None,
+                                                        binder: false,
+                                                        established: false,
+                                                        alias: None,
+                                                        span: 1385..1388,
+                                                    },
+                                                ],
+                                                binding: Some(
+                                                    Ident {
+                                                        name: "s",
+                                                        span: 1389..1390,
+                                                    },
+                                                ),
+                                                span: 1376..1390,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "println",
+                                                                    span: 1393..1400,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "str ",
+                                                                        ),
+                                                                        Interp(
+                                                                            Ident(
+                                                                                Ident {
+                                                                                    name: "s",
+                                                                                    span: 1408..1409,
+                                                                                },
+                                                                            ),
+                                                                        ),
+                                                                    ],
+                                                                    span: 1401..1411,
+                                                                },
+                                                            ],
+                                                            named: [],
+                                                            span: 1393..1412,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 1391..1414,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: Block {
+                                        stmts: [
+                                            Expr(
+                                                Call {
+                                                    callee: Ident(
+                                                        Ident {
+                                                            name: "println",
+                                                            span: 1430..1437,
+                                                        },
+                                                    ),
+                                                    type_args: [],
+                                                    args: [
+                                                        Str {
+                                                            parts: [
+                                                                Text(
+                                                                    "int ",
+                                                                ),
+                                                                Interp(
+                                                                    Ident(
+                                                                        Ident {
+                                                                            name: "value",
+                                                                            span: 1445..1450,
+                                                                        },
+                                                                    ),
+                                                                ),
+                                                            ],
+                                                            span: 1438..1452,
+                                                        },
+                                                    ],
+                                                    named: [],
+                                                    span: 1430..1453,
+                                                },
+                                            ),
+                                        ],
+                                        span: 1428..1455,
+                                    },
+                                    span: 1361..1461,
+                                },
+                            ),
+                        ],
+                        span: 1355..1463,
+                    },
+                ),
+                host: [],
+                span: 1307..1463,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: false,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "last_number",
+                    span: 1468..1479,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "numbers",
+                            span: 1480..1487,
+                        },
+                        ty: Array {
+                            elem: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Int",
+                                        span: 1489..1492,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 1489..1492,
+                                },
+                            },
+                            span: 1489..1494,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1480..1494,
+                    },
+                ],
+                implicit_groups: [],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Int",
+                                span: 1499..1502,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1499..1502,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "i",
+                                        span: 1513..1514,
+                                    },
+                                ),
+                                ty: None,
+                                value: Int {
+                                    value: 0,
+                                    long: false,
+                                    span: 1517..1518,
+                                },
+                                span: 1509..1518,
+                            },
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "last",
+                                        span: 1527..1531,
+                                    },
+                                ),
+                                ty: None,
+                                value: While {
+                                    cond: Binary {
+                                        op: Lt,
+                                        lhs: IncDec {
+                                            operand: Ident(
+                                                Ident {
+                                                    name: "i",
+                                                    span: 1540..1541,
+                                                },
+                                            ),
+                                            down: false,
+                                            prefix: false,
+                                            span: 1540..1543,
+                                        },
+                                        rhs: Call {
+                                            callee: Field {
+                                                base: Ident(
+                                                    Ident {
+                                                        name: "numbers",
+                                                        span: 1546..1553,
+                                                    },
+                                                ),
+                                                field: Ident {
+                                                    name: "size",
+                                                    span: 1554..1558,
+                                                },
+                                                span: 1546..1558,
+                                            },
+                                            type_args: [],
+                                            args: [],
+                                            named: [],
+                                            span: 1546..1560,
+                                        },
+                                        span: 1540..1560,
+                                    },
+                                    body: Block {
+                                        stmts: [
+                                            Expr(
+                                                Index {
+                                                    base: Ident(
+                                                        Ident {
+                                                            name: "numbers",
+                                                            span: 1571..1578,
+                                                        },
+                                                    ),
+                                                    index: Ident(
+                                                        Ident {
+                                                            name: "i",
+                                                            span: 1579..1580,
+                                                        },
+                                                    ),
+                                                    span: 1571..1581,
+                                                },
+                                            ),
+                                        ],
+                                        span: 1561..1587,
+                                    },
+                                    else_block: Some(
+                                        Block {
+                                            stmts: [
+                                                Expr(
+                                                    Unary {
+                                                        op: Neg,
+                                                        operand: Int {
+                                                            value: 1,
+                                                            long: false,
+                                                            span: 1604..1605,
+                                                        },
+                                                        span: 1603..1605,
+                                                    },
+                                                ),
+                                            ],
+                                            span: 1593..1611,
+                                        },
+                                    ),
+                                    span: 1534..1611,
+                                },
+                                span: 1523..1611,
+                            },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "last",
+                                                span: 1623..1627,
+                                            },
+                                        ),
+                                    ),
+                                    span: 1616..1627,
+                                },
+                            ),
+                        ],
+                        span: 1503..1629,
+                    },
+                ),
+                host: [],
+                span: 1465..1629,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: false,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "count",
+                    span: 1634..1639,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "person",
+                            span: 1640..1646,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Person",
+                                    span: 1648..1654,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1648..1654,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1640..1654,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [
+                        Effect(
+                            TypeRef {
+                                name: Ident {
+                                    name: "Console",
+                                    span: 1657..1664,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1657..1664,
+                            },
+                        ),
+                    ],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "person",
+                                    span: 1677..1683,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1677..1683,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 1669..1673,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1669..1673,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                For {
+                                    pattern: Ident(
+                                        Ident {
+                                            name: "i",
+                                            span: 1694..1695,
+                                        },
+                                    ),
+                                    iterable: Call {
+                                        callee: Ident(
+                                            Ident {
+                                                name: "range",
+                                                span: 1699..1704,
+                                            },
+                                        ),
+                                        type_args: [],
+                                        args: [
+                                            Int {
+                                                value: 0,
+                                                long: false,
+                                                span: 1705..1706,
+                                            },
+                                            Field {
+                                                base: Ident(
+                                                    Ident {
+                                                        name: "person",
+                                                        span: 1708..1714,
+                                                    },
+                                                ),
+                                                field: Ident {
+                                                    name: "age",
+                                                    span: 1715..1718,
+                                                },
+                                                span: 1708..1718,
+                                            },
+                                        ],
+                                        named: [],
+                                        span: 1699..1719,
+                                    },
+                                    body: Block {
+                                        stmts: [
+                                            Expr(
+                                                Call {
+                                                    callee: Ident(
+                                                        Ident {
+                                                            name: "println",
+                                                            span: 1730..1737,
+                                                        },
+                                                    ),
+                                                    type_args: [],
+                                                    args: [
+                                                        Str {
+                                                            parts: [
+                                                                Text(
+                                                                    "Person is older than ",
+                                                                ),
+                                                                Interp(
+                                                                    Ident(
+                                                                        Ident {
+                                                                            name: "i",
+                                                                            span: 1762..1763,
+                                                                        },
+                                                                    ),
+                                                                ),
+                                                                Text(
+                                                                    "...",
+                                                                ),
+                                                            ],
+                                                            span: 1738..1768,
+                                                        },
+                                                    ],
+                                                    named: [],
+                                                    span: 1730..1769,
+                                                },
+                                            ),
+                                        ],
+                                        span: 1720..1775,
+                                    },
+                                    else_block: None,
+                                    span: 1690..1775,
+                                },
+                            ),
+                        ],
+                        span: 1684..1777,
+                    },
+                ),
+                host: [],
+                span: 1631..1777,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: false,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "full_name_expr",
+                    span: 1782..1796,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "person",
+                            span: 1797..1803,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Person",
+                                    span: 1805..1811,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1805..1811,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1797..1811,
+                    },
+                ],
+                implicit_groups: [],
+                effects: None,
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "person",
+                                    span: 1824..1830,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1824..1830,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Nullable {
+                        inner: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1816..1819,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1816..1819,
+                            },
+                        },
+                        span: 1816..1820,
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "full_name",
+                                        span: 1841..1850,
+                                    },
+                                ),
+                                ty: None,
+                                value: If {
+                                    branches: [
+                                        (
+                                            Is {
+                                                subject: Field {
+                                                    base: Ident(
+                                                        Ident {
+                                                            name: "person",
+                                                            span: 1856..1862,
+                                                        },
+                                                    ),
+                                                    field: Ident {
+                                                        name: "surname",
+                                                        span: 1863..1870,
+                                                    },
+                                                    span: 1856..1870,
+                                                },
+                                                check: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Str",
+                                                            span: 1874..1877,
+                                                        },
+                                                        args: [],
+                                                        value_args: [],
+                                                        from: [],
+                                                        at: None,
+                                                        binder: false,
+                                                        established: false,
+                                                        alias: None,
+                                                        span: 1874..1877,
+                                                    },
+                                                ],
+                                                binding: None,
+                                                span: 1856..1877,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Str {
+                                                            parts: [
+                                                                Interp(
+                                                                    Field {
+                                                                        base: Ident(
+                                                                            Ident {
+                                                                                name: "person",
+                                                                                span: 1891..1897,
+                                                                            },
+                                                                        ),
+                                                                        field: Ident {
+                                                                            name: "name",
+                                                                            span: 1898..1902,
+                                                                        },
+                                                                        span: 1891..1902,
+                                                                    },
+                                                                ),
+                                                                Text(
+                                                                    " ",
+                                                                ),
+                                                                Interp(
+                                                                    Field {
+                                                                        base: Ident(
+                                                                            Ident {
+                                                                                name: "person",
+                                                                                span: 1906..1912,
+                                                                            },
+                                                                        ),
+                                                                        field: Ident {
+                                                                            name: "surname",
+                                                                            span: 1913..1920,
+                                                                        },
+                                                                        span: 1906..1920,
+                                                                    },
+                                                                ),
+                                                            ],
+                                                            span: 1888..1922,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 1878..1928,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: None,
+                                    span: 1853..1928,
+                                },
+                                span: 1837..1928,
+                            },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "full_name",
+                                                span: 1940..1949,
+                                            },
+                                        ),
+                                    ),
+                                    span: 1933..1949,
+                                },
+                            ),
+                        ],
+                        span: 1831..1951,
+                    },
+                ),
+                host: [],
+                span: 1779..1951,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[linear-obligation] Release on every path is written out: `defer` was",
+                    "removed from the language (2026-09-10) because linearity is what makes the",
+                    "obligation checked, and repeating the release is the honest cost.",
+                ],
+                exported: false,
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "read_config",
+                    span: 2176..2187,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "path",
+                            span: 2188..2192,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2194..2197,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 2194..2197,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2188..2197,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [
+                        Effect(
+                            TypeRef {
+                                name: Ident {
+                                    name: "Console",
+                                    span: 2200..2207,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 2200..2207,
+                            },
+                        ),
+                    ],
+                ),
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 2212..2215,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 2212..2215,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "file",
+                                        span: 2226..2230,
+                                    },
+                                ),
+                                ty: None,
+                                value: Call {
+                                    callee: Ident(
+                                        Ident {
+                                            name: "open",
+                                            span: 2233..2237,
+                                        },
+                                    ),
+                                    type_args: [],
+                                    args: [
+                                        Ident(
+                                            Ident {
+                                                name: "path",
+                                                span: 2238..2242,
+                                            },
+                                        ),
+                                    ],
+                                    named: [],
+                                    span: 2233..2243,
+                                },
+                                span: 2222..2243,
+                            },
+                            Expr(
+                                If {
+                                    branches: [
+                                        (
+                                            Call {
+                                                callee: Ident(
+                                                    Ident {
+                                                        name: "is_empty",
+                                                        span: 2251..2259,
+                                                    },
+                                                ),
+                                                type_args: [],
+                                                args: [
+                                                    Ident(
+                                                        Ident {
+                                                            name: "file",
+                                                            span: 2260..2264,
+                                                        },
+                                                    ),
+                                                ],
+                                                named: [],
+                                                span: 2251..2265,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "close",
+                                                                    span: 2276..2281,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Ident(
+                                                                    Ident {
+                                                                        name: "file",
+                                                                        span: 2282..2286,
+                                                                    },
+                                                                ),
+                                                            ],
+                                                            named: [],
+                                                            span: 2276..2287,
+                                                        },
+                                                    ),
+                                                    Expr(
+                                                        Return {
+                                                            value: Some(
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "",
+                                                                        ),
+                                                                    ],
+                                                                    span: 2303..2305,
+                                                                },
+                                                            ),
+                                                            span: 2296..2305,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 2266..2311,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: None,
+                                    span: 2248..2311,
+                                },
+                            ),
+                            Expr(
+                                For {
+                                    pattern: Ident(
+                                        Ident {
+                                            name: "line",
+                                            span: 2320..2324,
+                                        },
+                                    ),
+                                    iterable: Call {
+                                        callee: Ident(
+                                            Ident {
+                                                name: "lines",
+                                                span: 2328..2333,
+                                            },
+                                        ),
+                                        type_args: [],
+                                        args: [
+                                            Ident(
+                                                Ident {
+                                                    name: "file",
+                                                    span: 2334..2338,
+                                                },
+                                            ),
+                                        ],
+                                        named: [],
+                                        span: 2328..2339,
+                                    },
+                                    body: Block {
+                                        stmts: [
+                                            Expr(
+                                                Call {
+                                                    callee: Ident(
+                                                        Ident {
+                                                            name: "println",
+                                                            span: 2350..2357,
+                                                        },
+                                                    ),
+                                                    type_args: [],
+                                                    args: [
+                                                        Ident(
+                                                            Ident {
+                                                                name: "line",
+                                                                span: 2358..2362,
+                                                            },
+                                                        ),
+                                                    ],
+                                                    named: [],
+                                                    span: 2350..2363,
+                                                },
+                                            ),
+                                        ],
+                                        span: 2340..2369,
+                                    },
+                                    else_block: None,
+                                    span: 2316..2369,
+                                },
+                            ),
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "out",
+                                        span: 2378..2381,
+                                    },
+                                ),
+                                ty: None,
+                                value: Call {
+                                    callee: Ident(
+                                        Ident {
+                                            name: "contents",
+                                            span: 2384..2392,
+                                        },
+                                    ),
+                                    type_args: [],
+                                    args: [
+                                        Ident(
+                                            Ident {
+                                                name: "file",
+                                                span: 2393..2397,
+                                            },
+                                        ),
+                                    ],
+                                    named: [],
+                                    span: 2384..2398,
+                                },
+                                span: 2374..2398,
+                            },
+                            Expr(
+                                Call {
+                                    callee: Ident(
+                                        Ident {
+                                            name: "close",
+                                            span: 2403..2408,
+                                        },
+                                    ),
+                                    type_args: [],
+                                    args: [
+                                        Ident(
+                                            Ident {
+                                                name: "file",
+                                                span: 2409..2413,
+                                            },
+                                        ),
+                                    ],
+                                    named: [],
+                                    span: 2403..2414,
+                                },
+                            ),
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "out",
+                                                span: 2426..2429,
+                                            },
+                                        ),
+                                    ),
+                                    span: 2419..2429,
+                                },
+                            ),
+                        ],
+                        span: 2216..2431,
+                    },
+                ),
+                host: [],
+                span: 2173..2431,
+            },
+        ),
+    ],
+}

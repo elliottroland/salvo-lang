@@ -1814,6 +1814,8 @@ struct Checker<'p, 'r> {
     /// coercion consults when an argument typed without an expected type (so
     /// as its base) lands in a slot listing the literal.
     lit_spans: HashMap<Key, TypeLit>,
+    /// [host-splice] Checking a `@{…}` hole, where host code may stand.
+    in_hole: bool,
     /// [linear-group] The parameter name of the designated `close` currently
     /// being checked, if this fn is one: its obligation is discharged by
     /// being closed.
@@ -2111,6 +2113,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             own_stamp: None,
             own_contract: None,
             lit_spans: HashMap::new(),
+            in_hole: false,
             own_discharges: std::collections::HashSet::new(),
             own_written: Vec::new(),
             lambda_ctx: Vec::new(),
@@ -14191,7 +14194,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::Bool { .. }
-            | Expr::Char { .. }
+            | Expr::Char { .. } | Expr::HostLeaf { .. }
             | Expr::Str { .. }
             | Expr::Ident(_)
             | Expr::Field { .. }
@@ -14290,7 +14293,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::Bool { .. }
-            | Expr::Char { .. }
+            | Expr::Char { .. } | Expr::HostLeaf { .. }
             | Expr::Str { .. }
             | Expr::Ident(_)
             | Expr::Field { .. }
@@ -18604,7 +18607,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::Bool { .. }
-        | Expr::Char { .. }
+        | Expr::Char { .. } | Expr::HostLeaf { .. }
         | Expr::Ident(_)
         | Expr::Error { .. } => {}
     }
@@ -18782,7 +18785,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::Bool { .. }
-        | Expr::Char { .. }
+        | Expr::Char { .. } | Expr::HostLeaf { .. }
         | Expr::Error { .. } => false,
     }
 }
@@ -20115,6 +20118,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 adopt_literal(expected, TypeLit::Bool(*value)).unwrap_or_else(|| Ty::named("Bool"))
             }
             Expr::Char { .. } => Ty::named("Char"),
+            // [host-splice] Host code is the type the hole expects of it; out
+            // of a hole there is nothing to expect, and it is refused.
+            Expr::HostLeaf { span, .. } => match expected {
+                Some(t) if self.in_hole => t.clone(),
+                _ => {
+                    if !self.in_hole {
+                        self.error(*span, "`` `…` `` is host code, which only a `@{…}` hole in a host block may hold [host-splice]");
+                    }
+                    Ty::Unknown
+                }
+            },
             // [type-literal] A plain string (no interpolation) takes a literal
             // type where the expected type lists it — contextual only, so
             // `let x = "a"` stays a `Str`.

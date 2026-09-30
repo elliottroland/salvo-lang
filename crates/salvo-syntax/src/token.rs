@@ -24,7 +24,13 @@ pub enum TokenKind {
     /// String literal, decomposed into text and `${...}` interpolation parts.
     Str(Vec<StrPart>),
     Char(char),
-    /// Raw template contents between `` delimiters (used in `define` blocks).
+    /// [host-splice] A fenced host block: `` ```kotlin … ``` ``, the language
+    /// named after the opening fence, the text up to the closing fence split
+    /// into host text and `@{ … }` holes.
+    HostBlock { lang: String, parts: Vec<HostPart> },
+    /// [host-splice] `` `…` `` — a piece of host code inside a hole: an
+    /// expression the compiler does not read, written through verbatim.
+    HostLeaf(String),
 
     // Keywords
     KwFn,
@@ -135,6 +141,15 @@ pub enum TokenKind {
     Eof,
 }
 
+/// [host-splice] A piece of a host block: host text, written through as it
+/// is, or a `@{ … }` hole — Salvo the compiler renders — with its raw source
+/// and the byte offset of that source in the file, so its spans are real.
+#[derive(Clone, Debug, PartialEq)]
+pub enum HostPart {
+    Text(String),
+    Hole { source: String, offset: u32 },
+}
+
 /// A piece of a string literal: either literal text or an interpolated
 /// expression. Interpolations keep their raw source and the byte offset of
 /// that source within the file, so the parser can parse them with correct
@@ -217,6 +232,8 @@ impl TokenKind {
             }
             TokenKind::Str(_) => "string literal".to_string(),
             TokenKind::Char(c) => format!("character literal `{c}`"),
+            TokenKind::HostBlock { lang, .. } => format!("a ```{lang} host block"),
+            TokenKind::HostLeaf(_) => "host code (`…`)".to_string(),
             TokenKind::Eof => "end of file".to_string(),
             other => format!("`{}`", other.symbol()),
         }

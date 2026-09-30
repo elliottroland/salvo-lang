@@ -1327,7 +1327,7 @@ impl<'p> Walk<'_, 'p> {
             | Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::Bool { .. }
-            | Expr::Char { .. }
+            | Expr::Char { .. } | Expr::HostLeaf { .. }
             | Expr::Error { .. } => {}
         }
     }

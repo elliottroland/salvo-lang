@@ -2,7 +2,7 @@
 
 use crate::diag::Diagnostic;
 use crate::span::Span;
-use crate::token::{StrPart, Token, TokenKind};
+use crate::token::{HostPart, StrPart, Token, TokenKind};
 
 pub struct LexResult {
     pub tokens: Vec<Token>,
@@ -78,6 +78,8 @@ impl<'s> Lexer<'s> {
                     self.push_comment(start);
                 }
                 '"' => self.string(start),
+                '`' if self.peek_at(1) == Some('`') && self.peek_at(2) == Some('`') => self.host_block(start),
+                '`' => self.host_leaf(start),
                 '\'' => self.char_literal(start),
                 c if c.is_ascii_digit() => self.number(start),
                 c if c.is_alphabetic() || c == '_' => self.ident(start),
@@ -276,6 +278,116 @@ impl<'s> Lexer<'s> {
                 Err(_) => self.error(format!("invalid integer literal `{text}`"), span),
             },
         }
+    }
+
+    /// [host-splice] Scans a fenced host block, from ```` ```lang ```` to the
+    /// next ```` ``` ````. A `@{` opens a hole, closed by the `}` that balances
+    /// it; a `` `…` `` leaf inside a hole is skipped whole, so a brace in host
+    /// code does not close the hole.
+    fn host_block(&mut self, start: u32) {
+        for _ in 0..3 {
+            self.bump();
+        }
+        let mut lang = String::new();
+        while let Some(c) = self.peek() {
+            if c.is_alphanumeric() || c == '_' {
+                lang.push(c);
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        if lang.is_empty() {
+            let span = Span::new(start, self.offset());
+            self.error("a host block names its language: ```kotlin or ```rust", span);
+        }
+        let mut parts: Vec<HostPart> = Vec::new();
+        let mut text = String::new();
+        loop {
+            let Some(c) = self.peek() else {
+                let span = Span::new(start, self.offset());
+                self.error("unterminated host block: close it with ```", span);
+                break;
+            };
+            if c == '`' && self.peek_at(1) == Some('`') && self.peek_at(2) == Some('`') {
+                for _ in 0..3 {
+                    self.bump();
+                }
+                break;
+            }
+            if c == '@' && self.peek_at(1) == Some('{') {
+                if !text.is_empty() {
+                    parts.push(HostPart::Text(std::mem::take(&mut text)));
+                }
+                self.bump();
+                self.bump();
+                let offset = self.offset();
+                let mut depth = 1usize;
+                let mut source = String::new();
+                loop {
+                    let Some(c) = self.peek() else {
+                        let span = Span::new(start, self.offset());
+                        self.error("unterminated `@{` hole in a host block", span);
+                        break;
+                    };
+                    if c == '`' {
+                        source.push(c);
+                        self.bump();
+                        while let Some(c) = self.peek() {
+                            source.push(c);
+                            self.bump();
+                            if c == '`' {
+                                break;
+                            }
+                        }
+                        continue;
+                    }
+                    if c == '{' {
+                        depth += 1;
+                    } else if c == '}' {
+                        depth -= 1;
+                        if depth == 0 {
+                            self.bump();
+                            break;
+                        }
+                    }
+                    source.push(c);
+                    self.bump();
+                }
+                parts.push(HostPart::Hole { source, offset });
+                continue;
+            }
+            text.push(c);
+            self.bump();
+        }
+        if !text.is_empty() {
+            parts.push(HostPart::Text(text));
+        }
+        self.push_here(TokenKind::HostBlock { lang, parts }, start);
+    }
+
+    /// [host-splice] `` `…` ``: host code inside a hole, verbatim.
+    fn host_leaf(&mut self, start: u32) {
+        self.bump();
+        let mut text = String::new();
+        loop {
+            match self.peek() {
+                Some('`') => {
+                    self.bump();
+                    break;
+                }
+                Some('\n') | None => {
+                    let span = Span::new(start, self.offset());
+                    self.error("unterminated host code: close it with `", span);
+                    break;
+                }
+                Some(c) => {
+                    text.push(c);
+                    self.bump();
+                }
+            }
+        }
+        self.push_here(TokenKind::HostLeaf(text), start);
     }
 
     /// Scans a `"..."` string literal, splitting out `${...}` interpolations.

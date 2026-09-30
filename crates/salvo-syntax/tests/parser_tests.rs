@@ -3043,3 +3043,39 @@ fn literal_types_parse() {
     let errs = errors_of("type F = 1.5 | 2\n");
     assert!(errs.iter().any(|e| e.contains("a float cannot be a literal type")), "{errs:?}");
 }
+
+// [host-splice] A body written in the host languages: one fenced block per
+// backend where a `{` would open (on the next line too), `@{…}` holes parsed as
+// `e`, `e : T` or `: T`, `` `…` `` host leaves inside them, and a braced platform
+// handler with a handler-level block.
+#[test]
+fn host_blocks_parse() {
+    use salvo_syntax::ast::{Expr, HostBlockPart, Item};
+    let src = "fn greet(name: Str) [] -> Str => name\n```kotlin\nreturn \"hi \" + @{name} // }\n```\n```rust\nformat!(\"hi {}\", @{name})\n```\n\n\
+platform handler H(p: Str) of E {\n    ```kotlin\n    private val x = 1\n    ```\n    fn go(n: Int) -> None => n ```kotlin\n    println(@{ : Ok Int | Err Str })\n    f(@{ ok(`n.toInt()`) : Ok Int | Err Str })\n    ```\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(src);
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!("a fn") };
+    assert!(f.body.is_none());
+    assert_eq!(f.host.iter().map(|h| h.lang.as_str()).collect::<Vec<_>>(), ["kotlin", "rust"]);
+    let holes = f.host[0].parts.iter().filter(|p| matches!(p, HostBlockPart::Hole(_))).count();
+    assert_eq!(holes, 1);
+    let Item::Handler(h) = &module.items[1] else { panic!("a handler") };
+    assert!(h.spliced && h.platform);
+    assert_eq!(h.host.len(), 1);
+    let member = &h.fns[0];
+    let holes: Vec<_> = member.host[0]
+        .parts
+        .iter()
+        .filter_map(|p| match p {
+            HostBlockPart::Hole(h) => Some(h),
+            _ => None,
+        })
+        .collect();
+    assert!(holes[0].expr.is_none() && holes[0].ty.is_some());
+    let Some(Expr::Call { args, .. }) = &holes[1].expr else { panic!("a call: {:?}", holes[1]) };
+    assert!(matches!(&args[0], Expr::HostLeaf { text, .. } if text == "n.toInt()"));
+    assert!(holes[1].ty.is_some());
+    let errs = errors_of("fn f() [] -> None\n```kotlin\n@{}\n```\n");
+    assert!(errs.iter().any(|e| e.contains("empty `@{}` hole")), "{errs:?}");
+}
