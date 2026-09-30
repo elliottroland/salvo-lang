@@ -473,6 +473,17 @@ fn main() [use, Greeter] {
         assert!(cargo_toml.contains(&dir.join("vendor/greeter").display().to_string()), "{cargo_toml}");
         assert!(cargo_toml.contains("[workspace]"), "{cargo_toml}");
         assert!(stderr.contains("cargo build --manifest-path"), "{stderr}");
+        // Following that hint puts cargo's `target/` inside the output tree,
+        // with build scripts' `.rs` output in it; the next `compile` leaves a
+        // cache directory alone (found 2026-09-30: it removed them, and the
+        // rebuild failed on a missing `build_env.rs`).
+        let generated = dir.join("out/target/debug/build/x/out/build_env.rs");
+        fs::create_dir_all(generated.parent().unwrap()).unwrap();
+        fs::write(dir.join("out/target/CACHEDIR.TAG"), "Signature: 8a477f597d28d172789f06886806bc55\n").unwrap();
+        fs::write(&generated, "// cargo's\n").unwrap();
+        let out = salvo_in(&dir, &["compile", "--target", "out"]);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(generated.exists(), "compile removed a file in cargo's target/");
 
         // Crates gone: the manifest we wrote goes with them, the hint is rustc's.
         fs::write(dir.join("salvo.toml"), manifest("")).unwrap();

@@ -1660,6 +1660,13 @@ fn clean_stale(target: &PathBuf, ext: &str, written: &[PathBuf]) -> Vec<PathBuf>
                 if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with('.')) {
                     continue;
                 }
+                // So is a cache directory — cargo's `target/`, which the
+                // `compile` hint's `cargo build --manifest-path` puts inside
+                // the output tree, full of build scripts' `.rs` output — by
+                // the marker source discovery already skips [mod-ignore].
+                if path.join("CACHEDIR.TAG").is_file() {
+                    continue;
+                }
                 stack.push(path);
             } else if path.extension().is_some_and(|e| e == ext)
                 && !written.contains(&path)
