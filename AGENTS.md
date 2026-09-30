@@ -303,9 +303,11 @@ Salvo source.
 - **Checker and emitter must agree** on lowering rules (union wrapper arm
   identity, the ident-unwrap predicate, `is`-test lowering). If you change
   one side, change the other and the tests.
-- Union arm identity is positional over the *declared* type's non-`None`
-  arms, in declaration order. Do not reorder or dedupe in ways that change
-  arm indices.
+- Union arm identity is positional over the *runtime* union's non-`None`
+  arms, in order of first appearance — the declared arms, except that a base
+  type's literals collapse into one arm [union-arm-identity] [type-literal];
+  `salvo_core::literal` is the one definition both sides use. Do not reorder
+  or dedupe in ways that change arm indices.
 - When changing std (`std/`), the parser AST, checker lowering, or emitter
   output: update the insta snapshots deliberately and check the
   kotlinc/rustc end-to-end tests still pass.

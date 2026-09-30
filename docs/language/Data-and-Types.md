@@ -163,6 +163,45 @@ It makes no sense to have duplicate types in a union (unless they are qualified 
 
 The type of a variable can never get more general (although its qualifiers can change — see [Qualifiers](Qualifiers.md)), and we don't support variable shadowing. In the above example, it is only because the type of `string_or_number` _started_ as a union, it could move between `Str` and `Int`.
 
+### Unions of literals
+
+A literal is a type too — the type whose one value is that literal — and a union of them names a set of values:
+
+```
+type Direction = "north" | "south" | "east" | "west"
+type Retries = 0 | 1 | 3
+```
+
+Strings, integers (negative ones too), `Long`s (`3L`) and `Bool`s can be literal types. A float cannot: equality on floats does not name a value.
+
+A literal takes its literal type from where it is used and nowhere else. `let d: Direction = "north"` is a `Direction`, a `"north"` passed to a `Direction` parameter is one, and `let s = "north"` is a plain `Str`. A literal the union does not list is an error that names the listed values, so a typo is caught where it is written. A plain `Str` is not a `Direction` either, since it could hold anything: narrow it first.
+
+`is` tests a literal, and `when` over a union of literals is exhaustive, as over any union:
+
+```
+fn arrow(d: Direction) [] -> Str => d {
+    when d {
+        is "north" { return "↑" }
+        is "south" { return "↓" }
+        is "east" { return "→" }
+        is "west" { return "←" }
+    }
+}
+```
+
+A union of literals widens to their base type wherever the base is expected: a `Direction` passes where a `Str` is wanted, interpolates, and compares with `==` against a literal. Unions compose, so a named sub-union is a group you can test in one go:
+
+```
+type Kms = "KmsDisabled" | "KmsThrottled"
+type Code = Kms | "QueueDoesNotExist" | Other Str
+
+if code is Kms { … }
+```
+
+**Open sets.** Many sets of values are open: a service may add a code this program has never heard of. `Other`, a qualifier in `core`, is the open arm: `"A" | "B" | Other Str` is the listed values and any other string. A value reaches the `Other` arm only by being built with `other("…")`, so everything else still has to be one of the listed literals; `is Other` narrows to the rest.
+
+**At run time a literal is its base.** A union of one base type's literals is that base type on both backends — `Direction` is a `String` — and the `Other` arm, being a `Str` too, collapses with them. In a union that mixes bases, each base's literals share one arm: `"name" | 3 | "other" | Person` is a `Str | Int | Person` at run time, its arms in the order they first appear. Since two literals of one base are the same host type, two overloads that differ only in literal types (`fn pick(x: "A")` and `fn pick(x: "B")`) are refused; take the union in one function and `when` over it. `"a" | Str` is a warning — every `Str` is already an arm — pointing at `Other Str`.
+
 ## Structs
 
 Data types can be combined into structs which are like Kotlin class objects where all the fields are public and there are no methods:

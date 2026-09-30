@@ -135,7 +135,32 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**Unions of literals — decided (2026-09-30, user decisions; not yet built).**
+**Unions of literals — built (2026-09-30; ROADMAP §4c step 2).** [type-literal]
+[union-arm-identity]: `ast::Type::Literal` / `Ty::Lit` for `Str`, `Int`, `Long`
+and `Bool` literals (a float is a parse error; `Byte` has no literal syntax, so
+none yet); `is "A"` parses as a check whose one ref is named by the literal;
+`core.other` holds `Other` and `other`. The representation is one module,
+`salvo_core::literal`: `collapse_ty`/`collapse_ast` (with alias expansion
+inside unions, so `Kms | "X" | Other Str` sees `Kms`'s literals), `runtime_arm`,
+`widen`, and `lower_tables`, which rewrites the coercions into runtime arms
+after the last round; `is` tests over literal unions are recorded directly in
+runtime arms with value conditions (`UnionTest.values`). Both emitters render
+types through the collapse; Kotlin lowers a value condition to `==` in a
+subject-less `when`, Rust to a guarded pattern. The checker: contextual
+literal typing in expressions *and* in overload selection (a literal argument
+is its literal for the candidate whose parameter lists it, and for the
+coercion after), widening in `is_subtype`, `unify` and the comparison
+operators, and four diagnostics — an unlisted literal naming the listed values
+(with `other(…)` when open), a plain value that must be narrowed, `"a" | Str`
+as a warning, and overloads apart only by literal types of one base. Tests: 2
+unit tests in `literal.rs`, 7 checker tests (`literal_tests.rs`), a parser
+test, and one CLI test running the whole surface on both backends with
+identical output. *Found on the way:* `when` over a subject never takes
+`else` (an existing rule), so a literal `when` is exhaustive by listing every
+arm, `Other` included — worth knowing when regenerating the clients. **1671
+tests.**
+
+**Unions of literals — decided (2026-09-30, user decisions).**
 Prompted by the generated AWS clients: every Smithy enum became a union of
 unit-tag structs with an `Unknown` arm, and every error a struct in a 21-arm
 union, so most of the host glue was mapping wire strings to tags and back. The
@@ -18949,7 +18974,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1658)
+## Test inventory (all green: 1671)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

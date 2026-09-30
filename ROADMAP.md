@@ -423,9 +423,9 @@ paginators and waiters, more S3 operations (buckets, listing).
 
 ### 4c — Unions of literals, then the clients over them (decided 2026-09-30, not built)
 
-The user's order: (1) ✅ a drift test for the aws glue; (2) **unions of
-literals** — the rules are COMPLETED.md's 2026-09-30 decision entry; build
-syntax → types/checker → both emitters → spec pages and examples; (3)
+The user's order: (1) ✅ a drift test for the aws glue; (2) ✅ **unions of
+literals** (built 2026-09-30, [type-literal]; left: `Byte` literals, which
+need literal syntax first); (3)
 regenerate `aws.sqs`/`aws.s3` with literal-union enums and one error struct per
 service; (4) the host ABI written down in each BACKEND_SPEC, then **host code
 with Salvo splices** (`` ```kotlin … ``` `` blocks) designed against what is

@@ -258,12 +258,59 @@ Conventions:
   (`Str | Str` ≡ `Str`) — but *qualified* duplicates are distinct arms.
   * `Ty::Union` invariants: ≥ 2 arms, no nested unions (flattened), arms
     deduped, declaration order preserved.
-* [union-arm-identity] Union arm identity is *positional over the declared
-  type's non-`None` arms, in declaration order* (qualifiers erased).
-  * The checker's side tables (`coerce`, `is_tests`) are expressed in
-    these arm indices; every backend's runtime encoding must preserve
-    them. Never reorder or dedupe in ways that change arm indices, and
-    keep the checker and emitters agreeing on the ident-unwrap predicate.
+* [union-arm-identity] Union arm identity is *positional over the runtime
+  union's non-`None` arms, in order of first appearance* (qualifiers
+  erased). For a union without literals the runtime union is the declared
+  one, so this is the declared arms in declaration order.
+  * **Literals collapse** [type-literal] (user decision 2026-09-30): a
+    base type's literals share one runtime arm of that base, at the
+    position of the first of them; a non-literal arm whose base is the
+    literals' base (`Other Str`) joins them when it is the only such arm —
+    two of them (`Ok Str | Err Str | "a"`) keep their wrapper tags, and the
+    literals take an arm of their own. A union left with one value arm is
+    that arm (`"A" | "B"` is a `Str`; with `None`, a `Str?`).
+    `salvo_core::literal` is the one definition (`collapse_ty`,
+    `collapse_ast`, `runtime_arm`).
+  * The checker reasons over the *declared* union (narrowing and
+    exhaustiveness are about the literals); the side tables a backend reads
+    (`coerce`, `is_tests`, `repr_ty`) are in runtime arms —
+    `literal::lower_tables` rewrites the coercions after the last round,
+    and an `is` test is recorded in runtime arms with **value conditions**
+    (`UnionTest.values`: the literals an arm must, or must not, equal).
+    Every backend's runtime encoding must preserve these indices. Never
+    reorder or dedupe in ways that change arm indices, and keep the checker
+    and emitters agreeing on the ident-unwrap predicate.
+* [type-literal] **A literal is a type** (user decisions 2026-09-30): the
+  type whose one value is that literal — `"STANDARD"`, `3`, `-1`, `3L`,
+  `true`; a float is a parse error (equality on floats does not name a
+  value), and a `Byte` literal has no syntax yet.
+  * **Contextual only**: a plain literal expression (no interpolation)
+    takes a literal type where the expected type is it or lists it —
+    annotations, parameters (overload selection sees the literal),
+    assignment to a declared variable including a `T?` one — and is its
+    base anywhere else (`let x = "a"` is a `Str`; a literal binding a type
+    variable binds the base).
+  * **What fits**: a literal the union lists, or a value already of a
+    listed literal type. A literal it does not list is an error naming the
+    listed values (with `other(…)` offered when the union is open); a plain
+    base value must be narrowed first. A value reaches an `Other` arm only
+    through `core.other`'s `other(…)` — `Other` is an ordinary
+    `provenance qualifier Other<T> of T` with no rules of its own.
+  * **Narrowing**: `is "A"` (the check is the literal alone), `is Kms` for
+    a named literal sub-union, `is Other` for the rest; `when` over a
+    subject is exhaustive over the literals as over any arms.
+  * **Widening**: a literal is a subtype of its base, and a union with
+    literals is a subtype of whatever its widened runtime shape is
+    (`literal::widen`: `"A" | "B" | Other Str` → `Str`) — so it passes as
+    its base, unifies as its base, and compares with `==` as its base.
+  * **Refused**: overloads apart only by literal types of one base
+    ([fn-overload-duplicate]'s erased form: both would be one host
+    signature); `"a" | Str` is a warning (subsumed; the open arm is `Other
+    Str`).
+  * Backends: a literal renders as its base; a test with value conditions
+    is a comparison — Kotlin a subject-less `when`/`==`, Rust a guarded
+    pattern (`ref __v if *__v == "A"`, the last `when` branch the `_` rustc
+    needs).
 * [type-nullable] There is no null value: `T?` is shorthand for
   `T | None`. `x!` asserts non-`None` (panics otherwise).
 * [assert-op] `expr!` asserts that a value is **present** and answers it
