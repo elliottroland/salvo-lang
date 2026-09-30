@@ -9,3 +9,6 @@ std = true
 
 [build]
 backend = "*"
+# [platform-root] std's own host files: the machine's streams, files and
+# sockets, both languages side by side.
+platform = "platform"

@@ -17,6 +17,17 @@ fn work_dir(test: &str) -> PathBuf {
     dir
 }
 
+/// [platform-root] A project whose platform files live in `platform/` beside
+/// its sources — the root has no default, so every test with platform files
+/// names it.
+fn project(dir: &Path) {
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"p\"\nversion = \"0.1.0\"\n\n[build]\nplatform = \"platform\"\n",
+    )
+    .unwrap();
+}
+
 fn salvo_in(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_salvo"))
         .current_dir(dir)
@@ -116,6 +127,7 @@ fn generate_then_run_works_for_each_backend() {
             continue;
         }
         let dir = work_dir(&format!("arc_{backend}"));
+        project(&dir);
         fs::write(dir.join("main.sv"), DEMO).unwrap();
 
         // Without a host there is no entry point, and the error says so by
@@ -158,6 +170,7 @@ fn generate_then_run_works_for_each_backend() {
 #[test]
 fn generate_never_overwrites_an_existing_host() {
     let dir = work_dir("no_overwrite");
+    project(&dir);
     fs::write(dir.join("main.sv"), DEMO).unwrap();
     let out = salvo_in(&dir, &["platform", "generate", "--backend", "rust", "--src", "."]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -183,6 +196,7 @@ fn generate_never_overwrites_an_existing_host() {
 #[test]
 fn each_backend_writes_its_own_host_file() {
     let dir = work_dir("both_backends");
+    project(&dir);
     fs::write(dir.join("main.sv"), DEMO).unwrap();
     for backend in ["kotlin", "rust"] {
         let out =
@@ -262,14 +276,14 @@ fn generate_then_run_works_for_a_platform_handler() {
             "kotlinc",
             "kt",
             "TODO(\"implement RawClock.raw_now\")",
-            "return offset + 7",
+            "return `offset` + 7",
         ),
         (
             "rust",
             "rustc",
             "rs",
             "todo!(\"implement RawClock.raw_now\")",
-            "self.offset + 7",
+            "`offset` + 7",
         ),
     ] {
         if !have(tool) {
@@ -277,6 +291,7 @@ fn generate_then_run_works_for_a_platform_handler() {
             continue;
         }
         let dir = work_dir(&format!("handler_{backend}"));
+        project(&dir);
         fs::write(dir.join("main.sv"), HANDLER_DEMO).unwrap();
 
         let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
@@ -285,16 +300,24 @@ fn generate_then_run_works_for_a_platform_handler() {
         assert!(
             stderr.contains("use HostRawClock")
                 && stderr.contains("salvo platform generate")
-                && stderr.contains(&format!("platform/main.{ext}")),
+                && stderr.contains(&format!("platform/main.sv.{ext}")),
             "{backend} stderr: {stderr}"
         );
 
+        // [host-splice] A platform handler's skeleton is a template: the
+        // declaring markers with their signatures, no hand-written host class.
         let out =
             salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend} generate failed: {stderr}");
-        let host = dir.join("platform").join(format!("main.{ext}"));
+        assert!(!dir.join("platform").join(format!("main.{ext}")).exists(), "{backend}: no host class");
+        let host = dir.join("platform").join(format!("main.sv.{ext}"));
         let src = fs::read_to_string(&host).unwrap();
+        assert!(
+            src.contains("`platform handler HostRawClock(offset: Int) of RawClock`")
+                && src.contains("`fn raw_now() -> Int`"),
+            "{backend} template:\n{src}"
+        );
         assert!(
             src.contains("HostRawClock") && src.contains(stub),
             "{backend} host:\n{src}"
@@ -342,6 +365,7 @@ fn the_platform_tree_mirrors_the_source_tree() {
         ),
     ] {
         let dir = work_dir(&format!("nested_{backend}"));
+        project(&dir);
         let bin = dir.join("bin");
         fs::create_dir_all(&bin).unwrap();
         fs::write(
@@ -447,7 +471,7 @@ fn main() [use, Greeter] {
         .unwrap();
         let manifest = |crates: &str| {
             format!(
-                "[project]\nname = \"hd\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\n\n[rust]\n{crates}"
+                "[project]\nname = \"hd\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\nplatform = \"salvo/platform\"\n\n[rust]\n{crates}"
             )
         };
         fs::write(dir.join("salvo.toml"), manifest("crates = { greeter = { path = \"vendor/greeter\" } }\n")).unwrap();
@@ -516,7 +540,7 @@ fn main() [use, Greeter] {
         assert!(status.success(), "building the library jar failed");
         fs::write(
             dir.join("salvo.toml"),
-            "[project]\nname = \"hd\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"kotlin\"\n\n\
+            "[project]\nname = \"hd\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"kotlin\"\nplatform = \"salvo/platform\"\n\n\
              [kotlin]\nartifacts = [\"example:greeter:0.1.0\"]\nlibs = \"lib/kotlin\"\n",
         )
         .unwrap();
@@ -620,6 +644,7 @@ fn main() [use, Slow] {
             continue;
         }
         let dir = work_dir(&format!("reply_{backend}"));
+        project(&dir);
         fs::write(dir.join("main.sv"), PROGRAM).unwrap();
         let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -779,4 +804,83 @@ fn the_aws_glue_compiles_against_both_sdks() {
             }
         }
     }
+}
+
+/// [platform-root] [cli-platform] [host-splice] Each backend has its own
+/// platform root when the manifest says so, and `generate` fills each: a
+/// template (`main.sv.<ext>`) for the platform handler and the bodiless fn, a
+/// host file (`main.<ext>`) for the platform effect and the host-owned `main`.
+/// The skeletons type-check as written, a second run keeps every file, and
+/// without a root for a backend the program is refused naming the key.
+#[test]
+fn generate_writes_templates_into_each_backends_root() {
+    let dir = work_dir("split_roots");
+    fs::create_dir_all(dir.join("salvo")).unwrap();
+    let manifest = |roots: &str| {
+        format!("[project]\nname = \"p\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\n\n{roots}")
+    };
+    fs::write(dir.join("salvo.toml"), manifest("[kotlin]\nplatform = \"kotlin\"\n\n[rust]\nplatform = \"rust\"\n")).unwrap();
+    fs::write(
+        dir.join("salvo/main.sv"),
+        "\
+effect Clock {
+    fn now() [] -> Int
+}
+
+platform handler HostClock(offset: Int) of Clock
+
+platform effect Log {
+    fn log(line: Str) [] -> None => line
+}
+
+fn shout(s: Str) [] -> Str => s
+
+fn main() [use, Log] {
+    use HostClock(1)
+    log(shout(\"${now()}\"))
+}
+",
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["platform", "generate"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
+    for (root, ext, todo) in [("kotlin", "kt", "TODO(\"implement shout\")"), ("rust", "rs", "todo!(\"implement shout\")")] {
+        let template = fs::read_to_string(dir.join(root).join(format!("main.sv.{ext}")))
+            .unwrap_or_else(|e| panic!("{root}: no template ({e}): {stderr}"));
+        assert!(template.contains("`fn shout(s: Str) -> Str` {") && template.contains(todo), "{template}");
+        assert!(
+            template.contains("`platform handler HostClock(offset: Int) of Clock` {")
+                && template.contains("`fn now() -> Int`"),
+            "{template}"
+        );
+        let host = fs::read_to_string(dir.join(root).join(format!("main.{ext}"))).unwrap();
+        assert!(host.contains("implement Log.log") && !host.contains("HostClock"), "{host}");
+        assert!(!dir.join("salvo/platform").exists(), "nothing under the source root");
+    }
+    let out = salvo_in(&dir, &["analyze"]);
+    let all = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success() && all.contains("no errors"), "the skeletons type-check: {all}");
+
+    let out = salvo_in(&dir, &["platform", "generate"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success() && !stderr.contains("wrote"), "{stderr}");
+
+    // No root for Rust: refused, naming the key.
+    fs::write(dir.join("salvo.toml"), manifest("[kotlin]\nplatform = \"kotlin\"\n")).unwrap();
+    let out = salvo_in(&dir, &["analyze"]);
+    let all = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(!out.status.success(), "{all}");
+    assert!(all.contains("names no platform root for rust") && all.contains("[rust] platform"), "{all}");
+    // A Rust file under the Kotlin root is not read, and says so.
+    fs::write(dir.join("salvo.toml"), manifest("[build]\n")).unwrap();
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"p\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\n\n[kotlin]\nplatform = \"kotlin\"\n\n[rust]\nplatform = \"rust\"\n",
+    )
+    .unwrap();
+    fs::copy(dir.join("rust/main.rs"), dir.join("kotlin/stray.rs")).unwrap();
+    let out = salvo_in(&dir, &["analyze"]);
+    let all = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(all.contains("is a Rust file under the Kotlin platform root"), "{all}");
 }

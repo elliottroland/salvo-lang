@@ -111,6 +111,10 @@ fn analyze_project(
     // [test-file] `analyze` checks test annexes: a broken test is a broken
     // program, and the language server wants diagnostics in the file being
     // edited (user decision 2026-09-23).
+    // [platform-root] The project's platform roots, when it names any.
+    if let Some(project) = &project {
+        sources.platform = project.platform_roots();
+    }
     io_errors.extend(sources.add_dir(&root, native_ext, false, true));
     // [std-shadow] A tree that declares std's own modules replaces them.
     sources.apply_std_shadow();
@@ -156,16 +160,17 @@ fn analyze_project(
                 t.content = content.clone();
             }
         }
+        let roots = sources.platform.canonical();
         for (path, content) in overlay {
-            let Ok(rel) = path.strip_prefix(&root) else { continue };
-            let Some((module, lang)) = SourceSet::classify_template(rel) else { continue };
-            if sources.templates.iter().any(|t| root.join(&t.name) == *path) {
+            let Ok(Some(pf)) = roots.classify(path) else { continue };
+            if !pf.template || sources.templates.iter().any(|t| root.join(&t.name) == *path) {
                 continue;
             }
+            let rel = path.strip_prefix(&root).unwrap_or(path);
             sources.templates.push(salvo_core::template::TemplateFile {
                 rel_path: rel.to_path_buf(),
-                module,
-                lang: lang.to_string(),
+                module: pf.module,
+                lang: pf.backend.to_string(),
                 content: content.clone(),
                 name: rel.display().to_string(),
             });
@@ -223,6 +228,9 @@ fn analyze_project(
         let mut checked = salvo_core::check_program(&program, &resolution, &symbols);
         checked.errors.retain(|d| !parse_broken.contains(&d.file));
         diagnostics.append(&mut checked.errors);
+        // [platform-root] Platform declarations need a platform root.
+        let backends = project.as_ref().map(salvo_core::required_backends).unwrap_or_else(|| vec!["rust"]);
+        diagnostics.extend(salvo_core::platform_root_required(&program, project.as_ref(), &backends));
         // [host-splice] The backends the manifest builds, each with its block.
         if let Some(project) = &project {
             let backends = salvo_core::required_backends(project);
@@ -333,20 +341,31 @@ pub fn load_embedded_std(sources: &mut SourceSet, native_ext: &str) {
     let mut files = Vec::new();
     walk(&STD_DIR, &mut files);
     files.sort_by_key(|f| f.path().to_path_buf());
+    // [platform-root] std names its platform root in its own manifest, like
+    // any project; the embedded paths are relative to std's directory.
+    let roots = STD_DIR
+        .get_file(salvo_core::MANIFEST_FILE)
+        .and_then(|f| f.contents_utf8())
+        .and_then(|text| salvo_core::Project::parse(Path::new(salvo_core::MANIFEST_FILE), text).ok())
+        .map(|project| project.platform_roots())
+        .unwrap_or_default();
     for file in files {
         let path = file.path();
         let Some(content) = file.contents_utf8() else {
             continue;
         };
         if path.extension().is_some_and(|e| e == native_ext) {
-            if let Some((module, platform)) = SourceSet::classify_companion(path, native_ext)
-            {
-                sources.add_companion(
-                    path.to_path_buf(),
-                    module,
-                    content.to_string(),
-                    platform,
-                );
+            match roots.classify(path) {
+                Ok(Some(pf)) if !pf.template => {
+                    let out = SourceSet::platform_output_path(&pf.module, native_ext);
+                    sources.add_companion(out, pf.module, content.to_string(), true);
+                }
+                Ok(Some(_)) | Err(_) => {}
+                Ok(None) => {
+                    if let Some(module) = SourceSet::classify_companion(path, native_ext) {
+                        sources.add_companion(path.to_path_buf(), module, content.to_string(), false);
+                    }
+                }
             }
             continue;
         }

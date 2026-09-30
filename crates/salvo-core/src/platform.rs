@@ -53,9 +53,9 @@ pub fn missing_handler_host_error(
     rel_path: &std::path::Path,
 ) -> String {
     format!(
-        "error: `use {handler}` registers a platform handler, whose implementation \
-         is a host class in `{}`, but that file does not exist: run `salvo platform \
-         generate` to create the implementation skeleton for module `{module}`",
+        "error: `use {handler}` registers a platform handler, which is implemented in \
+         the platform template `{}` (under the platform root), but that file does not \
+         exist: run `salvo platform generate` to create the skeleton for module `{module}`",
         rel_path.display()
     )
 }
@@ -114,7 +114,10 @@ pub fn missing_host_error(module: &ModulePath, rel_path: &std::path::Path) -> St
 
 /// [platform-tree] Where a module's host file lives, relative to the source
 /// root (and to the output directory, which mirrors it):
-/// `app.entry` -> `platform/app/entry.<ext>`.
+/// `app.entry` -> `platform/app/entry.<ext>`. [platform-root] On disk the file
+/// is under the backend's platform root instead of `platform/`; a message
+/// names this path, which is also the root-relative one when the root is a
+/// `platform` directory beside the sources.
 pub fn host_rel_path(module: &ModulePath, native_ext: &str) -> std::path::PathBuf {
     let mut path = std::path::PathBuf::from(crate::source::PLATFORM_DIR);
     for part in &module.0 {
@@ -167,6 +170,64 @@ pub fn required_backends(project: &crate::Project) -> Vec<&'static str> {
         Some("kotlin") => vec!["kotlin"],
         _ => vec!["rust"],
     }
+}
+
+/// [platform-root] A program with declarations implemented in platform files —
+/// a `platform effect`, a `platform handler`, a bodiless fn — needs a platform
+/// root for every backend in `backends`, and there is no default (user
+/// decision 2026-09-30): one error per backend without one, at the first such
+/// declaration, naming the manifest key. A dependency's and std's
+/// declarations are their own manifests' concern.
+pub fn platform_root_required(
+    program: &Program,
+    project: Option<&crate::Project>,
+    backends: &[&str],
+) -> Vec<crate::FileDiagnostic> {
+    let mut first: Option<(usize, salvo_syntax::Span, String)> = None;
+    'files: for (file, unit) in program.units().enumerate() {
+        if unit.file.is_std || unit.file.dependency.is_some() {
+            continue;
+        }
+        for item in &unit.ast.items {
+            let found = match item {
+                Item::Effect(e) if e.platform => Some((e.name.span, format!("`platform effect {}`", e.name.name))),
+                Item::Handler(h) if h.platform => Some((h.name.span, format!("`platform handler {}`", h.name.name))),
+                Item::Fn(f) if f.body.is_none() && f.by.is_none() && !f.intrinsic => {
+                    Some((f.name.span, format!("`fn {}`, which has no body,", f.name.name)))
+                }
+                _ => None,
+            };
+            if let Some((span, what)) = found {
+                first = Some((file, span, what));
+                break 'files;
+            }
+        }
+    }
+    let Some((file, span, what)) = first else { return Vec::new() };
+    let Some(project) = project else {
+        return vec![crate::FileDiagnostic::error(
+            file,
+            span,
+            format!(
+                "{what} is implemented in platform files, which are found through a platform root \
+                 named in the project's `salvo.toml` — and this program has no `salvo.toml` [platform-root]"
+            ),
+        )];
+    };
+    let roots = project.platform_roots();
+    let mut out = Vec::new();
+    for backend in backends {
+        if roots.get(backend).is_some() {
+            continue;
+        }
+        let msg = format!(
+            "{what} is implemented in platform files, but `salvo.toml` names no platform root \
+             for {backend}: add `[build] platform = \"…\"` (every backend) or `[{backend}] \
+             platform = \"…\"` [platform-root]"
+        );
+        out.push(crate::FileDiagnostic::error(file, span, msg));
+    }
+    out
 }
 
 /// [host-splice] Every declaration written in host code has a block for each

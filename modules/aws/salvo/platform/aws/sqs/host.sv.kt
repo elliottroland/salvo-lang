@@ -204,13 +204,13 @@ import kotlinx.coroutines.launch
         scope.launch {
             val `answer : Ok CreateQueueOutput | Err Checked<SqsFailure>` = try {
                 val `value : CreateQueueOutput` = fromSdkCreateQueueOutput(client.createQueue(toSdkCreateQueueInput(request)))
-                `ok(value) : Ok CreateQueueOutput | Err Checked<SqsFailure>`
+                `ok(value) : answer`
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
                 val `failure : SqsError` = salvoFailure(e)
-                `err(checked<SqsFailure>(failure)) : Ok CreateQueueOutput | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             } catch (e: Exception) {
                 val `failure : AwsError` = salvoAwsError(e)
-                `err(checked<SqsFailure>(failure)) : Ok CreateQueueOutput | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             }
             host.send(answer)
         }
@@ -222,13 +222,13 @@ import kotlinx.coroutines.launch
         scope.launch {
             val `answer : Ok GetQueueUrlOutput | Err Checked<SqsFailure>` = try {
                 val `value : GetQueueUrlOutput` = fromSdkGetQueueUrlOutput(client.getQueueUrl(toSdkGetQueueUrlInput(request)))
-                `ok(value) : Ok GetQueueUrlOutput | Err Checked<SqsFailure>`
+                `ok(value) : answer`
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
                 val `failure : SqsError` = salvoFailure(e)
-                `err(checked<SqsFailure>(failure)) : Ok GetQueueUrlOutput | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             } catch (e: Exception) {
                 val `failure : AwsError` = salvoAwsError(e)
-                `err(checked<SqsFailure>(failure)) : Ok GetQueueUrlOutput | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             }
             host.send(answer)
         }
@@ -240,13 +240,13 @@ import kotlinx.coroutines.launch
         scope.launch {
             val `answer : Ok SendMessageOutput | Err Checked<SqsFailure>` = try {
                 val `value : SendMessageOutput` = fromSdkSendMessageOutput(client.sendMessage(toSdkSendMessageInput(request)))
-                `ok(value) : Ok SendMessageOutput | Err Checked<SqsFailure>`
+                `ok(value) : answer`
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
                 val `failure : SqsError` = salvoFailure(e)
-                `err(checked<SqsFailure>(failure)) : Ok SendMessageOutput | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             } catch (e: Exception) {
                 val `failure : AwsError` = salvoAwsError(e)
-                `err(checked<SqsFailure>(failure)) : Ok SendMessageOutput | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             }
             host.send(answer)
         }
@@ -258,13 +258,13 @@ import kotlinx.coroutines.launch
         scope.launch {
             val `answer : Ok ReceiveMessageOutput | Err Checked<SqsFailure>` = try {
                 val `value : ReceiveMessageOutput` = fromSdkReceiveMessageOutput(client.receiveMessage(toSdkReceiveMessageInput(request)))
-                `ok(value) : Ok ReceiveMessageOutput | Err Checked<SqsFailure>`
+                `ok(value) : answer`
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
                 val `failure : SqsError` = salvoFailure(e)
-                `err(checked<SqsFailure>(failure)) : Ok ReceiveMessageOutput | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             } catch (e: Exception) {
                 val `failure : AwsError` = salvoAwsError(e)
-                `err(checked<SqsFailure>(failure)) : Ok ReceiveMessageOutput | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             }
             host.send(answer)
         }
@@ -276,13 +276,13 @@ import kotlinx.coroutines.launch
         scope.launch {
             val `answer : Ok None | Err Checked<SqsFailure>` = try {
                 client.deleteMessage(toSdkDeleteMessageInput(request))
-                `ok(None) : Ok None | Err Checked<SqsFailure>`
+                `ok(None) : answer`
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
                 val `failure : SqsError` = salvoFailure(e)
-                `err(checked<SqsFailure>(failure)) : Ok None | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             } catch (e: Exception) {
                 val `failure : AwsError` = salvoAwsError(e)
-                `err(checked<SqsFailure>(failure)) : Ok None | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             }
             host.send(answer)
         }
@@ -294,13 +294,13 @@ import kotlinx.coroutines.launch
         scope.launch {
             val `answer : Ok None | Err Checked<SqsFailure>` = try {
                 client.deleteQueue(toSdkDeleteQueueInput(request))
-                `ok(None) : Ok None | Err Checked<SqsFailure>`
+                `ok(None) : answer`
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
                 val `failure : SqsError` = salvoFailure(e)
-                `err(checked<SqsFailure>(failure)) : Ok None | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             } catch (e: Exception) {
                 val `failure : AwsError` = salvoAwsError(e)
-                `err(checked<SqsFailure>(failure)) : Ok None | Err Checked<SqsFailure>`
+                `err(checked<SqsFailure>(failure)) : answer`
             }
             host.send(answer)
         }

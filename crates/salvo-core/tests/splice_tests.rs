@@ -8,7 +8,8 @@ use salvo_core::{check_program, resolve, ModulePath, Program, SourceSet, Symbols
 
 const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Bool\nexport intrinsic type Str\nexport intrinsic type List<T>\n\
 export provenance qualifier Ok<T> of T\nexport provenance qualifier Err<T> of T\n\
-export fn ok<T>(value: T) [] -> +Ok T {\n    return value\n}\n";
+export fn ok<T>(value: T) [] -> +Ok T {\n    return value\n}\n\
+export fn err<T>(value: T) [] -> +Err T {\n    return value\n}\n";
 
 /// Errors of `main.sv` with `platform/main.sv.kt` holding [kotlin].
 fn errors(sv: &str, kotlin: &str) -> Vec<String> {
@@ -104,4 +105,31 @@ fn strings_and_comments_are_not_scanned_and_double_backticks_escape() {
     let sv = "fn f(s: Str) [] -> Str => s\n";
     let kt = "// a `comment` with backticks\n`fn f(s: Str) -> Str` {\n    val ``in`` = \"a `string`\"\n    return `s` + ``in``\n}\n";
     assert_eq!(errors(sv, kt), Vec::<String>::new());
+}
+
+// [host-splice] `e : name` and `e : return`: a value takes the type of a place
+// — a declared host name, a parameter, the fn's return type — so a union host
+// code hides is written once (user decision 2026-09-30, option (a)). A place
+// is lowercase, so `e : T` is still a type; a place nothing declares, or
+// `: return` outside a fn, is an error, and the value is checked against the
+// place's type.
+#[test]
+fn a_marker_ascribes_the_type_of_a_place() {
+    let sv = "fn f(n: Int) [] -> Ok Int | Err Str => n\n".to_string();
+    let body = |inner: &str| format!("`fn f(n: Int) -> Ok Int | Err Str` {{\n{inner}\n}}\n");
+    // By a declared name, in both branches of host control flow.
+    let branches = "val `answer : Ok Int | Err Str` = if (`n` > 0) `ok(n) : answer` else `err(\"neg\") : answer`\nreturn answer";
+    assert_eq!(errors(&sv, &body(branches)), Vec::<String>::new());
+    // By the fn's return type, and a declaration by a place.
+    assert_eq!(errors(&sv, &body("val x = `ok(n) : return`\nreturn x")), Vec::<String>::new());
+    assert_eq!(errors(&sv, &body("val `a : return` = `ok(n) : return`\nval `b : a` = a\nreturn `b`")), Vec::<String>::new());
+    // By a parameter: `n` is an Int, and a Str is not one.
+    let errs = errors(&sv, &body("val x = `\"s\" : n`\nreturn `ok(n)`"));
+    assert!(errs.iter().any(|e| e.contains("this hole is `Int`")), "{errs:?}");
+    // Nothing called `nope`.
+    let errs = errors(&sv, &body("val x = `ok(n) : nope`\nreturn x"));
+    assert!(errs.iter().any(|e| e.contains("no parameter, state field or declared name is called `nope`")), "{errs:?}");
+    // `: return` where there is no fn.
+    let errs = errors(&sv, &format!("{}\nval top = `ok(1) : return`\n", body("return `ok(n)`")));
+    assert!(errs.iter().any(|e| e.contains("`: return` takes the enclosing fn's return type")), "{errs:?}");
 }

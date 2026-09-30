@@ -100,10 +100,108 @@ impl SourceFile {
     }
 }
 
-/// The source-root directory holding host implementations of platform
-/// effects [platform-tree]: `platform/` mirrors the source tree, so
-/// `platform/app/entry.kt` belongs to module `app.entry`.
+/// The directory host files are written under **in the output** [platform-tree]:
+/// `platform/` mirrors the source tree, so the host file of module
+/// `app.entry` is emitted as `platform/app/entry.kt`. Where the files are
+/// *read from* is the project's platform root [platform-root].
 pub const PLATFORM_DIR: &str = "platform";
+
+/// [platform-root] Where each backend's platform files — host companions
+/// (`app/entry.kt`) and templates (`app/entry.sv.kt`) — are read from, as the
+/// project manifest names them (`[build] platform`, `[kotlin] platform`,
+/// `[rust] platform`). Both may be one directory, which is how the two
+/// languages coexist. A backend with no root has no platform files: there is
+/// no default.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PlatformRoots {
+    pub kotlin: Option<PathBuf>,
+    pub rust: Option<PathBuf>,
+}
+
+/// [platform-root] A file found under a platform root.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlatformFile {
+    /// `kotlin` or `rust`.
+    pub backend: &'static str,
+    pub module: ModulePath,
+    /// A template (`<m>.sv.kt`) rather than a host companion (`<m>.kt`).
+    pub template: bool,
+}
+
+impl PlatformRoots {
+    pub fn get(&self, backend: &str) -> Option<&Path> {
+        match backend {
+            "kotlin" => self.kotlin.as_deref(),
+            "rust" => self.rust.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.kotlin.is_none() && self.rust.is_none()
+    }
+
+    /// The distinct roots, each once.
+    pub fn dirs(&self) -> Vec<&Path> {
+        let mut out: Vec<&Path> = Vec::new();
+        for r in [&self.kotlin, &self.rust].into_iter().flatten() {
+            if !out.contains(&r.as_path()) {
+                out.push(r);
+            }
+        }
+        out
+    }
+
+    /// The roots made absolute and canonical, so a walked path compares.
+    pub fn canonical(&self) -> PlatformRoots {
+        let c = |p: &Option<PathBuf>| p.as_ref().map(|p| p.canonicalize().unwrap_or_else(|_| p.clone()));
+        PlatformRoots { kotlin: c(&self.kotlin), rust: c(&self.rust) }
+    }
+
+    /// What the file at `path` is, when it lies under a root: the backend its
+    /// extension names — which must be a backend that root is configured for
+    /// — its module (the path under the root, the way `.sv` files map), and
+    /// whether it is a template. `Err` for a host file under a root that is
+    /// not its language's. `Ok(None)` outside every root, or for a file that
+    /// is not a host file.
+    pub fn classify(&self, path: &Path) -> Result<Option<PlatformFile>, String> {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { return Ok(None) };
+        let Some((stem, ext)) = name.rsplit_once('.') else { return Ok(None) };
+        let backend = match ext {
+            "kt" => "kotlin",
+            "rs" => "rust",
+            _ => return Ok(None),
+        };
+        let (stem, template) = match stem.strip_suffix(".sv") {
+            Some(s) => (s, true),
+            None => (stem, false),
+        };
+        match self.get(backend).and_then(|root| path.strip_prefix(root).ok()) {
+            Some(rel) => {
+                let mut module: Vec<String> = rel
+                    .parent()
+                    .map(|p| p.components().filter_map(|c| c.as_os_str().to_str().map(str::to_string)).collect())
+                    .unwrap_or_default();
+                module.push(stem.to_string());
+                Ok(Some(PlatformFile { backend, module: ModulePath(module), template }))
+            }
+            None => {
+                let other = if backend == "kotlin" { "rust" } else { "kotlin" };
+                if self.get(other).is_some_and(|root| path.starts_with(root)) {
+                    return Err(format!(
+                        "`{}` is a {} file under the {} platform root, which is not where {} \
+                         platform files are read from [platform-root]",
+                        path.display(),
+                        if backend == "kotlin" { "Kotlin" } else { "Rust" },
+                        if other == "kotlin" { "Kotlin" } else { "Rust" },
+                        if backend == "kotlin" { "Kotlin" } else { "Rust" },
+                    ));
+                }
+                Ok(None)
+            }
+        }
+    }
+}
 
 /// A backend-native source file living next to a Salvo module
 /// (`complicated.kt` beside `complicated.sv`): copied verbatim into the
@@ -140,6 +238,10 @@ pub struct SourceSet {
     /// every backend: which backends a declaration covers is checked against
     /// the manifest whatever this build compiles.
     pub templates: Vec<crate::template::TemplateFile>,
+    /// [platform-root] Where `add_dir` reads platform files from; empty
+    /// means none are loaded (a `platform/` directory at the source root is
+    /// then reported, never reinterpreted).
+    pub platform: PlatformRoots,
 }
 
 impl SourceSet {
@@ -257,14 +359,9 @@ impl SourceSet {
 
     /// Classifies a backend-native companion file (`complicated.kt` for
     /// native extension `kt`): the module is the directory path plus the
-    /// file stem [backend-companion].
-    ///
-    /// A leading `platform/` segment is *stripped* and reported as the
-    /// second element [platform-tree]: `platform/app/entry.kt` implements
-    /// the platform effects of module `app.entry`, so it must be attributed
-    /// to that module — a companion is only copied when its module is
-    /// reachable, and no Salvo module is ever called `platform.app.entry`.
-    pub fn classify_companion(rel_path: &Path, native_ext: &str) -> Option<(ModulePath, bool)> {
+    /// file stem [backend-companion]. A **platform** file is classified by
+    /// its root instead ([`PlatformRoots::classify`]) [platform-root].
+    pub fn classify_companion(rel_path: &Path, native_ext: &str) -> Option<ModulePath> {
         let file_name = rel_path.file_name()?.to_str()?;
         let stem = file_name.strip_suffix(&format!(".{native_ext}"))?;
         let mut components: Vec<String> = rel_path
@@ -275,33 +372,22 @@ impl SourceSet {
                     .collect()
             })
             .unwrap_or_default();
-        // Only at the source root: a nested `platform/` directory is an
-        // ordinary one, and a module *named* `platform` keeps its name.
-        let platform = components.first().map(String::as_str) == Some(PLATFORM_DIR);
-        if platform {
-            components.remove(0);
-        }
         components.push(stem.to_string());
-        Some((ModulePath(components), platform))
+        Some(ModulePath(components))
     }
 
-    /// [host-splice] `platform/app/entry.sv.kt` → (`app.entry`, `kotlin`).
-    pub fn classify_template(rel_path: &Path) -> Option<(ModulePath, &'static str)> {
-        let file_name = rel_path.file_name()?.to_str()?;
-        let (stem, ext) = file_name.rsplit_once('.')?;
-        let lang = crate::template::template_lang(ext)?;
-        let stem = stem.strip_suffix(".sv")?;
-        let mut components: Vec<String> = rel_path
-            .parent()?
-            .components()
-            .filter_map(|c| c.as_os_str().to_str().map(str::to_string))
-            .collect();
-        if components.first().map(String::as_str) != Some(PLATFORM_DIR) {
-            return None;
+    /// [platform-root] Where a platform file of `module` goes in the output:
+    /// `platform/<module path>.<ext>`, whatever root it was read from.
+    pub fn platform_output_path(module: &ModulePath, file_name_ext: &str) -> PathBuf {
+        let mut path = PathBuf::from(PLATFORM_DIR);
+        for part in &module.0 {
+            path.push(part);
         }
-        components.remove(0);
-        components.push(stem.to_string());
-        Some((ModulePath(components), lang))
+        let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+        name.push(".");
+        name.push(file_name_ext);
+        path.set_file_name(name);
+        path
     }
 
     pub fn add_companion(
@@ -349,6 +435,15 @@ impl SourceSet {
         is_std: bool,
         tests: bool,
     ) -> Vec<String> {
+        let root = &root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        // [platform-root] std's tree carries its own manifest, which names its
+        // platform root like any project's — for this tree only: the roots
+        // are not kept for the next one loaded.
+        let std_roots = (is_std && self.platform.is_empty())
+            .then(|| crate::Project::load(&root.join(crate::MANIFEST_FILE)).ok())
+            .flatten()
+            .map(|project| project.platform_roots());
+        let roots = std_roots.as_ref().unwrap_or(&self.platform).canonical();
         let ignored = read_svignore(root);
         let is_ignored = |path: &Path| {
             path.strip_prefix(root)
@@ -356,7 +451,13 @@ impl SourceSet {
         };
 
         let mut errors = Vec::new();
+        // The source tree, then every platform root outside it.
         let mut stack = vec![root.to_path_buf()];
+        for dir in roots.dirs() {
+            if !dir.starts_with(root) && dir.is_dir() {
+                stack.push(dir.to_path_buf());
+            }
+        }
         let mut paths = Vec::new();
         while let Some(dir) = stack.pop() {
             let entries = match std::fs::read_dir(&dir) {
@@ -393,38 +494,84 @@ impl SourceSet {
             }
         }
         paths.sort();
+        paths.dedup();
         for path in paths {
+            // A file outside the source tree (a root beside it) is named by
+            // its absolute path, as a dependency's files are.
             let rel = path.strip_prefix(root).unwrap_or(&path);
-            // [host-splice] `platform/…/<m>.sv.kt`: a template for module `…/<m>`.
-            if let Some(t) = Self::classify_template(rel) {
-                match std::fs::read_to_string(&path) {
-                    Ok(content) => self.templates.push(crate::template::TemplateFile {
-                        rel_path: rel.to_path_buf(),
-                        module: t.0,
-                        lang: t.1.to_string(),
-                        content,
-                        name: rel.display().to_string(),
-                    }),
-                    Err(err) => errors.push(format!("failed to read `{}`: {err}", path.display())),
+            // [platform-root] A platform file: classified by its root.
+            match roots.classify(&path) {
+                Err(msg) => {
+                    errors.push(msg);
+                    continue;
                 }
+                Ok(Some(pf)) => {
+                    let content = match std::fs::read_to_string(&path) {
+                        Ok(content) => content,
+                        Err(err) => {
+                            errors.push(format!("failed to read `{}`: {err}", path.display()));
+                            continue;
+                        }
+                    };
+                    let ext = if pf.backend == "kotlin" { "kt" } else { "rs" };
+                    if pf.template {
+                        // [host-splice] Templates of every backend: which
+                        // backends a declaration covers is checked against
+                        // the manifest whatever this build compiles.
+                        self.templates.push(crate::template::TemplateFile {
+                            rel_path: rel.to_path_buf(),
+                            module: pf.module,
+                            lang: pf.backend.to_string(),
+                            content,
+                            name: rel.display().to_string(),
+                        });
+                    } else if ext == native_ext {
+                        let out = Self::platform_output_path(&pf.module, ext);
+                        self.add_companion(out, pf.module, content, true);
+                    }
+                    continue;
+                }
+                Ok(None) => {}
+            }
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            // [platform-root] A host file in a `platform/` directory at the
+            // source root that no root covers: reported, never read as a
+            // companion of a module called `platform.…`.
+            if (ext == "kt" || ext == "rs")
+                && rel.components().next().is_some_and(|c| c.as_os_str() == PLATFORM_DIR)
+            {
+                let backend = if ext == "kt" { "kotlin" } else { "rust" };
+                errors.push(match roots.get(backend) {
+                    None => format!(
+                        "`{}` is a platform file, but no platform root is set for {backend}: name it in \
+                         `salvo.toml` — `[build] platform = \"…\"` for every backend, or `[{backend}] \
+                         platform` for this one [platform-root]",
+                        rel.display()
+                    ),
+                    Some(r) => format!(
+                        "`{}` is outside the {backend} platform root `{}`, so it is not read [platform-root]",
+                        rel.display(),
+                        r.display()
+                    ),
+                });
                 continue;
             }
-            if path.extension().is_some_and(|e| e != "sv" && e != native_ext) {
+            if ext != "sv" && ext != native_ext {
                 continue;
             }
-            if path.extension().is_some_and(|e| e == native_ext) {
-                let Some((module, platform)) = Self::classify_companion(rel, native_ext)
-                else {
+            if ext == native_ext {
+                let Some(module) = Self::classify_companion(rel, native_ext) else {
                     continue;
                 };
                 match std::fs::read_to_string(&path) {
-                    Ok(content) => {
-                        self.add_companion(rel.to_path_buf(), module, content, platform)
-                    }
+                    Ok(content) => self.add_companion(rel.to_path_buf(), module, content, false),
                     Err(err) => {
                         errors.push(format!("failed to read `{}`: {err}", path.display()))
                     }
                 }
+                continue;
+            }
+            if !path.starts_with(root) {
                 continue;
             }
             let module = match Self::classify(rel) {
@@ -538,7 +685,7 @@ impl SourceSet {
             )];
         }
         let root = src.canonicalize().unwrap_or(src);
-        let mut loaded = SourceSet::default();
+        let mut loaded = SourceSet { platform: dep.project.platform_roots(), ..SourceSet::default() };
         let mut errors = loaded.add_dir(&root, native_ext, dep.project.is_std(), false);
         let is_std = dep.project.is_std();
         for file in &mut loaded.files {
@@ -794,45 +941,34 @@ mod tests {
     }
 
     /// [backend-companion] An ordinary companion is attributed to the
-    /// module beside it and carries no platform flag.
+    /// module beside it.
     #[test]
     fn classifies_companion_files() {
-        let (module, platform) =
-            SourceSet::classify_companion(Path::new("app/geometry.kt"), "kt").unwrap();
+        let module = SourceSet::classify_companion(Path::new("app/geometry.kt"), "kt").unwrap();
         assert_eq!(module.to_string(), "app.geometry");
-        assert!(!platform);
         assert!(SourceSet::classify_companion(Path::new("app/geometry.rs"), "kt").is_none());
     }
 
-    /// [platform-tree] The leading `platform/` is stripped, so the host
-    /// file is attributed to the module whose platform effects it
-    /// implements — which is what makes it reachable at all.
+    /// [platform-root] A platform file is attributed by its root to the
+    /// module whose platform declarations it implements — which is what
+    /// makes it reachable at all — and a template is told apart by its
+    /// `.sv.<ext>` suffix. Two backends may share a root; a file of the
+    /// other language under a backend's own root is an error.
     #[test]
-    fn platform_companions_are_attributed_to_their_module() {
-        let (module, platform) =
-            SourceSet::classify_companion(Path::new("platform/main.kt"), "kt").unwrap();
-        assert_eq!(module.to_string(), "main");
-        assert!(platform);
-
-        let (module, platform) =
-            SourceSet::classify_companion(Path::new("platform/app/entry.rs"), "rs").unwrap();
-        assert_eq!(module.to_string(), "app.entry");
-        assert!(platform);
-    }
-
-    /// [platform-tree] Only the source root's `platform/` is special: a
-    /// nested one is an ordinary directory, so a module *named* `platform`
-    /// keeps its own companions.
-    #[test]
-    fn only_the_root_platform_directory_is_special() {
-        let (module, platform) =
-            SourceSet::classify_companion(Path::new("app/platform/host.kt"), "kt").unwrap();
-        assert_eq!(module.to_string(), "app.platform.host");
-        assert!(!platform);
-
-        let (module, platform) =
-            SourceSet::classify_companion(Path::new("platform.kt"), "kt").unwrap();
-        assert_eq!(module.to_string(), "platform");
-        assert!(!platform);
+    fn platform_files_are_classified_by_their_root() {
+        let shared = PlatformRoots { kotlin: Some("/p/platform".into()), rust: Some("/p/platform".into()) };
+        let f = shared.classify(Path::new("/p/platform/app/entry.kt")).unwrap().unwrap();
+        assert_eq!((f.backend, f.module.to_string(), f.template), ("kotlin", "app.entry".to_string(), false));
+        let f = shared.classify(Path::new("/p/platform/main.sv.rs")).unwrap().unwrap();
+        assert_eq!((f.backend, f.module.to_string(), f.template), ("rust", "main".to_string(), true));
+        assert_eq!(shared.classify(Path::new("/p/salvo/app/entry.kt")), Ok(None));
+        let split = PlatformRoots { kotlin: Some("/p/kotlin".into()), rust: Some("/p/rust".into()) };
+        assert!(split.classify(Path::new("/p/kotlin/main.rs")).is_err());
+        assert_eq!(split.classify(Path::new("/p/rust/main.rs")).unwrap().unwrap().module.to_string(), "main");
+        assert_eq!(PlatformRoots::default().classify(Path::new("/p/platform/main.kt")), Ok(None));
+        assert_eq!(
+            SourceSet::platform_output_path(&ModulePath(vec!["app".into(), "entry".into()]), "kt"),
+            PathBuf::from("platform/app/entry.kt")
+        );
     }
 }

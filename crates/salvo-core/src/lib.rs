@@ -46,7 +46,7 @@ pub use manifest::{
 };
 pub use place::{Place, Step};
 pub use platform::{
-    declares_platform_effect, host_block_coverage, host_file, host_rel_path, required_backends, missing_handler_host_error,
+    declares_platform_effect, host_block_coverage, platform_root_required, host_file, host_rel_path, required_backends, missing_handler_host_error,
     missing_host_error, platform_effects, platform_entry, platform_handlers, reply_contract_comment,
     reply_params,
 };
@@ -59,6 +59,7 @@ pub use wire::{
 };
 pub use resolve::{resolve, DefSite, FnKey, ModuleScope, Resolution};
 pub use source::{
-    dependencies_with_reached_platform, CompanionFile, ModulePath, SourceFile, SourceSet, PLATFORM_DIR, TEST_SUFFIX,
+    dependencies_with_reached_platform, CompanionFile, ModulePath, PlatformFile, PlatformRoots, SourceFile, SourceSet,
+    PLATFORM_DIR, TEST_SUFFIX,
 };
 pub use types::{is_subtype, Qual, QualEffect, Ty};

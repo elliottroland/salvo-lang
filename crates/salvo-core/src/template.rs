@@ -343,6 +343,85 @@ impl<'a> Scanner<'a> {
 
 // ================================================================== apply ===
 
+/// [host-splice] [cli-platform] The skeleton of `module`'s platform template
+/// in `lang`, as `salvo platform generate` writes it: a declaring marker, with
+/// its full signature and a `TODO`/`todo!` body, for every platform handler
+/// (each member of the effect it implements) and every bodiless fn that has
+/// no `lang` implementation yet. `modules` is the whole program, where the
+/// handled effect is looked up (std's, often). `None` when nothing is
+/// missing.
+pub fn skeleton(module: &Module, modules: &[Module], lang: &str) -> Option<String> {
+    let todo = |what: &str| match lang {
+        "kotlin" => format!("TODO(\"implement {what}\")"),
+        _ => format!("todo!(\"implement {what}\")"),
+    };
+    let header = |f: &FnDecl| {
+        let ret = f.return_type.as_ref().map(|t| format!(" -> {t}")).unwrap_or_default();
+        format!("fn {}{}{ret}", f.name.name, params_text(&f.params))
+    };
+    let has = |blocks: &[HostBlock]| blocks.iter().any(|b| b.lang == lang);
+    let mut parts: Vec<String> = Vec::new();
+    for item in &module.items {
+        match item {
+            Item::Fn(f) if f.body.is_none() && f.by.is_none() && !f.intrinsic && !has(&f.host) => {
+                parts.push(format!("`{}` {{\n    {}\n}}\n", header(f), todo(&f.name.name)));
+            }
+            Item::Handler(h) if h.platform => {
+                let written = h.fns.iter().any(|f| has(&f.host)) || has(&h.host) || h.host_fields.iter().any(|f| f.lang == lang);
+                if written {
+                    continue;
+                }
+                let effect = h.of.first().and_then(|t| match t {
+                    ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
+                    _ => None,
+                });
+                // The handler's own module first: an effect declared there
+                // wins over a same-named one elsewhere (std has a `Clock`).
+                let members: Vec<&FnDecl> = std::iter::once(module)
+                    .chain(modules.iter())
+                    .flat_map(|m| &m.items)
+                    .find_map(|i| match i {
+                        Item::Effect(e) if Some(e.name.name.as_str()) == effect => Some(e.fns.iter().collect()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                let of = h.of.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ");
+                let mut out = format!(
+                    "`{}platform handler {}{} of {of}` {{\n",
+                    if h.threadsafe { "threadsafe " } else { "" },
+                    h.name.name,
+                    if h.params.is_empty() { String::new() } else { params_text(&h.params) },
+                );
+                for (i, f) in members.iter().enumerate() {
+                    if i > 0 {
+                        out.push('\n');
+                    }
+                    out.push_str(&crate::platform::reply_contract_comment(f));
+                    out.push_str(&format!(
+                        "    `{}` {{\n        {}\n    }}\n",
+                        header(f),
+                        todo(&format!("{}.{}", effect.unwrap_or_default(), f.name.name))
+                    ));
+                }
+                out.push_str("}\n");
+                parts.push(out);
+            }
+            _ => {}
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let host = if lang == "kotlin" { "Kotlin" } else { "Rust" };
+    Some(format!(
+        "// The {host} implementation of this module's bodiless declarations: a platform\n\
+         // template [host-splice]. Anything between backticks is Salvo, rendered by the\n\
+         // compiler; the rest is {host}. Written once by `salvo platform generate`,\n\
+         // never overwritten.\n\n{}",
+        parts.join("\n")
+    ))
+}
+
 /// [host-splice] Where a template's markers are: the Salvo text of each,
 /// between its backticks, as offsets into [content] — a declaring marker's
 /// header included, and the markers inside its body. Everything else is host
@@ -476,9 +555,11 @@ fn sig(params: &[ast::Param], ret: Option<&ast::Type>) -> String {
     format!("({}) -> {}", ps.join(", "), ret.map(|t| t.to_string()).unwrap_or_else(|| "None".to_string()))
 }
 
-/// The effect member a handler member implements, by name and parameters.
-fn effect_member<'m>(modules: &'m [Module], effect: &str, name: &str, params: &[ast::Param]) -> Option<&'m FnDecl> {
-    for m in modules {
+/// The effect member a handler member implements, by name and parameters —
+/// looked up in the handler's own module (`own`) first, so an effect declared
+/// there wins over a same-named one elsewhere (std declares a `Clock`).
+fn effect_member<'m>(modules: &'m [Module], own: usize, effect: &str, name: &str, params: &[ast::Param]) -> Option<&'m FnDecl> {
+    for m in modules.get(own).into_iter().chain(modules.iter()) {
         for item in &m.items {
             if let Item::Effect(e) = item {
                 if e.name.name == effect {
@@ -624,7 +705,7 @@ fn attach_decl(
                         continue;
                     };
                     let Some(Item::Fn(mut f)) = parsed.items.into_iter().next() else { continue };
-                    let Some(member) = effect.as_deref().and_then(|e| effect_member(&snapshot, e, &f.name.name, &f.params)) else {
+                    let Some(member) = effect.as_deref().and_then(|e| effect_member(&snapshot, fi, e, &f.name.name, &f.params)) else {
                         diags.push((*span, format!(
                             "`fn {}` implements no member of `{}`",
                             f.name.name,

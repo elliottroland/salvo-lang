@@ -6383,7 +6383,7 @@ pub fn parse_template_marker(source: &str, offset: u32) -> (Hole, Vec<Diagnostic
         let mut parser = Parser::new(source, tokens, Vec::new());
         if let Some(ty) = parser.parse_type() {
             if parser.at_eof() && parser.into_diagnostics().is_empty() && diags.is_empty() {
-                return (Hole { expr: None, ty: Some(ty), assign: None, in_return: false, span }, Vec::new());
+                return (Hole { expr: None, ty: Some(ty), assign: None, place: None, in_return: false, span }, Vec::new());
             }
         }
     }
@@ -6399,14 +6399,36 @@ pub fn parse_template_marker(source: &str, offset: u32) -> (Hole, Vec<Diagnostic
         _ => None,
     };
     let expr = parser.parse_expr();
-    let ty = if parser.eat(&TokenKind::Colon).is_some() { parser.parse_type() } else { None };
+    let mut place = None;
+    let ty = if parser.eat(&TokenKind::Colon).is_some() {
+        // [host-splice] `e : name` / `e : return`: a lowercase name (or the
+        // keyword) standing alone after the colon is a place, not a type.
+        match (&parser.peek().kind, &parser.peek_at(1).kind) {
+            (TokenKind::Ident(name), TokenKind::Eof) if name.starts_with(|c: char| c.is_lowercase() || c == '_') => {
+                place = parser.ident();
+                None
+            }
+            (TokenKind::KwReturn, TokenKind::Eof) => {
+                let at = parser.peek().span;
+                parser.bump();
+                place = Some(Ident { name: "return".to_string(), span: at });
+                None
+            }
+            _ => parser.parse_type(),
+        }
+    } else {
+        None
+    };
     if !parser.at_eof() {
         let at = parser.peek().span;
         let found = parser.kind().describe();
-        parser.error(format!("unexpected {found} in a template marker: it is `e`, `e : T`, `name = e` or a type"), at);
+        parser.error(
+            format!("unexpected {found} in a template marker: it is `e`, `e : T`, `e : place`, `name = e` or a type"),
+            at,
+        );
     }
     diagnostics.extend(parser.into_diagnostics());
-    (Hole { expr, ty, assign, in_return: false, span }, diagnostics)
+    (Hole { expr, ty, assign, place, in_return: false, span }, diagnostics)
 }
 
 /// Parses a `${...}` fragment as an expression, shifting all spans by

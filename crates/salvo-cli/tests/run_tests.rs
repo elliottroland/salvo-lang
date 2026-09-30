@@ -1028,7 +1028,7 @@ fn a_dependency_brings_its_host_libraries_only_when_reached() {
     fs::create_dir_all(lib.join("salvo/platform/lib")).unwrap();
     fs::write(
         lib.join("salvo.toml"),
-        "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\n\n\
+        "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nplatform = \"salvo/platform\"\n\n\
          [rust]\ncrates = { no-such-crate-salvo-test = \"9.9.9\" }\n",
     )
     .unwrap();
@@ -1176,7 +1176,7 @@ fn platform_templates_run_on_both_backends() {
     let Some(__stamp) = e2e_stamp("platform_templates", &["rustc", "kotlinc"]) else { return };
     let dir = work_dir("platform_templates");
     fs::create_dir_all(dir.join("salvo/platform")).unwrap();
-    fs::write(dir.join("salvo.toml"), "[project]\nname = \"tpl\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\n").unwrap();
+    fs::write(dir.join("salvo.toml"), "[project]\nname = \"tpl\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\nplatform = \"salvo/platform\"\n").unwrap();
     let write = |sv: &str, kt: &str, rs: &str| {
         fs::write(dir.join("salvo/main.sv"), sv).unwrap();
         fs::write(dir.join("salvo/platform/main.sv.kt"), kt).unwrap();

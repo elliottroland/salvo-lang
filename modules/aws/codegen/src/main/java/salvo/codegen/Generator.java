@@ -1050,14 +1050,18 @@ final class Generator {
         return "(`" + name + "` : " + ty + ")";
     }
 
-    /** `@{ value : Payload }` for an operation's answer. */
-    private String answer(OperationShape op, String value) {
-        return "@{ " + value + " : " + replyPayload(op) + " }";
+    /**
+     * `@{ value : place }` for an operation's answer: the value takes the type
+     * of the host name [place] declared as the payload [host-splice], so the
+     * payload union is written once, where [place] is declared.
+     */
+    private static String answer(String place, String value) {
+        return "@{ " + value + " : " + place + " }";
     }
 
     /** The success answer, from the host name [value] declared as the output. */
-    private String okAnswer(OperationShape op, String value) {
-        return output(op).isPresent() ? answer(op, "ok(" + value + ")") : answer(op, "ok(None)");
+    private String okAnswer(OperationShape op, String place, String value) {
+        return output(op).isPresent() ? answer(place, "ok(" + value + ")") : answer(place, "ok(None)");
     }
 
     /** Declares the host name [name] as the operation's output: `let @{value : Out}`. */
@@ -1065,8 +1069,8 @@ final class Generator {
         return declHole(name, output(op).map(s -> structs.get(s.getId())).orElse("None"));
     }
 
-    private String awsErrAnswer(OperationShape op, String code, String messageLeaf) {
-        return answer(op, "err(checked<" + errorUnion() + ">(AwsError { code: \"" + code + "\", message: `"
+    private String awsErrAnswer(String place, String code, String messageLeaf) {
+        return answer(place, "err(checked<" + errorUnion() + ">(AwsError { code: \"" + code + "\", message: `"
                 + messageLeaf + "` }))");
     }
 
@@ -1402,7 +1406,7 @@ final class Generator {
                     .append("        Some(n) if n >= 0 => n,\n")
                     .append("        _ => {\n            drop(body);\n")
                     .append("            let ").append(declHole("failed", replyPayload(op))).append(" = ")
-                    .append(awsErrAnswer(op, "MissingContentLength", "\"" + missingLengthText(op) + "\".to_string()"))
+                    .append(awsErrAnswer("failed", "MissingContentLength", "\"" + missingLengthText(op) + "\".to_string()"))
                     .append(";\n            reply.send(failed);\n            return;\n        }\n    };\n");
             out.append("    let (upload, problem) = salvo_upload(body, length);\n");
             out.append("    let call = call.set_").append(snake(inStream.getMemberName())).append("(Some(")
@@ -1414,17 +1418,17 @@ final class Generator {
                 ? "from_sdk_" + snake(structs.get(output(op).get().getId())) + "(out, &rt)"
                 : output(op).map(s -> "from_sdk_" + snake(structs.get(s.getId())) + "(&out)").orElse("()");
         out.append("        Ok(out) => { let ").append(outputDecl(op, "value")).append(" = ").append(okValue).append("; ")
-                .append(okAnswer(op, "value")).append(" }\n");
+                .append(okAnswer(op, "answer", "value")).append(" }\n");
         out.append("        Err(e) => { let ").append(declHole("failure", "Checked<" + errorUnion() + ">"))
                 .append(" = salvo_failure(e").append(extra.isEmpty() ? "" : ", " + extra)
-                .append("); ").append(answer(op, "err(failure)")).append(" }\n");
+                .append("); ").append(answer("answer", "err(failure)")).append(" }\n");
         out.append("    };\n");
         if (inStream != null) {
             // A body that failed, or did not match its length, is the answer
             // whatever the service said about the bytes it did get.
             out.append("    let problem = problem.lock().unwrap().take();\n")
                     .append("    let ").append(declHole("answer", replyPayload(op))).append(" = match problem {\n")
-                    .append("        Some(message) => ").append(awsErrAnswer(op, "StreamFailed", "message")).append(",\n")
+                    .append("        Some(message) => ").append(awsErrAnswer("answer", "StreamFailed", "message")).append(",\n")
                     .append("        None => answer,\n    };\n");
         }
         out.append("    reply.send(answer);\n});\n");
@@ -1706,7 +1710,7 @@ final class Generator {
             out.append("    if (length == null || length < 0) {\n")
                     .append("        body.closeInput()\n")
                     .append("        val ").append(declHole("failed", replyPayload(op))).append(" = ")
-                    .append(awsErrAnswer(op, "MissingContentLength", "\"" + missingLengthText(op) + "\"")).append('\n')
+                    .append(awsErrAnswer("failed", "MissingContentLength", "\"" + missingLengthText(op) + "\"")).append('\n')
                     .append("        host.send(failed)\n        return@launch\n    }\n");
             out.append("    val upload = SalvoUpload(body, length)\n");
         }
@@ -1726,7 +1730,7 @@ final class Generator {
                     .append("            sent = true\n")
                     .append("            val ").append(outputDecl(op, "value")).append(" = fromSdk").append(structs.get(output(op).get().getId()))
                     .append("(response, handle)\n")
-                    .append("            val ").append(declHole("success", replyPayload(op))).append(" = ").append(okAnswer(op, "value")).append('\n')
+                    .append("            val ").append(declHole("success", replyPayload(op))).append(" = ").append(okAnswer(op, "success", "value")).append('\n')
                     .append("            host.send(success)\n")
                     .append("            closed.await()\n        }\n")
                     .append("        null\n");
@@ -1735,26 +1739,32 @@ final class Generator {
             if (output(op).isPresent()) {
                 out.append("        val ").append(outputDecl(op, "value")).append(" = fromSdk").append(structs.get(output(op).get().getId())).append('(')
                         .append(call).append(")\n");
-                out.append("        ").append(okAnswer(op, "value")).append('\n');
+                out.append("        ").append(okAnswer(op, "answer", "value")).append('\n');
             } else {
-                out.append("        ").append(call).append('\n').append("        ").append(okAnswer(op, "")).append('\n');
+                out.append("        ").append(call).append('\n').append("        ").append(okAnswer(op, "answer", "")).append('\n');
             }
         }
+        // With a streamed output `answer` is the optional payload (null once
+        // the response block has sent it), so the failures name the payload
+        // through a declared `failed` of their own.
+        String caught = outStream != null ? "failed" : "answer";
+        String failedDecl = outStream != null ? "val " + declHole("failed", replyPayload(op)) + " = " : "";
+        String tail = outStream != null ? "\n        failed" : "";
         out.append("    } catch (e: aws.smithy.kotlin.runtime.ServiceException) {\n")
                 .append("        val ").append(declHole("failure", errorStruct())).append(" = salvoFailure(e)\n")
-                .append("        ").append(answer(op, "err(checked<" + errorUnion() + ">(failure))"))
-                .append('\n');
+                .append("        ").append(failedDecl).append(answer(caught, "err(checked<" + errorUnion() + ">(failure))"))
+                .append(tail).append('\n');
         out.append("    } catch (e: Exception) {\n")
                 .append("        val ").append(declHole("failure", "AwsError")).append(" = salvoAwsError(e)\n")
-                .append("        ").append(answer(op, "err(checked<" + errorUnion() + ">(failure))"))
-                .append("\n    }\n");
+                .append("        ").append(failedDecl).append(answer(caught, "err(checked<" + errorUnion() + ">(failure))"))
+                .append(tail).append("\n    }\n");
         if (outStream != null) {
             out.append("    if (!sent && answer != null) host.send(answer)\n}\n");
         } else if (inStream != null) {
             out.append("    val problem = upload.finish()\n")
                     .append("    body.closeInput()\n")
                     .append("    val ").append(declHole("result", replyPayload(op))).append(" = if (problem != null) ")
-                    .append(awsErrAnswer(op, "StreamFailed", "problem")).append(" else answer\n")
+                    .append(awsErrAnswer("result", "StreamFailed", "problem")).append(" else answer\n")
                     .append("    host.send(result)\n}\n");
         } else {
             out.append("    host.send(answer)\n}\n");

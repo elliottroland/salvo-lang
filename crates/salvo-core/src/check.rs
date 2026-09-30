@@ -6620,6 +6620,33 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.validate_type(t);
                     self.lower_type(t)
                 });
+                // `e : name` / `e : return`: the type of a place, so a union
+                // host code hides is written once, where the place is.
+                if let Some(place) = &hole.place {
+                    if place.name == "return" {
+                        match &ret {
+                            Some(r) => want = Some(r.clone()),
+                            None => self.error(
+                                place.span,
+                                "`: return` takes the enclosing fn's return type, and this marker \
+                                 is not in a `` `fn` `` body [host-splice]"
+                                    .to_string(),
+                            ),
+                        }
+                    } else {
+                        match self.lookup(&place.name).map(|v| v.declared.clone()) {
+                            Some(ty) => want = Some(ty),
+                            None => self.error(
+                                place.span,
+                                format!(
+                                    "`: {}` ascribes the type of a place, and no parameter, state \
+                                     field or declared name is called `{}` here [host-splice]",
+                                    place.name, place.name
+                                ),
+                            ),
+                        }
+                    }
+                }
                 if let Some(ty) = &want {
                     self.out.host_types.insert(self.key(hole.span), ty.clone());
                 }
@@ -6649,7 +6676,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // A name an earlier declaring hole introduced may be declared
                 // again — each helper of a handler-level block names its own
                 // `v` — but a parameter or state field never is.
-                if let (Some(Expr::Ident(id)), Some(ty), Some(_)) = (&hole.expr, &want, &hole.ty) {
+                if let (Some(Expr::Ident(id)), Some(ty), true) =
+                    (&hole.expr, &want, hole.ty.is_some() || hole.place.is_some())
+                {
                     if self.lookup(&id.name).is_none() || declared_here.contains(&id.name) {
                         declared_here.insert(id.name.clone());
                         let var = LocalVar {

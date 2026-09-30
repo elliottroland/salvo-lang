@@ -135,6 +135,46 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Platform roots, template skeletons, and ascription by a place (2026-09-30,
+user decisions).** Three calls in one round, prompted by the aws templates.
+(1) **The platform root is the manifest's, with no default**: `[build]
+platform` for every backend, `[kotlin]`/`[rust] platform` over it, relative to
+the manifest; one shared root (as `modules/aws` has, `salvo/platform`, and std,
+`platform`) or one per backend ([platform-root]). A program with platform
+declarations and no root for a backend it builds is refused at the first
+declaration naming the key; a host file in a `platform/` directory nothing
+covers is reported, never read as module `platform.…`. `PlatformRoots` in
+`source.rs` classifies a file by its root; in the output a host file is still
+`platform/<module>.<ext>`, which the emitters name. std's roots come from
+`std/salvo.toml`, read by the embedded loader too; a dependency's from its own
+manifest. Every manifest in the repository that uses platform files names its
+current directory, so nothing moved. (2) **`salvo platform generate` writes
+templates**: for each backend the manifest builds, into that backend's root —
+a template (`<m>.sv.<ext>`, `template::skeleton`) with every platform handler's
+header and effect members and every bodiless fn, stubbed, and host files only
+for `platform effect`s and a host-owned `main`. Before, a module with a
+template got nothing (`platform_handlers` skips a templated handler) and
+bodiless fns never had a skeleton. The missing-handler error now names the
+template. (3) **Ascription by a place**, option (a) of four put to the user
+(type aliases, `name = e`, inference from the enclosing marker, per-arm
+helpers): `` `e : name` `` takes the type of a parameter, state field or
+declared name, `` `e : return` `` the fn's return type ([host-splice];
+`Hole.place`, told apart from a type by case [name-casing]). The aws generator
+names its places (`answer`, `failed`, `success`, `result`); the four templates
+went from 60 spellings of an answer union to 22 — each operation's header and
+declaration — and the drift test compiles them against both SDKs unchanged.
+(4) **Maven** — asked whether `-jvm` coordinates alone would make delegating to
+Maven work: a walk of Maven Central's POMs for `aws.sdk.kotlin:{sqs,s3}-jvm`
+reproduces Gradle's 40 jars but one version (ROADMAP §4b item 1). *Found on the
+way*: a handler template's member was matched against the first effect of that
+name in the program, so a handler of a local `Clock` matched std's; the
+handler's own module is looked in first. Tests: a checker test, parser
+assertions, 1 unit test in `source.rs` (the old companion-attribution three
+became two), and a CLI test with split roots (templates and host files in each,
+skeletons that type-check, a missing root and a misplaced file refused);
+existing platform tests name their root, and the handler arc now implements a
+template. **1684 tests.**
+
 **Editor support for platform templates (2026-09-30; ROADMAP §4c, the item
 left by the templates).** No language-design call was needed: the template
 syntax is unchanged, and everything below is editor engineering within it.
@@ -19165,7 +19205,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1683)
+## Test inventory (all green: 1684)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -19173,7 +19213,12 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 776 - 2 template unit tests (`src/template.rs`
+- `salvo-core`: 777 - a platform-root unit test (`src/source.rs`
+  [platform-root]: files attributed by their root, a shared and a split root,
+  the other language under a backend's own root refused) + the place-ascription
+  test (`tests/splice_tests.rs` [host-splice]: by a declared name across host
+  branches, by `return`, a declaration by a place, a parameter's type enforced,
+  an unknown place and `: return` outside a fn refused) + 2 template unit tests (`src/template.rs`
   [host-splice]: the marker spans the language server answers in are the
   scanner's markers, and declaring headers parse at template offsets) + 12 assertion tests (`tests/assert_tests.rs` [assert-op]
   [assert-fn] [assert-narrow]: `!` refused on a never-absent value and on a
@@ -19663,7 +19708,7 @@ cache, with per-test timings.
   C-6 needs std's own declarations, so it is asserted end to end in each
   backend's `compiles_and_runs_list_claims` case instead of here — this
   harness builds its own prelude).
-- `salvo-cli`: 105 - 51 `analyze` integration tests running the built
+- `salvo-cli`: 106 - 51 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -19829,6 +19874,10 @@ cache, with per-test timings.
   location asserted on stderr. Either half alone would be a bug — an abort
   rejects a legal program, and silence leaves the diagnostic visible only in
   `salvo analyze`).
+  + the split-roots `platform generate` test (`tests/platform_tests.rs`
+  [platform-root] [cli-platform]: a template and a host file in each backend's
+  own root, skeletons that type-check, a second run keeping every file, a
+  missing root and a Rust file under the Kotlin root refused)
   + 5 `platform generate` tests (`tests/platform_tests.rs` [cli-platform]
   [platform-tree]): the whole arc per backend — the run failing with an
   error that names the command and the path, the command writing

@@ -417,6 +417,10 @@ struct Layout {
     /// `salvo test` sets it: a production build does not walk them, which is
     /// the whole of how tests stay out of a shipped program.
     tests: bool,
+    /// [cli-platform] `salvo platform generate` is assembling: a declaration
+    /// missing its host implementation is what the command is about to write,
+    /// so the coverage check is not a reason to stop.
+    generate: bool,
 }
 
 /// A parsed, entry-resolved program: what `compile`, `run` and
@@ -462,6 +466,10 @@ fn assemble(
     // host files as much as the project's do.
     let mut io_errors =
         analysis::load_dependencies(&mut sources, project, backend.file_extension());
+    // [platform-root] The project's platform roots, when it names any.
+    if let Some(project) = project {
+        sources.platform = project.platform_roots();
+    }
     io_errors.extend(sources.add_dir(&layout.src, backend.file_extension(), false, layout.tests));
     for err in &io_errors {
         eprintln!("error: {err}");
@@ -597,9 +605,25 @@ fn assemble(
         modules,
         companions: sources.companions,
     };
+    // [platform-root] Platform declarations need a platform root for every
+    // backend in play — the one being built, and every one the manifest
+    // builds.
+    {
+        let mut backends: Vec<&str> = project.map(salvo_core::required_backends).unwrap_or_default();
+        if !backends.contains(&backend.name()) {
+            backends.push(backend.name());
+        }
+        let missing = salvo_core::platform_root_required(&program, project, &backends);
+        for diag in &missing {
+            eprintln!("{}", diag.render(&program.files));
+        }
+        if !missing.is_empty() {
+            return Err(ExitCode::FAILURE);
+        }
+    }
     // [host-splice] Every backend the manifest builds has its host block —
     // whichever one this command builds.
-    if let Some(project) = project {
+    if let (Some(project), false) = (project, layout.generate) {
         let backends = salvo_core::required_backends(project);
         let coverage = salvo_core::host_block_coverage(&program, &backends);
         for diag in &coverage {
@@ -1225,13 +1249,14 @@ fn platform_generate(
     main_file: Option<PathBuf>,
 ) -> ExitCode {
     let registry = registry();
-    let inputs = match resolve_inputs(src, main_file, backend_name, "kotlin", false) {
+    let mut inputs = match resolve_inputs(src, main_file, backend_name, "kotlin", false) {
         Ok(i) => i,
         Err(msg) => {
             eprintln!("error: {msg}");
             return ExitCode::FAILURE;
         }
     };
+    inputs.layout.generate = true;
     for name in &inputs.backends {
         let Some(backend) = registry.get(name) else {
             eprintln!("{}", unknown_backend(&registry, name));
@@ -1245,13 +1270,100 @@ fn platform_generate(
     ExitCode::SUCCESS
 }
 
+/// Writes `content` at `path` unless a file is there already; `Ok(true)` when
+/// written [cli-platform].
+fn write_once(path: &Path, content: &str) -> Result<bool, ExitCode> {
+    if path.exists() {
+        eprintln!("kept {} (already exists)", path.display());
+        return Ok(false);
+    }
+    if let Some(parent) = path.parent() {
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            eprintln!("error: failed to create `{}`: {err}", parent.display());
+            return Err(ExitCode::FAILURE);
+        }
+    }
+    if let Err(err) = std::fs::write(path, content) {
+        eprintln!("error: failed to write `{}`: {err}", path.display());
+        return Err(ExitCode::FAILURE);
+    }
+    eprintln!("wrote {}", path.display());
+    Ok(true)
+}
+
+/// [cli-platform] [platform-root] One backend's skeletons, into that
+/// backend's platform root: a **template** (`<m>.sv.<ext>`) for the platform
+/// handlers and bodiless fns of each module, and a host file (`<m>.<ext>`)
+/// for its `platform effect`s and a host-owned `main`, which a template
+/// cannot express. A file that exists is never touched; a handler whose
+/// module already has a hand-written host file is left to it.
 fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) -> ExitCode {
     let layout = &inputs.layout;
-    let Some(assembled) = (match assemble(backend, layout, None, false, inputs.project.as_ref()) {
+    let project = inputs.project.as_ref();
+    let assemble_now = || assemble(backend, layout, None, false, project);
+    let Some(assembled) = (match assemble_now() {
         Ok(assembled) => assembled,
         Err(code) => return code,
     }) else {
         return ExitCode::SUCCESS;
+    };
+    // `assemble` refuses platform declarations without a root, so a program
+    // that has any has one here.
+    let Some(root) = project.and_then(|p| p.platform_root(backend.name())) else {
+        eprintln!(
+            "no `platform effect`, `platform handler` or bodiless fn in `{}`: nothing to generate",
+            layout.src.display()
+        );
+        return ExitCode::SUCCESS;
+    };
+    let ext = backend.file_extension();
+    let under_root = |module: &salvo_core::ModulePath, suffix: &str| {
+        let mut path = root.clone();
+        for part in &module.0 {
+            path.push(part);
+        }
+        let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+        name.push(suffix);
+        path.set_file_name(name);
+        path
+    };
+
+    let mut written = 0usize;
+    let mut kept = 0usize;
+    let mut any = false;
+    // Templates first: once they exist, the handlers they implement are no
+    // longer the backend's to write a host class for.
+    for unit in assembled.program.units() {
+        if unit.file.is_std || unit.file.dependency.is_some() {
+            continue;
+        }
+        let module = &unit.file.module;
+        let companion = under_root(module, &format!(".{ext}"));
+        let mut ast = unit.ast.clone();
+        if companion.exists() {
+            // A hand-written host file implements this module's handlers.
+            ast.items.retain(|i| !matches!(i, salvo_syntax::ast::Item::Handler(_)));
+        }
+        let Some(content) =
+            salvo_core::template::skeleton(&ast, &assembled.program.modules, backend.name())
+        else {
+            continue;
+        };
+        any = true;
+        match write_once(&under_root(module, &format!(".sv.{ext}")), &content) {
+            Ok(true) => written += 1,
+            Ok(false) => kept += 1,
+            Err(code) => return code,
+        }
+    }
+    let assembled = if written > 0 {
+        match assemble_now() {
+            Ok(Some(assembled)) => assembled,
+            Ok(None) => return ExitCode::SUCCESS,
+            Err(code) => return code,
+        }
+    } else {
+        assembled
     };
 
     let skeletons = match backend
@@ -1269,36 +1381,23 @@ fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) 
             return ExitCode::FAILURE;
         }
     };
-    if skeletons.is_empty() {
+    for (rel_path, content) in skeletons {
+        any = true;
+        // The backend names the file as it is emitted, under `platform/`;
+        // on disk it goes under this backend's root.
+        let rel = rel_path.strip_prefix(salvo_core::PLATFORM_DIR).unwrap_or(&rel_path);
+        match write_once(&root.join(rel), &content) {
+            Ok(true) => written += 1,
+            Ok(false) => kept += 1,
+            Err(code) => return code,
+        }
+    }
+    if !any {
         eprintln!(
-            "no `platform effect` or `platform handler` declarations in `{}`: \
-             nothing to generate",
+            "no `platform effect`, `platform handler` or bodiless fn in `{}`: nothing to generate",
             layout.src.display()
         );
         return ExitCode::SUCCESS;
-    }
-
-    let mut written = 0usize;
-    let mut kept = 0usize;
-    for (rel_path, content) in skeletons {
-        let path = layout.src.join(&rel_path);
-        if path.exists() {
-            eprintln!("kept {} (already exists)", path.display());
-            kept += 1;
-            continue;
-        }
-        if let Some(parent) = path.parent() {
-            if let Err(err) = std::fs::create_dir_all(parent) {
-                eprintln!("error: failed to create `{}`: {err}", parent.display());
-                return ExitCode::FAILURE;
-            }
-        }
-        if let Err(err) = std::fs::write(&path, &content) {
-            eprintln!("error: failed to write `{}`: {err}", path.display());
-            return ExitCode::FAILURE;
-        }
-        eprintln!("wrote {}", path.display());
-        written += 1;
     }
     eprintln!(
         "generated {written} host file(s){}; implement the stubbed members, then \
@@ -1489,6 +1588,7 @@ fn layout_of(src: Option<PathBuf>, main_file: Option<PathBuf>) -> Result<Layout,
             src,
             main_file: None,
             tests: false,
+                generate: false,
         });
     };
     check_entry_file(&main)?;
@@ -1505,6 +1605,7 @@ fn layout_of(src: Option<PathBuf>, main_file: Option<PathBuf>) -> Result<Layout,
                 src: dir.map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")),
                 main_file: Some(name.to_string()),
                 tests: false,
+                generate: false,
             })
         }
         // Both given: the entry is identified by its path *relative to the
@@ -1525,6 +1626,7 @@ fn layout_of(src: Option<PathBuf>, main_file: Option<PathBuf>) -> Result<Layout,
                 src,
                 main_file: Some(rel.display().to_string()),
                 tests: false,
+                generate: false,
             })
         }
     }

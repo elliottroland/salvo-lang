@@ -93,6 +93,7 @@ version = "0.1.0"
 src = "salvo"          # the source root, relative to this file (default: here)
 main = "salvo/main.sv" # the entry point, when several files declare one (optional)
 backend = "*"          # rust, kotlin, or * for every backend
+platform = "salvo/platform"  # host files and platform templates (required if there are any)
 
 [rust]
 target = "rust"        # where `salvo compile` writes each backend's output
@@ -142,8 +143,9 @@ author owns its namespace by how the tree is laid out, and two projects
 declaring one path collide as two files of your own would. What a dependency
 does not export stays private to it. Its `main` is not your program's entry
 point; its actor protocols are locked in its own `salvo.lock`, not yours; its
-test annexes are never loaded; and its `platform/` host files are loaded with
-it, since its platform effects need them as much as yours do.
+test annexes are never loaded; and its platform files — under the platform root
+its own manifest names — are loaded with it, since its platform declarations
+need them as much as yours do.
 
 A dependency **may not declare a standard-library module** — a library must
 not be able to redefine `core.list` on the programs that use it — unless its

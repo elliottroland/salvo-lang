@@ -375,7 +375,7 @@ pub fn emit_program_reporting(
         errors.push(salvo_core::missing_handler_host_error(
             &handlers.join("`, `"),
             module,
-            &salvo_core::host_rel_path(module, "rs"),
+            &salvo_core::host_rel_path(module, "sv.rs"),
         ));
     }
 

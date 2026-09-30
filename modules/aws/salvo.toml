@@ -4,6 +4,9 @@ version = "0.1.0"
 
 [build]
 src = "salvo"
+# [platform-root] The generated host templates (`platform/aws/**.sv.kt` and
+# `.sv.rs`), both languages in one tree.
+platform = "salvo/platform"
 
 # [platform-host-deps] What the generated host glue (`salvo/platform/aws/**`)
 # compiles against. Joins a build only when that glue is reached — a program

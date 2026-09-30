@@ -291,24 +291,24 @@ import aws.smithy.kotlin.runtime.content.toInputStream
         scope.launch {
             if (length == null || length < 0) {
                 body.closeInput()
-                val `failed : Ok PutObjectOutput | Err Checked<S3Failure>` = `err(checked<S3Failure>(AwsError { code: "MissingContentLength", message: @{"S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"} })) : Ok PutObjectOutput | Err Checked<S3Failure>`
+                val `failed : Ok PutObjectOutput | Err Checked<S3Failure>` = `err(checked<S3Failure>(AwsError { code: "MissingContentLength", message: @{"S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"} })) : failed`
                 host.send(failed)
                 return@launch
             }
             val upload = SalvoUpload(body, length)
             val `answer : Ok PutObjectOutput | Err Checked<S3Failure>` = try {
                 val `value : PutObjectOutput` = fromSdkPutObjectOutput(client.putObject(toSdkPutObjectInput(request, upload.asByteStream(length))))
-                `ok(value) : Ok PutObjectOutput | Err Checked<S3Failure>`
+                `ok(value) : answer`
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
                 val `failure : S3Error` = salvoFailure(e)
-                `err(checked<S3Failure>(failure)) : Ok PutObjectOutput | Err Checked<S3Failure>`
+                `err(checked<S3Failure>(failure)) : answer`
             } catch (e: Exception) {
                 val `failure : AwsError` = salvoAwsError(e)
-                `err(checked<S3Failure>(failure)) : Ok PutObjectOutput | Err Checked<S3Failure>`
+                `err(checked<S3Failure>(failure)) : answer`
             }
             val problem = upload.finish()
             body.closeInput()
-            val `result : Ok PutObjectOutput | Err Checked<S3Failure>` = if (problem != null) `err(checked<S3Failure>(AwsError { code: "StreamFailed", message: @{problem} })) : Ok PutObjectOutput | Err Checked<S3Failure>` else answer
+            val `result : Ok PutObjectOutput | Err Checked<S3Failure>` = if (problem != null) `err(checked<S3Failure>(AwsError { code: "StreamFailed", message: @{problem} })) : result` else answer
             host.send(result)
         }
     }
@@ -324,17 +324,19 @@ import aws.smithy.kotlin.runtime.content.toInputStream
                     val handle = salvoRegisterBody("S3 GetObject body", response.body, closed)
                     sent = true
                     val `value : GetObjectOutput` = fromSdkGetObjectOutput(response, handle)
-                    val `success : Ok GetObjectOutput | Err Checked<S3Failure>` = `ok(value) : Ok GetObjectOutput | Err Checked<S3Failure>`
+                    val `success : Ok GetObjectOutput | Err Checked<S3Failure>` = `ok(value) : success`
                     host.send(success)
                     closed.await()
                 }
                 null
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
                 val `failure : S3Error` = salvoFailure(e)
-                `err(checked<S3Failure>(failure)) : Ok GetObjectOutput | Err Checked<S3Failure>`
+                val `failed : Ok GetObjectOutput | Err Checked<S3Failure>` = `err(checked<S3Failure>(failure)) : failed`
+                failed
             } catch (e: Exception) {
                 val `failure : AwsError` = salvoAwsError(e)
-                `err(checked<S3Failure>(failure)) : Ok GetObjectOutput | Err Checked<S3Failure>`
+                val `failed : Ok GetObjectOutput | Err Checked<S3Failure>` = `err(checked<S3Failure>(failure)) : failed`
+                failed
             }
             if (!sent && answer != null) host.send(answer)
         }

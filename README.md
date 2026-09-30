@@ -41,6 +41,9 @@ cargo test         # run the test suite
 #   src = "salvo"        # the source root (default: the manifest's directory)
 #   backend = "rust"     # or "kotlin", or "*" for both
 #   modules = "salvo_modules"   # where dependencies live (only with [dependencies])
+#   platform = "salvo/platform" # host files and platform templates — required
+#                               # when there are any; `[rust]`/`[kotlin] platform`
+#                               # give a backend its own
 #
 #   [dependencies]
 #   aws = "0.1.0"        # salvo_modules/aws/salvo.toml, at that version
@@ -77,8 +80,10 @@ cargo run -- test --src ./my_project                 # or --list, or a filter
 # `--target DIR` and `--clean-target before|both` work here too.
 cargo run -- test --src std                          # the standard library's own
 
-# Generate the host implementation skeleton for every `platform effect`
-# into ./my_project/platform/ (written once, never overwritten):
+# Generate the implementation skeletons into each backend's platform root —
+# a platform template (`<m>.sv.kt` / `.sv.rs`) for platform handlers and
+# bodiless fns, a host file for each `platform effect` (written once, never
+# overwritten):
 cargo run -- platform generate --backend kotlin --src ./my_project
 
 # Start a language server (LSP over stdio) for editor integration:
@@ -306,8 +311,10 @@ fn main() [use] {
   target language, and a `platform handler` is a host implementation of an
   *ordinary* Salvo effect — registered with `use` like any handler, so the
   entry point stays put. The compiler generates the interface and
-  `salvo platform generate` writes the host implementation skeleton into
-  `platform/`, so the *target's* compiler checks the two against each other.
+  `salvo platform generate` writes the implementation skeleton — a platform
+  template, Kotlin or Rust with Salvo between backticks — into the platform
+  root `salvo.toml` names, so the *target's* compiler checks the two against
+  each other.
   Those two are the whole interop surface: std's own primitives are
   `intrinsic`, lowered by code inside each backend, and `intrinsic` is the
   compiler's to declare.

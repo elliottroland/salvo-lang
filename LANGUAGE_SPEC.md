@@ -7910,9 +7910,10 @@ replaced the working document TESTING.md).
   standard library's own tree; `[build] src` (the source root, relative to the
   manifest, default `.`), `main` (the entry file, when there are several),
   `backend` (`rust`, `kotlin`, or `*` for every backend), `target` (one
-  output directory for all backends) and `modules` (where dependencies live
-  [manifest-deps]); `[rust]`/`[kotlin]` sections each with a `target` that
-  overrides it; `[dependencies]` [manifest-deps]. Every command reads it — `run`, `compile`,
+  output directory for all backends), `modules` (where dependencies live
+  [manifest-deps]) and `platform` (where platform files live, required when
+  there are any [platform-root]); `[rust]`/`[kotlin]` sections each with a
+  `target` and a `platform` that override them; `[dependencies]` [manifest-deps]. Every command reads it — `run`, `compile`,
   `test`, `analyze`, `platform generate`, the language server — with one
   precedence: a CLI flag, then the manifest, then the built-in default. Under
   `backend = "*"` a command runs for each backend in turn (a `compile` into
@@ -8156,21 +8157,42 @@ replaced the working document TESTING.md).
     section 2), called from every pool; std's `HostRawFs` keeps plain
     hash-map state on both backends and stays undeclared, so it is now
     serialized on Kotlin as it always was on Rust.
-* [platform-tree] The host implementations live in the source root's
-  **`platform/` tree**, mirroring the source layout: `platform/app/entry.kt`
-  implements the platform effects *and platform handlers*
-  [platform-handler] of module `app.entry` in Kotlin,
-  `platform/app/entry.rs` does it in Rust. `salvo platform generate` writes
-  them [cli-platform]. They are ordinary companion files
-  [backend-companion] — discovered by the active backend's native extension,
-  copied verbatim, gated on their module being reachable — with these
-  differences.
-  * The leading `platform/` is **stripped** when the file is attributed to a
-    module. Without that, the file's module would be `platform.app.entry`,
-    which no Salvo module is ever called, so it would never be reachable and
-    never be copied. Only the source root's `platform/` is special: a nested
-    one is an ordinary directory, and a module *named* `platform` keeps its
-    own companions.
+* [platform-root] **Where platform files are read from is the manifest's to
+  say, and it has no default** (user decision 2026-09-30): `[build] platform`
+  names one directory for every backend, `[kotlin] platform` / `[rust]
+  platform` one per backend, over it; paths are relative to the manifest.
+  Both backends may share a root — the extensions keep the files apart, as in
+  `modules/aws` (`platform = "salvo/platform"`) and `std/`
+  (`platform = "platform"`) — or each may have its own, inside the source
+  tree or beside it (`kotlin/`, `rust/`).
+  * A program with a `platform effect`, a `platform handler` or a bodiless
+    fn needs a root for every backend it builds, and for the one being
+    built: otherwise it is refused at the first such declaration, naming the
+    key (`platform_root_required`, in every build and in `analyze`). A
+    program with no manifest has no root and cannot use platform files.
+  * A file is attributed by its root (`PlatformRoots::classify`): its path
+    under the root, the way `.sv` files map, so `<root>/app/entry.kt` is
+    module `app.entry`, and `<root>/app/entry.sv.kt` its template. A Kotlin
+    file under the Rust-only root (or the reverse) is an error; so is a host
+    file in a `platform/` directory at the source root that no root covers
+    — it is reported, never read as a module called `platform.…`.
+  * In the output a host file is always `platform/<module path>.<ext>`
+    (`SourceSet::platform_output_path`), whatever root it came from: the
+    emitted code names it there.
+  * A dependency's roots are its own manifest's; std's are `std/salvo.toml`'s,
+    read by the embedded loader as well as from a checkout.
+* [platform-tree] The host implementations live in the backend's **platform
+  root** [platform-root], mirroring the source layout: `app/entry.kt` under
+  it implements the platform effects *and platform handlers*
+  [platform-handler] of module `app.entry` in Kotlin, `app/entry.rs` does it
+  in Rust. `salvo platform generate` writes them [cli-platform]. They are
+  ordinary companion files [backend-companion] — discovered by the active
+  backend's native extension, copied verbatim, gated on their module being
+  reachable — with these differences.
+  * The file is attributed to a module by its path **under the root**, and
+    emitted as `platform/<module path>.<ext>`. Without that, a file's module
+    would be its path from the source root, which no Salvo module is ever
+    called, so it would never be reachable and never be copied.
   * The host file is where the program's entry point lives, so the backends
     single it out: Kotlin launches its facade class, Rust mounts it under
     `platform_<module>` and delegates the crate root's `fn main` to it.
@@ -8182,12 +8204,12 @@ replaced the working document TESTING.md).
     program `use`s [platform-handler] — that one does not move the entry
     point, so the trigger is the `use`, not `main`.
   * The tree is not the *customer's* alone: std ships its host classes
-    there too (`std/platform/core/fs.kt`), which is how a std
+    under its own root too (`std/platform/fs/host.kt`), which is how a std
     `platform handler` is implemented. The embedded std is loaded with the
     active backend's extension, exactly as a source directory is.
-  * Both backends' host files coexist in one tree, because discovery only
-    ever picks up the active backend's extension — the same sources build
-    for both targets.
+  * Both backends' host files may coexist in one root, because discovery
+    only ever picks up the active backend's extension — the same sources
+    build for both targets.
 * [stream-handle] **Every stream table draws its handles from one process-wide
   counter** (user decision 2026-09-29, 22; built the same day):
   `stream.fresh_handle()`, an `intrinsic` lowered to the runtime's atomic
@@ -8205,7 +8227,9 @@ replaced the working document TESTING.md).
   decisions 2026-09-30, replacing the same day's fenced blocks inside `.sv`
   files). `platform/<path>.sv.kt` and `.sv.rs` implement the **bodiless**
   declarations of `<path>.sv`: they are ordinary Kotlin and Rust in which a
-  `` `…` `` marker is Salvo the compiler renders. Loaded for every backend
+  `` `…` `` marker is Salvo the compiler renders. The path is under the
+  backend's platform root [platform-root] (`platform/` above is the usual
+  choice, not a default). Loaded for every backend
   (`SourceSet.templates`), attached to the module's AST before expansion
   (`salvo_core::template::apply`), and appended to the module's source file
   for diagnostics, so an error inside a template names the template's line.
@@ -8231,6 +8255,16 @@ replaced the working document TESTING.md).
     name, and — right after host `return`, as the whole statement — a value
     taking the fn's return type (`` return `ok(n)` ``). A name a marker reads
     must be a parameter, state field, declared name or fn.
+  * **Ascription by a place** (user decision 2026-09-30, option (a) of the
+    round on repeated unions): `` `e : name` `` gives `e` the type of a
+    parameter, state field or declared host name, and `` `e : return` `` the
+    enclosing fn's return type — so a union is written once, where the place
+    is declared (`` val `answer : Ok Out | Err E` = try { … `ok(v) : answer` }
+    catch … { `err(x) : answer` } ``). A lowercase name (or `return`) alone
+    after the colon is a place, a capitalized one a type [name-casing]; a
+    declaration may take a place too (`` `b : a` ``). A place nothing
+    declares, or `: return` outside a `` `fn` `` body, is an error. A type
+    alias in the `.sv` file remains the other way to shorten a long type.
   * **State**: a platform handler's Salvo state is laid out by the compiler
     (so it needs a template, not a hand-written companion) and refused on a
     `threadsafe` handler for now. Host fields are the template's: Kotlin
@@ -8792,17 +8826,27 @@ replaced the working document TESTING.md).
     are alive and kept as owned data (`Analysis::overloads`), since a
     `Resolution` borrows the program. Only names with more than one
     declaration are stored.
-* [cli-platform] `salvo platform generate --backend NAME (--src DIR |
-  --main FILE)` writes the host implementation skeleton for every
-  `platform effect` and `platform handler` into `<src>/platform/`
-  [platform-tree]: a named class (Kotlin) or unit struct (Rust) per effect,
-  a class/struct named after each platform handler [platform-handler] —
-  with that handler's constructor parameters, and a `new` on Rust, since the
-  `use` site constructs it — each implementing the generated interface with
-  every member stubbed (`TODO` / `todo!`), plus — in the module whose `main`
-  needs a platform effect — the `main` that constructs the implementations
-  and calls the generated entry point. `--src` and `--main` behave as in
-  `salvo run` [cli-run].
+* [cli-platform] `salvo platform generate [--backend NAME] [--src DIR |
+  --main FILE]` writes the implementation skeletons into each backend's
+  platform root [platform-root] — every backend the manifest builds, or the
+  one named. `--src` and `--main` behave as in `salvo run` [cli-run].
+  * **A template** (`<m>.sv.<ext>`) per module with platform handlers or
+    bodiless fns (user decision 2026-09-30) [host-splice]: a declaring marker
+    with the full signature for each — a handler's header, each member of the
+    effect it implements, each bodiless fn — with a `TODO` / `todo!` body, and
+    the [platform-reply] contract above a member taking a `Reply`
+    (`template::skeleton`). A declaration already implemented in that
+    language is left out; a handler whose module already has a hand-written
+    host file (`<m>.<ext>`) is left to it.
+  * **A host file** (`<m>.<ext>`) for what a template cannot express: a named
+    class (Kotlin) or unit struct (Rust) per `platform effect`, implementing
+    the generated interface with every member stubbed, plus — in the module
+    whose `main` needs a platform effect — the `main` that constructs the
+    implementations and calls the generated entry point. The templates are
+    written first and the program re-assembled, so a handler they implement
+    gets no host class.
+  * A missing implementation is what the command is about to write, so the
+    per-backend coverage check [host-splice] does not stop it.
   * **Generated once, never overwritten.** An existing file is reported and
     left alone. This is what the interface framing bought: because Salvo and
     the host meet at a generated interface, every later divergence is a
@@ -8815,6 +8859,6 @@ replaced the working document TESTING.md).
     the same checked program, so a skeleton that does not match the
     interface it implements is impossible by construction.
   * A program with no platform declaration generates nothing, and says so.
-  * std's own host files are **not** generated: they are shipped in
-    `std/platform/` [platform-tree], so the command only ever writes into
-    the customer's tree.
+  * std's and a dependency's host files are **not** generated: they are
+    shipped with them [platform-tree], so the command only ever writes into
+    the customer's roots.

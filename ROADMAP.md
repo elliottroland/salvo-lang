@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1683 tests green.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1684 tests green.
 
 ## The sequence
 
@@ -353,6 +353,19 @@ made in the design sitting — but each has a shape to settle at implementation.
    ([platform-host-deps] [rs-cargo] [kt-classpath]; COMPLETED.md has the entry).
    Left: Maven resolution of `[kotlin] artifacts` by the compiler (they are
    recorded and conflict-checked, not fetched), a lock for host versions.
+   **Direction chosen 2026-09-30: delegate to Maven**, as Rust delegates to
+   cargo — the backend writes a `pom.xml` beside the output and runs
+   `mvn dependency:copy-dependencies` (or `build-classpath`) into a hidden
+   directory, keeping `libs` for jars no repository has. Not built. Found while
+   deciding: Maven ignores Gradle metadata, so a Kotlin Multiplatform library
+   must be named by its JVM artifact (`aws.sdk.kotlin:sqs-jvm:1.9.11`, not
+   `sqs`); a walk of Maven Central's POMs for the two aws `-jvm` coordinates
+   (compile + runtime scopes, nearest wins) gives the same 40 jars Gradle's
+   `fetchKotlinSdk` does except `org.jetbrains:annotations` (13.0 against
+   Gradle's conflict-resolved 23.0.0, a compile-only annotations jar). Open at
+   implementation: whether to refuse a non-`-jvm` coordinate that has only
+   Gradle metadata (the POM says `published-with-gradle-metadata`) with a hint,
+   and how the suite runs without `mvn` or network.
 2. ✅ **Host-completed continuations** — built 2026-09-29 ([platform-reply];
    COMPLETED.md has the entry). Left: a host reply to a remote-minted token (the
    typed wire path), and detecting a lost reply on Kotlin.
@@ -433,7 +446,9 @@ written down ([platform-abi], [rs-host-abi], [kt-host-abi]), then ✅ **host cod
 (highlighting and the language server, 2026-09-30; left: a template whose
 module has no `.sv` file is reported at file 0, span 0 — the embedded std — so
 `salvo analyze` names it but the editor drops it; the diagnostic needs a
-location of its own, the template); (5) DynamoDB.
+location of its own, the template), ✅ platform roots in the manifest, a
+template-writing `platform generate` and ascription by a place (2026-09-30);
+(5) DynamoDB.
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 

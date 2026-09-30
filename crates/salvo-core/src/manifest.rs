@@ -128,12 +128,19 @@ pub struct BuildSection {
     /// [manifest-deps] The directory holding the dependencies, relative to
     /// the manifest's directory. Required when `[dependencies]` is not empty.
     pub modules: Option<String>,
+    /// [platform-root] The directory holding every backend's platform files
+    /// (host companions and templates), relative to the manifest's
+    /// directory; a `[backend]` section's `platform` overrides it. No
+    /// default: a project with platform files names where they are.
+    pub platform: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct RustSection {
     pub target: Option<String>,
+    /// [platform-root] This backend's platform root, over `[build] platform`.
+    pub platform: Option<String>,
     /// [platform-host-deps] Crates the platform companions need, as Cargo
     /// writes them: `name = "1.0"` or `name = { path = "…", features = […] }`.
     #[serde(default)]
@@ -144,6 +151,8 @@ pub struct RustSection {
 #[serde(deny_unknown_fields)]
 pub struct KotlinSection {
     pub target: Option<String>,
+    /// [platform-root] This backend's platform root, over `[build] platform`.
+    pub platform: Option<String>,
     /// [platform-host-deps] Maven coordinates (`group:artifact:version`) the
     /// platform companions need. Recorded and conflict-checked, not fetched.
     #[serde(default)]
@@ -326,6 +335,12 @@ impl Project {
     pub fn load(path: &Path) -> Result<Project, String> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("failed to read `{}`: {e}", path.display()))?;
+        Self::parse(path, &text)
+    }
+
+    /// A manifest's text, as if read from `path` (its directory is the
+    /// project's); used for the standard library embedded in the compiler.
+    pub fn parse(path: &Path, text: &str) -> Result<Project, String> {
         let manifest: Manifest = toml::from_str(&text).map_err(|e| {
             format!("`{}`: {} [manifest]", path.display(), e.message())
         })?;
@@ -436,6 +451,26 @@ impl Project {
         };
         own.or(self.manifest.build.target.as_ref())
             .map(|t| self.dir.join(t))
+    }
+
+    /// [platform-root] Where `backend`'s platform files live: its own
+    /// section's `platform`, else `[build] platform`, else `None` — there is
+    /// no default.
+    pub fn platform_root(&self, backend: &str) -> Option<PathBuf> {
+        let own = match backend {
+            "rust" => self.manifest.rust.platform.as_ref(),
+            "kotlin" => self.manifest.kotlin.platform.as_ref(),
+            _ => None,
+        };
+        own.or(self.manifest.build.platform.as_ref()).map(|p| self.dir.join(p))
+    }
+
+    /// [platform-root] Both backends' platform roots.
+    pub fn platform_roots(&self) -> crate::PlatformRoots {
+        crate::PlatformRoots {
+            kotlin: self.platform_root("kotlin"),
+            rust: self.platform_root("rust"),
+        }
     }
 
     pub fn is_std(&self) -> bool {

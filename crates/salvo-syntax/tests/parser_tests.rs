@@ -3043,8 +3043,8 @@ fn literal_types_parse() {
 }
 
 // [host-splice] A platform template's marker parses as a hole: a type alone,
-// an expression with `@name` / `@{…}` host code in it, `e : T`, a declaration
-// `name : T`, and an assignment `name = e`.
+// an expression with `@name` / `@{…}` host code in it, `e : T`, `e : place`,
+// a declaration `name : T`, and an assignment `name = e`.
 #[test]
 fn template_markers_parse() {
     use salvo_syntax::ast::Expr;
@@ -3062,6 +3062,16 @@ fn template_markers_parse() {
     assert!(matches!(h.expr, Some(Expr::Ident(_))) && h.ty.is_some());
     let (h, _) = parse_template_marker("answer = ok(value)", 0);
     assert_eq!(h.assign.map(|i| i.name), Some("answer".to_string()));
+    // `e : place` and `e : return`: a lowercase name, or the keyword, alone
+    // after the colon is a place; a capitalized one is still a type.
+    let (h, d) = parse_template_marker("ok(value) : answer", 0);
+    assert!(d.is_empty() && h.ty.is_none(), "{h:?} {d:?}");
+    assert_eq!(h.place.map(|i| i.name), Some("answer".to_string()));
+    let (h, d) = parse_template_marker("err(e) : return", 0);
+    assert!(d.is_empty() && h.ty.is_none(), "{h:?} {d:?}");
+    assert_eq!(h.place.map(|i| i.name), Some("return".to_string()));
+    let (h, _) = parse_template_marker("ok(value) : Answer", 0);
+    assert!(h.place.is_none() && h.ty.is_some(), "{h:?}");
     // `size@core.list` stays a selector: `@` after a name is Salvo.
     let (h, d) = parse_template_marker("xs.size@core.list()", 0);
     assert!(d.is_empty() && !matches!(h.expr, Some(Expr::HostLeaf { .. })), "{h:?} {d:?}");

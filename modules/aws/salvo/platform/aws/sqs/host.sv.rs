@@ -183,8 +183,8 @@ where
             .set_tags(`input.tags`.as_ref().map(|x| x.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::HashMap<_, _>>()));
         self.rt.spawn(async move {
             let `answer : Ok CreateQueueOutput | Err Checked<SqsFailure>` = match call.send().await {
-                Ok(out) => { let `value : CreateQueueOutput` = from_sdk_create_queue_output(&out); `ok(value) : Ok CreateQueueOutput | Err Checked<SqsFailure>` }
-                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : Ok CreateQueueOutput | Err Checked<SqsFailure>` }
+                Ok(out) => { let `value : CreateQueueOutput` = from_sdk_create_queue_output(&out); `ok(value) : answer` }
+                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : answer` }
             };
             reply.send(answer);
         });
@@ -198,8 +198,8 @@ where
             .set_queue_owner_aws_account_id(`input.queue_owner_aws_account_id`.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
             let `answer : Ok GetQueueUrlOutput | Err Checked<SqsFailure>` = match call.send().await {
-                Ok(out) => { let `value : GetQueueUrlOutput` = from_sdk_get_queue_url_output(&out); `ok(value) : Ok GetQueueUrlOutput | Err Checked<SqsFailure>` }
-                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : Ok GetQueueUrlOutput | Err Checked<SqsFailure>` }
+                Ok(out) => { let `value : GetQueueUrlOutput` = from_sdk_get_queue_url_output(&out); `ok(value) : answer` }
+                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : answer` }
             };
             reply.send(answer);
         });
@@ -218,8 +218,8 @@ where
             .set_message_group_id(`input.message_group_id`.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
             let `answer : Ok SendMessageOutput | Err Checked<SqsFailure>` = match call.send().await {
-                Ok(out) => { let `value : SendMessageOutput` = from_sdk_send_message_output(&out); `ok(value) : Ok SendMessageOutput | Err Checked<SqsFailure>` }
-                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : Ok SendMessageOutput | Err Checked<SqsFailure>` }
+                Ok(out) => { let `value : SendMessageOutput` = from_sdk_send_message_output(&out); `ok(value) : answer` }
+                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : answer` }
             };
             reply.send(answer);
         });
@@ -239,8 +239,8 @@ where
             .set_receive_request_attempt_id(`input.receive_request_attempt_id`.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
             let `answer : Ok ReceiveMessageOutput | Err Checked<SqsFailure>` = match call.send().await {
-                Ok(out) => { let `value : ReceiveMessageOutput` = from_sdk_receive_message_output(&out); `ok(value) : Ok ReceiveMessageOutput | Err Checked<SqsFailure>` }
-                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : Ok ReceiveMessageOutput | Err Checked<SqsFailure>` }
+                Ok(out) => { let `value : ReceiveMessageOutput` = from_sdk_receive_message_output(&out); `ok(value) : answer` }
+                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : answer` }
             };
             reply.send(answer);
         });
@@ -254,8 +254,8 @@ where
             .set_receipt_handle(Some((&`input.receipt_handle`).clone()));
         self.rt.spawn(async move {
             let `answer : Ok None | Err Checked<SqsFailure>` = match call.send().await {
-                Ok(out) => { let `value : None` = (); `ok(None) : Ok None | Err Checked<SqsFailure>` }
-                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : Ok None | Err Checked<SqsFailure>` }
+                Ok(out) => { let `value : None` = (); `ok(None) : answer` }
+                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : answer` }
             };
             reply.send(answer);
         });
@@ -268,8 +268,8 @@ where
             .set_queue_url(Some((&`input.queue_url`).clone()));
         self.rt.spawn(async move {
             let `answer : Ok None | Err Checked<SqsFailure>` = match call.send().await {
-                Ok(out) => { let `value : None` = (); `ok(None) : Ok None | Err Checked<SqsFailure>` }
-                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : Ok None | Err Checked<SqsFailure>` }
+                Ok(out) => { let `value : None` = (); `ok(None) : answer` }
+                Err(e) => { let `failure : Checked<SqsFailure>` = salvo_failure(e); `err(failure) : answer` }
             };
             reply.send(answer);
         });

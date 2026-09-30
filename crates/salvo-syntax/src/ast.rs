@@ -981,6 +981,12 @@ pub struct Hole {
     pub ty: Option<Type>,
     /// `name = e`: the declared host name assigned, `e` checked as its type.
     pub assign: Option<Ident>,
+    /// `e : name` / `e : return`: ascription by a **place** — the value takes
+    /// the type of a parameter, state field or declared host name, or (for
+    /// `return`) of the enclosing fn's return type, so a long union is
+    /// written once. A place is lowercase and a type capitalized
+    /// [name-casing], which is what tells the two apart.
+    pub place: Option<Ident>,
     /// The marker follows host `return` in a `` `fn` `` body: it takes the
     /// fn's return type as its expected type.
     pub in_return: bool,

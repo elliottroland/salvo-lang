@@ -317,7 +317,7 @@ impl http_body::Body for SalvoUpload {
                 Some(n) if n >= 0 => n,
                 _ => {
                     drop(body);
-                    let `failed : Ok PutObjectOutput | Err Checked<S3Failure>` = `err(checked<S3Failure>(AwsError { code: "MissingContentLength", message: @{"S3 PutObject streams its body, so the input needs content_length: the body's length in bytes".to_string()} })) : Ok PutObjectOutput | Err Checked<S3Failure>`;
+                    let `failed : Ok PutObjectOutput | Err Checked<S3Failure>` = `err(checked<S3Failure>(AwsError { code: "MissingContentLength", message: @{"S3 PutObject streams its body, so the input needs content_length: the body's length in bytes".to_string()} })) : failed`;
                     reply.send(failed);
                     return;
                 }
@@ -325,12 +325,12 @@ impl http_body::Body for SalvoUpload {
             let (upload, problem) = salvo_upload(body, length);
             let call = call.set_body(Some(aws_sdk_s3::primitives::ByteStream::from_body_1_x(upload)));
             let `answer : Ok PutObjectOutput | Err Checked<S3Failure>` = match call.send().await {
-                Ok(out) => { let `value : PutObjectOutput` = from_sdk_put_object_output(&out); `ok(value) : Ok PutObjectOutput | Err Checked<S3Failure>` }
-                Err(e) => { let `failure : Checked<S3Failure>` = salvo_failure(e, |_| (None, None)); `err(failure) : Ok PutObjectOutput | Err Checked<S3Failure>` }
+                Ok(out) => { let `value : PutObjectOutput` = from_sdk_put_object_output(&out); `ok(value) : answer` }
+                Err(e) => { let `failure : Checked<S3Failure>` = salvo_failure(e, |_| (None, None)); `err(failure) : answer` }
             };
             let problem = problem.lock().unwrap().take();
             let `answer : Ok PutObjectOutput | Err Checked<S3Failure>` = match problem {
-                Some(message) => `err(checked<S3Failure>(AwsError { code: "StreamFailed", message: @{message} })) : Ok PutObjectOutput | Err Checked<S3Failure>`,
+                Some(message) => `err(checked<S3Failure>(AwsError { code: "StreamFailed", message: @{message} })) : answer`,
                 None => answer,
             };
             reply.send(answer);
@@ -365,8 +365,8 @@ impl http_body::Body for SalvoUpload {
             .set_checksum_mode(`input.checksum_mode`.as_ref().map(|x| sdk::ChecksumMode::from(x.as_str())));
         self.rt.spawn(async move {
             let `answer : Ok GetObjectOutput | Err Checked<S3Failure>` = match call.send().await {
-                Ok(out) => { let `value : GetObjectOutput` = from_sdk_get_object_output(out, &rt); `ok(value) : Ok GetObjectOutput | Err Checked<S3Failure>` }
-                Err(e) => { let `failure : Checked<S3Failure>` = salvo_failure(e, |err| match err { get_object::GetObjectError::InvalidObjectState(x) => (x.storage_class().map(|x| x.as_str().to_string()), x.access_tier().map(|x| x.as_str().to_string())), _ => (None, None) }); `err(failure) : Ok GetObjectOutput | Err Checked<S3Failure>` }
+                Ok(out) => { let `value : GetObjectOutput` = from_sdk_get_object_output(out, &rt); `ok(value) : answer` }
+                Err(e) => { let `failure : Checked<S3Failure>` = salvo_failure(e, |err| match err { get_object::GetObjectError::InvalidObjectState(x) => (x.storage_class().map(|x| x.as_str().to_string()), x.access_tier().map(|x| x.as_str().to_string())), _ => (None, None) }); `err(failure) : answer` }
             };
             reply.send(answer);
         });

@@ -1949,7 +1949,7 @@ fn templates_serve_diagnostics_hover_and_definition() {
     std::fs::create_dir_all(root.join("salvo/platform")).unwrap();
     std::fs::write(
         root.join("salvo.toml"),
-        "[project]\nname = \"tpl\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\n",
+        "[project]\nname = \"tpl\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\nplatform = \"salvo/platform\"\n",
     )
     .unwrap();
     std::fs::write(root.join("salvo/main.sv"), TEMPLATE_SV).unwrap();
