@@ -68,17 +68,8 @@ impl FileDiagnostic {
     /// e.g. `error: unknown effect --> main.sv:3:7` with a caret line and
     /// a `help:` line per suggested import [diag-import-suggest].
     pub fn render(&self, files: &[SourceFile]) -> String {
-        let f = &files[self.file];
         // [host-splice] A span past the file's own text is in a template.
-        let (name, content, span) = match f
-            .appendix
-            .iter()
-            .rev()
-            .find(|a| self.span.start >= a.base && self.span.start as usize >= f.content.len())
-        {
-            Some(a) => (&a.name, &a.content, Span::new(self.span.start - a.base, self.span.end.saturating_sub(a.base))),
-            None => (&f.name, &f.content, self.span),
-        };
+        let (name, content, span) = files[self.file].locate(self.span);
         let mut out = Diagnostic {
             severity: self.severity,
             message: self.message.clone(),

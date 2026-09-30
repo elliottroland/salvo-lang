@@ -8242,9 +8242,14 @@ replaced the working document TESTING.md).
     level text goes in its Kotlin class body or a Rust inherent `impl H`;
     file-level text at the end of the module's file. Kotlin `import` lines
     are hoisted to the file's imports.
+  * **Editor support** (2026-09-30): the VS Code extension highlights a
+    template as its host language with each marker as Salvo and `@name` /
+    `@{…}` inside it as the host again, from generated grammars
+    [cli-lang]; the language server treats a template as a document of its
+    own — its diagnostics, and hover and definition inside markers only
+    [cli-lsp].
   * Recorded: full Salvo expressions in markers with typed host escapes is
-    the general form (ROADMAP "not scheduled"); editor highlighting for
-    `.sv.kt`/`.sv.rs` is left (ROADMAP §4c).
+    the general form (ROADMAP "not scheduled").
 * [platform-abi] **The host ABI** (written down 2026-09-30, ROADMAP §4c step
   4): what hand-written or generated host code may rely on about the code the
   compiler emits — how a Salvo type is spelled in the target language, how a
@@ -8635,6 +8640,28 @@ replaced the working document TESTING.md).
     2026-09-02) [fate-link].
   * `textDocument/codeAction` serves import quickfixes from the
     suggestions on published diagnostics [diag-import-suggest].
+  * **Platform templates are documents** [host-splice] (2026-09-30). A
+    template is analysed as the text appended to its module's file
+    (`template::Appendix`), so the checker's `(file, span)` tables already
+    hold its markers at `base + offset`; `SourceFile::locate` maps a span
+    back to the template.
+    * An open template's buffer is part of the overlay: it replaces the
+      loaded template (or adds one not on disk), so an unsaved edit
+      re-checks as it stands. A template finds its project by the nearest
+      manifest, as a `.sv` file does [manifest-discovery].
+    * Diagnostics whose span lies in a template are published at the
+      template's URI, at its own line and column.
+    * Hover and definition answer **inside markers only**
+      (`template::marker_spans`, the scanner's own markers — strings,
+      comments and ```` `` ```` excluded); host text gets nothing. A
+      declaring marker's header answers at the matching position of the
+      `.sv` declaration it repeats (`template::headers`), since the
+      analysis compares a header with its declaration and keeps the
+      declaration; a name nothing references there (the declared name, a
+      parameter) jumps to the declaration when it is written in the `.sv`
+      file.
+    * An import quickfix on a template's diagnostic edits the module's
+      `.sv` file: a template has no imports of its own.
 * [doc-markdown] Doc comments are markdown and pass through verbatim: the
   lines are already stripped of `//`, so emphasis, inline code, lists and
   code fences work as written, and a bare `//` line is a paragraph break
@@ -8682,11 +8709,31 @@ replaced the working document TESTING.md).
     jumps to the alias declaration, not through to its target.
   * Declarations in the embedded std have no on-disk URI and yield no
     location.
+  * A location's path is the file's name joined to the **analysis's**
+    source root [manifest-discovery] — the project's `src` — not the
+    workspace root (a defect until 2026-09-30: in a project whose `src` is
+    a subdirectory, a definition and a hover's doc links named a path that
+    did not exist). A span in a platform template names the template
+    [host-splice].
   * Positions convert between byte offsets (Salvo spans) and UTF-16
     line/character pairs (the LSP default encoding).
-* [cli-lang] `salvo lang tm-grammar [--out PATH]` emits the TextMate
-  grammar consumed by the VS Code extension (`vscode/syntaxes/`);
-  without `--out` it prints to stdout.
+* [cli-lang] `salvo lang tm-grammar [--template HOST] [--out PATH]` emits
+  the TextMate grammar consumed by the VS Code extension
+  (`vscode/syntaxes/`); without `--out` it prints to stdout.
+  * `--template kotlin|rust` emits a **platform template's** grammar
+    instead [host-splice] (2026-09-30), `salvo-<host>.tmLanguage.json`,
+    scope `source.salvo-template.<host>`: the host grammar
+    (`source.kotlin`, `source.rust`) with the markers as a grammar-level
+    injection, `L:` so it wins over the host's patterns at every depth,
+    and excluded inside strings, comments and markers — the text the
+    template scanner skips. The injection tries ```` `` ```` first (on
+    Kotlin a doubled pair around a name is an escaped identifier), then a
+    marker, which ends at the next backtick and holds `@{…}` (host, braces
+    balanced), `@name` (host, at a token's start only) and `source.salvo`.
+    The checked-in files must byte-equal the generated ones
+    (`vscode_template_grammars_are_up_to_date`), and `package.json` must
+    register each under that scope with its suffix
+    (`vscode_extension_registers_the_template_languages`).
   * Keyword alternations are derived from the lexer's keyword table
     (`salvo_syntax::token::KEYWORDS` — the same table
     `TokenKind::keyword` consults), partitioned into highlighting

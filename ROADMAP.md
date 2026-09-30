@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1657 tests green.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1683 tests green.
 
 ## The sequence
 
@@ -429,9 +429,11 @@ need literal syntax first); (3) ✅ `aws.sqs`/`aws.s3` regenerated with
 literal-union enums and one error struct per service; (4) ✅ the host ABI
 written down ([platform-abi], [rs-host-abi], [kt-host-abi]), then ✅ **host code with Salvo splices** (built 2026-09-30, [host-splice]).
 ✅ the aws glue moved onto splices, then onto **platform templates**
-(`platform/<m>.sv.kt`/`.sv.rs`, 2026-09-30; left: editor highlighting for
-template files — Kotlin/Rust with `` `…` `` injected as Salvo — and LSP hover
-inside markers); (5) DynamoDB.
+(`platform/<m>.sv.kt`/`.sv.rs`, 2026-09-30), ✅ with editor support for them
+(highlighting and the language server, 2026-09-30; left: a template whose
+module has no `.sv` file is reported at file 0, span 0 — the embedded std — so
+`salvo analyze` names it but the editor drops it; the diagnostic needs a
+location of its own, the template); (5) DynamoDB.
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
@@ -1015,7 +1017,11 @@ several are "revisit only if a customer appears".
   a source-keyed stamp plus an emitter-version token; caching the emission beside
   the verdict; emitting `std` once per source and running many; shrinking the
   registry. Measure first: how much of the Kotlin binary's ~15s is `std`
-  re-emission versus per-case work.
+  re-emission versus per-case work. (Measured 2026-09-30: a warm `cargo test`
+  right after a full one took 1m00 against the ~15s budget; the Kotlin
+  `codegen_tests` binary was 29s of it, `kotlinc_compiles_and_runs_every_case`
+  and `every_example_has_a_kotlin_case` ~25s each in parallel with every stamp
+  hitting — case building alone — and the hygiene test 11s.)
 - **Locators through opaque anchors, branded tokens, and the bounds-check
   mitigation ladder** — the group-borrowing ladder's recorded refinements, with
   GhostCell declined on the record (a brand is a scope-bound *lifetime* and actor

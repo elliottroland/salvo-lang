@@ -79,6 +79,27 @@ pub struct SourceFile {
     pub appendix: Vec<crate::template::Appendix>,
 }
 
+impl SourceFile {
+    /// [host-splice] The text a span of this file lies in: the file's own, or
+    /// a platform template appended past it ([`crate::template::Appendix`]) —
+    /// as that text's display name and content, and the span within it.
+    pub fn locate(&self, span: salvo_syntax::Span) -> (&str, &str, salvo_syntax::Span) {
+        match self
+            .appendix
+            .iter()
+            .rev()
+            .find(|a| span.start >= a.base && span.start as usize >= self.content.len())
+        {
+            Some(a) => (
+                &a.name,
+                &a.content,
+                salvo_syntax::Span::new(span.start - a.base, span.end.saturating_sub(a.base)),
+            ),
+            None => (&self.name, &self.content, span),
+        }
+    }
+}
+
 /// The source-root directory holding host implementations of platform
 /// effects [platform-tree]: `platform/` mirrors the source tree, so
 /// `platform/app/entry.kt` belongs to module `app.entry`.

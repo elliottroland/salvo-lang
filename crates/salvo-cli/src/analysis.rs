@@ -145,6 +145,31 @@ fn analyze_project(
             };
             sources.add(rel.display().to_string(), module, content.clone(), false);
         }
+        // [host-splice] A platform template's open buffer replaces its disk
+        // content the same way — a template is analysed as part of its
+        // module, so an unsaved edit must reach `template::apply` — and a
+        // template not on disk yet is added. A template's `name` is relative
+        // to the root, or absolute for a dependency's, so `root.join` finds
+        // either.
+        for t in sources.templates.iter_mut() {
+            if let Some(content) = overlay.get(&root.join(&t.name)) {
+                t.content = content.clone();
+            }
+        }
+        for (path, content) in overlay {
+            let Ok(rel) = path.strip_prefix(&root) else { continue };
+            let Some((module, lang)) = SourceSet::classify_template(rel) else { continue };
+            if sources.templates.iter().any(|t| root.join(&t.name) == *path) {
+                continue;
+            }
+            sources.templates.push(salvo_core::template::TemplateFile {
+                rel_path: rel.to_path_buf(),
+                module,
+                lang: lang.to_string(),
+                content: content.clone(),
+                name: rel.display().to_string(),
+            });
+        }
     }
 
     // Parse every module, attributing diagnostics to files

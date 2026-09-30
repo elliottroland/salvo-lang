@@ -31,7 +31,7 @@ messages, and virtual time in a test).
 Ownership on the Rust side is derived mechanically from deductions — no
 lifetimes in emitted signatures except the one deliberate exception
 ([readonly-return]). Around it: `salvo analyze`, a language server, a VS Code
-extension, worked [examples/](examples/), and `salvo test` — `test "name" { … }`
+extension (Salvo and its platform templates), worked [examples/](examples/), and `salvo test` — `test "name" { … }`
 blocks in `*.test.sv` annexes, run by a generated Salvo harness with one report
 on both backends, which is how std's own modules are tested.
 
@@ -134,6 +134,49 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Editor support for platform templates (2026-09-30; ROADMAP §4c, the item
+left by the templates).** No language-design call was needed: the template
+syntax is unchanged, and everything below is editor engineering within it.
+*Highlighting* ([cli-lang]): `salvo lang tm-grammar --template kotlin|rust`
+generates `vscode/syntaxes/salvo-<host>.tmLanguage.json` — the host grammar
+(`source.kotlin`, `source.rust`) with the markers as a **grammar-level
+injection**, `L:source.salvo-template.<host> -string -comment
+-meta.embedded.marker.salvo`. A top-level pattern would have been tried only
+outside the host's nested rules (a class body, a lambda); the injection is
+tried at every depth, ahead of the host's patterns, and not where the scanner
+does not look. Inside it: ```` `` ```` first (on Kotlin a doubled pair around a
+name is an escaped identifier, so ```` ``in`` ```` stays Kotlin), then a marker
+that ends at the next backtick and holds `@{…}` (braces balanced), a
+token-start `@name` and `source.salvo`. `package.json` registers `salvo-kotlin`
+(`.sv.kt`) and `salvo-rust` (`.sv.rs`) with `embeddedLanguages` (markers as
+`salvo`, `@{…}` as the host) and a template language configuration (block
+comments, backtick auto-closing, no `'` auto-closing because of Rust
+lifetimes); the client's document selector takes both. Checked with the real
+engine (vscode-textmate + oniguruma, fwcd's Kotlin grammar and VS Code's Rust
+grammar, in `tmp/`): the four aws templates tokenize with every backtick
+outside a marker inside a comment and no line ending inside a marker. *The
+language server* ([cli-lsp]): a template is the text appended to its module's
+file, so the checker's `(file, span)` tables already covered its markers; what
+was missing was the document mapping. `DocView` is a document as the analysis
+sees it (file, base, text, marker spans); `SourceFile::locate` (now also what
+`FileDiagnostic::render` uses) maps a span back to the template, so
+diagnostics, definitions and doc links name the template's line. The overlay
+replaces a template's loaded text (or adds an unsaved one), so an edit
+re-checks as it stands. Hover and definition answer inside
+`template::marker_spans` only; a declaring marker's header, which the analysis
+compares with its `.sv` declaration and then drops, answers at the matching
+position of the declaration (`template::headers`). An import quickfix on a
+template's diagnostic edits the `.sv` file. *Defect found and fixed*:
+go-to-definition and hover doc links joined a file's name to the **workspace**
+root instead of the analysis's source root, so in any project whose `src` is a
+subdirectory (every `salvo.toml` with `src = "salvo"`) they named a path that
+did not exist — the new test fails on the old line. *Left* (ROADMAP §4c): a
+template whose module has no `.sv` file is reported at file 0 (std), which the
+editor drops. The warm suite ran 1m00 against the ~15s budget, 29s of it the
+Kotlin case driver's recorded cost (ROADMAP "Test-suite speed"); not caused by
+this change. Tests: 2 unit tests in `template.rs`, 3 grammar tests, one LSP
+test on both hosts. **1683 tests.**
 
 **Platform templates replace in-file host blocks (2026-09-30, user decisions).**
 With the aws glue as a worked example, the user found one Salvo fn holding a
@@ -19122,7 +19165,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1677)
+## Test inventory (all green: 1683)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -19130,7 +19173,9 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 774 - 12 assertion tests (`tests/assert_tests.rs` [assert-op]
+- `salvo-core`: 776 - 2 template unit tests (`src/template.rs`
+  [host-splice]: the marker spans the language server answers in are the
+  scanner's markers, and declaring headers parse at template offsets) + 12 assertion tests (`tests/assert_tests.rs` [assert-op]
   [assert-fn] [assert-narrow]: `!` refused on a never-absent value and on a
   `None`-less union with the alternatives named, `!` on an optional still fine,
   `assert!` narrowing a union with its control, the optional and interpolating
@@ -19618,7 +19663,7 @@ cache, with per-test timings.
   C-6 needs std's own declarations, so it is asserted end to end in each
   backend's `compiles_and_runs_list_claims` case instead of here — this
   harness builds its own prelude).
-- `salvo-cli`: 101 - 51 `analyze` integration tests running the built
+- `salvo-cli`: 105 - 51 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -19748,6 +19793,15 @@ cache, with per-test timings.
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one)
+  + 3 template-grammar tests (`src/lang.rs` [host-splice] [cli-lang]: the
+  injection's selector and pattern order, the checked-in `salvo-kotlin` /
+  `salvo-rust` grammars matching the generated ones, and `package.json` plus
+  the client registering both languages under those scopes) + the template LSP
+  test (`tests/lsp_tests.rs`, `templates_serve_diagnostics_hover_and_definition`,
+  both hosts: an unsaved broken marker reported at the template's line and
+  cleared, hover on a parameter, a field, a type and handler state, a header
+  answering as its declaration, definitions landing in the `.sv` file under a
+  manifest with `src = "salvo"`, and nothing on host text or in a string)
   + 17 `run` tests (`tests/run_tests.rs` [cli-run], each in its own
   working directory so the default `--target` lands in the sandbox): the
   same program compiled and run on *both* backends with identical asserted
@@ -20330,6 +20384,16 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **An embedded language in a TextMate grammar is an injection, not a
+  pattern** (2026-09-30, [host-splice]). Including the host grammar and adding
+  a marker pattern beside it only highlights markers at the top level: once the
+  host enters a nested begin/end rule (a class body, a lambda) only that rule's
+  patterns are tried. A grammar-level `injections` entry whose selector names
+  the grammar's own root scope applies at every depth, `L:` puts it ahead of the
+  host's patterns, and `-string -comment` keeps it out of what the template
+  scanner skips. Test grammars with vscode-textmate against the real host
+  grammars; reading the JSON does not show which rule wins.
 
 - **A JVM ends with its last non-daemon thread, not with `main`** (2026-09-30).
   Host libraries start such threads (OkHttp's dispatcher, 60s keep-alive), so a

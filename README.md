@@ -83,8 +83,9 @@ cargo run -- platform generate --backend kotlin --src ./my_project
 
 # Start a language server (LSP over stdio) for editor integration:
 cargo run -- lsp
-# A VS Code extension bundling syntax highlighting and the language server
-# lives in vscode/ — see vscode/README.md.
+# A VS Code extension bundling syntax highlighting and the language server,
+# for `.sv` files and platform templates, lives in vscode/ — see
+# vscode/README.md.
 
 # Or generate the target sources and build them yourself:
 cargo run -- compile --backend kotlin --src ./my_project --target ./out

@@ -10,6 +10,7 @@
 //! salvo platform generate --backend kotlin --src ./some_dir
 //! salvo lsp
 //! salvo lang tm-grammar [--out vscode/syntaxes/salvo.tmLanguage.json]
+//! salvo lang tm-grammar --template kotlin [--out vscode/syntaxes/salvo-kotlin.tmLanguage.json]
 //! ```
 
 mod analysis;
@@ -198,6 +199,11 @@ enum LangCommand {
         /// Write the grammar to this file instead of stdout.
         #[arg(long)]
         out: Option<PathBuf>,
+        /// The grammar of a platform template in this host language
+        /// (`kotlin` for `*.sv.kt`, `rust` for `*.sv.rs`) instead of Salvo's
+        /// [host-splice].
+        #[arg(long)]
+        template: Option<String>,
     },
 }
 
@@ -228,7 +234,9 @@ fn main() -> ExitCode {
         } => test(backend, src, filter.as_deref(), list, target, clean_target),
         Command::Lsp => lsp::run(),
         Command::Lang { command } => match command {
-            LangCommand::TmGrammar { out } => lang::run_tm_grammar(out.as_ref()),
+            LangCommand::TmGrammar { out, template } => {
+                lang::run_tm_grammar(out.as_ref(), template.as_deref())
+            }
         },
         Command::Platform { command } => match command {
             PlatformCommand::Generate {

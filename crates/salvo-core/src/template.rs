@@ -343,6 +343,97 @@ impl<'a> Scanner<'a> {
 
 // ================================================================== apply ===
 
+/// [host-splice] Where a template's markers are: the Salvo text of each,
+/// between its backticks, as offsets into [content] — a declaring marker's
+/// header included, and the markers inside its body. Everything else is host
+/// text. The language server answers inside these spans and nowhere else.
+pub fn marker_spans(content: &str, lang: &str) -> Vec<Span> {
+    fn walk(nodes: &[Node], out: &mut Vec<Span>) {
+        for n in nodes {
+            match n {
+                Node::Text(_) => {}
+                Node::Marker { source, offset, .. } => out.push(Span::new(*offset, offset + source.len() as u32)),
+                Node::Decl { header, offset, body, .. } => {
+                    out.push(Span::new(*offset, offset + header.len() as u32));
+                    walk(body, out);
+                }
+            }
+        }
+    }
+    let mut scanner = Scanner {
+        chars: content.char_indices().collect(),
+        pos: 0,
+        src: content,
+        lang,
+        base: 0,
+        errors: Vec::new(),
+    };
+    let nodes = scanner.nodes(true);
+    let mut out = Vec::new();
+    walk(&nodes, &mut out);
+    out
+}
+
+/// [host-splice] A declaring marker's header, parsed as the Salvo it names,
+/// with spans as offsets into the template. It repeats the signature of the
+/// `.sv` declaration it implements, which is how the language server answers
+/// in it: a position in the header is the matching position of the
+/// declaration.
+#[derive(Clone, Debug)]
+pub enum Header {
+    /// `` `fn name(params) -> R` ``: a free fn, or — with `handler` the
+    /// enclosing `` `platform handler H …` ``'s name — a member of `H`'s
+    /// effect.
+    Fn { decl: FnDecl, handler: Option<String> },
+    /// `` `platform handler H(params) of E` ``.
+    Handler(HandlerDecl),
+    /// `` `struct H` ``: handler `H`'s host fields.
+    Struct(ast::Ident),
+}
+
+/// [host-splice] Every declaring marker's header in a template, parsed; one
+/// that does not parse is left out (the analysis reports it).
+pub fn headers(content: &str, lang: &str) -> Vec<Header> {
+    fn walk(nodes: &[Node], handler: Option<&str>, out: &mut Vec<Header>) {
+        for n in nodes {
+            let Node::Decl { header, offset, body, .. } = n else { continue };
+            let head = header.trim_start();
+            let at = offset + (header.len() - head.len()) as u32;
+            if let Some(name) = head.strip_prefix("struct ") {
+                let lead = (name.len() - name.trim_start().len()) as u32;
+                let name = name.trim();
+                let start = at + "struct ".len() as u32 + lead;
+                out.push(Header::Struct(ast::Ident {
+                    name: name.to_string(),
+                    span: Span::new(start, start + name.len() as u32),
+                }));
+                continue;
+            }
+            match parse_header(head, at).and_then(|m| m.items.into_iter().next()) {
+                Some(Item::Handler(h)) => {
+                    let name = h.name.name.clone();
+                    out.push(Header::Handler(h));
+                    walk(body, Some(&name), out);
+                }
+                Some(Item::Fn(decl)) => out.push(Header::Fn { decl, handler: handler.map(str::to_string) }),
+                _ => {}
+            }
+        }
+    }
+    let mut scanner = Scanner {
+        chars: content.char_indices().collect(),
+        pos: 0,
+        src: content,
+        lang,
+        base: 0,
+        errors: Vec::new(),
+    };
+    let nodes = scanner.nodes(true);
+    let mut out = Vec::new();
+    walk(&nodes, None, &mut out);
+    out
+}
+
 fn marker_part(source: &str, offset: u32, in_return: bool, diags: &mut Vec<(Span, String)>) -> HostBlockPart {
     let (mut hole, errs) = salvo_syntax::parser::parse_template_marker(source, offset);
     hole.in_return = in_return;
@@ -692,4 +783,47 @@ fn host_fields(body: &[Node], lang: &str, diags: &mut Vec<(Span, String)>) -> Ve
         out.push(HostField { lang: lang.to_string(), name: name.trim().to_string(), ty, init });
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [host-splice] The spans the language server answers in are the
+    // scanner's markers: not a string, a comment or a doubled backtick; a
+    // declaring marker's header and the markers of its body.
+    #[test]
+    fn marker_spans_are_the_scanners_markers() {
+        let src = "// `not` a marker\nval s = \"`nor` this\"\nval x = ``in``\n`fn f(a: Int) -> Int` {\n    return `a`\n}\n";
+        let texts: Vec<&str> = marker_spans(src, "kotlin")
+            .into_iter()
+            .map(|s| &src[s.start as usize..s.end as usize])
+            .collect();
+        assert_eq!(texts, ["fn f(a: Int) -> Int", "a"]);
+    }
+
+    // [host-splice] Headers parse with their template offsets, a handler's
+    // members knowing their handler.
+    #[test]
+    fn headers_carry_template_offsets() {
+        let src = "`struct H` {\n}\n`platform handler H(n: Int) of E` {\n    `fn m(x: Int) -> Int` { `x` }\n}\n";
+        let hs = headers(src, "rust");
+        assert_eq!(hs.len(), 3, "{hs:?}");
+        let text = |s: Span| &src[s.start as usize..s.end as usize];
+        match &hs[0] {
+            Header::Struct(name) => assert_eq!(text(name.span), "H"),
+            other => panic!("{other:?}"),
+        }
+        match &hs[1] {
+            Header::Handler(h) => assert_eq!(text(h.params[0].ty.span()), "Int"),
+            other => panic!("{other:?}"),
+        }
+        match &hs[2] {
+            Header::Fn { decl, handler } => {
+                assert_eq!(handler.as_deref(), Some("H"));
+                assert_eq!(text(decl.name.span), "m");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
 }

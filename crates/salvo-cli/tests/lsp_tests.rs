@@ -1869,3 +1869,242 @@ fn main() [Console] {
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
+
+/// Next `publishDiagnostics` for `uri`, skipping the other documents'.
+fn expect_diagnostics_for(rx: &Receiver<Value>, uri: &str) -> Vec<Value> {
+    loop {
+        let params = expect_diagnostics(rx);
+        if params["uri"].as_str() == Some(uri) {
+            return params["diagnostics"].as_array().unwrap().clone();
+        }
+    }
+}
+
+/// The 0-based line and UTF-16 character of `needle`'s first occurrence in
+/// `text`, plus `skip` characters (the texts are ASCII).
+fn position_of(text: &str, needle: &str, skip: u32) -> (u32, u32) {
+    let at = text.find(needle).unwrap_or_else(|| panic!("`{needle}` not in the text"));
+    let line = text[..at].matches('\n').count() as u32;
+    let column = (at - text[..at].rfind('\n').map_or(0, |n| n + 1)) as u32;
+    (line, column + skip)
+}
+
+const TEMPLATE_SV: &str = "struct Greeting { text: Str, loud: Bool }
+
+fn shout(g: Greeting) [] -> Str => g
+
+effect Counter {
+    fn next(step: Int) -> Int => step
+}
+
+platform handler HostCounter(start: Int) of Counter {
+    at: Int = start
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println(shout(Greeting { text: \"hi\", loud: true }))
+}
+";
+
+const TEMPLATE_KT: &str = "`fn shout(g: Greeting) -> Str` {
+    val note = \"a `string` is host text\"
+    val same: `Greeting` = `g`
+    return if (`g.loud`) `g.text`.uppercase() else `g.text`
+}
+
+`platform handler HostCounter(start: Int) of Counter` {
+    `fn next(step: Int) -> Int` {
+        `at` += step
+        return `at`
+    }
+}
+";
+
+const TEMPLATE_RS: &str = "`fn shout(g: Greeting) -> Str` {
+    let note = \"a `string` is host text\";
+    let same: &`Greeting` = &`g`;
+    if `g.loud` { `g.text`.to_uppercase() } else { `g.text` }
+}
+
+`platform handler HostCounter(start: Int) of Counter` {
+    `fn next(step: Int) -> Int` {
+        `at` += step;
+        `at`
+    }
+}
+";
+
+/// [host-splice] [cli-lsp] Platform templates are documents of their own on
+/// both host languages: opened under the project's manifest like a `.sv`
+/// file, clean when the program is; an unsaved edit breaking a marker is
+/// re-analysed from the buffer and reported at the template's own line and
+/// column, then clears; hover and definition answer inside markers — a
+/// parameter's type, a field, a type naming a struct in the `.sv` file, a
+/// handler's state — and not in host text, strings included.
+#[test]
+fn templates_serve_diagnostics_hover_and_definition() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_templates");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("salvo/platform")).unwrap();
+    std::fs::write(
+        root.join("salvo.toml"),
+        "[project]\nname = \"tpl\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("salvo/main.sv"), TEMPLATE_SV).unwrap();
+    std::fs::write(root.join("salvo/platform/main.sv.kt"), TEMPLATE_KT).unwrap();
+    std::fs::write(root.join("salvo/platform/main.sv.rs"), TEMPLATE_RS).unwrap();
+    let root = root.canonicalize().unwrap();
+    let sv_uri = format!("file://{}", root.join("salvo/main.sv").display());
+
+    let mut lsp = start(&root);
+    let mut id = 100;
+    for (ext, language, text, host_call) in [
+        ("kt", "salvo-kotlin", TEMPLATE_KT, "uppercase"),
+        ("rs", "salvo-rust", TEMPLATE_RS, "to_uppercase"),
+    ] {
+        let uri = format!("file://{}", root.join(format!("salvo/platform/main.sv.{ext}")).display());
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "method": "textDocument/didOpen",
+                "params": {"textDocument": {
+                    "uri": uri, "languageId": language, "version": 1, "text": text
+                }}
+            }),
+        );
+        let diags = expect_diagnostics_for(&lsp.rx, &uri);
+        assert!(diags.is_empty(), "{ext}: the template is clean: {diags:?}");
+
+        // An unsaved edit: the analysis reads the buffer, and the error is the
+        // template's, at its own line and column.
+        let broken = text.replace("`g.loud`", "`g.nope`");
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "method": "textDocument/didChange",
+                "params": {
+                    "textDocument": {"uri": uri, "version": 2},
+                    "contentChanges": [{"text": broken}]
+                }
+            }),
+        );
+        let diags = expect_diagnostics_for(&lsp.rx, &uri);
+        assert_eq!(diags.len(), 1, "{ext}: {diags:?}");
+        assert!(
+            diags[0]["message"].as_str().unwrap().contains("has no field `nope`"),
+            "{ext}: {diags:?}"
+        );
+        let (line, character) = position_of(&broken, "`g.nope`", 3);
+        assert_eq!(
+            diags[0]["range"]["start"],
+            json!({"line": line, "character": character}),
+            "{ext}: {diags:?}"
+        );
+        assert_eq!(
+            diags[0]["range"]["end"],
+            json!({"line": line, "character": character + 4}),
+            "{ext}: {diags:?}"
+        );
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "method": "textDocument/didChange",
+                "params": {
+                    "textDocument": {"uri": uri, "version": 3},
+                    "contentChanges": [{"text": text}]
+                }
+            }),
+        );
+        let diags = expect_diagnostics_for(&lsp.rx, &uri);
+        assert!(diags.is_empty(), "{ext}: the fix clears it: {diags:?}");
+
+        // Hover inside markers.
+        let (line, character) = position_of(text, "`g.loud`", 1);
+        id += 1;
+        let value = hover(&mut lsp, id, &uri, line, character);
+        assert!(value.contains("Greeting"), "{ext}: a parameter's type: {value}");
+        let (line, character) = position_of(text, "`g.text`", 3);
+        id += 1;
+        let value = hover(&mut lsp, id, &uri, line, character);
+        assert!(value.contains("text: Str"), "{ext}: a field: {value}");
+        let (line, character) = position_of(text, "`Greeting`", 1);
+        id += 1;
+        let value = hover(&mut lsp, id, &uri, line, character);
+        assert!(value.contains("struct Greeting"), "{ext}: a type: {value}");
+        let (line, character) = position_of(text, "`at`", 1);
+        id += 1;
+        let value = hover(&mut lsp, id, &uri, line, character);
+        assert!(value.contains("Int"), "{ext}: handler state: {value}");
+
+        // Definition inside markers lands in the `.sv` file.
+        let (line, character) = position_of(text, "`g.text`", 3);
+        id += 1;
+        let location = definition(&mut lsp, id, &uri, line, character);
+        assert_eq!(location["uri"].as_str().unwrap(), sv_uri, "{ext}: {location}");
+        let (l, c) = position_of(TEMPLATE_SV, "text: Str", 0);
+        assert_eq!(location["range"]["start"], json!({"line": l, "character": c}), "{ext}");
+        let (line, character) = position_of(text, "`Greeting`", 1);
+        id += 1;
+        let location = definition(&mut lsp, id, &uri, line, character);
+        assert_eq!(location["uri"].as_str().unwrap(), sv_uri, "{ext}: {location}");
+        let (l, c) = position_of(TEMPLATE_SV, "Greeting", 0);
+        assert_eq!(location["range"]["start"], json!({"line": l, "character": c}), "{ext}");
+
+        // A declaring marker's header answers as its declaration does.
+        let (line, character) = position_of(text, "Greeting) -> Str`", 1);
+        id += 1;
+        let value = hover(&mut lsp, id, &uri, line, character);
+        assert!(value.contains("struct Greeting"), "{ext}: a header's type: {value}");
+        let (line, character) = position_of(text, "shout(g", 1);
+        id += 1;
+        let value = hover(&mut lsp, id, &uri, line, character);
+        assert!(value.contains("fn shout(g: Greeting)"), "{ext}: a header's fn: {value}");
+        id += 1;
+        let location = definition(&mut lsp, id, &uri, line, character);
+        assert_eq!(location["uri"].as_str().unwrap(), sv_uri, "{ext}: {location}");
+        let (l, c) = position_of(TEMPLATE_SV, "shout(g", 0);
+        assert_eq!(location["range"]["start"], json!({"line": l, "character": c}), "{ext}");
+        let (line, character) = position_of(text, "next(step", 1);
+        id += 1;
+        let value = hover(&mut lsp, id, &uri, line, character);
+        assert!(value.contains("fn next(step: Int) -> Int"), "{ext}: a member's header: {value}");
+        let (line, character) = position_of(text, "HostCounter(start", 1);
+        id += 1;
+        let location = definition(&mut lsp, id, &uri, line, character);
+        let (l, c) = position_of(TEMPLATE_SV, "HostCounter(start", 0);
+        assert_eq!(location["range"]["start"], json!({"line": l, "character": c}), "{ext}: {location}");
+
+        // Nothing for host text: a host call, and a string holding backticks.
+        for (needle, skip) in [(host_call, 1), ("`string`", 2), ("note", 1)] {
+            let (line, character) = position_of(text, needle, skip);
+            for method in ["textDocument/hover", "textDocument/definition"] {
+                id += 1;
+                send(
+                    &mut lsp.stdin,
+                    json!({
+                        "jsonrpc": "2.0", "id": id, "method": method,
+                        "params": {
+                            "textDocument": {"uri": uri},
+                            "position": {"line": line, "character": character}
+                        }
+                    }),
+                );
+                let response = expect_response(&lsp.rx, id);
+                assert!(
+                    response["result"].is_null(),
+                    "{ext}: {method} answers nothing on host text `{needle}`: {response}"
+                );
+            }
+        }
+    }
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
