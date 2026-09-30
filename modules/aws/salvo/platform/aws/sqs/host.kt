@@ -26,6 +26,10 @@ class HostSqs(private val config: AwsConfig) : Sqs {
         this@HostSqs.config.endpoint?.let { endpointUrl = aws.smithy.kotlin.runtime.net.url.Url.parse(it) }
     }
 
+    init {
+        salvoCloseWhenMainEnds(client)
+    }
+
     override fun create_queue(input: CreateQueueInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
@@ -220,6 +224,27 @@ private fun salvoCredentials(
     }
     is U3_2<*, *, *> -> aws.sdk.kotlin.runtime.auth.credentials.EnvironmentCredentialsProvider()
     is U3_3<*, *, *> -> aws.sdk.kotlin.runtime.auth.credentials.DefaultChainCredentialsProvider()
+}
+
+/**
+ * Closes [client] once the program's `main` thread has ended. The SDK's
+ * HTTP engine (OkHttp) keeps a non-daemon dispatcher thread alive for 60s
+ * after its last call, which would hold the JVM open that long after the
+ * program is done; a Rust program exits when `main` returns, and this
+ * makes the JVM do the same. Closing the client shuts the engine's
+ * executor down. A stopgap inside the glue: the runtime ending the
+ * process when `main` returns is on the roadmap, to be designed.
+ */
+private fun salvoCloseWhenMainEnds(client: AutoCloseable) {
+    val main = Thread.getAllStackTraces().keys.firstOrNull { it.name == "main" && it.threadGroup?.name == "main" }
+        ?: return
+    val closer = Thread {
+        main.join()
+        runCatching { client.close() }
+    }
+    closer.isDaemon = true
+    closer.name = "salvo-aws-close"
+    closer.start()
 }
 
 /** `~/` at the front of a path is the home directory, as a shell would read it. */

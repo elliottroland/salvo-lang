@@ -1328,7 +1328,8 @@ final class Generator {
                 .append("        this@Host").append(effect).append(".config.endpoint?.let { endpointUrl = aws.smithy.kotlin.runtime.net.url.Url.parse(it) }\n")
                 .append(settings.forcePathStyle()
                         ? "        forcePathStyle = this@Host" + effect + ".config.endpoint != null\n" : "")
-                .append("    }\n");
+                .append("    }\n")
+                .append("\n    init {\n        salvoCloseWhenMainEnds(client)\n    }\n");
         for (OperationShape op : operations) out.append('\n').append(kotlinMember(op));
         out.append("}\n");
 
@@ -1628,6 +1629,27 @@ final class Generator {
                     }
                     is U3_2<*, *, *> -> aws.sdk.kotlin.runtime.auth.credentials.EnvironmentCredentialsProvider()
                     is U3_3<*, *, *> -> aws.sdk.kotlin.runtime.auth.credentials.DefaultChainCredentialsProvider()
+                }
+
+                /**
+                 * Closes [client] once the program's `main` thread has ended. The SDK's
+                 * HTTP engine (OkHttp) keeps a non-daemon dispatcher thread alive for 60s
+                 * after its last call, which would hold the JVM open that long after the
+                 * program is done; a Rust program exits when `main` returns, and this
+                 * makes the JVM do the same. Closing the client shuts the engine's
+                 * executor down. A stopgap inside the glue: the runtime ending the
+                 * process when `main` returns is on the roadmap, to be designed.
+                 */
+                private fun salvoCloseWhenMainEnds(client: AutoCloseable) {
+                    val main = Thread.getAllStackTraces().keys.firstOrNull { it.name == "main" && it.threadGroup?.name == "main" }
+                        ?: return
+                    val closer = Thread {
+                        main.join()
+                        runCatching { client.close() }
+                    }
+                    closer.isDaemon = true
+                    closer.name = "salvo-aws-close"
+                    closer.start()
                 }
 
                 /** `~/` at the front of a path is the home directory, as a shell would read it. */
