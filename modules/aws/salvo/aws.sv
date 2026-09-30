@@ -56,3 +56,19 @@ export struct AwsConfig {
 // the SDK could not parse. [code] is the service's error code when it sent
 // one, otherwise a short description of the kind of failure.
 export struct AwsError { code: Str, message: Str }
+
+// ===== for host code =====
+
+// The profile [c] names, or absent when the credentials come from elsewhere:
+// what a service's host code reads to configure its SDK client [host-splice].
+export fn profile_of(c: Credentials) [] -> ProfileCredentials? => c {
+    if c is ProfileCredentials {
+        return copy(c)
+    }
+    return None
+}
+
+// Whether [c] reads the process environment.
+export fn uses_environment(c: Credentials) [] -> Bool => c {
+    return c is EnvironmentCredentials
+}

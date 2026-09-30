@@ -428,8 +428,7 @@ literals** (built 2026-09-30, [type-literal]; left: `Byte` literals, which
 need literal syntax first); (3) ✅ `aws.sqs`/`aws.s3` regenerated with
 literal-union enums and one error struct per service; (4) ✅ the host ABI
 written down ([platform-abi], [rs-host-abi], [kt-host-abi]), then ✅ **host code with Salvo splices** (built 2026-09-30, [host-splice]).
-**Next**: move the aws glue onto splices, now that host names can carry
-Salvo types (typed holes, 2026-09-30); (5) DynamoDB.
+✅ the aws glue moved onto splices (2026-09-30); (5) DynamoDB.
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 

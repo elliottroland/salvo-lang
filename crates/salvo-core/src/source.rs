@@ -598,7 +598,16 @@ pub fn dependencies_with_reached_platform(
     for &i in &seen {
         let f = &files[i];
         if let Some(dep) = &f.dependency {
-            if companions.iter().any(|c| c.module == f.module) {
+            // [host-splice] Host code written in the module counts as its
+            // platform code, as a companion file does.
+            let spliced = modules.get(i).is_some_and(|ast| {
+                ast.items.iter().any(|item| match item {
+                    Item::Fn(f) => !f.host.is_empty(),
+                    Item::Handler(h) => h.spliced,
+                    _ => false,
+                })
+            });
+            if spliced || companions.iter().any(|c| c.module == f.module) {
                 out.insert(dep.clone());
             }
         }

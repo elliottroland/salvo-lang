@@ -187,6 +187,25 @@ the decisions — worth a second look:
   `<important>`/`<note>` blocks (S3's `PutObject` opens with an
   end-of-support notice). One SQS field comment changed with it.
 
+### Rebuilt: the glue as host splices (2026-09-30)
+
+The host implementation of each service is no longer a pair of generated
+`platform/aws/<svc>/host.{rs,kt}` files. It is `aws/<svc>/host.sv`: one
+`threadsafe platform handler` written in place [host-splice], its members and
+handler-level blocks fenced Kotlin and Rust, and every Salvo-side spelling a
+hole the compiler renders — a field read (`@{input.queue_name}`), a struct
+built from SDK values (`` @{ Message { body: `…` } } ``), an answer wrapped
+into its union (`` @{ ok((`value` : Output)) : Ok Output | Err … } ``), a
+type (`@{: Checked<SqsFailure>}`), and SDK-side helpers taking a Salvo value
+as a typed host name (`` @{(`v` : MessageAttributeValue).data_type} ``).
+What is left in the text is the SDKs' API and the documented host ABI
+([platform-abi]: `SalvoReply.hosted()`, the stream table, `SalvoMap`), so an
+emission change no longer means a generator change. Credentials dispatch
+through two Salvo helpers in `aws.sv` (`profile_of`, `uses_environment`)
+rather than a match on the union's host shape. Kotlin's file-level opt-in
+became an `@OptIn` on the one helper that needs it. The drift test still
+compiles both against both SDKs, and both demos print as before.
+
 ### Rebuilt: enums and errors as data (2026-09-30)
 
 Over unions of literals ([type-literal], the user's proposal): the glue lost

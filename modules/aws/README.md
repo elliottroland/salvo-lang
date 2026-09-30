@@ -19,10 +19,9 @@ modules/aws/
 ├── salvo/
 │   ├── aws.sv          hand-written: AwsConfig, Credentials, Region, AwsError
 │   ├── aws/sqs.sv      generated: shapes, errors, the `Sqs` effect, `FakeSqs`
-│   ├── aws/sqs/host.sv generated: `HostSqs`, the platform handler
+│   ├── aws/sqs/host.sv generated: `HostSqs`, the SDK glue as host code with Salvo holes
 │   ├── aws/s3.sv       generated: `PutObject`/`GetObject`, the `S3` effect, `FakeS3`
-│   ├── aws/s3/host.sv  generated: `HostS3`
-│   └── platform/aws/{sqs,s3}/host.{kt,rs}   generated host glue
+│   └── aws/s3/host.sv  generated: `HostS3`, likewise
 ├── lib/kotlin/         (not checked in) the Kotlin SDK jars, fetched by Gradle
 └── demo/               programs against the real SDKs, run by hand:
     ├── sqs_live/       + local_sqs.py, an in-memory SQS
@@ -107,7 +106,7 @@ generated files are checked in.
 ```bash
 cd modules/aws/codegen
 ./gradlew generate          # runs smithy-build over ../smithy-build.json,
-                            # writes ../salvo/aws/**.sv and ../salvo/platform/**
+                            # writes ../salvo/aws/**.sv
 ```
 
 Then check the surface still types: `../../../target/debug/salvo analyze` from

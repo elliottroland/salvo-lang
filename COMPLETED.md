@@ -135,6 +135,23 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The aws glue as host splices (2026-09-30; ROADMAP §4c step 4).** The
+generator now writes `aws/<svc>/host.sv` — a `threadsafe platform handler`
+written in place, the Rust and Kotlin glue in fences, every Salvo-side spelling
+a hole — instead of `platform/aws/<svc>/host.{rs,kt}` (deleted). The hole
+forms carried it all: field reads of parameters and of typed host names
+(helpers take `v: @{: T}` and read `` @{(`v` : T).f} ``), struct literals with
+host leaves, answers wrapped with `ok(…)`/`err(checked<…>(…))` and a union
+type, `AwsError` built in Salvo. One restructuring: Rust's streaming
+`GetObjectOutput` conversion moves the body out first (`mem::replace`), since
+the emitter writes a struct literal's fields in declaration order. *Compiler
+defect found and fixed:* a hole's types and names were not counted as uses of
+their modules ([mod-used-only]), so the Rust module file of `aws.s3.host`
+lacked `use` lines for `InStream` and `Instant`; `reach::used_names` now reads
+holes and ascribed leaves. The glue is 1,287 lines of `.sv` against 1,691 of
+generated host files before, and the generator no longer spells a single
+emitted name. The drift test and both live demos pass unchanged.
+
 **Host splices: typed host names and Salvo state (2026-09-30, user
 decisions).** Asked for a concrete case, the user proposed annotating a Kotlin
 lambda's parameter with a type hole; the answer was that the compiler never
@@ -19060,7 +19077,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1669)
+## Test inventory (all green: 1678)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
