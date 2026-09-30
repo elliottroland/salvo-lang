@@ -283,6 +283,11 @@ export struct IntelligentTieringAccessTier.Unknown { value: Str }
 // Linear, because it holds a stream: take the stream out (`let {body} = value`)
 // and close it when done, or give the whole value up with [close]
 // [linear-group].
+//
+// The body is streamed as it is read, so [content_length] must be its length in
+// bytes — for a file, `metadata(path)`'s `size`. Without it the call answers
+// `AwsError { code: "MissingContentLength" }` and sends nothing; a stream
+// shorter or longer than it answers `AwsError { code: "StreamFailed" }`.
 export linear struct PutObjectInput {
     // The canned ACL to apply to the object. For more information, see Canned
     // ACL in the Amazon S3 User Guide.
@@ -885,9 +890,14 @@ export handler FakeS3() [Streams] of S3, S3Calls {
 
     fn put_object(input: PutObjectInput, reply: Reply<Ok PutObjectOutput | Err Checked<S3Error>>) -> None => !input, !reply {
         recorded.add("put_object")
+        let unsized = input.content_length is None
         let closed = close(input)
         if closed is Err {
             ignore(closed)
+        }
+        if unsized {
+            reply.send(err(checked<S3Error>(AwsError { code: "MissingContentLength", message: "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes" })))
+            return None
         }
         reply.send(ok(PutObjectOutput {}))
     }

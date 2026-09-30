@@ -29,15 +29,29 @@ fn describe(e: S3Error) [] -> Str => e {
     return "the service said no"
 }
 
-// PutObject from a file: the stream `open_read` minted is the body.
-fn upload(bucket: Str, key: Str, path: Str) [S3, Fs, Console] => bucket, key, path {
+// The size of the file at [path], or absent when it cannot be read — which
+// `put_object` then refuses, since a streamed body must say its length.
+fn size_of(path: Str) [Fs] -> Long? => path {
+    let info = metadata(path)
+    when info {
+        is Ok { return info.size }
+        is Err {
+            ignore(info)
+            return None
+        }
+    }
+}
+
+// PutObject from a file: the stream `open_read` minted is the body, streamed
+// as it is read, so the file's size goes with it as `content_length`.
+fn upload(bucket: Str, key: Str, path: Str, length: Long?) [S3, Fs, Console] => bucket, key, path, !length {
     let opened = open_read(path)
     if opened is Err {
         println("open ${path}: ${detach(opened)}")
         return None
     }
     let put = waitfor r: Reply<Ok PutObjectOutput | Err Checked<S3Error>> {
-        put_object(PutObjectInput { bucket: copy(bucket), key: copy(key), body: opened, content_type: "text/plain" }, r)
+        put_object(PutObjectInput { bucket: copy(bucket), key: copy(key), body: opened, content_length: length, content_type: "text/plain" }, r)
     }
     when put {
         is Ok { println("put ${key}: etag ${put.e_tag ?: "?"}") }
@@ -96,7 +110,9 @@ fn main() [use] {
         println("write: ${detach(written)}")
         return None
     }
-    upload("salvo-demo", "greeting.txt", "out/upload.txt")
+    upload("salvo-demo", "greeting.txt", "out/upload.txt", size_of("out/upload.txt"))
+    // Without its length a streamed body is refused, and nothing is sent.
+    upload("salvo-demo", "unsized.txt", "out/upload.txt", None)
     download("salvo-demo", "greeting.txt", "out/download.txt")
     let back = read_to_str("out/download.txt")
     when back {

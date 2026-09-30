@@ -29,7 +29,21 @@ fun describe(e: Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidReques
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun upload(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String, key: String, path: String) {
+fun size_of(fs: Fs, streams: Streams, path: String): Long? {
+    val info = fs.metadata(path)
+    when (info) {
+        is U2_1<*, *> -> {
+            return (info.value as FileInfo).size
+        }
+        is U2_2<*, *> -> {
+            ignore((info.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
+            return null
+        }
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun upload(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String, key: String, path: String, length: Long?) {
     val opened = fs.open_read(path)
     if (opened is U2_2<*, *>) {
         println(console, "open $path: ${to_str(detach((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
@@ -38,7 +52,7 @@ fun upload(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String, k
     val put = run {
         val (r, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union7Codec(__Codec_EncryptionTypeMismatch, __Codec_InvalidObjectState, __Codec_InvalidRequest, __Codec_InvalidWriteOffset, __Codec_NoSuchKey, __Codec_TooManyParts, __Codec_AwsError)))) })
-        s3.put_object(PutObjectInput(bucket = bucket, key = key, body = (opened.value as InStream)), r)
+        s3.put_object(PutObjectInput(bucket = bucket, key = key, body = (opened.value as InStream), content_length = length), r)
         salvo.SalvoSched.awaitReply(__wid) as Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>
     }
     when (put) {
@@ -94,7 +108,7 @@ fun download(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String,
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun round_trip(s3: S3, fs: Fs, console: Console, streams: Streams, key: String) {
-    upload(s3, fs, console, streams, "notes", key, "notes.txt")
+    upload(s3, fs, console, streams, "notes", key, "notes.txt", size_of(fs, streams, "notes.txt"))
     download(s3, fs, console, streams, "notes", key, "back.txt")
     val back = read_to_str(fs, streams, "back.txt")
     when (back) {
@@ -163,6 +177,7 @@ fun main() {
         val s3: S3 = __Mon_S3(__h2)
         val s3_calls: S3Calls = __Mon_S3Calls(__h2)
         round_trip(s3, fs, console, streams, "greeting.txt")
+        upload(s3, fs, console, streams, "notes", "unsized.txt", "notes.txt", null)
         println(console, "calls: ${s3_calls.calls().joinToString(", ", "[", "]")}")
     }
     println(console, "-- MemS3 --")

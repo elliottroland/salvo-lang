@@ -75,7 +75,20 @@ pub fn describe(e: &Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRe
     return "the service refused".to_string();
 }
 
-pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::core_console::Console, streams: &crate::stream::Streams, bucket: &String, key: &String, path: &String) {
+pub fn size_of(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &String) -> Option<i64> {
+    let mut info = fs.metadata(path);
+    match info {
+        Union2::U1(_) => {
+            return Some(info.u1().clone().size);
+        }
+        Union2::U2(_) => {
+            ignore(info.u2().clone());
+            return None;
+        }
+    }
+}
+
+pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::core_console::Console, streams: &crate::stream::Streams, bucket: &String, key: &String, path: &String, length: Option<i64>) {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
         println(console, &(format!("open {}: {}", path.clone(), to_str(&detach(opened.u2().clone())))));
@@ -84,7 +97,7 @@ pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::core_
     let mut put = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
-        s3.put_object(PutObjectInput { bucket: bucket.clone(), key: key.clone(), body: opened.u1().clone(), acl: None, cache_control: None, content_disposition: None, content_encoding: None, content_language: None, content_length: None, content_md5: None, content_type: None, checksum_algorithm: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, if_match: None, if_none_match: None, grant_full_control: None, grant_read: None, grant_read_acp: None, grant_write_acp: None, write_offset_bytes: None, metadata: None, server_side_encryption: None, storage_class: None, website_redirect_location: None, sse_customer_algorithm: None, sse_customer_key: None, sse_customer_key_md5: None, ssekms_key_id: None, ssekms_encryption_context: None, bucket_key_enabled: None, request_payer: None, tagging: None, object_lock_mode: None, object_lock_retain_until_date: None, object_lock_legal_hold_status: None, object_lock_event_hold: None, object_lock_event_hold_duration_days: None, object_lock_event_hold_duration_years: None, expected_bucket_owner: None }, r);
+        s3.put_object(PutObjectInput { bucket: bucket.clone(), key: key.clone(), body: opened.u1().clone(), content_length: length, acl: None, cache_control: None, content_disposition: None, content_encoding: None, content_language: None, content_md5: None, content_type: None, checksum_algorithm: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, if_match: None, if_none_match: None, grant_full_control: None, grant_read: None, grant_read_acp: None, grant_write_acp: None, write_offset_bytes: None, metadata: None, server_side_encryption: None, storage_class: None, website_redirect_location: None, sse_customer_algorithm: None, sse_customer_key: None, sse_customer_key_md5: None, ssekms_key_id: None, ssekms_encryption_context: None, bucket_key_enabled: None, request_payer: None, tagging: None, object_lock_mode: None, object_lock_retain_until_date: None, object_lock_legal_hold_status: None, object_lock_event_hold: None, object_lock_event_hold_duration_days: None, object_lock_event_hold_duration_years: None, expected_bucket_owner: None }, r);
         *crate::scheduler::salvo_wait(__wid).downcast::<Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>>().expect("the awaited answer")
     };
     match put {
@@ -138,7 +151,7 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::cor
 }
 
 pub fn round_trip(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::core_console::Console, streams: &crate::stream::Streams, key: &String) {
-    upload(s3, fs, console, streams, &("notes".to_string()), &(key.clone()), &("notes.txt".to_string()));
+    { let __a1 = size_of(fs, streams, &("notes.txt".to_string())); upload(s3, fs, console, streams, &("notes".to_string()), &(key.clone()), &("notes.txt".to_string()), __a1) };
     download(s3, fs, console, streams, &("notes".to_string()), &(key.clone()), &("back.txt".to_string()));
     let mut back = read_to_str(fs, streams, &("back.txt".to_string()));
     match back {
@@ -218,6 +231,7 @@ pub fn main() {
         let s32 = crate::aws_s3::S3::share_locked(__inst2.clone());
         let s3_calls = crate::aws_s3::S3Calls::share_locked(__inst2.clone());
         round_trip(&s32, &fs2, &console, &streams, &("greeting.txt".to_string()));
+        upload(&s32, &fs2, &console, &streams, &("notes".to_string()), &("unsized.txt".to_string()), &("notes.txt".to_string()), None);
         println(&console, &(format!("calls: {}", format!("[{}]", s3_calls.calls().iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
     }
     println(&console, &("-- MemS3 --".to_string()));

@@ -29,16 +29,30 @@ fn describe(e: S3Error) [] -> Str => e {
     return "the service refused"
 }
 
+// The size of the file at [path], or absent when it cannot be read — which
+// `put_object` then refuses, since a streamed body must say its length.
+fn size_of(path: Str) [Fs] -> Long? => path {
+    let info = metadata(path)
+    when info {
+        is Ok { return info.size }
+        is Err {
+            ignore(info)
+            return None
+        }
+    }
+}
+
 // PutObject from a file. The input holds the stream, so it is linear: it is
-// handed on whole, and the handler closes the body.
-fn upload(bucket: Str, key: Str, path: Str) [S3, Fs, Console] => bucket, key, path {
+// handed on whole, and the handler closes the body. The host streams the body
+// as it reads it, so the file's size goes with it as `content_length`.
+fn upload(bucket: Str, key: Str, path: Str, length: Long?) [S3, Fs, Console] => bucket, key, path, !length {
     let opened = open_read(path)
     if opened is Err {
         println("open ${path}: ${detach(opened)}")
         return None
     }
     let put = waitfor r: Reply<Ok PutObjectOutput | Err Checked<S3Error>> {
-        put_object(PutObjectInput { bucket: copy(bucket), key: copy(key), body: opened }, r)
+        put_object(PutObjectInput { bucket: copy(bucket), key: copy(key), body: opened, content_length: length }, r)
     }
     when put {
         is Ok { println("put ${key}: etag ${put.e_tag ?: "?"}") }
@@ -78,7 +92,7 @@ fn download(bucket: Str, key: Str, path: Str) [S3, Fs, Console] => bucket, key, 
 
 // Puts a file, gets it back into another, and prints what arrived.
 fn round_trip(key: Str) [S3, Fs, Console] => key {
-    upload("notes", copy(key), "notes.txt")
+    upload("notes", copy(key), "notes.txt", size_of("notes.txt"))
     download("notes", copy(key), "back.txt")
     let back = read_to_str("back.txt")
     when back {
@@ -144,6 +158,9 @@ fn main() [use] {
     if true {
         use FakeS3()
         round_trip("greeting.txt")
+        // Without its length a streamed body is refused, by the fake as by
+        // the host, so a test finds the mistake before production does.
+        upload("notes", "unsized.txt", "notes.txt", None)
         println("calls: ${calls()}")
     }
 

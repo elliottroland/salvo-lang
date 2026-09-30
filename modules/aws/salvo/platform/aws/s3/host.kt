@@ -13,6 +13,7 @@ import salvo.aws.*
 import salvo.aws.s3.*
 import salvo.aws.s3.host.*
 import kotlinx.coroutines.launch
+import aws.smithy.kotlin.runtime.content.asByteStream
 import aws.smithy.kotlin.runtime.content.toInputStream
 
 // `threadsafe platform handler HostS3`: the SDK client is safe to share, and
@@ -31,17 +32,17 @@ class HostS3(private val config: AwsConfig) : S3 {
     override fun put_object(input: PutObjectInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         val body = SalvoStreams.takeIn(input.body.handle)
+        val length = input.content_length
         scope.launch {
-            val bytes = try {
-                salvoReadBody(body)
-            } catch (e: SalvoFaultException) {
-                val message = (e.fault as? SalvoFault.Failed)?.message ?: "not valid UTF-8"
-                val failed: Union2<PutObjectOutput, salvo.core.checked.Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = U2_2(salvo.core.checked.Checked(U7_7(AwsError(code = "StreamFailed", message = "${body.source}: $message"))))
+            if (length == null || length < 0) {
+                body.closeInput()
+                val failed: Union2<PutObjectOutput, salvo.core.checked.Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = U2_2(salvo.core.checked.Checked(U7_7(AwsError(code = "MissingContentLength", message = "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"))))
                 host.send(failed)
                 return@launch
             }
+            val upload = SalvoUpload(body, length)
             val answer: Union2<PutObjectOutput, salvo.core.checked.Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = try {
-                U2_1(fromSdkPutObjectOutput(client.putObject(toSdkPutObjectInput(input, bytes))))
+                U2_1(fromSdkPutObjectOutput(client.putObject(toSdkPutObjectInput(input, upload.asByteStream(length)))))
             } catch (e: aws.sdk.kotlin.services.s3.model.EncryptionTypeMismatch) {
                 U2_2(salvo.core.checked.Checked(U7_1(fromSdkEncryptionTypeMismatch(e))))
             } catch (e: aws.sdk.kotlin.services.s3.model.InvalidRequest) {
@@ -53,7 +54,12 @@ class HostS3(private val config: AwsConfig) : S3 {
             } catch (e: Exception) {
                 U2_2(salvo.core.checked.Checked(U7_7(salvoAwsError(e))))
             }
-            host.send(answer)
+            val problem = upload.finish()
+            body.closeInput()
+            val result: Union2<PutObjectOutput, salvo.core.checked.Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = problem?.let {
+                U2_2(salvo.core.checked.Checked(U7_7(AwsError(code = "StreamFailed", message = it))))
+            } ?: answer
+            host.send(result)
         }
     }
 
@@ -320,9 +326,9 @@ private fun fromSdkIntelligentTieringAccessTier(v: aws.sdk.kotlin.services.s3.mo
     else -> U3_3(IntelligentTieringAccessTier.Unknown(v.value))
 }
 
-private fun toSdkPutObjectInput(v: PutObjectInput, bodyBytes: ByteArray): aws.sdk.kotlin.services.s3.model.PutObjectRequest = aws.sdk.kotlin.services.s3.model.PutObjectRequest {
+private fun toSdkPutObjectInput(v: PutObjectInput, bodyStream: aws.smithy.kotlin.runtime.content.ByteStream): aws.sdk.kotlin.services.s3.model.PutObjectRequest = aws.sdk.kotlin.services.s3.model.PutObjectRequest {
     acl = v.acl?.let { toSdkObjectCannedACL(it) }
-    body = aws.smithy.kotlin.runtime.content.ByteStream.fromBytes(bodyBytes)
+    body = bodyStream
     bucket = v.bucket
     cacheControl = v.cache_control
     contentDisposition = v.content_disposition
@@ -524,17 +530,55 @@ private class SalvoBody(
 }
 
 /**
- * [stream-table] Everything left in a request body taken out of the host's
- * table; the stream is released either way. Buffered: the SDKs sign and
- * checksum a body of known length, and a streaming upload is recorded as
- * left (the aws module's DESIGN.md).
+ * [stream-table] A request body streamed out of the host's table as the SDK
+ * reads it: exactly [length] bytes, since the SDKs sign and checksum a body
+ * of known length. A stream that ends early, or runs on past [length], fails
+ * the read that finds it, which fails the request; the first failure is
+ * kept in [problem]. Not retryable: a stream is read once.
  */
-private fun salvoReadBody(body: SalvoIn): ByteArray =
-    try {
-        synchronized(body) { body.readAllBytes() }
-    } finally {
-        body.closeInput()
+private class SalvoUpload(private val stream: SalvoIn, private val length: Long) : java.io.InputStream() {
+    @Volatile var problem: String? = null
+    private var left = length
+
+    override fun read(): Int {
+        val one = ByteArray(1)
+        return if (read(one, 0, 1) <= 0) -1 else one[0].toInt() and 0xff
     }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        if (len == 0) return 0
+        if (left == 0L) return -1
+        val got = next(minOf(len.toLong(), left).toInt())
+        if (got.isEmpty()) {
+            fail("${stream.source}: ended after ${length - left} of the content_length of $length bytes")
+        }
+        // One byte past the end tells a stream longer than its length —
+        // checked *before* the last chunk is handed over, since the SDK
+        // stops reading at the length and would store a truncated object.
+        if (left - got.size == 0L && next(1).isNotEmpty()) {
+            fail("${stream.source}: longer than the content_length of $length bytes")
+        }
+        System.arraycopy(got, 0, b, off, got.size)
+        left -= got.size
+        return got.size
+    }
+
+    /** The upload's first failure, if any. */
+    fun finish(): String? = problem
+
+    private fun next(max: Int): ByteArray =
+        try {
+            synchronized(stream) { stream.readUpTo(max) }
+        } catch (e: SalvoFaultException) {
+            val f = e.fault
+            fail("${stream.source}: " + if (f is SalvoFault.Failed) f.message else "not valid UTF-8")
+        }
+
+    private fun fail(message: String): Nothing {
+        if (problem == null) problem = message
+        throw java.io.IOException(message)
+    }
+}
 
 private fun salvoAwsError(e: Throwable): AwsError {
     val code = (e as? aws.smithy.kotlin.runtime.ServiceException)?.sdkErrorMetadata?.errorCode

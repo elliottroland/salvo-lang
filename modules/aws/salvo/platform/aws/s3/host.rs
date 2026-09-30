@@ -73,6 +73,7 @@ impl crate::aws_s3::__Stateless_S3 for HostS3 {
         let reply = reply.hosted();
         let client = self.client.clone();
         let body = crate::scheduler::salvo_stream_take_in(input.body.handle);
+        let length = input.content_length;
         let call = client.put_object()
             .set_acl(input.acl.as_ref().map(|x| to_sdk_object_canned_acl(x)))
             .set_bucket(Some((&input.bucket).clone()))
@@ -122,19 +123,25 @@ impl crate::aws_s3::__Stateless_S3 for HostS3 {
             .set_object_lock_event_hold_duration_years(input.object_lock_event_hold_duration_years.as_ref().map(|x| *x))
             .set_expected_bucket_owner(input.expected_bucket_owner.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
-            let call = match salvo_read_body(body).await {
-                Ok(bytes) => call.set_body(Some(aws_sdk_s3::primitives::ByteStream::from(bytes))),
-                Err(message) => {
-                    let failed: Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = Union2::U2(Checked {
-                        value: Union7::U7(AwsError { code: "StreamFailed".to_string(), message }),
-                    });
+            let length = match length {
+                Some(n) if n >= 0 => n,
+                _ => {
+                    drop(body);
+                    let failed: Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = Union2::U2(Checked { value: Union7::U7(AwsError { code: "MissingContentLength".to_string(), message: "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes".to_string() }) });
                     reply.send(failed);
                     return;
                 }
             };
+            let (upload, problem) = salvo_upload(body, length);
+            let call = call.set_body(Some(aws_sdk_s3::primitives::ByteStream::from_body_1_x(upload)));
             let answer: Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = match call.send().await {
                 Ok(out) => { let _ = &out; Union2::U1(from_sdk_put_object_output(&out)) }
                 Err(e) => Union2::U2(Checked { value: error_of_put_object(e) }),
+            };
+            let problem = problem.lock().unwrap().take();
+            let answer: Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = match problem {
+                Some(message) => Union2::U2(Checked { value: Union7::U7(AwsError { code: "StreamFailed".to_string(), message }) }),
+                None => answer,
             };
             reply.send(answer);
         });
@@ -624,19 +631,93 @@ impl std::io::Read for SalvoBody {
     }
 }
 
-/// [stream-table] Everything left in a request body taken out of the host's
-/// table, read on a blocking thread. The stream is released when this ends.
-/// Buffered: the SDKs sign and checksum a body of known length, and a
-/// streaming upload is recorded as left (the aws module's DESIGN.md).
-async fn salvo_read_body(
+/// [stream-table] A request body streamed out of the host's table: a
+/// blocking thread reads it in chunks into a small channel the SDK's
+/// body drains, so memory stays at a few chunks whatever the size. The
+/// body is exactly `length` bytes — the SDKs sign and checksum a body of
+/// known length — and a stream that ends early or runs on past it is a
+/// failure, recorded in the answer's slot and sent to the SDK as an error
+/// frame. Not retryable: a stream is read once.
+fn salvo_upload(
     body: std::sync::Arc<std::sync::Mutex<crate::scheduler::SalvoIn>>,
-) -> Result<Vec<u8>, String> {
-    let read = tokio::task::spawn_blocking(move || {
+    length: i64,
+) -> (SalvoUpload, std::sync::Arc<std::sync::Mutex<Option<String>>>) {
+    let (tx, rx) = tokio::sync::mpsc::channel::<std::io::Result<bytes::Bytes>>(4);
+    let problem = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let record = problem.clone();
+    tokio::task::spawn_blocking(move || {
         let mut stream = body.lock().unwrap();
-        stream.read_all_bytes().map_err(|fault| match fault {
-            crate::scheduler::SalvoFault::Utf8 => format!("{}: not valid UTF-8", stream.source),
-            crate::scheduler::SalvoFault::Failed(m) => format!("{}: {m}", stream.source),
-        })
+        let fault = |source: &str, f: crate::scheduler::SalvoFault| match f {
+            crate::scheduler::SalvoFault::Utf8 => format!("{source}: not valid UTF-8"),
+            crate::scheduler::SalvoFault::Failed(m) => format!("{source}: {m}"),
+        };
+        let mut left = length as u64;
+        let failed: Option<String> = loop {
+            let mut buf = Vec::new();
+            if left == 0 {
+                break None;
+            }
+            match stream.read_up_to(&mut buf, left.min(65536) as usize) {
+                Ok(0) => {
+                    break Some(format!(
+                        "{}: ended after {} of the content_length of {length} bytes",
+                        stream.source,
+                        length as u64 - left
+                    ))
+                }
+                Ok(n) => {
+                    left -= n as u64;
+                    if left == 0 {
+                        // One byte past the end tells a stream longer than its
+                        // length — checked *before* the last chunk goes, so the
+                        // request fails rather than storing a truncated object.
+                        let mut extra = Vec::new();
+                        match stream.read_up_to(&mut extra, 1) {
+                            Ok(0) => {}
+                            Ok(_) => {
+                                break Some(format!(
+                                    "{}: longer than the content_length of {length} bytes",
+                                    stream.source
+                                ))
+                            }
+                            Err(f) => break Some(fault(&stream.source, f)),
+                        }
+                    }
+                    if tx.blocking_send(Ok(bytes::Bytes::from(buf))).is_err() {
+                        // The SDK gave up on the body; its error is the answer.
+                        break None;
+                    }
+                }
+                Err(f) => break Some(fault(&stream.source, f)),
+            }
+        };
+        if let Some(message) = failed {
+            *record.lock().unwrap() = Some(message.clone());
+            let _ = tx.blocking_send(Err(std::io::Error::other(message)));
+        }
     });
-    read.await.unwrap_or_else(|e| Err(e.to_string()))
+    (SalvoUpload { rx, length: length as u64 }, problem)
+}
+
+/// The SDK's side of [salvo_upload]: an `http_body::Body` of exactly
+/// `length` bytes over the channel.
+struct SalvoUpload {
+    rx: tokio::sync::mpsc::Receiver<std::io::Result<bytes::Bytes>>,
+    length: u64,
+}
+
+impl http_body::Body for SalvoUpload {
+    type Data = bytes::Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<http_body::Frame<bytes::Bytes>, std::io::Error>>> {
+        self.rx.poll_recv(cx).map(|next| next.map(|chunk| chunk.map(http_body::Frame::data)))
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        http_body::SizeHint::with_exact(self.length)
+    }
 }

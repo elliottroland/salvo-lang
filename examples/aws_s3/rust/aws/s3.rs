@@ -1405,9 +1405,14 @@ impl crate::aws_s3::__Stateful_S3 for FakeS3 {
 
     fn put_object(&mut self, input: PutObjectInput, reply: crate::scheduler::SalvoReply) {
         self.recorded.push("put_object".to_string());
+        let mut r#unsized = input.content_length.is_none();
         let mut closed = close__4(&self.__dep_Streams, input);
         if matches!(closed, Union2::U2(_)) {
             ignore(closed.u2().clone());
+        }
+        if r#unsized {
+            crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>::U2(err(checked(Union7::<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>::U7(AwsError { code: "MissingContentLength".to_string(), message: "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes".to_string() })))));
+            return;
         }
         crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>::U1(ok(PutObjectOutput { expiration: None, e_tag: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, server_side_encryption: None, version_id: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, ssekms_encryption_context: None, bucket_key_enabled: None, size: None, request_charged: None })));
     }

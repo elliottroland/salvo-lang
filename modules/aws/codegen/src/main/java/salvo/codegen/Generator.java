@@ -36,6 +36,7 @@ import software.amazon.smithy.model.shapes.StructureShape;
 import software.amazon.smithy.model.shapes.TimestampShape;
 import software.amazon.smithy.model.traits.DefaultTrait;
 import software.amazon.smithy.model.traits.DocumentationTrait;
+import software.amazon.smithy.model.traits.HttpHeaderTrait;
 import software.amazon.smithy.model.traits.RequiredTrait;
 import software.amazon.smithy.model.traits.StreamingTrait;
 import software.amazon.smithy.model.traits.TitleTrait;
@@ -490,8 +491,14 @@ final class Generator {
             out.append("        recorded.add(\"").append(effectOp(op)).append("\")\n");
             if (input(op).map(i -> isLinear(i.getId())).orElse(false)) {
                 // The body is not read; closing it is what discharges the input.
+                // A missing length is refused as the host refuses it, so a test
+                // against the fake fails where production would.
+                String len = salvoField(lengthOf(input(op).get()));
+                out.append("        let unsized = input.").append(len).append(" is None\n");
                 out.append("        let closed = close(input)\n");
                 out.append("        if closed is Err {\n            ignore(closed)\n        }\n");
+                out.append("        if unsized {\n            reply.send(").append(missingLength(op)).append(")\n")
+                        .append("            return None\n        }\n");
             }
             out.append("        reply.send(").append(fakeAnswer(op)).append(")\n");
             out.append("    }\n");
@@ -516,6 +523,17 @@ final class Generator {
     private String replyPayload(OperationShape op) {
         String out = output(op).map(s -> structs.get(s.getId())).orElse("None");
         return "Ok " + out + " | Err Checked<" + errorUnion() + ">";
+    }
+
+    /** The answer to a streamed input without its length, in Salvo. */
+    private String missingLength(OperationShape op) {
+        return "err(checked<" + errorUnion() + ">(AwsError { code: \"MissingContentLength\", message: \""
+                + missingLengthText(op) + "\" }))";
+    }
+
+    private String missingLengthText(OperationShape op) {
+        return settings.effect() + " " + op.getId().getName() + " streams its body, so the input needs "
+                + salvoField(lengthOf(input(op).get())) + ": the body's length in bytes";
     }
 
     private String fakeAnswer(OperationShape op) {
@@ -589,6 +607,15 @@ final class Generator {
             out.append(comment("Linear, because it holds a stream: take the stream out (`let {"
                     + salvoField(streaming.get(s.getId())) + "} = value`) and close it when done, or give "
                     + "the whole value up with [close] [linear-group].", ""));
+            if (inputs.contains(s.getId())) {
+                String len = salvoField(lengthOf(s));
+                out.append("//\n");
+                out.append(comment("The " + salvoField(streaming.get(s.getId())) + " is streamed as it is read, "
+                        + "so [" + len + "] must be its length in bytes — for a file, `metadata(path)`'s `size`. "
+                        + "Without it the call answers `AwsError { code: \"MissingContentLength\" }` and sends "
+                        + "nothing; a stream shorter or longer than it answers `AwsError { code: \"StreamFailed\" }`.",
+                        ""));
+            }
         }
         out.append(linear ? "export linear struct " : "export struct ").append(name).append(" {\n");
         for (int i = 0; i < members.size(); i++) {
@@ -800,6 +827,22 @@ final class Generator {
         return out.toString();
     }
 
+    /**
+     * The member carrying a streaming input's length — the one bound to the
+     * `Content-Length` header. A streamed request body must say its length
+     * (user decision 2026-09-30: no silent buffering), so an input with a
+     * stream and no such member is refused here rather than generated.
+     */
+    private MemberShape lengthOf(StructureShape s) {
+        for (MemberShape m : members(s)) {
+            if (m.getTrait(HttpHeaderTrait.class).map(h -> h.getValue().equalsIgnoreCase("Content-Length")).orElse(false)
+                    && (target(m) instanceof LongShape || target(m) instanceof IntegerShape)) {
+                return m;
+            }
+        }
+        throw fail(s.getId().toString(), "streams a request body but has no Content-Length member to say its length");
+    }
+
     /** The streaming member of an operation's input or output, or null. */
     private MemberShape streamOf(Optional<StructureShape> s) {
         return s.map(x -> streaming.get(x.getId())).orElse(null);
@@ -827,11 +870,13 @@ final class Generator {
         out.append("        let reply = reply.hosted();\n        let client = self.client.clone();\n");
         if (inStream != null) {
             // [stream-table] The request body is taken out of the host's table
-            // now — the token was given up with the input — and read on a
-            // blocking thread once the task runs. A handle another table
+            // now — the token was given up with the input — and streamed from
+            // a blocking thread once the task runs. A handle another table
             // minted traps here [stream-provider].
             out.append("        let body = crate::scheduler::salvo_stream_take_in(input.")
                     .append(rsIdent(salvoField(inStream))).append(".handle);\n");
+            out.append("        let length = input.").append(rsIdent(salvoField(lengthOf(input(op).get()))))
+                    .append(";\n");
         }
         if (outStream != null) out.append("        let rt = self.rt.handle().clone();\n");
         out.append("        let call = client.").append(name).append("()");
@@ -844,17 +889,21 @@ final class Generator {
         });
         out.append(";\n");
         out.append("        self.rt.spawn(async move {\n");
+        String failWith = "Union2::U2(Checked { value: Union" + n + "::U" + n + "(AwsError { code: ";
         if (inStream != null) {
-            out.append("            let call = match salvo_read_body(body).await {\n")
-                    .append("                Ok(bytes) => call.set_").append(snake(inStream.getMemberName()))
-                    .append("(Some(").append(crate).append("::primitives::ByteStream::from(bytes))),\n")
-                    .append("                Err(message) => {\n")
-                    .append("                    let failed: ").append(answerType).append(" = Union2::U2(Checked {\n")
-                    .append("                        value: Union").append(n).append("::U").append(n)
-                    .append("(AwsError { code: \"StreamFailed\".to_string(), message }),\n")
-                    .append("                    });\n")
+            // No length, no request: the body is released unread (user
+            // decision 2026-09-30 — never buffer to find it out).
+            out.append("            let length = match length {\n")
+                    .append("                Some(n) if n >= 0 => n,\n")
+                    .append("                _ => {\n                    drop(body);\n")
+                    .append("                    let failed: ").append(answerType).append(" = ").append(failWith)
+                    .append("\"MissingContentLength\".to_string(), message: \"").append(missingLengthText(op))
+                    .append("\".to_string() }) });\n")
                     .append("                    reply.send(failed);\n                    return;\n                }\n")
                     .append("            };\n");
+            out.append("            let (upload, problem) = salvo_upload(body, length);\n");
+            out.append("            let call = call.set_").append(snake(inStream.getMemberName())).append("(Some(")
+                    .append(crate).append("::primitives::ByteStream::from_body_1_x(upload)));\n");
         }
         out.append("            let answer: ").append(answerType).append(" = match call.send().await {\n");
         if (outStream != null) {
@@ -865,7 +914,17 @@ final class Generator {
             out.append("                Ok(out) => { let _ = &out; Union2::U1(").append(ok).append(") }\n");
         }
         out.append("                Err(e) => Union2::U2(Checked { value: error_of_").append(name).append("(e) }),\n");
-        out.append("            };\n            reply.send(answer);\n        });\n    }\n");
+        out.append("            };\n");
+        if (inStream != null) {
+            // A body that failed, or did not match its length, is the answer
+            // whatever the service said about the bytes it did get.
+            out.append("            let problem = problem.lock().unwrap().take();\n")
+                    .append("            let answer: ").append(answerType).append(" = match problem {\n")
+                    .append("                Some(message) => ").append(failWith)
+                    .append("\"StreamFailed\".to_string(), message }) }),\n")
+                    .append("                None => answer,\n            };\n");
+        }
+        out.append("            reply.send(answer);\n        });\n    }\n");
         return out.toString();
     }
 
@@ -1063,21 +1122,95 @@ final class Generator {
                     }
                 }
 
-                /// [stream-table] Everything left in a request body taken out of the host's
-                /// table, read on a blocking thread. The stream is released when this ends.
-                /// Buffered: the SDKs sign and checksum a body of known length, and a
-                /// streaming upload is recorded as left (the aws module's DESIGN.md).
-                async fn salvo_read_body(
+                /// [stream-table] A request body streamed out of the host's table: a
+                /// blocking thread reads it in chunks into a small channel the SDK's
+                /// body drains, so memory stays at a few chunks whatever the size. The
+                /// body is exactly `length` bytes — the SDKs sign and checksum a body of
+                /// known length — and a stream that ends early or runs on past it is a
+                /// failure, recorded in the answer's slot and sent to the SDK as an error
+                /// frame. Not retryable: a stream is read once.
+                fn salvo_upload(
                     body: std::sync::Arc<std::sync::Mutex<crate::scheduler::SalvoIn>>,
-                ) -> Result<Vec<u8>, String> {
-                    let read = tokio::task::spawn_blocking(move || {
+                    length: i64,
+                ) -> (SalvoUpload, std::sync::Arc<std::sync::Mutex<Option<String>>>) {
+                    let (tx, rx) = tokio::sync::mpsc::channel::<std::io::Result<bytes::Bytes>>(4);
+                    let problem = std::sync::Arc::new(std::sync::Mutex::new(None));
+                    let record = problem.clone();
+                    tokio::task::spawn_blocking(move || {
                         let mut stream = body.lock().unwrap();
-                        stream.read_all_bytes().map_err(|fault| match fault {
-                            crate::scheduler::SalvoFault::Utf8 => format!("{}: not valid UTF-8", stream.source),
-                            crate::scheduler::SalvoFault::Failed(m) => format!("{}: {m}", stream.source),
-                        })
+                        let fault = |source: &str, f: crate::scheduler::SalvoFault| match f {
+                            crate::scheduler::SalvoFault::Utf8 => format!("{source}: not valid UTF-8"),
+                            crate::scheduler::SalvoFault::Failed(m) => format!("{source}: {m}"),
+                        };
+                        let mut left = length as u64;
+                        let failed: Option<String> = loop {
+                            let mut buf = Vec::new();
+                            if left == 0 {
+                                break None;
+                            }
+                            match stream.read_up_to(&mut buf, left.min(65536) as usize) {
+                                Ok(0) => {
+                                    break Some(format!(
+                                        "{}: ended after {} of the content_length of {length} bytes",
+                                        stream.source,
+                                        length as u64 - left
+                                    ))
+                                }
+                                Ok(n) => {
+                                    left -= n as u64;
+                                    if left == 0 {
+                                        // One byte past the end tells a stream longer than its
+                                        // length — checked *before* the last chunk goes, so the
+                                        // request fails rather than storing a truncated object.
+                                        let mut extra = Vec::new();
+                                        match stream.read_up_to(&mut extra, 1) {
+                                            Ok(0) => {}
+                                            Ok(_) => {
+                                                break Some(format!(
+                                                    "{}: longer than the content_length of {length} bytes",
+                                                    stream.source
+                                                ))
+                                            }
+                                            Err(f) => break Some(fault(&stream.source, f)),
+                                        }
+                                    }
+                                    if tx.blocking_send(Ok(bytes::Bytes::from(buf))).is_err() {
+                                        // The SDK gave up on the body; its error is the answer.
+                                        break None;
+                                    }
+                                }
+                                Err(f) => break Some(fault(&stream.source, f)),
+                            }
+                        };
+                        if let Some(message) = failed {
+                            *record.lock().unwrap() = Some(message.clone());
+                            let _ = tx.blocking_send(Err(std::io::Error::other(message)));
+                        }
                     });
-                    read.await.unwrap_or_else(|e| Err(e.to_string()))
+                    (SalvoUpload { rx, length: length as u64 }, problem)
+                }
+
+                /// The SDK's side of [salvo_upload]: an `http_body::Body` of exactly
+                /// `length` bytes over the channel.
+                struct SalvoUpload {
+                    rx: tokio::sync::mpsc::Receiver<std::io::Result<bytes::Bytes>>,
+                    length: u64,
+                }
+
+                impl http_body::Body for SalvoUpload {
+                    type Data = bytes::Bytes;
+                    type Error = std::io::Error;
+
+                    fn poll_frame(
+                        mut self: std::pin::Pin<&mut Self>,
+                        cx: &mut std::task::Context<'_>,
+                    ) -> std::task::Poll<Option<Result<http_body::Frame<bytes::Bytes>, std::io::Error>>> {
+                        self.rx.poll_recv(cx).map(|next| next.map(|chunk| chunk.map(http_body::Frame::data)))
+                    }
+
+                    fn size_hint(&self) -> http_body::SizeHint {
+                        http_body::SizeHint::with_exact(self.length)
+                    }
                 }
                 """.formatted(bs);
     }
@@ -1178,7 +1311,10 @@ final class Generator {
         out.append("package ").append(pkg).append("\n\nimport salvo.*\nimport salvo.aws.*\nimport salvo.")
                 .append(settings.module()).append(".*\nimport salvo.").append(settings.module()).append(".host.*\n");
         out.append("import kotlinx.coroutines.launch\n");
-        if (!streaming.isEmpty()) out.append("import aws.smithy.kotlin.runtime.content.toInputStream\n");
+        if (!streaming.isEmpty()) {
+            out.append("import aws.smithy.kotlin.runtime.content.asByteStream\n");
+            out.append("import aws.smithy.kotlin.runtime.content.toInputStream\n");
+        }
         out.append('\n');
 
         out.append("// `threadsafe platform handler Host").append(effect).append("`: the SDK client is safe to share, and\n")
@@ -1235,6 +1371,8 @@ final class Generator {
             // given up with the input; a foreign handle traps [stream-provider].
             out.append("        val body = SalvoStreams.takeIn(input.").append(ktIdent(salvoField(inStream)))
                     .append(".handle)\n");
+            out.append("        val length = input.").append(ktIdent(salvoField(lengthOf(input(op).get()))))
+                    .append('\n');
         }
         String okType = output(op).map(o -> structs.get(o.getId())).orElse("Unit");
         List<String> errArms = new ArrayList<>(errorNames);
@@ -1243,17 +1381,18 @@ final class Generator {
         String answerType = "Union2<" + okType + ", salvo.core.checked.Checked<" + errType + ">>";
         out.append("        scope.launch {\n");
         String request = input(op).map(in -> "toSdk" + structs.get(in.getId()) + "(input"
-                + (inStream != null ? ", bytes" : "") + ")").orElse("");
+                + (inStream != null ? ", upload.asByteStream(length)" : "") + ")").orElse("");
         if (inStream != null) {
-            out.append("            val bytes = try {\n")
-                    .append("                salvoReadBody(body)\n")
-                    .append("            } catch (e: SalvoFaultException) {\n")
-                    .append("                val message = (e.fault as? SalvoFault.Failed)?.message ?: \"not valid UTF-8\"\n")
+            // No length, no request: the body is released unread (user
+            // decision 2026-09-30 — never buffer to find it out).
+            out.append("            if (length == null || length < 0) {\n")
+                    .append("                body.closeInput()\n")
                     .append("                val failed: ").append(answerType).append(" = U2_2(salvo.core.checked.Checked(U")
-                    .append(n).append('_').append(n)
-                    .append("(AwsError(code = \"StreamFailed\", message = \"${body.source}: $message\"))))\n")
+                    .append(n).append('_').append(n).append("(AwsError(code = \"MissingContentLength\", message = \"")
+                    .append(missingLengthText(op)).append("\"))))\n")
                     .append("                host.send(failed)\n")
                     .append("                return@launch\n            }\n");
+            out.append("            val upload = SalvoUpload(body, length)\n");
         }
         String call = "client." + NamingKt.defaultName(op) + "(" + request + ")";
         if (outStream != null) {
@@ -1292,6 +1431,16 @@ final class Generator {
                 .append("(salvoAwsError(e))))\n            }\n");
         if (outStream != null) {
             out.append("            if (!sent && answer != null) host.send(answer)\n        }\n    }\n");
+        } else if (inStream != null) {
+            // A body that failed, or did not match its length, is the answer
+            // whatever the service said about the bytes it did get.
+            out.append("            val problem = upload.finish()\n")
+                    .append("            body.closeInput()\n")
+                    .append("            val result: ").append(answerType).append(" = problem?.let {\n")
+                    .append("                U2_2(salvo.core.checked.Checked(U").append(n).append('_').append(n)
+                    .append("(AwsError(code = \"StreamFailed\", message = it))))\n")
+                    .append("            } ?: answer\n")
+                    .append("            host.send(result)\n        }\n    }\n");
         } else {
             out.append("            host.send(answer)\n        }\n    }\n");
         }
@@ -1347,11 +1496,11 @@ final class Generator {
         MemberShape body = streaming.get(s.getId());
         StringBuilder out = new StringBuilder();
         out.append("private fun toSdk").append(name).append("(v: ").append(name)
-                .append(body != null ? ", bodyBytes: ByteArray" : "").append("): ").append(sdk)
+                .append(body != null ? ", bodyStream: aws.smithy.kotlin.runtime.content.ByteStream" : "").append("): ").append(sdk)
                 .append(" = ").append(sdk).append(" {\n");
         for (MemberShape m : members(s)) {
             String value = m.equals(body)
-                    ? "aws.smithy.kotlin.runtime.content.ByteStream.fromBytes(bodyBytes)" : ktSetField(m, "v");
+                    ? "bodyStream" : ktSetField(m, "v");
             out.append("    ").append(ktMember(m)).append(" = ").append(value).append('\n');
         }
         out.append("}\n");
@@ -1407,17 +1556,55 @@ final class Generator {
                 }
 
                 /**
-                 * [stream-table] Everything left in a request body taken out of the host's
-                 * table; the stream is released either way. Buffered: the SDKs sign and
-                 * checksum a body of known length, and a streaming upload is recorded as
-                 * left (the aws module's DESIGN.md).
+                 * [stream-table] A request body streamed out of the host's table as the SDK
+                 * reads it: exactly [length] bytes, since the SDKs sign and checksum a body
+                 * of known length. A stream that ends early, or runs on past [length], fails
+                 * the read that finds it, which fails the request; the first failure is
+                 * kept in [problem]. Not retryable: a stream is read once.
                  */
-                private fun salvoReadBody(body: SalvoIn): ByteArray =
-                    try {
-                        synchronized(body) { body.readAllBytes() }
-                    } finally {
-                        body.closeInput()
+                private class SalvoUpload(private val stream: SalvoIn, private val length: Long) : java.io.InputStream() {
+                    @Volatile var problem: String? = null
+                    private var left = length
+
+                    override fun read(): Int {
+                        val one = ByteArray(1)
+                        return if (read(one, 0, 1) <= 0) -1 else one[0].toInt() and 0xff
                     }
+
+                    override fun read(b: ByteArray, off: Int, len: Int): Int {
+                        if (len == 0) return 0
+                        if (left == 0L) return -1
+                        val got = next(minOf(len.toLong(), left).toInt())
+                        if (got.isEmpty()) {
+                            fail("${stream.source}: ended after ${length - left} of the content_length of $length bytes")
+                        }
+                        // One byte past the end tells a stream longer than its length —
+                        // checked *before* the last chunk is handed over, since the SDK
+                        // stops reading at the length and would store a truncated object.
+                        if (left - got.size == 0L && next(1).isNotEmpty()) {
+                            fail("${stream.source}: longer than the content_length of $length bytes")
+                        }
+                        System.arraycopy(got, 0, b, off, got.size)
+                        left -= got.size
+                        return got.size
+                    }
+
+                    /** The upload's first failure, if any. */
+                    fun finish(): String? = problem
+
+                    private fun next(max: Int): ByteArray =
+                        try {
+                            synchronized(stream) { stream.readUpTo(max) }
+                        } catch (e: SalvoFaultException) {
+                            val f = e.fault
+                            fail("${stream.source}: " + if (f is SalvoFault.Failed) f.message else "not valid UTF-8")
+                        }
+
+                    private fun fail(message: String): Nothing {
+                        if (problem == null) problem = message
+                        throw java.io.IOException(message)
+                    }
+                }
                 """;
     }
 

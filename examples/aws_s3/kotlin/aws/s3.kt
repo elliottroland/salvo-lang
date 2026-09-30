@@ -927,9 +927,14 @@ class FakeS3(private val __dep_Streams: Streams) : S3, S3Calls {
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun put_object(input: PutObjectInput, reply: salvo.SalvoReply) {
         recorded.add("put_object")
+        val unsized = input.content_length == null
         val closed = close__4(__dep_Streams, input)
         if (closed is U2_2<*, *>) {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+        }
+        if (unsized) {
+            salvo.SalvoSched.replyWire(reply, U2_2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>(err(checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>(U7_7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>(AwsError(code = "MissingContentLength", message = "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union7Codec(__Codec_EncryptionTypeMismatch, __Codec_InvalidObjectState, __Codec_InvalidRequest, __Codec_InvalidWriteOffset, __Codec_NoSuchKey, __Codec_TooManyParts, __Codec_AwsError))))
+            return
         }
         salvo.SalvoSched.replyWire(reply, U2_1<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>(ok(PutObjectOutput())), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union7Codec(__Codec_EncryptionTypeMismatch, __Codec_InvalidObjectState, __Codec_InvalidRequest, __Codec_InvalidWriteOffset, __Codec_NoSuchKey, __Codec_TooManyParts, __Codec_AwsError))))
     }
