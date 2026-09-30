@@ -194,6 +194,7 @@ fn is_only_a_fn_name(scope: &crate::resolve::ModuleScope<'_>, name: &str) -> boo
 /// handler names, effect references, qualifier names).
 pub fn used_names(module: &Module) -> HashSet<&str> {
     let mut used = HashSet::new();
+    host_names(&module.host, &mut used);
     for item in &module.items {
         match item {
             Item::Fn(f) => fn_names(f, &mut used),
@@ -246,6 +247,18 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
                     fn_names(f, &mut used);
                 }
                 host_names(&h.host, &mut used);
+                for field in &h.host_fields {
+                    for part in field.ty.iter().chain(&field.init) {
+                        if let salvo_syntax::ast::HostBlockPart::Hole(hole) = part {
+                            if let Some(e) = &hole.expr {
+                                expr_names(e, &mut used);
+                            }
+                            if let Some(t) = &hole.ty {
+                                type_names(t, &mut used);
+                            }
+                        }
+                    }
+                }
             }
             Item::Qualifier(q) => {
                 type_names(&q.of, &mut used);

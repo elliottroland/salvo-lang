@@ -122,6 +122,8 @@ final class Generator {
         String path = settings.module().replace('.', '/');
         files.put(path + ".sv", salvoSurface());
         files.put(path + "/host.sv", salvoHost());
+        files.put("platform/" + path + "/host.sv.kt", kotlinTemplate());
+        files.put("platform/" + path + "/host.sv.rs", rustTemplate());
         return files;
     }
 
@@ -1072,8 +1074,9 @@ final class Generator {
         StringBuilder out = new StringBuilder();
         String title = service.getTrait(TitleTrait.class).map(TitleTrait::getValue).orElse(settings.effect());
         out.append(comment("The host's " + title + ": [Host" + settings.effect() + "] implements `" + settings.module()
-                + "`'s [" + settings.effect() + "] over aws-sdk-kotlin and aws-sdk-rust, written here as host code "
-                + "with Salvo holes [host-splice].", ""));
+                + "`'s [" + settings.effect() + "] over aws-sdk-kotlin and aws-sdk-rust. Its code is the platform "
+                + "templates beside this module, `platform/" + settings.module().replace('.', '/') + "/host.sv.kt` "
+                + "and `.sv.rs` [host-splice].", ""));
         out.append("//\n");
         out.append(comment("Its own module, as `fs.host` is: a program that fakes the service never reaches "
                 + "the host code, so it builds without the SDK.", ""));
@@ -1087,22 +1090,111 @@ final class Generator {
                 + "each call runs on the SDK's own asynchronous machinery (coroutines on the JVM, tokio on "
                 + "Rust) and completes its reply from there, so no Salvo worker waits. `threadsafe`: the SDK "
                 + "client is safe to share, so the instance is used from every pool with no lock.", ""));
-        out.append("export threadsafe platform handler Host").append(settings.effect())
-                .append("(config: AwsConfig) of ").append(settings.effect()).append(" {\n");
+        out.append("export ").append(handlerDecl()).append('\n');
+        return out.toString();
+    }
+
+    private String handlerDecl() {
+        return "threadsafe platform handler Host" + settings.effect() + "(config: AwsConfig) of " + settings.effect();
+    }
+
+    /** A member's signature as a template marker writes it: no clause. */
+    private String memberSig(OperationShape op) {
+        String sig = effectSignature(op);
+        return sig.substring(0, sig.indexOf("\n")).trim();
+    }
+
+    private String templateHeader(String lang) {
+        return "// " + lang + " for `" + settings.module() + ".host`'s `Host" + settings.effect()
+                + "` [host-splice]: host code, with Salvo\n"
+                + "// between backticks, over the platform's AWS SDK.\n//\n"
+                + header("").replace("regenerate with", "regenerate with");
+    }
+
+    private String kotlinTemplate() {
         StringBuilder members = new StringBuilder();
         for (OperationShape op : operations) {
-            members.append('\n');
-            members.append("    ").append(effectSignature(op)).append('\n');
-            members.append(fence("kotlin", kotlinMember(op), 2));
-            members.append(fence("rust", rustMember(op), 2));
+            members.append('\n').append("    `").append(memberSig(op)).append("` {\n")
+                    .append(indent(kotlinMember(op), 2)).append("    }\n");
         }
         String classBody = kotlinClassBody();
-        StringBuilder imports = new StringBuilder();
-        for (String a : ktAliases) imports.append("import ").append(ktModel()).append('.').append(a).append(" as Sdk").append(a).append('\n');
-        out.append(fence("kotlin", imports + classBody, 1));
-        out.append(fence("rust", rustModuleItems(), 1));
-        out.append(members);
+        StringBuilder out = new StringBuilder(templateHeader("Kotlin")).append('\n');
+        for (String a : ktAliases) out.append("import ").append(ktModel()).append('.').append(a).append(" as Sdk").append(a).append('\n');
+        out.append("import kotlinx.coroutines.launch\n");
+        if (!streaming.isEmpty()) {
+            out.append("import aws.smithy.kotlin.runtime.content.asByteStream\n");
+            out.append("import aws.smithy.kotlin.runtime.content.toInputStream\n");
+        }
+        out.append("\n`").append(handlerDecl()).append("` {\n");
+        out.append(indent(classBody.replace("import kotlinx.coroutines.launch\n", "")
+                .replace("import aws.smithy.kotlin.runtime.content.asByteStream\n", "")
+                .replace("import aws.smithy.kotlin.runtime.content.toInputStream\n", ""), 1));
+        out.append(members).append("}\n");
+        return toTemplate(out.toString());
+    }
+
+    private String rustTemplate() {
+        StringBuilder out = new StringBuilder(templateHeader("Rust")).append('\n');
+        out.append(rustModuleItems());
+        String crate = rsCrate();
+        out.append("\n// The handler's host fields: the tokio runtime each call runs on as a task,\n")
+                .append("// and the SDK client, cheap to clone and safe to share.\n");
+        out.append("`struct Host").append(settings.effect()).append("` {\n")
+                .append("    rt: tokio::runtime::Runtime = salvo_runtime(),\n")
+                .append("    client: ").append(crate).append("::Client = salvo_client(&rt, (&`config`).clone()),\n}\n");
+        out.append("\n`").append(handlerDecl()).append("` {\n");
+        boolean first = true;
+        for (OperationShape op : operations) {
+            if (!first) out.append('\n');
+            first = false;
+            out.append("    `").append(memberSig(op)).append("` {\n").append(indent(rustMember(op), 2)).append("    }\n");
+        }
         out.append("}\n");
+        return toTemplate(out.toString());
+    }
+
+    private static String indent(String body, int levels) {
+        String pad = "    ".repeat(levels);
+        StringBuilder out = new StringBuilder();
+        for (String line : body.split("\n", -1)) out.append(line.isBlank() ? "" : pad + line).append('\n');
+        while (out.toString().endsWith("\n\n")) out.setLength(out.length() - 1);
+        return out.toString();
+    }
+
+    /**
+     * Rewrites the generator's hole spelling into template markers: `@{: T}`
+     * becomes `` `T` ``, `@{ e }` becomes `` `e` ``, and a `` `leaf` `` of host
+     * code inside becomes `@{leaf}`.
+     */
+    static String toTemplate(String s) {
+        StringBuilder out = new StringBuilder();
+        int i = 0;
+        while (i < s.length()) {
+            if (s.startsWith("@{", i)) {
+                int j = i + 2;
+                int depth = 1;
+                StringBuilder inner = new StringBuilder();
+                while (j < s.length()) {
+                    char c = s.charAt(j);
+                    if (c == '`') {
+                        int k = s.indexOf('`', j + 1);
+                        inner.append("@{").append(s, j + 1, k).append('}');
+                        j = k + 1;
+                        continue;
+                    }
+                    if (c == '{') depth++;
+                    if (c == '}' && --depth == 0) break;
+                    inner.append(c);
+                    j++;
+                }
+                String body = inner.toString().trim();
+                if (body.startsWith(":")) body = body.substring(1).trim();
+                out.append('`').append(body).append('`');
+                i = j + 1;
+            } else {
+                out.append(s.charAt(i++));
+            }
+        }
         return out.toString();
     }
 
@@ -1210,25 +1302,23 @@ final class Generator {
         List<String> ops = new ArrayList<>();
         for (OperationShape op : operations) ops.add(effectOp(op));
         out.append("use ").append(crate).append("::operation::{").append(String.join(", ", ops)).append("};\n\n");
-        out.append("// The handler's host state: the SDK client, cheap to clone and safe to share,\n")
-                .append("// and the tokio runtime each call runs on as a task.\n");
-        out.append("pub struct Host").append(effect).append(" {\n    rt: tokio::runtime::Runtime,\n    client: ")
-                .append(crate).append("::Client,\n}\n\n");
-        out.append("impl Host").append(effect).append(" {\n    pub fn new(config: ").append(tyHole("AwsConfig"))
-                .append(") -> Self {\n")
-                .append("        let rt = tokio::runtime::Builder::new_multi_thread()\n")
-                .append("            .enable_all()\n            .build()\n")
-                .append("            .expect(\"a tokio runtime for the AWS SDK\");\n")
-                .append("        let shared = rt.block_on(salvo_aws_config(config.clone()));\n");
+        out.append("/// The tokio runtime a handler's calls run on.\n")
+                .append("fn salvo_runtime() -> tokio::runtime::Runtime {\n")
+                .append("    tokio::runtime::Builder::new_multi_thread()\n        .enable_all()\n        .build()\n")
+                .append("        .expect(\"a tokio runtime for the AWS SDK\")\n}\n\n");
+        out.append("/// The SDK client an `AwsConfig` describes.\n")
+                .append("fn salvo_client(rt: &tokio::runtime::Runtime, ").append(declHole("config", "AwsConfig")).append(") -> ")
+                .append(crate).append("::Client {\n")
+                .append("    let shared = rt.block_on(salvo_aws_config(config.clone()));\n");
         if (settings.forcePathStyle()) {
-            out.append("        let client = ").append(crate).append("::Client::from_conf(\n")
-                    .append("            ").append(crate).append("::config::Builder::from(&shared)\n")
-                    .append("                .force_path_style(").append(hole("config.endpoint")).append(".is_some())\n")
-                    .append("                .build(),\n        );\n");
+            out.append("    ").append(crate).append("::Client::from_conf(\n")
+                    .append("        ").append(crate).append("::config::Builder::from(&shared)\n")
+                    .append("            .force_path_style(").append(hole("config.endpoint")).append(".is_some())\n")
+                    .append("            .build(),\n    )\n");
         } else {
-            out.append("        let client = ").append(crate).append("::Client::new(&shared);\n");
+            out.append("    ").append(crate).append("::Client::new(&shared)\n");
         }
-        out.append("        Self { rt, client }\n    }\n}\n\n");
+        out.append("}\n\n");
         String cfg = "cfg";
         String prof = asSalvo("p", "ProfileCredentials");
         out.append("""

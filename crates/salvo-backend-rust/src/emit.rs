@@ -2724,6 +2724,12 @@ impl<'p> Emitter<'p> {
         for item in std::mem::take(&mut self.generated_items) {
             out.push_str(&item);
         }
+        // [host-splice] A template's file-level host code.
+        for block in module.host.iter().filter(|b| b.lang == "rust") {
+            out.push('\n');
+            let text = self.render_host(block, 0);
+            out.push_str(&text);
+        }
         out
     }
 
@@ -3547,6 +3553,11 @@ impl<'p> Emitter<'p> {
         for part in &block.parts {
             match part {
                 HostBlockPart::Text(t) => text.push_str(t),
+                HostBlockPart::Hole(hole) if hole.assign.is_some() => {
+                    let target = rs_ident(&hole.assign.as_ref().unwrap().name);
+                    let value = hole.expr.as_ref().map(|e| self.emit_expr(e)).unwrap_or_default();
+                    text.push_str(&format!("{target} = {value}"));
+                }
                 HostBlockPart::Hole(hole) => {
                     // A declaring hole: the name and its type.
                     if self.checked.host_decls.contains(&(self.file_idx, hole.span)) {
@@ -3575,57 +3586,12 @@ impl<'p> Emitter<'p> {
         reindent(&lines, indent)
     }
 
-    /// [host-splice] [rs-host-abi] A platform handler written in place: its
-    /// handler-level ```rust block at module level — declaring `pub struct H`
-    /// and its `pub fn new(…)`, which the `use` site calls — and the face's
-    /// trait implemented with the members' host bodies: `__Stateless_E`
-    /// (`&self`) when `threadsafe`, `__Stateful_E` (`&mut self`) otherwise.
-    fn emit_spliced_handler(&mut self, h: &HandlerDecl) -> String {
-        let mut out = String::new();
-        let rust_blocks: Vec<&HostBlock> = h.host.iter().filter(|b| b.lang == "rust").collect();
-        if rust_blocks.is_empty() {
-            self.error(format!(
-                "`platform handler {}` is written in place and has no handler-level ```rust block \
-                 declaring `pub struct {}` and its `new` [host-splice]",
-                h.name.name, h.name.name
-            ));
-            return out;
-        }
-        for block in rust_blocks {
-            out.push('\n');
-            let text = self.render_host(block, 0);
-            out.push_str(&text);
-        }
-        let stateful = !h.threadsafe;
-        let trait_path = self.face_trait_type(&h.of[0], stateful);
-        let receiver = if stateful { "&mut self" } else { "&self" };
-        let Some(effect) = type_base_name(&h.of[0]).and_then(|n| self.symbols.effects.get(n)).copied() else {
-            return out;
-        };
-        out.push_str(&format!("\nimpl {trait_path} for {} {{\n", rs_ident(&h.name.name)));
-        for f in &h.fns {
-            let Some(i) = effect.fns.iter().position(|m| m.name.name == f.name.name) else { continue };
-            let Some(block) = f.host.iter().find(|b| b.lang == "rust") else {
-                self.error(format!(
-                    "`{}.{}` is written in host code and has no ```rust block [host-splice]",
-                    h.name.name, f.name.name
-                ));
-                continue;
-            };
-            let saved = self.enter_generics(&f.generics);
-            let params = format!("{}{}", self.emit_member_param_list(f), self.emit_member_implicits(f));
-            let ret = self.emit_return_type(f.return_type.as_ref());
-            let name = self.member_name(effect, i);
-            for p in &f.params {
-                self.bindings.insert(p.name.name.clone(), BindKind::Owned);
-            }
-            let body = self.render_host(block, 2);
-            out.push_str(&format!("    fn {name}({receiver}{params}){ret} {{\n{body}    }}\n"));
-            self.generics = saved;
-        }
-        out.push_str("}\n");
-        out
+    /// [host-splice] Host parts rendered on one line, holes included.
+    fn render_host_inline(&mut self, parts: &[HostBlockPart]) -> String {
+        let block = HostBlock { lang: "rust".to_string(), parts: parts.to_vec(), span: salvo_syntax::Span::new(0, 0) };
+        self.render_host(&block, 0).trim().to_string()
     }
+
 
     fn host_handler_impl(&mut self, h: &HandlerDecl, effect_path: &str, own_path: &str) -> String {
         let of = self.emit_type(&h.of[0]);
@@ -3891,29 +3857,44 @@ impl<'p> Emitter<'p> {
         // `HostX::new(…)` (`handler_ctor_path`). The generated *trait* is the
         // effect's, emitted as any effect's is — which is what the host
         // struct implements.
-        // [host-splice] A handler written in place whose ```rust block declares
-        // its own struct owns the layout; otherwise it is emitted like any
-        // handler — struct, `new`, state — with the block beside it.
-        let owns_struct = h.spliced && h.host.iter().any(|b| b.lang == "rust" && host_declares_struct(b, &h.name.name));
-        if h.platform && owns_struct {
-            if let Some(field) = h.state.first() {
-                self.error(format!(
-                    "`platform handler {}` declares `struct {}` in its ```rust block, so it holds no \
-                     Salvo state (`{}`): drop the struct and let the compiler lay it out [host-splice]",
-                    h.name.name, h.name.name, field.name.name
-                ));
-            }
-            return self.emit_spliced_handler(h);
-        }
         let mut host_blocks = String::new();
+        // [host-splice] The template's handler-level host code: helpers,
+        // in an inherent impl beside the trait's.
         if h.spliced {
-            for block in h.host.iter().filter(|b| b.lang == "rust") {
-                host_blocks.push('\n');
-                let text = self.render_host(block, 0);
-                host_blocks.push_str(&text);
+            let blocks: Vec<&HostBlock> = h.host.iter().filter(|b| b.lang == "rust").collect();
+            if !blocks.is_empty() {
+                host_blocks.push_str(&format!("\nimpl {} {{\n", rs_ident(&h.name.name)));
+                for block in blocks {
+                    let text = self.render_host(block, 1);
+                    host_blocks.push_str(&text);
+                }
+                host_blocks.push_str("}\n");
             }
         }
+        let host_fields: Vec<(String, String, String)> = h
+            .host_fields
+            .iter()
+            .filter(|f| f.lang == "rust")
+            .map(|f| {
+                let ty = self.render_host_inline(&f.ty);
+                let init = self.render_host_inline(&f.init);
+                (f.name.clone(), ty, init)
+            })
+            .collect();
         if h.platform && !h.spliced {
+            return String::new();
+        }
+        // [host-splice] A template implements it — for this backend too?
+        if h.spliced
+            && !h.fns.iter().any(|f| f.host.iter().any(|b| b.lang == "rust"))
+            && !h.host.iter().any(|b| b.lang == "rust")
+            && !h.host_fields.iter().any(|f| f.lang == "rust")
+        {
+            self.error(format!(
+                "`platform handler {}` has no rust template (`platform/…/<module>.sv.rs`): write one, or build \
+                 without this backend [host-splice]",
+                h.name.name
+            ));
             return String::new();
         }
         // [effect-handler-deps] [rs-handle] Dependencies are the handler's
@@ -3939,7 +3920,9 @@ impl<'p> Emitter<'p> {
         // stateless clone is observationally the instance itself. Handle
         // fields are `__Handle_E` (Clone by construction), data params are
         // Salvo types (Clone throughout).
+        // [host-splice] Host fields need not be `Clone` (a tokio runtime is not).
         let shareable_stateless = h.state.is_empty()
+            && !h.host_fields.iter().any(|f| f.lang == "rust")
             && !h.params.iter().any(|p| p.implicit)
             && !h.fns.iter().any(|f| f.is_send)
             && (deps.is_empty() || handle_dep)
@@ -4042,6 +4025,9 @@ impl<'p> Emitter<'p> {
                 ));
             }
         }
+        for (name, ty, _) in &host_fields {
+            out.push_str(&format!("    {name}: {ty},\n"));
+        }
         out.push_str("}\n");
 
         // Constructor: `new` takes ctor params owned (a `use` argument is
@@ -4069,10 +4055,13 @@ impl<'p> Emitter<'p> {
                 ctor_params.push(format!("__dep_{}: {ty}", sanitize_ident(base)));
             }
         }
-        out.push_str(&format!(
-            "    pub fn new({}) -> Self {{\n        Self {{\n",
-            ctor_params.join(", ")
-        ));
+        out.push_str(&format!("    pub fn new({}) -> Self {{\n", ctor_params.join(", ")));
+        // [host-splice] Host fields are initialised in written order, each a
+        // `let`, so a later one may read an earlier one and the parameters.
+        for (name, _, init) in &host_fields {
+            out.push_str(&format!("        let {name} = {init};\n"));
+        }
+        out.push_str("        Self {\n");
         for p in &own {
             if p.implicit || matches!(p.ty, Type::Fn { .. }) {
                 out.push_str(&format!(
@@ -4111,6 +4100,9 @@ impl<'p> Emitter<'p> {
             for (base, _) in &deps {
                 out.push_str(&format!("            __dep_{},\n", sanitize_ident(base)));
             }
+        }
+        for (name, _, _) in &host_fields {
+            out.push_str(&format!("            {name},\n"));
         }
         // [rs-actor] `None` until an activation writes it: an instance that
         // never becomes an actor keeps it, and that is the marker.
@@ -5151,7 +5143,7 @@ impl<'p> Emitter<'p> {
 
     fn emit_fn_inner<'a>(&mut self, f: &FnDecl, style: FnStyle<'a>, indent: usize) -> String {
         // [host-splice] A body in host code: the signature as for any fn, the
-        // ```rust block as the body.
+        // Rust template's body as the body.
         let host_empty = Block { stmts: Vec::new(), span: f.span };
         let host = if f.host.is_empty() {
             None
@@ -5164,7 +5156,7 @@ impl<'p> Emitter<'p> {
                 None if !self.fn_is_called(f) => return String::new(),
                 None => {
                     self.error(format!(
-                        "`fn {}` is written in host code and has no ```rust block: add one, or \
+                        "`fn {}` has no Rust implementation in its platform template (`.sv.rs`): add one, or \
                          build without the Rust backend [host-splice]",
                         f.name.name
                     ));
@@ -18517,16 +18509,3 @@ fn reindent(lines: &[&str], indent: usize) -> String {
     out
 }
 
-/// [host-splice] Whether a handler-level ```rust block declares the handler's
-/// struct itself (`struct H` / `pub struct H`), taking over its layout.
-fn host_declares_struct(block: &HostBlock, name: &str) -> bool {
-    block.parts.iter().any(|p| match p {
-        HostBlockPart::Text(t) => t.lines().any(|l| {
-            let l = l.trim_start();
-            let l = l.strip_prefix("pub ").unwrap_or(l);
-            l.strip_prefix("struct ")
-                .is_some_and(|rest| rest.starts_with(name) && !rest[name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_'))
-        }),
-        _ => false,
-    })
-}

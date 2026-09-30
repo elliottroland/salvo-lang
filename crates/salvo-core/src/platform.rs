@@ -183,9 +183,13 @@ pub fn host_block_coverage(program: &Program, backends: &[&str]) -> Vec<crate::F
         if missing.is_empty() {
             return;
         }
+        let names: Vec<String> = missing
+            .iter()
+            .map(|b| format!("{} (`.sv.{}`)", if *b == "kotlin" { "Kotlin" } else { "Rust" }, if *b == "kotlin" { "kt" } else { "rs" }))
+            .collect();
         let msg = format!(
-            "{what} has no ```{} block, and this project builds {} [host-splice]",
-            missing.join(" or ```"),
+            "{what} has no {} implementation in its platform template, and this project builds {} [host-splice]",
+            names.join(" or "),
             backends.join(" and ")
         );
         if langs == ["kotlin"] {
@@ -208,9 +212,19 @@ pub fn host_block_coverage(program: &Program, backends: &[&str]) -> Vec<crate::F
                     check(file, format!("`fn {}`", f.name.name), f.name.span, &f.host)
                 }
                 Item::Handler(h) if h.spliced => {
-                    if !h.host.is_empty() {
-                        check(file, format!("`platform handler {}`", h.name.name), h.name.span, &h.host);
+                    // Which backends implement the handler at all: any of its
+                    // blocks, members or host fields.
+                    let mut langs: Vec<HostBlock> = h.host.clone();
+                    for f in &h.fns {
+                        langs.extend(f.host.iter().cloned());
                     }
+                    for fld in &h.host_fields {
+                        langs.push(HostBlock { lang: fld.lang.clone(), parts: Vec::new(), span: h.name.span });
+                    }
+                    langs.dedup_by(|a, b| a.lang == b.lang);
+                    let mut seen = std::collections::BTreeSet::new();
+                    langs.retain(|b| seen.insert(b.lang.clone()));
+                    check(file, format!("`platform handler {}`", h.name.name), h.name.span, &langs);
                     for f in &h.fns {
                         if !f.host.is_empty() {
                             check(file, format!("`{}.{}`", h.name.name, f.name.name), f.name.span, &f.host);

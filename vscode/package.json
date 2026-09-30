@@ -34,11 +34,7 @@
       {
         "language": "salvo",
         "scopeName": "source.salvo",
-        "path": "./syntaxes/salvo.tmLanguage.json",
-        "embeddedLanguages": {
-          "meta.embedded.block.kotlin": "kotlin",
-          "meta.embedded.block.rust": "rust"
-        }
+        "path": "./syntaxes/salvo.tmLanguage.json"
       }
     ],
     "configuration": {

@@ -2,7 +2,7 @@
 
 use crate::diag::Diagnostic;
 use crate::span::Span;
-use crate::token::{HostPart, StrPart, Token, TokenKind};
+use crate::token::{StrPart, Token, TokenKind};
 
 pub struct LexResult {
     pub tokens: Vec<Token>,
@@ -29,6 +29,14 @@ pub struct Comment {
 
 /// Lex a full source file into tokens. Never fails: unknown characters are
 /// reported as diagnostics and skipped.
+/// [host-splice] Lexes the Salvo inside a platform template's `` `…` `` marker,
+/// where `@name` and `@{…}` are host code.
+pub fn lex_template(source: &str) -> LexResult {
+    let mut lexer = Lexer::new(source);
+    lexer.host_escapes = true;
+    lexer.run()
+}
+
 pub fn lex(source: &str) -> LexResult {
     Lexer::new(source).run()
 }
@@ -42,6 +50,8 @@ struct Lexer<'s> {
     diagnostics: Vec<Diagnostic>,
     comments: Vec<Comment>,
     newline_pending: bool,
+    /// [host-splice] Lexing a template marker's Salvo: `@` escapes to host.
+    host_escapes: bool,
 }
 
 impl<'s> Lexer<'s> {
@@ -54,6 +64,7 @@ impl<'s> Lexer<'s> {
             diagnostics: Vec::new(),
             comments: Vec::new(),
             newline_pending: false,
+            host_escapes: false,
         }
     }
 
@@ -78,8 +89,15 @@ impl<'s> Lexer<'s> {
                     self.push_comment(start);
                 }
                 '"' => self.string(start),
-                '`' if self.peek_at(1) == Some('`') && self.peek_at(2) == Some('`') => self.host_block(start),
-                '`' => self.host_leaf(start),
+                // [host-splice] In a template marker, `@{…}` and a token-start
+                // `@name` are host code.
+                '@' if self.host_escapes && self.peek_at(1) == Some('{') => self.host_escape_block(start),
+                '@' if self.host_escapes
+                    && self.peek_at(1).is_some_and(|c| c.is_alphabetic() || c == '_')
+                    && !self.prev_is_ident() =>
+                {
+                    self.host_escape_name(start)
+                }
                 '\'' => self.char_literal(start),
                 c if c.is_ascii_digit() => self.number(start),
                 c if c.is_alphabetic() || c == '_' => self.ident(start),
@@ -280,111 +298,50 @@ impl<'s> Lexer<'s> {
         }
     }
 
-    /// [host-splice] Scans a fenced host block, from ```` ```lang ```` to the
-    /// next ```` ``` ````. A `@{` opens a hole, closed by the `}` that balances
-    /// it; a `` `…` `` leaf inside a hole is skipped whole, so a brace in host
-    /// code does not close the hole.
-    fn host_block(&mut self, start: u32) {
-        for _ in 0..3 {
-            self.bump();
-        }
-        let mut lang = String::new();
-        while let Some(c) = self.peek() {
-            if c.is_alphanumeric() || c == '_' {
-                lang.push(c);
-                self.bump();
-            } else {
-                break;
-            }
-        }
-        if lang.is_empty() {
-            let span = Span::new(start, self.offset());
-            self.error("a host block names its language: ```kotlin or ```rust", span);
-        }
-        let mut parts: Vec<HostPart> = Vec::new();
-        let mut text = String::new();
-        loop {
-            let Some(c) = self.peek() else {
-                let span = Span::new(start, self.offset());
-                self.error("unterminated host block: close it with ```", span);
-                break;
-            };
-            if c == '`' && self.peek_at(1) == Some('`') && self.peek_at(2) == Some('`') {
-                for _ in 0..3 {
-                    self.bump();
-                }
-                break;
-            }
-            if c == '@' && self.peek_at(1) == Some('{') {
-                if !text.is_empty() {
-                    parts.push(HostPart::Text(std::mem::take(&mut text)));
-                }
-                self.bump();
-                self.bump();
-                let offset = self.offset();
-                let mut depth = 1usize;
-                let mut source = String::new();
-                loop {
-                    let Some(c) = self.peek() else {
-                        let span = Span::new(start, self.offset());
-                        self.error("unterminated `@{` hole in a host block", span);
-                        break;
-                    };
-                    if c == '`' {
-                        source.push(c);
-                        self.bump();
-                        while let Some(c) = self.peek() {
-                            source.push(c);
-                            self.bump();
-                            if c == '`' {
-                                break;
-                            }
-                        }
-                        continue;
-                    }
-                    if c == '{' {
-                        depth += 1;
-                    } else if c == '}' {
-                        depth -= 1;
-                        if depth == 0 {
-                            self.bump();
-                            break;
-                        }
-                    }
-                    source.push(c);
-                    self.bump();
-                }
-                parts.push(HostPart::Hole { source, offset });
-                continue;
-            }
-            text.push(c);
-            self.bump();
-        }
-        if !text.is_empty() {
-            parts.push(HostPart::Text(text));
-        }
-        self.push_here(TokenKind::HostBlock { lang, parts }, start);
+    /// Whether the character before the cursor continues an identifier —
+    /// `size@core` is a Salvo selector, not a host escape.
+    fn prev_is_ident(&self) -> bool {
+        self.pos > 0 && self.chars[self.pos - 1].1.is_alphanumeric() || (self.pos > 0 && self.chars[self.pos - 1].1 == '_')
     }
 
-    /// [host-splice] `` `…` ``: host code inside a hole, verbatim.
-    fn host_leaf(&mut self, start: u32) {
+    /// [host-splice] `@{ … }` in a template marker: host code, balanced braces.
+    fn host_escape_block(&mut self, start: u32) {
         self.bump();
+        self.bump();
+        let mut depth = 1usize;
         let mut text = String::new();
         loop {
             match self.peek() {
-                Some('`') => {
-                    self.bump();
-                    break;
-                }
-                Some('\n') | None => {
+                None => {
                     let span = Span::new(start, self.offset());
-                    self.error("unterminated host code: close it with `", span);
+                    self.error("unterminated `@{` host escape", span);
                     break;
                 }
-                Some(c) => {
-                    text.push(c);
-                    self.bump();
+                Some('{') => depth += 1,
+                Some('}') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        self.bump();
+                        break;
+                    }
                 }
+                _ => {}
+            }
+            text.push(self.bump().unwrap());
+        }
+        self.push_here(TokenKind::HostLeaf(text.trim().to_string()), start);
+    }
+
+    /// [host-splice] `@name` in a template marker: a host name.
+    fn host_escape_name(&mut self, start: u32) {
+        self.bump();
+        let mut text = String::new();
+        while let Some(c) = self.peek() {
+            if c.is_alphanumeric() || c == '_' {
+                text.push(c);
+                self.bump();
+            } else {
+                break;
             }
         }
         self.push_here(TokenKind::HostLeaf(text), start);

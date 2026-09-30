@@ -490,6 +490,12 @@ fn assemble(
         }
         modules.push(module);
     }
+    // [host-splice] Platform templates attach to their modules' declarations.
+    let templates = std::mem::take(&mut sources.templates);
+    for diag in salvo_core::template::apply(&templates, &mut sources.files, &mut modules) {
+        eprintln!("{}", diag.render(&sources.files));
+        error_count += 1;
+    }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     for diag in &expansion.diagnostics {
         eprintln!("{}", diag.render(&sources.files));
@@ -1107,6 +1113,7 @@ fn run_test_pass(
         // clear of an `import <module>.test` for an annex of `test` itself.
         is_test: true,
         dependency: None,
+        appendix: Vec::new(),
     });
     program.modules.push(ast);
     let emitted = backend.emit(program, target, Some(harness_module));

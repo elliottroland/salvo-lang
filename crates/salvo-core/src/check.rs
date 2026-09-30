@@ -2369,9 +2369,29 @@ impl<'p, 'r> Checker<'p, 'r> {
                 _ => None,
             })
             .collect();
+        // [host-splice] A template's file-level host code: holes see nothing
+        // of Salvo but the names they declare.
+        if !module.host.is_empty() {
+            self.check_host_blocks(&module.host, &[], std::iter::empty(), "the module", None);
+        }
         for (item_idx, item) in module.items.iter().enumerate() {
             match item {
-                Item::Fn(f) => self.check_fn_item(item_idx, f),
+                Item::Fn(f) => {
+                    // [decl-body] [host-splice] A top-level fn has a body — in
+                    // Salvo, from `by`, or from a platform template.
+                    if f.body.is_none() && f.by.is_none() && f.host.is_empty() && !f.intrinsic && !self.is_std {
+                        self.error(
+                            f.name.span,
+                            format!(
+                                "`fn {}` has no body: write one, implement it in a platform template \
+                                 (`platform/…/<module>.sv.kt` / `.sv.rs`), or — if the target language \
+                                 implements it — declare it as a member of a `platform effect`",
+                                f.name.name
+                            ),
+                        );
+                    }
+                    self.check_fn_item(item_idx, f)
+                }
                 // [implicit-group] A group's members are signatures for
                 // *parameters*, validated as declaration sites like an
                 // effect's.
@@ -3796,58 +3816,47 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !h.platform {
             return;
         }
-        // [host-splice] Written in place: every member's body is host code,
-        // and there is no Salvo state — host fields go in the handler-level
-        // block.
-        if h.spliced {
-            for f in &h.fns {
-                if f.host.is_empty() {
-                    self.error(
-                        f.name.span,
-                        format!(
-                            "`platform handler {}` is written in place, so `{}` needs a body in host \
-                             code: one ```kotlin / ```rust block per backend [host-splice]",
-                            h.name.name, f.name.name
-                        ),
-                    );
-                }
-            }
-            // Salvo state is the compiler's to lay out, as for any handler —
-            // except where members may run concurrently, which would need a
-            // synchronized layout nobody has designed yet.
-            if let (true, Some(field)) = (h.threadsafe, h.state.first()) {
-                self.error(
-                    field.name.span,
-                    "a `threadsafe` platform handler cannot hold Salvo state yet: its members run \
-                     concurrently, and the state has no synchronized layout — keep it in the host, or \
-                     drop `threadsafe` [host-splice]",
-                );
-            }
-            // A handler may hold one handler-level block per backend; its
-            // holes see the constructor parameters.
-            self.check_host_blocks(&h.host, h.params.iter(), &format!("platform handler {}", h.name.name));
-        }
-        // Bodyless: the members are the host's, in the target language.
-        // Reported at the first offending declaration, since a body is a
-        // whole-declaration mistake either way.
-        if h.spliced {
-        } else if let Some(span) = h
-            .fns
-            .first()
-            .map(|f| f.name.span)
-            .or_else(|| h.state.first().map(|f| f.name.span))
-        {
+        // [platform-handler] [host-splice] Its members are the host's: a
+        // member written with a Salvo body is refused. Salvo state is laid out
+        // by the compiler, so it needs the handler implemented by a platform
+        // template (which sees it); a hand-written companion cannot.
+        if let Some(f) = h.fns.iter().find(|f| f.body.is_some()) {
             self.error(
-                span,
+                f.name.span,
                 format!(
-                    "`platform handler {}` has no body in Salvo: the host \
-                     implements its members in the target language, in the \
-                     `platform/` companion of this module — run `salvo platform \
-                     generate` to write the skeleton, or drop `platform` to \
-                     handle the effect here",
+                    "`platform handler {}` has no body in Salvo: the host implements its members, in \
+                     a platform template (`platform/…/<module>.sv.kt` / `.sv.rs`) or the `platform/` \
+                     companion of this module — or drop `platform` to handle the effect here",
                     h.name.name
                 ),
             );
+        }
+        if let (false, Some(field)) = (h.spliced, h.state.first()) {
+            self.error(
+                field.name.span,
+                format!(
+                    "`platform handler {}` holds Salvo state, so a platform template must implement it \
+                     (`platform/…/<module>.sv.kt` / `.sv.rs`): a hand-written companion cannot see the \
+                     state [host-splice]",
+                    h.name.name
+                ),
+            );
+        }
+        // Salvo state is the compiler's to lay out, as for any handler —
+        // except where members may run concurrently, which would need a
+        // synchronized layout nobody has designed yet.
+        if let (true, Some(field)) = (h.threadsafe, h.state.first()) {
+            self.error(
+                field.name.span,
+                "a `threadsafe` platform handler cannot hold Salvo state yet: its members run \
+                 concurrently, and the state has no synchronized layout — keep it in host fields, or \
+                 drop `threadsafe` [host-splice]",
+            );
+        }
+        if h.spliced {
+            let saved = std::mem::replace(&mut self.host_state, &h.state);
+            self.check_host_blocks(&h.host, &h.host_fields, h.params.iter(), &format!("platform handler {}", h.name.name), None);
+            self.host_state = saved;
         }
         // Dependencies would have to be supplied *to host code*, which
         // cannot perform a Salvo effect: the host reaches the outside world
@@ -6508,7 +6517,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// one of `T`, recording the coercion a backend renders.
     fn check_host_body(&mut self, f: &'p FnDecl, extra_params: &'p [Param], state: &'p [FieldDecl]) {
         let saved = std::mem::replace(&mut self.host_state, state);
-        self.check_host_blocks(&f.host, extra_params.iter().chain(&f.params), &format!("fn {}", f.name.name));
+        let ret = Some(f.return_type.as_ref().map(|t| self.lower_type(t)).unwrap_or_else(Ty::none));
+        self.check_host_blocks(&f.host, &[], extra_params.iter().chain(&f.params), &format!("fn {}", f.name.name), ret);
         self.host_state = saved;
     }
 
@@ -6518,8 +6528,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_host_blocks<'q>(
         &mut self,
         blocks: &'p [HostBlock],
+        fields: &'p [HostField],
         params: impl Iterator<Item = &'q Param>,
         what: &str,
+        ret: Option<Ty>,
     ) where
         'p: 'q,
     {
@@ -6529,7 +6541,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(
                     block.span,
                     format!(
-                        "no backend is called `{}`: a host block is ```kotlin or ```rust [host-splice]",
+                        "no backend is called `{}`: a template is `.sv.kt` or `.sv.rs` [host-splice]",
                         block.lang
                     ),
                 );
@@ -6596,21 +6608,48 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.locals.push(top);
         let saved_hole = std::mem::replace(&mut self.in_hole, true);
         let mut declared_here: HashSet<String> = HashSet::new();
-        for block in blocks {
-            for part in &block.parts {
+        let all_parts: Vec<&'p HostBlockPart> = blocks
+            .iter()
+            .flat_map(|b| b.parts.iter())
+            .chain(fields.iter().flat_map(|f| f.ty.iter().chain(f.init.iter())))
+            .collect();
+        {
+            for part in all_parts {
                 let HostBlockPart::Hole(hole) = part else { continue };
-                let want = hole.ty.as_ref().map(|t| {
+                let mut want = hole.ty.as_ref().map(|t| {
                     self.validate_type(t);
                     self.lower_type(t)
                 });
                 if let Some(ty) = &want {
                     self.out.host_types.insert(self.key(hole.span), ty.clone());
                 }
+                // After host `return`, the fn's return type is expected.
+                if want.is_none() && hole.in_return {
+                    want = ret.clone();
+                }
+                // `name = e`: e is checked as the declared name's type.
+                if let Some(target) = &hole.assign {
+                    match self.lookup(&target.name).map(|v| v.declared.clone()) {
+                        Some(ty) => {
+                            if want.is_none() {
+                                want = Some(ty);
+                            }
+                        }
+                        None => self.error(
+                            target.span,
+                            format!(
+                                "`{}` is assigned in a marker, so it must be declared first: `name : T` \
+                                 [host-splice]",
+                                target.name
+                            ),
+                        ),
+                    }
+                }
                 // A bare name nothing declares, with a type: a declaration.
                 // A name an earlier declaring hole introduced may be declared
                 // again — each helper of a handler-level block names its own
                 // `v` — but a parameter or state field never is.
-                if let (Some(Expr::Ident(id)), Some(ty)) = (&hole.expr, &want) {
+                if let (Some(Expr::Ident(id)), Some(ty), Some(_)) = (&hole.expr, &want, &hole.ty) {
                     if self.lookup(&id.name).is_none() || declared_here.contains(&id.name) {
                         declared_here.insert(id.name.clone());
                         let var = LocalVar {
@@ -6641,6 +6680,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
                 if let Some(e) = &hole.expr {
+                    // [name-resolve] The resolver does not walk holes, so a
+                    // name read here is looked up here: every root of a
+                    // field chain, and every bare name, anywhere in the hole.
+                    self.require_hole_names(e);
                     let got = self.check_expr(e, want.as_ref());
                     if let Some(w) = &want {
                         if !is_subtype(&got, w) && !got.is_unknown() {
@@ -6654,6 +6697,42 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.in_hole = saved_hole;
         self.locals.pop();
+    }
+
+    /// [host-splice] Reports a name in a template marker that nothing
+    /// declares: not a local (parameter, state, declared host name), not a fn.
+    fn require_hole_names(&mut self, e: &Expr) {
+        struct Names<'a>(Vec<&'a Ident>);
+        fn walk<'a>(e: &'a Expr, out: &mut Names<'a>) {
+            match e {
+                Expr::Ident(id) => out.0.push(id),
+                Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => walk(base, out),
+                Expr::Call { args, .. } => args.iter().for_each(|a| walk(a, out)),
+                Expr::StructLit { fields, .. } => {
+                    for f in fields {
+                        if let StructLitFieldKind::Named { value, .. } = &f.kind {
+                            walk(value, out);
+                        }
+                    }
+                }
+                Expr::Binary { lhs, rhs, .. } => {
+                    walk(lhs, out);
+                    walk(rhs, out);
+                }
+                _ => {}
+            }
+        }
+        let mut names = Names(Vec::new());
+        walk(e, &mut names);
+        for id in names.0 {
+            let known = self.lookup(&id.name).is_some()
+                || self.scope.fns.contains_key(id.name.as_str())
+                || id.name == "None"
+                || id.name.starts_with(|c: char| c.is_uppercase());
+            if !known {
+                self.error(id.span, format!("no variable or function named `{}` is in scope", id.name));
+            }
+        }
     }
 
     fn check_fn(&mut self, f: &'p FnDecl, extra_params: &'p [Param], state: &'p [FieldDecl]) {

@@ -25,6 +25,9 @@ pub struct Module {
     /// above a declaration (that run is the declaration's).
     pub docs: Vec<String>,
     pub items: Vec<Item>,
+    /// [host-splice] Host code a platform template writes at file level —
+    /// helpers, imports — rendered into the module's own emitted file.
+    pub host: Vec<HostBlock>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -821,6 +824,8 @@ pub struct HandlerDecl {
     /// handler whose class is a hand-written companion [platform-tree].
     pub spliced: bool,
     pub host: Vec<HostBlock>,
+    /// [host-splice] Host fields a template's `` `struct H` `` adds, in order.
+    pub host_fields: Vec<HostField>,
     pub span: Span,
 }
 
@@ -926,7 +931,7 @@ pub struct FnDecl {
     /// `None` for signatures (`intrinsic fn`, effect members).
     pub body: Option<Block>,
     /// [host-splice] The body written in the host languages instead: one
-    /// fenced block per backend (`` ```kotlin … ``` ``). Non-empty means
+    /// body per backend, attached from its platform template. Non-empty means
     /// `body` is `None` and the declaration's written clause is its whole
     /// contract, as for a bodiless one [decl-explicit].
     pub host: Vec<HostBlock>,
@@ -942,7 +947,7 @@ impl FnDecl {
     }
 }
 
-/// [host-splice] A fenced block of host code: its language, and the text
+/// [host-splice] A body of host code from a platform template: its language, and the text
 /// with `@{ … }` holes the compiler renders.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HostBlock {
@@ -951,19 +956,34 @@ pub struct HostBlock {
     pub span: Span,
 }
 
+/// [host-splice] A host field of a platform handler: `name: T = init`, the
+/// type and initialiser host text with holes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HostField {
+    pub lang: String,
+    pub name: String,
+    pub ty: Vec<HostBlockPart>,
+    pub init: Vec<HostBlockPart>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum HostBlockPart {
     Text(String),
     Hole(Hole),
 }
 
-/// [host-splice] A hole: `@{ e }` renders `e`, `@{ e : T }` renders `e` as a
-/// value of `T` (the wrap into a union a host call cannot see), `@{ : T }`
-/// renders the type `T`.
+/// [host-splice] A template marker: `` `e` `` renders `e`, `` `e : T` ``
+/// renders `e` as a value of `T` (the wrap into a union host code cannot
+/// see), `` `T` `` renders the type.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hole {
     pub expr: Option<Expr>,
     pub ty: Option<Type>,
+    /// `name = e`: the declared host name assigned, `e` checked as its type.
+    pub assign: Option<Ident>,
+    /// The marker follows host `return` in a `` `fn` `` body: it takes the
+    /// fn's return type as its expected type.
+    pub in_return: bool,
     pub span: Span,
 }
 

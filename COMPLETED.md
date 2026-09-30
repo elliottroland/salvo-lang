@@ -135,6 +135,39 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Platform templates replace in-file host blocks (2026-09-30, user decisions).**
+With the aws glue as a worked example, the user found one Salvo fn holding a
+Kotlin and a Rust block hard to read, and the Salvo → host → Salvo nesting
+needless, and moved host code back to `platform/` as templates:
+`<module>.sv.kt`/`.sv.rs`, ordinary host files where `` `…` `` is Salvo and,
+inside it, `@name`/`@{…}` host again (```` `` ```` a literal backtick). Decided
+over three rounds: one marker form rather than a bare/bracketed pair; the full
+signature at every declaring marker (`` `fn …` ``, `` `platform handler …` ``),
+checked against the `.sv` declaration, rather than a reference; `@x : T`
+without brackets; `@` a host escape only at a token's start (`size@core` stays
+a selector); Salvo state laid out by the compiler with Rust host fields in a
+`` `struct H` `` block (option (b), put to the user by example); a template
+referencing what its `.sv` lacks is an error; `e : T` stays where a value
+meets a union host code hides, with `` return `e` `` inferring the fn's return
+type and `` `name = e` `` assigning a declared name (both the user's asks).
+Built: `salvo_core::template` (a host scanner aware of strings, comments,
+Kotlin raw strings, Rust raw strings and lifetimes; the three declaring
+markers with brace-matched bodies; `apply`, attaching bodies to the AST and
+appending the template's text to its module's source file so diagnostics
+name the template's line); `SourceSet.templates` loaded for both backends;
+the fences removed from the `.sv` lexer and parser; a bodiless top-level fn
+now reported by the checker, after templates; handler host fields
+(`HandlerDecl.host_fields`) in both emitters; file-level template code in each
+module's file; `Hole.{assign, in_return}`. *Defect found and fixed:* names in
+a marker were never resolved — the resolver does not walk holes — so an
+unknown name rendered silently (the fence-era test only passed on another
+error); `require_hole_names` reports it. The aws generator writes the two
+templates plus a bodiless `host.sv`; both drift-test builds and both live
+demos unchanged. Tests: 6 checker tests (`splice_tests.rs`, rewritten), a
+parser test, one CLI test on both backends with the manifest and
+missing-declaration rules. The editor's fence rule is removed; highlighting
+`.sv.kt`/`.sv.rs` is recorded as left.
+
 **The aws glue without host-side annotations (2026-09-30, the user's review).**
 Reading `sqs/host.sv`, the user asked for declaring holes in helper
 parameters instead of `v: @{: T}` plus ascriptions, declared answers
@@ -19089,7 +19122,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1679)
+## Test inventory (all green: 1677)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

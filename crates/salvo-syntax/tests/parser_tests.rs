@@ -1126,14 +1126,12 @@ fn a_plain_handler_is_not_a_platform_handler() {
 /// write a body, or — for something the target language implements —
 /// declare it as a member of a `platform effect`.
 #[test]
-fn a_bodiless_top_level_fn_is_an_error_naming_platform_effect() {
+fn a_bodiless_top_level_fn_parses_for_a_template_to_implement() {
+    // [decl-body] [host-splice] A platform template may implement it, so the
+    // parser accepts it; the checker reports one nothing implements
+    // (`splice_tests.rs`).
     let errors = errors_of("fn chars(str: Str) [] -> Char[] => str\n");
-    assert!(
-        errors
-            .iter()
-            .any(|m| m.contains("`fn chars` has no body") && m.contains("`platform effect`")),
-        "expected a decl-body error naming `platform effect`, got {errors:?}"
-    );
+    assert!(errors.is_empty(), "{errors:?}");
 }
 
 /// [decl-body] A `type` with no `= ...` alias (and not `intrinsic`) was only
@@ -3044,38 +3042,27 @@ fn literal_types_parse() {
     assert!(errs.iter().any(|e| e.contains("a float cannot be a literal type")), "{errs:?}");
 }
 
-// [host-splice] A body written in the host languages: one fenced block per
-// backend where a `{` would open (on the next line too), `@{…}` holes parsed as
-// `e`, `e : T` or `: T`, `` `…` `` host leaves inside them, and a braced platform
-// handler with a handler-level block.
+// [host-splice] A platform template's marker parses as a hole: a type alone,
+// an expression with `@name` / `@{…}` host code in it, `e : T`, a declaration
+// `name : T`, and an assignment `name = e`.
 #[test]
-fn host_blocks_parse() {
-    use salvo_syntax::ast::{Expr, HostBlockPart, Item};
-    let src = "fn greet(name: Str) [] -> Str => name\n```kotlin\nreturn \"hi \" + @{name} // }\n```\n```rust\nformat!(\"hi {}\", @{name})\n```\n\n\
-platform handler H(p: Str) of E {\n    ```kotlin\n    private val x = 1\n    ```\n    fn go(n: Int) -> None => n ```kotlin\n    println(@{ : Ok Int | Err Str })\n    f(@{ ok(`n.toInt()`) : Ok Int | Err Str })\n    ```\n}\n";
-    let (module, diagnostics) = salvo_syntax::parse_module(src);
-    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
-    let Item::Fn(f) = &module.items[0] else { panic!("a fn") };
-    assert!(f.body.is_none());
-    assert_eq!(f.host.iter().map(|h| h.lang.as_str()).collect::<Vec<_>>(), ["kotlin", "rust"]);
-    let holes = f.host[0].parts.iter().filter(|p| matches!(p, HostBlockPart::Hole(_))).count();
-    assert_eq!(holes, 1);
-    let Item::Handler(h) = &module.items[1] else { panic!("a handler") };
-    assert!(h.spliced && h.platform);
-    assert_eq!(h.host.len(), 1);
-    let member = &h.fns[0];
-    let holes: Vec<_> = member.host[0]
-        .parts
-        .iter()
-        .filter_map(|p| match p {
-            HostBlockPart::Hole(h) => Some(h),
-            _ => None,
-        })
-        .collect();
-    assert!(holes[0].expr.is_none() && holes[0].ty.is_some());
-    let Some(Expr::Call { args, .. }) = &holes[1].expr else { panic!("a call: {:?}", holes[1]) };
-    assert!(matches!(&args[0], Expr::HostLeaf { text, .. } if text == "n.toInt()"));
-    assert!(holes[1].ty.is_some());
-    let errs = errors_of("fn f() [] -> None\n```kotlin\n@{}\n```\n");
-    assert!(errs.iter().any(|e| e.contains("empty `@{}` hole")), "{errs:?}");
+fn template_markers_parse() {
+    use salvo_syntax::ast::Expr;
+    use salvo_syntax::parser::parse_template_marker;
+    let (h, d) = parse_template_marker("Ok Int | Err Str", 0);
+    assert!(d.is_empty() && h.expr.is_none() && h.ty.is_some(), "{h:?} {d:?}");
+    let (h, d) = parse_template_marker("AwsError { code: @code, message: @{e.message ?: \"\"} }", 0);
+    assert!(d.is_empty(), "{d:?}");
+    assert!(matches!(h.expr, Some(Expr::StructLit { .. })), "{h:?}");
+    let (h, d) = parse_template_marker("ok(@value : Out)", 0);
+    assert!(d.is_empty(), "{d:?}");
+    let Some(Expr::Call { args, .. }) = &h.expr else { panic!("{h:?}") };
+    assert!(matches!(&args[0], Expr::HostLeaf { text, ty: Some(_), .. } if text == "value"));
+    let (h, _) = parse_template_marker("answer : Ok Out | Err Str", 0);
+    assert!(matches!(h.expr, Some(Expr::Ident(_))) && h.ty.is_some());
+    let (h, _) = parse_template_marker("answer = ok(value)", 0);
+    assert_eq!(h.assign.map(|i| i.name), Some("answer".to_string()));
+    // `size@core.list` stays a selector: `@` after a name is Salvo.
+    let (h, d) = parse_template_marker("xs.size@core.list()", 0);
+    assert!(d.is_empty() && !matches!(h.expr, Some(Expr::HostLeaf { .. })), "{h:?} {d:?}");
 }

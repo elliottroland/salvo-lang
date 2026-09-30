@@ -492,6 +492,7 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
         fns,
         spliced: false,
         host: Vec::new(),
+        host_fields: Vec::new(),
         span: spans.take(),
     };
     (handler, diags)

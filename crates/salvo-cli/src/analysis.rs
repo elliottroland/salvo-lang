@@ -165,6 +165,9 @@ fn analyze_project(
         }));
         modules.push(module);
     }
+    // [host-splice] Platform templates attach to their modules' declarations.
+    let templates = std::mem::take(&mut sources.templates);
+    diagnostics.extend(salvo_core::template::apply(&templates, &mut sources.files, &mut modules));
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     diagnostics.extend(expansion.diagnostics);
     let comptime_hovers = expansion.comptime_hovers;

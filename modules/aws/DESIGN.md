@@ -187,7 +187,19 @@ the decisions — worth a second look:
   `<important>`/`<note>` blocks (S3's `PutObject` opens with an
   end-of-support notice). One SQS field comment changed with it.
 
-### Rebuilt: the glue as host splices (2026-09-30)
+### Rebuilt: the glue as platform templates (2026-09-30)
+
+The user found host code split per backend inside one Salvo function, and the
+Salvo → host → Salvo nesting of fences and holes, hard to read, and moved host
+code back into `platform/`: `platform/aws/<svc>/host.sv.kt` and `.sv.rs`, host
+files in which anything between backticks is Salvo. `aws/<svc>/host.sv` is
+just the bodiless `threadsafe platform handler` declaration. The generator
+still writes the same code; `toTemplate` rewrites its hole spelling into
+markers. Rust's SDK client and runtime are host fields
+(`` `struct HostSqs` { rt: … = salvo_runtime(), client: … = salvo_client(&rt, …) } ``),
+with `new` and the struct laid out by the compiler.
+
+### Rebuilt: the glue as host splices (2026-09-30, superseded the same day)
 
 The host implementation of each service is no longer a pair of generated
 `platform/aws/<svc>/host.{rs,kt}` files. It is `aws/<svc>/host.sv`: one

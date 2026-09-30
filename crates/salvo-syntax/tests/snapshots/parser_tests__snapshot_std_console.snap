@@ -153,6 +153,7 @@ Module {
                 fns: [],
                 spliced: false,
                 host: [],
+                host_fields: [],
                 span: 146..178,
             },
         ),
@@ -301,4 +302,5 @@ Module {
             },
         ),
     ],
+    host: [],
 }

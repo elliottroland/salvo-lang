@@ -8201,63 +8201,50 @@ replaced the working document TESTING.md).
   Counter { at: Int = start * 2 }`. The state is built once, at construction,
   so the parameters are in scope read-only. Kotlin initialises the field from
   the constructor's `val`; Rust inside `new`.
-* [host-splice] **Host code written in Salvo files** (user decisions
-  2026-09-30): a body in the host languages — fenced blocks, `` ```kotlin …
-  ``` `` and `` ```rust … ``` ``, one per backend, where a `{` would open (on
-  the next line too). It may stand as the body of a **free fn**, of a member of
-  a **platform handler written in place** (a braced `platform handler`, which
-  also takes **handler-level blocks** for host state and helpers, and no Salvo
-  state), and nowhere else yet.
-  * **Holes**, `@{ … }`, are what the compiler renders, since their spelling
-    depends on emission: `@{e}` an expression (a parameter, a field read, a
-    struct literal, a qualifier constructor call), `@{e : T}` the same as a
-    value of `T` — the coercion into a union a host call cannot see — and
-    `@{: T}` the type. Inside a hole, `` `…` `` is host code
-    (`Expr::HostLeaf`), written through verbatim and taking the type expected
-    of it; outside a hole it is an error. Holes are checked like any Salvo
-    (`this hole is `T`, and `U` is not one`), with the fn's parameters — and a
-    handler's constructor parameters — in scope. The set is deliberately
-    closed; full Salvo expressions with typed host escapes are recorded in
-    ROADMAP's "not scheduled" to revisit.
-  * **Typed host names** (user decision 2026-09-30): a hole `@{a : T}` whose
-    `a` names nothing in scope **declares** a host name of Salvo type `T` —
-    rendered `a: T` on both backends — which later holes of the block may read
-    (`@{a.string_value}`); its scope is the rest of the block, since the
-    checker cannot see host scopes. A name an earlier declaring hole
-    introduced may be declared again (each helper of a handler-level block
-    names its own `v`), a parameter or state field never; a declared name is
-    the host's value, so a hole may consume it (`@{ ok(value) : … }`). Where there is no binding to declare (a
-    Rust pattern, a chain, an arm test), an **ascribed leaf** `` (`e` : T) ``
-    gives host code a Salvo type inside a hole: `` @{ (`first` : Attr).data_type } ``,
-    rendered `(e)` and read like any value of `T`.
-  * **State** (user decision 2026-09-30): a handler written in place may hold
-    Salvo state, laid out by the compiler as for any handler and read and
-    written through holes (`@{at} += step`: a hole renders the field, which is
-    also a valid target). Refused on a `threadsafe` handler for now — its
-    members run concurrently and the state has no synchronized layout. A Rust
-    block that declares the handler's own `struct H` takes the layout over
-    instead (and then holds no Salvo state); anything more unusual belongs in
-    a hand-written `platform/` file.
-  * **The contract is the written clause** [decl-explicit], complete, since the
-    body is opaque; no obligation is tracked through host code.
-  * **Blocks**: a known language (`kotlin`, `rust`), each once.
-  * **Required backends come from the manifest** (`required_backends`,
-    `host_block_coverage`, checked by `analyze` and by every build): each
-    backend `[build] backend` names (`*` both; absent Rust) needs a block. A
-    declaration whose *only* block is Kotlin is a warning, for a code base
-    reaching parity before the Rust backend is enabled; a build of a backend
-    whose block is missing fails where the declaration is **called**, naming
-    it, and an uncalled one is simply not emitted there.
-  * Backends: a fn's host body replaces its block, re-indented, holes rendered
-    by the emitter (Kotlin hoists `import` lines to the file's imports). A
-    handler written in place is a real handler class — Kotlin `class H(ctor) :
-    E { <handler-level block> override fun … }` in the module's package; Rust
-    the handler-level block at module level (it must declare `pub struct H`
-    and `pub fn new(ctor)`) and `impl <E's trait> for H` with the members'
-    bodies (`__Stateless_E`/`&self` when `threadsafe`, `__Stateful_E`/`&mut
-    self` otherwise) — needing no `platform/` companion.
-  * Editor: the VS Code grammar highlights each fence as its language
-    (`embeddedLanguages`) and `@{ … }` holes as Salvo.
+* [host-splice] **Platform templates: host code with Salvo in it** (user
+  decisions 2026-09-30, replacing the same day's fenced blocks inside `.sv`
+  files). `platform/<path>.sv.kt` and `.sv.rs` implement the **bodiless**
+  declarations of `<path>.sv`: they are ordinary Kotlin and Rust in which a
+  `` `…` `` marker is Salvo the compiler renders. Loaded for every backend
+  (`SourceSet.templates`), attached to the module's AST before expansion
+  (`salvo_core::template::apply`), and appended to the module's source file
+  for diagnostics, so an error inside a template names the template's line.
+  * **Scanning**: strings, character literals and comments are host text and
+    are not scanned (Kotlin `"""…"""`, Rust raw strings and lifetimes
+    included); ```` `` ```` is a literal backtick (Kotlin's escaped names).
+  * **Inside a marker**, `@name` (at the start of a token — `size@core` stays
+    a selector) and `@{…}` are host code again; `@x : T` gives host code a
+    Salvo type.
+  * **Declaring markers**, each followed by a braced host body, name the
+    `.sv` declaration with its **full signature**, checked against it:
+    `` `fn name(params) -> R` { … } `` for a bodiless fn (or, inside a
+    handler, one of its effect's members, whose clause it takes);
+    `` `platform handler H(params) of E` { … } `` for a platform handler;
+    `` `struct H` { name: HostType = init, … } `` for handler `H`'s **host
+    fields**. A template naming anything its `.sv` file does not declare is
+    an error; so is a bodiless declaration no template implements for a
+    backend the manifest builds (Kotlin-only a warning, as before).
+  * **Other markers** are holes: a type alone (`` `AwsError` ``), a value
+    (`` `input.queue_name` ``), `e : T` (the wrap into a union host code
+    cannot see), a declaration `name : T` (a host name with a Salvo type,
+    redeclarable by a later one), an assignment `name = e` to a declared
+    name, and — right after host `return`, as the whole statement — a value
+    taking the fn's return type (`` return `ok(n)` ``). A name a marker reads
+    must be a parameter, state field, declared name or fn.
+  * **State**: a platform handler's Salvo state is laid out by the compiler
+    (so it needs a template, not a hand-written companion) and refused on a
+    `threadsafe` handler for now. Host fields are the template's: Kotlin
+    `private val` after the state; Rust fields of the one struct, each
+    initialised by a `let` in `new` in written order, so an initialiser may
+    read an earlier field and the constructor parameters. A struct with Rust
+    host fields derives no `Clone`.
+  * **Rendering**: each attached body replaces a Salvo body; a handler's
+    level text goes in its Kotlin class body or a Rust inherent `impl H`;
+    file-level text at the end of the module's file. Kotlin `import` lines
+    are hoisted to the file's imports.
+  * Recorded: full Salvo expressions in markers with typed host escapes is
+    the general form (ROADMAP "not scheduled"); editor highlighting for
+    `.sv.kt`/`.sv.rs` is left (ROADMAP §4c).
 * [platform-abi] **The host ABI** (written down 2026-09-30, ROADMAP §4c step
   4): what hand-written or generated host code may rely on about the code the
   compiler emits — how a Salvo type is spelled in the target language, how a

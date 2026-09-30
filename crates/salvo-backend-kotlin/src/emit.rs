@@ -1440,6 +1440,12 @@ impl<'p> Emitter<'p> {
         for item in std::mem::take(&mut self.generated_items) {
             body.push_str(&item);
         }
+        // [host-splice] A template's file-level host code.
+        for block in module.host.iter().filter(|b| b.lang == "kotlin") {
+            body.push('\n');
+            let text = self.render_host(block, 0);
+            body.push_str(&text);
+        }
         // [kt-package] Each module gets its own Kotlin package.
         let pkg = kotlin_package(&self.program.files[self.file_idx].module);
         let mut out = format!("package {pkg}\n");
@@ -2215,6 +2221,11 @@ impl<'p> Emitter<'p> {
         for part in &block.parts {
             match part {
                 HostBlockPart::Text(t) => text.push_str(t),
+                HostBlockPart::Hole(hole) if hole.assign.is_some() => {
+                    let target = kt_ident(&hole.assign.as_ref().unwrap().name);
+                    let value = hole.expr.as_ref().map(|e| self.emit_expr(e)).unwrap_or_default();
+                    text.push_str(&format!("{target} = {value}"));
+                }
                 HostBlockPart::Hole(hole) => {
                     // A declaring hole: the name and its type.
                     if self.checked.host_decls.contains(&(self.file_idx, hole.span)) {
@@ -2249,6 +2260,12 @@ impl<'p> Emitter<'p> {
             }
         }
         reindent(&kept, indent)
+    }
+
+    /// [host-splice] Host parts rendered on one line, holes included.
+    fn render_host_inline(&mut self, parts: &[HostBlockPart]) -> String {
+        let block = HostBlock { lang: "kotlin".to_string(), parts: parts.to_vec(), span: salvo_syntax::Span::new(0, 0) };
+        self.render_host(&block, 0).trim_end().to_string()
     }
 
     fn host_handler_impl(&mut self, h: &HandlerDecl) -> String {
@@ -2382,6 +2399,19 @@ impl<'p> Emitter<'p> {
         if h.platform && !h.spliced {
             return String::new();
         }
+        // [host-splice] A template implements it — for this backend too?
+        if h.spliced
+            && !h.fns.iter().any(|f| f.host.iter().any(|b| b.lang == "kotlin"))
+            && !h.host.iter().any(|b| b.lang == "kotlin")
+            && !h.host_fields.iter().any(|f| f.lang == "kotlin")
+        {
+            self.error(format!(
+                "`platform handler {}` has no kotlin template (`platform/…/<module>.sv.kt`): write one, or build \
+                 without this backend [host-splice]",
+                h.name.name
+            ));
+            return String::new();
+        }
         let saved = self.enter_generics(&h.generics);
         let generics = self.emit_generic_params(&h.generics);
         // [effect-handler-multi] Every face is a supertype: one class, one
@@ -2461,10 +2491,16 @@ impl<'p> Emitter<'p> {
                 h.name.name
             )
         };
-        // [host-splice] The handler-level block: host fields and helpers.
+        // [host-splice] The handler-level block: host helpers.
         for block in h.host.iter().filter(|b| b.lang == "kotlin") {
             let text = self.render_host(block, 1);
             out.push_str(&text);
+        }
+        // [host-splice] The template's host fields, after the Salvo state.
+        for field in h.host_fields.iter().filter(|f| f.lang == "kotlin") {
+            let ty = self.render_host_inline(&field.ty);
+            let init = self.render_host_inline(&field.init);
+            out.push_str(&format!("    private val {}: {} = {}\n", field.name, ty.trim(), init.trim()));
         }
         for field in &h.state {
             let ty = self.emit_type(&field.ty);
@@ -3209,7 +3245,7 @@ impl<'p> Emitter<'p> {
     /// parameters; handler methods (`override fun`) do not.
     fn emit_fn_inner(&mut self, f: &FnDecl, kw: &str, indent: usize, top_level: bool) -> String {
         // [host-splice] A body in host code: the signature as for any fn, the
-        // ```kotlin block as the body.
+        // Kotlin template's body as the body.
         let host_empty = Block { stmts: Vec::new(), span: f.span };
         let host = if f.host.is_empty() {
             None
@@ -3222,7 +3258,7 @@ impl<'p> Emitter<'p> {
                 None if !self.fn_is_called(f) => return String::new(),
                 None => {
                     self.error(format!(
-                        "`fn {}` is written in host code and has no ```kotlin block: add one, or \
+                        "`fn {}` has no Kotlin implementation in its platform template (`.sv.kt`): add one, or \
                          build without the Kotlin backend [host-splice]",
                         f.name.name
                     ));

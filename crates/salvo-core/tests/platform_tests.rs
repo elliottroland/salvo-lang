@@ -320,8 +320,8 @@ fn a_platform_handler_is_not_std_only() {
 }
 
 /// [platform-handler] [host-splice] The members are the host's, in the target
-/// language: a braced platform handler is one written in place, so a member
-/// with a Salvo body is refused, naming the host blocks it needs.
+/// language: a member written with a Salvo body is refused, naming both places
+/// host code can live.
 #[test]
 fn a_platform_handler_with_a_body_is_rejected() {
     let errs = messages(&src(
@@ -331,20 +331,22 @@ fn a_platform_handler_with_a_body_is_rejected() {
     ));
     assert!(
         errs.iter().any(|m| m
-            .contains("`platform handler HostClock` is written in place, so `now` needs a body in host code")),
+            .contains("`platform handler HostClock` has no body in Salvo")
+            && m.contains("platform template")),
         "got {errs:?}"
     );
 }
 
-/// [platform-handler] [host-splice] A handler written in place may hold Salvo
-/// state — except a `threadsafe` one, whose members run concurrently.
+/// [platform-handler] [host-splice] Salvo state is laid out by the compiler,
+/// so a hand-written companion cannot implement a handler holding it — only a
+/// platform template can.
 #[test]
-fn a_threadsafe_platform_handler_with_state_is_rejected() {
+fn a_platform_handler_with_state_needs_a_template() {
     let errs = messages(&src(
         "effect Clock {\n    fn now() [] -> Int\n}\n\n\
-         threadsafe platform handler HostClock of Clock {\n    ticks: Int = 0\n}\n",
+         platform handler HostClock of Clock {\n    ticks: Int = 0\n}\n",
     ));
-    assert!(errs.iter().any(|m| m.contains("cannot hold Salvo state yet")), "got {errs:?}");
+    assert!(errs.iter().any(|m| m.contains("so a platform template must implement it")), "got {errs:?}");
 }
 
 /// [platform-handler] [effect-handler-deps] A dependency is supplied *to a

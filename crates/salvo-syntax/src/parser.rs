@@ -19,7 +19,7 @@ use crate::diag::Diagnostic;
 use crate::lexer;
 use crate::lexer::Comment;
 use crate::span::Span;
-use crate::token::{HostPart, StrPart, Token, TokenKind};
+use crate::token::{StrPart, Token, TokenKind};
 
 pub struct Parser<'s> {
     #[allow(dead_code)]
@@ -409,7 +409,7 @@ impl<'s> Parser<'s> {
                 self.bump();
             }
         }
-        Module { docs, items }
+        Module { docs, items, host: Vec::new() }
     }
 
     /// Skips tokens until something that can plausibly start a top-level item.
@@ -878,7 +878,9 @@ impl<'s> Parser<'s> {
                 // `external fn`'s shape. The two things it could have meant
                 // now have their own spellings, so the error names both
                 // rather than reporting a bare "expected `{`".
-                if f.body.is_none() && f.by.is_none() && f.host.is_empty() {
+                // [host-splice] A platform template may implement it, so the
+                // missing body is the checker's to report, after templates.
+                if false && f.body.is_none() && f.by.is_none() && f.host.is_empty() {
                     self.error(
                         format!(
                             "`fn {}` has no body: write one, or — if the target \
@@ -2130,10 +2132,10 @@ impl<'s> Parser<'s> {
         let mut fns = Vec::new();
         let mut mailbox = None;
         let mut init: Option<FnDecl> = None;
-        let mut host = Vec::new();
+        let host = Vec::new();
         let mut end = of.last().map(|t| t.span()).unwrap_or(start);
-        // [host-splice] A platform handler with a body is written in place.
-        let spliced = platform && self.at(&TokenKind::LBrace) && self.same_line();
+        // [host-splice] Set when a platform template implements the handler.
+        let spliced = false;
         if self.at(&TokenKind::LBrace) && self.same_line() {
             self.bump();
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {
@@ -2148,9 +2150,7 @@ impl<'s> Parser<'s> {
                 // state field named `init` is `init: T = …`.
                 let is_init = self.at_word(INIT_BLOCK)
                     && matches!(self.peek_at(1).kind, TokenKind::LBrace);
-                if matches!(self.kind(), TokenKind::HostBlock { .. }) {
-                    host.extend(self.parse_host_blocks());
-                } else if self.at(&TokenKind::KwFn) || is_send_member {
+                if self.at(&TokenKind::KwFn) || is_send_member {
                     fns.push(self.parse_member_fn()?);
                 } else if is_init {
                     let name_tok = self.bump();
@@ -2241,6 +2241,7 @@ impl<'s> Parser<'s> {
             fns,
             spliced,
             host,
+            host_fields: Vec::new(),
             span: start.to(end),
         })
     }
@@ -2396,13 +2397,9 @@ impl<'s> Parser<'s> {
         // parsed here rather than as a statement so the body that follows is an
         // ordinary block: `state` declares data, it does not run.
         let mut iter_state = Vec::new();
-        // [host-splice] A body written in the host languages: fenced blocks
-        // where a `{` would open. Unambiguous on the next line too, since no
-        // item begins with a fence.
-        let host = if by.is_none() { self.parse_host_blocks() } else { Vec::new() };
-        let body = if !host.is_empty() {
-            None
-        } else if by.is_none() && self.at(&TokenKind::LBrace) && self.same_line() {
+        // [host-splice] A host body is attached later, from a platform template.
+        let host: Vec<HostBlock> = Vec::new();
+        let body = if by.is_none() && self.at(&TokenKind::LBrace) && self.same_line() {
             if is_iter {
                 Some(self.parse_iter_body(&mut iter_state)?)
             } else {
@@ -5497,6 +5494,13 @@ impl<'s> Parser<'s> {
             }
             TokenKind::HostLeaf(text) => {
                 let tok = self.bump();
+                // `@value : T`: the host value given a Salvo type.
+                if self.at(&TokenKind::Colon) {
+                    self.bump();
+                    let ty = self.parse_type()?;
+                    let span = tok.span.to(ty.span());
+                    return Some(Expr::HostLeaf { text, ty: Some(ty), span });
+                }
                 Some(Expr::HostLeaf { text, ty: None, span: tok.span })
             }
             // [host-splice] `` (`…` : T) ``: host code given a Salvo type.
@@ -6334,28 +6338,6 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// [host-splice] The fenced host blocks at the cursor, one per backend:
-    /// every consecutive ```` ```lang ```` block, its holes parsed.
-    fn parse_host_blocks(&mut self) -> Vec<HostBlock> {
-        let mut out = Vec::new();
-        while let TokenKind::HostBlock { lang, parts } = self.kind().clone() {
-            let span = self.bump().span;
-            let parts = parts
-                .into_iter()
-                .map(|p| match p {
-                    HostPart::Text(t) => HostBlockPart::Text(t),
-                    HostPart::Hole { source, offset } => {
-                        let (hole, diags) = parse_hole(&source, offset);
-                        self.diagnostics.extend(diags);
-                        HostBlockPart::Hole(hole)
-                    }
-                })
-                .collect();
-            out.push(HostBlock { lang, parts, span });
-        }
-        out
-    }
-
     /// Converts lexer string parts into expression parts by parsing each
     /// `${...}` fragment.
     fn parse_str_parts(&mut self, parts: Vec<StrPart>) -> Vec<StrExprPart> {
@@ -6373,36 +6355,58 @@ impl<'s> Parser<'s> {
     }
 }
 
-/// [host-splice] Parses a `@{ … }` hole: `e`, `e : T`, or `: T`, spans shifted
-/// by `offset` into the file.
-fn parse_hole(source: &str, offset: u32) -> (Hole, Vec<Diagnostic>) {
-    let lexed = lexer::lex(source);
-    let mut diagnostics = lexed.diagnostics;
-    let tokens: Vec<Token> = lexed
-        .tokens
-        .into_iter()
-        .map(|mut t| {
-            t.span = Span::new(t.span.start + offset, t.span.end + offset);
-            t
-        })
-        .collect();
-    for d in &mut diagnostics {
-        d.span = Span::new(d.span.start + offset, d.span.end + offset);
-    }
+/// [host-splice] Parses a platform template's `` `…` `` marker as a hole: a
+/// type alone (`` `AwsError` ``, `` `Ok X | Err Y` ``), `e`, `e : T`, a
+/// declaration `name : T`, or an assignment `name = e` to a declared name.
+/// Spans are shifted by `offset`, the source's place in its file.
+pub fn parse_template_marker(source: &str, offset: u32) -> (Hole, Vec<Diagnostic>) {
+    let lex = |src: &str| {
+        let lexed = lexer::lex_template(src);
+        let tokens: Vec<Token> = lexed
+            .tokens
+            .into_iter()
+            .map(|mut t| {
+                t.span = Span::new(t.span.start + offset, t.span.end + offset);
+                t
+            })
+            .collect();
+        let mut diags = lexed.diagnostics;
+        for d in &mut diags {
+            d.span = Span::new(d.span.start + offset, d.span.end + offset);
+        }
+        (tokens, diags)
+    };
     let span = Span::new(offset, offset + source.len() as u32);
+    // A type alone: it parses as one to the end, and names a type.
+    if source.trim_start().starts_with(|c: char| c.is_uppercase()) {
+        let (tokens, diags) = lex(source);
+        let mut parser = Parser::new(source, tokens, Vec::new());
+        if let Some(ty) = parser.parse_type() {
+            if parser.at_eof() && parser.into_diagnostics().is_empty() && diags.is_empty() {
+                return (Hole { expr: None, ty: Some(ty), assign: None, in_return: false, span }, Vec::new());
+            }
+        }
+    }
+    let (tokens, mut diagnostics) = lex(source);
     let mut parser = Parser::new(source, tokens, Vec::new());
-    let expr = if parser.at(&TokenKind::Colon) { None } else { parser.parse_expr() };
+    // `name = e`: an assignment to a declared name.
+    let assign = match (&parser.peek().kind, &parser.peek_at(1).kind) {
+        (TokenKind::Ident(_), TokenKind::Eq) => {
+            let id = parser.ident();
+            parser.bump();
+            id
+        }
+        _ => None,
+    };
+    let expr = parser.parse_expr();
     let ty = if parser.eat(&TokenKind::Colon).is_some() { parser.parse_type() } else { None };
     if !parser.at_eof() {
         let at = parser.peek().span;
         let found = parser.kind().describe();
-        parser.error(format!("unexpected {found} in a `@{{…}}` hole: a hole is `e`, `e : T` or `: T`"), at);
-    }
-    if expr.is_none() && ty.is_none() {
-        parser.error("an empty `@{}` hole: write the Salvo it renders", span);
+        parser.error(format!("unexpected {found} in a template marker: it is `e`, `e : T`, `name = e` or a type"), at);
     }
     diagnostics.extend(parser.into_diagnostics());
-    (Hole { expr, ty, span }, diagnostics)
+    (Hole { expr, ty, assign, in_return: false, span }, diagnostics)
 }
 
 /// Parses a `${...}` fragment as an expression, shifting all spans by

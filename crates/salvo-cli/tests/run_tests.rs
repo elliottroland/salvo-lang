@@ -1162,22 +1162,28 @@ fn main() [use] {
 }
 "#;
 
-/// [host-splice] Host code written in Salvo files, on both backends with the
-/// same stdout: free fns whose bodies are ```kotlin / ```rust blocks, holes
-/// reading parameters and fields, building a struct from host leaves, and
-/// wrapping into a union (`@{ ok(`n`) : Ok Int | Err Str }`); and a platform
-/// handler written in place, with a handler-level block holding its state.
-/// Then the manifest rule: with `backend = "*"` a Kotlin-only fn is a warning
-/// (and a Rust build reaching it fails, naming the block), a Rust-only one an
-/// error.
+
+/// [host-splice] Platform templates on both backends, same stdout: free fns
+/// implemented in `platform/main.sv.kt` / `.sv.rs` (field reads, a struct built
+/// from host values, `ok(@n : Int)` after `return` taking the fn's return type,
+/// a declared host name in a closure), and a platform handler whose Salvo state
+/// the compiler lays out, with a Rust host field from `` `struct H` ``. Then
+/// the manifest rule: with `backend = "*"`, a fn only the Kotlin template
+/// implements is a warning (and a Rust build reaching it fails), a Rust-only
+/// one an error; and a template naming a fn the `.sv` file lacks is an error.
 #[test]
-fn host_splices_run_on_both_backends() {
-    let Some(__stamp) = e2e_stamp("host_splices", &["rustc", "kotlinc"]) else { return };
-    let dir = work_dir("host_splices");
-    fs::create_dir_all(dir.join("salvo")).unwrap();
-    fs::write(dir.join("salvo.toml"), "[project]\nname = \"splice\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\n").unwrap();
-    fs::write(dir.join("salvo/main.sv"), SPLICE_PROGRAM).unwrap();
-    let expected = "HELLO!\nquiet\nok 42\nerr not a number: x\n15 16\n";
+fn platform_templates_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("platform_templates", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("platform_templates");
+    fs::create_dir_all(dir.join("salvo/platform")).unwrap();
+    fs::write(dir.join("salvo.toml"), "[project]\nname = \"tpl\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\n").unwrap();
+    let write = |sv: &str, kt: &str, rs: &str| {
+        fs::write(dir.join("salvo/main.sv"), sv).unwrap();
+        fs::write(dir.join("salvo/platform/main.sv.kt"), kt).unwrap();
+        fs::write(dir.join("salvo/platform/main.sv.rs"), rs).unwrap();
+    };
+    write(TPL_SV, TPL_KT, TPL_RS);
+    let expected = "HELLO!\nquiet\nok 42\nerr not a number: x\n15 16\nString=hi, Number=-\n";
     for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
         if !have(tool) {
             continue;
@@ -1186,84 +1192,45 @@ fn host_splices_run_on_both_backends() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend}: {stderr}");
         assert_eq!(String::from_utf8_lossy(&out.stdout), expected, "{backend}");
-        assert!(stderr.contains("`fn only_kotlin` has no ```rust block"), "{backend}: {stderr}");
     }
-    // Reaching the Kotlin-only fn from a Rust build fails, naming it.
-    let reaching = SPLICE_PROGRAM.replace("println(\"${next(5)} ${next(1)}\")", "println(\"${next(5)} ${next(1)} ${only_kotlin()}\")");
-    fs::write(dir.join("salvo/main.sv"), &reaching).unwrap();
+    // A Kotlin-only fn: a warning; reaching it from a Rust build: an error.
+    let sv = format!("{TPL_SV}\nfn only_kotlin() [] -> Int\n");
+    let kt = format!("{TPL_KT}\n`fn only_kotlin() -> Int` {{\n    return 1\n}}\n");
+    write(&sv, &kt, TPL_RS);
+    let out = salvo_in(&dir, &["analyze"]);
+    let all = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(all.contains("`fn only_kotlin` has no Rust (`.sv.rs`) implementation"), "{all}");
+    assert!(all.contains("warning"), "{all}");
     if have("rustc") {
+        write(&sv.replace("println(\"${next(5)} ${next(1)}\")", "println(\"${next(5)} ${next(1)} ${only_kotlin()}\")"), &kt, TPL_RS);
         let out = salvo_in(&dir, &["compile", "--backend", "rust", "--target", "out"]);
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(!out.status.success(), "{stderr}");
-        assert!(stderr.contains("has no ```rust block: add one"), "{stderr}");
+        assert!(!out.status.success() && stderr.contains("has no Rust implementation in its platform template"), "{stderr}");
     }
-    // A Rust-only fn in a project building both is an error.
-    fs::write(dir.join("salvo/main.sv"), format!("{SPLICE_PROGRAM}\nfn only_rust() [] -> Int\n```rust\n    1\n```\n")).unwrap();
+    // A Rust-only fn is an error; so is a template naming what the `.sv` lacks.
+    let sv = format!("{TPL_SV}\nfn only_rust() [] -> Int\n");
+    write(&sv, &format!("{TPL_KT}\n`fn missing() -> Int` {{\n    return 1\n}}\n"), &format!("{TPL_RS}\n`fn only_rust() -> Int` {{\n    1\n}}\n"));
     let out = salvo_in(&dir, &["analyze"]);
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        format!("{stdout}{stderr}").contains("`fn only_rust` has no ```kotlin block, and this project builds kotlin and rust"),
-        "{stdout}{stderr}"
-    );
+    let all = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(all.contains("`fn only_rust` has no Kotlin (`.sv.kt`) implementation"), "{all}");
+    assert!(all.contains("the template implements `fn missing()`") && all.contains("platform/main.sv.kt"), "{all}");
     __stamp.verified();
 }
 
-const SPLICE_PROGRAM: &str = r#"struct Greeting { text: Str, loud: Bool }
+const TPL_SV: &str = r#"struct Greeting { text: Str, loud: Bool }
+struct Attr { data_type: Str, string_value: Str? = None }
 
-// A free fn written in host code.
 fn shout(g: Greeting) [] -> Str => g
-```kotlin
-    return if (@{g.loud}) @{g.text}.uppercase() else @{g.text}
-```
-```rust
-    if @{g.loud} { @{g.text}.to_uppercase() } else { @{g.text}.clone() }
-```
-
 fn make(text: Str) [] -> Greeting => text
-```kotlin
-    return @{ Greeting { text: `text + "!"`, loud: true } }
-```
-```rust
-    @{ Greeting { text: `format!("{}!", text)`, loud: true } }
-```
-
 fn parse(s: Str) [] -> Ok Int | Err Str => s
-```kotlin
-    val n = s.toIntOrNull()
-    return if (n != null) @{ ok(`n`) : Ok Int | Err Str } else @{ err(`"not a number: $s"`) : Ok Int | Err Str }
-```
-```rust
-    match s.parse::<i32>() {
-        Ok(n) => @{ ok(`n`) : Ok Int | Err Str },
-        Err(_) => @{ err(`format!("not a number: {}", s)`) : Ok Int | Err Str },
-    }
-```
+fn describe_attrs(attrs: List<Attr>) [] -> Str => attrs
 
 effect Counter {
     fn next(step: Int) -> Int => step
 }
 
 platform handler HostCounter(start: Int) of Counter {
-    ```kotlin
-    private var at = start
-    ```
-    ```rust
-    pub struct HostCounter { at: std::cell::Cell<i32> }
-    impl HostCounter {
-        pub fn new(start: i32) -> Self { Self { at: std::cell::Cell::new(start) } }
-    }
-    ```
-
-    fn next(step: Int) -> Int => step
-    ```kotlin
-        at += step
-        return at
-    ```
-    ```rust
-        self.at.set(self.at.get() + step);
-        self.at.get()
-    ```
+    at: Int = start
 }
 
 fn describe(r: Ok Int | Err Str) [] -> Str => r {
@@ -1273,11 +1240,6 @@ fn describe(r: Ok Int | Err Str) [] -> Str => r {
     }
 }
 
-fn only_kotlin() [] -> Int
-```kotlin
-    return 1
-```
-
 fn main() [use] {
     use StdOutConsole()
     use HostCounter(10)
@@ -1286,88 +1248,73 @@ fn main() [use] {
     println(describe(parse("42")))
     println(describe(parse("x")))
     println("${next(5)} ${next(1)}")
+    println(describe_attrs([Attr { data_type: "String", string_value: "hi" }, Attr { data_type: "Number" }]))
 }
 "#;
+const TPL_KT: &str = r#"// Kotlin for main.sv's bodiless declarations.
 
-/// [host-splice] [handler-state] A platform handler written in place holding
-/// Salvo state (laid out by the compiler, read and written through `@{at}`),
-/// a declaring hole (`@{a : Attr}`) and an ascribed host leaf
-/// (`` @{ (`first` : Attr).data_type } ``), on both backends with the same
-/// stdout; and an ordinary handler whose state initialiser reads its
-/// constructor parameter.
-#[test]
-fn host_splices_hold_state_and_typed_names() {
-    let Some(__stamp) = e2e_stamp("host_splices_state", &["rustc", "kotlinc"]) else { return };
-    let dir = work_dir("host_splices_state");
-    fs::write(dir.join("main.sv"), SPLICE_STATE_PROGRAM).unwrap();
-    let expected = "15 16\n25 26\nString=hi, Number=- / String\n";
-    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
-        if !have(tool) {
-            continue;
-        }
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend}: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), expected, "{backend}");
+`fn shout(g: Greeting) -> Str` {
+    return if (`g.loud`) `g.text`.uppercase() else `g.text`
+}
+
+`fn make(text: Str) -> Greeting` {
+    return `Greeting { text: @{text + "!"}, loud: true }`
+}
+
+`fn parse(s: Str) -> Ok Int | Err Str` {
+    val n = `s`.toIntOrNull()
+    if (n != null) {
+        return `ok(@n : Int)`
     }
-    __stamp.verified();
+    return `err(@{"not a number: " + s} : Str)`
 }
 
-const SPLICE_STATE_PROGRAM: &str = r#"struct Attr { data_type: Str, string_value: Str? = None }
-
-effect Counter {
-    fn next(step: Int) -> Int => step
+`fn describe_attrs(attrs: List<Attr>) -> Str` {
+    val parts = `attrs`.map { `a : Attr` -> `a.data_type` + "=" + (`a.string_value` ?: "-") }
+    return parts.joinToString(", ")
 }
 
-// Salvo state: the compiler lays it out on both backends, and holes read it.
-platform handler HostCounter(start: Int) of Counter {
-    at: Int = start
+`platform handler HostCounter(start: Int) of Counter` {
+    private val log = mutableListOf<Int>()
 
-    fn next(step: Int) -> Int => step
-    ```kotlin
-        @{at} += step
-        return @{at}
-    ```
-    ```rust
-        @{at} += step;
-        @{at}
-    ```
+    `fn next(step: Int) -> Int` {
+        `at` += step
+        log.add(`at`)
+        return `at`
+    }
+}
+"#;
+const TPL_RS: &str = r#"// Rust for main.sv's bodiless declarations.
+
+`fn shout(g: Greeting) -> Str` {
+    if `g.loud` { `g.text`.to_uppercase() } else { `g.text` }
 }
 
-// Typed host names: a declaring hole, and an ascribed leaf.
-fn describe(attrs: List<Attr>) [] -> Str => attrs
-```kotlin
-    val a = @{attrs}.map { @{a : Attr} -> @{a.data_type} + "=" + (@{a.string_value} ?: "-") }
-    val first = @{attrs}.first()
-    return a.joinToString(", ") + " / " + @{ (`first` : Attr).data_type }
-```
-```rust
-    let a: Vec<String> = @{attrs}.into_iter().map(|@{a : Attr}| format!("{}={}", @{a.data_type}, @{a.string_value}.unwrap_or("-".to_string()))).collect();
-    let all = @{attrs};
-    let first = all.first().unwrap();
-    format!("{} / {}", a.join(", "), @{ (`first` : Attr).data_type })
-```
+`fn make(text: Str) -> Greeting` {
+    return `Greeting { text: @{format!("{}!", text)}, loud: true }`;
+}
 
-// [handler-state] An ordinary handler's state may read its constructor too.
-handler Counting(start: Int) of Counter {
-    at: Int = start * 2
-
-    fn next(step: Int) -> Int => step {
-        at = at + step
-        return at
+`fn parse(s: Str) -> Ok Int | Err Str` {
+    match `s`.parse::<i32>() {
+        Ok(n) => return `ok(@n : Int)`,
+        Err(_) => return `err(@{format!("not a number: {}", s)} : Str)`,
     }
 }
 
-fn main() [use] {
-    use StdOutConsole()
-    if true {
-        use HostCounter(10)
-        println("${next(5)} ${next(1)}")
+`fn describe_attrs(attrs: List<Attr>) -> Str` {
+    let parts: Vec<String> = `attrs`.into_iter().map(|`a : Attr`| format!("{}={}", `a.data_type`, `a.string_value`.unwrap_or("-".to_string()))).collect();
+    parts.join(", ")
+}
+
+`struct HostCounter` {
+    log: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new()),
+}
+
+`platform handler HostCounter(start: Int) of Counter` {
+    `fn next(step: Int) -> Int` {
+        `at` += step;
+        self.log.lock().unwrap().push(`at`);
+        `at`
     }
-    if true {
-        use Counting(10)
-        println("${next(5)} ${next(1)}")
-    }
-    println(describe([Attr { data_type: "String", string_value: "hi" }, Attr { data_type: "Number" }]))
 }
 "#;

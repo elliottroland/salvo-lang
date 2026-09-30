@@ -1,17 +1,20 @@
-//! [host-splice] Host code in Salvo files, in the checker: what a hole may
-//! hold, what it is checked against, and what a platform handler written in
-//! place must have.
+//! [host-splice] Platform templates in the checker: what a marker may hold,
+//! what it is checked against, and how a template must match its `.sv` file.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
+use salvo_core::template::TemplateFile;
+use salvo_core::{check_program, resolve, ModulePath, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Bool\nexport intrinsic type Str\nexport intrinsic type List<T>\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Bool\nexport intrinsic type Str\nexport intrinsic type List<T>\n\
+export provenance qualifier Ok<T> of T\nexport provenance qualifier Err<T> of T\n\
+export fn ok<T>(value: T) [] -> +Ok T {\n    return value\n}\n";
 
-fn errors(src: &str) -> Vec<String> {
+/// Errors of `main.sv` with `platform/main.sv.kt` holding [kotlin].
+fn errors(sv: &str, kotlin: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add("std/core/prelude.sv", SourceSet::classify(Path::new("core/prelude.sv")).unwrap(), STD_PRELUDE.to_string(), true);
-    sources.add("main.sv", SourceSet::classify(Path::new("main.sv")).unwrap(), src.to_string(), false);
+    sources.add("main.sv", SourceSet::classify(Path::new("main.sv")).unwrap(), sv.to_string(), false);
     let mut modules = Vec::new();
     for file in &sources.files {
         let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
@@ -19,75 +22,86 @@ fn errors(src: &str) -> Vec<String> {
         assert!(parse_errors.is_empty(), "parse errors in {}: {parse_errors:?}", file.name);
         modules.push(ast);
     }
+    let template = TemplateFile {
+        rel_path: PathBuf::from("platform/main.sv.kt"),
+        module: ModulePath(vec!["main".to_string()]),
+        lang: "kotlin".to_string(),
+        content: kotlin.to_string(),
+        name: "platform/main.sv.kt".to_string(),
+    };
+    let mut out: Vec<String> = salvo_core::template::apply(&[template], &mut sources.files, &mut modules)
+        .into_iter()
+        .map(|d| d.message)
+        .collect();
     let _expansion = salvo_core::expand(&sources.files, &mut modules);
     let program = Program { files: sources.files, modules, companions: Vec::new() };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
-    let out = check_program(&program, &resolution, &symbols);
-    out.errors.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect()
+    let checked = check_program(&program, &resolution, &symbols);
+    out.extend(checked.errors.iter().filter(|d| d.is_error()).map(|d| d.message.clone()));
+    out
 }
 
 #[test]
-fn holes_are_checked_against_their_types() {
-    let ok = "struct P { n: Int }\nfn f(p: P) [] -> Int => p\n```kotlin\nreturn @{p.n} + @{ P { n: `3` } }.n\n```\n";
-    assert_eq!(errors(ok), Vec::<String>::new());
-    let wrong = "struct P { n: Int }\nfn f(p: P) [] -> Int => p\n```kotlin\nreturn @{ p.n : Str }\n```\n";
-    let errs = errors(wrong);
+fn markers_are_checked_against_their_types() {
+    let sv = "struct P { n: Int }\nfn f(p: P) [] -> Int => p\n";
+    assert_eq!(errors(sv, "`fn f(p: P) -> Int` {\n    return `p.n` + `P { n: @{3} }`.n\n}\n"), Vec::<String>::new());
+    let errs = errors(sv, "`fn f(p: P) -> Int` {\n    return `p.n : Str`\n}\n");
     assert!(errs.iter().any(|e| e.contains("this hole is `Str`, and `Int` is not one")), "{errs:?}");
-    let unknown = "fn f() [] -> Int\n```kotlin\nreturn @{nope}\n```\n";
-    assert!(!errors(unknown).is_empty());
+    assert!(!errors(sv, "`fn f(p: P) -> Int` {\n    return `nope`\n}\n").is_empty());
 }
 
 #[test]
-fn host_code_stands_only_in_a_hole() {
-    let errs = errors("fn f() [] -> Int {\n    return `1`\n}\n");
-    assert!(errs.iter().any(|e| e.contains("only a `@{…}` hole in a host block may hold")), "{errs:?}");
+fn a_template_matches_its_declarations() {
+    let sv = "fn f(s: Str) [] -> Int => s\n";
+    let errs = errors(sv, "`fn f(s: Int) -> Int` {\n    return 1\n}\n");
+    assert!(errs.iter().any(|e| e.contains("does not declare without a body")), "{errs:?}");
+    let errs = errors(sv, "`fn f(s: Str) -> Str` {\n    return 1\n}\n");
+    assert!(errs.iter().any(|e| e.contains("does not match the declaration's")), "{errs:?}");
+    let errs = errors(sv, "`fn g() -> Int` {\n    return 1\n}\n`fn f(s: Str) -> Int` { return 1 }\n");
+    assert!(errs.iter().any(|e| e.contains("`fn g()`")), "{errs:?}");
+    // A bodiless fn nothing implements.
+    let errs = errors("fn h() [] -> Int\n", "");
+    assert!(errs.iter().any(|e| e.contains("`fn h` has no body")), "{errs:?}");
 }
 
 #[test]
-fn a_host_body_names_a_backend_once_and_writes_its_clause() {
-    let errs = errors("fn f() [] -> Int\n```swift\nreturn 1\n```\n```kotlin\nreturn 1\n```\n```kotlin\nreturn 2\n```\n");
-    assert!(errs.iter().any(|e| e.contains("no backend is called `swift`")), "{errs:?}");
-    assert!(errs.iter().any(|e| e.contains("has two ```kotlin blocks")), "{errs:?}");
-    // The body is opaque, so the clause must say what happens to `s`.
-    let errs = errors("fn g(s: Str) [] -> Int\n```kotlin\nreturn 1\n```\n");
-    assert!(!errs.is_empty(), "a host body needs its deduction clause");
+fn a_return_marker_takes_the_fn_return_type() {
+    let sv = "fn f(n: Int) [] -> Ok Int | Err Str => n\n";
+    assert_eq!(errors(sv, "`fn f(n: Int) -> Ok Int | Err Str` {\n    return `ok(n)`\n}\n"), Vec::<String>::new());
 }
 
 #[test]
-fn a_platform_handler_written_in_place_has_host_members_and_no_threadsafe_state() {
-    let src = "effect E {\n    fn go(n: Int) -> Int => n\n}\nplatform handler H of E {\n    count: Int = 0\n    fn go(n: Int) -> Int => n {\n        return n\n    }\n}\n";
-    let errs = errors(src);
-    assert!(errs.iter().any(|e| e.contains("needs a body in host code")), "{errs:?}");
-    assert!(!errs.iter().any(|e| e.contains("state")), "state is allowed: {errs:?}");
-    let src = "effect E {\n    fn go(n: Int) -> Int => n\n}\nthreadsafe platform handler H of E {\n    count: Int = 0\n    fn go(n: Int) -> Int => n\n    ```kotlin\n    return @{count}\n    ```\n}\n";
-    let errs = errors(src);
+fn typed_host_names_are_declared_redeclared_and_assigned() {
+    let sv = "struct A { x: Int }\nstruct B { y: Int }\nfn f(xs: List<A>) [] -> Int => xs\n";
+    let body = |inner: &str| format!("`fn f(xs: List<A>) -> Int` {{\n{inner}\n}}\n");
+    assert_eq!(errors(sv, &body("return `xs`.map { `a : A` -> `a.x` }.sum()")), Vec::<String>::new());
+    assert!(!errors(sv, &body("return `xs`.map { `a : A` -> `a.y` }.sum()")).is_empty(), "no field `y`");
+    assert_eq!(errors(sv, &body("return `xs`.map { a -> `(@a : A).x` }.sum()")), Vec::<String>::new());
+    assert!(!errors(sv, &body("return `xs`.map { a -> `(@a : A).y` }.sum()")).is_empty());
+    assert_eq!(errors(sv, &body("fun one(`v : A`) = `v.x`\nfun two(`v : B`) = `v.y`\nreturn 0")), Vec::<String>::new());
+    assert!(!errors(sv, &body("val `xs : A` = null\nreturn 0")).is_empty(), "a parameter is not redeclared");
+    assert_eq!(errors(sv, &body("var `n : Int` = 0\n`n = 3`\nreturn n")), Vec::<String>::new());
+    assert!(!errors(sv, &body("`m = 3`\nreturn 0")).is_empty(), "an undeclared target");
+}
+
+#[test]
+fn a_platform_handler_template_implements_its_members() {
+    let sv = "effect E {\n    fn go(n: Int) -> Int => n\n}\nplatform handler H(start: Int) of E {\n    at: Int = start\n}\n";
+    let ok = "`platform handler H(start: Int) of E` {\n    `fn go(n: Int) -> Int` {\n        `at` += `n`\n        return `at`\n    }\n}\n";
+    assert_eq!(errors(sv, ok), Vec::<String>::new());
+    let errs = errors(sv, &ok.replace("fn go(n: Int)", "fn stop(n: Int)"));
+    assert!(errs.iter().any(|e| e.contains("implements no member of `E`")), "{errs:?}");
+    let errs = errors(sv, &ok.replace("H(start: Int)", "H(begin: Int)"));
+    assert!(errs.iter().any(|e| e.contains("does not match the declaration's")), "{errs:?}");
+    let sv_ts = sv.replace("platform handler", "threadsafe platform handler");
+    let errs = errors(&sv_ts, &ok.replace("`platform handler", "`threadsafe platform handler"));
     assert!(errs.iter().any(|e| e.contains("cannot hold Salvo state yet")), "{errs:?}");
 }
 
 #[test]
-fn typed_host_names_are_checked() {
-    let base = "struct A { x: Int }\nfn f(xs: List<A>) [] -> Int => xs\n```kotlin\nreturn xs.map { HOLE -> USE }.sum()\n```\n";
-    let ok = base.replace("HOLE", "@{a : A}").replace("USE", "@{a.x}");
-    assert_eq!(errors(&ok), Vec::<String>::new());
-    let wrong = base.replace("HOLE", "@{a : A}").replace("USE", "@{a.y}");
-    assert!(!errors(&wrong).is_empty(), "no field `y`");
-    let leaf = base.replace("HOLE", "a").replace("USE", "@{ (`a` : A).x }");
-    assert_eq!(errors(&leaf), Vec::<String>::new());
-    let leaf_wrong = base.replace("HOLE", "a").replace("USE", "@{ (`a` : A).y }");
-    assert!(!errors(&leaf_wrong).is_empty(), "no field `y` on an ascribed leaf");
-}
-
-#[test]
-fn a_handler_level_block_sees_the_constructor_parameters() {
-    let base = "effect E {\n    fn go(n: Int) -> Int => n\n}\nplatform handler H(start: Int) of E {\n    ```kotlin\n    private var at = @{HOLE}\n    ```\n    fn go(n: Int) -> Int => n\n    ```kotlin\n    return @{n} + at\n    ```\n}\n";
-    assert_eq!(errors(&base.replace("HOLE", "start")), Vec::<String>::new());
-    assert!(!errors(&base.replace("HOLE", "nope")).is_empty(), "an unknown name in a handler-level hole");
-}
-
-#[test]
-fn a_declared_host_name_may_be_declared_again_but_not_a_parameter() {
-    let base = "struct A { x: Int }\nstruct B { y: Int }\nfn f(p: Int) [] -> Int => p\n```kotlin\nfun one(@{v : A}) = @{v.x}\nfun two(@{v : B}) = @{v.y}\nSHADOW\nreturn 0\n```\n";
-    assert_eq!(errors(&base.replace("SHADOW", "")), Vec::<String>::new());
-    assert!(!errors(&base.replace("SHADOW", "val @{p : A} = 1")).is_empty(), "a parameter is not redeclared");
+fn strings_and_comments_are_not_scanned_and_double_backticks_escape() {
+    let sv = "fn f(s: Str) [] -> Str => s\n";
+    let kt = "// a `comment` with backticks\n`fn f(s: Str) -> Str` {\n    val ``in`` = \"a `string`\"\n    return `s` + ``in``\n}\n";
+    assert_eq!(errors(sv, kt), Vec::<String>::new());
 }

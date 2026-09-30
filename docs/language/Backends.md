@@ -176,45 +176,53 @@ The two forms answer different questions. Use a `platform effect` when the *capa
 
 # Specific backend details
 
-## Host code in Salvo files
+## Platform templates
 
-A host implementation does not have to live in a separate file. A function, or a member of a `platform handler`, can be **written in host code** right where it is declared, in the fenced-block spelling Markdown uses: one ```` ```kotlin ```` and one ```` ```rust ```` block where a `{` body would open.
+A platform handler or a function can be implemented in host code that still speaks Salvo: a **platform template**, `platform/<module>.sv.kt` for Kotlin and `.sv.rs` for Rust, next to the other files of the `platform/` tree. The `.sv` file declares the Salvo side with no body:
 
-````
+```
+// counter.sv
 fn shout(g: Greeting) [] -> Str => g
-```kotlin
-    return if (@{g.loud}) @{g.text}.uppercase() else @{g.text}
-```
-```rust
-    if @{g.loud} { @{g.text}.to_uppercase() } else { @{g.text}.clone() }
-```
-````
 
-The text is written through as it is. What the compiler renders is the **holes**, `@{ … }`, because those are the parts whose spelling depends on how Salvo is emitted: a parameter or field read (`@{g.text}`), a struct built from host values (`` @{ Greeting { text: `name + "!"`, loud: true } } ``), a type (`@{ : Ok Int | Err Str }`), and a value wrapped into a union a host call cannot see (`` @{ ok(`n`) : Ok Int | Err Str } ``). Inside a hole, `` `…` `` is host code again, written through verbatim, taking the type the hole expects of it. Everything in a hole is checked against the Salvo types, so a hole cannot build a struct with a missing field or put an `Int` where a `Str` goes; the host code around it is the target compiler's to check. A host body's written deduction clause is its whole contract, as for any declaration Salvo cannot see into.
+effect Counter {
+    fn next(step: Int) -> Int => step
+}
 
-A `platform handler` written with braces is written in place: each member's body is host code, and a handler-level block holds host helpers. The compiler emits the class and the effect's interface around them, so nothing has to match a generated name by hand:
-
-````
 platform handler HostCounter(start: Int) of Counter {
     at: Int = start
-
-    fn next(step: Int) -> Int => step
-    ```kotlin
-        @{at} += step
-        return @{at}
-    ```
-    ```rust
-        @{at} += step;
-        @{at}
-    ```
 }
-````
+```
 
-The state is Salvo's, laid out by the compiler exactly as for any handler, and a hole reads or assigns it (`@{at}` is the field, whatever the backend calls it). A `threadsafe` handler cannot hold Salvo state yet, since its members run concurrently. A handler that needs host-only fields — an SDK client, a runtime — declares them in its handler-level block: inside the class on Kotlin, and on Rust by declaring `pub struct H` and its `new` itself, which takes the layout over.
+and the template is ordinary host code in which anything between backticks is Salvo, rendered by the compiler:
 
-**Host names with Salvo types.** A hole `@{a : T}` naming nothing in scope declares `a` as a host name of type `T` — it renders `a: T` — and later holes can read it: `.map { @{a : Attr} -> @{a.data_type} }`. Where there is nothing to declare, `` (`e` : T) `` gives host code a type inside a hole: `` @{ (`first` : Attr).data_type } ``.
+```kotlin
+// platform/counter.sv.kt
+`fn shout(g: Greeting) -> Str` {
+    return if (`g.loud`) `g.text`.uppercase() else `g.text`
+}
 
-**Which blocks are required** is the project manifest's call: every backend `[build] backend` names must have one. A declaration written only in Kotlin is allowed, with a warning, so a code base can reach parity before its Rust backend is enabled; a Rust build that reaches it fails, naming the block. A Kotlin `import` line in a block goes to the top of the file.
+`platform handler HostCounter(start: Int) of Counter` {
+    private val log = mutableListOf<Int>()
+
+    `fn next(step: Int) -> Int` {
+        `at` += step
+        log.add(`at`)
+        return `at`
+    }
+}
+```
+
+A marker that declares something — `` `fn …` ``, `` `platform handler …` ``, and on Rust `` `struct H` `` for host fields — repeats the full signature, which the compiler checks against the `.sv` declaration and replaces with the host header it emits. Every other marker renders Salvo: a field read (`` `g.text` ``), a type (`` `AwsError` ``), a struct built from host values (`` `AwsError { code: @code, message: @{e.message ?: ""} }` ``, where `@name` and `@{…}` go back to host code), and a value wrapped into a union host code cannot see (`` `ok(value) : Ok Out | Err Str` `` — or just `` return `ok(value)` ``, which takes the function's return type). `` `v : Attr` `` declares a host name with a Salvo type, so later markers can read `` `v.data_type` ``. Strings and comments are never scanned; ```` `` ```` is a literal backtick.
+
+The handler's Salvo state is laid out by the compiler on both backends. Host-only fields go in the Kotlin class body as usual, and on Rust in a `` `struct H` { name: Type = init } `` block, initialised in order after the constructor's parameters are available:
+
+```rust
+`struct HostCounter` {
+    log: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new()),
+}
+```
+
+A mistake in a template is reported at its line in the template, and a template naming something its `.sv` file does not declare is an error. **Which backends are required** is the project manifest's call: every backend `[build] backend` names needs an implementation. A declaration implemented only in Kotlin is allowed, with a warning, so a code base can reach parity before its Rust backend is enabled.
 
 ## Kotlin
 

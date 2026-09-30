@@ -69,12 +69,22 @@ impl FileDiagnostic {
     /// a `help:` line per suggested import [diag-import-suggest].
     pub fn render(&self, files: &[SourceFile]) -> String {
         let f = &files[self.file];
+        // [host-splice] A span past the file's own text is in a template.
+        let (name, content, span) = match f
+            .appendix
+            .iter()
+            .rev()
+            .find(|a| self.span.start >= a.base && self.span.start as usize >= f.content.len())
+        {
+            Some(a) => (&a.name, &a.content, Span::new(self.span.start - a.base, self.span.end.saturating_sub(a.base))),
+            None => (&f.name, &f.content, self.span),
+        };
         let mut out = Diagnostic {
             severity: self.severity,
             message: self.message.clone(),
-            span: self.span,
+            span,
         }
-        .render(&f.name, &f.content);
+        .render(name, content);
         for import in &self.suggested_imports {
             out.push_str(&format!("\n  help: add `import {import}`"));
         }

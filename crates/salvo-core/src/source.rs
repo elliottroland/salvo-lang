@@ -74,6 +74,9 @@ pub struct SourceFile {
     /// root); its `main` is never an entry point, its protocols are not the
     /// project's to lock, and it is std only if its own manifest says so.
     pub dependency: Option<String>,
+    /// [host-splice] The platform templates attached to this module, whose
+    /// spans follow the file's own [`crate::template::apply`].
+    pub appendix: Vec<crate::template::Appendix>,
 }
 
 /// The source-root directory holding host implementations of platform
@@ -112,6 +115,10 @@ pub struct SourceSet {
     pub files: Vec<SourceFile>,
     /// Backend-native companion files ([backend-companion]).
     pub companions: Vec<CompanionFile>,
+    /// [host-splice] Platform templates (`platform/**/<m>.sv.kt|.sv.rs`), of
+    /// every backend: which backends a declaration covers is checked against
+    /// the manifest whatever this build compiles.
+    pub templates: Vec<crate::template::TemplateFile>,
 }
 
 impl SourceSet {
@@ -207,6 +214,7 @@ impl SourceSet {
             is_shadow: false,
             is_test: false,
             dependency: None,
+            appendix: Vec::new(),
         });
     }
 
@@ -222,6 +230,7 @@ impl SourceSet {
             is_shadow: false,
             is_test: true,
             dependency: None,
+            appendix: Vec::new(),
         });
     }
 
@@ -253,6 +262,25 @@ impl SourceSet {
         }
         components.push(stem.to_string());
         Some((ModulePath(components), platform))
+    }
+
+    /// [host-splice] `platform/app/entry.sv.kt` → (`app.entry`, `kotlin`).
+    pub fn classify_template(rel_path: &Path) -> Option<(ModulePath, &'static str)> {
+        let file_name = rel_path.file_name()?.to_str()?;
+        let (stem, ext) = file_name.rsplit_once('.')?;
+        let lang = crate::template::template_lang(ext)?;
+        let stem = stem.strip_suffix(".sv")?;
+        let mut components: Vec<String> = rel_path
+            .parent()?
+            .components()
+            .filter_map(|c| c.as_os_str().to_str().map(str::to_string))
+            .collect();
+        if components.first().map(String::as_str) != Some(PLATFORM_DIR) {
+            return None;
+        }
+        components.remove(0);
+        components.push(stem.to_string());
+        Some((ModulePath(components), lang))
     }
 
     pub fn add_companion(
@@ -336,7 +364,7 @@ impl SourceSet {
                     stack.push(path);
                 } else if path
                     .extension()
-                    .is_some_and(|e| e == "sv" || e == native_ext)
+                    .is_some_and(|e| e == "sv" || e == native_ext || e == "kt" || e == "rs")
                     && !is_ignored(&path)
                 {
                     paths.push(path);
@@ -346,6 +374,23 @@ impl SourceSet {
         paths.sort();
         for path in paths {
             let rel = path.strip_prefix(root).unwrap_or(&path);
+            // [host-splice] `platform/…/<m>.sv.kt`: a template for module `…/<m>`.
+            if let Some(t) = Self::classify_template(rel) {
+                match std::fs::read_to_string(&path) {
+                    Ok(content) => self.templates.push(crate::template::TemplateFile {
+                        rel_path: rel.to_path_buf(),
+                        module: t.0,
+                        lang: t.1.to_string(),
+                        content,
+                        name: rel.display().to_string(),
+                    }),
+                    Err(err) => errors.push(format!("failed to read `{}`: {err}", path.display())),
+                }
+                continue;
+            }
+            if path.extension().is_some_and(|e| e != "sv" && e != native_ext) {
+                continue;
+            }
             if path.extension().is_some_and(|e| e == native_ext) {
                 let Some((module, platform)) = Self::classify_companion(rel, native_ext)
                 else {
@@ -505,6 +550,10 @@ impl SourceSet {
         }
         self.files.extend(loaded.files);
         self.companions.extend(loaded.companions);
+        for mut t in loaded.templates {
+            t.name = root.join(&t.rel_path).display().to_string();
+            self.templates.push(t);
+        }
         errors
     }
 
