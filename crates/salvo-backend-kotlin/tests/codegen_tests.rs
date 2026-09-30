@@ -4518,6 +4518,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlin_example_cluster,
     kotlin_example_aws_profile,
     kotlin_example_aws_sqs,
+    kotlin_example_aws_s3,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -14565,6 +14566,10 @@ fn kotlin_example_aws_profile() -> KotlinCase {
 
 fn kotlin_example_aws_sqs() -> KotlinCase {
     example_case("aws_sqs")
+}
+
+fn kotlin_example_aws_s3() -> KotlinCase {
+    example_case("aws_s3")
 }
 
 /// Every example has a case above — checked here rather than

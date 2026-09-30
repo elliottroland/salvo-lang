@@ -1,0 +1,14 @@
+-- FakeS3 --
+put greeting.txt: etag ?
+get greeting.txt: -1 bytes
+piped 0 bytes into back.txt
+back.txt: 0 bytes
+calls: [put_object, get_object]
+-- MemS3 --
+put greeting.txt: etag "29"
+get greeting.txt: 29 bytes
+piped 29 bytes into back.txt
+back.txt: 29 bytes
+hello from Salvo
+second line
+get missing.txt: no such key
