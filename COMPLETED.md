@@ -135,6 +135,35 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Kotlin → Gradle, as Rust → Cargo (2026-09-30, user decisions).** After
+weighing delegation to Maven (which needs `-jvm` coordinates, since Maven
+ignores Gradle metadata), the user chose Gradle: the coordinates stay the ones
+the SDK documents, and both backends hand their host libraries to their
+ecosystem's tool. Decided: (1) **resolve only** — with `[kotlin] artifacts`
+declared the backend writes `settings.gradle.kts` and `build.gradle.kts` beside
+the sources (one configuration, Maven Central, a `salvoClasspath` task writing
+the resolved jars to `.salvo_gradle/classpath.txt`) and runs it before
+`kotlinc`, which still compiles ([kt-gradle]); a full Gradle Kotlin build was
+set aside, since it pins a Kotlin plugin to the `kotlinc` in use; (2) **one
+rule for both tools** ([host-tool]): `cargo`/`gradle` on PATH by default,
+`[rust] cargo` / `[kotlin] gradle` naming another, a path relative to the
+manifest or a command name — one key for Gradle, because a `gradlew` wrapper
+takes the same command line as the CLI (checked: the aws wrapper run against a
+build in another directory resolved it, pinned to its own 9.8.0). Built as
+well: only the building project's tool setting counts; a missing tool names
+the file and the key; a tool's stdout goes to stderr, since a wrapper announces
+its first download there; a build this backend wrote is removed when the
+artifacts go, as the `Cargo.toml` is. `modules/aws` dropped `fetchKotlinSdk`
+and `lib/kotlin`: its manifest and both demos name `codegen/gradlew`, and the
+drift test resolves the SDK through the written build — the same 40 jars
+`fetchKotlinSdk` copied. *Found on the way:* `val x by configurations.creating`
+is deprecated for Gradle 10, so the script uses `configurations.create`, and
+Gradle's `build/` goes under `.salvo_gradle/` rather than beside the sources.
+Tests: a manifest unit test, a CLI test for a missing tool on both backends,
+and the host-library test running Rust through a named cargo and Kotlin
+through a stand-in Gradle (a shell script speaking the task's protocol), with
+the stale build removed. **1686 tests.**
+
 **Platform roots, template skeletons, and ascription by a place (2026-09-30,
 user decisions).** Three calls in one round, prompted by the aws templates.
 (1) **The platform root is the manifest's, with no default**: `[build]
@@ -19205,7 +19234,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1684)
+## Test inventory (all green: 1686)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -19213,7 +19242,9 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 777 - a platform-root unit test (`src/source.rs`
+- `salvo-core`: 778 - a host-tool unit test (`src/manifest.rs` [host-tool]:
+  tool paths and PATH names, the defaults, the Gradle build listing each
+  artifact) + a platform-root unit test (`src/source.rs`
   [platform-root]: files attributed by their root, a shared and a split root,
   the other language under a backend's own root refused) + the place-ascription
   test (`tests/splice_tests.rs` [host-splice]: by a declared name across host
@@ -19708,7 +19739,7 @@ cache, with per-test timings.
   C-6 needs std's own declarations, so it is asserted end to end in each
   backend's `compiles_and_runs_list_claims` case instead of here — this
   harness builds its own prelude).
-- `salvo-cli`: 106 - 51 `analyze` integration tests running the built
+- `salvo-cli`: 107 - 51 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -19874,6 +19905,8 @@ cache, with per-test timings.
   location asserted on stderr. Either half alone would be a bug — an abort
   rejects a legal program, and silence leaves the diagnostic visible only in
   `salvo analyze`).
+  + the missing-host-tool test (`tests/platform_tests.rs` [host-tool]: a
+  named `cargo` and a named `gradle` that do not exist, reported with the key)
   + the split-roots `platform generate` test (`tests/platform_tests.rs`
   [platform-root] [cli-platform]: a template and a host file in each backend's
   own root, skeletons that type-check, a second run keeping every file, a

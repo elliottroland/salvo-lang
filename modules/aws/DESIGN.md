@@ -33,7 +33,7 @@ put to the user; all as recommended):
 |---|---|---|
 | 1 | Host dependencies in the manifest | `[rust] crates = { … }`, `[kotlin] artifacts = [ … ]` in the backend sections; a dependency's are merged into the build |
 | 2 | Rust build path | `Cargo.toml` + `cargo` **only when crates are declared**; the bare `rustc` path and the checked-in example trees stay |
-| 3 | Kotlin artifacts | a **directory of jars** (`[kotlin] libs = "lib/kotlin"`, gitignored) on the classpath now; Maven resolution by the compiler later. The module's own Gradle build fetches the closure into `lib/kotlin/` (`fetchKotlinSdk`), so the compiler never learns about Maven |
+| 3 | Kotlin artifacts | ~~a directory of jars filled by the module's own Gradle build~~ — superseded 2026-09-30: `[kotlin] artifacts` are resolved by Gradle, which the Kotlin backend runs as the Rust one runs Cargo ([kt-gradle]); `[kotlin] libs` stays for jars no repository has |
 | 4 | Host-dependency version conflicts | refused, naming both |
 | 5 | A reply the host never discharges | reported to the pool's fault sink where detectable (Rust `Drop`), best-effort and documented |
 | 6 | Host-minted replies | deferred with the writer pair |

@@ -430,7 +430,7 @@ fn the_platform_tree_mirrors_the_source_tree() {
     __stamp.verified();
 }
 
-/// [platform-host-deps] [rs-cargo] [kt-classpath] A platform companion that
+/// [platform-host-deps] [rs-cargo] [kt-classpath] [kt-gradle] [host-tool] A platform companion that
 /// uses a host library: the manifest declares it — a `path` crate under
 /// `[rust] crates`, a jar directory under `[kotlin] libs` — and `salvo run`
 /// builds with it: Rust through an emitted `Cargo.toml` and `cargo build`,
@@ -474,7 +474,14 @@ fn main() [use, Greeter] {
                 "[project]\nname = \"hd\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\nplatform = \"salvo/platform\"\n\n[rust]\n{crates}"
             )
         };
-        fs::write(dir.join("salvo.toml"), manifest("crates = { greeter = { path = \"vendor/greeter\" } }\n")).unwrap();
+        // [host-tool] `[rust] cargo` names the cargo to run: here a wrapper
+        // announcing itself on stdout, which must not reach the program's.
+        fake_tool(&dir.join("tools/cargo"), "echo 'wrapped cargo'\nexec cargo \"$@\"\n");
+        fs::write(
+            dir.join("salvo.toml"),
+            manifest("crates = { greeter = { path = \"vendor/greeter\" } }\ncargo = \"tools/cargo\"\n"),
+        )
+        .unwrap();
         fs::write(dir.join("salvo/main.sv"), PROGRAM).unwrap();
         let out = salvo_in(&dir, &["platform", "generate"]);
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -486,6 +493,7 @@ fn main() [use, Greeter] {
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "rust run failed: {stderr}");
         assert_eq!(String::from_utf8_lossy(&out.stdout), "hello #7\n");
+        assert!(stderr.contains("wrapped cargo"), "the named cargo ran: {stderr}");
 
         // `compile` writes the manifest beside the crate root, absolute path
         // inside, and the hint names cargo.
@@ -538,12 +546,12 @@ fn main() [use, Greeter] {
             .status()
             .expect("kotlinc");
         assert!(status.success(), "building the library jar failed");
-        fs::write(
-            dir.join("salvo.toml"),
-            "[project]\nname = \"hd\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"kotlin\"\nplatform = \"salvo/platform\"\n\n\
-             [kotlin]\nartifacts = [\"example:greeter:0.1.0\"]\nlibs = \"lib/kotlin\"\n",
-        )
-        .unwrap();
+        let manifest = |kotlin: &str| {
+            format!(
+                "[project]\nname = \"hd\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"kotlin\"\nplatform = \"salvo/platform\"\n\n[kotlin]\n{kotlin}"
+            )
+        };
+        fs::write(dir.join("salvo.toml"), manifest("libs = \"lib/kotlin\"\n")).unwrap();
         fs::write(dir.join("salvo/main.sv"), PROGRAM).unwrap();
         let out = salvo_in(&dir, &["platform", "generate"]);
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -554,10 +562,81 @@ fn main() [use, Greeter] {
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "kotlin run failed: {stderr}");
         assert_eq!(String::from_utf8_lossy(&out.stdout), "hello #7\n");
+
+        // [kt-gradle] [host-tool] `artifacts` are resolved by the Gradle
+        // `[kotlin] gradle` names — here a stand-in speaking the same
+        // protocol (the real one runs in the aws glue test): it is given the
+        // target as `--project-dir`, finds the coordinate in the build salvo
+        // wrote, and lists the jar. It announces a download on stdout, as a
+        // wrapper's first run does, which must not reach the program's.
+        let jar = dir.join("lib/kotlin/greeter.jar");
+        fake_tool(
+            &dir.join("tools/gradle"),
+            &format!(
+                "echo 'Downloading https://services.gradle.org/distributions/fake.zip'\n\
+                 while [ $# -gt 0 ]; do [ \"$1\" = --project-dir ] && dir=\"$2\"; shift; done\n\
+                 grep -q 'salvoHost(\"example:greeter:0.1.0\")' \"$dir/build.gradle.kts\" || exit 3\n\
+                 grep -q 'rootProject.name' \"$dir/settings.gradle.kts\" || exit 4\n\
+                 mkdir -p \"$dir/.salvo_gradle\"\n\
+                 printf '%s\\n' '{}' > \"$dir/.salvo_gradle/classpath.txt\"\n",
+                jar.display()
+            ),
+        );
+        fs::write(
+            dir.join("salvo.toml"),
+            manifest("artifacts = [\"example:greeter:0.1.0\"]\ngradle = \"tools/gradle\"\n"),
+        )
+        .unwrap();
+        let out = salvo_in(&dir, &["run"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "kotlin run through Gradle failed: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "hello #7\n");
+        assert!(stderr.contains("Downloading"), "{stderr}");
+        // `compile` writes the build; dropping the artifacts removes it.
+        let out = salvo_in(&dir, &["compile", "--target", "out"]);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(dir.join("out/build.gradle.kts").is_file() && dir.join("out/settings.gradle.kts").is_file());
+        fs::write(dir.join("salvo.toml"), manifest("libs = \"lib/kotlin\"\n")).unwrap();
+        let out = salvo_in(&dir, &["compile", "--target", "out"]);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(!dir.join("out/build.gradle.kts").exists(), "stale Gradle build kept");
     } else {
         eprintln!("skipping kotlin: kotlinc not found on PATH");
     }
     __stamp.verified();
+}
+
+/// A shell script at `path`, executable: a stand-in for a host build tool.
+fn fake_tool(path: &Path, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, format!("#!/bin/sh\n{body}")).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// [host-tool] A build tool the manifest names that is not there is reported
+/// naming the file and the key, for both backends alike — and a program that
+/// declares no host libraries never runs either tool. No toolchain is
+/// needed: the tool is looked for before anything is compiled.
+#[test]
+fn a_missing_host_tool_names_its_setting() {
+    for (backend, section) in [
+        ("rust", "[rust]\ncrates = { serde = \"1.0\" }\ncargo = \"tools/cargo\"\n"),
+        ("kotlin", "[kotlin]\nartifacts = [\"a:b:1.0\"]\ngradle = \"tools/gradlew\"\n"),
+    ] {
+        let dir = work_dir(&format!("missing_tool_{backend}"));
+        fs::write(
+            dir.join("salvo.toml"),
+            format!("[project]\nname = \"m\"\nversion = \"0.1.0\"\n\n[build]\nbackend = \"{backend}\"\n\n{section}"),
+        )
+        .unwrap();
+        fs::write(dir.join("main.sv"), "fn main() [use] {\n    use StdOutConsole()\n    println(\"x\")\n}\n").unwrap();
+        let out = salvo_in(&dir, &["run"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let key = if backend == "rust" { "[rust] cargo" } else { "[kotlin] gradle" };
+        assert!(!out.status.success(), "{backend}: {stderr}");
+        assert!(stderr.contains("does not exist") && stderr.contains(key), "{backend}: {stderr}");
+    }
 }
 
 /// [platform-host-deps] The same crate at two versions across a project and
@@ -719,28 +798,24 @@ fn content_stamp(what: &str, tree: &[(String, Vec<u8>)], tools: &[&str]) -> Opti
     salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), what, &refs)
 }
 
-/// [platform-abi] [platform-tree] [platform-host-deps] The `aws` module's **generated** host
-/// glue (`modules/aws/salvo/platform/aws/**`) compiles against the real SDKs,
-/// through the two live demos that reach it. The generator writes host code
-/// that names what the Salvo emitters produce (`UnionN`, `Checked`, a
-/// module's Rust path, a Kotlin data class), so a change to emission breaks
-/// it — loudly, but until now only when someone ran a demo by hand. Skips,
-/// saying so, when the SDKs are not available locally: the crates not in
-/// cargo's cache (checked `--offline`), or `modules/aws/lib/kotlin` not
-/// fetched (`./gradlew fetchKotlinSdk`). Keyed on the generated trees, so it
-/// reruns only when emission or the glue changed.
+/// [platform-abi] [platform-tree] [platform-host-deps] [kt-gradle] The `aws`
+/// module's **generated** host glue (`modules/aws/salvo/platform/aws/**`)
+/// compiles against the real SDKs, through the two live demos that reach it.
+/// The generator writes host code that names what the Salvo emitters produce
+/// (`UnionN`, `Checked`, a module's Rust path, a Kotlin data class), so a
+/// change to emission breaks it — loudly, but until now only when someone ran
+/// a demo by hand. The Kotlin SDK is resolved the way a build resolves it:
+/// through the `build.gradle.kts` `salvo compile` writes, run by the Gradle
+/// the demo's manifest names (the generator's wrapper). Skips, saying so, when
+/// the SDKs are not available locally: the crates not in cargo's cache
+/// (checked `--offline`), or Gradle unable to resolve the artifacts (offline,
+/// nothing cached). Keyed on the generated trees, so it reruns only when
+/// emission or the glue changed.
 #[test]
 fn the_aws_glue_compiles_against_both_sdks() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
-    let jars: Vec<PathBuf> = fs::read_dir(repo.join("modules/aws/lib/kotlin"))
-        .map(|d| {
-            d.flatten()
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|x| x == "jar"))
-                .collect()
-        })
-        .unwrap_or_default();
+    let gradlew = repo.join("modules/aws/codegen/gradlew");
     for demo in ["sqs_live", "s3_live"] {
         let src = repo.join("modules/aws/demo").join(demo);
 
@@ -768,27 +843,38 @@ fn the_aws_glue_compiles_against_both_sdks() {
             }
         }
 
-        // ---- Kotlin: kotlinc over the tree, the SDK jars on the classpath.
-        if have("kotlinc") {
-            if jars.is_empty() {
-                eprintln!("skipping the Kotlin glue of {demo}: modules/aws/lib/kotlin is empty (./gradlew fetchKotlinSdk)");
-                continue;
-            }
+        // ---- Kotlin: kotlinc over the tree, the SDK resolved by Gradle.
+        if have("kotlinc") && have("java") {
             let out = tmp.join(format!("aws_glue_kt_{demo}"));
             let _ = fs::remove_dir_all(&out);
             let done = salvo_in(&src, &["compile", "--backend", "kotlin", "--target", out.to_str().unwrap()]);
             assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+            let build = fs::read_to_string(out.join("build.gradle.kts"))
+                .expect("reaching the aws glue writes the Gradle build");
+            assert!(build.contains("salvoHost(\"aws.sdk.kotlin:sqs:1.9.11\")"), "{build}");
             let tree = tree_contents(&out);
-            let names: Vec<String> = jars.iter().map(|j| j.file_name().unwrap().to_string_lossy().to_string()).collect();
-            let mut keyed = tree.clone();
-            keyed.push(("<jars>".to_string(), names.join(":").into_bytes()));
-            if let Some(stamp) = content_stamp(&format!("aws glue kotlin {demo}"), &keyed, &["kotlinc"]) {
+            if let Some(stamp) = content_stamp(&format!("aws glue kotlin {demo}"), &tree, &["kotlinc"]) {
+                let resolved = Command::new(&gradlew)
+                    .args(["--quiet", "--project-dir"])
+                    .arg(&out)
+                    .arg("salvoClasspath")
+                    .output()
+                    .expect("failed to run the aws Gradle wrapper");
+                if !resolved.status.success() {
+                    eprintln!(
+                        "skipping the Kotlin glue of {demo}: Gradle could not resolve the SDK:\n{}",
+                        String::from_utf8_lossy(&resolved.stderr)
+                    );
+                    continue;
+                }
+                let classpath = fs::read_to_string(out.join(".salvo_gradle/classpath.txt")).unwrap();
+                assert!(classpath.lines().any(|l| l.ends_with("sqs-jvm-1.9.11.jar")), "{classpath}");
                 let sources: Vec<PathBuf> = tree
                     .iter()
                     .filter(|(p, _)| p.ends_with(".kt"))
                     .map(|(p, _)| out.join(p))
                     .collect();
-                let classpath = jars.iter().map(|j| j.display().to_string()).collect::<Vec<_>>().join(":");
+                let classpath = classpath.lines().collect::<Vec<_>>().join(":");
                 let compiled = Command::new("kotlinc")
                     .args(&sources)
                     .args(["-nowarn", "-cp", &classpath, "-d"])

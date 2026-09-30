@@ -48,19 +48,3 @@ tasks.register<JavaExec>("generate") {
     workingDir = projectDir.parentFile
     args = listOf("smithy-build.json")
 }
-
-// `./gradlew fetchKotlinSdk` — resolves the Kotlin SDK artifacts the host glue
-// compiles against and copies the whole closure into ../lib/kotlin, which
-// `[kotlin] libs` in ../salvo.toml puts on the classpath. The coordinates are
-// the ones `[kotlin] artifacts` records; keep the two in step.
-val kotlinSdk by configurations.creating
-dependencies {
-    kotlinSdk("aws.sdk.kotlin:s3:1.9.11")
-    kotlinSdk("aws.sdk.kotlin:sqs:1.9.11")
-}
-tasks.register<Sync>("fetchKotlinSdk") {
-    group = "salvo"
-    description = "Copy the Kotlin SDK jars the host glue needs into ../lib/kotlin."
-    from(kotlinSdk)
-    into(projectDir.parentFile.resolve("lib/kotlin"))
-}

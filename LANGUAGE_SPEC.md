@@ -8352,14 +8352,13 @@ replaced the working document TESTING.md).
     `.salvo_bin` directory; `entry_hint` names cargo. A manifest the backend
     wrote earlier is removed when the crates go, recognised by its header —
     a hand-written one is never touched. See [rs-cargo].
-  * **Kotlin: a directory of jars now, resolution later** (decision 3). Every
-    `*.jar` under the declared `libs` directories goes on the classpath of the
-    `kotlinc` compile and the `kotlin` run; `artifacts` are recorded and
-    conflict-checked but **not fetched** — the project's own tooling fills
-    `libs` (for `modules/aws`, its Gradle build) until the compiler resolves
-    Maven coordinates itself. A `libs` directory that does not exist
-    contributes nothing, and the missing symbol is `kotlinc`'s error. See
-    [kt-classpath].
+  * **Kotlin: Gradle resolves the artifacts** (user decisions 2026-09-30,
+    replacing decision 3's "not fetched"): with `artifacts` declared the
+    backend writes a Gradle build beside the sources and runs it to resolve
+    the classpath, as the Rust backend hands crates to Cargo; `kotlinc` still
+    compiles. Every `*.jar` under the declared `libs` directories joins the
+    classpath too, for jars no repository has. A `libs` directory that does
+    not exist contributes nothing. See [kt-gradle] and [kt-classpath].
   * `clean_stale` skips hidden directories: `.salvo_bin` now holds cargo's own
     generated sources, which are not ours to delete.
   * **A dependency's libraries join only when its platform code is reached**
@@ -8370,8 +8369,19 @@ replaced the working document TESTING.md).
     and no jars. By imports, not by use, so it can over-include (a host module
     imported and unused) but never under-include. The project's own
     declarations always join.
-  * Not done: Maven resolution; a lock for host versions; per-companion (as
-    opposed to per-project) declarations.
+  * Not done: a lock for host versions; repositories other than Maven
+    Central; per-companion (as opposed to per-project) declarations.
+* [host-tool] **Both backends' build tools are found the same way** (user
+  decision 2026-09-30): `cargo` and `gradle` on PATH by default, and `[rust]
+  cargo = "…"` / `[kotlin] gradle = "…"` to name another — a value with a path
+  separator is a path relative to the manifest (a `gradlew` wrapper works as
+  well as an installed Gradle, since they take the same command line), a bare
+  name a PATH command. Only the **building** project's setting counts: which
+  tool a machine runs is its call, never a dependency's. A tool is run only
+  when its backend has host libraries to build; a missing one is reported
+  naming the file and the key (`run_host_tool`). A tool's stdout goes to
+  stderr — it builds the program and is not its output (a wrapper announces
+  its first download on stdout).
 * [effect-member-unique] Within one effect a member **signature** is
   unique: two members with the same name *and* the same parameter types are
   an error at the second declaration (source order, so the diagnostic is

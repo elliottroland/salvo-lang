@@ -15,7 +15,8 @@ platform = "salvo/platform"
 crates = { aws-config = { version = "1", features = ["behavior-version-latest"] }, aws-sdk-s3 = "1", aws-sdk-sqs = "1", bytes = "1", http-body = "1", tokio = { version = "1", features = ["rt-multi-thread", "sync"] } }
 
 [kotlin]
-# Recorded for the day the compiler resolves Maven; until then
-# `./gradlew fetchKotlinSdk` in codegen/ fills `libs` with their closure.
+# [host-tool] Resolved by Gradle when the glue is reached. A program building
+# over this module names its Gradle (`[kotlin] gradle`, default `gradle` on
+# PATH); this one's is the generator's wrapper.
 artifacts = ["aws.sdk.kotlin:s3:1.9.11", "aws.sdk.kotlin:sqs:1.9.11"]
-libs = "lib/kotlin"
+gradle = "codegen/gradlew"

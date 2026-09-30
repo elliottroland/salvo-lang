@@ -51,7 +51,9 @@ cargo test         # run the test suite
 #   [rust]
 #   crates = { aws-sdk-s3 = "1.0" }     # host libraries the platform/ code needs;
 #   [kotlin]                            # with crates declared, Rust builds via cargo
+#   artifacts = ["aws.sdk.kotlin:s3:1.9.11"]  # resolved by Gradle for the classpath
 #   libs = "lib/kotlin"                 # a directory of jars for the classpath
+#   # `[rust] cargo` / `[kotlin] gradle` name the tools (default: on PATH)
 #
 # Every command reads it, so from inside the project the commands below need
 # no flags; a flag given on the command line wins over the manifest.

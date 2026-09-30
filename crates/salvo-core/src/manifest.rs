@@ -42,8 +42,9 @@
 //! crates = { aws-sdk-s3 = "1.0", mylib = { path = "vendor/mylib" } }
 //!
 //! [kotlin]
-//! artifacts = ["aws.sdk.kotlin:s3:1.0.0"]   # recorded; resolved by tooling outside the compiler
+//! artifacts = ["aws.sdk.kotlin:s3:1.0.0"]   # resolved by Gradle
 //! libs = "lib/kotlin"                        # a directory of jars, on the classpath
+//! gradle = "codegen/gradlew"                 # optional; `[rust] cargo` likewise
 //! ```
 //!
 //! `crates` is rendered verbatim into a `Cargo.toml` the Rust backend emits
@@ -51,9 +52,9 @@
 //! absolute against the declaring manifest, since Cargo resolves it against
 //! the emitted file); with none, the bare `rustc` path is unchanged. `libs`
 //! names a directory whose `*.jar` files go on the Kotlin classpath;
-//! `artifacts` are Maven coordinates the compiler records and checks for
-//! conflicts but does not fetch — the project's own tooling fills `libs`
-//! until it does. A dependency's [manifest-deps] declarations merge into the
+//! `artifacts` are Maven coordinates the Kotlin backend has Gradle resolve
+//! (`HostDeps::gradle_build_script`). [host-tool] `cargo` and `gradle` name
+//! the tools, PATH by default. A dependency's [manifest-deps] declarations merge into the
 //! build; the same crate or artifact declared at two versions is refused,
 //! naming both projects.
 //!
@@ -145,6 +146,9 @@ pub struct RustSection {
     /// writes them: `name = "1.0"` or `name = { path = "…", features = […] }`.
     #[serde(default)]
     pub crates: BTreeMap<String, toml::Value>,
+    /// [host-tool] The `cargo` to build with when crates are declared: a path
+    /// (relative to the manifest) or a command name; default `cargo` on PATH.
+    pub cargo: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -154,9 +158,13 @@ pub struct KotlinSection {
     /// [platform-root] This backend's platform root, over `[build] platform`.
     pub platform: Option<String>,
     /// [platform-host-deps] Maven coordinates (`group:artifact:version`) the
-    /// platform companions need. Recorded and conflict-checked, not fetched.
+    /// platform companions need, resolved by Gradle [host-tool].
     #[serde(default)]
     pub artifacts: Vec<String>,
+    /// [host-tool] The Gradle to resolve `artifacts` with: a path (relative to
+    /// the manifest — a `gradlew` wrapper works as well as an installed
+    /// `gradle`) or a command name; default `gradle` on PATH.
+    pub gradle: Option<String>,
     /// [platform-host-deps] A directory of jars for the classpath, relative
     /// to the manifest's directory.
     pub libs: Option<String>,
@@ -172,6 +180,22 @@ pub struct HostDeps {
     pub kotlin_artifacts: Vec<String>,
     /// Absolute directories of jars.
     pub kotlin_libs: Vec<PathBuf>,
+    /// [host-tool] The build tools, from the project being built — never
+    /// from a dependency, since which `cargo` or Gradle a machine runs is the
+    /// building project's call. `None` is the command on PATH.
+    pub cargo: Option<PathBuf>,
+    pub gradle: Option<PathBuf>,
+}
+
+/// [host-tool] A tool setting: a value with a path separator is a path,
+/// relative to the manifest's directory; anything else a command name, looked
+/// up on PATH like the default.
+fn tool_path(value: &str, dir: &Path) -> PathBuf {
+    if value.contains('/') || value.contains(std::path::MAIN_SEPARATOR) {
+        dir.join(value)
+    } else {
+        PathBuf::from(value)
+    }
 }
 
 impl HostDeps {
@@ -179,6 +203,21 @@ impl HostDeps {
     /// the bare `rustc` build and a Cargo one.
     pub fn has_rust(&self) -> bool {
         !self.rust_crates.is_empty()
+    }
+
+    /// [host-tool] Whether Gradle resolves artifacts for the Kotlin build.
+    pub fn has_kotlin_artifacts(&self) -> bool {
+        !self.kotlin_artifacts.is_empty()
+    }
+
+    /// [host-tool] The `cargo` to run: `[rust] cargo`, else `cargo`.
+    pub fn cargo_program(&self) -> PathBuf {
+        self.cargo.clone().unwrap_or_else(|| PathBuf::from("cargo"))
+    }
+
+    /// [host-tool] The Gradle to run: `[kotlin] gradle`, else `gradle`.
+    pub fn gradle_program(&self) -> PathBuf {
+        self.gradle.clone().unwrap_or_else(|| PathBuf::from("gradle"))
     }
 
     /// Adds `project`'s declarations. `Err` when a crate or an artifact is
@@ -252,6 +291,36 @@ impl HostDeps {
         }
         jars.sort();
         jars
+    }
+
+    /// [host-tool] The Gradle build that resolves the declared artifacts: one
+    /// configuration holding them, and a task writing the resolved jars'
+    /// absolute paths to `classpath` (one per line). Gradle's own rules
+    /// apply — its module metadata, so a multiplatform coordinate
+    /// (`aws.sdk.kotlin:sqs`) resolves to its JVM variant, and the highest
+    /// version on a conflict. Maven Central is the repository.
+    pub fn gradle_build_script(&self, header: &str, classpath: &Path) -> String {
+        let mut deps = String::new();
+        for coord in &self.kotlin_artifacts {
+            deps.push_str(&format!("    salvoHost(\"{}\")\n", coord.replace('\\', "\\\\").replace('"', "\\\"")));
+        }
+        let out = classpath.display().to_string().replace('\\', "\\\\").replace('"', "\\\"");
+        format!(
+            "{header}\n\
+             repositories {{ mavenCentral() }}\n\n\
+             // Gradle's own output stays in the hidden directory with the classpath.\n\
+             layout.buildDirectory.set(file(\".salvo_gradle/build\"))\n\n\
+             val salvoHost = configurations.create(\"salvoHost\")\n\n\
+             dependencies {{\n{deps}}}\n\n\
+             tasks.register(\"salvoClasspath\") {{\n\
+             \x20   val jars = salvoHost\n\
+             \x20   val out = file(\"{out}\")\n\
+             \x20   doLast {{\n\
+             \x20       out.parentFile.mkdirs()\n\
+             \x20       out.writeText(jars.joinToString(\"\\n\") {{ it.absolutePath }})\n\
+             \x20   }}\n\
+             }}\n"
+        )
     }
 
     /// The `[dependencies]` section of the emitted `Cargo.toml` — header
@@ -490,6 +559,8 @@ impl Project {
     pub fn host_deps_for(&self, include: &dyn Fn(&str) -> bool) -> Result<HostDeps, String> {
         let mut deps = HostDeps::default();
         deps.merge(self, "this project")?;
+        deps.cargo = self.manifest.rust.cargo.as_deref().map(|v| tool_path(v, &self.dir));
+        deps.gradle = self.manifest.kotlin.gradle.as_deref().map(|v| tool_path(v, &self.dir));
         for dep in self.dependencies()? {
             if include(&dep.name) {
                 deps.merge(&dep.project, &format!("dependency `{}`", dep.name))?;
@@ -513,6 +584,29 @@ pub fn is_nested_project(root: &Path, dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // [host-tool] A tool setting with a separator is a path relative to the
+    // manifest, a bare name a PATH command; the project's own setting is
+    // used, and the Gradle build lists each artifact in its configuration.
+    #[test]
+    fn host_tools_resolve_and_the_gradle_build_lists_the_artifacts() {
+        assert_eq!(tool_path("codegen/gradlew", Path::new("/p")), PathBuf::from("/p/codegen/gradlew"));
+        assert_eq!(tool_path("gradle9", Path::new("/p")), PathBuf::from("gradle9"));
+        let text = "[project]\nname = \"x\"\nversion = \"0.1.0\"\n\n[rust]\ncargo = \"bin/cargo\"\n\n\
+                    [kotlin]\nartifacts = [\"a.b:c:1.0\"]\ngradle = \"gradle9\"\n";
+        let p = Project { dir: PathBuf::from("/x"), manifest: toml::from_str(text).unwrap() };
+        let host = p.host_deps().unwrap();
+        assert_eq!(host.cargo_program(), PathBuf::from("/x/bin/cargo"));
+        assert_eq!(host.gradle_program(), PathBuf::from("gradle9"));
+        assert!(host.has_kotlin_artifacts());
+        assert_eq!(HostDeps::default().cargo_program(), PathBuf::from("cargo"));
+        assert_eq!(HostDeps::default().gradle_program(), PathBuf::from("gradle"));
+        let script = host.gradle_build_script("// h", Path::new(".salvo_gradle/classpath.txt"));
+        assert!(script.starts_with("// h\n"), "{script}");
+        assert!(script.contains("    salvoHost(\"a.b:c:1.0\")\n"), "{script}");
+        assert!(script.contains("file(\".salvo_gradle/classpath.txt\")"), "{script}");
+        assert!(script.contains("mavenCentral()") && script.contains("tasks.register(\"salvoClasspath\")"), "{script}");
+    }
 
     #[test]
     fn a_manifest_parses_and_resolves_its_paths() {

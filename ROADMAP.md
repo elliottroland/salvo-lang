@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1684 tests green.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1686 tests green.
 
 ## The sequence
 
@@ -351,21 +351,9 @@ made in the design sitting — but each has a shape to settle at implementation.
 
 1. ✅ **Host dependencies of platform code** — built 2026-09-29
    ([platform-host-deps] [rs-cargo] [kt-classpath]; COMPLETED.md has the entry).
-   Left: Maven resolution of `[kotlin] artifacts` by the compiler (they are
-   recorded and conflict-checked, not fetched), a lock for host versions.
-   **Direction chosen 2026-09-30: delegate to Maven**, as Rust delegates to
-   cargo — the backend writes a `pom.xml` beside the output and runs
-   `mvn dependency:copy-dependencies` (or `build-classpath`) into a hidden
-   directory, keeping `libs` for jars no repository has. Not built. Found while
-   deciding: Maven ignores Gradle metadata, so a Kotlin Multiplatform library
-   must be named by its JVM artifact (`aws.sdk.kotlin:sqs-jvm:1.9.11`, not
-   `sqs`); a walk of Maven Central's POMs for the two aws `-jvm` coordinates
-   (compile + runtime scopes, nearest wins) gives the same 40 jars Gradle's
-   `fetchKotlinSdk` does except `org.jetbrains:annotations` (13.0 against
-   Gradle's conflict-resolved 23.0.0, a compile-only annotations jar). Open at
-   implementation: whether to refuse a non-`-jvm` coordinate that has only
-   Gradle metadata (the POM says `published-with-gradle-metadata`) with a hint,
-   and how the suite runs without `mvn` or network.
+   Maven coordinates are now resolved by Gradle (2026-09-30, [kt-gradle]
+   [host-tool]); left: a lock for host versions, repositories besides Maven
+   Central.
 2. ✅ **Host-completed continuations** — built 2026-09-29 ([platform-reply];
    COMPLETED.md has the entry). Left: a host reply to a remote-minted token (the
    typed wire path), and detecting a lost reply on Kotlin.
@@ -417,7 +405,7 @@ made in the design sitting — but each has a shape to settle at implementation.
 
 The second sitting's other calls (DESIGN.md's numbered table) fix the shapes
 above: `Cargo.toml` only when crates are declared; a **directory of jars** for
-Kotlin now (`[kotlin] libs`), Maven later; host-dependency version conflicts
+Kotlin then (`[kotlin] libs`; since 2026-09-30 Gradle resolves `artifacts`); host-dependency version conflicts
 refused; an undischarged reply reported to the fault sink where detectable;
 provider-sized non-empty chunks; `Err Checked<StreamError>`; a wrong-provider
 handle traps; `InStream` and `OutStream` both move.

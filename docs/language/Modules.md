@@ -168,17 +168,25 @@ a JSON parser. The manifest says which, per backend:
 crates = { aws-sdk-s3 = "1.0", mylib = { path = "vendor/mylib" } }   # as Cargo writes them
 
 [kotlin]
-artifacts = ["aws.sdk.kotlin:s3:1.0.0"]   # Maven coordinates, recorded and checked
+artifacts = ["aws.sdk.kotlin:s3:1.0.0"]   # Maven coordinates, resolved by Gradle
 libs = "lib/kotlin"                        # a directory of jars, put on the classpath
 ```
 
 With crates declared the Rust backend writes a `Cargo.toml` beside the emitted
 sources and builds with `cargo`; with none, it calls `rustc` on the crate root
 as it always has, so a program that needs no host library pays nothing. The
-Kotlin backend puts every jar under `libs` on the classpath of the compile and
-the run. It does not fetch `artifacts` yet: the coordinates are recorded so a
-resolver can consume them later, and until then the project's own tooling fills
-`libs`. A dependency's declarations join the build with it. The same crate, or
+Kotlin backend does the same with Gradle: with artifacts declared it writes a
+`build.gradle.kts` beside the sources and has Gradle resolve them, then compiles
+with `kotlinc` against the jars — Gradle's rules, so a Kotlin Multiplatform
+coordinate like `aws.sdk.kotlin:s3` finds its JVM jar. Every jar under `libs`
+joins the classpath too, for libraries no repository has. A dependency's
+declarations join the build with it.
+
+Both tools are the ones on PATH unless the manifest names another —
+`[rust] cargo = "…"`, `[kotlin] gradle = "…"`, a path relative to the manifest
+or a command name. A project's `gradlew` wrapper works as `gradle`, since the
+two take the same command line. Only the project being built chooses; a
+dependency's setting is ignored. The same crate, or
 the same artifact, declared at two versions anywhere in the build is an error
 naming both — one version per library, and the build will not choose.
 

@@ -174,8 +174,9 @@ impl Backend for RustBackend {
                     manifest.display()
                 )));
             }
-            let code = run_tool(
-                "cargo",
+            let code = salvo_backend::run_host_tool(
+                &host.cargo_program(),
+                "[rust] cargo",
                 &[
                     OsStr::new("build"),
                     OsStr::new("--quiet"),

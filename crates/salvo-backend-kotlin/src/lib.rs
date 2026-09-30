@@ -17,6 +17,21 @@ use salvo_core::{HostDeps, ModulePath, Program};
 /// invisible to source discovery [mod-ignore].
 const CLASSES_DIR: &str = ".salvo_classes";
 
+/// [kt-gradle] The Gradle build written beside the emitted sources when
+/// artifacts are declared, the Kotlin counterpart of Rust's `Cargo.toml`
+/// [rs-cargo]: `settings.gradle.kts` makes the target its own Gradle root (so
+/// no enclosing build is picked up), `build.gradle.kts` resolves the
+/// artifacts. Both carry [`GRADLE_HEADER`], which is how a stale one is told
+/// from a hand-written one.
+const GRADLE_BUILD: &str = "build.gradle.kts";
+const GRADLE_SETTINGS: &str = "settings.gradle.kts";
+const GRADLE_HEADER: &str =
+    "// Written by salvo from `[kotlin] artifacts` [kt-gradle]: resolves them for the\n\
+     // Kotlin build. Regenerated on every build — edit salvo.toml, not this file.";
+/// [kt-gradle] Where the resolved classpath lands, relative to the target
+/// (hidden, like the classes directory, so source discovery skips it).
+const GRADLE_CLASSPATH: &str = ".salvo_gradle/classpath.txt";
+
 /// The name Kotlin gives a file's top-level facade class: the file name with
 /// its first letter capitalized and `Kt` appended (`other.kt` ->
 /// `OtherKt`). A module's emitted file is named after its last segment.
@@ -125,6 +140,37 @@ impl Backend for KotlinBackend {
             .collect())
     }
 
+    /// [kt-gradle] With artifacts declared [platform-host-deps], a Gradle
+    /// build beside the sources resolves them; without, a build a previous
+    /// run wrote is removed (only ours, recognised by its header).
+    fn write_host_manifest(
+        &self,
+        target_dir: &Path,
+        _main_module: &ModulePath,
+        host: &HostDeps,
+    ) -> Result<Vec<PathBuf>, BackendError> {
+        let files = [GRADLE_BUILD, GRADLE_SETTINGS];
+        if !host.has_kotlin_artifacts() {
+            for name in files {
+                let path = target_dir.join(name);
+                if std::fs::read_to_string(&path).is_ok_and(|text| text.starts_with(GRADLE_HEADER)) {
+                    std::fs::remove_file(&path)?;
+                }
+            }
+            return Ok(Vec::new());
+        }
+        std::fs::create_dir_all(target_dir)?;
+        std::fs::write(
+            target_dir.join(GRADLE_BUILD),
+            host.gradle_build_script(GRADLE_HEADER, Path::new(GRADLE_CLASSPATH)),
+        )?;
+        std::fs::write(
+            target_dir.join(GRADLE_SETTINGS),
+            format!("{GRADLE_HEADER}\n\nrootProject.name = \"salvo-host\"\n"),
+        )?;
+        Ok(files.iter().map(PathBuf::from).collect())
+    }
+
     /// [kt-run] `kotlinc` every emitted `.kt` file into a classes directory
     /// inside the target, then `kotlin -cp` that directory with the entry
     /// class. Companion files [backend-companion] are `.kt` too, so they
@@ -153,7 +199,42 @@ impl Backend for KotlinBackend {
                 "nothing to run: no Kotlin sources were emitted".to_string(),
             ));
         }
-        let jars = host.kotlin_jars();
+        // [kt-gradle] Gradle resolves the declared artifacts first; their
+        // jars come before the `libs` directories' on both classpaths.
+        let mut jars = Vec::new();
+        if host.has_kotlin_artifacts() {
+            if !target_dir.join(GRADLE_BUILD).is_file() {
+                return Err(BackendError::Other(format!(
+                    "artifacts are declared but `{}` was not written [kt-gradle]",
+                    target_dir.join(GRADLE_BUILD).display()
+                )));
+            }
+            let out = target_dir.join(GRADLE_CLASSPATH);
+            let _ = std::fs::remove_file(&out);
+            let code = salvo_backend::run_host_tool(
+                &host.gradle_program(),
+                "[kotlin] gradle",
+                &[
+                    OsStr::new("--quiet"),
+                    OsStr::new("--project-dir"),
+                    target_dir.as_os_str(),
+                    OsStr::new("salvoClasspath"),
+                ],
+            )?;
+            if code != 0 {
+                return Err(BackendError::Other(format!(
+                    "Gradle failed with exit code {code} resolving `[kotlin] artifacts` [kt-gradle]"
+                )));
+            }
+            let listed = std::fs::read_to_string(&out).map_err(|e| {
+                BackendError::Other(format!(
+                    "Gradle ran but wrote no classpath to `{}`: {e} [kt-gradle]",
+                    out.display()
+                ))
+            })?;
+            jars.extend(listed.lines().filter(|l| !l.trim().is_empty()).map(PathBuf::from));
+        }
+        jars.extend(host.kotlin_jars());
         let classpath = |leading: &Path| {
             std::env::join_paths(std::iter::once(leading.to_path_buf()).chain(jars.iter().cloned()))
                 .map_err(|e| BackendError::Other(format!("cannot build a classpath: {e}")))

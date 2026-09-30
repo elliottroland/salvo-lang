@@ -1444,7 +1444,8 @@ facts worth knowing") and keeps the history ("One shape for effects").
   verbatim from the merged `HostDeps` (a table spec becomes a
   `[dependencies.<name>]` section; a `path` is already absolute).
   `program_command` then runs `cargo build --quiet --manifest-path … --target-dir
-  <target>/.salvo_bin` and launches `.salvo_bin/debug/<name>`; `entry_hint`
+  <target>/.salvo_bin` — with the cargo `[rust] cargo` names [host-tool] — and
+  launches `.salvo_bin/debug/<name>`; `entry_hint`
   names the cargo command. With **no** crates declared nothing changes: bare
   `rustc`, no manifest — and a manifest this backend wrote earlier (recognised
   by its first line, `CARGO_HEADER`) is removed, a hand-written one left alone.

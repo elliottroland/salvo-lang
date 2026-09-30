@@ -742,11 +742,24 @@ nothing but the monitor.
   Every `*.jar` under the merged `HostDeps::kotlin_libs` directories is passed
   to `kotlinc` as `-cp` (joined with the platform's path separator) and
   prepended to the `kotlin -cp` of the run after the classes directory. With
-  no `libs` declared both invocations are exactly what they were. `artifacts`
-  are not consulted here: they are recorded in the manifest for the resolver
-  the compiler does not have yet, and a jar directory the project's own
-  tooling fills is what makes a companion's `import aws.sdk.kotlin.…` compile
-  today.
+  no `libs` and no `artifacts` declared both invocations are exactly what they
+  were. The jars Gradle resolves [kt-gradle] come first, then the `libs` ones.
+* [kt-gradle] [platform-host-deps] [host-tool] **With artifacts declared,
+  Gradle resolves them** (user decisions 2026-09-30: Kotlin → Gradle as Rust →
+  Cargo; resolve only, `kotlinc` still compiles). `write_host_manifest`
+  writes `settings.gradle.kts` (the target is its own Gradle root, so no
+  enclosing build is picked up) and `build.gradle.kts` beside the sources:
+  `mavenCentral()`, one configuration holding every merged coordinate, the
+  build directory under `.salvo_gradle/`, and a `salvoClasspath` task writing
+  the resolved jars' absolute paths to `.salvo_gradle/classpath.txt`.
+  `program_command` runs `<gradle> --quiet --project-dir <target>
+  salvoClasspath` first and reads that file. Gradle's rules apply, which is
+  the point: its module metadata, so a multiplatform coordinate
+  (`aws.sdk.kotlin:sqs:1.9.11`) resolves to its JVM variant, and the highest
+  version on a conflict — for the aws SDK the same 40 jars its generator's
+  build used to copy into `lib/kotlin`. Both files start with `GRADLE_HEADER`;
+  with no artifacts, ones this backend wrote are removed, hand-written ones
+  left alone. The script uses no API newer than Gradle 7.
 * [kt-platform-host] [platform-tree] [cli-platform] The host file for module
   `M` is `platform/<M>.kt`, and its Kotlin package is
   **`salvo.platform.<M>`** — not `salvo.<M>`. Kotlin names a file's facade

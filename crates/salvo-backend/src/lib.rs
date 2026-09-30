@@ -214,6 +214,36 @@ pub fn run_tool(program: &str, args: &[&std::ffi::OsStr]) -> Result<i32, Backend
     }
 }
 
+/// [host-tool] Runs a host build tool — `cargo`, Gradle — the same way for
+/// both backends: `program` is the manifest's setting or the default command,
+/// and a missing one is reported naming the setting (`key`, like
+/// `[rust] cargo`) that points somewhere else. `Ok(code)` is the tool's own
+/// exit code. The tool's stdout goes to stderr: it builds the program and is
+/// not part of its output (a Gradle wrapper announces its first download on
+/// stdout, which `salvo run` would otherwise pass off as the program's).
+pub fn run_host_tool(
+    program: &std::path::Path,
+    key: &str,
+    args: &[&std::ffi::OsStr],
+) -> Result<i32, BackendError> {
+    use std::process::{Command, Stdio};
+    match Command::new(program).args(args).stdout(Stdio::from(std::io::stderr())).status() {
+        Ok(status) => Ok(status.code().unwrap_or(1)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            let place = if program.components().count() > 1 {
+                format!("`{}` does not exist", program.display())
+            } else {
+                format!("`{}` was not found on PATH", program.display())
+            };
+            Err(BackendError::Unsupported(format!(
+                "{place}: it builds the declared host libraries — install it, or name the \
+                 one to use with `{key} = \"…\"` in `salvo.toml` [host-tool]"
+            )))
+        }
+        Err(err) => Err(BackendError::Io(err)),
+    }
+}
+
 /// Registry of available backends, keyed by name.
 #[derive(Default)]
 pub struct BackendRegistry {

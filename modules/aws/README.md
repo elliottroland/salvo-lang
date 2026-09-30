@@ -24,7 +24,6 @@ modules/aws/
 │   ├── aws/s3/host.sv  generated: `HostS3`, declared
 │   └── platform/aws/{sqs,s3}/host.sv.{kt,rs}   generated platform templates: the
 │                       SDK glue, host code with Salvo between backticks
-├── lib/kotlin/         (not checked in) the Kotlin SDK jars, fetched by Gradle
 └── demo/               programs against the real SDKs, run by hand:
     ├── sqs_live/       + local_sqs.py, an in-memory SQS
     └── s3_live/        + local_s3.py, an in-memory S3
@@ -117,9 +116,7 @@ Then check the surface still types: `../../../target/debug/salvo analyze` from
 **Adding an operation** is a line in `smithy-build.json`'s `operations` list.
 **Adding a service** is a projection: import its model, name the module, the
 effect, the Rust crate and the Kotlin package — and add the crate to
-`salvo.toml`'s `[rust] crates` and the artifact to `[kotlin] artifacts` and to
-`codegen/build.gradle.kts`'s `kotlinSdk` configuration (then run
-`./gradlew fetchKotlinSdk` again). Two more settings exist for services that
+`salvo.toml`'s `[rust] crates` and the artifact to `[kotlin] artifacts`. Two more settings exist for services that
 need them: `forcePathStyle` (S3: with an `endpoint` override, address buckets
 in the path, which a local stand-in needs) and `omitMembers`, a list of member
 shape ids to leave out where the SDKs customize a member away from the model
@@ -149,14 +146,12 @@ checksum algorithms), so move the SDK versions forward with it.
 
 The host glue compiles against the SDKs, which have to be fetched once:
 
-- **Kotlin** — the compiler does not resolve Maven coordinates yet, so the
-  module's Gradle build copies the SDK's jar closure into `lib/kotlin/`, which
-  `[kotlin] libs` puts on the classpath:
-
-  ```bash
-  cd modules/aws/codegen
-  ./gradlew fetchKotlinSdk    # ~40 jars into ../lib/kotlin (S3 and SQS)
-  ```
+- **Kotlin** — nothing to do by hand either: with `[kotlin] artifacts`
+  declared, `salvo run` writes a `build.gradle.kts` and has Gradle resolve the
+  SDK (about 40 jars for S3 and SQS) from Maven Central. Gradle is whatever
+  `[kotlin] gradle` names in the project being built, else `gradle` on PATH;
+  the demos name the generator's wrapper, `codegen/gradlew`, so no Gradle
+  install is needed.
 
 - **Rust** — nothing to do by hand: with `[rust] crates` declared, `salvo run`
   writes a `Cargo.toml` and builds with `cargo`, which fetches `aws-config`,

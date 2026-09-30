@@ -9,3 +9,8 @@ modules = "../../.."
 
 [dependencies]
 aws = "0.1.0"
+
+[kotlin]
+# [host-tool] The aws generator's Gradle wrapper resolves the SDK, so the demo
+# needs no Gradle installed.
+gradle = "../../codegen/gradlew"
