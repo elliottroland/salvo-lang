@@ -1601,8 +1601,10 @@ pub enum Expr {
     /// String literal with interpolation parts.
     Str { parts: Vec<StrExprPart>, span: Span },
     /// [host-splice] `` `…` ``: host code inside a hole, written through
-    /// verbatim; it takes the type the hole expects of it.
-    HostLeaf { text: String, span: Span },
+    /// verbatim; it takes the type the hole expects of it — or, ascribed as
+    /// `` (`…` : T) ``, the type written, so a hole can read its fields or
+    /// test its arm.
+    HostLeaf { text: String, ty: Option<Type>, span: Span },
     /// A variable or type-name reference.
     Ident(Ident),
     /// `expr.field`

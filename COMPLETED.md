@@ -135,6 +135,23 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Host splices: typed host names and Salvo state (2026-09-30, user
+decisions).** Asked for a concrete case, the user proposed annotating a Kotlin
+lambda's parameter with a type hole; the answer was that the compiler never
+reads host text, so the annotation must itself be a hole — the user took both
+forms recommended: a **declaring hole** `@{a : T}` (a name nothing declares,
+rendered `a: T`, readable by later holes of the block) and an **ascribed leaf**
+`` (`e` : T) `` for what has no binding site. And **Salvo state** in a handler
+written in place — the user's shape, "if they want something more extreme they
+write it from scratch in a platform file" — refused on a `threadsafe` handler
+for now; a Rust block declaring `struct H` takes the layout over instead.
+Building it required **[handler-state]**: a state initialiser may read the
+constructor's parameters, for every handler (it could not). Tests: 2 checker
+tests, one CLI test on both backends (state, both typed forms, an ordinary
+handler reading its constructor). The user also set the **commit
+convention** now in AGENTS.md: one commit per piece of work, a short plain
+message.
+
 **Host code with Salvo splices — built (2026-09-30).** [host-splice]: the lexer
 reads a fenced block as one token (text and `@{…}` holes, a `` `…` `` inside a
 hole skipped whole so host braces do not close it) and a bare `` `…` `` as a

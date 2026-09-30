@@ -3548,6 +3548,18 @@ impl<'p> Emitter<'p> {
             match part {
                 HostBlockPart::Text(t) => text.push_str(t),
                 HostBlockPart::Hole(hole) => {
+                    // A declaring hole: the name and its type.
+                    if self.checked.host_decls.contains(&(self.file_idx, hole.span)) {
+                        let name = match &hole.expr {
+                            Some(Expr::Ident(id)) => id.name.clone(),
+                            _ => String::new(),
+                        };
+                        let ty = self.checked.host_types.get(&(self.file_idx, hole.span)).cloned();
+                        let rendered = ty.map(|t| self.rust_ty(&t)).unwrap_or_default();
+                        self.bindings.insert(name.clone(), BindKind::Owned);
+                        text.push_str(&format!("{name}: {rendered}"));
+                        continue;
+                    }
                     let rendered = match &hole.expr {
                         Some(e) => self.emit_expr(e),
                         None => match self.checked.host_types.get(&(self.file_idx, hole.span)).cloned() {
@@ -3879,10 +3891,29 @@ impl<'p> Emitter<'p> {
         // `HostX::new(…)` (`handler_ctor_path`). The generated *trait* is the
         // effect's, emitted as any effect's is — which is what the host
         // struct implements.
-        if h.platform && h.spliced {
+        // [host-splice] A handler written in place whose ```rust block declares
+        // its own struct owns the layout; otherwise it is emitted like any
+        // handler — struct, `new`, state — with the block beside it.
+        let owns_struct = h.spliced && h.host.iter().any(|b| b.lang == "rust" && host_declares_struct(b, &h.name.name));
+        if h.platform && owns_struct {
+            if let Some(field) = h.state.first() {
+                self.error(format!(
+                    "`platform handler {}` declares `struct {}` in its ```rust block, so it holds no \
+                     Salvo state (`{}`): drop the struct and let the compiler lay it out [host-splice]",
+                    h.name.name, h.name.name, field.name.name
+                ));
+            }
             return self.emit_spliced_handler(h);
         }
-        if h.platform {
+        let mut host_blocks = String::new();
+        if h.spliced {
+            for block in h.host.iter().filter(|b| b.lang == "rust") {
+                host_blocks.push('\n');
+                let text = self.render_host(block, 0);
+                host_blocks.push_str(&text);
+            }
+        }
+        if h.platform && !h.spliced {
             return String::new();
         }
         // [effect-handler-deps] [rs-handle] Dependencies are the handler's
@@ -4175,6 +4206,7 @@ impl<'p> Emitter<'p> {
         // [rs-actor] The body a `spawn` boxes, for a handler that can be
         // one: the message dispatch onto its members.
         out.push_str(&self.emit_actor_body(h));
+        out.push_str(&host_blocks);
         self.generics = saved;
         out
     }
@@ -11586,7 +11618,8 @@ impl<'p> Emitter<'p> {
             Expr::Bool { value, .. } => value.to_string(),
             Expr::Char { value, .. } => format!("'{}'", escape_char(*value)),
             // [host-splice] Host code inside a hole, as it was written.
-            Expr::HostLeaf { text, .. } => text.clone(),
+            Expr::HostLeaf { text, ty: None, .. } => text.clone(),
+            Expr::HostLeaf { text, ty: Some(_), .. } => format!("({text})"),
             Expr::Str { parts, .. } => self.emit_string(parts),
             Expr::Ident(_) | Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
                 unreachable!("place expressions are handled by the callers")
@@ -18482,4 +18515,18 @@ fn reindent(lines: &[&str], indent: usize) -> String {
         }
     }
     out
+}
+
+/// [host-splice] Whether a handler-level ```rust block declares the handler's
+/// struct itself (`struct H` / `pub struct H`), taking over its layout.
+fn host_declares_struct(block: &HostBlock, name: &str) -> bool {
+    block.parts.iter().any(|p| match p {
+        HostBlockPart::Text(t) => t.lines().any(|l| {
+            let l = l.trim_start();
+            let l = l.strip_prefix("pub ").unwrap_or(l);
+            l.strip_prefix("struct ")
+                .is_some_and(|rest| rest.starts_with(name) && !rest[name.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+        }),
+        _ => false,
+    })
 }

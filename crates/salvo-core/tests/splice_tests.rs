@@ -6,7 +6,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Bool\nexport intrinsic type Str\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Bool\nexport intrinsic type Str\nexport intrinsic type List<T>\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -55,11 +55,27 @@ fn a_host_body_names_a_backend_once_and_writes_its_clause() {
 }
 
 #[test]
-fn a_platform_handler_written_in_place_has_host_members_and_no_salvo_state() {
+fn a_platform_handler_written_in_place_has_host_members_and_no_threadsafe_state() {
     let src = "effect E {\n    fn go(n: Int) -> Int => n\n}\nplatform handler H of E {\n    count: Int = 0\n    fn go(n: Int) -> Int => n {\n        return n\n    }\n}\n";
     let errs = errors(src);
     assert!(errs.iter().any(|e| e.contains("needs a body in host code")), "{errs:?}");
-    assert!(errs.iter().any(|e| e.contains("state is the host's")), "{errs:?}");
+    assert!(!errs.iter().any(|e| e.contains("state")), "state is allowed: {errs:?}");
+    let src = "effect E {\n    fn go(n: Int) -> Int => n\n}\nthreadsafe platform handler H of E {\n    count: Int = 0\n    fn go(n: Int) -> Int => n\n    ```kotlin\n    return @{count}\n    ```\n}\n";
+    let errs = errors(src);
+    assert!(errs.iter().any(|e| e.contains("cannot hold Salvo state yet")), "{errs:?}");
+}
+
+#[test]
+fn typed_host_names_are_checked() {
+    let base = "struct A { x: Int }\nfn f(xs: List<A>) [] -> Int => xs\n```kotlin\nreturn xs.map { HOLE -> USE }.sum()\n```\n";
+    let ok = base.replace("HOLE", "@{a : A}").replace("USE", "@{a.x}");
+    assert_eq!(errors(&ok), Vec::<String>::new());
+    let wrong = base.replace("HOLE", "@{a : A}").replace("USE", "@{a.y}");
+    assert!(!errors(&wrong).is_empty(), "no field `y`");
+    let leaf = base.replace("HOLE", "a").replace("USE", "@{ (`a` : A).x }");
+    assert_eq!(errors(&leaf), Vec::<String>::new());
+    let leaf_wrong = base.replace("HOLE", "a").replace("USE", "@{ (`a` : A).y }");
+    assert!(!errors(&leaf_wrong).is_empty(), "no field `y` on an ascribed leaf");
 }
 
 #[test]

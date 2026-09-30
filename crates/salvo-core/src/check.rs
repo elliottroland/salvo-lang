@@ -425,6 +425,10 @@ pub struct Checked {
     /// [host-splice] The type written in a `@{ … : T }` or `@{ : T }` hole,
     /// keyed by the hole's span: what a backend renders for `: T`.
     pub host_types: HashMap<Key, Ty>,
+    /// [host-splice] Holes that *declare* a typed host name — `@{a : T}`
+    /// with `a` not otherwise in scope — keyed by the hole's span: a backend
+    /// renders `a: T`, and later holes of the block may name `a`.
+    pub host_decls: HashSet<Key>,
     /// Keyed by the span of the `is` expression or the `when` branch.
     pub is_tests: HashMap<Key, UnionTest>,
     /// Predicate-qualifier `is` checks on non-union subjects, keyed by the
@@ -1819,6 +1823,9 @@ struct Checker<'p, 'r> {
     lit_spans: HashMap<Key, TypeLit>,
     /// [host-splice] Checking a `@{…}` hole, where host code may stand.
     in_hole: bool,
+    /// [host-splice] The state of the handler whose member's host body is
+    /// being checked.
+    host_state: &'p [FieldDecl],
     /// [linear-group] The parameter name of the designated `close` currently
     /// being checked, if this fn is one: its obligation is discharged by
     /// being closed.
@@ -2117,6 +2124,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             own_contract: None,
             lit_spans: HashMap::new(),
             in_hole: false,
+            host_state: &[],
             own_discharges: std::collections::HashSet::new(),
             own_written: Vec::new(),
             lambda_ctx: Vec::new(),
@@ -2590,7 +2598,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // expression's types.)
                         if let Some(default) = &field.default {
                             let expected = self.lower_type(&field.ty);
-                            self.locals.push(HashMap::new());
+                            // [handler-state] An initialiser may read the constructor's
+                            // parameters: the state is built from them, once, at construction.
+                            let frame = self.read_only_frame(&h.params);
+                            self.locals.push(frame);
                             let got = self.check_expr(default, Some(&expected));
                             self.locals.pop();
                             if !is_subtype(&got, &expected) {
@@ -3801,11 +3812,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                 }
             }
-            if let Some(field) = h.state.first() {
+            // Salvo state is the compiler's to lay out, as for any handler —
+            // except where members may run concurrently, which would need a
+            // synchronized layout nobody has designed yet.
+            if let (true, Some(field)) = (h.threadsafe, h.state.first()) {
                 self.error(
                     field.name.span,
-                    "a platform handler's state is the host's: declare it in the handler-level \
-                     host block [host-splice]",
+                    "a `threadsafe` platform handler cannot hold Salvo state yet: its members run \
+                     concurrently, and the state has no synchronized layout — keep it in the host, or \
+                     drop `threadsafe` [host-splice]",
                 );
             }
             // A handler may hold one handler-level block per backend; its
@@ -6452,14 +6467,49 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [handler-state] A frame of read-only locals for [params] — the
+    /// constructor parameters a state initialiser may read.
+    fn read_only_frame(&mut self, params: &'p [Param]) -> HashMap<String, LocalVar> {
+        let mut frame = HashMap::new();
+        for p in params {
+            let ty = self.lower_type(&p.ty);
+            let id = self.next_var_id;
+            self.next_var_id += 1;
+            frame.insert(
+                p.name.name.clone(),
+                LocalVar {
+                    declared: ty.clone(),
+                    narrowed: ty,
+                    id,
+                    links: Vec::new(),
+                    poison: None,
+                    consumed_by: None,
+                    linear_settled: false,
+                    is_param: true,
+                    for_origin: None,
+                    decl_span: p.name.span,
+                    lambda_kept: true,
+                    is_handler_state: false,
+                    widened: None,
+                    place_narrows: Vec::new(),
+                    moved_places: Vec::new(),
+                    used: true,
+                },
+            );
+        }
+        frame
+    }
+
     /// [host-splice] A body written in the host languages. The written clause
     /// is the whole contract [decl-explicit] and the host code discharges
     /// what it consumes, so no obligation is tracked here; what is checked is
     /// the blocks (a known language, once each) and every hole — `: T` as a
     /// type, `e` as an expression with the parameters in scope, `e : T` as
     /// one of `T`, recording the coercion a backend renders.
-    fn check_host_body(&mut self, f: &'p FnDecl, extra_params: &'p [Param]) {
+    fn check_host_body(&mut self, f: &'p FnDecl, extra_params: &'p [Param], state: &'p [FieldDecl]) {
+        let saved = std::mem::replace(&mut self.host_state, state);
         self.check_host_blocks(&f.host, extra_params.iter().chain(&f.params), &format!("fn {}", f.name.name));
+        self.host_state = saved;
     }
 
     /// [host-splice] The shared half: [blocks]' languages, and every hole with
@@ -6519,6 +6569,30 @@ impl<'p, 'r> Checker<'p, 'r> {
                 },
             );
         }
+        // A handler's state, readable from its members' holes.
+        for field in self.host_state {
+            let ty = self.lower_type(&field.ty);
+            let id = self.next_var_id;
+            self.next_var_id += 1;
+            top.entry(field.name.name.clone()).or_insert(LocalVar {
+                declared: ty.clone(),
+                narrowed: ty,
+                id,
+                links: Vec::new(),
+                poison: None,
+                consumed_by: None,
+                linear_settled: false,
+                is_param: false,
+                for_origin: None,
+                decl_span: field.name.span,
+                lambda_kept: true,
+                is_handler_state: true,
+                widened: None,
+                place_narrows: Vec::new(),
+                moved_places: Vec::new(),
+                used: true,
+            });
+        }
         self.locals.push(top);
         let saved_hole = std::mem::replace(&mut self.in_hole, true);
         for block in blocks {
@@ -6530,6 +6604,36 @@ impl<'p, 'r> Checker<'p, 'r> {
                 });
                 if let Some(ty) = &want {
                     self.out.host_types.insert(self.key(hole.span), ty.clone());
+                }
+                // A bare name nothing declares, with a type: a declaration.
+                if let (Some(Expr::Ident(id)), Some(ty)) = (&hole.expr, &want) {
+                    if self.lookup(&id.name).is_none() {
+                        let var = LocalVar {
+                            declared: ty.clone(),
+                            narrowed: ty.clone(),
+                            id: self.next_var_id,
+                            links: Vec::new(),
+                            poison: None,
+                            consumed_by: None,
+                            linear_settled: false,
+                            is_param: true,
+                            for_origin: None,
+                            decl_span: id.span,
+                            lambda_kept: true,
+                            is_handler_state: false,
+                            widened: None,
+                            place_narrows: Vec::new(),
+                            moved_places: Vec::new(),
+                            used: true,
+                        };
+                        self.next_var_id += 1;
+                        self.out.expr_ty.insert(self.key(id.span), ty.clone());
+                        if let Some(frame) = self.locals.last_mut() {
+                            frame.insert(id.name.clone(), var);
+                        }
+                        self.out.host_decls.insert(self.key(hole.span));
+                        continue;
+                    }
                 }
                 if let Some(e) = &hole.expr {
                     let got = self.check_expr(e, want.as_ref());
@@ -6903,7 +7007,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .insert(key, fn_effects.iter().map(|a| a.ty.clone()).collect());
         }
         if !f.host.is_empty() {
-            self.check_host_body(f, extra_params);
+            self.check_host_body(f, extra_params, state);
             self.generics = saved_generics;
             return;
         }
@@ -20252,6 +20356,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Char { .. } => Ty::named("Char"),
             // [host-splice] Host code is the type the hole expects of it; out
             // of a hole there is nothing to expect, and it is refused.
+            Expr::HostLeaf { ty: Some(ty), span, .. } if self.in_hole => {
+                let _ = span;
+                self.validate_type(ty);
+                self.lower_type(ty)
+            }
             Expr::HostLeaf { span, .. } => match expected {
                 Some(t) if self.in_hole => t.clone(),
                 _ => {

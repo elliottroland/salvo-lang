@@ -336,19 +336,15 @@ fn a_platform_handler_with_a_body_is_rejected() {
     );
 }
 
-/// [platform-handler] [effect-handler] [host-splice] State is a body too: a host
-/// class hangs its own state on itself, in its own language — the handler-level
-/// host block.
+/// [platform-handler] [host-splice] A handler written in place may hold Salvo
+/// state — except a `threadsafe` one, whose members run concurrently.
 #[test]
-fn a_platform_handler_with_state_is_rejected() {
+fn a_threadsafe_platform_handler_with_state_is_rejected() {
     let errs = messages(&src(
         "effect Clock {\n    fn now() [] -> Int\n}\n\n\
-         platform handler HostClock of Clock {\n    ticks: Int = 0\n}\n",
+         threadsafe platform handler HostClock of Clock {\n    ticks: Int = 0\n}\n",
     ));
-    assert!(
-        errs.iter().any(|m| m.contains("state is the host's: declare it in the handler-level")),
-        "got {errs:?}"
-    );
+    assert!(errs.iter().any(|m| m.contains("cannot hold Salvo state yet")), "got {errs:?}");
 }
 
 /// [platform-handler] [effect-handler-deps] A dependency is supplied *to a

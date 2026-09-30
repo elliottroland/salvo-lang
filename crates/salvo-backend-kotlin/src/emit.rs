@@ -2216,6 +2216,18 @@ impl<'p> Emitter<'p> {
             match part {
                 HostBlockPart::Text(t) => text.push_str(t),
                 HostBlockPart::Hole(hole) => {
+                    // A declaring hole: the name and its type.
+                    if self.checked.host_decls.contains(&(self.file_idx, hole.span)) {
+                        let name = match &hole.expr {
+                            Some(Expr::Ident(id)) => id.name.clone(),
+                            _ => String::new(),
+                        };
+                        let ty = self.checked.host_types.get(&(self.file_idx, hole.span)).cloned();
+                        let rendered = ty.map(|t| self.emit_ty(&t)).unwrap_or_default();
+                        
+                        text.push_str(&format!("{name}: {rendered}"));
+                        continue;
+                    }
                     let rendered = match &hole.expr {
                         Some(e) => self.emit_expr(e),
                         None => match self.checked.host_types.get(&(self.file_idx, hole.span)).cloned() {
@@ -6621,7 +6633,8 @@ impl<'p> Emitter<'p> {
             Expr::Bool { value, .. } => value.to_string(),
             Expr::Char { value, .. } => format!("'{}'", escape_char(*value)),
             // [host-splice] Host code inside a hole, as it was written.
-            Expr::HostLeaf { text, .. } => text.clone(),
+            Expr::HostLeaf { text, ty: None, .. } => text.clone(),
+            Expr::HostLeaf { text, ty: Some(_), .. } => format!("({text})"),
             Expr::Str { parts, .. } => self.emit_string(parts),
             Expr::Ident(id) => {
                 if id.name == "None" {

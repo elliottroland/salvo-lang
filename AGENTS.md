@@ -224,6 +224,18 @@ run after a relink.)
   cargo run -- compile --backend kotlin --src ./some_dir --target ./out
   ```
 
+## Commits
+
+- **One commit per piece of work, not per step** (user decision 2026-09-30).
+  A feature's syntax, checker, emitters, tests, spec and docs — and the
+  decision-log entry that records it — land together. Do not commit decisions,
+  docs updates or ROADMAP edits on their own.
+- **The message is short and plain**: an imperative sentence saying what the
+  change does, as the user writes them — "Add basic support for module
+  dependencies", "Stream S3 request bodies". No rule labels, no lists of
+  what changed; the commit itself says that. The commit may be large; the
+  message may not.
+
 ## Source style
 
 Small conventions the user has stated; keep them when writing or rewriting

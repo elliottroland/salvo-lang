@@ -8196,6 +8196,11 @@ replaced the working document TESTING.md).
   — a trap [stream-provider] — and never another live stream, which is what
   per-table counters starting at 1 made likely. Making the mismatch a
   compile-time error is ROADMAP §4b item 4.
+* [handler-state] **A handler's state initialiser may read its constructor's
+  parameters** (user decision 2026-09-30): `handler Counting(start: Int) of
+  Counter { at: Int = start * 2 }`. The state is built once, at construction,
+  so the parameters are in scope read-only. Kotlin initialises the field from
+  the constructor's `val`; Rust inside `new`.
 * [host-splice] **Host code written in Salvo files** (user decisions
   2026-09-30): a body in the host languages — fenced blocks, `` ```kotlin …
   ``` `` and `` ```rust … ``` ``, one per backend, where a `{` would open (on
@@ -8214,6 +8219,22 @@ replaced the working document TESTING.md).
     handler's constructor parameters — in scope. The set is deliberately
     closed; full Salvo expressions with typed host escapes are recorded in
     ROADMAP's "not scheduled" to revisit.
+  * **Typed host names** (user decision 2026-09-30): a hole `@{a : T}` whose
+    `a` names nothing in scope **declares** a host name of Salvo type `T` —
+    rendered `a: T` on both backends — which later holes of the block may read
+    (`@{a.string_value}`); its scope is the rest of the block, since the
+    checker cannot see host scopes. Where there is no binding to declare (a
+    Rust pattern, a chain, an arm test), an **ascribed leaf** `` (`e` : T) ``
+    gives host code a Salvo type inside a hole: `` @{ (`first` : Attr).data_type } ``,
+    rendered `(e)` and read like any value of `T`.
+  * **State** (user decision 2026-09-30): a handler written in place may hold
+    Salvo state, laid out by the compiler as for any handler and read and
+    written through holes (`@{at} += step`: a hole renders the field, which is
+    also a valid target). Refused on a `threadsafe` handler for now — its
+    members run concurrently and the state has no synchronized layout. A Rust
+    block that declares the handler's own `struct H` takes the layout over
+    instead (and then holds no Salvo state); anything more unusual belongs in
+    a hand-written `platform/` file.
   * **The contract is the written clause** [decl-explicit], complete, since the
     body is opaque; no obligation is tracked through host code.
   * **Blocks**: a known language (`kotlin`, `rust`), each once.

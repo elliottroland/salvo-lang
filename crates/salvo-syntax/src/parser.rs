@@ -5497,7 +5497,19 @@ impl<'s> Parser<'s> {
             }
             TokenKind::HostLeaf(text) => {
                 let tok = self.bump();
-                Some(Expr::HostLeaf { text, span: tok.span })
+                Some(Expr::HostLeaf { text, ty: None, span: tok.span })
+            }
+            // [host-splice] `` (`…` : T) ``: host code given a Salvo type.
+            TokenKind::LParen
+                if matches!(self.peek_at(1).kind, TokenKind::HostLeaf(_))
+                    && matches!(self.peek_at(2).kind, TokenKind::Colon) =>
+            {
+                let start = self.bump().span;
+                let TokenKind::HostLeaf(text) = self.bump().kind else { unreachable!() };
+                self.bump();
+                let ty = self.parse_type()?;
+                let end = self.expect(&TokenKind::RParen)?.span;
+                Some(Expr::HostLeaf { text, ty: Some(ty), span: start.to(end) })
             }
             TokenKind::Str(parts) => {
                 let tok = self.bump();

@@ -1288,3 +1288,86 @@ fn main() [use] {
     println("${next(5)} ${next(1)}")
 }
 "#;
+
+/// [host-splice] [handler-state] A platform handler written in place holding
+/// Salvo state (laid out by the compiler, read and written through `@{at}`),
+/// a declaring hole (`@{a : Attr}`) and an ascribed host leaf
+/// (`` @{ (`first` : Attr).data_type } ``), on both backends with the same
+/// stdout; and an ordinary handler whose state initialiser reads its
+/// constructor parameter.
+#[test]
+fn host_splices_hold_state_and_typed_names() {
+    let Some(__stamp) = e2e_stamp("host_splices_state", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("host_splices_state");
+    fs::write(dir.join("main.sv"), SPLICE_STATE_PROGRAM).unwrap();
+    let expected = "15 16\n25 26\nString=hi, Number=- / String\n";
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), expected, "{backend}");
+    }
+    __stamp.verified();
+}
+
+const SPLICE_STATE_PROGRAM: &str = r#"struct Attr { data_type: Str, string_value: Str? = None }
+
+effect Counter {
+    fn next(step: Int) -> Int => step
+}
+
+// Salvo state: the compiler lays it out on both backends, and holes read it.
+platform handler HostCounter(start: Int) of Counter {
+    at: Int = start
+
+    fn next(step: Int) -> Int => step
+    ```kotlin
+        @{at} += step
+        return @{at}
+    ```
+    ```rust
+        @{at} += step;
+        @{at}
+    ```
+}
+
+// Typed host names: a declaring hole, and an ascribed leaf.
+fn describe(attrs: List<Attr>) [] -> Str => attrs
+```kotlin
+    val a = @{attrs}.map { @{a : Attr} -> @{a.data_type} + "=" + (@{a.string_value} ?: "-") }
+    val first = @{attrs}.first()
+    return a.joinToString(", ") + " / " + @{ (`first` : Attr).data_type }
+```
+```rust
+    let a: Vec<String> = @{attrs}.iter().map(|@{a : Attr}| format!("{}={}", @{a.data_type}, @{a.string_value}.unwrap_or("-".to_string()))).collect();
+    let all = @{attrs};
+    let first = all.first().unwrap();
+    format!("{} / {}", a.join(", "), @{ (`first` : Attr).data_type })
+```
+
+// [handler-state] An ordinary handler's state may read its constructor too.
+handler Counting(start: Int) of Counter {
+    at: Int = start * 2
+
+    fn next(step: Int) -> Int => step {
+        at = at + step
+        return at
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    if true {
+        use HostCounter(10)
+        println("${next(5)} ${next(1)}")
+    }
+    if true {
+        use Counting(10)
+        println("${next(5)} ${next(1)}")
+    }
+    println(describe([Attr { data_type: "String", string_value: "hi" }, Attr { data_type: "Number" }]))
+}
+"#;
