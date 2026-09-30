@@ -135,6 +135,18 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The aws glue's drift test (2026-09-30; step 1 of the order the user set
+after the literal-union / splices discussion).** The generator writes host code
+naming what the emitters produce (`UnionN`, `U2_1`, `Checked`, module paths),
+so an emission change breaks the glue — loudly, but only a hand-run demo would
+notice. `the_aws_glue_compiles_against_both_sdks` (`platform_tests.rs`)
+compiles both live demos' trees: `cargo check --offline` with one shared
+target directory, and `kotlinc` against `modules/aws/lib/kotlin`; it skips,
+saying so, when the crates are not cached or the jars not fetched. Stamped on
+the generated trees' content, so it reruns only when emission or the glue
+changed (72s cold, under a second warm); a deliberately broken arm in either
+glue fails it. **1658 tests.**
+
 **Streaming uploads, and the JVM's exit (2026-09-30, user decisions).** Asked
 what streaming uploads needed: a length, since both SDKs stream only a body of
 known size (aws-sdk-s3 refuses an unsized one for `aws-chunked`) and S3 refuses
@@ -18902,7 +18914,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1657)
+## Test inventory (all green: 1658)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

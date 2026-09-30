@@ -653,3 +653,130 @@ fn main() [use, Slow] {
     }
     __stamp.verified();
 }
+
+/// Every file under [dir] as (relative path, contents), sorted, skipping
+/// hidden directories and cargo's `target/` — the generated tree, as input to
+/// a content stamp.
+fn tree_contents(dir: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for entry in fs::read_dir(&d).unwrap().flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if path.is_dir() {
+                if !name.starts_with('.') && name != "target" {
+                    stack.push(path);
+                }
+            } else {
+                let rel = path.strip_prefix(dir).unwrap().display().to_string();
+                out.push((rel, fs::read(&path).unwrap()));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// A stamp keyed on the *generated code* (and the toolchains), not on the
+/// `salvo` binary: the glue has to be recompiled only when what it is
+/// compiled with changed.
+fn content_stamp(what: &str, tree: &[(String, Vec<u8>)], tools: &[&str]) -> Option<salvo_testkit::Stamp> {
+    let mut parts: Vec<Vec<u8>> = vec![what.as_bytes().to_vec()];
+    for (path, bytes) in tree {
+        parts.push(path.as_bytes().to_vec());
+        parts.push(bytes.clone());
+    }
+    for tool in tools {
+        parts.push(salvo_testkit::tool(env!("CARGO_TARGET_TMPDIR"), tool).version.into_bytes());
+    }
+    let refs: Vec<&[u8]> = parts.iter().map(|p| p.as_slice()).collect();
+    salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), what, &refs)
+}
+
+/// [platform-tree] [platform-host-deps] The `aws` module's **generated** host
+/// glue (`modules/aws/salvo/platform/aws/**`) compiles against the real SDKs,
+/// through the two live demos that reach it. The generator writes host code
+/// that names what the Salvo emitters produce (`UnionN`, `Checked`, a
+/// module's Rust path, a Kotlin data class), so a change to emission breaks
+/// it — loudly, but until now only when someone ran a demo by hand. Skips,
+/// saying so, when the SDKs are not available locally: the crates not in
+/// cargo's cache (checked `--offline`), or `modules/aws/lib/kotlin` not
+/// fetched (`./gradlew fetchKotlinSdk`). Keyed on the generated trees, so it
+/// reruns only when emission or the glue changed.
+#[test]
+fn the_aws_glue_compiles_against_both_sdks() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
+    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    let jars: Vec<PathBuf> = fs::read_dir(repo.join("modules/aws/lib/kotlin"))
+        .map(|d| {
+            d.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "jar"))
+                .collect()
+        })
+        .unwrap_or_default();
+    for demo in ["sqs_live", "s3_live"] {
+        let src = repo.join("modules/aws/demo").join(demo);
+
+        // ---- Rust: `cargo check`, offline, sharing one target directory.
+        if have("rustc") && have("cargo") {
+            let out = tmp.join(format!("aws_glue_rs_{demo}"));
+            let _ = fs::remove_dir_all(&out);
+            let done = salvo_in(&src, &["compile", "--backend", "rust", "--target", out.to_str().unwrap()]);
+            assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+            let tree = tree_contents(&out);
+            if let Some(stamp) = content_stamp(&format!("aws glue rust {demo}"), &tree, &["rustc", "cargo"]) {
+                let check = Command::new("cargo")
+                    .args(["check", "--offline", "--quiet", "--manifest-path"])
+                    .arg(out.join("Cargo.toml"))
+                    .env("CARGO_TARGET_DIR", tmp.join("aws_glue_cargo"))
+                    .output()
+                    .expect("failed to run cargo");
+                let stderr = String::from_utf8_lossy(&check.stderr);
+                if !check.status.success() && (stderr.contains("offline") || stderr.contains("no matching package")) {
+                    eprintln!("skipping the Rust glue of {demo}: the SDK crates are not in cargo's cache");
+                } else {
+                    assert!(check.status.success(), "the Rust glue of {demo} does not compile:\n{stderr}");
+                    stamp.verified();
+                }
+            }
+        }
+
+        // ---- Kotlin: kotlinc over the tree, the SDK jars on the classpath.
+        if have("kotlinc") {
+            if jars.is_empty() {
+                eprintln!("skipping the Kotlin glue of {demo}: modules/aws/lib/kotlin is empty (./gradlew fetchKotlinSdk)");
+                continue;
+            }
+            let out = tmp.join(format!("aws_glue_kt_{demo}"));
+            let _ = fs::remove_dir_all(&out);
+            let done = salvo_in(&src, &["compile", "--backend", "kotlin", "--target", out.to_str().unwrap()]);
+            assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+            let tree = tree_contents(&out);
+            let names: Vec<String> = jars.iter().map(|j| j.file_name().unwrap().to_string_lossy().to_string()).collect();
+            let mut keyed = tree.clone();
+            keyed.push(("<jars>".to_string(), names.join(":").into_bytes()));
+            if let Some(stamp) = content_stamp(&format!("aws glue kotlin {demo}"), &keyed, &["kotlinc"]) {
+                let sources: Vec<PathBuf> = tree
+                    .iter()
+                    .filter(|(p, _)| p.ends_with(".kt"))
+                    .map(|(p, _)| out.join(p))
+                    .collect();
+                let classpath = jars.iter().map(|j| j.display().to_string()).collect::<Vec<_>>().join(":");
+                let compiled = Command::new("kotlinc")
+                    .args(&sources)
+                    .args(["-nowarn", "-cp", &classpath, "-d"])
+                    .arg(out.join(".classes"))
+                    .output()
+                    .expect("failed to run kotlinc");
+                assert!(
+                    compiled.status.success(),
+                    "the Kotlin glue of {demo} does not compile:\n{}",
+                    String::from_utf8_lossy(&compiled.stderr)
+                );
+                stamp.verified();
+            }
+        }
+    }
+}
