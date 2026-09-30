@@ -17,7 +17,8 @@ record Settings(
         String kotlinPackage,
         String modelFile,
         boolean forcePathStyle,
-        List<String> omitMembers) {
+        List<String> omitMembers,
+        java.util.Map<String, String> errorGroups) {
 
     static Settings from(ObjectNode node) {
         List<String> ops = new ArrayList<>();
@@ -41,6 +42,16 @@ record Settings(
                 // spelling would convert.
                 node.getArrayMember("omitMembers")
                         .map(a -> a.getElements().stream().map(e -> e.expectStringNode().getValue()).toList())
-                        .orElse(List.of()));
+                        .orElse(List.of()),
+                // Named groups of error codes, by the prefix of the model's
+                // error names: `{"KmsErrorCode": "Kms"}` makes SQS's seven KMS
+                // codes one literal union within the service's code union.
+                node.getObjectMember("errorGroups")
+                        .map(o -> {
+                            java.util.Map<String, String> m = new java.util.LinkedHashMap<>();
+                            o.getMembers().forEach((k, v) -> m.put(k.getValue(), v.expectStringNode().getValue()));
+                            return m;
+                        })
+                        .orElse(java.util.Map.of()));
     }
 }

@@ -22,7 +22,7 @@ roadmap steps — §7 lists them.
 | D3 | The Salvo shape of a service | A **plain effect** whose members take a `Reply<…>` and return at once — non-blocking without an actor kind the host cannot honour | an `actor effect` per service with a platform handler (needs a host-side mailbox); a blocking `platform effect` (wastes a worker per call) |
 | D4 | Streaming bodies | `std.stream`: **`ByteSource`**, one plain effect in scope that reads any stream asynchronously, threading the linear stream token through the reply; **`InStream` reused** as the stream type, moved to `std.stream` | an `Addr<ByteSource>` actor per body; a separate `ByteStream` type |
 | D5 | The mint | **Folded into `ByteSource`** (`from_bytes`) | a separate `ByteStreamMint` face — a distinction with no customer yet |
-| D6 | Enums | union of unit tags (`when` exhaustively) | a qualifier-carrying `Str` |
+| D6 | Enums | union of unit tags (`when` exhaustively) — **superseded 2026-09-30** by a union of string literals with `Other Str` ([type-literal]) | a qualifier-carrying `Str` |
 | D7 | First services | **SQS** (small, `awsJson`, no streaming) to prove the pipeline, then **S3** `GetObject`/`PutObject` for the stream | DynamoDB first |
 | D8 | Models | pinned JSON ASTs from [`aws/api-models-aws`](https://github.com/aws/api-models-aws) vendored under `models/`, with the commit recorded | referencing the repository by commit |
 
@@ -46,8 +46,8 @@ put to the user; all as recommended):
 | 13 | Fakes for streams | `MemByteSource` alone now; `MemHost of Fs, ByteSource` when a test needs a `MemFs` stream read asynchronously (the mem pair does not share a table, deliberately) |
 | 14 | smithy-rs codegen is **not published** to Maven | depend on `smithy-kotlin-codegen`; reimplement the Rust naming rules (snake-casing, reserved words) — small, and the correction to D2's rationale |
 | 15 | Handler constructor | one `AwsConfig { credentials: Credentials, region: Region, endpoint: Str? }`, `Credentials = ProfileCredentials \| EnvironmentCredentials \| DefaultChain`; `endpoint` is what LocalStack needs |
-| 16 | Enum tag names | namespaced under the enum's type (`StorageClass.Standard`) — needs **dot-names under a `type`**, a small language extension, over prefixed names |
-| 17 | Open enums | every enum gets an `Unknown Str` arm, as both SDKs do |
+| 16 | Enum tag names | namespaced under the enum's type (`StorageClass.Standard`) — needs **dot-names under a `type`**, a small language extension, over prefixed names. **Superseded 2026-09-30**: an enum's values are its literals |
+| 17 | Open enums | every enum gets an `Unknown Str` arm, as both SDKs do — now the `Other Str` arm |
 | 18 | Fakes for services | **generated**: a recording `Fake<Service>` handler beside the real one |
 | 19 | Pinned versions | current at the time step 4 begins |
 
@@ -104,15 +104,14 @@ in-memory double), and `demo/sqs_live` run by hand against the real SDKs and
 the stand-in `local_sqs.py`, printing the same on both backends. Choices made
 while building, within the decisions above — worth a second look:
 
-- **Errors are `Err Checked<SqsError>`**, one **service-wide** union of every
-  error the selected operations name plus `AwsError`, rather than a union per
-  operation: `Checked` for consistency with `std.fs`/`std.stream`; one union
-  so a caller's error handling is one function.
+- **Errors are `Err Checked<SqsFailure>`**, service-wide rather than per
+  operation: `Checked` for consistency with `std.fs`/`std.stream`, one type so
+  a caller's error handling is one function. (Rebuilt 2026-09-30 — see "Enums
+  and errors as data" below.)
 - **An `operations` allowlist** in `smithy-build.json` rather than the whole
   service: the first slice is what a program uses, and adding an operation is a
   line.
-- **Enum-keyed maps are `Map<Str, V>`** keyed by the enum's wire value; an enum
-  used as a value is the union of unit tags (decision 16/17).
+- **Enum-keyed maps are `Map<Str, V>`** keyed by the enum's wire value.
 - **The fake answers an empty success** wherever the output has no required
   members, else `AwsError { code: "NotStubbed" }`, and records operation names
   through a second face `SqsCalls` — recording inputs is left for when a test
@@ -188,6 +187,37 @@ the decisions — worth a second look:
   `<important>`/`<note>` blocks (S3's `PutObject` opens with an
   end-of-support notice). One SQS field comment changed with it.
 
+### Rebuilt: enums and errors as data (2026-09-30)
+
+Over unions of literals ([type-literal], the user's proposal): the glue lost
+~1,200 of its lines, since the wire string now *is* the Salvo value.
+
+- **An enum is a union of its wire values plus `Other Str`** —
+  `type StorageClass = "STANDARD" | … | Other Str` — a plain string on both
+  backends. The glue converts with `Sdk::from(s.as_str())`/`v.as_str()` and
+  `fromValue(s)`/`v.value`; the per-enum conversion functions are gone, and
+  so is the use of dot-names under a `type`.
+- **One error struct per service** (user decision): `SqsError { code:
+  SqsErrorCode, message, status, request_id? }`, the codes a literal union of
+  every error the selected operations name plus `Other Str` (throttling,
+  authorization, codes newer than the model). `SqsFailure = SqsError |
+  AwsError`; `AwsError` is only a call with no response (a timeout, a dispatch,
+  credentials or parse failure), coded by kind. An error's extra members become
+  optional fields of the struct (S3's `storage_class`, `access_tier`, set for
+  `InvalidObjectState`).
+- **`errorGroups`** in the projection names a code group by prefix: SQS's
+  `{"KmsErrorCode": "Kms"}` makes the seven KMS codes one sub-union, so `e.code
+  is KmsErrorCode` is one test.
+- **Codes normalized to the model's names**: a shape id's name, and the legacy
+  `@awsQueryError` code (`AWS.SimpleQueueService.NonExistentQueue` →
+  `QueueDoesNotExist`) — the glue has one `salvo_code`/`salvoCode` table, and
+  the demos print the same on both SDKs.
+- **One generic error conversion per glue** (`salvo_failure<E>` over any
+  operation's `SdkError<E>`; Kotlin catches `ServiceException`), with a small
+  per-operation `extra` for the rare error with fields.
+- The **names** `SqsFailure`/`S3Failure` for the union and `SqsErrorCode` for
+  the codes are the generator's choice — worth a look.
+
 ## 3. Layout
 
 ```
@@ -225,7 +255,7 @@ generator reads a model and writes text.
 | structure | `export struct`; `@required` members plain, others `T?`; `@default` → `= …` | |
 | operation | one effect member, see below | input/output structures keep their model names |
 | union | tagged union: one `qualifier` per member over its type, `type U = A_ A \| B_ B` | arm identity is positional over declaration order — the model's order, never re-sorted |
-| enum / intEnum | union of unit tags (D6), namespaced under the enum's type — `StorageClass.Standard` (16) — plus an `Unknown Str` arm, since Smithy enums are open (17) | `@enumValue` kept in the docs |
+| enum | union of its string literals plus `Other Str`, since Smithy enums are open — a plain string at run time | intEnum is `Int` |
 | `@error` structure | struct; the operation's `Err` arm is the union of its modeled errors plus `AwsError` (unmodeled: throttling, auth, transport) | `@retryable` is the host's business |
 | list / map | `List<T>` / `Map<Str, V>` | Smithy maps are string-keyed |
 | blob | `Bytes` | |
@@ -250,9 +280,9 @@ ordinary `fn`.
 ```
 // generated, module aws.sqs
 export effect Sqs {
-    fn send_message(input: SendMessageInput, reply: Reply<Ok SendMessageOutput | Err SqsError>) -> None
+    fn send_message(input: SendMessageInput, reply: Reply<Ok SendMessageOutput | Err Checked<SqsFailure>>) -> None
         => !input, !reply
-    fn receive_message(input: ReceiveMessageInput, reply: Reply<Ok ReceiveMessageOutput | Err SqsError>) -> None
+    fn receive_message(input: ReceiveMessageInput, reply: Reply<Ok ReceiveMessageOutput | Err Checked<SqsFailure>>) -> None
         => !input, !reply
     …
 }

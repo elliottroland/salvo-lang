@@ -21,10 +21,13 @@ host implementation (`aws.sqs.host`'s `HostSqs`) answers from the SDK's own
 async machinery — coroutines on the JVM, tokio on Rust — so no Salvo worker
 waits on the network.
 
-**Errors are the model's.** Each answer is `Ok <Output> | Err
-Checked<SqsError>`, where `SqsError` is every error the model names for these
-operations plus `AwsError` for anything else. `Checked` means the program must
-look at a failure (`detach`, `ignore`, or narrowing to `Ok`).
+**Errors are data.** Each answer is `Ok <Output> | Err Checked<SqsFailure>`,
+where `SqsFailure = SqsError | AwsError`: `SqsError` is the service's answer —
+its `code` a union of literals, one per error the model names plus `Other` for
+the rest, and its HTTP `status` — and `AwsError` is a call that got no answer.
+`e.code is "QueueDoesNotExist"` asks for one code, and `e.code is KmsErrorCode`
+for the KMS group. `Checked` means the program must look at a failure
+(`detach`, `ignore`, or narrowing to `Ok`).
 
 **Two doubles.** `FakeSqs` is generated with the module: it records each call
 by name (read back through `SqsCalls.calls()`) and answers an empty success

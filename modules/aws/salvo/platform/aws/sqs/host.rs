@@ -73,9 +73,9 @@ impl crate::aws_sqs::__Stateless_Sqs for HostSqs {
             .set_attributes(input.attributes.as_ref().map(|x| x.iter().map(|(k, v)| (aws_sdk_sqs::types::QueueAttributeName::from(k.as_str()), v.clone())).collect::<std::collections::HashMap<_, _>>()))
             .set_tags(input.tags.as_ref().map(|x| x.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::HashMap<_, _>>()));
         self.rt.spawn(async move {
-            let answer: Union2<CreateQueueOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = match call.send().await {
+            let answer: Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>> = match call.send().await {
                 Ok(out) => { let _ = &out; Union2::U1(from_sdk_create_queue_output(&out)) }
-                Err(e) => Union2::U2(Checked { value: error_of_create_queue(e) }),
+                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
@@ -88,9 +88,9 @@ impl crate::aws_sqs::__Stateless_Sqs for HostSqs {
             .set_queue_name(Some((&input.queue_name).clone()))
             .set_queue_owner_aws_account_id(input.queue_owner_aws_account_id.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
-            let answer: Union2<GetQueueUrlOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = match call.send().await {
+            let answer: Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>> = match call.send().await {
                 Ok(out) => { let _ = &out; Union2::U1(from_sdk_get_queue_url_output(&out)) }
-                Err(e) => Union2::U2(Checked { value: error_of_get_queue_url(e) }),
+                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
@@ -108,9 +108,9 @@ impl crate::aws_sqs::__Stateless_Sqs for HostSqs {
             .set_message_deduplication_id(input.message_deduplication_id.as_ref().map(|x| x.clone()))
             .set_message_group_id(input.message_group_id.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
-            let answer: Union2<SendMessageOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = match call.send().await {
+            let answer: Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>> = match call.send().await {
                 Ok(out) => { let _ = &out; Union2::U1(from_sdk_send_message_output(&out)) }
-                Err(e) => Union2::U2(Checked { value: error_of_send_message(e) }),
+                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
@@ -121,17 +121,17 @@ impl crate::aws_sqs::__Stateless_Sqs for HostSqs {
         let client = self.client.clone();
         let call = client.receive_message()
             .set_queue_url(Some((&input.queue_url).clone()))
-            .set_attribute_names(input.attribute_names.as_ref().map(|x| x.iter().map(|e| to_sdk_queue_attribute_name(e)).collect::<Vec<_>>()))
-            .set_message_system_attribute_names(input.message_system_attribute_names.as_ref().map(|x| x.iter().map(|e| to_sdk_message_system_attribute_name(e)).collect::<Vec<_>>()))
+            .set_attribute_names(input.attribute_names.as_ref().map(|x| x.iter().map(|e| aws_sdk_sqs::types::QueueAttributeName::from(e.as_str())).collect::<Vec<_>>()))
+            .set_message_system_attribute_names(input.message_system_attribute_names.as_ref().map(|x| x.iter().map(|e| aws_sdk_sqs::types::MessageSystemAttributeName::from(e.as_str())).collect::<Vec<_>>()))
             .set_message_attribute_names(input.message_attribute_names.as_ref().map(|x| x.iter().map(|e| e.clone()).collect::<Vec<_>>()))
             .set_max_number_of_messages(input.max_number_of_messages.as_ref().map(|x| *x))
             .set_visibility_timeout(input.visibility_timeout.as_ref().map(|x| *x))
             .set_wait_time_seconds(input.wait_time_seconds.as_ref().map(|x| *x))
             .set_receive_request_attempt_id(input.receive_request_attempt_id.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
-            let answer: Union2<ReceiveMessageOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = match call.send().await {
+            let answer: Union2<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>> = match call.send().await {
                 Ok(out) => { let _ = &out; Union2::U1(from_sdk_receive_message_output(&out)) }
-                Err(e) => Union2::U2(Checked { value: error_of_receive_message(e) }),
+                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
@@ -144,9 +144,9 @@ impl crate::aws_sqs::__Stateless_Sqs for HostSqs {
             .set_queue_url(Some((&input.queue_url).clone()))
             .set_receipt_handle(Some((&input.receipt_handle).clone()));
         self.rt.spawn(async move {
-            let answer: Union2<(), Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = match call.send().await {
+            let answer: Union2<(), Checked<Union2<SqsError, AwsError>>> = match call.send().await {
                 Ok(out) => { let _ = &out; Union2::U1(()) }
-                Err(e) => Union2::U2(Checked { value: error_of_delete_message(e) }),
+                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
@@ -158,100 +158,12 @@ impl crate::aws_sqs::__Stateless_Sqs for HostSqs {
         let call = client.delete_queue()
             .set_queue_url(Some((&input.queue_url).clone()));
         self.rt.spawn(async move {
-            let answer: Union2<(), Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = match call.send().await {
+            let answer: Union2<(), Checked<Union2<SqsError, AwsError>>> = match call.send().await {
                 Ok(out) => { let _ = &out; Union2::U1(()) }
-                Err(e) => Union2::U2(Checked { value: error_of_delete_queue(e) }),
+                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
-    }
-}
-
-fn to_sdk_queue_attribute_name(v: &Union23<QueueAttributeNameAll, QueueAttributeNamePolicy, QueueAttributeNameVisibilityTimeout, QueueAttributeNameMaximumMessageSize, QueueAttributeNameMessageRetentionPeriod, QueueAttributeNameApproximateNumberOfMessages, QueueAttributeNameApproximateNumberOfMessagesNotVisible, QueueAttributeNameCreatedTimestamp, QueueAttributeNameLastModifiedTimestamp, QueueAttributeNameQueueArn, QueueAttributeNameApproximateNumberOfMessagesDelayed, QueueAttributeNameDelaySeconds, QueueAttributeNameReceiveMessageWaitTimeSeconds, QueueAttributeNameRedrivePolicy, QueueAttributeNameFifoQueue, QueueAttributeNameContentBasedDeduplication, QueueAttributeNameKmsMasterKeyId, QueueAttributeNameKmsDataKeyReusePeriodSeconds, QueueAttributeNameDeduplicationScope, QueueAttributeNameFifoThroughputLimit, QueueAttributeNameRedriveAllowPolicy, QueueAttributeNameSqsManagedSseEnabled, QueueAttributeNameUnknown>) -> aws_sdk_sqs::types::QueueAttributeName {
-    match v {
-        Union23::U1(_) => aws_sdk_sqs::types::QueueAttributeName::from("All"),
-        Union23::U2(_) => aws_sdk_sqs::types::QueueAttributeName::from("Policy"),
-        Union23::U3(_) => aws_sdk_sqs::types::QueueAttributeName::from("VisibilityTimeout"),
-        Union23::U4(_) => aws_sdk_sqs::types::QueueAttributeName::from("MaximumMessageSize"),
-        Union23::U5(_) => aws_sdk_sqs::types::QueueAttributeName::from("MessageRetentionPeriod"),
-        Union23::U6(_) => aws_sdk_sqs::types::QueueAttributeName::from("ApproximateNumberOfMessages"),
-        Union23::U7(_) => aws_sdk_sqs::types::QueueAttributeName::from("ApproximateNumberOfMessagesNotVisible"),
-        Union23::U8(_) => aws_sdk_sqs::types::QueueAttributeName::from("CreatedTimestamp"),
-        Union23::U9(_) => aws_sdk_sqs::types::QueueAttributeName::from("LastModifiedTimestamp"),
-        Union23::U10(_) => aws_sdk_sqs::types::QueueAttributeName::from("QueueArn"),
-        Union23::U11(_) => aws_sdk_sqs::types::QueueAttributeName::from("ApproximateNumberOfMessagesDelayed"),
-        Union23::U12(_) => aws_sdk_sqs::types::QueueAttributeName::from("DelaySeconds"),
-        Union23::U13(_) => aws_sdk_sqs::types::QueueAttributeName::from("ReceiveMessageWaitTimeSeconds"),
-        Union23::U14(_) => aws_sdk_sqs::types::QueueAttributeName::from("RedrivePolicy"),
-        Union23::U15(_) => aws_sdk_sqs::types::QueueAttributeName::from("FifoQueue"),
-        Union23::U16(_) => aws_sdk_sqs::types::QueueAttributeName::from("ContentBasedDeduplication"),
-        Union23::U17(_) => aws_sdk_sqs::types::QueueAttributeName::from("KmsMasterKeyId"),
-        Union23::U18(_) => aws_sdk_sqs::types::QueueAttributeName::from("KmsDataKeyReusePeriodSeconds"),
-        Union23::U19(_) => aws_sdk_sqs::types::QueueAttributeName::from("DeduplicationScope"),
-        Union23::U20(_) => aws_sdk_sqs::types::QueueAttributeName::from("FifoThroughputLimit"),
-        Union23::U21(_) => aws_sdk_sqs::types::QueueAttributeName::from("RedriveAllowPolicy"),
-        Union23::U22(_) => aws_sdk_sqs::types::QueueAttributeName::from("SqsManagedSseEnabled"),
-        Union23::U23(u) => aws_sdk_sqs::types::QueueAttributeName::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_queue_attribute_name(v: &aws_sdk_sqs::types::QueueAttributeName) -> Union23<QueueAttributeNameAll, QueueAttributeNamePolicy, QueueAttributeNameVisibilityTimeout, QueueAttributeNameMaximumMessageSize, QueueAttributeNameMessageRetentionPeriod, QueueAttributeNameApproximateNumberOfMessages, QueueAttributeNameApproximateNumberOfMessagesNotVisible, QueueAttributeNameCreatedTimestamp, QueueAttributeNameLastModifiedTimestamp, QueueAttributeNameQueueArn, QueueAttributeNameApproximateNumberOfMessagesDelayed, QueueAttributeNameDelaySeconds, QueueAttributeNameReceiveMessageWaitTimeSeconds, QueueAttributeNameRedrivePolicy, QueueAttributeNameFifoQueue, QueueAttributeNameContentBasedDeduplication, QueueAttributeNameKmsMasterKeyId, QueueAttributeNameKmsDataKeyReusePeriodSeconds, QueueAttributeNameDeduplicationScope, QueueAttributeNameFifoThroughputLimit, QueueAttributeNameRedriveAllowPolicy, QueueAttributeNameSqsManagedSseEnabled, QueueAttributeNameUnknown> {
-    match v.as_str() {
-        "All" => Union23::U1(QueueAttributeNameAll {}),
-        "Policy" => Union23::U2(QueueAttributeNamePolicy {}),
-        "VisibilityTimeout" => Union23::U3(QueueAttributeNameVisibilityTimeout {}),
-        "MaximumMessageSize" => Union23::U4(QueueAttributeNameMaximumMessageSize {}),
-        "MessageRetentionPeriod" => Union23::U5(QueueAttributeNameMessageRetentionPeriod {}),
-        "ApproximateNumberOfMessages" => Union23::U6(QueueAttributeNameApproximateNumberOfMessages {}),
-        "ApproximateNumberOfMessagesNotVisible" => Union23::U7(QueueAttributeNameApproximateNumberOfMessagesNotVisible {}),
-        "CreatedTimestamp" => Union23::U8(QueueAttributeNameCreatedTimestamp {}),
-        "LastModifiedTimestamp" => Union23::U9(QueueAttributeNameLastModifiedTimestamp {}),
-        "QueueArn" => Union23::U10(QueueAttributeNameQueueArn {}),
-        "ApproximateNumberOfMessagesDelayed" => Union23::U11(QueueAttributeNameApproximateNumberOfMessagesDelayed {}),
-        "DelaySeconds" => Union23::U12(QueueAttributeNameDelaySeconds {}),
-        "ReceiveMessageWaitTimeSeconds" => Union23::U13(QueueAttributeNameReceiveMessageWaitTimeSeconds {}),
-        "RedrivePolicy" => Union23::U14(QueueAttributeNameRedrivePolicy {}),
-        "FifoQueue" => Union23::U15(QueueAttributeNameFifoQueue {}),
-        "ContentBasedDeduplication" => Union23::U16(QueueAttributeNameContentBasedDeduplication {}),
-        "KmsMasterKeyId" => Union23::U17(QueueAttributeNameKmsMasterKeyId {}),
-        "KmsDataKeyReusePeriodSeconds" => Union23::U18(QueueAttributeNameKmsDataKeyReusePeriodSeconds {}),
-        "DeduplicationScope" => Union23::U19(QueueAttributeNameDeduplicationScope {}),
-        "FifoThroughputLimit" => Union23::U20(QueueAttributeNameFifoThroughputLimit {}),
-        "RedriveAllowPolicy" => Union23::U21(QueueAttributeNameRedriveAllowPolicy {}),
-        "SqsManagedSseEnabled" => Union23::U22(QueueAttributeNameSqsManagedSseEnabled {}),
-        other => Union23::U23(QueueAttributeNameUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_message_system_attribute_name(v: &Union11<MessageSystemAttributeNameAll, MessageSystemAttributeNameSenderId, MessageSystemAttributeNameSentTimestamp, MessageSystemAttributeNameApproximateReceiveCount, MessageSystemAttributeNameApproximateFirstReceiveTimestamp, MessageSystemAttributeNameSequenceNumber, MessageSystemAttributeNameMessageDeduplicationId, MessageSystemAttributeNameMessageGroupId, MessageSystemAttributeNameAwsTraceHeader, MessageSystemAttributeNameDeadLetterQueueSourceArn, MessageSystemAttributeNameUnknown>) -> aws_sdk_sqs::types::MessageSystemAttributeName {
-    match v {
-        Union11::U1(_) => aws_sdk_sqs::types::MessageSystemAttributeName::from("All"),
-        Union11::U2(_) => aws_sdk_sqs::types::MessageSystemAttributeName::from("SenderId"),
-        Union11::U3(_) => aws_sdk_sqs::types::MessageSystemAttributeName::from("SentTimestamp"),
-        Union11::U4(_) => aws_sdk_sqs::types::MessageSystemAttributeName::from("ApproximateReceiveCount"),
-        Union11::U5(_) => aws_sdk_sqs::types::MessageSystemAttributeName::from("ApproximateFirstReceiveTimestamp"),
-        Union11::U6(_) => aws_sdk_sqs::types::MessageSystemAttributeName::from("SequenceNumber"),
-        Union11::U7(_) => aws_sdk_sqs::types::MessageSystemAttributeName::from("MessageDeduplicationId"),
-        Union11::U8(_) => aws_sdk_sqs::types::MessageSystemAttributeName::from("MessageGroupId"),
-        Union11::U9(_) => aws_sdk_sqs::types::MessageSystemAttributeName::from("AWSTraceHeader"),
-        Union11::U10(_) => aws_sdk_sqs::types::MessageSystemAttributeName::from("DeadLetterQueueSourceArn"),
-        Union11::U11(u) => aws_sdk_sqs::types::MessageSystemAttributeName::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_message_system_attribute_name(v: &aws_sdk_sqs::types::MessageSystemAttributeName) -> Union11<MessageSystemAttributeNameAll, MessageSystemAttributeNameSenderId, MessageSystemAttributeNameSentTimestamp, MessageSystemAttributeNameApproximateReceiveCount, MessageSystemAttributeNameApproximateFirstReceiveTimestamp, MessageSystemAttributeNameSequenceNumber, MessageSystemAttributeNameMessageDeduplicationId, MessageSystemAttributeNameMessageGroupId, MessageSystemAttributeNameAwsTraceHeader, MessageSystemAttributeNameDeadLetterQueueSourceArn, MessageSystemAttributeNameUnknown> {
-    match v.as_str() {
-        "All" => Union11::U1(MessageSystemAttributeNameAll {}),
-        "SenderId" => Union11::U2(MessageSystemAttributeNameSenderId {}),
-        "SentTimestamp" => Union11::U3(MessageSystemAttributeNameSentTimestamp {}),
-        "ApproximateReceiveCount" => Union11::U4(MessageSystemAttributeNameApproximateReceiveCount {}),
-        "ApproximateFirstReceiveTimestamp" => Union11::U5(MessageSystemAttributeNameApproximateFirstReceiveTimestamp {}),
-        "SequenceNumber" => Union11::U6(MessageSystemAttributeNameSequenceNumber {}),
-        "MessageDeduplicationId" => Union11::U7(MessageSystemAttributeNameMessageDeduplicationId {}),
-        "MessageGroupId" => Union11::U8(MessageSystemAttributeNameMessageGroupId {}),
-        "AWSTraceHeader" => Union11::U9(MessageSystemAttributeNameAwsTraceHeader {}),
-        "DeadLetterQueueSourceArn" => Union11::U10(MessageSystemAttributeNameDeadLetterQueueSourceArn {}),
-        other => Union11::U11(MessageSystemAttributeNameUnknown { value: other.to_string() }),
     }
 }
 
@@ -347,215 +259,61 @@ fn to_sdk_message(v: &Message) -> aws_sdk_sqs::types::Message {
     b.build()
 }
 
-fn from_sdk_invalid_address(v: &aws_sdk_sqs::types::error::InvalidAddress) -> InvalidAddress {
-    InvalidAddress {
-        message: v.message().map(|x| x.to_string()),
+/// A code as the model names it: the shape id's name (`ns#Name`), and a legacy
+/// `@awsQueryError` code mapped to the model's.
+fn salvo_code(code: &str) -> String {
+    let code = code.rsplit('#').next().unwrap_or(code);
+    match code {
+        "AWS.SimpleQueueService.NonExistentQueue" => "QueueDoesNotExist",
+        "AWS.SimpleQueueService.QueueDeletedRecently" => "QueueDeletedRecently",
+        "AWS.SimpleQueueService.UnsupportedOperation" => "UnsupportedOperation",
+        "KMS.AccessDeniedException" => "KmsAccessDenied",
+        "KMS.DisabledException" => "KmsDisabled",
+        "KMS.InvalidKeyUsageException" => "KmsInvalidKeyUsage",
+        "KMS.InvalidStateException" => "KmsInvalidState",
+        "KMS.NotFoundException" => "KmsNotFound",
+        "KMS.OptInRequired" => "KmsOptInRequired",
+        "KMS.ThrottlingException" => "KmsThrottled",
+        "QueueAlreadyExists" => "QueueNameExists",
+        other => other,
     }
+    .to_string()
 }
 
-fn from_sdk_invalid_attribute_name(v: &aws_sdk_sqs::types::error::InvalidAttributeName) -> InvalidAttributeName {
-    InvalidAttributeName {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_invalid_attribute_value(v: &aws_sdk_sqs::types::error::InvalidAttributeValue) -> InvalidAttributeValue {
-    InvalidAttributeValue {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_invalid_id_format(v: &aws_sdk_sqs::types::error::InvalidIdFormat) -> InvalidIdFormat {
-    InvalidIdFormat {}
-}
-
-fn from_sdk_invalid_message_contents(v: &aws_sdk_sqs::types::error::InvalidMessageContents) -> InvalidMessageContents {
-    InvalidMessageContents {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_invalid_security(v: &aws_sdk_sqs::types::error::InvalidSecurity) -> InvalidSecurity {
-    InvalidSecurity {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_kms_access_denied(v: &aws_sdk_sqs::types::error::KmsAccessDenied) -> KmsAccessDenied {
-    KmsAccessDenied {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_kms_disabled(v: &aws_sdk_sqs::types::error::KmsDisabled) -> KmsDisabled {
-    KmsDisabled {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_kms_invalid_key_usage(v: &aws_sdk_sqs::types::error::KmsInvalidKeyUsage) -> KmsInvalidKeyUsage {
-    KmsInvalidKeyUsage {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_kms_invalid_state(v: &aws_sdk_sqs::types::error::KmsInvalidState) -> KmsInvalidState {
-    KmsInvalidState {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_kms_not_found(v: &aws_sdk_sqs::types::error::KmsNotFound) -> KmsNotFound {
-    KmsNotFound {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_kms_opt_in_required(v: &aws_sdk_sqs::types::error::KmsOptInRequired) -> KmsOptInRequired {
-    KmsOptInRequired {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_kms_throttled(v: &aws_sdk_sqs::types::error::KmsThrottled) -> KmsThrottled {
-    KmsThrottled {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_over_limit(v: &aws_sdk_sqs::types::error::OverLimit) -> OverLimit {
-    OverLimit {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_queue_deleted_recently(v: &aws_sdk_sqs::types::error::QueueDeletedRecently) -> QueueDeletedRecently {
-    QueueDeletedRecently {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_queue_does_not_exist(v: &aws_sdk_sqs::types::error::QueueDoesNotExist) -> QueueDoesNotExist {
-    QueueDoesNotExist {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_queue_name_exists(v: &aws_sdk_sqs::types::error::QueueNameExists) -> QueueNameExists {
-    QueueNameExists {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_receipt_handle_is_invalid(v: &aws_sdk_sqs::types::error::ReceiptHandleIsInvalid) -> ReceiptHandleIsInvalid {
-    ReceiptHandleIsInvalid {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_request_throttled(v: &aws_sdk_sqs::types::error::RequestThrottled) -> RequestThrottled {
-    RequestThrottled {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn from_sdk_unsupported_operation(v: &aws_sdk_sqs::types::error::UnsupportedOperation) -> UnsupportedOperation {
-    UnsupportedOperation {
-        message: v.message().map(|x| x.to_string()),
-    }
-}
-
-fn error_of_create_queue(e: aws_sdk_sqs::error::SdkError<aws_sdk_sqs::operation::create_queue::CreateQueueError>) -> Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError> {
+fn salvo_failure<E>(
+    e: aws_sdk_sqs::error::SdkError<E, aws_sdk_sqs::config::http::HttpResponse>,
+    extra: impl FnOnce(&E, &mut SqsError),
+) -> Checked<Union2<SqsError, AwsError>>
+where
+    E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
+{
+    use aws_sdk_sqs::operation::RequestId;
     let text = format!("{}", aws_sdk_sqs::error::DisplayErrorContext(&e));
-    match e.into_service_error() {
-        aws_sdk_sqs::operation::create_queue::CreateQueueError::InvalidAddress(x) => Union21::U1(from_sdk_invalid_address(&x)),
-        aws_sdk_sqs::operation::create_queue::CreateQueueError::InvalidAttributeName(x) => Union21::U2(from_sdk_invalid_attribute_name(&x)),
-        aws_sdk_sqs::operation::create_queue::CreateQueueError::InvalidAttributeValue(x) => Union21::U3(from_sdk_invalid_attribute_value(&x)),
-        aws_sdk_sqs::operation::create_queue::CreateQueueError::InvalidSecurity(x) => Union21::U6(from_sdk_invalid_security(&x)),
-        aws_sdk_sqs::operation::create_queue::CreateQueueError::QueueDeletedRecently(x) => Union21::U15(from_sdk_queue_deleted_recently(&x)),
-        aws_sdk_sqs::operation::create_queue::CreateQueueError::QueueNameExists(x) => Union21::U17(from_sdk_queue_name_exists(&x)),
-        aws_sdk_sqs::operation::create_queue::CreateQueueError::RequestThrottled(x) => Union21::U19(from_sdk_request_throttled(&x)),
-        aws_sdk_sqs::operation::create_queue::CreateQueueError::UnsupportedOperation(x) => Union21::U20(from_sdk_unsupported_operation(&x)),
-        other => Union21::U21(AwsError { code: other.code().unwrap_or("SdkError").to_string(), message: text }),
-    }
-}
-
-fn error_of_get_queue_url(e: aws_sdk_sqs::error::SdkError<aws_sdk_sqs::operation::get_queue_url::GetQueueUrlError>) -> Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError> {
-    let text = format!("{}", aws_sdk_sqs::error::DisplayErrorContext(&e));
-    match e.into_service_error() {
-        aws_sdk_sqs::operation::get_queue_url::GetQueueUrlError::InvalidAddress(x) => Union21::U1(from_sdk_invalid_address(&x)),
-        aws_sdk_sqs::operation::get_queue_url::GetQueueUrlError::InvalidSecurity(x) => Union21::U6(from_sdk_invalid_security(&x)),
-        aws_sdk_sqs::operation::get_queue_url::GetQueueUrlError::QueueDoesNotExist(x) => Union21::U16(from_sdk_queue_does_not_exist(&x)),
-        aws_sdk_sqs::operation::get_queue_url::GetQueueUrlError::RequestThrottled(x) => Union21::U19(from_sdk_request_throttled(&x)),
-        aws_sdk_sqs::operation::get_queue_url::GetQueueUrlError::UnsupportedOperation(x) => Union21::U20(from_sdk_unsupported_operation(&x)),
-        other => Union21::U21(AwsError { code: other.code().unwrap_or("SdkError").to_string(), message: text }),
-    }
-}
-
-fn error_of_send_message(e: aws_sdk_sqs::error::SdkError<aws_sdk_sqs::operation::send_message::SendMessageError>) -> Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError> {
-    let text = format!("{}", aws_sdk_sqs::error::DisplayErrorContext(&e));
-    match e.into_service_error() {
-        aws_sdk_sqs::operation::send_message::SendMessageError::InvalidAddress(x) => Union21::U1(from_sdk_invalid_address(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::InvalidMessageContents(x) => Union21::U5(from_sdk_invalid_message_contents(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::InvalidSecurity(x) => Union21::U6(from_sdk_invalid_security(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::KmsAccessDenied(x) => Union21::U7(from_sdk_kms_access_denied(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::KmsDisabled(x) => Union21::U8(from_sdk_kms_disabled(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::KmsInvalidKeyUsage(x) => Union21::U9(from_sdk_kms_invalid_key_usage(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::KmsInvalidState(x) => Union21::U10(from_sdk_kms_invalid_state(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::KmsNotFound(x) => Union21::U11(from_sdk_kms_not_found(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::KmsOptInRequired(x) => Union21::U12(from_sdk_kms_opt_in_required(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::KmsThrottled(x) => Union21::U13(from_sdk_kms_throttled(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::QueueDoesNotExist(x) => Union21::U16(from_sdk_queue_does_not_exist(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::RequestThrottled(x) => Union21::U19(from_sdk_request_throttled(&x)),
-        aws_sdk_sqs::operation::send_message::SendMessageError::UnsupportedOperation(x) => Union21::U20(from_sdk_unsupported_operation(&x)),
-        other => Union21::U21(AwsError { code: other.code().unwrap_or("SdkError").to_string(), message: text }),
-    }
-}
-
-fn error_of_receive_message(e: aws_sdk_sqs::error::SdkError<aws_sdk_sqs::operation::receive_message::ReceiveMessageError>) -> Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError> {
-    let text = format!("{}", aws_sdk_sqs::error::DisplayErrorContext(&e));
-    match e.into_service_error() {
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::InvalidAddress(x) => Union21::U1(from_sdk_invalid_address(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::InvalidSecurity(x) => Union21::U6(from_sdk_invalid_security(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::KmsAccessDenied(x) => Union21::U7(from_sdk_kms_access_denied(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::KmsDisabled(x) => Union21::U8(from_sdk_kms_disabled(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::KmsInvalidKeyUsage(x) => Union21::U9(from_sdk_kms_invalid_key_usage(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::KmsInvalidState(x) => Union21::U10(from_sdk_kms_invalid_state(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::KmsNotFound(x) => Union21::U11(from_sdk_kms_not_found(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::KmsOptInRequired(x) => Union21::U12(from_sdk_kms_opt_in_required(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::KmsThrottled(x) => Union21::U13(from_sdk_kms_throttled(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::OverLimit(x) => Union21::U14(from_sdk_over_limit(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::QueueDoesNotExist(x) => Union21::U16(from_sdk_queue_does_not_exist(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::RequestThrottled(x) => Union21::U19(from_sdk_request_throttled(&x)),
-        aws_sdk_sqs::operation::receive_message::ReceiveMessageError::UnsupportedOperation(x) => Union21::U20(from_sdk_unsupported_operation(&x)),
-        other => Union21::U21(AwsError { code: other.code().unwrap_or("SdkError").to_string(), message: text }),
-    }
-}
-
-fn error_of_delete_message(e: aws_sdk_sqs::error::SdkError<aws_sdk_sqs::operation::delete_message::DeleteMessageError>) -> Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError> {
-    let text = format!("{}", aws_sdk_sqs::error::DisplayErrorContext(&e));
-    match e.into_service_error() {
-        aws_sdk_sqs::operation::delete_message::DeleteMessageError::InvalidAddress(x) => Union21::U1(from_sdk_invalid_address(&x)),
-        aws_sdk_sqs::operation::delete_message::DeleteMessageError::InvalidIdFormat(x) => Union21::U4(from_sdk_invalid_id_format(&x)),
-        aws_sdk_sqs::operation::delete_message::DeleteMessageError::InvalidSecurity(x) => Union21::U6(from_sdk_invalid_security(&x)),
-        aws_sdk_sqs::operation::delete_message::DeleteMessageError::QueueDoesNotExist(x) => Union21::U16(from_sdk_queue_does_not_exist(&x)),
-        aws_sdk_sqs::operation::delete_message::DeleteMessageError::ReceiptHandleIsInvalid(x) => Union21::U18(from_sdk_receipt_handle_is_invalid(&x)),
-        aws_sdk_sqs::operation::delete_message::DeleteMessageError::RequestThrottled(x) => Union21::U19(from_sdk_request_throttled(&x)),
-        aws_sdk_sqs::operation::delete_message::DeleteMessageError::UnsupportedOperation(x) => Union21::U20(from_sdk_unsupported_operation(&x)),
-        other => Union21::U21(AwsError { code: other.code().unwrap_or("SdkError").to_string(), message: text }),
-    }
-}
-
-fn error_of_delete_queue(e: aws_sdk_sqs::error::SdkError<aws_sdk_sqs::operation::delete_queue::DeleteQueueError>) -> Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError> {
-    let text = format!("{}", aws_sdk_sqs::error::DisplayErrorContext(&e));
-    match e.into_service_error() {
-        aws_sdk_sqs::operation::delete_queue::DeleteQueueError::InvalidAddress(x) => Union21::U1(from_sdk_invalid_address(&x)),
-        aws_sdk_sqs::operation::delete_queue::DeleteQueueError::InvalidSecurity(x) => Union21::U6(from_sdk_invalid_security(&x)),
-        aws_sdk_sqs::operation::delete_queue::DeleteQueueError::QueueDoesNotExist(x) => Union21::U16(from_sdk_queue_does_not_exist(&x)),
-        aws_sdk_sqs::operation::delete_queue::DeleteQueueError::RequestThrottled(x) => Union21::U19(from_sdk_request_throttled(&x)),
-        aws_sdk_sqs::operation::delete_queue::DeleteQueueError::UnsupportedOperation(x) => Union21::U20(from_sdk_unsupported_operation(&x)),
-        other => Union21::U21(AwsError { code: other.code().unwrap_or("SdkError").to_string(), message: text }),
-    }
+    let request_id = e.request_id().map(|r| r.to_string());
+    let value = match &e {
+        aws_sdk_sqs::error::SdkError::ServiceError(ctx) => {
+            let err = ctx.err();
+            let mut out = SqsError {
+                code: salvo_code(err.code().unwrap_or("Unknown")),
+                message: err.message().unwrap_or("").to_string(),
+                status: ctx.raw().status().as_u16() as i32,
+                request_id,
+            };
+            extra(err, &mut out);
+            Union2::U1(out)
+        }
+        other => Union2::U2(AwsError {
+            code: match other {
+                aws_sdk_sqs::error::SdkError::TimeoutError(_) => "TimeoutError",
+                aws_sdk_sqs::error::SdkError::DispatchFailure(_) => "DispatchFailure",
+                aws_sdk_sqs::error::SdkError::ResponseError(_) => "ResponseError",
+                _ => "ConstructionFailure",
+            }
+            .to_string(),
+            message: text,
+        }),
+    };
+    Checked { value }
 }
 
 /// `~/` at the front of a path is the home directory, as a shell would read it.

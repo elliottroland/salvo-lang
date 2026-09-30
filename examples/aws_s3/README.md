@@ -33,8 +33,8 @@ module generates a `close` for each, which gives the whole value up.
 name (`S3Calls.calls()`), closes a body it is handed without reading it, and
 answers `GetObject` with an empty body. `MemS3`, written in this file, keeps
 what it is given — reading the body through `Streams` as the host glue reads
-one out of the host's table — and answers a missing key with the model's
-`NoSuchKey`.
+one out of the host's table — and answers a missing key with an `S3Error` whose
+code is the model's `"NoSuchKey"`.
 
 **No SDK in the build.** Nothing imports `aws.s3.host`, so no host glue is
 reached and neither SDK joins the build.

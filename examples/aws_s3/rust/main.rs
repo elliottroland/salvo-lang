@@ -29,6 +29,8 @@ pub mod core_iterator;
 pub mod core_list;
 #[path = "core/map.rs"]
 pub mod core_map;
+#[path = "core/other.rs"]
+pub mod core_other;
 #[path = "core/result.rs"]
 pub mod core_result;
 #[path = "core/set.rs"]
@@ -65,14 +67,14 @@ use crate::fs_mem::*;
 use crate::stream::*;
 use crate::unions::*;
 
-pub fn describe(e: &Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>) -> String {
-    if matches!(e, Union7::U7(_)) {
-        return format!("{}: {}", e.u7().clone().code.clone(), e.u7().clone().message.clone());
+pub fn describe(e: &Union2<S3Error, AwsError>) -> String {
+    if matches!(e, Union2::U2(_)) {
+        return format!("{}: {}", e.u2().clone().code.clone(), e.u2().clone().message.clone());
     }
-    if matches!(e, Union7::U5(_)) {
+    if matches!(e.u1().clone().code, ref __v if (*__v == "NoSuchKey")) {
         return "no such key".to_string();
     }
-    return "the service refused".to_string();
+    return format!("the service refused: {}", format!("{}", e.u1().clone().code.clone()));
 }
 
 pub fn size_of(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &String) -> Option<i64> {
@@ -96,9 +98,9 @@ pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::core_
     }
     let mut put = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
         s3.put_object(PutObjectInput { bucket: bucket.clone(), key: key.clone(), body: opened.u1().clone(), content_length: length, acl: None, cache_control: None, content_disposition: None, content_encoding: None, content_language: None, content_md5: None, content_type: None, checksum_algorithm: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, if_match: None, if_none_match: None, grant_full_control: None, grant_read: None, grant_read_acp: None, grant_write_acp: None, write_offset_bytes: None, metadata: None, server_side_encryption: None, storage_class: None, website_redirect_location: None, sse_customer_algorithm: None, sse_customer_key: None, sse_customer_key_md5: None, ssekms_key_id: None, ssekms_encryption_context: None, bucket_key_enabled: None, request_payer: None, tagging: None, object_lock_mode: None, object_lock_retain_until_date: None, object_lock_legal_hold_status: None, object_lock_event_hold: None, object_lock_event_hold_duration_days: None, object_lock_event_hold_duration_years: None, expected_bucket_owner: None }, r);
-        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>>().expect("the awaited answer")
+        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>().expect("the awaited answer")
     };
     match put {
         Union2::U1(_) => {
@@ -115,7 +117,7 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::cor
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|_| None));
         s3.get_object(GetObjectInput { bucket: bucket.clone(), key: key.clone(), if_match: None, if_modified_since: None, if_none_match: None, if_unmodified_since: None, range: None, response_cache_control: None, response_content_disposition: None, response_content_encoding: None, response_content_language: None, response_content_type: None, response_expires: None, version_id: None, sse_customer_algorithm: None, sse_customer_key: None, sse_customer_key_md5: None, request_payer: None, part_number: None, expected_bucket_owner: None, checksum_mode: None }, r);
-        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<GetObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>>().expect("the awaited answer")
+        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>>().expect("the awaited answer")
     };
     if matches!(got, Union2::U2(_)) {
         println(console, &(format!("get {}: {}", key.clone(), describe(&(detach(got.u2().clone()))))));
@@ -193,24 +195,24 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
             ignore(closed.u2().clone());
         }
         if matches!(filled, Union2::U2(_)) {
-            crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>::U2(err(checked(Union7::<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>::U7(AwsError { code: "StreamFailed".to_string(), message: format!("{}", to_str__4(&detach(filled.u2().clone()))) })))));
+            crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U2(AwsError { code: "StreamFailed".to_string(), message: format!("{}", to_str__4(&detach(filled.u2().clone()))) })))));
             return;
         }
         let mut data: Vec<u8> = buf;
         let mut tag = format!("\"{}\"", (data.len() as i32));
         self.objects.insert(format!("{}/{}", bucket, key), data);
-        crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>::U1(ok(PutObjectOutput { e_tag: Some(tag), expiration: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, server_side_encryption: None, version_id: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, ssekms_encryption_context: None, bucket_key_enabled: None, size: None, request_charged: None })));
+        crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U1(ok(PutObjectOutput { e_tag: Some(tag), expiration: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, server_side_encryption: None, version_id: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, ssekms_encryption_context: None, bucket_key_enabled: None, size: None, request_charged: None })));
     }
 
     fn get_object(&mut self, input: GetObjectInput, reply: crate::scheduler::SalvoReply) {
         let mut found = self.objects.get(&format!("{}/{}", input.bucket.clone(), input.key.clone()));
         if found.is_none() {
-            (reply).send(Box::new(Union2::<GetObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>::U2(err(checked(Union7::<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>::U5(NoSuchKey {  }))))));
+            (reply).send(Box::new(Union2::<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U1(S3Error { code: "NoSuchKey".to_string(), message: "The specified key does not exist.".to_string(), status: 404, request_id: None, storage_class: None, access_tier: None }))))));
             return;
         }
         let mut data: Vec<u8> = found.unwrap().clone();
         let mut length = (((data.len() as i32)) as i64);
-        (reply).send(Box::new(Union2::<GetObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>::U1(ok(GetObjectOutput { body: self.__dep_Streams.from_bytes(data), content_length: Some(length), delete_marker: None, accept_ranges: None, expiration: None, restore: None, last_modified: None, e_tag: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, missing_meta: None, version_id: None, cache_control: None, content_disposition: None, content_encoding: None, content_language: None, content_range: None, content_type: None, website_redirect_location: None, server_side_encryption: None, metadata: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, bucket_key_enabled: None, storage_class: None, request_charged: None, replication_status: None, parts_count: None, tag_count: None, object_lock_mode: None, object_lock_retain_until_date: None, object_lock_legal_hold_status: None, object_lock_event_hold: None, object_lock_event_hold_duration_days: None, object_lock_event_hold_duration_years: None }))));
+        (reply).send(Box::new(Union2::<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>::U1(ok(GetObjectOutput { body: self.__dep_Streams.from_bytes(data), content_length: Some(length), delete_marker: None, accept_ranges: None, expiration: None, restore: None, last_modified: None, e_tag: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, missing_meta: None, version_id: None, cache_control: None, content_disposition: None, content_encoding: None, content_language: None, content_range: None, content_type: None, website_redirect_location: None, server_side_encryption: None, metadata: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, bucket_key_enabled: None, storage_class: None, request_charged: None, replication_status: None, parts_count: None, tag_count: None, object_lock_mode: None, object_lock_retain_until_date: None, object_lock_legal_hold_status: None, object_lock_event_hold: None, object_lock_event_hold_duration_days: None, object_lock_event_hold_duration_years: None }))));
     }
 }
 

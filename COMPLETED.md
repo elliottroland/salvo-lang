@@ -135,6 +135,33 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The aws clients over unions of literals (2026-09-30; ROADMAP §4c step 3).**
+The generator rewritten on the user's two decisions: an enum is a union of its
+wire values plus `Other Str`, and a service has one error struct —
+`SqsError { code: SqsErrorCode, message, status, request_id? }` beside
+`AwsError` for a call with no response, `SqsFailure = SqsError | AwsError`.
+Codes are a literal union of every modeled error of the selected operations
+plus `Other`, named groups by prefix (`errorGroups`: SQS's `KmsErrorCode`),
+and normalized on both backends to the model's names through the
+`@awsQueryError` table. The glue: one generic `salvo_failure<E>` in Rust (code
+from the error metadata, status from the raw response, the request id through
+the SDK's `RequestId`), a `ServiceException` catch in Kotlin, a per-operation
+closure for the rare error with fields (S3's `InvalidObjectState`); enum
+conversions are `Sdk::from(s)`/`as_str()` and `fromValue`/`.value`. The
+generated files went from 2,431 lines of glue and ~1,700 of surface to 494
+lines added against 1,704 removed. Both live demos print the same on both SDKs
+(SQS's `QueueDoesNotExist`, which aws-sdk-rust sees under its legacy query
+code, included); `examples/aws_sqs` and `examples/aws_s3` print their expected
+output unchanged. *Compiler defect found on the way and fixed:* the Kotlin
+wire codec of an exported struct whose field is an alias holding an alias of
+literals rendered one codec per literal ("no wire codec for `\"KmsDisabled\"`")
+— the codec path builds field types without the checker's alias expansion,
+so `literal::collapse_ty_with` expands aliases first; the literal-union run
+test gained an exported struct that fails without it. Also: a literal's
+protocol hash is the literal, not its base ([protocol-hash]), so `"A" | "B"`
+and `"A" | "C"` stay incompatible across nodes. The names `SqsFailure` and
+`SqsErrorCode` are the generator's.
+
 **Unions of literals — built (2026-09-30; ROADMAP §4c step 2).** [type-literal]
 [union-arm-identity]: `ast::Type::Literal` / `Ty::Lit` for `Str`, `Int`, `Long`
 and `Bool` literals (a float is a parse error; `Byte` has no literal syntax, so

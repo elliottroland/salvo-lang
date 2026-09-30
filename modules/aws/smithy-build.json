@@ -20,7 +20,10 @@
                         "ReceiveMessage",
                         "DeleteMessage",
                         "DeleteQueue"
-                    ]
+                    ],
+                    "errorGroups": {
+                        "KmsErrorCode": "Kms"
+                    }
                 }
             }
         },

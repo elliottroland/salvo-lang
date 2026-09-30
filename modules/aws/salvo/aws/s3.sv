@@ -15,144 +15,70 @@ import aws
 import stream
 import time.Instant
 
-// ObjectCannedACL, one arm per value the model names.
+// ObjectCannedACL, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `ObjectCannedACL.Unknown`.
-export type ObjectCannedACL = ObjectCannedACL.Private
-    | ObjectCannedACL.PublicRead
-    | ObjectCannedACL.PublicReadWrite
-    | ObjectCannedACL.AuthenticatedRead
-    | ObjectCannedACL.AwsExecRead
-    | ObjectCannedACL.BucketOwnerRead
-    | ObjectCannedACL.BucketOwnerFullControl
-    | ObjectCannedACL.Unknown
-// `"private"`
-export struct ObjectCannedACL.Private {}
-// `"public-read"`
-export struct ObjectCannedACL.PublicRead {}
-// `"public-read-write"`
-export struct ObjectCannedACL.PublicReadWrite {}
-// `"authenticated-read"`
-export struct ObjectCannedACL.AuthenticatedRead {}
-// `"aws-exec-read"`
-export struct ObjectCannedACL.AwsExecRead {}
-// `"bucket-owner-read"`
-export struct ObjectCannedACL.BucketOwnerRead {}
-// `"bucket-owner-full-control"`
-export struct ObjectCannedACL.BucketOwnerFullControl {}
-// A value this model does not name.
-export struct ObjectCannedACL.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type ObjectCannedACL = "private"
+    | "public-read"
+    | "public-read-write"
+    | "authenticated-read"
+    | "aws-exec-read"
+    | "bucket-owner-read"
+    | "bucket-owner-full-control"
+    | Other Str
 
-// ChecksumAlgorithm, one arm per value the model names.
+// ChecksumAlgorithm, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `ChecksumAlgorithm.Unknown`.
-export type ChecksumAlgorithm = ChecksumAlgorithm.Crc32
-    | ChecksumAlgorithm.Crc32C
-    | ChecksumAlgorithm.Sha1
-    | ChecksumAlgorithm.Sha256
-    | ChecksumAlgorithm.Crc64Nvme
-    | ChecksumAlgorithm.Sha512
-    | ChecksumAlgorithm.Md5
-    | ChecksumAlgorithm.Xxhash64
-    | ChecksumAlgorithm.Xxhash3
-    | ChecksumAlgorithm.Xxhash128
-    | ChecksumAlgorithm.Unknown
-// `"CRC32"`
-export struct ChecksumAlgorithm.Crc32 {}
-// `"CRC32C"`
-export struct ChecksumAlgorithm.Crc32C {}
-// `"SHA1"`
-export struct ChecksumAlgorithm.Sha1 {}
-// `"SHA256"`
-export struct ChecksumAlgorithm.Sha256 {}
-// `"CRC64NVME"`
-export struct ChecksumAlgorithm.Crc64Nvme {}
-// `"SHA512"`
-export struct ChecksumAlgorithm.Sha512 {}
-// `"MD5"`
-export struct ChecksumAlgorithm.Md5 {}
-// `"XXHASH64"`
-export struct ChecksumAlgorithm.Xxhash64 {}
-// `"XXHASH3"`
-export struct ChecksumAlgorithm.Xxhash3 {}
-// `"XXHASH128"`
-export struct ChecksumAlgorithm.Xxhash128 {}
-// A value this model does not name.
-export struct ChecksumAlgorithm.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type ChecksumAlgorithm = "CRC32"
+    | "CRC32C"
+    | "SHA1"
+    | "SHA256"
+    | "CRC64NVME"
+    | "SHA512"
+    | "MD5"
+    | "XXHASH64"
+    | "XXHASH3"
+    | "XXHASH128"
+    | Other Str
 
-// ServerSideEncryption, one arm per value the model names.
+// ServerSideEncryption, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `ServerSideEncryption.Unknown`.
-export type ServerSideEncryption = ServerSideEncryption.Aes256
-    | ServerSideEncryption.AwsFsx
-    | ServerSideEncryption.AwsBackup
-    | ServerSideEncryption.AwsKms
-    | ServerSideEncryption.AwsKmsDsse
-    | ServerSideEncryption.Unknown
-// `"AES256"`
-export struct ServerSideEncryption.Aes256 {}
-// `"aws:fsx"`
-export struct ServerSideEncryption.AwsFsx {}
-// `"aws:backup"`
-export struct ServerSideEncryption.AwsBackup {}
-// `"aws:kms"`
-export struct ServerSideEncryption.AwsKms {}
-// `"aws:kms:dsse"`
-export struct ServerSideEncryption.AwsKmsDsse {}
-// A value this model does not name.
-export struct ServerSideEncryption.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type ServerSideEncryption = "AES256"
+    | "aws:fsx"
+    | "aws:backup"
+    | "aws:kms"
+    | "aws:kms:dsse"
+    | Other Str
 
-// StorageClass, one arm per value the model names.
+// StorageClass, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `StorageClass.Unknown`.
-export type StorageClass = StorageClass.Standard
-    | StorageClass.ReducedRedundancy
-    | StorageClass.StandardIa
-    | StorageClass.OnezoneIa
-    | StorageClass.IntelligentTiering
-    | StorageClass.Glacier
-    | StorageClass.DeepArchive
-    | StorageClass.Outposts
-    | StorageClass.GlacierIr
-    | StorageClass.Snow
-    | StorageClass.ExpressOnezone
-    | StorageClass.FsxOpenzfs
-    | StorageClass.FsxOntap
-    | StorageClass.AwsBackupWarm
-    | StorageClass.AwsBackupLowCostWarm
-    | StorageClass.Unknown
-// `"STANDARD"`
-export struct StorageClass.Standard {}
-// `"REDUCED_REDUNDANCY"`
-export struct StorageClass.ReducedRedundancy {}
-// `"STANDARD_IA"`
-export struct StorageClass.StandardIa {}
-// `"ONEZONE_IA"`
-export struct StorageClass.OnezoneIa {}
-// `"INTELLIGENT_TIERING"`
-export struct StorageClass.IntelligentTiering {}
-// `"GLACIER"`
-export struct StorageClass.Glacier {}
-// `"DEEP_ARCHIVE"`
-export struct StorageClass.DeepArchive {}
-// `"OUTPOSTS"`
-export struct StorageClass.Outposts {}
-// `"GLACIER_IR"`
-export struct StorageClass.GlacierIr {}
-// `"SNOW"`
-export struct StorageClass.Snow {}
-// `"EXPRESS_ONEZONE"`
-export struct StorageClass.ExpressOnezone {}
-// `"FSX_OPENZFS"`
-export struct StorageClass.FsxOpenzfs {}
-// `"FSX_ONTAP"`
-export struct StorageClass.FsxOntap {}
-// `"AWS_BACKUP_WARM"`
-export struct StorageClass.AwsBackupWarm {}
-// `"AWS_BACKUP_LOW_COST_WARM"`
-export struct StorageClass.AwsBackupLowCostWarm {}
-// A value this model does not name.
-export struct StorageClass.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type StorageClass = "STANDARD"
+    | "REDUCED_REDUNDANCY"
+    | "STANDARD_IA"
+    | "ONEZONE_IA"
+    | "INTELLIGENT_TIERING"
+    | "GLACIER"
+    | "DEEP_ARCHIVE"
+    | "OUTPOSTS"
+    | "GLACIER_IR"
+    | "SNOW"
+    | "EXPRESS_ONEZONE"
+    | "FSX_OPENZFS"
+    | "FSX_ONTAP"
+    | "AWS_BACKUP_WARM"
+    | "AWS_BACKUP_LOW_COST_WARM"
+    | Other Str
 
 // Confirms that the requester knows that they will be charged for the request.
 // Bucket owners need not specify this parameter in their requests. If either
@@ -161,122 +87,86 @@ export struct StorageClass.Unknown { value: Str }
 // objects from Requester Pays buckets, see Downloading Objects in Requester
 // Pays Buckets in the Amazon S3 User Guide.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `RequestPayer.Unknown`.
-export type RequestPayer = RequestPayer.Requester
-    | RequestPayer.Unknown
-// `"requester"`
-export struct RequestPayer.Requester {}
-// A value this model does not name.
-export struct RequestPayer.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type RequestPayer = "requester"
+    | Other Str
 
-// ObjectLockMode, one arm per value the model names.
+// ObjectLockMode, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `ObjectLockMode.Unknown`.
-export type ObjectLockMode = ObjectLockMode.Governance
-    | ObjectLockMode.Compliance
-    | ObjectLockMode.Unknown
-// `"GOVERNANCE"`
-export struct ObjectLockMode.Governance {}
-// `"COMPLIANCE"`
-export struct ObjectLockMode.Compliance {}
-// A value this model does not name.
-export struct ObjectLockMode.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type ObjectLockMode = "GOVERNANCE"
+    | "COMPLIANCE"
+    | Other Str
 
-// ObjectLockLegalHoldStatus, one arm per value the model names.
+// ObjectLockLegalHoldStatus, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `ObjectLockLegalHoldStatus.Unknown`.
-export type ObjectLockLegalHoldStatus = ObjectLockLegalHoldStatus.On
-    | ObjectLockLegalHoldStatus.Off
-    | ObjectLockLegalHoldStatus.Unknown
-// `"ON"`
-export struct ObjectLockLegalHoldStatus.On {}
-// `"OFF"`
-export struct ObjectLockLegalHoldStatus.Off {}
-// A value this model does not name.
-export struct ObjectLockLegalHoldStatus.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type ObjectLockLegalHoldStatus = "ON"
+    | "OFF"
+    | Other Str
 
-// ObjectLockEventHold, one arm per value the model names.
+// ObjectLockEventHold, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `ObjectLockEventHold.Unknown`.
-export type ObjectLockEventHold = ObjectLockEventHold.On
-    | ObjectLockEventHold.Off
-    | ObjectLockEventHold.Unknown
-// `"ON"`
-export struct ObjectLockEventHold.On {}
-// `"OFF"`
-export struct ObjectLockEventHold.Off {}
-// A value this model does not name.
-export struct ObjectLockEventHold.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type ObjectLockEventHold = "ON"
+    | "OFF"
+    | Other Str
 
-// ChecksumType, one arm per value the model names.
+// ChecksumType, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `ChecksumType.Unknown`.
-export type ChecksumType = ChecksumType.Composite
-    | ChecksumType.FullObject
-    | ChecksumType.Unknown
-// `"COMPOSITE"`
-export struct ChecksumType.Composite {}
-// `"FULL_OBJECT"`
-export struct ChecksumType.FullObject {}
-// A value this model does not name.
-export struct ChecksumType.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type ChecksumType = "COMPOSITE"
+    | "FULL_OBJECT"
+    | Other Str
 
 // If present, indicates that the requester was successfully charged for the
 // request. For more information, see Using Requester Pays buckets for storage
 // transfers and usage in the Amazon Simple Storage Service user guide.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `RequestCharged.Unknown`.
-export type RequestCharged = RequestCharged.Requester
-    | RequestCharged.Unknown
-// `"requester"`
-export struct RequestCharged.Requester {}
-// A value this model does not name.
-export struct RequestCharged.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type RequestCharged = "requester"
+    | Other Str
 
-// ChecksumMode, one arm per value the model names.
+// ChecksumMode, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `ChecksumMode.Unknown`.
-export type ChecksumMode = ChecksumMode.Enabled
-    | ChecksumMode.Unknown
-// `"ENABLED"`
-export struct ChecksumMode.Enabled {}
-// A value this model does not name.
-export struct ChecksumMode.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type ChecksumMode = "ENABLED"
+    | Other Str
 
-// ReplicationStatus, one arm per value the model names.
+// ReplicationStatus, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `ReplicationStatus.Unknown`.
-export type ReplicationStatus = ReplicationStatus.Complete
-    | ReplicationStatus.Pending
-    | ReplicationStatus.Failed
-    | ReplicationStatus.Replica
-    | ReplicationStatus.Completed
-    | ReplicationStatus.Unknown
-// `"COMPLETE"`
-export struct ReplicationStatus.Complete {}
-// `"PENDING"`
-export struct ReplicationStatus.Pending {}
-// `"FAILED"`
-export struct ReplicationStatus.Failed {}
-// `"REPLICA"`
-export struct ReplicationStatus.Replica {}
-// `"COMPLETED"`
-export struct ReplicationStatus.Completed {}
-// A value this model does not name.
-export struct ReplicationStatus.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type ReplicationStatus = "COMPLETE"
+    | "PENDING"
+    | "FAILED"
+    | "REPLICA"
+    | "COMPLETED"
+    | Other Str
 
-// IntelligentTieringAccessTier, one arm per value the model names.
+// IntelligentTieringAccessTier, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `IntelligentTieringAccessTier.Unknown`.
-export type IntelligentTieringAccessTier = IntelligentTieringAccessTier.ArchiveAccess
-    | IntelligentTieringAccessTier.DeepArchiveAccess
-    | IntelligentTieringAccessTier.Unknown
-// `"ARCHIVE_ACCESS"`
-export struct IntelligentTieringAccessTier.ArchiveAccess {}
-// `"DEEP_ARCHIVE_ACCESS"`
-export struct IntelligentTieringAccessTier.DeepArchiveAccess {}
-// A value this model does not name.
-export struct IntelligentTieringAccessTier.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type IntelligentTieringAccessTier = "ARCHIVE_ACCESS"
+    | "DEEP_ARCHIVE_ACCESS"
+    | Other Str
 
 // Not mapped: `expires` — the SDKs customize it away from the model
 // (`omitMembers` in smithy-build.json).
@@ -823,53 +713,47 @@ export fn close(value: GetObjectOutput) [Streams] -> Ok None | Err Checked<Strea
     return close(value.body)
 }
 
-// The existing object was created with a different encryption type. Subsequent
-// write requests must include the appropriate encryption parameters in the
-// request or while creating the session.
-export struct EncryptionTypeMismatch {}
+// A code S3 answers with: one arm per error the model names for these
+// operations, and `Other` for anything else the service sends — throttling, an
+// authorization failure, a code newer than this model. A legacy wire code is
+// normalized to the model's name, so a code reads the same on every backend.
+export type S3ErrorCode = "EncryptionTypeMismatch"
+    | "InvalidObjectState"
+    | "InvalidRequest"
+    | "InvalidWriteOffset"
+    | "NoSuchKey"
+    | "TooManyParts"
+    | Other Str
 
-// Object is archived and inaccessible until restored.
-export struct InvalidObjectState {
+// The service answered with an error: what it said, and the HTTP status it said
+// it with.
+export struct S3Error {
+    code: S3ErrorCode,
+    message: Str,
+    // The HTTP status of the response.
+    status: Int,
+    // The service's id for the request, when it sent one: what AWS support asks for.
+    request_id: Str? = None,
+    // Set for `InvalidObjectState` only.
     storage_class: StorageClass? = None,
+    // Set for `InvalidObjectState` only.
     access_tier: IntelligentTieringAccessTier? = None
 }
 
-// A parameter or header in your request isn't valid. For details, see the
-// description of this API operation.
-export struct InvalidRequest {}
-
-// The write offset value that you specified does not match the current object
-// size.
-export struct InvalidWriteOffset {}
-
-// The specified key does not exist.
-export struct NoSuchKey {}
-
-// You have attempted to add more parts than the maximum of 10000 that are
-// allowed for this object. You can use the CopyObject operation to copy this
-// object to another and then add more data to the newly copied object.
-export struct TooManyParts {}
-
 // Everything an operation of [S3] can answer with instead of its output: the
-// errors the model names, and [AwsError] for everything else.
-export type S3Error = EncryptionTypeMismatch
-    | InvalidObjectState
-    | InvalidRequest
-    | InvalidWriteOffset
-    | NoSuchKey
-    | TooManyParts
-    | AwsError
+// service's error, or an [AwsError] when there was no answer to read.
+export type S3Failure = S3Error | AwsError
 
 // Amazon Simple Storage Service. Every member hands its [reply] to the provider
 // and returns at once; the answer is the operation's output or a `Checked`
-// [S3Error].
+// [S3Failure].
 export effect S3 {
     // Adds an object to a bucket.
-    fn put_object(input: PutObjectInput, reply: Reply<Ok PutObjectOutput | Err Checked<S3Error>>) -> None
+    fn put_object(input: PutObjectInput, reply: Reply<Ok PutObjectOutput | Err Checked<S3Failure>>) -> None
     => !input, !reply
 
     // Retrieves an object from Amazon S3.
-    fn get_object(input: GetObjectInput, reply: Reply<Ok GetObjectOutput | Err Checked<S3Error>>) -> None
+    fn get_object(input: GetObjectInput, reply: Reply<Ok GetObjectOutput | Err Checked<S3Failure>>) -> None
     => !input, !reply
 }
 
@@ -888,7 +772,7 @@ export effect S3Calls {
 export handler FakeS3() [Streams] of S3, S3Calls {
     recorded: Mut List<Str> = mut_list_of()
 
-    fn put_object(input: PutObjectInput, reply: Reply<Ok PutObjectOutput | Err Checked<S3Error>>) -> None => !input, !reply {
+    fn put_object(input: PutObjectInput, reply: Reply<Ok PutObjectOutput | Err Checked<S3Failure>>) -> None => !input, !reply {
         recorded.add("put_object")
         let unsized = input.content_length is None
         let closed = close(input)
@@ -896,13 +780,13 @@ export handler FakeS3() [Streams] of S3, S3Calls {
             ignore(closed)
         }
         if unsized {
-            reply.send(err(checked<S3Error>(AwsError { code: "MissingContentLength", message: "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes" })))
+            reply.send(err(checked<S3Failure>(AwsError { code: "MissingContentLength", message: "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes" })))
             return None
         }
         reply.send(ok(PutObjectOutput {}))
     }
 
-    fn get_object(input: GetObjectInput, reply: Reply<Ok GetObjectOutput | Err Checked<S3Error>>) -> None => !input, !reply {
+    fn get_object(input: GetObjectInput, reply: Reply<Ok GetObjectOutput | Err Checked<S3Failure>>) -> None => !input, !reply {
         recorded.add("get_object")
         reply.send(ok(GetObjectOutput { body: from_bytes(bytes_of()) }))
     }

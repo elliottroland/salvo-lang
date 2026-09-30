@@ -16,20 +16,22 @@ import aws
 import aws.sqs
 
 // What a failure says, in a line.
-fn describe(e: SqsError) [] -> Str => e {
+fn describe(e: SqsFailure) [] -> Str => e {
     if e is AwsError {
         return "${e.code}: ${e.message}"
     }
-    if e is QueueDoesNotExist {
+    // The service's own error: its code is a literal from the model, or
+    // `Other` for one the model does not name.
+    if e.code is "QueueDoesNotExist" {
         return "no such queue"
     }
-    return "the service refused"
+    return "the service refused: ${e.code}"
 }
 
 // A small workflow against whatever `Sqs` is bound: make a queue, send to it,
 // read it back, clean up. It declares `[Sqs]` and nothing else.
 fn round_trip(name: Str) [Sqs, Console] => name {
-    let created = waitfor r: Reply<Ok CreateQueueOutput | Err Checked<SqsError>> {
+    let created = waitfor r: Reply<Ok CreateQueueOutput | Err Checked<SqsFailure>> {
         create_queue(CreateQueueInput { queue_name: copy(name) }, r)
     }
     if created is Err {
@@ -39,7 +41,7 @@ fn round_trip(name: Str) [Sqs, Console] => name {
     let url = created.queue_url ?: "?"
     println("created ${url}")
 
-    let sent = waitfor r: Reply<Ok SendMessageOutput | Err Checked<SqsError>> {
+    let sent = waitfor r: Reply<Ok SendMessageOutput | Err Checked<SqsFailure>> {
         send_message(SendMessageInput { queue_url: copy(url), message_body: "hello from Salvo" }, r)
     }
     when sent {
@@ -47,7 +49,7 @@ fn round_trip(name: Str) [Sqs, Console] => name {
         is Err { println("send_message: ${describe(detach(sent))}") }
     }
 
-    let got = waitfor r: Reply<Ok ReceiveMessageOutput | Err Checked<SqsError>> {
+    let got = waitfor r: Reply<Ok ReceiveMessageOutput | Err Checked<SqsFailure>> {
         receive_message(ReceiveMessageInput { queue_url: copy(url), max_number_of_messages: 10 }, r)
     }
     when got {
@@ -61,7 +63,7 @@ fn round_trip(name: Str) [Sqs, Console] => name {
         is Err { println("receive_message: ${describe(detach(got))}") }
     }
 
-    let gone = waitfor r: Reply<Ok None | Err Checked<SqsError>> {
+    let gone = waitfor r: Reply<Ok None | Err Checked<SqsFailure>> {
         delete_queue(DeleteQueueInput { queue_url: copy(url) }, r)
     }
     when gone {
@@ -70,13 +72,18 @@ fn round_trip(name: Str) [Sqs, Console] => name {
     }
 }
 
+// The error the service answers for a queue it does not have.
+fn no_queue(url: Str) [] -> SqsError => !url {
+    return SqsError { code: "QueueDoesNotExist", message: "no queue at ${url}", status: 400 }
+}
+
 // A queue service in memory, written the way a test would write one: the
 // generated effect is the contract, so any handler of it will do. Queues are
 // keyed by URL; a received message stays until deleted, as in SQS.
 handler MemSqs() of Sqs {
     queues: Mut Map<Str, List<Str>> = mut_map_of()
 
-    fn create_queue(input: CreateQueueInput, reply: Reply<Ok CreateQueueOutput | Err Checked<SqsError>>) -> None
+    fn create_queue(input: CreateQueueInput, reply: Reply<Ok CreateQueueOutput | Err Checked<SqsFailure>>) -> None
     => !input, !reply {
         let url = "mem://${input.queue_name}"
         if !contains_key(queues, url) {
@@ -85,21 +92,21 @@ handler MemSqs() of Sqs {
         reply.send(ok(CreateQueueOutput { queue_url: url }))
     }
 
-    fn get_queue_url(input: GetQueueUrlInput, reply: Reply<Ok GetQueueUrlOutput | Err Checked<SqsError>>) -> None
+    fn get_queue_url(input: GetQueueUrlInput, reply: Reply<Ok GetQueueUrlOutput | Err Checked<SqsFailure>>) -> None
     => !input, !reply {
         let url = "mem://${input.queue_name}"
         if !contains_key(queues, url) {
-            reply.send(err(checked<SqsError>(QueueDoesNotExist { message: url })))
+            reply.send(err(checked<SqsFailure>(no_queue(url))))
             return None
         }
         reply.send(ok(GetQueueUrlOutput { queue_url: url }))
     }
 
-    fn send_message(input: SendMessageInput, reply: Reply<Ok SendMessageOutput | Err Checked<SqsError>>) -> None
+    fn send_message(input: SendMessageInput, reply: Reply<Ok SendMessageOutput | Err Checked<SqsFailure>>) -> None
     => !input, !reply {
         let held = get(queues, input.queue_url)
         if held is None {
-            reply.send(err(checked<SqsError>(QueueDoesNotExist { message: copy(input.queue_url) })))
+            reply.send(err(checked<SqsFailure>(no_queue(copy(input.queue_url)))))
             return None
         }
         let grown = mut_list_of<Str>()
@@ -113,11 +120,11 @@ handler MemSqs() of Sqs {
         reply.send(ok(SendMessageOutput { message_id: id }))
     }
 
-    fn receive_message(input: ReceiveMessageInput, reply: Reply<Ok ReceiveMessageOutput | Err Checked<SqsError>>) -> None
+    fn receive_message(input: ReceiveMessageInput, reply: Reply<Ok ReceiveMessageOutput | Err Checked<SqsFailure>>) -> None
     => !input, !reply {
         let held = get(queues, input.queue_url)
         if held is None {
-            reply.send(err(checked<SqsError>(QueueDoesNotExist { message: copy(input.queue_url) })))
+            reply.send(err(checked<SqsFailure>(no_queue(copy(input.queue_url)))))
             return None
         }
         let out = mut_list_of<Message>()
@@ -130,15 +137,15 @@ handler MemSqs() of Sqs {
         reply.send(ok(ReceiveMessageOutput { messages: messages }))
     }
 
-    fn delete_message(input: DeleteMessageInput, reply: Reply<Ok None | Err Checked<SqsError>>) -> None
+    fn delete_message(input: DeleteMessageInput, reply: Reply<Ok None | Err Checked<SqsFailure>>) -> None
     => !input, !reply {
         reply.send(ok(None))
     }
 
-    fn delete_queue(input: DeleteQueueInput, reply: Reply<Ok None | Err Checked<SqsError>>) -> None
+    fn delete_queue(input: DeleteQueueInput, reply: Reply<Ok None | Err Checked<SqsFailure>>) -> None
     => !input, !reply {
         if !contains_key(queues, input.queue_url) {
-            reply.send(err(checked<SqsError>(QueueDoesNotExist { message: copy(input.queue_url) })))
+            reply.send(err(checked<SqsFailure>(no_queue(copy(input.queue_url)))))
             return None
         }
         remove(queues, input.queue_url)
@@ -163,8 +170,8 @@ fn main() [use] {
     if true {
         use MemSqs()
         round_trip("orders")
-        // A modeled error arrives as its own arm of `SqsError`.
-        let missing = waitfor r: Reply<Ok GetQueueUrlOutput | Err Checked<SqsError>> {
+        // A modeled error arrives as `SqsError` with the model's code.
+        let missing = waitfor r: Reply<Ok GetQueueUrlOutput | Err Checked<SqsFailure>> {
             get_queue_url(GetQueueUrlInput { queue_name: "nowhere" }, r)
         }
         when missing {

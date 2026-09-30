@@ -9,16 +9,17 @@ import aws
 import aws.sqs
 import aws.sqs.host
 
-fn say(what: Str, e: SqsError) [Console] -> None => what, e {
+fn say(what: Str, e: SqsFailure) [Console] -> None => what, e {
     if e is AwsError {
-        println("${what} failed: ${e.code}: ${e.message}")
+        println("${what} failed: no answer: ${e.code}: ${e.message}")
         return None
     }
-    if e is QueueDoesNotExist {
-        println("${what} failed: no such queue")
+    // The service's own error: a code from the model, or `Other`.
+    if e.code is "QueueDoesNotExist" {
+        println("${what} failed: no such queue (HTTP ${e.status})")
         return None
     }
-    println("${what} failed: the service said no")
+    println("${what} failed: ${e.code}: ${e.message}")
 }
 
 fn main() [use] {
@@ -28,7 +29,7 @@ fn main() [use] {
         region: Region { code: "eu-west-1" },
         endpoint: "http://localhost:4566"
     })
-    let created = waitfor r: Reply<Ok CreateQueueOutput | Err Checked<SqsError>> {
+    let created = waitfor r: Reply<Ok CreateQueueOutput | Err Checked<SqsFailure>> {
         create_queue(CreateQueueInput { queue_name: "salvo-demo" }, r)
     }
     when created {
@@ -36,14 +37,14 @@ fn main() [use] {
         is Ok {
             let url = created.queue_url ?: "?"
             println("created ${url}")
-            let sent = waitfor r: Reply<Ok SendMessageOutput | Err Checked<SqsError>> {
+            let sent = waitfor r: Reply<Ok SendMessageOutput | Err Checked<SqsFailure>> {
                 send_message(SendMessageInput { queue_url: copy(url), message_body: "hello from Salvo" }, r)
             }
             when sent {
                 is Ok { println("sent ${sent.message_id ?: "?"}") }
                 is Err { say("send_message", detach(sent)) }
             }
-            let got = waitfor r: Reply<Ok ReceiveMessageOutput | Err Checked<SqsError>> {
+            let got = waitfor r: Reply<Ok ReceiveMessageOutput | Err Checked<SqsFailure>> {
                 receive_message(ReceiveMessageInput { queue_url: copy(url), wait_time_seconds: 1 }, r)
             }
             when got {
@@ -54,7 +55,7 @@ fn main() [use] {
                 }
                 is Err { say("receive_message", detach(got)) }
             }
-            let gone = waitfor r: Reply<Ok None | Err Checked<SqsError>> {
+            let gone = waitfor r: Reply<Ok None | Err Checked<SqsFailure>> {
                 delete_queue(DeleteQueueInput { queue_url: copy(url) }, r)
             }
             when gone {
@@ -62,7 +63,7 @@ fn main() [use] {
                 is Err { say("delete_queue", detach(gone)) }
             }
             // A modeled error arrives as its own arm of `SqsError`.
-            let missing = waitfor r: Reply<Ok GetQueueUrlOutput | Err Checked<SqsError>> {
+            let missing = waitfor r: Reply<Ok GetQueueUrlOutput | Err Checked<SqsFailure>> {
                 get_queue_url(GetQueueUrlInput { queue_name: "salvo-demo" }, r)
             }
             when missing {

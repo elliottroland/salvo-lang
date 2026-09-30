@@ -75,7 +75,7 @@ impl crate::aws_s3::__Stateless_S3 for HostS3 {
         let body = crate::scheduler::salvo_stream_take_in(input.body.handle);
         let length = input.content_length;
         let call = client.put_object()
-            .set_acl(input.acl.as_ref().map(|x| to_sdk_object_canned_acl(x)))
+            .set_acl(input.acl.as_ref().map(|x| aws_sdk_s3::types::ObjectCannedAcl::from(x.as_str())))
             .set_bucket(Some((&input.bucket).clone()))
             .set_cache_control(input.cache_control.as_ref().map(|x| x.clone()))
             .set_content_disposition(input.content_disposition.as_ref().map(|x| x.clone()))
@@ -84,7 +84,7 @@ impl crate::aws_s3::__Stateless_S3 for HostS3 {
             .set_content_length(input.content_length.as_ref().map(|x| *x))
             .set_content_md5(input.content_md5.as_ref().map(|x| x.clone()))
             .set_content_type(input.content_type.as_ref().map(|x| x.clone()))
-            .set_checksum_algorithm(input.checksum_algorithm.as_ref().map(|x| to_sdk_checksum_algorithm(x)))
+            .set_checksum_algorithm(input.checksum_algorithm.as_ref().map(|x| aws_sdk_s3::types::ChecksumAlgorithm::from(x.as_str())))
             .set_checksum_crc32(input.checksum_crc32.as_ref().map(|x| x.clone()))
             .set_checksum_crc32_c(input.checksum_crc32_c.as_ref().map(|x| x.clone()))
             .set_checksum_crc64_nvme(input.checksum_crc64_nvme.as_ref().map(|x| x.clone()))
@@ -104,8 +104,8 @@ impl crate::aws_s3::__Stateless_S3 for HostS3 {
             .set_key(Some((&input.key).clone()))
             .set_write_offset_bytes(input.write_offset_bytes.as_ref().map(|x| *x))
             .set_metadata(input.metadata.as_ref().map(|x| x.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::HashMap<_, _>>()))
-            .set_server_side_encryption(input.server_side_encryption.as_ref().map(|x| to_sdk_server_side_encryption(x)))
-            .set_storage_class(input.storage_class.as_ref().map(|x| to_sdk_storage_class(x)))
+            .set_server_side_encryption(input.server_side_encryption.as_ref().map(|x| aws_sdk_s3::types::ServerSideEncryption::from(x.as_str())))
+            .set_storage_class(input.storage_class.as_ref().map(|x| aws_sdk_s3::types::StorageClass::from(x.as_str())))
             .set_website_redirect_location(input.website_redirect_location.as_ref().map(|x| x.clone()))
             .set_sse_customer_algorithm(input.sse_customer_algorithm.as_ref().map(|x| x.clone()))
             .set_sse_customer_key(input.sse_customer_key.as_ref().map(|x| x.clone()))
@@ -113,12 +113,12 @@ impl crate::aws_s3::__Stateless_S3 for HostS3 {
             .set_ssekms_key_id(input.ssekms_key_id.as_ref().map(|x| x.clone()))
             .set_ssekms_encryption_context(input.ssekms_encryption_context.as_ref().map(|x| x.clone()))
             .set_bucket_key_enabled(input.bucket_key_enabled.as_ref().map(|x| *x))
-            .set_request_payer(input.request_payer.as_ref().map(|x| to_sdk_request_payer(x)))
+            .set_request_payer(input.request_payer.as_ref().map(|x| aws_sdk_s3::types::RequestPayer::from(x.as_str())))
             .set_tagging(input.tagging.as_ref().map(|x| x.clone()))
-            .set_object_lock_mode(input.object_lock_mode.as_ref().map(|x| to_sdk_object_lock_mode(x)))
+            .set_object_lock_mode(input.object_lock_mode.as_ref().map(|x| aws_sdk_s3::types::ObjectLockMode::from(x.as_str())))
             .set_object_lock_retain_until_date(input.object_lock_retain_until_date.as_ref().map(|x| salvo_date_time(x)))
-            .set_object_lock_legal_hold_status(input.object_lock_legal_hold_status.as_ref().map(|x| to_sdk_object_lock_legal_hold_status(x)))
-            .set_object_lock_event_hold(input.object_lock_event_hold.as_ref().map(|x| to_sdk_object_lock_event_hold(x)))
+            .set_object_lock_legal_hold_status(input.object_lock_legal_hold_status.as_ref().map(|x| aws_sdk_s3::types::ObjectLockLegalHoldStatus::from(x.as_str())))
+            .set_object_lock_event_hold(input.object_lock_event_hold.as_ref().map(|x| aws_sdk_s3::types::ObjectLockEventHold::from(x.as_str())))
             .set_object_lock_event_hold_duration_days(input.object_lock_event_hold_duration_days.as_ref().map(|x| *x))
             .set_object_lock_event_hold_duration_years(input.object_lock_event_hold_duration_years.as_ref().map(|x| *x))
             .set_expected_bucket_owner(input.expected_bucket_owner.as_ref().map(|x| x.clone()));
@@ -127,20 +127,20 @@ impl crate::aws_s3::__Stateless_S3 for HostS3 {
                 Some(n) if n >= 0 => n,
                 _ => {
                     drop(body);
-                    let failed: Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = Union2::U2(Checked { value: Union7::U7(AwsError { code: "MissingContentLength".to_string(), message: "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes".to_string() }) });
+                    let failed: Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>> = Union2::U2(Checked { value: Union2::U2(AwsError { code: "MissingContentLength".to_string(), message: "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes".to_string() }) });
                     reply.send(failed);
                     return;
                 }
             };
             let (upload, problem) = salvo_upload(body, length);
             let call = call.set_body(Some(aws_sdk_s3::primitives::ByteStream::from_body_1_x(upload)));
-            let answer: Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = match call.send().await {
+            let answer: Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>> = match call.send().await {
                 Ok(out) => { let _ = &out; Union2::U1(from_sdk_put_object_output(&out)) }
-                Err(e) => Union2::U2(Checked { value: error_of_put_object(e) }),
+                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
             };
             let problem = problem.lock().unwrap().take();
-            let answer: Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = match problem {
-                Some(message) => Union2::U2(Checked { value: Union7::U7(AwsError { code: "StreamFailed".to_string(), message }) }),
+            let answer: Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>> = match problem {
+                Some(message) => Union2::U2(Checked { value: Union2::U2(AwsError { code: "StreamFailed".to_string(), message }) }),
                 None => answer,
             };
             reply.send(answer);
@@ -169,283 +169,22 @@ impl crate::aws_s3::__Stateless_S3 for HostS3 {
             .set_sse_customer_algorithm(input.sse_customer_algorithm.as_ref().map(|x| x.clone()))
             .set_sse_customer_key(input.sse_customer_key.as_ref().map(|x| x.clone()))
             .set_sse_customer_key_md5(input.sse_customer_key_md5.as_ref().map(|x| x.clone()))
-            .set_request_payer(input.request_payer.as_ref().map(|x| to_sdk_request_payer(x)))
+            .set_request_payer(input.request_payer.as_ref().map(|x| aws_sdk_s3::types::RequestPayer::from(x.as_str())))
             .set_part_number(input.part_number.as_ref().map(|x| *x))
             .set_expected_bucket_owner(input.expected_bucket_owner.as_ref().map(|x| x.clone()))
-            .set_checksum_mode(input.checksum_mode.as_ref().map(|x| to_sdk_checksum_mode(x)));
+            .set_checksum_mode(input.checksum_mode.as_ref().map(|x| aws_sdk_s3::types::ChecksumMode::from(x.as_str())));
         self.rt.spawn(async move {
-            let answer: Union2<GetObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = match call.send().await {
+            let answer: Union2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>> = match call.send().await {
                 Ok(out) => Union2::U1(from_sdk_get_object_output(out, &rt)),
-                Err(e) => Union2::U2(Checked { value: error_of_get_object(e) }),
+                Err(e) => Union2::U2(salvo_failure(e, |err, out| {
+                if let aws_sdk_s3::operation::get_object::GetObjectError::InvalidObjectState(x) = err {
+                    out.storage_class = x.storage_class().map(|x| x.as_str().to_string());
+                    out.access_tier = x.access_tier().map(|x| x.as_str().to_string());
+                }
+            })),
             };
             reply.send(answer);
         });
-    }
-}
-
-fn to_sdk_object_canned_acl(v: &Union8<ObjectCannedACLPrivate, ObjectCannedACLPublicRead, ObjectCannedACLPublicReadWrite, ObjectCannedACLAuthenticatedRead, ObjectCannedACLAwsExecRead, ObjectCannedACLBucketOwnerRead, ObjectCannedACLBucketOwnerFullControl, ObjectCannedACLUnknown>) -> aws_sdk_s3::types::ObjectCannedAcl {
-    match v {
-        Union8::U1(_) => aws_sdk_s3::types::ObjectCannedAcl::from("private"),
-        Union8::U2(_) => aws_sdk_s3::types::ObjectCannedAcl::from("public-read"),
-        Union8::U3(_) => aws_sdk_s3::types::ObjectCannedAcl::from("public-read-write"),
-        Union8::U4(_) => aws_sdk_s3::types::ObjectCannedAcl::from("authenticated-read"),
-        Union8::U5(_) => aws_sdk_s3::types::ObjectCannedAcl::from("aws-exec-read"),
-        Union8::U6(_) => aws_sdk_s3::types::ObjectCannedAcl::from("bucket-owner-read"),
-        Union8::U7(_) => aws_sdk_s3::types::ObjectCannedAcl::from("bucket-owner-full-control"),
-        Union8::U8(u) => aws_sdk_s3::types::ObjectCannedAcl::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_object_canned_acl(v: &aws_sdk_s3::types::ObjectCannedAcl) -> Union8<ObjectCannedACLPrivate, ObjectCannedACLPublicRead, ObjectCannedACLPublicReadWrite, ObjectCannedACLAuthenticatedRead, ObjectCannedACLAwsExecRead, ObjectCannedACLBucketOwnerRead, ObjectCannedACLBucketOwnerFullControl, ObjectCannedACLUnknown> {
-    match v.as_str() {
-        "private" => Union8::U1(ObjectCannedACLPrivate {}),
-        "public-read" => Union8::U2(ObjectCannedACLPublicRead {}),
-        "public-read-write" => Union8::U3(ObjectCannedACLPublicReadWrite {}),
-        "authenticated-read" => Union8::U4(ObjectCannedACLAuthenticatedRead {}),
-        "aws-exec-read" => Union8::U5(ObjectCannedACLAwsExecRead {}),
-        "bucket-owner-read" => Union8::U6(ObjectCannedACLBucketOwnerRead {}),
-        "bucket-owner-full-control" => Union8::U7(ObjectCannedACLBucketOwnerFullControl {}),
-        other => Union8::U8(ObjectCannedACLUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_checksum_algorithm(v: &Union11<ChecksumAlgorithmCrc32, ChecksumAlgorithmCrc32C, ChecksumAlgorithmSha1, ChecksumAlgorithmSha256, ChecksumAlgorithmCrc64Nvme, ChecksumAlgorithmSha512, ChecksumAlgorithmMd5, ChecksumAlgorithmXxhash64, ChecksumAlgorithmXxhash3, ChecksumAlgorithmXxhash128, ChecksumAlgorithmUnknown>) -> aws_sdk_s3::types::ChecksumAlgorithm {
-    match v {
-        Union11::U1(_) => aws_sdk_s3::types::ChecksumAlgorithm::from("CRC32"),
-        Union11::U2(_) => aws_sdk_s3::types::ChecksumAlgorithm::from("CRC32C"),
-        Union11::U3(_) => aws_sdk_s3::types::ChecksumAlgorithm::from("SHA1"),
-        Union11::U4(_) => aws_sdk_s3::types::ChecksumAlgorithm::from("SHA256"),
-        Union11::U5(_) => aws_sdk_s3::types::ChecksumAlgorithm::from("CRC64NVME"),
-        Union11::U6(_) => aws_sdk_s3::types::ChecksumAlgorithm::from("SHA512"),
-        Union11::U7(_) => aws_sdk_s3::types::ChecksumAlgorithm::from("MD5"),
-        Union11::U8(_) => aws_sdk_s3::types::ChecksumAlgorithm::from("XXHASH64"),
-        Union11::U9(_) => aws_sdk_s3::types::ChecksumAlgorithm::from("XXHASH3"),
-        Union11::U10(_) => aws_sdk_s3::types::ChecksumAlgorithm::from("XXHASH128"),
-        Union11::U11(u) => aws_sdk_s3::types::ChecksumAlgorithm::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_checksum_algorithm(v: &aws_sdk_s3::types::ChecksumAlgorithm) -> Union11<ChecksumAlgorithmCrc32, ChecksumAlgorithmCrc32C, ChecksumAlgorithmSha1, ChecksumAlgorithmSha256, ChecksumAlgorithmCrc64Nvme, ChecksumAlgorithmSha512, ChecksumAlgorithmMd5, ChecksumAlgorithmXxhash64, ChecksumAlgorithmXxhash3, ChecksumAlgorithmXxhash128, ChecksumAlgorithmUnknown> {
-    match v.as_str() {
-        "CRC32" => Union11::U1(ChecksumAlgorithmCrc32 {}),
-        "CRC32C" => Union11::U2(ChecksumAlgorithmCrc32C {}),
-        "SHA1" => Union11::U3(ChecksumAlgorithmSha1 {}),
-        "SHA256" => Union11::U4(ChecksumAlgorithmSha256 {}),
-        "CRC64NVME" => Union11::U5(ChecksumAlgorithmCrc64Nvme {}),
-        "SHA512" => Union11::U6(ChecksumAlgorithmSha512 {}),
-        "MD5" => Union11::U7(ChecksumAlgorithmMd5 {}),
-        "XXHASH64" => Union11::U8(ChecksumAlgorithmXxhash64 {}),
-        "XXHASH3" => Union11::U9(ChecksumAlgorithmXxhash3 {}),
-        "XXHASH128" => Union11::U10(ChecksumAlgorithmXxhash128 {}),
-        other => Union11::U11(ChecksumAlgorithmUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_server_side_encryption(v: &Union6<ServerSideEncryptionAes256, ServerSideEncryptionAwsFsx, ServerSideEncryptionAwsBackup, ServerSideEncryptionAwsKms, ServerSideEncryptionAwsKmsDsse, ServerSideEncryptionUnknown>) -> aws_sdk_s3::types::ServerSideEncryption {
-    match v {
-        Union6::U1(_) => aws_sdk_s3::types::ServerSideEncryption::from("AES256"),
-        Union6::U2(_) => aws_sdk_s3::types::ServerSideEncryption::from("aws:fsx"),
-        Union6::U3(_) => aws_sdk_s3::types::ServerSideEncryption::from("aws:backup"),
-        Union6::U4(_) => aws_sdk_s3::types::ServerSideEncryption::from("aws:kms"),
-        Union6::U5(_) => aws_sdk_s3::types::ServerSideEncryption::from("aws:kms:dsse"),
-        Union6::U6(u) => aws_sdk_s3::types::ServerSideEncryption::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_server_side_encryption(v: &aws_sdk_s3::types::ServerSideEncryption) -> Union6<ServerSideEncryptionAes256, ServerSideEncryptionAwsFsx, ServerSideEncryptionAwsBackup, ServerSideEncryptionAwsKms, ServerSideEncryptionAwsKmsDsse, ServerSideEncryptionUnknown> {
-    match v.as_str() {
-        "AES256" => Union6::U1(ServerSideEncryptionAes256 {}),
-        "aws:fsx" => Union6::U2(ServerSideEncryptionAwsFsx {}),
-        "aws:backup" => Union6::U3(ServerSideEncryptionAwsBackup {}),
-        "aws:kms" => Union6::U4(ServerSideEncryptionAwsKms {}),
-        "aws:kms:dsse" => Union6::U5(ServerSideEncryptionAwsKmsDsse {}),
-        other => Union6::U6(ServerSideEncryptionUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_storage_class(v: &Union16<StorageClassStandard, StorageClassReducedRedundancy, StorageClassStandardIa, StorageClassOnezoneIa, StorageClassIntelligentTiering, StorageClassGlacier, StorageClassDeepArchive, StorageClassOutposts, StorageClassGlacierIr, StorageClassSnow, StorageClassExpressOnezone, StorageClassFsxOpenzfs, StorageClassFsxOntap, StorageClassAwsBackupWarm, StorageClassAwsBackupLowCostWarm, StorageClassUnknown>) -> aws_sdk_s3::types::StorageClass {
-    match v {
-        Union16::U1(_) => aws_sdk_s3::types::StorageClass::from("STANDARD"),
-        Union16::U2(_) => aws_sdk_s3::types::StorageClass::from("REDUCED_REDUNDANCY"),
-        Union16::U3(_) => aws_sdk_s3::types::StorageClass::from("STANDARD_IA"),
-        Union16::U4(_) => aws_sdk_s3::types::StorageClass::from("ONEZONE_IA"),
-        Union16::U5(_) => aws_sdk_s3::types::StorageClass::from("INTELLIGENT_TIERING"),
-        Union16::U6(_) => aws_sdk_s3::types::StorageClass::from("GLACIER"),
-        Union16::U7(_) => aws_sdk_s3::types::StorageClass::from("DEEP_ARCHIVE"),
-        Union16::U8(_) => aws_sdk_s3::types::StorageClass::from("OUTPOSTS"),
-        Union16::U9(_) => aws_sdk_s3::types::StorageClass::from("GLACIER_IR"),
-        Union16::U10(_) => aws_sdk_s3::types::StorageClass::from("SNOW"),
-        Union16::U11(_) => aws_sdk_s3::types::StorageClass::from("EXPRESS_ONEZONE"),
-        Union16::U12(_) => aws_sdk_s3::types::StorageClass::from("FSX_OPENZFS"),
-        Union16::U13(_) => aws_sdk_s3::types::StorageClass::from("FSX_ONTAP"),
-        Union16::U14(_) => aws_sdk_s3::types::StorageClass::from("AWS_BACKUP_WARM"),
-        Union16::U15(_) => aws_sdk_s3::types::StorageClass::from("AWS_BACKUP_LOW_COST_WARM"),
-        Union16::U16(u) => aws_sdk_s3::types::StorageClass::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_storage_class(v: &aws_sdk_s3::types::StorageClass) -> Union16<StorageClassStandard, StorageClassReducedRedundancy, StorageClassStandardIa, StorageClassOnezoneIa, StorageClassIntelligentTiering, StorageClassGlacier, StorageClassDeepArchive, StorageClassOutposts, StorageClassGlacierIr, StorageClassSnow, StorageClassExpressOnezone, StorageClassFsxOpenzfs, StorageClassFsxOntap, StorageClassAwsBackupWarm, StorageClassAwsBackupLowCostWarm, StorageClassUnknown> {
-    match v.as_str() {
-        "STANDARD" => Union16::U1(StorageClassStandard {}),
-        "REDUCED_REDUNDANCY" => Union16::U2(StorageClassReducedRedundancy {}),
-        "STANDARD_IA" => Union16::U3(StorageClassStandardIa {}),
-        "ONEZONE_IA" => Union16::U4(StorageClassOnezoneIa {}),
-        "INTELLIGENT_TIERING" => Union16::U5(StorageClassIntelligentTiering {}),
-        "GLACIER" => Union16::U6(StorageClassGlacier {}),
-        "DEEP_ARCHIVE" => Union16::U7(StorageClassDeepArchive {}),
-        "OUTPOSTS" => Union16::U8(StorageClassOutposts {}),
-        "GLACIER_IR" => Union16::U9(StorageClassGlacierIr {}),
-        "SNOW" => Union16::U10(StorageClassSnow {}),
-        "EXPRESS_ONEZONE" => Union16::U11(StorageClassExpressOnezone {}),
-        "FSX_OPENZFS" => Union16::U12(StorageClassFsxOpenzfs {}),
-        "FSX_ONTAP" => Union16::U13(StorageClassFsxOntap {}),
-        "AWS_BACKUP_WARM" => Union16::U14(StorageClassAwsBackupWarm {}),
-        "AWS_BACKUP_LOW_COST_WARM" => Union16::U15(StorageClassAwsBackupLowCostWarm {}),
-        other => Union16::U16(StorageClassUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_request_payer(v: &Union2<RequestPayerRequester, RequestPayerUnknown>) -> aws_sdk_s3::types::RequestPayer {
-    match v {
-        Union2::U1(_) => aws_sdk_s3::types::RequestPayer::from("requester"),
-        Union2::U2(u) => aws_sdk_s3::types::RequestPayer::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_request_payer(v: &aws_sdk_s3::types::RequestPayer) -> Union2<RequestPayerRequester, RequestPayerUnknown> {
-    match v.as_str() {
-        "requester" => Union2::U1(RequestPayerRequester {}),
-        other => Union2::U2(RequestPayerUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_object_lock_mode(v: &Union3<ObjectLockModeGovernance, ObjectLockModeCompliance, ObjectLockModeUnknown>) -> aws_sdk_s3::types::ObjectLockMode {
-    match v {
-        Union3::U1(_) => aws_sdk_s3::types::ObjectLockMode::from("GOVERNANCE"),
-        Union3::U2(_) => aws_sdk_s3::types::ObjectLockMode::from("COMPLIANCE"),
-        Union3::U3(u) => aws_sdk_s3::types::ObjectLockMode::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_object_lock_mode(v: &aws_sdk_s3::types::ObjectLockMode) -> Union3<ObjectLockModeGovernance, ObjectLockModeCompliance, ObjectLockModeUnknown> {
-    match v.as_str() {
-        "GOVERNANCE" => Union3::U1(ObjectLockModeGovernance {}),
-        "COMPLIANCE" => Union3::U2(ObjectLockModeCompliance {}),
-        other => Union3::U3(ObjectLockModeUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_object_lock_legal_hold_status(v: &Union3<ObjectLockLegalHoldStatusOn, ObjectLockLegalHoldStatusOff, ObjectLockLegalHoldStatusUnknown>) -> aws_sdk_s3::types::ObjectLockLegalHoldStatus {
-    match v {
-        Union3::U1(_) => aws_sdk_s3::types::ObjectLockLegalHoldStatus::from("ON"),
-        Union3::U2(_) => aws_sdk_s3::types::ObjectLockLegalHoldStatus::from("OFF"),
-        Union3::U3(u) => aws_sdk_s3::types::ObjectLockLegalHoldStatus::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_object_lock_legal_hold_status(v: &aws_sdk_s3::types::ObjectLockLegalHoldStatus) -> Union3<ObjectLockLegalHoldStatusOn, ObjectLockLegalHoldStatusOff, ObjectLockLegalHoldStatusUnknown> {
-    match v.as_str() {
-        "ON" => Union3::U1(ObjectLockLegalHoldStatusOn {}),
-        "OFF" => Union3::U2(ObjectLockLegalHoldStatusOff {}),
-        other => Union3::U3(ObjectLockLegalHoldStatusUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_object_lock_event_hold(v: &Union3<ObjectLockEventHoldOn, ObjectLockEventHoldOff, ObjectLockEventHoldUnknown>) -> aws_sdk_s3::types::ObjectLockEventHold {
-    match v {
-        Union3::U1(_) => aws_sdk_s3::types::ObjectLockEventHold::from("ON"),
-        Union3::U2(_) => aws_sdk_s3::types::ObjectLockEventHold::from("OFF"),
-        Union3::U3(u) => aws_sdk_s3::types::ObjectLockEventHold::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_object_lock_event_hold(v: &aws_sdk_s3::types::ObjectLockEventHold) -> Union3<ObjectLockEventHoldOn, ObjectLockEventHoldOff, ObjectLockEventHoldUnknown> {
-    match v.as_str() {
-        "ON" => Union3::U1(ObjectLockEventHoldOn {}),
-        "OFF" => Union3::U2(ObjectLockEventHoldOff {}),
-        other => Union3::U3(ObjectLockEventHoldUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_checksum_type(v: &Union3<ChecksumTypeComposite, ChecksumTypeFullObject, ChecksumTypeUnknown>) -> aws_sdk_s3::types::ChecksumType {
-    match v {
-        Union3::U1(_) => aws_sdk_s3::types::ChecksumType::from("COMPOSITE"),
-        Union3::U2(_) => aws_sdk_s3::types::ChecksumType::from("FULL_OBJECT"),
-        Union3::U3(u) => aws_sdk_s3::types::ChecksumType::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_checksum_type(v: &aws_sdk_s3::types::ChecksumType) -> Union3<ChecksumTypeComposite, ChecksumTypeFullObject, ChecksumTypeUnknown> {
-    match v.as_str() {
-        "COMPOSITE" => Union3::U1(ChecksumTypeComposite {}),
-        "FULL_OBJECT" => Union3::U2(ChecksumTypeFullObject {}),
-        other => Union3::U3(ChecksumTypeUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_request_charged(v: &Union2<RequestChargedRequester, RequestChargedUnknown>) -> aws_sdk_s3::types::RequestCharged {
-    match v {
-        Union2::U1(_) => aws_sdk_s3::types::RequestCharged::from("requester"),
-        Union2::U2(u) => aws_sdk_s3::types::RequestCharged::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_request_charged(v: &aws_sdk_s3::types::RequestCharged) -> Union2<RequestChargedRequester, RequestChargedUnknown> {
-    match v.as_str() {
-        "requester" => Union2::U1(RequestChargedRequester {}),
-        other => Union2::U2(RequestChargedUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_checksum_mode(v: &Union2<ChecksumModeEnabled, ChecksumModeUnknown>) -> aws_sdk_s3::types::ChecksumMode {
-    match v {
-        Union2::U1(_) => aws_sdk_s3::types::ChecksumMode::from("ENABLED"),
-        Union2::U2(u) => aws_sdk_s3::types::ChecksumMode::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_checksum_mode(v: &aws_sdk_s3::types::ChecksumMode) -> Union2<ChecksumModeEnabled, ChecksumModeUnknown> {
-    match v.as_str() {
-        "ENABLED" => Union2::U1(ChecksumModeEnabled {}),
-        other => Union2::U2(ChecksumModeUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_replication_status(v: &Union6<ReplicationStatusComplete, ReplicationStatusPending, ReplicationStatusFailed, ReplicationStatusReplica, ReplicationStatusCompleted, ReplicationStatusUnknown>) -> aws_sdk_s3::types::ReplicationStatus {
-    match v {
-        Union6::U1(_) => aws_sdk_s3::types::ReplicationStatus::from("COMPLETE"),
-        Union6::U2(_) => aws_sdk_s3::types::ReplicationStatus::from("PENDING"),
-        Union6::U3(_) => aws_sdk_s3::types::ReplicationStatus::from("FAILED"),
-        Union6::U4(_) => aws_sdk_s3::types::ReplicationStatus::from("REPLICA"),
-        Union6::U5(_) => aws_sdk_s3::types::ReplicationStatus::from("COMPLETED"),
-        Union6::U6(u) => aws_sdk_s3::types::ReplicationStatus::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_replication_status(v: &aws_sdk_s3::types::ReplicationStatus) -> Union6<ReplicationStatusComplete, ReplicationStatusPending, ReplicationStatusFailed, ReplicationStatusReplica, ReplicationStatusCompleted, ReplicationStatusUnknown> {
-    match v.as_str() {
-        "COMPLETE" => Union6::U1(ReplicationStatusComplete {}),
-        "PENDING" => Union6::U2(ReplicationStatusPending {}),
-        "FAILED" => Union6::U3(ReplicationStatusFailed {}),
-        "REPLICA" => Union6::U4(ReplicationStatusReplica {}),
-        "COMPLETED" => Union6::U5(ReplicationStatusCompleted {}),
-        other => Union6::U6(ReplicationStatusUnknown { value: other.to_string() }),
-    }
-}
-
-fn to_sdk_intelligent_tiering_access_tier(v: &Union3<IntelligentTieringAccessTierArchiveAccess, IntelligentTieringAccessTierDeepArchiveAccess, IntelligentTieringAccessTierUnknown>) -> aws_sdk_s3::types::IntelligentTieringAccessTier {
-    match v {
-        Union3::U1(_) => aws_sdk_s3::types::IntelligentTieringAccessTier::from("ARCHIVE_ACCESS"),
-        Union3::U2(_) => aws_sdk_s3::types::IntelligentTieringAccessTier::from("DEEP_ARCHIVE_ACCESS"),
-        Union3::U3(u) => aws_sdk_s3::types::IntelligentTieringAccessTier::from(u.value.as_str()),
-    }
-}
-
-fn from_sdk_intelligent_tiering_access_tier(v: &aws_sdk_s3::types::IntelligentTieringAccessTier) -> Union3<IntelligentTieringAccessTierArchiveAccess, IntelligentTieringAccessTierDeepArchiveAccess, IntelligentTieringAccessTierUnknown> {
-    match v.as_str() {
-        "ARCHIVE_ACCESS" => Union3::U1(IntelligentTieringAccessTierArchiveAccess {}),
-        "DEEP_ARCHIVE_ACCESS" => Union3::U2(IntelligentTieringAccessTierDeepArchiveAccess {}),
-        other => Union3::U3(IntelligentTieringAccessTierUnknown { value: other.to_string() }),
     }
 }
 
@@ -463,8 +202,8 @@ fn from_sdk_put_object_output(v: &aws_sdk_s3::operation::put_object::PutObjectOu
         checksum_xxhash64: v.checksum_xxhash64().map(|x| x.to_string()),
         checksum_xxhash3: v.checksum_xxhash3().map(|x| x.to_string()),
         checksum_xxhash128: v.checksum_xxhash128().map(|x| x.to_string()),
-        checksum_type: v.checksum_type().map(|x| from_sdk_checksum_type(x)),
-        server_side_encryption: v.server_side_encryption().map(|x| from_sdk_server_side_encryption(x)),
+        checksum_type: v.checksum_type().map(|x| x.as_str().to_string()),
+        server_side_encryption: v.server_side_encryption().map(|x| x.as_str().to_string()),
         version_id: v.version_id().map(|x| x.to_string()),
         sse_customer_algorithm: v.sse_customer_algorithm().map(|x| x.to_string()),
         sse_customer_key_md5: v.sse_customer_key_md5().map(|x| x.to_string()),
@@ -472,7 +211,7 @@ fn from_sdk_put_object_output(v: &aws_sdk_s3::operation::put_object::PutObjectOu
         ssekms_encryption_context: v.ssekms_encryption_context().map(|x| x.to_string()),
         bucket_key_enabled: v.bucket_key_enabled().map(|x| *(&x)),
         size: v.size().map(|x| *(&x)),
-        request_charged: v.request_charged().map(|x| from_sdk_request_charged(x)),
+        request_charged: v.request_charged().map(|x| x.as_str().to_string()),
     }
 }
 
@@ -495,7 +234,7 @@ fn from_sdk_get_object_output(v: aws_sdk_s3::operation::get_object::GetObjectOut
         checksum_xxhash64: v.checksum_xxhash64().map(|x| x.to_string()),
         checksum_xxhash3: v.checksum_xxhash3().map(|x| x.to_string()),
         checksum_xxhash128: v.checksum_xxhash128().map(|x| x.to_string()),
-        checksum_type: v.checksum_type().map(|x| from_sdk_checksum_type(x)),
+        checksum_type: v.checksum_type().map(|x| x.as_str().to_string()),
         missing_meta: v.missing_meta().map(|x| *(&x)),
         version_id: v.version_id().map(|x| x.to_string()),
         cache_control: v.cache_control().map(|x| x.to_string()),
@@ -505,21 +244,21 @@ fn from_sdk_get_object_output(v: aws_sdk_s3::operation::get_object::GetObjectOut
         content_range: v.content_range().map(|x| x.to_string()),
         content_type: v.content_type().map(|x| x.to_string()),
         website_redirect_location: v.website_redirect_location().map(|x| x.to_string()),
-        server_side_encryption: v.server_side_encryption().map(|x| from_sdk_server_side_encryption(x)),
+        server_side_encryption: v.server_side_encryption().map(|x| x.as_str().to_string()),
         metadata: v.metadata().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::collections::SalvoMap::from_entries::<crate::collections::HostHash, crate::collections::HostEq, _>(__es) }),
         sse_customer_algorithm: v.sse_customer_algorithm().map(|x| x.to_string()),
         sse_customer_key_md5: v.sse_customer_key_md5().map(|x| x.to_string()),
         ssekms_key_id: v.ssekms_key_id().map(|x| x.to_string()),
         bucket_key_enabled: v.bucket_key_enabled().map(|x| *(&x)),
-        storage_class: v.storage_class().map(|x| from_sdk_storage_class(x)),
-        request_charged: v.request_charged().map(|x| from_sdk_request_charged(x)),
-        replication_status: v.replication_status().map(|x| from_sdk_replication_status(x)),
+        storage_class: v.storage_class().map(|x| x.as_str().to_string()),
+        request_charged: v.request_charged().map(|x| x.as_str().to_string()),
+        replication_status: v.replication_status().map(|x| x.as_str().to_string()),
         parts_count: v.parts_count().map(|x| *(&x)),
         tag_count: v.tag_count().map(|x| *(&x)),
-        object_lock_mode: v.object_lock_mode().map(|x| from_sdk_object_lock_mode(x)),
+        object_lock_mode: v.object_lock_mode().map(|x| x.as_str().to_string()),
         object_lock_retain_until_date: v.object_lock_retain_until_date().map(|x| salvo_instant(x)),
-        object_lock_legal_hold_status: v.object_lock_legal_hold_status().map(|x| from_sdk_object_lock_legal_hold_status(x)),
-        object_lock_event_hold: v.object_lock_event_hold().map(|x| from_sdk_object_lock_event_hold(x)),
+        object_lock_legal_hold_status: v.object_lock_legal_hold_status().map(|x| x.as_str().to_string()),
+        object_lock_event_hold: v.object_lock_event_hold().map(|x| x.as_str().to_string()),
         object_lock_event_hold_duration_days: v.object_lock_event_hold_duration_days().map(|x| *(&x)),
         object_lock_event_hold_duration_years: v.object_lock_event_hold_duration_years().map(|x| *(&x)),
         body: crate::stream::InStream {
@@ -528,51 +267,52 @@ fn from_sdk_get_object_output(v: aws_sdk_s3::operation::get_object::GetObjectOut
     }
 }
 
-fn from_sdk_encryption_type_mismatch(v: &aws_sdk_s3::types::error::EncryptionTypeMismatch) -> EncryptionTypeMismatch {
-    EncryptionTypeMismatch {}
-}
-
-fn from_sdk_invalid_object_state(v: &aws_sdk_s3::types::error::InvalidObjectState) -> InvalidObjectState {
-    InvalidObjectState {
-        storage_class: v.storage_class().map(|x| from_sdk_storage_class(x)),
-        access_tier: v.access_tier().map(|x| from_sdk_intelligent_tiering_access_tier(x)),
+/// A code as the model names it: the shape id's name (`ns#Name`), and a legacy
+/// `@awsQueryError` code mapped to the model's.
+fn salvo_code(code: &str) -> String {
+    let code = code.rsplit('#').next().unwrap_or(code);
+    match code {
+        other => other,
     }
+    .to_string()
 }
 
-fn from_sdk_invalid_request(v: &aws_sdk_s3::types::error::InvalidRequest) -> InvalidRequest {
-    InvalidRequest {}
-}
-
-fn from_sdk_invalid_write_offset(v: &aws_sdk_s3::types::error::InvalidWriteOffset) -> InvalidWriteOffset {
-    InvalidWriteOffset {}
-}
-
-fn from_sdk_no_such_key(v: &aws_sdk_s3::types::error::NoSuchKey) -> NoSuchKey {
-    NoSuchKey {}
-}
-
-fn from_sdk_too_many_parts(v: &aws_sdk_s3::types::error::TooManyParts) -> TooManyParts {
-    TooManyParts {}
-}
-
-fn error_of_put_object(e: aws_sdk_s3::error::SdkError<aws_sdk_s3::operation::put_object::PutObjectError>) -> Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError> {
+fn salvo_failure<E>(
+    e: aws_sdk_s3::error::SdkError<E, aws_sdk_s3::config::http::HttpResponse>,
+    extra: impl FnOnce(&E, &mut S3Error),
+) -> Checked<Union2<S3Error, AwsError>>
+where
+    E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
+{
+    use aws_sdk_s3::operation::RequestId;
     let text = format!("{}", aws_sdk_s3::error::DisplayErrorContext(&e));
-    match e.into_service_error() {
-        aws_sdk_s3::operation::put_object::PutObjectError::EncryptionTypeMismatch(x) => Union7::U1(from_sdk_encryption_type_mismatch(&x)),
-        aws_sdk_s3::operation::put_object::PutObjectError::InvalidRequest(x) => Union7::U3(from_sdk_invalid_request(&x)),
-        aws_sdk_s3::operation::put_object::PutObjectError::InvalidWriteOffset(x) => Union7::U4(from_sdk_invalid_write_offset(&x)),
-        aws_sdk_s3::operation::put_object::PutObjectError::TooManyParts(x) => Union7::U6(from_sdk_too_many_parts(&x)),
-        other => Union7::U7(AwsError { code: other.code().unwrap_or("SdkError").to_string(), message: text }),
-    }
-}
-
-fn error_of_get_object(e: aws_sdk_s3::error::SdkError<aws_sdk_s3::operation::get_object::GetObjectError>) -> Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError> {
-    let text = format!("{}", aws_sdk_s3::error::DisplayErrorContext(&e));
-    match e.into_service_error() {
-        aws_sdk_s3::operation::get_object::GetObjectError::InvalidObjectState(x) => Union7::U2(from_sdk_invalid_object_state(&x)),
-        aws_sdk_s3::operation::get_object::GetObjectError::NoSuchKey(x) => Union7::U5(from_sdk_no_such_key(&x)),
-        other => Union7::U7(AwsError { code: other.code().unwrap_or("SdkError").to_string(), message: text }),
-    }
+    let request_id = e.request_id().map(|r| r.to_string());
+    let value = match &e {
+        aws_sdk_s3::error::SdkError::ServiceError(ctx) => {
+            let err = ctx.err();
+            let mut out = S3Error {
+                code: salvo_code(err.code().unwrap_or("Unknown")),
+                message: err.message().unwrap_or("").to_string(),
+                status: ctx.raw().status().as_u16() as i32,
+                request_id,
+                storage_class: None,
+                access_tier: None,
+            };
+            extra(err, &mut out);
+            Union2::U1(out)
+        }
+        other => Union2::U2(AwsError {
+            code: match other {
+                aws_sdk_s3::error::SdkError::TimeoutError(_) => "TimeoutError",
+                aws_sdk_s3::error::SdkError::DispatchFailure(_) => "DispatchFailure",
+                aws_sdk_s3::error::SdkError::ResponseError(_) => "ResponseError",
+                _ => "ConstructionFailure",
+            }
+            .to_string(),
+            message: text,
+        }),
+    };
+    Checked { value }
 }
 
 /// `~/` at the front of a path is the home directory, as a shell would read it.

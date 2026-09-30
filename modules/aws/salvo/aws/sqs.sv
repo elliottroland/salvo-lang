@@ -12,115 +12,51 @@
 
 import aws
 
-// QueueAttributeName, one arm per value the model names.
+// QueueAttributeName, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `QueueAttributeName.Unknown`.
-export type QueueAttributeName = QueueAttributeName.All
-    | QueueAttributeName.Policy
-    | QueueAttributeName.VisibilityTimeout
-    | QueueAttributeName.MaximumMessageSize
-    | QueueAttributeName.MessageRetentionPeriod
-    | QueueAttributeName.ApproximateNumberOfMessages
-    | QueueAttributeName.ApproximateNumberOfMessagesNotVisible
-    | QueueAttributeName.CreatedTimestamp
-    | QueueAttributeName.LastModifiedTimestamp
-    | QueueAttributeName.QueueArn
-    | QueueAttributeName.ApproximateNumberOfMessagesDelayed
-    | QueueAttributeName.DelaySeconds
-    | QueueAttributeName.ReceiveMessageWaitTimeSeconds
-    | QueueAttributeName.RedrivePolicy
-    | QueueAttributeName.FifoQueue
-    | QueueAttributeName.ContentBasedDeduplication
-    | QueueAttributeName.KmsMasterKeyId
-    | QueueAttributeName.KmsDataKeyReusePeriodSeconds
-    | QueueAttributeName.DeduplicationScope
-    | QueueAttributeName.FifoThroughputLimit
-    | QueueAttributeName.RedriveAllowPolicy
-    | QueueAttributeName.SqsManagedSseEnabled
-    | QueueAttributeName.Unknown
-// `"All"`
-export struct QueueAttributeName.All {}
-// `"Policy"`
-export struct QueueAttributeName.Policy {}
-// `"VisibilityTimeout"`
-export struct QueueAttributeName.VisibilityTimeout {}
-// `"MaximumMessageSize"`
-export struct QueueAttributeName.MaximumMessageSize {}
-// `"MessageRetentionPeriod"`
-export struct QueueAttributeName.MessageRetentionPeriod {}
-// `"ApproximateNumberOfMessages"`
-export struct QueueAttributeName.ApproximateNumberOfMessages {}
-// `"ApproximateNumberOfMessagesNotVisible"`
-export struct QueueAttributeName.ApproximateNumberOfMessagesNotVisible {}
-// `"CreatedTimestamp"`
-export struct QueueAttributeName.CreatedTimestamp {}
-// `"LastModifiedTimestamp"`
-export struct QueueAttributeName.LastModifiedTimestamp {}
-// `"QueueArn"`
-export struct QueueAttributeName.QueueArn {}
-// `"ApproximateNumberOfMessagesDelayed"`
-export struct QueueAttributeName.ApproximateNumberOfMessagesDelayed {}
-// `"DelaySeconds"`
-export struct QueueAttributeName.DelaySeconds {}
-// `"ReceiveMessageWaitTimeSeconds"`
-export struct QueueAttributeName.ReceiveMessageWaitTimeSeconds {}
-// `"RedrivePolicy"`
-export struct QueueAttributeName.RedrivePolicy {}
-// `"FifoQueue"`
-export struct QueueAttributeName.FifoQueue {}
-// `"ContentBasedDeduplication"`
-export struct QueueAttributeName.ContentBasedDeduplication {}
-// `"KmsMasterKeyId"`
-export struct QueueAttributeName.KmsMasterKeyId {}
-// `"KmsDataKeyReusePeriodSeconds"`
-export struct QueueAttributeName.KmsDataKeyReusePeriodSeconds {}
-// `"DeduplicationScope"`
-export struct QueueAttributeName.DeduplicationScope {}
-// `"FifoThroughputLimit"`
-export struct QueueAttributeName.FifoThroughputLimit {}
-// `"RedriveAllowPolicy"`
-export struct QueueAttributeName.RedriveAllowPolicy {}
-// `"SqsManagedSseEnabled"`
-export struct QueueAttributeName.SqsManagedSseEnabled {}
-// A value this model does not name.
-export struct QueueAttributeName.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type QueueAttributeName = "All"
+    | "Policy"
+    | "VisibilityTimeout"
+    | "MaximumMessageSize"
+    | "MessageRetentionPeriod"
+    | "ApproximateNumberOfMessages"
+    | "ApproximateNumberOfMessagesNotVisible"
+    | "CreatedTimestamp"
+    | "LastModifiedTimestamp"
+    | "QueueArn"
+    | "ApproximateNumberOfMessagesDelayed"
+    | "DelaySeconds"
+    | "ReceiveMessageWaitTimeSeconds"
+    | "RedrivePolicy"
+    | "FifoQueue"
+    | "ContentBasedDeduplication"
+    | "KmsMasterKeyId"
+    | "KmsDataKeyReusePeriodSeconds"
+    | "DeduplicationScope"
+    | "FifoThroughputLimit"
+    | "RedriveAllowPolicy"
+    | "SqsManagedSseEnabled"
+    | Other Str
 
-// MessageSystemAttributeName, one arm per value the model names.
+// MessageSystemAttributeName, one literal per value the model names.
 //
-// Open, as Smithy enums are: a value this model does not name arrives as `MessageSystemAttributeName.Unknown`.
-export type MessageSystemAttributeName = MessageSystemAttributeName.All
-    | MessageSystemAttributeName.SenderId
-    | MessageSystemAttributeName.SentTimestamp
-    | MessageSystemAttributeName.ApproximateReceiveCount
-    | MessageSystemAttributeName.ApproximateFirstReceiveTimestamp
-    | MessageSystemAttributeName.SequenceNumber
-    | MessageSystemAttributeName.MessageDeduplicationId
-    | MessageSystemAttributeName.MessageGroupId
-    | MessageSystemAttributeName.AwsTraceHeader
-    | MessageSystemAttributeName.DeadLetterQueueSourceArn
-    | MessageSystemAttributeName.Unknown
-// `"All"`
-export struct MessageSystemAttributeName.All {}
-// `"SenderId"`
-export struct MessageSystemAttributeName.SenderId {}
-// `"SentTimestamp"`
-export struct MessageSystemAttributeName.SentTimestamp {}
-// `"ApproximateReceiveCount"`
-export struct MessageSystemAttributeName.ApproximateReceiveCount {}
-// `"ApproximateFirstReceiveTimestamp"`
-export struct MessageSystemAttributeName.ApproximateFirstReceiveTimestamp {}
-// `"SequenceNumber"`
-export struct MessageSystemAttributeName.SequenceNumber {}
-// `"MessageDeduplicationId"`
-export struct MessageSystemAttributeName.MessageDeduplicationId {}
-// `"MessageGroupId"`
-export struct MessageSystemAttributeName.MessageGroupId {}
-// `"AWSTraceHeader"`
-export struct MessageSystemAttributeName.AwsTraceHeader {}
-// `"DeadLetterQueueSourceArn"`
-export struct MessageSystemAttributeName.DeadLetterQueueSourceArn {}
-// A value this model does not name.
-export struct MessageSystemAttributeName.Unknown { value: Str }
+// Open, as Smithy enums are: a value this model does not name arrives as the
+// `Other` arm [type-literal]. At run time a plain string, the value as it is on
+// the wire.
+export type MessageSystemAttributeName = "All"
+    | "SenderId"
+    | "SentTimestamp"
+    | "ApproximateReceiveCount"
+    | "ApproximateFirstReceiveTimestamp"
+    | "SequenceNumber"
+    | "MessageDeduplicationId"
+    | "MessageGroupId"
+    | "AWSTraceHeader"
+    | "DeadLetterQueueSourceArn"
+    | Other Str
 
 export struct CreateQueueInput {
     // The name of the new queue. The following limits apply to this name:
@@ -336,161 +272,75 @@ export struct DeleteQueueInput {
     queue_url: Str
 }
 
-// The specified ID is invalid.
-export struct InvalidAddress {
-    message: Str? = None
-}
+// The SqsError codes starting `Kms`, as one group: `if e.code is KmsErrorCode`
+// asks whether a failure was one of them.
+export type KmsErrorCode = "KmsAccessDenied"
+    | "KmsDisabled"
+    | "KmsInvalidKeyUsage"
+    | "KmsInvalidState"
+    | "KmsNotFound"
+    | "KmsOptInRequired"
+    | "KmsThrottled"
 
-// The specified attribute doesn't exist.
-export struct InvalidAttributeName {
-    message: Str? = None
-}
+// A code Sqs answers with: one arm per error the model names for these
+// operations, and `Other` for anything else the service sends — throttling, an
+// authorization failure, a code newer than this model. A legacy wire code is
+// normalized to the model's name, so a code reads the same on every backend.
+export type SqsErrorCode = KmsErrorCode
+    | "InvalidAddress"
+    | "InvalidAttributeName"
+    | "InvalidAttributeValue"
+    | "InvalidIdFormat"
+    | "InvalidMessageContents"
+    | "InvalidSecurity"
+    | "OverLimit"
+    | "QueueDeletedRecently"
+    | "QueueDoesNotExist"
+    | "QueueNameExists"
+    | "ReceiptHandleIsInvalid"
+    | "RequestThrottled"
+    | "UnsupportedOperation"
+    | Other Str
 
-// A queue attribute value is invalid.
-export struct InvalidAttributeValue {
-    message: Str? = None
-}
-
-// The specified receipt handle isn't valid for the current version.
-export struct InvalidIdFormat {}
-
-// The message contains characters outside the allowed set.
-export struct InvalidMessageContents {
-    message: Str? = None
-}
-
-// The request was not made over HTTPS or did not use SigV4 for signing.
-export struct InvalidSecurity {
-    message: Str? = None
-}
-
-// The caller doesn't have the required KMS access.
-export struct KmsAccessDenied {
-    message: Str? = None
-}
-
-// The request was denied due to request throttling.
-export struct KmsDisabled {
-    message: Str? = None
-}
-
-// The request was rejected for one of the following reasons:
-export struct KmsInvalidKeyUsage {
-    message: Str? = None
-}
-
-// The request was rejected because the state of the specified resource is not
-// valid for this request.
-export struct KmsInvalidState {
-    message: Str? = None
-}
-
-// The request was rejected because the specified entity or resource could not
-// be found.
-export struct KmsNotFound {
-    message: Str? = None
-}
-
-// The request was rejected because the specified key policy isn't syntactically
-// or semantically correct.
-export struct KmsOptInRequired {
-    message: Str? = None
-}
-
-// Amazon Web Services KMS throttles requests for the following conditions.
-export struct KmsThrottled {
-    message: Str? = None
-}
-
-// The specified action violates a limit. For example, ReceiveMessage returns
-// this error if the maximum number of in flight messages is reached and
-// AddPermission returns this error if the maximum number of permissions for the
-// queue is reached.
-export struct OverLimit {
-    message: Str? = None
-}
-
-// You must wait 60 seconds after deleting a queue before you can create another
-// queue with the same name.
-export struct QueueDeletedRecently {
-    message: Str? = None
-}
-
-// Ensure that the QueueUrl is correct and that the queue has not been deleted.
-export struct QueueDoesNotExist {
-    message: Str? = None
-}
-
-// A queue with this name already exists. Amazon SQS returns this error only if
-// the request includes attributes whose values differ from those of the
-// existing queue.
-export struct QueueNameExists {
-    message: Str? = None
-}
-
-// The specified receipt handle isn't valid.
-export struct ReceiptHandleIsInvalid {
-    message: Str? = None
-}
-
-// The request was denied due to request throttling.
-export struct RequestThrottled {
-    message: Str? = None
-}
-
-// Error code 400. Unsupported operation.
-export struct UnsupportedOperation {
-    message: Str? = None
+// The service answered with an error: what it said, and the HTTP status it said
+// it with.
+export struct SqsError {
+    code: SqsErrorCode,
+    message: Str,
+    // The HTTP status of the response.
+    status: Int,
+    // The service's id for the request, when it sent one: what AWS support asks for.
+    request_id: Str? = None
 }
 
 // Everything an operation of [Sqs] can answer with instead of its output: the
-// errors the model names, and [AwsError] for everything else.
-export type SqsError = InvalidAddress
-    | InvalidAttributeName
-    | InvalidAttributeValue
-    | InvalidIdFormat
-    | InvalidMessageContents
-    | InvalidSecurity
-    | KmsAccessDenied
-    | KmsDisabled
-    | KmsInvalidKeyUsage
-    | KmsInvalidState
-    | KmsNotFound
-    | KmsOptInRequired
-    | KmsThrottled
-    | OverLimit
-    | QueueDeletedRecently
-    | QueueDoesNotExist
-    | QueueNameExists
-    | ReceiptHandleIsInvalid
-    | RequestThrottled
-    | UnsupportedOperation
-    | AwsError
+// service's error, or an [AwsError] when there was no answer to read.
+export type SqsFailure = SqsError | AwsError
 
 // Amazon Simple Queue Service. Every member hands its [reply] to the provider
 // and returns at once; the answer is the operation's output or a `Checked`
-// [SqsError].
+// [SqsFailure].
 export effect Sqs {
     // Creates a new standard or FIFO queue. You can pass one or more attributes
     // in the request. Keep the following in mind:
-    fn create_queue(input: CreateQueueInput, reply: Reply<Ok CreateQueueOutput | Err Checked<SqsError>>) -> None
+    fn create_queue(input: CreateQueueInput, reply: Reply<Ok CreateQueueOutput | Err Checked<SqsFailure>>) -> None
     => !input, !reply
 
     // The GetQueueUrl API returns the URL of an existing Amazon SQS queue. This
     // is useful when you know the queue's name but need to retrieve its URL for
     // further operations.
-    fn get_queue_url(input: GetQueueUrlInput, reply: Reply<Ok GetQueueUrlOutput | Err Checked<SqsError>>) -> None
+    fn get_queue_url(input: GetQueueUrlInput, reply: Reply<Ok GetQueueUrlOutput | Err Checked<SqsFailure>>) -> None
     => !input, !reply
 
     // Delivers a message to the specified queue.
-    fn send_message(input: SendMessageInput, reply: Reply<Ok SendMessageOutput | Err Checked<SqsError>>) -> None
+    fn send_message(input: SendMessageInput, reply: Reply<Ok SendMessageOutput | Err Checked<SqsFailure>>) -> None
     => !input, !reply
 
     // Retrieves one or more messages (up to 10), from the specified queue.
     // Using the WaitTimeSeconds parameter enables long-poll support. For more
     // information, see Amazon SQS Long Polling in the Amazon SQS Developer
     // Guide.
-    fn receive_message(input: ReceiveMessageInput, reply: Reply<Ok ReceiveMessageOutput | Err Checked<SqsError>>) -> None
+    fn receive_message(input: ReceiveMessageInput, reply: Reply<Ok ReceiveMessageOutput | Err Checked<SqsFailure>>) -> None
     => !input, !reply
 
     // Deletes the specified message from the specified queue. To select the
@@ -500,12 +350,12 @@ export effect Sqs {
     // the message to be locked by another consumer. Amazon SQS automatically
     // deletes messages left in a queue longer than the retention period
     // configured for the queue.
-    fn delete_message(input: DeleteMessageInput, reply: Reply<Ok None | Err Checked<SqsError>>) -> None
+    fn delete_message(input: DeleteMessageInput, reply: Reply<Ok None | Err Checked<SqsFailure>>) -> None
     => !input, !reply
 
     // Deletes the queue specified by the QueueUrl, regardless of the queue's
     // contents.
-    fn delete_queue(input: DeleteQueueInput, reply: Reply<Ok None | Err Checked<SqsError>>) -> None
+    fn delete_queue(input: DeleteQueueInput, reply: Reply<Ok None | Err Checked<SqsFailure>>) -> None
     => !input, !reply
 }
 
@@ -522,32 +372,32 @@ export effect SqsCalls {
 export handler FakeSqs() of Sqs, SqsCalls {
     recorded: Mut List<Str> = mut_list_of()
 
-    fn create_queue(input: CreateQueueInput, reply: Reply<Ok CreateQueueOutput | Err Checked<SqsError>>) -> None => !input, !reply {
+    fn create_queue(input: CreateQueueInput, reply: Reply<Ok CreateQueueOutput | Err Checked<SqsFailure>>) -> None => !input, !reply {
         recorded.add("create_queue")
         reply.send(ok(CreateQueueOutput {}))
     }
 
-    fn get_queue_url(input: GetQueueUrlInput, reply: Reply<Ok GetQueueUrlOutput | Err Checked<SqsError>>) -> None => !input, !reply {
+    fn get_queue_url(input: GetQueueUrlInput, reply: Reply<Ok GetQueueUrlOutput | Err Checked<SqsFailure>>) -> None => !input, !reply {
         recorded.add("get_queue_url")
         reply.send(ok(GetQueueUrlOutput {}))
     }
 
-    fn send_message(input: SendMessageInput, reply: Reply<Ok SendMessageOutput | Err Checked<SqsError>>) -> None => !input, !reply {
+    fn send_message(input: SendMessageInput, reply: Reply<Ok SendMessageOutput | Err Checked<SqsFailure>>) -> None => !input, !reply {
         recorded.add("send_message")
         reply.send(ok(SendMessageOutput {}))
     }
 
-    fn receive_message(input: ReceiveMessageInput, reply: Reply<Ok ReceiveMessageOutput | Err Checked<SqsError>>) -> None => !input, !reply {
+    fn receive_message(input: ReceiveMessageInput, reply: Reply<Ok ReceiveMessageOutput | Err Checked<SqsFailure>>) -> None => !input, !reply {
         recorded.add("receive_message")
         reply.send(ok(ReceiveMessageOutput {}))
     }
 
-    fn delete_message(input: DeleteMessageInput, reply: Reply<Ok None | Err Checked<SqsError>>) -> None => !input, !reply {
+    fn delete_message(input: DeleteMessageInput, reply: Reply<Ok None | Err Checked<SqsFailure>>) -> None => !input, !reply {
         recorded.add("delete_message")
         reply.send(ok(None))
     }
 
-    fn delete_queue(input: DeleteQueueInput, reply: Reply<Ok None | Err Checked<SqsError>>) -> None => !input, !reply {
+    fn delete_queue(input: DeleteQueueInput, reply: Reply<Ok None | Err Checked<SqsFailure>>) -> None => !input, !reply {
         recorded.add("delete_queue")
         reply.send(ok(None))
     }

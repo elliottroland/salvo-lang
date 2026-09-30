@@ -1073,7 +1073,7 @@ fn unions_of_literals_run_on_both_backends() {
     let Some(__stamp) = e2e_stamp("literal_unions", &["rustc", "kotlinc"]) else { return };
     let dir = work_dir("literal_unions");
     fs::write(dir.join("main.sv"), LITERAL_PROGRAM).unwrap();
-    let expected = "hot\ncold\nunknown: DEEP\ncold\nkms\nmissing\nother Throttling\nKmsDisabled!\nequal\nthe name\nthree\nthe other\nperson Ada\n";
+    let expected = "hot\ncold\nunknown: DEEP\ncold\nkms\nmissing\nother Throttling\nKmsDisabled!\nequal\nthe name\nthree\nthe other\nperson Ada\nmissing 400\n";
     for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
         if !have(tool) {
             continue;
@@ -1115,6 +1115,10 @@ type Kms = "KmsDisabled" | "KmsThrottled"
 type Code = Kms | "QueueDoesNotExist" | Other Str
 type Mixed = "name" | 3 | "other" | Person
 
+// An exported struct has a wire codec, and a field whose type is an alias
+// holding an alias of literals must collapse to its base there too.
+export struct Failure { code: Code, status: Int }
+
 fn kind(c: Code) [] -> Str => c {
     if c is Kms {
         return "kms"
@@ -1153,5 +1157,7 @@ fn main() [use] {
     println(mixed(3))
     println(mixed("other"))
     println(mixed(Person { name: "Ada" }))
+    let f = Failure { code: "QueueDoesNotExist", status: 400 }
+    println("${kind(f.code)} ${f.status}")
 }
 "#;

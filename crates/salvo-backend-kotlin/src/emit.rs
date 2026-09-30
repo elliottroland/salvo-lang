@@ -1681,6 +1681,25 @@ impl<'p> Emitter<'p> {
 
     fn kotlin_codec_expr(&mut self, ty: &Ty) -> String {
         self.needs_wire = true;
+        // [type-literal] A literal travels as its base, and a union of them
+        // as its runtime shape.
+        if salvo_core::literal::mentions_lit(ty) {
+            return self.kotlin_codec_expr(&salvo_core::literal::collapse_ty(ty));
+        }
+        if matches!(ty, Ty::Union(_) | Ty::Named { .. }) {
+            let aliases = &self.symbols.type_aliases;
+            let lookup = |n: &str| -> Option<Ty> {
+                let d = aliases.get(n)?;
+                if !d.generics.is_empty() {
+                    return None;
+                }
+                salvo_core::wire::approx_ty(d.alias.as_ref()?, &HashMap::new())
+            };
+            let collapsed = salvo_core::literal::collapse_ty_with(ty, &lookup);
+            if &collapsed != ty {
+                return self.kotlin_codec_expr(&collapsed);
+            }
+        }
         match ty {
             Ty::Qualified { quals, base } => {
                 let mutable = quals.iter().any(|q| q.name == "Mut");

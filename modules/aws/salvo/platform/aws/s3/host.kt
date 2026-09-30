@@ -40,28 +40,22 @@ class HostS3(private val config: AwsConfig) : S3 {
         scope.launch {
             if (length == null || length < 0) {
                 body.closeInput()
-                val failed: Union2<PutObjectOutput, salvo.core.checked.Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = U2_2(salvo.core.checked.Checked(U7_7(AwsError(code = "MissingContentLength", message = "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"))))
+                val failed: Union2<PutObjectOutput, salvo.core.checked.Checked<Union2<S3Error, AwsError>>> = U2_2(salvo.core.checked.Checked(U2_2(AwsError(code = "MissingContentLength", message = "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"))))
                 host.send(failed)
                 return@launch
             }
             val upload = SalvoUpload(body, length)
-            val answer: Union2<PutObjectOutput, salvo.core.checked.Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = try {
+            val answer: Union2<PutObjectOutput, salvo.core.checked.Checked<Union2<S3Error, AwsError>>> = try {
                 U2_1(fromSdkPutObjectOutput(client.putObject(toSdkPutObjectInput(input, upload.asByteStream(length)))))
-            } catch (e: aws.sdk.kotlin.services.s3.model.EncryptionTypeMismatch) {
-                U2_2(salvo.core.checked.Checked(U7_1(fromSdkEncryptionTypeMismatch(e))))
-            } catch (e: aws.sdk.kotlin.services.s3.model.InvalidRequest) {
-                U2_2(salvo.core.checked.Checked(U7_3(fromSdkInvalidRequest(e))))
-            } catch (e: aws.sdk.kotlin.services.s3.model.InvalidWriteOffset) {
-                U2_2(salvo.core.checked.Checked(U7_4(fromSdkInvalidWriteOffset(e))))
-            } catch (e: aws.sdk.kotlin.services.s3.model.TooManyParts) {
-                U2_2(salvo.core.checked.Checked(U7_6(fromSdkTooManyParts(e))))
+            } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
+                U2_2(salvo.core.checked.Checked(U2_1(salvoFailure(e))))
             } catch (e: Exception) {
-                U2_2(salvo.core.checked.Checked(U7_7(salvoAwsError(e))))
+                U2_2(salvo.core.checked.Checked(U2_2(salvoAwsError(e))))
             }
             val problem = upload.finish()
             body.closeInput()
-            val result: Union2<PutObjectOutput, salvo.core.checked.Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = problem?.let {
-                U2_2(salvo.core.checked.Checked(U7_7(AwsError(code = "StreamFailed", message = it))))
+            val result: Union2<PutObjectOutput, salvo.core.checked.Checked<Union2<S3Error, AwsError>>> = problem?.let {
+                U2_2(salvo.core.checked.Checked(U2_2(AwsError(code = "StreamFailed", message = it))))
             } ?: answer
             host.send(result)
         }
@@ -71,22 +65,20 @@ class HostS3(private val config: AwsConfig) : S3 {
         val host = reply.hosted()
         scope.launch {
             var sent = false
-            val answer: Union2<GetObjectOutput, salvo.core.checked.Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>? = try {
+            val answer: Union2<GetObjectOutput, salvo.core.checked.Checked<Union2<S3Error, AwsError>>>? = try {
                 client.getObject(toSdkGetObjectInput(input)) { response ->
                     val closed = kotlinx.coroutines.CompletableDeferred<Unit>()
                     val handle = salvoRegisterBody("S3 GetObject body", response.body, closed)
                     sent = true
-                    val ok: Union2<GetObjectOutput, salvo.core.checked.Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>> = U2_1(fromSdkGetObjectOutput(response, handle))
+                    val ok: Union2<GetObjectOutput, salvo.core.checked.Checked<Union2<S3Error, AwsError>>> = U2_1(fromSdkGetObjectOutput(response, handle))
                     host.send(ok)
                     closed.await()
                 }
                 null
-            } catch (e: aws.sdk.kotlin.services.s3.model.InvalidObjectState) {
-                U2_2(salvo.core.checked.Checked(U7_2(fromSdkInvalidObjectState(e))))
-            } catch (e: aws.sdk.kotlin.services.s3.model.NoSuchKey) {
-                U2_2(salvo.core.checked.Checked(U7_5(fromSdkNoSuchKey(e))))
+            } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
+                U2_2(salvo.core.checked.Checked(U2_1((salvoFailure(e)).let { if (e is aws.sdk.kotlin.services.s3.model.InvalidObjectState) it.copy(storage_class = e.storageClass?.let { it.value }, access_tier = e.accessTier?.let { it.value }) else it })))
             } catch (e: Exception) {
-                U2_2(salvo.core.checked.Checked(U7_7(salvoAwsError(e))))
+                U2_2(salvo.core.checked.Checked(U2_2(salvoAwsError(e))))
             }
             if (!sent && answer != null) host.send(answer)
         }
@@ -137,222 +129,8 @@ private fun salvoCloseWhenMainEnds(client: AutoCloseable) {
 private fun salvoExpandHome(path: String): String =
     if (path.startsWith("~/")) (System.getenv("HOME") ?: System.getProperty("user.home")) + path.substring(1) else path
 
-private fun toSdkObjectCannedACL(v: Union8<ObjectCannedACL.Private, ObjectCannedACL.PublicRead, ObjectCannedACL.PublicReadWrite, ObjectCannedACL.AuthenticatedRead, ObjectCannedACL.AwsExecRead, ObjectCannedACL.BucketOwnerRead, ObjectCannedACL.BucketOwnerFullControl, ObjectCannedACL.Unknown>): aws.sdk.kotlin.services.s3.model.ObjectCannedAcl = when (v) {
-    is U8_1<*, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectCannedAcl.fromValue("private")
-    is U8_2<*, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectCannedAcl.fromValue("public-read")
-    is U8_3<*, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectCannedAcl.fromValue("public-read-write")
-    is U8_4<*, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectCannedAcl.fromValue("authenticated-read")
-    is U8_5<*, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectCannedAcl.fromValue("aws-exec-read")
-    is U8_6<*, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectCannedAcl.fromValue("bucket-owner-read")
-    is U8_7<*, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectCannedAcl.fromValue("bucket-owner-full-control")
-    is U8_8<*, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectCannedAcl.fromValue((v.value as ObjectCannedACL.Unknown).value)
-}
-
-private fun fromSdkObjectCannedACL(v: aws.sdk.kotlin.services.s3.model.ObjectCannedAcl): Union8<ObjectCannedACL.Private, ObjectCannedACL.PublicRead, ObjectCannedACL.PublicReadWrite, ObjectCannedACL.AuthenticatedRead, ObjectCannedACL.AwsExecRead, ObjectCannedACL.BucketOwnerRead, ObjectCannedACL.BucketOwnerFullControl, ObjectCannedACL.Unknown> = when (v.value) {
-    "private" -> U8_1(ObjectCannedACL.Private())
-    "public-read" -> U8_2(ObjectCannedACL.PublicRead())
-    "public-read-write" -> U8_3(ObjectCannedACL.PublicReadWrite())
-    "authenticated-read" -> U8_4(ObjectCannedACL.AuthenticatedRead())
-    "aws-exec-read" -> U8_5(ObjectCannedACL.AwsExecRead())
-    "bucket-owner-read" -> U8_6(ObjectCannedACL.BucketOwnerRead())
-    "bucket-owner-full-control" -> U8_7(ObjectCannedACL.BucketOwnerFullControl())
-    else -> U8_8(ObjectCannedACL.Unknown(v.value))
-}
-
-private fun toSdkChecksumAlgorithm(v: Union11<ChecksumAlgorithm.Crc32, ChecksumAlgorithm.Crc32C, ChecksumAlgorithm.Sha1, ChecksumAlgorithm.Sha256, ChecksumAlgorithm.Crc64Nvme, ChecksumAlgorithm.Sha512, ChecksumAlgorithm.Md5, ChecksumAlgorithm.Xxhash64, ChecksumAlgorithm.Xxhash3, ChecksumAlgorithm.Xxhash128, ChecksumAlgorithm.Unknown>): aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm = when (v) {
-    is U11_1<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue("CRC32")
-    is U11_2<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue("CRC32C")
-    is U11_3<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue("SHA1")
-    is U11_4<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue("SHA256")
-    is U11_5<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue("CRC64NVME")
-    is U11_6<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue("SHA512")
-    is U11_7<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue("MD5")
-    is U11_8<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue("XXHASH64")
-    is U11_9<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue("XXHASH3")
-    is U11_10<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue("XXHASH128")
-    is U11_11<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue((v.value as ChecksumAlgorithm.Unknown).value)
-}
-
-private fun fromSdkChecksumAlgorithm(v: aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm): Union11<ChecksumAlgorithm.Crc32, ChecksumAlgorithm.Crc32C, ChecksumAlgorithm.Sha1, ChecksumAlgorithm.Sha256, ChecksumAlgorithm.Crc64Nvme, ChecksumAlgorithm.Sha512, ChecksumAlgorithm.Md5, ChecksumAlgorithm.Xxhash64, ChecksumAlgorithm.Xxhash3, ChecksumAlgorithm.Xxhash128, ChecksumAlgorithm.Unknown> = when (v.value) {
-    "CRC32" -> U11_1(ChecksumAlgorithm.Crc32())
-    "CRC32C" -> U11_2(ChecksumAlgorithm.Crc32C())
-    "SHA1" -> U11_3(ChecksumAlgorithm.Sha1())
-    "SHA256" -> U11_4(ChecksumAlgorithm.Sha256())
-    "CRC64NVME" -> U11_5(ChecksumAlgorithm.Crc64Nvme())
-    "SHA512" -> U11_6(ChecksumAlgorithm.Sha512())
-    "MD5" -> U11_7(ChecksumAlgorithm.Md5())
-    "XXHASH64" -> U11_8(ChecksumAlgorithm.Xxhash64())
-    "XXHASH3" -> U11_9(ChecksumAlgorithm.Xxhash3())
-    "XXHASH128" -> U11_10(ChecksumAlgorithm.Xxhash128())
-    else -> U11_11(ChecksumAlgorithm.Unknown(v.value))
-}
-
-private fun toSdkServerSideEncryption(v: Union6<ServerSideEncryption.Aes256, ServerSideEncryption.AwsFsx, ServerSideEncryption.AwsBackup, ServerSideEncryption.AwsKms, ServerSideEncryption.AwsKmsDsse, ServerSideEncryption.Unknown>): aws.sdk.kotlin.services.s3.model.ServerSideEncryption = when (v) {
-    is U6_1<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ServerSideEncryption.fromValue("AES256")
-    is U6_2<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ServerSideEncryption.fromValue("aws:fsx")
-    is U6_3<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ServerSideEncryption.fromValue("aws:backup")
-    is U6_4<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ServerSideEncryption.fromValue("aws:kms")
-    is U6_5<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ServerSideEncryption.fromValue("aws:kms:dsse")
-    is U6_6<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ServerSideEncryption.fromValue((v.value as ServerSideEncryption.Unknown).value)
-}
-
-private fun fromSdkServerSideEncryption(v: aws.sdk.kotlin.services.s3.model.ServerSideEncryption): Union6<ServerSideEncryption.Aes256, ServerSideEncryption.AwsFsx, ServerSideEncryption.AwsBackup, ServerSideEncryption.AwsKms, ServerSideEncryption.AwsKmsDsse, ServerSideEncryption.Unknown> = when (v.value) {
-    "AES256" -> U6_1(ServerSideEncryption.Aes256())
-    "aws:fsx" -> U6_2(ServerSideEncryption.AwsFsx())
-    "aws:backup" -> U6_3(ServerSideEncryption.AwsBackup())
-    "aws:kms" -> U6_4(ServerSideEncryption.AwsKms())
-    "aws:kms:dsse" -> U6_5(ServerSideEncryption.AwsKmsDsse())
-    else -> U6_6(ServerSideEncryption.Unknown(v.value))
-}
-
-private fun toSdkStorageClass(v: Union16<StorageClass.Standard, StorageClass.ReducedRedundancy, StorageClass.StandardIa, StorageClass.OnezoneIa, StorageClass.IntelligentTiering, StorageClass.Glacier, StorageClass.DeepArchive, StorageClass.Outposts, StorageClass.GlacierIr, StorageClass.Snow, StorageClass.ExpressOnezone, StorageClass.FsxOpenzfs, StorageClass.FsxOntap, StorageClass.AwsBackupWarm, StorageClass.AwsBackupLowCostWarm, StorageClass.Unknown>): aws.sdk.kotlin.services.s3.model.StorageClass = when (v) {
-    is U16_1<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("STANDARD")
-    is U16_2<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("REDUCED_REDUNDANCY")
-    is U16_3<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("STANDARD_IA")
-    is U16_4<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("ONEZONE_IA")
-    is U16_5<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("INTELLIGENT_TIERING")
-    is U16_6<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("GLACIER")
-    is U16_7<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("DEEP_ARCHIVE")
-    is U16_8<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("OUTPOSTS")
-    is U16_9<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("GLACIER_IR")
-    is U16_10<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("SNOW")
-    is U16_11<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("EXPRESS_ONEZONE")
-    is U16_12<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("FSX_OPENZFS")
-    is U16_13<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("FSX_ONTAP")
-    is U16_14<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("AWS_BACKUP_WARM")
-    is U16_15<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue("AWS_BACKUP_LOW_COST_WARM")
-    is U16_16<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.StorageClass.fromValue((v.value as StorageClass.Unknown).value)
-}
-
-private fun fromSdkStorageClass(v: aws.sdk.kotlin.services.s3.model.StorageClass): Union16<StorageClass.Standard, StorageClass.ReducedRedundancy, StorageClass.StandardIa, StorageClass.OnezoneIa, StorageClass.IntelligentTiering, StorageClass.Glacier, StorageClass.DeepArchive, StorageClass.Outposts, StorageClass.GlacierIr, StorageClass.Snow, StorageClass.ExpressOnezone, StorageClass.FsxOpenzfs, StorageClass.FsxOntap, StorageClass.AwsBackupWarm, StorageClass.AwsBackupLowCostWarm, StorageClass.Unknown> = when (v.value) {
-    "STANDARD" -> U16_1(StorageClass.Standard())
-    "REDUCED_REDUNDANCY" -> U16_2(StorageClass.ReducedRedundancy())
-    "STANDARD_IA" -> U16_3(StorageClass.StandardIa())
-    "ONEZONE_IA" -> U16_4(StorageClass.OnezoneIa())
-    "INTELLIGENT_TIERING" -> U16_5(StorageClass.IntelligentTiering())
-    "GLACIER" -> U16_6(StorageClass.Glacier())
-    "DEEP_ARCHIVE" -> U16_7(StorageClass.DeepArchive())
-    "OUTPOSTS" -> U16_8(StorageClass.Outposts())
-    "GLACIER_IR" -> U16_9(StorageClass.GlacierIr())
-    "SNOW" -> U16_10(StorageClass.Snow())
-    "EXPRESS_ONEZONE" -> U16_11(StorageClass.ExpressOnezone())
-    "FSX_OPENZFS" -> U16_12(StorageClass.FsxOpenzfs())
-    "FSX_ONTAP" -> U16_13(StorageClass.FsxOntap())
-    "AWS_BACKUP_WARM" -> U16_14(StorageClass.AwsBackupWarm())
-    "AWS_BACKUP_LOW_COST_WARM" -> U16_15(StorageClass.AwsBackupLowCostWarm())
-    else -> U16_16(StorageClass.Unknown(v.value))
-}
-
-private fun toSdkRequestPayer(v: Union2<RequestPayer.Requester, RequestPayer.Unknown>): aws.sdk.kotlin.services.s3.model.RequestPayer = when (v) {
-    is U2_1<*, *> -> aws.sdk.kotlin.services.s3.model.RequestPayer.fromValue("requester")
-    is U2_2<*, *> -> aws.sdk.kotlin.services.s3.model.RequestPayer.fromValue((v.value as RequestPayer.Unknown).value)
-}
-
-private fun fromSdkRequestPayer(v: aws.sdk.kotlin.services.s3.model.RequestPayer): Union2<RequestPayer.Requester, RequestPayer.Unknown> = when (v.value) {
-    "requester" -> U2_1(RequestPayer.Requester())
-    else -> U2_2(RequestPayer.Unknown(v.value))
-}
-
-private fun toSdkObjectLockMode(v: Union3<ObjectLockMode.Governance, ObjectLockMode.Compliance, ObjectLockMode.Unknown>): aws.sdk.kotlin.services.s3.model.ObjectLockMode = when (v) {
-    is U3_1<*, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectLockMode.fromValue("GOVERNANCE")
-    is U3_2<*, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectLockMode.fromValue("COMPLIANCE")
-    is U3_3<*, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectLockMode.fromValue((v.value as ObjectLockMode.Unknown).value)
-}
-
-private fun fromSdkObjectLockMode(v: aws.sdk.kotlin.services.s3.model.ObjectLockMode): Union3<ObjectLockMode.Governance, ObjectLockMode.Compliance, ObjectLockMode.Unknown> = when (v.value) {
-    "GOVERNANCE" -> U3_1(ObjectLockMode.Governance())
-    "COMPLIANCE" -> U3_2(ObjectLockMode.Compliance())
-    else -> U3_3(ObjectLockMode.Unknown(v.value))
-}
-
-private fun toSdkObjectLockLegalHoldStatus(v: Union3<ObjectLockLegalHoldStatus.On, ObjectLockLegalHoldStatus.Off, ObjectLockLegalHoldStatus.Unknown>): aws.sdk.kotlin.services.s3.model.ObjectLockLegalHoldStatus = when (v) {
-    is U3_1<*, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectLockLegalHoldStatus.fromValue("ON")
-    is U3_2<*, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectLockLegalHoldStatus.fromValue("OFF")
-    is U3_3<*, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectLockLegalHoldStatus.fromValue((v.value as ObjectLockLegalHoldStatus.Unknown).value)
-}
-
-private fun fromSdkObjectLockLegalHoldStatus(v: aws.sdk.kotlin.services.s3.model.ObjectLockLegalHoldStatus): Union3<ObjectLockLegalHoldStatus.On, ObjectLockLegalHoldStatus.Off, ObjectLockLegalHoldStatus.Unknown> = when (v.value) {
-    "ON" -> U3_1(ObjectLockLegalHoldStatus.On())
-    "OFF" -> U3_2(ObjectLockLegalHoldStatus.Off())
-    else -> U3_3(ObjectLockLegalHoldStatus.Unknown(v.value))
-}
-
-private fun toSdkObjectLockEventHold(v: Union3<ObjectLockEventHold.On, ObjectLockEventHold.Off, ObjectLockEventHold.Unknown>): aws.sdk.kotlin.services.s3.model.ObjectLockEventHold = when (v) {
-    is U3_1<*, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectLockEventHold.fromValue("ON")
-    is U3_2<*, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectLockEventHold.fromValue("OFF")
-    is U3_3<*, *, *> -> aws.sdk.kotlin.services.s3.model.ObjectLockEventHold.fromValue((v.value as ObjectLockEventHold.Unknown).value)
-}
-
-private fun fromSdkObjectLockEventHold(v: aws.sdk.kotlin.services.s3.model.ObjectLockEventHold): Union3<ObjectLockEventHold.On, ObjectLockEventHold.Off, ObjectLockEventHold.Unknown> = when (v.value) {
-    "ON" -> U3_1(ObjectLockEventHold.On())
-    "OFF" -> U3_2(ObjectLockEventHold.Off())
-    else -> U3_3(ObjectLockEventHold.Unknown(v.value))
-}
-
-private fun toSdkChecksumType(v: Union3<ChecksumType.Composite, ChecksumType.FullObject, ChecksumType.Unknown>): aws.sdk.kotlin.services.s3.model.ChecksumType = when (v) {
-    is U3_1<*, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumType.fromValue("COMPOSITE")
-    is U3_2<*, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumType.fromValue("FULL_OBJECT")
-    is U3_3<*, *, *> -> aws.sdk.kotlin.services.s3.model.ChecksumType.fromValue((v.value as ChecksumType.Unknown).value)
-}
-
-private fun fromSdkChecksumType(v: aws.sdk.kotlin.services.s3.model.ChecksumType): Union3<ChecksumType.Composite, ChecksumType.FullObject, ChecksumType.Unknown> = when (v.value) {
-    "COMPOSITE" -> U3_1(ChecksumType.Composite())
-    "FULL_OBJECT" -> U3_2(ChecksumType.FullObject())
-    else -> U3_3(ChecksumType.Unknown(v.value))
-}
-
-private fun toSdkRequestCharged(v: Union2<RequestCharged.Requester, RequestCharged.Unknown>): aws.sdk.kotlin.services.s3.model.RequestCharged = when (v) {
-    is U2_1<*, *> -> aws.sdk.kotlin.services.s3.model.RequestCharged.fromValue("requester")
-    is U2_2<*, *> -> aws.sdk.kotlin.services.s3.model.RequestCharged.fromValue((v.value as RequestCharged.Unknown).value)
-}
-
-private fun fromSdkRequestCharged(v: aws.sdk.kotlin.services.s3.model.RequestCharged): Union2<RequestCharged.Requester, RequestCharged.Unknown> = when (v.value) {
-    "requester" -> U2_1(RequestCharged.Requester())
-    else -> U2_2(RequestCharged.Unknown(v.value))
-}
-
-private fun toSdkChecksumMode(v: Union2<ChecksumMode.Enabled, ChecksumMode.Unknown>): aws.sdk.kotlin.services.s3.model.ChecksumMode = when (v) {
-    is U2_1<*, *> -> aws.sdk.kotlin.services.s3.model.ChecksumMode.fromValue("ENABLED")
-    is U2_2<*, *> -> aws.sdk.kotlin.services.s3.model.ChecksumMode.fromValue((v.value as ChecksumMode.Unknown).value)
-}
-
-private fun fromSdkChecksumMode(v: aws.sdk.kotlin.services.s3.model.ChecksumMode): Union2<ChecksumMode.Enabled, ChecksumMode.Unknown> = when (v.value) {
-    "ENABLED" -> U2_1(ChecksumMode.Enabled())
-    else -> U2_2(ChecksumMode.Unknown(v.value))
-}
-
-private fun toSdkReplicationStatus(v: Union6<ReplicationStatus.Complete, ReplicationStatus.Pending, ReplicationStatus.Failed, ReplicationStatus.Replica, ReplicationStatus.Completed, ReplicationStatus.Unknown>): aws.sdk.kotlin.services.s3.model.ReplicationStatus = when (v) {
-    is U6_1<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ReplicationStatus.fromValue("COMPLETE")
-    is U6_2<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ReplicationStatus.fromValue("PENDING")
-    is U6_3<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ReplicationStatus.fromValue("FAILED")
-    is U6_4<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ReplicationStatus.fromValue("REPLICA")
-    is U6_5<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ReplicationStatus.fromValue("COMPLETED")
-    is U6_6<*, *, *, *, *, *> -> aws.sdk.kotlin.services.s3.model.ReplicationStatus.fromValue((v.value as ReplicationStatus.Unknown).value)
-}
-
-private fun fromSdkReplicationStatus(v: aws.sdk.kotlin.services.s3.model.ReplicationStatus): Union6<ReplicationStatus.Complete, ReplicationStatus.Pending, ReplicationStatus.Failed, ReplicationStatus.Replica, ReplicationStatus.Completed, ReplicationStatus.Unknown> = when (v.value) {
-    "COMPLETE" -> U6_1(ReplicationStatus.Complete())
-    "PENDING" -> U6_2(ReplicationStatus.Pending())
-    "FAILED" -> U6_3(ReplicationStatus.Failed())
-    "REPLICA" -> U6_4(ReplicationStatus.Replica())
-    "COMPLETED" -> U6_5(ReplicationStatus.Completed())
-    else -> U6_6(ReplicationStatus.Unknown(v.value))
-}
-
-private fun toSdkIntelligentTieringAccessTier(v: Union3<IntelligentTieringAccessTier.ArchiveAccess, IntelligentTieringAccessTier.DeepArchiveAccess, IntelligentTieringAccessTier.Unknown>): aws.sdk.kotlin.services.s3.model.IntelligentTieringAccessTier = when (v) {
-    is U3_1<*, *, *> -> aws.sdk.kotlin.services.s3.model.IntelligentTieringAccessTier.fromValue("ARCHIVE_ACCESS")
-    is U3_2<*, *, *> -> aws.sdk.kotlin.services.s3.model.IntelligentTieringAccessTier.fromValue("DEEP_ARCHIVE_ACCESS")
-    is U3_3<*, *, *> -> aws.sdk.kotlin.services.s3.model.IntelligentTieringAccessTier.fromValue((v.value as IntelligentTieringAccessTier.Unknown).value)
-}
-
-private fun fromSdkIntelligentTieringAccessTier(v: aws.sdk.kotlin.services.s3.model.IntelligentTieringAccessTier): Union3<IntelligentTieringAccessTier.ArchiveAccess, IntelligentTieringAccessTier.DeepArchiveAccess, IntelligentTieringAccessTier.Unknown> = when (v.value) {
-    "ARCHIVE_ACCESS" -> U3_1(IntelligentTieringAccessTier.ArchiveAccess())
-    "DEEP_ARCHIVE_ACCESS" -> U3_2(IntelligentTieringAccessTier.DeepArchiveAccess())
-    else -> U3_3(IntelligentTieringAccessTier.Unknown(v.value))
-}
-
 private fun toSdkPutObjectInput(v: PutObjectInput, bodyStream: aws.smithy.kotlin.runtime.content.ByteStream): aws.sdk.kotlin.services.s3.model.PutObjectRequest = aws.sdk.kotlin.services.s3.model.PutObjectRequest {
-    acl = v.acl?.let { toSdkObjectCannedACL(it) }
+    acl = v.acl?.let { aws.sdk.kotlin.services.s3.model.ObjectCannedAcl.fromValue(it) }
     body = bodyStream
     bucket = v.bucket
     cacheControl = v.cache_control
@@ -362,7 +140,7 @@ private fun toSdkPutObjectInput(v: PutObjectInput, bodyStream: aws.smithy.kotlin
     contentLength = v.content_length
     contentMd5 = v.content_md5
     contentType = v.content_type
-    checksumAlgorithm = v.checksum_algorithm?.let { toSdkChecksumAlgorithm(it) }
+    checksumAlgorithm = v.checksum_algorithm?.let { aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue(it) }
     checksumCrc32 = v.checksum_crc32
     checksumCrc32C = v.checksum_crc32_c
     checksumCrc64Nvme = v.checksum_crc64_nvme
@@ -382,8 +160,8 @@ private fun toSdkPutObjectInput(v: PutObjectInput, bodyStream: aws.smithy.kotlin
     key = v.key
     writeOffsetBytes = v.write_offset_bytes
     metadata = v.metadata?.let { it.entries.associate { (k1, v1) -> k1 to v1 } }
-    serverSideEncryption = v.server_side_encryption?.let { toSdkServerSideEncryption(it) }
-    storageClass = v.storage_class?.let { toSdkStorageClass(it) }
+    serverSideEncryption = v.server_side_encryption?.let { aws.sdk.kotlin.services.s3.model.ServerSideEncryption.fromValue(it) }
+    storageClass = v.storage_class?.let { aws.sdk.kotlin.services.s3.model.StorageClass.fromValue(it) }
     websiteRedirectLocation = v.website_redirect_location
     sseCustomerAlgorithm = v.sse_customer_algorithm
     sseCustomerKey = v.sse_customer_key
@@ -391,12 +169,12 @@ private fun toSdkPutObjectInput(v: PutObjectInput, bodyStream: aws.smithy.kotlin
     ssekmsKeyId = v.ssekms_key_id
     ssekmsEncryptionContext = v.ssekms_encryption_context
     bucketKeyEnabled = v.bucket_key_enabled
-    requestPayer = v.request_payer?.let { toSdkRequestPayer(it) }
+    requestPayer = v.request_payer?.let { aws.sdk.kotlin.services.s3.model.RequestPayer.fromValue(it) }
     tagging = v.tagging
-    objectLockMode = v.object_lock_mode?.let { toSdkObjectLockMode(it) }
+    objectLockMode = v.object_lock_mode?.let { aws.sdk.kotlin.services.s3.model.ObjectLockMode.fromValue(it) }
     objectLockRetainUntilDate = v.object_lock_retain_until_date?.let { salvoDateTime(it) }
-    objectLockLegalHoldStatus = v.object_lock_legal_hold_status?.let { toSdkObjectLockLegalHoldStatus(it) }
-    objectLockEventHold = v.object_lock_event_hold?.let { toSdkObjectLockEventHold(it) }
+    objectLockLegalHoldStatus = v.object_lock_legal_hold_status?.let { aws.sdk.kotlin.services.s3.model.ObjectLockLegalHoldStatus.fromValue(it) }
+    objectLockEventHold = v.object_lock_event_hold?.let { aws.sdk.kotlin.services.s3.model.ObjectLockEventHold.fromValue(it) }
     objectLockEventHoldDurationDays = v.object_lock_event_hold_duration_days
     objectLockEventHoldDurationYears = v.object_lock_event_hold_duration_years
     expectedBucketOwner = v.expected_bucket_owner
@@ -415,8 +193,8 @@ private fun fromSdkPutObjectOutput(v: aws.sdk.kotlin.services.s3.model.PutObject
     checksum_xxhash64 = v.checksumXxhash64,
     checksum_xxhash3 = v.checksumXxhash3,
     checksum_xxhash128 = v.checksumXxhash128,
-    checksum_type = v.checksumType?.let { fromSdkChecksumType(it) },
-    server_side_encryption = v.serverSideEncryption?.let { fromSdkServerSideEncryption(it) },
+    checksum_type = v.checksumType?.let { it.value },
+    server_side_encryption = v.serverSideEncryption?.let { it.value },
     version_id = v.versionId,
     sse_customer_algorithm = v.sseCustomerAlgorithm,
     sse_customer_key_md5 = v.sseCustomerKeyMd5,
@@ -424,7 +202,7 @@ private fun fromSdkPutObjectOutput(v: aws.sdk.kotlin.services.s3.model.PutObject
     ssekms_encryption_context = v.ssekmsEncryptionContext,
     bucket_key_enabled = v.bucketKeyEnabled,
     size = v.size,
-    request_charged = v.requestCharged?.let { fromSdkRequestCharged(it) },
+    request_charged = v.requestCharged?.let { it.value },
 )
 
 private fun toSdkGetObjectInput(v: GetObjectInput): aws.sdk.kotlin.services.s3.model.GetObjectRequest = aws.sdk.kotlin.services.s3.model.GetObjectRequest {
@@ -445,10 +223,10 @@ private fun toSdkGetObjectInput(v: GetObjectInput): aws.sdk.kotlin.services.s3.m
     sseCustomerAlgorithm = v.sse_customer_algorithm
     sseCustomerKey = v.sse_customer_key
     sseCustomerKeyMd5 = v.sse_customer_key_md5
-    requestPayer = v.request_payer?.let { toSdkRequestPayer(it) }
+    requestPayer = v.request_payer?.let { aws.sdk.kotlin.services.s3.model.RequestPayer.fromValue(it) }
     partNumber = v.part_number
     expectedBucketOwner = v.expected_bucket_owner
-    checksumMode = v.checksum_mode?.let { toSdkChecksumMode(it) }
+    checksumMode = v.checksum_mode?.let { aws.sdk.kotlin.services.s3.model.ChecksumMode.fromValue(it) }
 }
 
 private fun fromSdkGetObjectOutput(v: aws.sdk.kotlin.services.s3.model.GetObjectResponse, bodyHandle: Long): GetObjectOutput = GetObjectOutput(
@@ -470,7 +248,7 @@ private fun fromSdkGetObjectOutput(v: aws.sdk.kotlin.services.s3.model.GetObject
     checksum_xxhash64 = v.checksumXxhash64,
     checksum_xxhash3 = v.checksumXxhash3,
     checksum_xxhash128 = v.checksumXxhash128,
-    checksum_type = v.checksumType?.let { fromSdkChecksumType(it) },
+    checksum_type = v.checksumType?.let { it.value },
     missing_meta = v.missingMeta,
     version_id = v.versionId,
     cache_control = v.cacheControl,
@@ -480,39 +258,40 @@ private fun fromSdkGetObjectOutput(v: aws.sdk.kotlin.services.s3.model.GetObject
     content_range = v.contentRange,
     content_type = v.contentType,
     website_redirect_location = v.websiteRedirectLocation,
-    server_side_encryption = v.serverSideEncryption?.let { fromSdkServerSideEncryption(it) },
+    server_side_encryption = v.serverSideEncryption?.let { it.value },
     metadata = v.metadata?.let { it.entries.sortedBy { it.key }.associate { (k1, v1) -> k1 to v1 } },
     sse_customer_algorithm = v.sseCustomerAlgorithm,
     sse_customer_key_md5 = v.sseCustomerKeyMd5,
     ssekms_key_id = v.ssekmsKeyId,
     bucket_key_enabled = v.bucketKeyEnabled,
-    storage_class = v.storageClass?.let { fromSdkStorageClass(it) },
-    request_charged = v.requestCharged?.let { fromSdkRequestCharged(it) },
-    replication_status = v.replicationStatus?.let { fromSdkReplicationStatus(it) },
+    storage_class = v.storageClass?.let { it.value },
+    request_charged = v.requestCharged?.let { it.value },
+    replication_status = v.replicationStatus?.let { it.value },
     parts_count = v.partsCount,
     tag_count = v.tagCount,
-    object_lock_mode = v.objectLockMode?.let { fromSdkObjectLockMode(it) },
+    object_lock_mode = v.objectLockMode?.let { it.value },
     object_lock_retain_until_date = v.objectLockRetainUntilDate?.let { salvoInstant(it) },
-    object_lock_legal_hold_status = v.objectLockLegalHoldStatus?.let { fromSdkObjectLockLegalHoldStatus(it) },
-    object_lock_event_hold = v.objectLockEventHold?.let { fromSdkObjectLockEventHold(it) },
+    object_lock_legal_hold_status = v.objectLockLegalHoldStatus?.let { it.value },
+    object_lock_event_hold = v.objectLockEventHold?.let { it.value },
     object_lock_event_hold_duration_days = v.objectLockEventHoldDurationDays,
     object_lock_event_hold_duration_years = v.objectLockEventHoldDurationYears,
 )
 
-private fun fromSdkEncryptionTypeMismatch(v: aws.sdk.kotlin.services.s3.model.EncryptionTypeMismatch): EncryptionTypeMismatch = EncryptionTypeMismatch()
+/** A code as the model names it (see the Rust glue's `salvo_code`). */
+private fun salvoCode(code: String): String = when (val c = code.substringAfterLast('#')) {
+    else -> c
+}
 
-private fun fromSdkInvalidObjectState(v: aws.sdk.kotlin.services.s3.model.InvalidObjectState): InvalidObjectState = InvalidObjectState(
-    storage_class = v.storageClass?.let { fromSdkStorageClass(it) },
-    access_tier = v.accessTier?.let { fromSdkIntelligentTieringAccessTier(it) },
-)
-
-private fun fromSdkInvalidRequest(v: aws.sdk.kotlin.services.s3.model.InvalidRequest): InvalidRequest = InvalidRequest()
-
-private fun fromSdkInvalidWriteOffset(v: aws.sdk.kotlin.services.s3.model.InvalidWriteOffset): InvalidWriteOffset = InvalidWriteOffset()
-
-private fun fromSdkNoSuchKey(v: aws.sdk.kotlin.services.s3.model.NoSuchKey): NoSuchKey = NoSuchKey()
-
-private fun fromSdkTooManyParts(v: aws.sdk.kotlin.services.s3.model.TooManyParts): TooManyParts = TooManyParts()
+private fun salvoFailure(e: aws.smithy.kotlin.runtime.ServiceException): S3Error {
+    val meta = e.sdkErrorMetadata
+    val response = meta.protocolResponse as? aws.smithy.kotlin.runtime.http.response.HttpResponse
+    return S3Error(
+        code = salvoCode(meta.errorCode ?: "Unknown"),
+        message = meta.errorMessage ?: "",
+        status = response?.status?.value ?: 0,
+        request_id = meta.requestId,
+    )
+}
 
 /** A Smithy timestamp as a `time.Instant`: nanoseconds since the epoch. */
 private fun salvoInstant(t: aws.smithy.kotlin.runtime.time.Instant): salvo.time.Instant =

@@ -19,14 +19,14 @@ import fs.mem
 import stream
 
 // What a failure says, in a line.
-fn describe(e: S3Error) [] -> Str => e {
+fn describe(e: S3Failure) [] -> Str => e {
     if e is AwsError {
         return "${e.code}: ${e.message}"
     }
-    if e is NoSuchKey {
+    if e.code is "NoSuchKey" {
         return "no such key"
     }
-    return "the service refused"
+    return "the service refused: ${e.code}"
 }
 
 // The size of the file at [path], or absent when it cannot be read — which
@@ -51,7 +51,7 @@ fn upload(bucket: Str, key: Str, path: Str, length: Long?) [S3, Fs, Console] => 
         println("open ${path}: ${detach(opened)}")
         return None
     }
-    let put = waitfor r: Reply<Ok PutObjectOutput | Err Checked<S3Error>> {
+    let put = waitfor r: Reply<Ok PutObjectOutput | Err Checked<S3Failure>> {
         put_object(PutObjectInput { bucket: copy(bucket), key: copy(key), body: opened, content_length: length }, r)
     }
     when put {
@@ -63,7 +63,7 @@ fn upload(bucket: Str, key: Str, path: Str, length: Long?) [S3, Fs, Console] => 
 // GetObject to a file. The output holds the body, so it is linear too: take
 // the stream out, and `pipe` copies it into the file and closes both.
 fn download(bucket: Str, key: Str, path: Str) [S3, Fs, Console] => bucket, key, path {
-    let got = waitfor r: Reply<Ok GetObjectOutput | Err Checked<S3Error>> {
+    let got = waitfor r: Reply<Ok GetObjectOutput | Err Checked<S3Failure>> {
         get_object(GetObjectInput { bucket: copy(bucket), key: copy(key) }, r)
     }
     if got is Err {
@@ -111,7 +111,7 @@ fn round_trip(key: Str) [S3, Fs, Console] => key {
 handler MemS3() [Streams] of S3 {
     objects: Mut Map<Str, Bytes> = mut_map_of()
 
-    fn put_object(input: PutObjectInput, reply: Reply<Ok PutObjectOutput | Err Checked<S3Error>>) -> None
+    fn put_object(input: PutObjectInput, reply: Reply<Ok PutObjectOutput | Err Checked<S3Failure>>) -> None
     => !input, !reply {
         let {bucket, key, body} = input
         let buf = mut_bytes()
@@ -121,7 +121,7 @@ handler MemS3() [Streams] of S3 {
             ignore(closed)
         }
         if filled is Err {
-            reply.send(err(checked<S3Error>(AwsError { code: "StreamFailed", message: "${detach(filled)}" })))
+            reply.send(err(checked<S3Failure>(AwsError { code: "StreamFailed", message: "${detach(filled)}" })))
             return None
         }
         let data: Bytes = buf
@@ -130,11 +130,11 @@ handler MemS3() [Streams] of S3 {
         reply.send(ok(PutObjectOutput { e_tag: tag }))
     }
 
-    fn get_object(input: GetObjectInput, reply: Reply<Ok GetObjectOutput | Err Checked<S3Error>>) -> None
+    fn get_object(input: GetObjectInput, reply: Reply<Ok GetObjectOutput | Err Checked<S3Failure>>) -> None
     => !input, !reply {
         let found = get(objects, "${input.bucket}/${input.key}")
         if found is None {
-            reply.send(err(checked<S3Error>(NoSuchKey {})))
+            reply.send(err(checked<S3Failure>(S3Error { code: "NoSuchKey", message: "The specified key does not exist.", status: 404 })))
             return None
         }
         let data: Bytes = copy(found)
@@ -169,7 +169,7 @@ fn main() [use] {
     if true {
         use MemS3()
         round_trip("greeting.txt")
-        // A modeled error arrives as its own arm of `S3Error`.
+        // A modeled error arrives as `S3Error` with the model's code.
         download("notes", "missing.txt", "missing.txt")
     }
 }

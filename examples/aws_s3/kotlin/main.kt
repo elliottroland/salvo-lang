@@ -18,14 +18,14 @@ import salvo.fs.mem.*
 import salvo.stream.*
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun describe(e: Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>): String {
-    if (e is U7_7<*, *, *, *, *, *, *>) {
+fun describe(e: Union2<S3Error, AwsError>): String {
+    if (e is U2_2<*, *>) {
         return "${(e.value as AwsError).code}: ${(e.value as AwsError).message}"
     }
-    if (e is U7_5<*, *, *, *, *, *, *>) {
+    if (((e.value as S3Error).code == "NoSuchKey")) {
         return "no such key"
     }
-    return "the service refused"
+    return "the service refused: ${((e.value as S3Error).code).toString()}"
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
@@ -51,16 +51,16 @@ fun upload(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String, k
     }
     val put = run {
         val (r, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union7Codec(__Codec_EncryptionTypeMismatch, __Codec_InvalidObjectState, __Codec_InvalidRequest, __Codec_InvalidWriteOffset, __Codec_NoSuchKey, __Codec_TooManyParts, __Codec_AwsError)))) })
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError)))) })
         s3.put_object(PutObjectInput(bucket = bucket, key = key, body = (opened.value as InStream), content_length = length), r)
-        salvo.SalvoSched.awaitReply(__wid) as Union2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>
+        salvo.SalvoSched.awaitReply(__wid) as Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>
     }
     when (put) {
         is U2_1<*, *> -> {
             println(console, "put $key: etag ${((put.value as PutObjectOutput).e_tag ?: "?")}")
         }
         is U2_2<*, *> -> {
-            println(console, "put $key: ${describe(detach((put.value as Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>)))}")
+            println(console, "put $key: ${describe(detach((put.value as Checked<Union2<S3Error, AwsError>>)))}")
         }
     }
 }
@@ -71,10 +71,10 @@ fun download(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String,
         val (r, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> Pair(false, null) })
         s3.get_object(GetObjectInput(bucket = bucket, key = key), r)
-        salvo.SalvoSched.awaitReply(__wid) as Union2<GetObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>
+        salvo.SalvoSched.awaitReply(__wid) as Union2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>
     }
     if (got is U2_2<*, *>) {
-        println(console, "get $key: ${describe(detach((got.value as Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>)))}")
+        println(console, "get $key: ${describe(detach((got.value as Checked<Union2<S3Error, AwsError>>)))}")
         return
     }
     val __destructured1 = (got.value as GetObjectOutput)
@@ -138,24 +138,24 @@ class MemS3(private val __dep_Streams: Streams) : S3 {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
         if (filled is U2_2<*, *>) {
-            salvo.SalvoSched.replyWire(reply, U2_2<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>(err(checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>(U7_7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>(AwsError(code = "StreamFailed", message = "${to_str__4(detach((filled.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union7Codec(__Codec_EncryptionTypeMismatch, __Codec_InvalidObjectState, __Codec_InvalidRequest, __Codec_InvalidWriteOffset, __Codec_NoSuchKey, __Codec_TooManyParts, __Codec_AwsError))))
+            salvo.SalvoSched.replyWire(reply, U2_2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(U2_2<S3Error, AwsError>(AwsError(code = "StreamFailed", message = "${to_str__4(detach((filled.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
             return
         }
         val data: salvo.SalvoBytes = buf
         val tag = "\"${data.size}\""
         objects.put("$bucket/$key", data)
-        salvo.SalvoSched.replyWire(reply, U2_1<PutObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>(ok(PutObjectOutput(e_tag = tag))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union7Codec(__Codec_EncryptionTypeMismatch, __Codec_InvalidObjectState, __Codec_InvalidRequest, __Codec_InvalidWriteOffset, __Codec_NoSuchKey, __Codec_TooManyParts, __Codec_AwsError))))
+        salvo.SalvoSched.replyWire(reply, U2_1<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(PutObjectOutput(e_tag = tag))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
     }
 
     override fun get_object(input: GetObjectInput, reply: salvo.SalvoReply) {
         val found = objects["${input.bucket}/${input.key}"]
         if (found == null) {
-            reply.send(U2_2<GetObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>(err(checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>(U7_5<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>(NoSuchKey())))))
+            reply.send(U2_2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(U2_1<S3Error, AwsError>(S3Error(code = "NoSuchKey", message = "The specified key does not exist.", status = 404))))))
             return
         }
         val data: salvo.SalvoBytes = salvo.SalvoBytes(found)
         val length = (data.size).toLong()
-        reply.send(U2_1<GetObjectOutput, Checked<Union7<EncryptionTypeMismatch, InvalidObjectState, InvalidRequest, InvalidWriteOffset, NoSuchKey, TooManyParts, AwsError>>>(ok(GetObjectOutput(body = __dep_Streams.from_bytes(data), content_length = length))))
+        reply.send(U2_1<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(GetObjectOutput(body = __dep_Streams.from_bytes(data), content_length = length))))
     }
 }
 

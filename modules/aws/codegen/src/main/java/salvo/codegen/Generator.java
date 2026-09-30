@@ -313,8 +313,53 @@ final class Generator {
         return snake(op.getId().getName());
     }
 
+    /** What an operation answers instead of its output: the service's error or an [AwsError]. */
     private String errorUnion() {
+        return settings.effect() + "Failure";
+    }
+
+    /** The service's one error struct. */
+    private String errorStruct() {
         return settings.effect() + "Error";
+    }
+
+    /** The literal union of the service's error codes. */
+    private String errorCodes() {
+        return settings.effect() + "ErrorCode";
+    }
+
+    /**
+     * The members an error shape carries besides its message — S3's
+     * `InvalidObjectState` has a storage class and an access tier — which become
+     * optional fields of the one error struct, set for that code only.
+     */
+    private Map<String, MemberShape> extraErrorMembers() {
+        Map<String, MemberShape> out = new LinkedHashMap<>();
+        for (StructureShape es : errorShapes.values()) {
+            for (MemberShape m : members(es)) {
+                if (m.getMemberName().equalsIgnoreCase("message")) continue;
+                out.putIfAbsent(salvoField(m), m);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Every code the service may send for a modeled error, mapped to the model's
+     * name: the model name itself, and the legacy `@awsQueryError` code where
+     * the protocol is `awsQueryCompatible` (SQS's `QueueDoesNotExist` arrives
+     * as `AWS.SimpleQueueService.NonExistentQueue` on one SDK). Both backends
+     * normalize through this, so a code reads the same on either.
+     */
+    private Map<String, String> wireCodes() {
+        Map<String, String> out = new TreeMap<>();
+        for (Map.Entry<String, StructureShape> e : errorShapes.entrySet()) {
+            e.getValue().findTrait("aws.protocols#awsQueryError").ifPresent(t -> {
+                String code = t.toNode().expectObjectNode().expectStringMember("code").getValue();
+                if (!code.equals(e.getKey())) out.put(code, e.getKey());
+            });
+        }
+        return out;
     }
 
     // =============================================================== types ===
@@ -440,15 +485,7 @@ final class Generator {
         for (Map.Entry<ShapeId, String> s : structs.entrySet()) {
             out.append('\n').append(salvoStruct(model.expectShape(s.getKey(), StructureShape.class), s.getValue()));
         }
-        for (Map.Entry<String, StructureShape> e : errorShapes.entrySet()) {
-            out.append('\n').append(salvoStruct(e.getValue(), e.getKey()));
-        }
-        out.append('\n');
-        out.append(comment("Everything an operation of [" + settings.effect() + "] can answer with instead of "
-                + "its output: the errors the model names, and [AwsError] for everything else.", ""));
-        List<String> arms = new ArrayList<>(errorNames);
-        arms.add("AwsError");
-        out.append("export type ").append(errorUnion()).append(" = ").append(String.join("\n    | ", arms)).append('\n');
+        out.append(salvoErrors());
 
         // The effect.
         out.append('\n');
@@ -554,32 +591,75 @@ final class Generator {
                 + settings.effect() + " cannot answer " + effectOp(op) + "\" }))";
     }
 
-    private List<String> variants(EnumShape e) {
-        List<String> out = new ArrayList<>();
-        for (String member : e.getEnumValues().keySet()) out.add(pascal(member));
-        return out;
-    }
-
-    private String unknownVariant(EnumShape e) {
-        return variants(e).contains("Unknown") ? "UnknownValue" : "Unknown";
+    /**
+     * The service's errors as data: named code groups (`errorGroups` in the
+     * settings), the code union — every modeled error of the selected
+     * operations, and `Other Str` for the rest (throttling, access denied, a
+     * code this model predates) — the one error struct, and the failure union
+     * with [AwsError] for a call that got no response.
+     */
+    private String salvoErrors() {
+        StringBuilder out = new StringBuilder("\n");
+        List<String> arms = new ArrayList<>();
+        Set<String> grouped = new LinkedHashSet<>();
+        for (Map.Entry<String, String> g : settings.errorGroups().entrySet()) {
+            List<String> codes = new ArrayList<>();
+            for (String name : errorNames) {
+                if (name.startsWith(g.getValue())) codes.add("\"" + name + "\"");
+            }
+            if (codes.isEmpty()) continue;
+            grouped.addAll(codes);
+            out.append(comment("The " + errorStruct() + " codes starting `" + g.getValue() + "`, as one group: `if "
+                    + "e.code is " + g.getKey() + "` asks whether a failure was one of them.", ""));
+            out.append("export type ").append(g.getKey()).append(" = ").append(String.join("\n    | ", codes))
+                    .append("\n\n");
+            arms.add(g.getKey());
+        }
+        for (String name : errorNames) {
+            if (!grouped.contains("\"" + name + "\"")) arms.add("\"" + name + "\"");
+        }
+        arms.add("Other Str");
+        out.append(comment("A code " + settings.effect() + " answers with: one arm per error the model names for "
+                + "these operations, and `Other` for anything else the service sends — throttling, an "
+                + "authorization failure, a code newer than this model. A legacy wire code is normalized to the "
+                + "model's name, so a code reads the same on every backend.", ""));
+        out.append("export type ").append(errorCodes()).append(" = ").append(String.join("\n    | ", arms))
+                .append("\n\n");
+        out.append(comment("The service answered with an error: what it said, and the HTTP status it said it "
+                + "with.", ""));
+        out.append("export struct ").append(errorStruct()).append(" {\n");
+        out.append("    code: ").append(errorCodes()).append(",\n");
+        out.append("    message: Str,\n");
+        out.append("    // The HTTP status of the response.\n");
+        out.append("    status: Int,\n");
+        out.append("    // The service's id for the request, when it sent one: what AWS support asks for.\n");
+        Map<String, MemberShape> extras = extraErrorMembers();
+        out.append("    request_id: Str? = None").append(extras.isEmpty() ? "\n" : ",\n");
+        int i = 0;
+        for (Map.Entry<String, MemberShape> x : extras.entrySet()) {
+            String owner = x.getValue().getContainer().getName();
+            out.append(comment("Set for `" + owner + "` only. " + docText(x.getValue()), "    "));
+            out.append("    ").append(x.getKey()).append(": ").append(salvoType(target(x.getValue())))
+                    .append("? = None").append(++i < extras.size() ? ",\n" : "\n");
+        }
+        out.append("}\n\n");
+        out.append(comment("Everything an operation of [" + settings.effect() + "] can answer with instead of its "
+                + "output: the service's error, or an [AwsError] when there was no answer to read.", ""));
+        out.append("export type ").append(errorUnion()).append(" = ").append(errorStruct()).append(" | AwsError\n");
+        return out.toString();
     }
 
     private String salvoEnum(EnumShape e) {
         String name = enums.get(e.getId());
         StringBuilder out = new StringBuilder();
-        out.append(comment(docText(e).isEmpty() ? name + ", one arm per value the model names." : docText(e), ""));
-        out.append("//\n// Open, as Smithy enums are: a value this model does not name arrives as `")
-                .append(name).append('.').append(unknownVariant(e)).append("`.\n");
+        out.append(comment(docText(e).isEmpty() ? name + ", one literal per value the model names." : docText(e), ""));
+        out.append("//\n");
+        out.append(comment("Open, as Smithy enums are: a value this model does not name arrives as the `Other` arm "
+                + "[type-literal]. At run time a plain string, the value as it is on the wire.", ""));
         List<String> arms = new ArrayList<>();
-        for (String v : variants(e)) arms.add(name + "." + v);
-        arms.add(name + "." + unknownVariant(e));
+        for (String v : e.getEnumValues().values()) arms.add("\"" + v.replace("\"", "\\\"") + "\"");
+        arms.add("Other Str");
         out.append("export type ").append(name).append(" = ").append(String.join("\n    | ", arms)).append('\n');
-        for (Map.Entry<String, String> v : e.getEnumValues().entrySet()) {
-            out.append("// `\"").append(v.getValue()).append("\"`\n");
-            out.append("export struct ").append(name).append('.').append(pascal(v.getKey())).append(" {}\n");
-        }
-        out.append("// A value this model does not name.\n");
-        out.append("export struct ").append(name).append('.').append(unknownVariant(e)).append(" { value: Str }\n");
         return out.toString();
     }
 
@@ -678,23 +758,15 @@ final class Generator {
     }
 
     private String rsErrorUnionType() {
-        List<String> arms = new ArrayList<>();
-        for (String e : errorNames) arms.add(rsType(e));
-        arms.add("AwsError");
-        return "Union" + arms.size() + "<" + String.join(", ", arms) + ">";
-    }
-
-    private String rsEnumUnion(EnumShape e) {
-        String name = enums.get(e.getId());
-        List<String> arms = new ArrayList<>();
-        for (String v : variants(e)) arms.add(name + v);
-        arms.add(name + unknownVariant(e));
-        return "Union" + arms.size() + "<" + String.join(", ", arms) + ">";
+        return "Union2<" + errorStruct() + ", AwsError>";
     }
 
     /** Salvo → SDK, from a reference expression [ref] to the Salvo value. */
     private String rsToSdk(Shape t, String ref) {
-        if (t instanceof EnumShape e) return "to_sdk_" + snake(enums.get(e.getId())) + "(" + ref + ")";
+        // [type-literal] An enum is its wire string in Salvo, on both sides.
+        if (t instanceof EnumShape e) {
+            return rsCrate() + "::types::" + rsSdkName(e.getId().getName()) + "::from(" + ref + ".as_str())";
+        }
         if (t instanceof StructureShape s) return "to_sdk_" + snake(structs.get(s.getId())) + "(" + ref + ")";
         if (t instanceof ListShape l) {
             return ref + ".iter().map(|e| " + rsToSdk(target(l.getMember()), "e") + ").collect::<Vec<_>>()";
@@ -715,7 +787,7 @@ final class Generator {
 
     /** SDK → Salvo, from a reference expression [ref] to the SDK value. */
     private String rsFromSdk(Shape t, String ref) {
-        if (t instanceof EnumShape e) return "from_sdk_" + snake(enums.get(e.getId())) + "(" + ref + ")";
+        if (t instanceof EnumShape) return ref + ".as_str().to_string()";
         if (t instanceof StructureShape s) return "from_sdk_" + snake(salvoType(s)) + "(" + ref + ")";
         if (t instanceof ListShape l) {
             return ref + ".iter().map(|e| " + rsFromSdk(target(l.getMember()), "e") + ").collect::<Vec<_>>()";
@@ -809,7 +881,6 @@ final class Generator {
         out.append("}\n");
 
         // Conversions.
-        for (ShapeId id : enums.keySet()) out.append('\n').append(rustEnumConv(model.expectShape(id, EnumShape.class)));
         for (Map.Entry<ShapeId, String> s : structs.entrySet()) {
             StructureShape shape = model.expectShape(s.getKey(), StructureShape.class);
             if (!inputs.contains(s.getKey())) out.append('\n').append(rustFromSdk(shape, s.getValue()));
@@ -817,10 +888,7 @@ final class Generator {
                 out.append('\n').append(rustToSdk(shape, s.getValue()));
             }
         }
-        for (Map.Entry<String, StructureShape> e : errorShapes.entrySet()) {
-            out.append('\n').append(rustFromSdk(e.getValue(), e.getKey()));
-        }
-        for (OperationShape op : operations) out.append('\n').append(rustErrorConv(op));
+        out.append(rustFailure());
         out.append(rustExpandHome());
         if (usesTime) out.append(rustTimeHelpers());
         if (!streaming.isEmpty()) out.append(rustStreamHelpers());
@@ -860,7 +928,6 @@ final class Generator {
         MemberShape outStream = streamOf(output(op));
         String okType = output(op).map(s -> rsType(structs.get(s.getId()))).orElse("()");
         String answerType = "Union2<" + okType + ", Checked<" + rsErrorUnionType() + ">>";
-        int n = errorNames.size() + 1;
         StringBuilder out = new StringBuilder();
         out.append("    fn ").append(name).append("(&self, ");
         if (input(op).isPresent()) {
@@ -889,7 +956,7 @@ final class Generator {
         });
         out.append(";\n");
         out.append("        self.rt.spawn(async move {\n");
-        String failWith = "Union2::U2(Checked { value: Union" + n + "::U" + n + "(AwsError { code: ";
+        String failWith = "Union2::U2(Checked { value: Union2::U2(AwsError { code: ";
         if (inStream != null) {
             // No length, no request: the body is released unread (user
             // decision 2026-09-30 — never buffer to find it out).
@@ -913,7 +980,7 @@ final class Generator {
             String ok = output(op).map(s -> "from_sdk_" + snake(structs.get(s.getId())) + "(&out)").orElse("()");
             out.append("                Ok(out) => { let _ = &out; Union2::U1(").append(ok).append(") }\n");
         }
-        out.append("                Err(e) => Union2::U2(Checked { value: error_of_").append(name).append("(e) }),\n");
+        out.append("                Err(e) => Union2::U2(salvo_failure(e, ").append(rustExtra(op)).append(")),\n");
         out.append("            };\n");
         if (inStream != null) {
             // A body that failed, or did not match its length, is the answer
@@ -926,33 +993,6 @@ final class Generator {
         }
         out.append("            reply.send(answer);\n        });\n    }\n");
         return out.toString();
-    }
-
-    private String rustEnumConv(EnumShape e) {
-        String crate = rsCrate();
-        String name = enums.get(e.getId());
-        String sdk = crate + "::types::" + rsSdkName(e.getId().getName());
-        String union = rsEnumUnion(e);
-        int n = e.getEnumValues().size() + 1;
-        StringBuilder to = new StringBuilder();
-        to.append("fn to_sdk_").append(snake(name)).append("(v: &").append(union).append(") -> ").append(sdk).append(" {\n    match v {\n");
-        StringBuilder from = new StringBuilder();
-        from.append("fn from_sdk_").append(snake(name)).append("(v: &").append(sdk).append(") -> ").append(union)
-                .append(" {\n    match v.as_str() {\n");
-        int i = 1;
-        for (Map.Entry<String, String> v : e.getEnumValues().entrySet()) {
-            String arm = name + pascal(v.getKey());
-            to.append("        Union").append(n).append("::U").append(i).append("(_) => ").append(sdk)
-                    .append("::from(\"").append(v.getValue()).append("\"),\n");
-            from.append("        \"").append(v.getValue()).append("\" => Union").append(n).append("::U").append(i)
-                    .append('(').append(arm).append(" {}),\n");
-            i++;
-        }
-        to.append("        Union").append(n).append("::U").append(n).append("(u) => ").append(sdk)
-                .append("::from(u.value.as_str()),\n    }\n}\n");
-        from.append("        other => Union").append(n).append("::U").append(n).append('(').append(name)
-                .append(unknownVariant(e)).append(" { value: other.to_string() }),\n    }\n}\n");
-        return to + "\n" + from;
     }
 
     private String rustFromSdk(StructureShape s, String name) {
@@ -1006,26 +1046,73 @@ final class Generator {
         return out.toString();
     }
 
-    private String rustErrorConv(OperationShape op) {
+    /**
+     * The one error conversion, generic over every operation's error type: a
+     * service error becomes the service's error struct — the code normalized to
+     * the model's name, the message, the HTTP status, the request id — and
+     * anything else (no response: a timeout, a credentials or dispatch failure,
+     * a response that did not parse) an [AwsError]. [extra] fills the fields
+     * one error carries (S3's `InvalidObjectState`).
+     */
+    private String rustFailure() {
         String crate = rsCrate();
-        String opSnake = effectOp(op);
-        String errEnum = crate + "::operation::" + opSnake + "::" + rsSdkName(op.getId().getName()) + "Error";
-        List<String> all = new ArrayList<>(errorNames);
-        int n = all.size() + 1;
+        String es = errorStruct();
         StringBuilder out = new StringBuilder();
-        out.append("fn error_of_").append(opSnake).append("(e: ").append(crate).append("::error::SdkError<")
-                .append(errEnum).append(">) -> ").append(rsErrorUnionType()).append(" {\n");
-        out.append("    let text = format!(\"{}\", ").append(crate).append("::error::DisplayErrorContext(&e));\n");
-        out.append("    match e.into_service_error() {\n");
-        for (ShapeId err : op.getErrors(service)) {
-            int at = all.indexOf(err.getName()) + 1;
-            out.append("        ").append(errEnum).append("::").append(rsSdkName(err.getName())).append("(x) => Union").append(n)
-                    .append("::U").append(at).append("(from_sdk_").append(snake(err.getName())).append("(&x)),\n");
+        out.append("\n/// A code as the model names it: the shape id's name (`ns#Name`), and a legacy\n")
+                .append("/// `@awsQueryError` code mapped to the model's.\n");
+        out.append("fn salvo_code(code: &str) -> String {\n    let code = code.rsplit('#').next().unwrap_or(code);\n")
+                .append("    match code {\n");
+        for (Map.Entry<String, String> c : wireCodes().entrySet()) {
+            out.append("        \"").append(c.getKey()).append("\" => \"").append(c.getValue()).append("\",\n");
         }
-        out.append("        other => Union").append(n).append("::U").append(n)
-                .append("(AwsError { code: other.code().unwrap_or(\"SdkError\").to_string(), message: text }),\n");
-        out.append("    }\n}\n");
+        out.append("        other => other,\n    }\n    .to_string()\n}\n\n");
+        out.append("fn salvo_failure<E>(\n    e: ").append(crate).append("::error::SdkError<E, ").append(crate)
+                .append("::config::http::HttpResponse>,\n    extra: impl FnOnce(&E, &mut ").append(es)
+                .append("),\n) -> Checked<").append(rsErrorUnionType()).append(">\nwhere\n")
+                .append("    E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,\n{\n")
+                .append("    use ").append(crate).append("::operation::RequestId;\n")
+                .append("    let text = format!(\"{}\", ").append(crate).append("::error::DisplayErrorContext(&e));\n")
+                .append("    let request_id = e.request_id().map(|r| r.to_string());\n")
+                .append("    let value = match &e {\n")
+                .append("        ").append(crate).append("::error::SdkError::ServiceError(ctx) => {\n")
+                .append("            let err = ctx.err();\n")
+                .append("            let mut out = ").append(es).append(" {\n")
+                .append("                code: salvo_code(err.code().unwrap_or(\"Unknown\")),\n")
+                .append("                message: err.message().unwrap_or(\"\").to_string(),\n")
+                .append("                status: ctx.raw().status().as_u16() as i32,\n")
+                .append("                request_id,\n");
+        for (String f : extraErrorMembers().keySet()) out.append("                ").append(rsIdent(f)).append(": None,\n");
+        out.append("            };\n            extra(err, &mut out);\n            Union2::U1(out)\n        }\n")
+                .append("        other => Union2::U2(AwsError {\n")
+                .append("            code: match other {\n")
+                .append("                ").append(crate).append("::error::SdkError::TimeoutError(_) => \"TimeoutError\",\n")
+                .append("                ").append(crate).append("::error::SdkError::DispatchFailure(_) => \"DispatchFailure\",\n")
+                .append("                ").append(crate).append("::error::SdkError::ResponseError(_) => \"ResponseError\",\n")
+                .append("                _ => \"ConstructionFailure\",\n            }\n            .to_string(),\n")
+                .append("            message: text,\n        }),\n    };\n    Checked { value }\n}\n");
         return out.toString();
+    }
+
+    /** The `extra` closure for one operation: the fields its errors carry. */
+    private String rustExtra(OperationShape op) {
+        String crate = rsCrate();
+        String errEnum = crate + "::operation::" + effectOp(op) + "::" + rsSdkName(op.getId().getName()) + "Error";
+        StringBuilder arms = new StringBuilder();
+        for (ShapeId err : op.getErrors(service)) {
+            StructureShape es = errorShapes.get(err.getName());
+            List<MemberShape> extra = members(es).stream()
+                    .filter(m -> !m.getMemberName().equalsIgnoreCase("message")).toList();
+            if (extra.isEmpty()) continue;
+            arms.append("                if let ").append(errEnum).append("::").append(rsSdkName(err.getName()))
+                    .append("(x) = err {\n");
+            for (MemberShape m : extra) {
+                arms.append("                    out.").append(rsIdent(salvoField(m))).append(" = ")
+                        .append(rsReadField(m, "x")).append(";\n");
+            }
+            arms.append("                }\n");
+        }
+        if (arms.length() == 0) return "|_, _| {}";
+        return "|err, out| {\n" + arms + "            }";
     }
 
     private String rustConfigLoader() {
@@ -1230,21 +1317,14 @@ final class Generator {
 
     // ========================================================== Kotlin glue ===
 
-    private String ktEnumUnion(EnumShape e) {
-        String name = enums.get(e.getId());
-        List<String> arms = new ArrayList<>();
-        for (String v : variants(e)) arms.add(name + "." + v);
-        arms.add(name + "." + unknownVariant(e));
-        return "Union" + arms.size() + "<" + String.join(", ", arms) + ">";
-    }
-
     private static String stars(int n) {
         return "<" + String.join(", ", java.util.Collections.nCopies(n, "*")) + ">";
     }
 
     /** Salvo → SDK, from a non-null expression [v]; [d] numbers nested lambda parameters. */
     private String ktToSdk(Shape t, String v, int d) {
-        if (t instanceof EnumShape e) return "toSdk" + enums.get(e.getId()) + "(" + v + ")";
+        // [type-literal] An enum is its wire string in Salvo, on both sides.
+        if (t instanceof EnumShape e) return ktModel() + "." + ktSdkName(e.getId()) + ".fromValue(" + v + ")";
         if (t instanceof StructureShape s) return "toSdk" + structs.get(s.getId()) + "(" + v + ")";
         if (t instanceof ListShape l) {
             return v + ".map { e" + d + " -> " + ktToSdk(target(l.getMember()), "e" + d, d + 1) + " }";
@@ -1262,7 +1342,7 @@ final class Generator {
 
     /** SDK → Salvo, from a non-null expression [v]. */
     private String ktFromSdk(Shape t, String v, int d) {
-        if (t instanceof EnumShape e) return "fromSdk" + enums.get(e.getId()) + "(" + v + ")";
+        if (t instanceof EnumShape) return v + ".value";
         if (t instanceof StructureShape s) return "fromSdk" + salvoType(s) + "(" + v + ")";
         if (t instanceof ListShape l) {
             return v + ".map { e" + d + " -> " + ktFromSdk(target(l.getMember()), "e" + d, d + 1) + " }";
@@ -1334,15 +1414,12 @@ final class Generator {
         out.append("}\n");
 
         out.append(kotlinCredentials());
-        for (ShapeId id : enums.keySet()) out.append('\n').append(kotlinEnumConv(model.expectShape(id, EnumShape.class)));
         for (Map.Entry<ShapeId, String> s : structs.entrySet()) {
             StructureShape shape = model.expectShape(s.getKey(), StructureShape.class);
             if (!inputs.contains(s.getKey())) out.append('\n').append(kotlinFromSdk(shape, s.getValue()));
             if (!outputs.contains(s.getKey())) out.append('\n').append(kotlinToSdk(shape, s.getValue()));
         }
-        for (Map.Entry<String, StructureShape> e : errorShapes.entrySet()) {
-            out.append('\n').append(kotlinFromSdk(e.getValue(), e.getKey()));
-        }
+        out.append(kotlinFailure());
         if (usesTime) out.append(kotlinTimeHelpers());
         if (!streaming.isEmpty()) out.append(kotlinStreamHelpers());
         out.append("""
@@ -1360,8 +1437,6 @@ final class Generator {
         String name = effectOp(op);
         MemberShape inStream = streamOf(input(op));
         MemberShape outStream = streamOf(output(op));
-        List<String> all = new ArrayList<>(errorNames);
-        int n = all.size() + 1;
         StringBuilder out = new StringBuilder();
         out.append("    override fun ").append(name).append('(');
         input(op).ifPresent(in -> out.append("input: ").append(structs.get(in.getId())).append(", "));
@@ -1376,9 +1451,7 @@ final class Generator {
                     .append('\n');
         }
         String okType = output(op).map(o -> structs.get(o.getId())).orElse("Unit");
-        List<String> errArms = new ArrayList<>(errorNames);
-        errArms.add("AwsError");
-        String errType = "Union" + errArms.size() + "<" + String.join(", ", errArms) + ">";
+        String errType = "Union2<" + errorStruct() + ", AwsError>";
         String answerType = "Union2<" + okType + ", salvo.core.checked.Checked<" + errType + ">>";
         out.append("        scope.launch {\n");
         String request = input(op).map(in -> "toSdk" + structs.get(in.getId()) + "(input"
@@ -1388,8 +1461,8 @@ final class Generator {
             // decision 2026-09-30 — never buffer to find it out).
             out.append("            if (length == null || length < 0) {\n")
                     .append("                body.closeInput()\n")
-                    .append("                val failed: ").append(answerType).append(" = U2_2(salvo.core.checked.Checked(U")
-                    .append(n).append('_').append(n).append("(AwsError(code = \"MissingContentLength\", message = \"")
+                    .append("                val failed: ").append(answerType)
+                    .append(" = U2_2(salvo.core.checked.Checked(U2_2(AwsError(code = \"MissingContentLength\", message = \"")
                     .append(missingLengthText(op)).append("\"))))\n")
                     .append("                host.send(failed)\n")
                     .append("                return@launch\n            }\n");
@@ -1421,15 +1494,11 @@ final class Generator {
                 out.append("                ").append(call).append("\n                U2_1(Unit)\n");
             }
         }
-        for (ShapeId err : op.getErrors(service)) {
-            int at = all.indexOf(err.getName()) + 1;
-            out.append("            } catch (e: ").append(ktModel()).append('.').append(ktSdkName(err)).append(") {\n")
-                    .append("                U2_2(salvo.core.checked.Checked(U").append(n).append('_').append(at)
-                    .append("(fromSdk").append(err.getName()).append("(e))))\n");
-        }
+        out.append("            } catch (e: aws.smithy.kotlin.runtime.ServiceException) {\n")
+                .append("                U2_2(salvo.core.checked.Checked(U2_1(").append(kotlinExtra(op, "salvoFailure(e)"))
+                .append(")))\n");
         out.append("            } catch (e: Exception) {\n")
-                .append("                U2_2(salvo.core.checked.Checked(U").append(n).append('_').append(n)
-                .append("(salvoAwsError(e))))\n            }\n");
+                .append("                U2_2(salvo.core.checked.Checked(U2_2(salvoAwsError(e))))\n            }\n");
         if (outStream != null) {
             out.append("            if (!sent && answer != null) host.send(answer)\n        }\n    }\n");
         } else if (inStream != null) {
@@ -1438,8 +1507,7 @@ final class Generator {
             out.append("            val problem = upload.finish()\n")
                     .append("            body.closeInput()\n")
                     .append("            val result: ").append(answerType).append(" = problem?.let {\n")
-                    .append("                U2_2(salvo.core.checked.Checked(U").append(n).append('_').append(n)
-                    .append("(AwsError(code = \"StreamFailed\", message = it))))\n")
+                    .append("                U2_2(salvo.core.checked.Checked(U2_2(AwsError(code = \"StreamFailed\", message = it))))\n")
                     .append("            } ?: answer\n")
                     .append("            host.send(result)\n        }\n    }\n");
         } else {
@@ -1448,30 +1516,44 @@ final class Generator {
         return out.toString();
     }
 
-    private String kotlinEnumConv(EnumShape e) {
-        String name = enums.get(e.getId());
-        String sdk = ktModel() + "." + ktSdkName(e.getId());
-        String union = ktEnumUnion(e);
-        int n = e.getEnumValues().size() + 1;
-        StringBuilder to = new StringBuilder();
-        to.append("private fun toSdk").append(name).append("(v: ").append(union).append("): ").append(sdk)
-                .append(" = when (v) {\n");
-        StringBuilder from = new StringBuilder();
-        from.append("private fun fromSdk").append(name).append("(v: ").append(sdk).append("): ").append(union)
-                .append(" = when (v.value) {\n");
-        int i = 1;
-        for (Map.Entry<String, String> v : e.getEnumValues().entrySet()) {
-            to.append("    is U").append(n).append('_').append(i).append(stars(n)).append(" -> ").append(sdk)
-                    .append(".fromValue(\"").append(v.getValue()).append("\")\n");
-            from.append("    \"").append(v.getValue()).append("\" -> U").append(n).append('_').append(i).append('(')
-                    .append(name).append('.').append(pascal(v.getKey())).append("())\n");
-            i++;
+    /** [rustFailure]'s counterpart: a service exception as the service's error struct. */
+    private String kotlinFailure() {
+        String es = errorStruct();
+        StringBuilder out = new StringBuilder();
+        out.append("\n/** A code as the model names it (see the Rust glue's `salvo_code`). */\n");
+        out.append("private fun salvoCode(code: String): String = when (val c = code.substringAfterLast('#')) {\n");
+        for (Map.Entry<String, String> c : wireCodes().entrySet()) {
+            out.append("    \"").append(c.getKey()).append("\" -> \"").append(c.getValue()).append("\"\n");
         }
-        to.append("    is U").append(n).append('_').append(n).append(stars(n)).append(" -> ").append(sdk)
-                .append(".fromValue((v.value as ").append(name).append('.').append(unknownVariant(e)).append(").value)\n}\n");
-        from.append("    else -> U").append(n).append('_').append(n).append('(').append(name).append('.')
-                .append(unknownVariant(e)).append("(v.value))\n}\n");
-        return to + "\n" + from;
+        out.append("    else -> c\n}\n\n");
+        out.append("private fun salvoFailure(e: aws.smithy.kotlin.runtime.ServiceException): ").append(es).append(" {\n")
+                .append("    val meta = e.sdkErrorMetadata\n")
+                .append("    val response = meta.protocolResponse as? aws.smithy.kotlin.runtime.http.response.HttpResponse\n")
+                .append("    return ").append(es).append("(\n")
+                .append("        code = salvoCode(meta.errorCode ?: \"Unknown\"),\n")
+                .append("        message = meta.errorMessage ?: \"\",\n")
+                .append("        status = response?.status?.value ?: 0,\n")
+                .append("        request_id = meta.requestId,\n    )\n}\n");
+        return out.toString();
+    }
+
+    /** [base] with the fields one operation's errors carry, where the exception is that error. */
+    private String kotlinExtra(OperationShape op, String base) {
+        StringBuilder fields = new StringBuilder();
+        String out = base;
+        for (ShapeId err : op.getErrors(service)) {
+            StructureShape es = errorShapes.get(err.getName());
+            List<MemberShape> extra = members(es).stream()
+                    .filter(m -> !m.getMemberName().equalsIgnoreCase("message")).toList();
+            if (extra.isEmpty()) continue;
+            List<String> sets = new ArrayList<>();
+            for (MemberShape m : extra) {
+                sets.add(ktIdent(salvoField(m)) + " = " + ktReadField(m, "e"));
+            }
+            out = "(" + out + ").let { if (e is " + ktModel() + "." + ktSdkName(err) + ") it.copy("
+                    + String.join(", ", sets) + ") else it }";
+        }
+        return out;
     }
 
     private String kotlinFromSdk(StructureShape s, String name) {

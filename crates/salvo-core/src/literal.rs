@@ -175,6 +175,39 @@ pub fn widen(ty: &Ty) -> Ty {
     }
 }
 
+/// [`collapse_ty`] for a type built without the checker's alias expansion (a
+/// struct field approximated from its written type): union arms naming a
+/// type alias are expanded through [alias] first, so an alias of literals
+/// collapses with its neighbours.
+pub fn collapse_ty_with(ty: &Ty, alias: &dyn Fn(&str) -> Option<Ty>) -> Ty {
+    fn expand(ty: &Ty, alias: &dyn Fn(&str) -> Option<Ty>, depth: usize) -> Ty {
+        match ty {
+            Ty::Union(arms) if depth < 16 => Ty::union_of(
+                arms.iter()
+                    .map(|a| match a {
+                        Ty::Named { name, args } if args.is_empty() => match alias(name) {
+                            Some(def) => expand(&def, alias, depth + 1),
+                            None => a.clone(),
+                        },
+                        other => expand(other, alias, depth + 1),
+                    })
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+    let top = match ty {
+        Ty::Named { name, args } if args.is_empty() => alias(name).unwrap_or_else(|| ty.clone()),
+        other => other.clone(),
+    };
+    let expanded = expand(&top, alias, 0);
+    if mentions_lit(&expanded) {
+        collapse_ty(&expanded)
+    } else {
+        ty.clone()
+    }
+}
+
 /// Where declared value arm [arm] of [union] lives at run time: the index
 /// among the runtime union's value arms, or `None` when the runtime type is
 /// not a union at all (every value arm collapsed into one base).

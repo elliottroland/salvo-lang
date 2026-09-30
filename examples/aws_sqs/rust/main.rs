@@ -29,6 +29,8 @@ pub mod core_iterator;
 pub mod core_list;
 #[path = "core/map.rs"]
 pub mod core_map;
+#[path = "core/other.rs"]
+pub mod core_other;
 #[path = "core/result.rs"]
 pub mod core_result;
 #[path = "core/set.rs"]
@@ -54,22 +56,22 @@ use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
 
-pub fn describe(e: &Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>) -> String {
-    if matches!(e, Union21::U21(_)) {
-        return format!("{}: {}", e.u21().clone().code.clone(), e.u21().clone().message.clone());
+pub fn describe(e: &Union2<SqsError, AwsError>) -> String {
+    if matches!(e, Union2::U2(_)) {
+        return format!("{}: {}", e.u2().clone().code.clone(), e.u2().clone().message.clone());
     }
-    if matches!(e, Union21::U16(_)) {
+    if matches!(e.u1().clone().code, ref __v if (*__v == "QueueDoesNotExist")) {
         return "no such queue".to_string();
     }
-    return "the service refused".to_string();
+    return format!("the service refused: {}", format!("{}", e.u1().clone().code.clone()));
 }
 
 pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Console, name: &String) {
     let mut created = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<CreateQueueOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
         sqs.create_queue(CreateQueueInput { queue_name: name.clone(), attributes: None, tags: None }, r);
-        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<CreateQueueOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>().expect("the awaited answer")
+        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>>().expect("the awaited answer")
     };
     if matches!(created, Union2::U2(_)) {
         println(console, &(format!("create_queue: {}", describe(&(detach(created.u2().clone()))))));
@@ -79,9 +81,9 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
     println(console, &(format!("created {}", url)));
     let mut sent = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<SendMessageOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
         sqs.send_message(SendMessageInput { queue_url: url.clone(), message_body: "hello from Salvo".to_string(), delay_seconds: None, message_attributes: None, message_system_attributes: None, message_deduplication_id: None, message_group_id: None }, r);
-        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<SendMessageOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>().expect("the awaited answer")
+        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>().expect("the awaited answer")
     };
     match sent {
         Union2::U1(_) => {
@@ -95,7 +97,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|_| None));
         sqs.receive_message(ReceiveMessageInput { queue_url: url.clone(), max_number_of_messages: Some(10), attribute_names: None, message_system_attribute_names: None, message_attribute_names: None, visibility_timeout: None, wait_time_seconds: None, receive_request_attempt_id: None }, r);
-        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<ReceiveMessageOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>().expect("the awaited answer")
+        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>>().expect("the awaited answer")
     };
     match got {
         Union2::U1(_) => {
@@ -111,9 +113,9 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
     }
     let mut gone = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<(), Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
         sqs.delete_queue(DeleteQueueInput { queue_url: url.clone() }, r);
-        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<(), Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>().expect("the awaited answer")
+        *crate::scheduler::salvo_wait(__wid).downcast::<Union2<(), Checked<Union2<SqsError, AwsError>>>>().expect("the awaited answer")
     };
     match gone {
         Union2::U1(_) => {
@@ -123,6 +125,10 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
             println(console, &(format!("delete_queue: {}", describe(&(detach(gone.u2().clone()))))));
         }
     }
+}
+
+pub fn no_queue(url: String) -> SqsError {
+    return SqsError { code: "QueueDoesNotExist".to_string(), message: format!("no queue at {}", url), status: 400, request_id: None };
 }
 
 pub struct MemSqs {
@@ -144,22 +150,22 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
         if !self.queues.contains_key(&url) {
             self.queues.insert(url.clone(), vec![]);
         }
-        crate::scheduler::salvo_reply_wire::<Union2<CreateQueueOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(reply, Union2::<CreateQueueOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>::U1(ok(CreateQueueOutput { queue_url: Some(url) })));
+        crate::scheduler::salvo_reply_wire::<Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(CreateQueueOutput { queue_url: Some(url) })));
     }
 
     fn get_queue_url(&mut self, input: GetQueueUrlInput, reply: crate::scheduler::SalvoReply) {
         let mut url = format!("mem://{}", input.queue_name.clone());
         if !self.queues.contains_key(&url) {
-            crate::scheduler::salvo_reply_wire::<Union2<GetQueueUrlOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(reply, Union2::<GetQueueUrlOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>::U2(err(checked(Union21::<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>::U16(QueueDoesNotExist { message: Some(url) })))));
+            crate::scheduler::salvo_reply_wire::<Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(url))))));
             return;
         }
-        crate::scheduler::salvo_reply_wire::<Union2<GetQueueUrlOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(reply, Union2::<GetQueueUrlOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>::U1(ok(GetQueueUrlOutput { queue_url: Some(url) })));
+        crate::scheduler::salvo_reply_wire::<Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(GetQueueUrlOutput { queue_url: Some(url) })));
     }
 
     fn send_message(&mut self, input: SendMessageInput, reply: crate::scheduler::SalvoReply) {
         let mut held = self.queues.get(&input.queue_url);
         if held.is_none() {
-            crate::scheduler::salvo_reply_wire::<Union2<SendMessageOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(reply, Union2::<SendMessageOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>::U2(err(checked(Union21::<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>::U16(QueueDoesNotExist { message: Some(input.queue_url.clone()) })))));
+            crate::scheduler::salvo_reply_wire::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(input.queue_url.clone()))))));
             return;
         }
         let mut grown = vec![];
@@ -170,13 +176,13 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
         grown.push(input.message_body.clone());
         let mut stored: Vec<String> = grown;
         self.queues.insert(input.queue_url.clone(), stored);
-        crate::scheduler::salvo_reply_wire::<Union2<SendMessageOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(reply, Union2::<SendMessageOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>::U1(ok(SendMessageOutput { message_id: Some(id), md5_of_message_body: None, md5_of_message_attributes: None, md5_of_message_system_attributes: None, sequence_number: None })));
+        crate::scheduler::salvo_reply_wire::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(SendMessageOutput { message_id: Some(id), md5_of_message_body: None, md5_of_message_attributes: None, md5_of_message_system_attributes: None, sequence_number: None })));
     }
 
     fn receive_message(&mut self, input: ReceiveMessageInput, reply: crate::scheduler::SalvoReply) {
         let mut held = self.queues.get(&input.queue_url);
         if held.is_none() {
-            (reply).send(Box::new(Union2::<ReceiveMessageOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>::U2(err(checked(Union21::<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>::U16(QueueDoesNotExist { message: Some(input.queue_url.clone()) }))))));
+            (reply).send(Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(input.queue_url.clone())))))));
             return;
         }
         let mut out = vec![];
@@ -186,20 +192,20 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
             out.push(Message { message_id: Some(format!("m{}", i)), receipt_handle: Some(format!("m{}", i)), body: Some(b.clone()), md5_of_body: None, attributes: None, md5_of_message_attributes: None, message_attributes: None });
         }
         let mut messages: Vec<Message> = out;
-        (reply).send(Box::new(Union2::<ReceiveMessageOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>::U1(ok(ReceiveMessageOutput { messages: Some(messages) }))));
+        (reply).send(Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(ReceiveMessageOutput { messages: Some(messages) }))));
     }
 
     fn delete_message(&mut self, input: DeleteMessageInput, reply: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(reply, Union2::<(), Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>::U1(ok(())));
+        crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<(), Checked<Union2<SqsError, AwsError>>>::U1(ok(())));
     }
 
     fn delete_queue(&mut self, input: DeleteQueueInput, reply: crate::scheduler::SalvoReply) {
         if !self.queues.contains_key(&input.queue_url) {
-            crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(reply, Union2::<(), Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>::U2(err(checked(Union21::<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>::U16(QueueDoesNotExist { message: Some(input.queue_url.clone()) })))));
+            crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<(), Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(input.queue_url.clone()))))));
             return;
         }
         self.queues.remove(&input.queue_url);
-        crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(reply, Union2::<(), Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>::U1(ok(())));
+        crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<(), Checked<Union2<SqsError, AwsError>>>::U1(ok(())));
     }
 }
 
@@ -220,9 +226,9 @@ pub fn main() {
         round_trip(&sqs3, &console, &("orders".to_string()));
         let mut missing = {
             let (mut r, __wid) = crate::scheduler::salvo_waiter();
-            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<GetQueueUrlOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
             sqs3.get_queue_url(GetQueueUrlInput { queue_name: "nowhere".to_string(), queue_owner_aws_account_id: None }, r);
-            *crate::scheduler::salvo_wait(__wid).downcast::<Union2<GetQueueUrlOutput, Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>>>().expect("the awaited answer")
+            *crate::scheduler::salvo_wait(__wid).downcast::<Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>>().expect("the awaited answer")
         };
         match missing {
             Union2::U1(_) => {

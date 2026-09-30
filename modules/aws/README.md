@@ -56,6 +56,13 @@ stream table and reads a request body out of it; a `MemFs` stream handed to
 `HostS3` traps. `examples/aws_s3/` runs the fake and an in-memory double over
 `MemFs` in the test suite.
 
+**Enums and errors are data.** An enum is a union of its wire values and `Other
+Str` (`"STANDARD" | "GLACIER" | … | Other Str`), a plain string at run time.
+Every operation answers `Err Checked<SqsFailure>` (or `S3Failure`): `SqsError`
+when the service answered — `code` (a union of the modeled codes and `Other`,
+normalized to the model's names on both backends), `message`, HTTP `status`,
+`request_id` — or `AwsError` when there was no answer at all.
+
 A structure holding a body (`PutObjectInput`, `GetObjectOutput`) is a
 `linear struct`: take the stream out with `let {body} = output`, or give the
 whole value up with the generated `close`.
@@ -115,7 +122,9 @@ effect, the Rust crate and the Kotlin package — and add the crate to
 need them: `forcePathStyle` (S3: with an `endpoint` override, address buckets
 in the path, which a local stand-in needs) and `omitMembers`, a list of member
 shape ids to leave out where the SDKs customize a member away from the model
-(S3's `Expires` is a string in the model and a timestamp in both SDKs).
+(S3's `Expires` is a string in the model and a timestamp in both SDKs). `errorGroups` names a group of error codes by the prefix of their model
+names (SQS: `{"KmsErrorCode": "Kms"}`), a literal sub-union a caller tests in
+one `is`.
 
 ### Refreshing a model
 
@@ -196,7 +205,7 @@ created http://localhost:4566/000000000000/salvo-demo
 sent <a message id>
 received: hello from Salvo
 deleted the queue
-get_queue_url failed: no such queue
+get_queue_url failed: no such queue (HTTP 400)
 ```
 
 Against real AWS, drop the `endpoint` in `demo/sqs_live/salvo/main.sv`, set
@@ -231,7 +240,7 @@ piped 29 bytes into out/download.txt
 out/download.txt says:
 hello from Salvo
 second line
-get missing.txt: no such key
+get missing.txt: no such key (HTTP 404)
 ```
 
 Against real AWS, drop the `endpoint` in `demo/s3_live/salvo/main.sv`, set the

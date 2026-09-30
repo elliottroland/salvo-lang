@@ -19,14 +19,14 @@ import fs.host
 import stream
 import stream.host
 
-fn describe(e: S3Error) [] -> Str => e {
+fn describe(e: S3Failure) [] -> Str => e {
     if e is AwsError {
-        return "${e.code}: ${e.message}"
+        return "no answer: ${e.code}: ${e.message}"
     }
-    if e is NoSuchKey {
-        return "no such key"
+    if e.code is "NoSuchKey" {
+        return "no such key (HTTP ${e.status})"
     }
-    return "the service said no"
+    return "${e.code}: ${e.message}"
 }
 
 // The size of the file at [path], or absent when it cannot be read — which
@@ -50,7 +50,7 @@ fn upload(bucket: Str, key: Str, path: Str, length: Long?) [S3, Fs, Console] => 
         println("open ${path}: ${detach(opened)}")
         return None
     }
-    let put = waitfor r: Reply<Ok PutObjectOutput | Err Checked<S3Error>> {
+    let put = waitfor r: Reply<Ok PutObjectOutput | Err Checked<S3Failure>> {
         put_object(PutObjectInput { bucket: copy(bucket), key: copy(key), body: opened, content_length: length, content_type: "text/plain" }, r)
     }
     when put {
@@ -62,7 +62,7 @@ fn upload(bucket: Str, key: Str, path: Str, length: Long?) [S3, Fs, Console] => 
 // GetObject to a file: `pipe` copies the response body into the file without
 // blocking a worker, and closes both.
 fn download(bucket: Str, key: Str, path: Str) [S3, Fs, Console] => bucket, key, path {
-    let got = waitfor r: Reply<Ok GetObjectOutput | Err Checked<S3Error>> {
+    let got = waitfor r: Reply<Ok GetObjectOutput | Err Checked<S3Failure>> {
         get_object(GetObjectInput { bucket: copy(bucket), key: copy(key) }, r)
     }
     if got is Err {

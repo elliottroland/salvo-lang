@@ -33,26 +33,12 @@ class HostSqs(private val config: AwsConfig) : Sqs {
     override fun create_queue(input: CreateQueueInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<CreateQueueOutput, salvo.core.checked.Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = try {
+            val answer: Union2<CreateQueueOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 U2_1(fromSdkCreateQueueOutput(client.createQueue(toSdkCreateQueueInput(input))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidAddress) {
-                U2_2(salvo.core.checked.Checked(U21_1(fromSdkInvalidAddress(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidAttributeName) {
-                U2_2(salvo.core.checked.Checked(U21_2(fromSdkInvalidAttributeName(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidAttributeValue) {
-                U2_2(salvo.core.checked.Checked(U21_3(fromSdkInvalidAttributeValue(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidSecurity) {
-                U2_2(salvo.core.checked.Checked(U21_6(fromSdkInvalidSecurity(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.QueueDeletedRecently) {
-                U2_2(salvo.core.checked.Checked(U21_15(fromSdkQueueDeletedRecently(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.QueueNameExists) {
-                U2_2(salvo.core.checked.Checked(U21_17(fromSdkQueueNameExists(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.RequestThrottled) {
-                U2_2(salvo.core.checked.Checked(U21_19(fromSdkRequestThrottled(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.UnsupportedOperation) {
-                U2_2(salvo.core.checked.Checked(U21_20(fromSdkUnsupportedOperation(e))))
+            } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
+                U2_2(salvo.core.checked.Checked(U2_1(salvoFailure(e))))
             } catch (e: Exception) {
-                U2_2(salvo.core.checked.Checked(U21_21(salvoAwsError(e))))
+                U2_2(salvo.core.checked.Checked(U2_2(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -61,20 +47,12 @@ class HostSqs(private val config: AwsConfig) : Sqs {
     override fun get_queue_url(input: GetQueueUrlInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<GetQueueUrlOutput, salvo.core.checked.Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = try {
+            val answer: Union2<GetQueueUrlOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 U2_1(fromSdkGetQueueUrlOutput(client.getQueueUrl(toSdkGetQueueUrlInput(input))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidAddress) {
-                U2_2(salvo.core.checked.Checked(U21_1(fromSdkInvalidAddress(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidSecurity) {
-                U2_2(salvo.core.checked.Checked(U21_6(fromSdkInvalidSecurity(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.QueueDoesNotExist) {
-                U2_2(salvo.core.checked.Checked(U21_16(fromSdkQueueDoesNotExist(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.RequestThrottled) {
-                U2_2(salvo.core.checked.Checked(U21_19(fromSdkRequestThrottled(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.UnsupportedOperation) {
-                U2_2(salvo.core.checked.Checked(U21_20(fromSdkUnsupportedOperation(e))))
+            } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
+                U2_2(salvo.core.checked.Checked(U2_1(salvoFailure(e))))
             } catch (e: Exception) {
-                U2_2(salvo.core.checked.Checked(U21_21(salvoAwsError(e))))
+                U2_2(salvo.core.checked.Checked(U2_2(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -83,36 +61,12 @@ class HostSqs(private val config: AwsConfig) : Sqs {
     override fun send_message(input: SendMessageInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<SendMessageOutput, salvo.core.checked.Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = try {
+            val answer: Union2<SendMessageOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 U2_1(fromSdkSendMessageOutput(client.sendMessage(toSdkSendMessageInput(input))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidAddress) {
-                U2_2(salvo.core.checked.Checked(U21_1(fromSdkInvalidAddress(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidMessageContents) {
-                U2_2(salvo.core.checked.Checked(U21_5(fromSdkInvalidMessageContents(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidSecurity) {
-                U2_2(salvo.core.checked.Checked(U21_6(fromSdkInvalidSecurity(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsAccessDenied) {
-                U2_2(salvo.core.checked.Checked(U21_7(fromSdkKmsAccessDenied(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsDisabled) {
-                U2_2(salvo.core.checked.Checked(U21_8(fromSdkKmsDisabled(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsInvalidKeyUsage) {
-                U2_2(salvo.core.checked.Checked(U21_9(fromSdkKmsInvalidKeyUsage(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsInvalidState) {
-                U2_2(salvo.core.checked.Checked(U21_10(fromSdkKmsInvalidState(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsNotFound) {
-                U2_2(salvo.core.checked.Checked(U21_11(fromSdkKmsNotFound(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsOptInRequired) {
-                U2_2(salvo.core.checked.Checked(U21_12(fromSdkKmsOptInRequired(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsThrottled) {
-                U2_2(salvo.core.checked.Checked(U21_13(fromSdkKmsThrottled(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.QueueDoesNotExist) {
-                U2_2(salvo.core.checked.Checked(U21_16(fromSdkQueueDoesNotExist(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.RequestThrottled) {
-                U2_2(salvo.core.checked.Checked(U21_19(fromSdkRequestThrottled(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.UnsupportedOperation) {
-                U2_2(salvo.core.checked.Checked(U21_20(fromSdkUnsupportedOperation(e))))
+            } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
+                U2_2(salvo.core.checked.Checked(U2_1(salvoFailure(e))))
             } catch (e: Exception) {
-                U2_2(salvo.core.checked.Checked(U21_21(salvoAwsError(e))))
+                U2_2(salvo.core.checked.Checked(U2_2(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -121,36 +75,12 @@ class HostSqs(private val config: AwsConfig) : Sqs {
     override fun receive_message(input: ReceiveMessageInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<ReceiveMessageOutput, salvo.core.checked.Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = try {
+            val answer: Union2<ReceiveMessageOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 U2_1(fromSdkReceiveMessageOutput(client.receiveMessage(toSdkReceiveMessageInput(input))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidAddress) {
-                U2_2(salvo.core.checked.Checked(U21_1(fromSdkInvalidAddress(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidSecurity) {
-                U2_2(salvo.core.checked.Checked(U21_6(fromSdkInvalidSecurity(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsAccessDenied) {
-                U2_2(salvo.core.checked.Checked(U21_7(fromSdkKmsAccessDenied(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsDisabled) {
-                U2_2(salvo.core.checked.Checked(U21_8(fromSdkKmsDisabled(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsInvalidKeyUsage) {
-                U2_2(salvo.core.checked.Checked(U21_9(fromSdkKmsInvalidKeyUsage(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsInvalidState) {
-                U2_2(salvo.core.checked.Checked(U21_10(fromSdkKmsInvalidState(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsNotFound) {
-                U2_2(salvo.core.checked.Checked(U21_11(fromSdkKmsNotFound(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsOptInRequired) {
-                U2_2(salvo.core.checked.Checked(U21_12(fromSdkKmsOptInRequired(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.KmsThrottled) {
-                U2_2(salvo.core.checked.Checked(U21_13(fromSdkKmsThrottled(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.OverLimit) {
-                U2_2(salvo.core.checked.Checked(U21_14(fromSdkOverLimit(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.QueueDoesNotExist) {
-                U2_2(salvo.core.checked.Checked(U21_16(fromSdkQueueDoesNotExist(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.RequestThrottled) {
-                U2_2(salvo.core.checked.Checked(U21_19(fromSdkRequestThrottled(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.UnsupportedOperation) {
-                U2_2(salvo.core.checked.Checked(U21_20(fromSdkUnsupportedOperation(e))))
+            } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
+                U2_2(salvo.core.checked.Checked(U2_1(salvoFailure(e))))
             } catch (e: Exception) {
-                U2_2(salvo.core.checked.Checked(U21_21(salvoAwsError(e))))
+                U2_2(salvo.core.checked.Checked(U2_2(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -159,25 +89,13 @@ class HostSqs(private val config: AwsConfig) : Sqs {
     override fun delete_message(input: DeleteMessageInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<Unit, salvo.core.checked.Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = try {
+            val answer: Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 client.deleteMessage(toSdkDeleteMessageInput(input))
                 U2_1(Unit)
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidAddress) {
-                U2_2(salvo.core.checked.Checked(U21_1(fromSdkInvalidAddress(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidIdFormat) {
-                U2_2(salvo.core.checked.Checked(U21_4(fromSdkInvalidIdFormat(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidSecurity) {
-                U2_2(salvo.core.checked.Checked(U21_6(fromSdkInvalidSecurity(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.QueueDoesNotExist) {
-                U2_2(salvo.core.checked.Checked(U21_16(fromSdkQueueDoesNotExist(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.ReceiptHandleIsInvalid) {
-                U2_2(salvo.core.checked.Checked(U21_18(fromSdkReceiptHandleIsInvalid(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.RequestThrottled) {
-                U2_2(salvo.core.checked.Checked(U21_19(fromSdkRequestThrottled(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.UnsupportedOperation) {
-                U2_2(salvo.core.checked.Checked(U21_20(fromSdkUnsupportedOperation(e))))
+            } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
+                U2_2(salvo.core.checked.Checked(U2_1(salvoFailure(e))))
             } catch (e: Exception) {
-                U2_2(salvo.core.checked.Checked(U21_21(salvoAwsError(e))))
+                U2_2(salvo.core.checked.Checked(U2_2(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -186,21 +104,13 @@ class HostSqs(private val config: AwsConfig) : Sqs {
     override fun delete_queue(input: DeleteQueueInput, reply: salvo.SalvoReply) {
         val host = reply.hosted()
         scope.launch {
-            val answer: Union2<Unit, salvo.core.checked.Checked<Union21<InvalidAddress, InvalidAttributeName, InvalidAttributeValue, InvalidIdFormat, InvalidMessageContents, InvalidSecurity, KmsAccessDenied, KmsDisabled, KmsInvalidKeyUsage, KmsInvalidState, KmsNotFound, KmsOptInRequired, KmsThrottled, OverLimit, QueueDeletedRecently, QueueDoesNotExist, QueueNameExists, ReceiptHandleIsInvalid, RequestThrottled, UnsupportedOperation, AwsError>>> = try {
+            val answer: Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 client.deleteQueue(toSdkDeleteQueueInput(input))
                 U2_1(Unit)
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidAddress) {
-                U2_2(salvo.core.checked.Checked(U21_1(fromSdkInvalidAddress(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.InvalidSecurity) {
-                U2_2(salvo.core.checked.Checked(U21_6(fromSdkInvalidSecurity(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.QueueDoesNotExist) {
-                U2_2(salvo.core.checked.Checked(U21_16(fromSdkQueueDoesNotExist(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.RequestThrottled) {
-                U2_2(salvo.core.checked.Checked(U21_19(fromSdkRequestThrottled(e))))
-            } catch (e: aws.sdk.kotlin.services.sqs.model.UnsupportedOperation) {
-                U2_2(salvo.core.checked.Checked(U21_20(fromSdkUnsupportedOperation(e))))
+            } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
+                U2_2(salvo.core.checked.Checked(U2_1(salvoFailure(e))))
             } catch (e: Exception) {
-                U2_2(salvo.core.checked.Checked(U21_21(salvoAwsError(e))))
+                U2_2(salvo.core.checked.Checked(U2_2(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -250,86 +160,6 @@ private fun salvoCloseWhenMainEnds(client: AutoCloseable) {
 /** `~/` at the front of a path is the home directory, as a shell would read it. */
 private fun salvoExpandHome(path: String): String =
     if (path.startsWith("~/")) (System.getenv("HOME") ?: System.getProperty("user.home")) + path.substring(1) else path
-
-private fun toSdkQueueAttributeName(v: Union23<QueueAttributeName.All, QueueAttributeName.Policy, QueueAttributeName.VisibilityTimeout, QueueAttributeName.MaximumMessageSize, QueueAttributeName.MessageRetentionPeriod, QueueAttributeName.ApproximateNumberOfMessages, QueueAttributeName.ApproximateNumberOfMessagesNotVisible, QueueAttributeName.CreatedTimestamp, QueueAttributeName.LastModifiedTimestamp, QueueAttributeName.QueueArn, QueueAttributeName.ApproximateNumberOfMessagesDelayed, QueueAttributeName.DelaySeconds, QueueAttributeName.ReceiveMessageWaitTimeSeconds, QueueAttributeName.RedrivePolicy, QueueAttributeName.FifoQueue, QueueAttributeName.ContentBasedDeduplication, QueueAttributeName.KmsMasterKeyId, QueueAttributeName.KmsDataKeyReusePeriodSeconds, QueueAttributeName.DeduplicationScope, QueueAttributeName.FifoThroughputLimit, QueueAttributeName.RedriveAllowPolicy, QueueAttributeName.SqsManagedSseEnabled, QueueAttributeName.Unknown>): aws.sdk.kotlin.services.sqs.model.QueueAttributeName = when (v) {
-    is U23_1<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("All")
-    is U23_2<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("Policy")
-    is U23_3<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("VisibilityTimeout")
-    is U23_4<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("MaximumMessageSize")
-    is U23_5<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("MessageRetentionPeriod")
-    is U23_6<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("ApproximateNumberOfMessages")
-    is U23_7<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("ApproximateNumberOfMessagesNotVisible")
-    is U23_8<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("CreatedTimestamp")
-    is U23_9<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("LastModifiedTimestamp")
-    is U23_10<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("QueueArn")
-    is U23_11<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("ApproximateNumberOfMessagesDelayed")
-    is U23_12<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("DelaySeconds")
-    is U23_13<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("ReceiveMessageWaitTimeSeconds")
-    is U23_14<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("RedrivePolicy")
-    is U23_15<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("FifoQueue")
-    is U23_16<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("ContentBasedDeduplication")
-    is U23_17<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("KmsMasterKeyId")
-    is U23_18<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("KmsDataKeyReusePeriodSeconds")
-    is U23_19<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("DeduplicationScope")
-    is U23_20<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("FifoThroughputLimit")
-    is U23_21<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("RedriveAllowPolicy")
-    is U23_22<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue("SqsManagedSseEnabled")
-    is U23_23<*, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue((v.value as QueueAttributeName.Unknown).value)
-}
-
-private fun fromSdkQueueAttributeName(v: aws.sdk.kotlin.services.sqs.model.QueueAttributeName): Union23<QueueAttributeName.All, QueueAttributeName.Policy, QueueAttributeName.VisibilityTimeout, QueueAttributeName.MaximumMessageSize, QueueAttributeName.MessageRetentionPeriod, QueueAttributeName.ApproximateNumberOfMessages, QueueAttributeName.ApproximateNumberOfMessagesNotVisible, QueueAttributeName.CreatedTimestamp, QueueAttributeName.LastModifiedTimestamp, QueueAttributeName.QueueArn, QueueAttributeName.ApproximateNumberOfMessagesDelayed, QueueAttributeName.DelaySeconds, QueueAttributeName.ReceiveMessageWaitTimeSeconds, QueueAttributeName.RedrivePolicy, QueueAttributeName.FifoQueue, QueueAttributeName.ContentBasedDeduplication, QueueAttributeName.KmsMasterKeyId, QueueAttributeName.KmsDataKeyReusePeriodSeconds, QueueAttributeName.DeduplicationScope, QueueAttributeName.FifoThroughputLimit, QueueAttributeName.RedriveAllowPolicy, QueueAttributeName.SqsManagedSseEnabled, QueueAttributeName.Unknown> = when (v.value) {
-    "All" -> U23_1(QueueAttributeName.All())
-    "Policy" -> U23_2(QueueAttributeName.Policy())
-    "VisibilityTimeout" -> U23_3(QueueAttributeName.VisibilityTimeout())
-    "MaximumMessageSize" -> U23_4(QueueAttributeName.MaximumMessageSize())
-    "MessageRetentionPeriod" -> U23_5(QueueAttributeName.MessageRetentionPeriod())
-    "ApproximateNumberOfMessages" -> U23_6(QueueAttributeName.ApproximateNumberOfMessages())
-    "ApproximateNumberOfMessagesNotVisible" -> U23_7(QueueAttributeName.ApproximateNumberOfMessagesNotVisible())
-    "CreatedTimestamp" -> U23_8(QueueAttributeName.CreatedTimestamp())
-    "LastModifiedTimestamp" -> U23_9(QueueAttributeName.LastModifiedTimestamp())
-    "QueueArn" -> U23_10(QueueAttributeName.QueueArn())
-    "ApproximateNumberOfMessagesDelayed" -> U23_11(QueueAttributeName.ApproximateNumberOfMessagesDelayed())
-    "DelaySeconds" -> U23_12(QueueAttributeName.DelaySeconds())
-    "ReceiveMessageWaitTimeSeconds" -> U23_13(QueueAttributeName.ReceiveMessageWaitTimeSeconds())
-    "RedrivePolicy" -> U23_14(QueueAttributeName.RedrivePolicy())
-    "FifoQueue" -> U23_15(QueueAttributeName.FifoQueue())
-    "ContentBasedDeduplication" -> U23_16(QueueAttributeName.ContentBasedDeduplication())
-    "KmsMasterKeyId" -> U23_17(QueueAttributeName.KmsMasterKeyId())
-    "KmsDataKeyReusePeriodSeconds" -> U23_18(QueueAttributeName.KmsDataKeyReusePeriodSeconds())
-    "DeduplicationScope" -> U23_19(QueueAttributeName.DeduplicationScope())
-    "FifoThroughputLimit" -> U23_20(QueueAttributeName.FifoThroughputLimit())
-    "RedriveAllowPolicy" -> U23_21(QueueAttributeName.RedriveAllowPolicy())
-    "SqsManagedSseEnabled" -> U23_22(QueueAttributeName.SqsManagedSseEnabled())
-    else -> U23_23(QueueAttributeName.Unknown(v.value))
-}
-
-private fun toSdkMessageSystemAttributeName(v: Union11<MessageSystemAttributeName.All, MessageSystemAttributeName.SenderId, MessageSystemAttributeName.SentTimestamp, MessageSystemAttributeName.ApproximateReceiveCount, MessageSystemAttributeName.ApproximateFirstReceiveTimestamp, MessageSystemAttributeName.SequenceNumber, MessageSystemAttributeName.MessageDeduplicationId, MessageSystemAttributeName.MessageGroupId, MessageSystemAttributeName.AwsTraceHeader, MessageSystemAttributeName.DeadLetterQueueSourceArn, MessageSystemAttributeName.Unknown>): aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName = when (v) {
-    is U11_1<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue("All")
-    is U11_2<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue("SenderId")
-    is U11_3<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue("SentTimestamp")
-    is U11_4<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue("ApproximateReceiveCount")
-    is U11_5<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue("ApproximateFirstReceiveTimestamp")
-    is U11_6<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue("SequenceNumber")
-    is U11_7<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue("MessageDeduplicationId")
-    is U11_8<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue("MessageGroupId")
-    is U11_9<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue("AWSTraceHeader")
-    is U11_10<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue("DeadLetterQueueSourceArn")
-    is U11_11<*, *, *, *, *, *, *, *, *, *, *> -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue((v.value as MessageSystemAttributeName.Unknown).value)
-}
-
-private fun fromSdkMessageSystemAttributeName(v: aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName): Union11<MessageSystemAttributeName.All, MessageSystemAttributeName.SenderId, MessageSystemAttributeName.SentTimestamp, MessageSystemAttributeName.ApproximateReceiveCount, MessageSystemAttributeName.ApproximateFirstReceiveTimestamp, MessageSystemAttributeName.SequenceNumber, MessageSystemAttributeName.MessageDeduplicationId, MessageSystemAttributeName.MessageGroupId, MessageSystemAttributeName.AwsTraceHeader, MessageSystemAttributeName.DeadLetterQueueSourceArn, MessageSystemAttributeName.Unknown> = when (v.value) {
-    "All" -> U11_1(MessageSystemAttributeName.All())
-    "SenderId" -> U11_2(MessageSystemAttributeName.SenderId())
-    "SentTimestamp" -> U11_3(MessageSystemAttributeName.SentTimestamp())
-    "ApproximateReceiveCount" -> U11_4(MessageSystemAttributeName.ApproximateReceiveCount())
-    "ApproximateFirstReceiveTimestamp" -> U11_5(MessageSystemAttributeName.ApproximateFirstReceiveTimestamp())
-    "SequenceNumber" -> U11_6(MessageSystemAttributeName.SequenceNumber())
-    "MessageDeduplicationId" -> U11_7(MessageSystemAttributeName.MessageDeduplicationId())
-    "MessageGroupId" -> U11_8(MessageSystemAttributeName.MessageGroupId())
-    "AWSTraceHeader" -> U11_9(MessageSystemAttributeName.AwsTraceHeader())
-    "DeadLetterQueueSourceArn" -> U11_10(MessageSystemAttributeName.DeadLetterQueueSourceArn())
-    else -> U11_11(MessageSystemAttributeName.Unknown(v.value))
-}
 
 private fun toSdkCreateQueueInput(v: CreateQueueInput): aws.sdk.kotlin.services.sqs.model.CreateQueueRequest = aws.sdk.kotlin.services.sqs.model.CreateQueueRequest {
     queueName = v.queue_name
@@ -402,8 +232,8 @@ private fun fromSdkSendMessageOutput(v: aws.sdk.kotlin.services.sqs.model.SendMe
 
 private fun toSdkReceiveMessageInput(v: ReceiveMessageInput): aws.sdk.kotlin.services.sqs.model.ReceiveMessageRequest = aws.sdk.kotlin.services.sqs.model.ReceiveMessageRequest {
     queueUrl = v.queue_url
-    attributeNames = v.attribute_names?.let { it.map { e1 -> toSdkQueueAttributeName(e1) } }
-    messageSystemAttributeNames = v.message_system_attribute_names?.let { it.map { e1 -> toSdkMessageSystemAttributeName(e1) } }
+    attributeNames = v.attribute_names?.let { it.map { e1 -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue(e1) } }
+    messageSystemAttributeNames = v.message_system_attribute_names?.let { it.map { e1 -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue(e1) } }
     messageAttributeNames = v.message_attribute_names?.let { it.map { e1 -> e1 } }
     maxNumberOfMessages = v.max_number_of_messages
     visibilityTimeout = v.visibility_timeout
@@ -444,83 +274,32 @@ private fun toSdkDeleteQueueInput(v: DeleteQueueInput): aws.sdk.kotlin.services.
     queueUrl = v.queue_url
 }
 
-private fun fromSdkInvalidAddress(v: aws.sdk.kotlin.services.sqs.model.InvalidAddress): InvalidAddress = InvalidAddress(
-    message = v.message,
-)
+/** A code as the model names it (see the Rust glue's `salvo_code`). */
+private fun salvoCode(code: String): String = when (val c = code.substringAfterLast('#')) {
+    "AWS.SimpleQueueService.NonExistentQueue" -> "QueueDoesNotExist"
+    "AWS.SimpleQueueService.QueueDeletedRecently" -> "QueueDeletedRecently"
+    "AWS.SimpleQueueService.UnsupportedOperation" -> "UnsupportedOperation"
+    "KMS.AccessDeniedException" -> "KmsAccessDenied"
+    "KMS.DisabledException" -> "KmsDisabled"
+    "KMS.InvalidKeyUsageException" -> "KmsInvalidKeyUsage"
+    "KMS.InvalidStateException" -> "KmsInvalidState"
+    "KMS.NotFoundException" -> "KmsNotFound"
+    "KMS.OptInRequired" -> "KmsOptInRequired"
+    "KMS.ThrottlingException" -> "KmsThrottled"
+    "QueueAlreadyExists" -> "QueueNameExists"
+    else -> c
+}
 
-private fun fromSdkInvalidAttributeName(v: aws.sdk.kotlin.services.sqs.model.InvalidAttributeName): InvalidAttributeName = InvalidAttributeName(
-    message = v.message,
-)
-
-private fun fromSdkInvalidAttributeValue(v: aws.sdk.kotlin.services.sqs.model.InvalidAttributeValue): InvalidAttributeValue = InvalidAttributeValue(
-    message = v.message,
-)
-
-private fun fromSdkInvalidIdFormat(v: aws.sdk.kotlin.services.sqs.model.InvalidIdFormat): InvalidIdFormat = InvalidIdFormat()
-
-private fun fromSdkInvalidMessageContents(v: aws.sdk.kotlin.services.sqs.model.InvalidMessageContents): InvalidMessageContents = InvalidMessageContents(
-    message = v.message,
-)
-
-private fun fromSdkInvalidSecurity(v: aws.sdk.kotlin.services.sqs.model.InvalidSecurity): InvalidSecurity = InvalidSecurity(
-    message = v.message,
-)
-
-private fun fromSdkKmsAccessDenied(v: aws.sdk.kotlin.services.sqs.model.KmsAccessDenied): KmsAccessDenied = KmsAccessDenied(
-    message = v.message,
-)
-
-private fun fromSdkKmsDisabled(v: aws.sdk.kotlin.services.sqs.model.KmsDisabled): KmsDisabled = KmsDisabled(
-    message = v.message,
-)
-
-private fun fromSdkKmsInvalidKeyUsage(v: aws.sdk.kotlin.services.sqs.model.KmsInvalidKeyUsage): KmsInvalidKeyUsage = KmsInvalidKeyUsage(
-    message = v.message,
-)
-
-private fun fromSdkKmsInvalidState(v: aws.sdk.kotlin.services.sqs.model.KmsInvalidState): KmsInvalidState = KmsInvalidState(
-    message = v.message,
-)
-
-private fun fromSdkKmsNotFound(v: aws.sdk.kotlin.services.sqs.model.KmsNotFound): KmsNotFound = KmsNotFound(
-    message = v.message,
-)
-
-private fun fromSdkKmsOptInRequired(v: aws.sdk.kotlin.services.sqs.model.KmsOptInRequired): KmsOptInRequired = KmsOptInRequired(
-    message = v.message,
-)
-
-private fun fromSdkKmsThrottled(v: aws.sdk.kotlin.services.sqs.model.KmsThrottled): KmsThrottled = KmsThrottled(
-    message = v.message,
-)
-
-private fun fromSdkOverLimit(v: aws.sdk.kotlin.services.sqs.model.OverLimit): OverLimit = OverLimit(
-    message = v.message,
-)
-
-private fun fromSdkQueueDeletedRecently(v: aws.sdk.kotlin.services.sqs.model.QueueDeletedRecently): QueueDeletedRecently = QueueDeletedRecently(
-    message = v.message,
-)
-
-private fun fromSdkQueueDoesNotExist(v: aws.sdk.kotlin.services.sqs.model.QueueDoesNotExist): QueueDoesNotExist = QueueDoesNotExist(
-    message = v.message,
-)
-
-private fun fromSdkQueueNameExists(v: aws.sdk.kotlin.services.sqs.model.QueueNameExists): QueueNameExists = QueueNameExists(
-    message = v.message,
-)
-
-private fun fromSdkReceiptHandleIsInvalid(v: aws.sdk.kotlin.services.sqs.model.ReceiptHandleIsInvalid): ReceiptHandleIsInvalid = ReceiptHandleIsInvalid(
-    message = v.message,
-)
-
-private fun fromSdkRequestThrottled(v: aws.sdk.kotlin.services.sqs.model.RequestThrottled): RequestThrottled = RequestThrottled(
-    message = v.message,
-)
-
-private fun fromSdkUnsupportedOperation(v: aws.sdk.kotlin.services.sqs.model.UnsupportedOperation): UnsupportedOperation = UnsupportedOperation(
-    message = v.message,
-)
+private fun salvoFailure(e: aws.smithy.kotlin.runtime.ServiceException): SqsError {
+    val meta = e.sdkErrorMetadata
+    val response = meta.protocolResponse as? aws.smithy.kotlin.runtime.http.response.HttpResponse
+    return SqsError(
+        code = salvoCode(meta.errorCode ?: "Unknown"),
+        message = meta.errorMessage ?: "",
+        status = response?.status?.value ?: 0,
+        request_id = meta.requestId,
+    )
+}
 
 private fun salvoAwsError(e: Throwable): AwsError {
     val code = (e as? aws.smithy.kotlin.runtime.ServiceException)?.sdkErrorMetadata?.errorCode

@@ -388,6 +388,9 @@ fn canonical_ty(symbols: &Symbols<'_>, ty: &Ty, out: &mut String, depth: usize) 
         }
         Ty::Fn { .. } => out.push_str("fn"),
         Ty::Var(v) => out.push_str(v),
+        // [type-literal] A literal is part of a protocol's meaning even though
+        // it travels as its base: `"A" | "B"` and `"A" | "C"` hash apart.
+        Ty::Lit(l) => out.push_str(&l.to_string()),
         Ty::Named { name, args } => {
             if let Some(decl) = symbols.structs.get(name.as_str()) {
                 let subst: HashMap<String, Ty> = decl
