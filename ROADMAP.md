@@ -388,6 +388,19 @@ made in the design sitting — but each has a shape to settle at implementation.
    in dependency order — would make that one `use`. First customer: streams +
    fs; the shape (a declaration form, a fn that `use`s, how a bundle composes
    with `with` and interception) is the user's call when it is picked up.
+7. **Program end on the JVM** (found 2026-09-30, **DECISION**: to be designed
+   fully before building). A Rust program ends when `main` returns; a Kotlin
+   program ends when the JVM's last non-daemon thread does, so a host library
+   holding one keeps the process alive after `main` — OkHttp, under
+   aws-sdk-kotlin, for 60s after its last call. The stopgap is in the aws glue
+   (`salvoCloseWhenMainEnds`: a daemon thread joins `main` and closes the SDK
+   client). The general fix is the Kotlin runtime ending the process when the
+   Salvo program is done (`exitProcess` after `main`). To settle: what "done"
+   means when actors, spawned pools or host-completed replies are still
+   outstanding (today's rule on each backend, and whether the two agree);
+   whether host code gets a shutdown hook (closing clients, flushing) before
+   the exit; the exit status (a fault that reached the sink, a trap); and the
+   cost — every emitted `main` changes, so every golden and example tree.
 
 The second sitting's other calls (DESIGN.md's numbered table) fix the shapes
 above: `Cargo.toml` only when crates are declared; a **directory of jars** for
