@@ -155,11 +155,14 @@ class HostRawStreams : RawStreams {
                     if (got.isNotEmpty()) {
                         U3_1(SalvoBytes(got))
                     } else {
-                        SalvoStreams.takeIn(handle)
+                        // Released here, as the contract says: out of the
+                        // table *and* closed — a JVM stream is not closed by
+                        // being dropped, as a Rust one is.
+                        SalvoStreams.takeIn(handle).closeInput()
                         U3_2(End())
                     }
                 } catch (e: SalvoFaultException) {
-                    SalvoStreams.takeIn(handle)
+                    SalvoStreams.takeIn(handle).closeInput()
                     U3_3(kind(stream.source, e.fault))
                 }
             }
