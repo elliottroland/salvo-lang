@@ -157,7 +157,7 @@ unit tests in `literal.rs`, 7 checker tests (`literal_tests.rs`), a parser
 test, and one CLI test running the whole surface on both backends with
 identical output. *Found on the way:* `when` over a subject never takes
 `else` (an existing rule), so a literal `when` is exhaustive by listing every
-arm, `Other` included — worth knowing when regenerating the clients. **1671
+arm, `Other` included — worth knowing when regenerating the clients. **1669
 tests.**
 
 **Unions of literals — decided (2026-09-30, user decisions).**
@@ -18974,7 +18974,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1671)
+## Test inventory (all green: 1669)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
