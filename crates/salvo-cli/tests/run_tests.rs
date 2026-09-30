@@ -1342,7 +1342,7 @@ fn describe(attrs: List<Attr>) [] -> Str => attrs
     return a.joinToString(", ") + " / " + @{ (`first` : Attr).data_type }
 ```
 ```rust
-    let a: Vec<String> = @{attrs}.iter().map(|@{a : Attr}| format!("{}={}", @{a.data_type}, @{a.string_value}.unwrap_or("-".to_string()))).collect();
+    let a: Vec<String> = @{attrs}.into_iter().map(|@{a : Attr}| format!("{}={}", @{a.data_type}, @{a.string_value}.unwrap_or("-".to_string()))).collect();
     let all = @{attrs};
     let first = all.first().unwrap();
     format!("{} / {}", a.join(", "), @{ (`first` : Attr).data_type })

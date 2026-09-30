@@ -20,6 +20,20 @@ import time.Instant
 // every pool with no lock.
 export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
     ```kotlin
+    import aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm as SdkChecksumAlgorithm
+    import aws.sdk.kotlin.services.s3.model.ChecksumMode as SdkChecksumMode
+    import aws.sdk.kotlin.services.s3.model.GetObjectRequest as SdkGetObjectRequest
+    import aws.sdk.kotlin.services.s3.model.GetObjectResponse as SdkGetObjectResponse
+    import aws.sdk.kotlin.services.s3.model.InvalidObjectState as SdkInvalidObjectState
+    import aws.sdk.kotlin.services.s3.model.ObjectCannedAcl as SdkObjectCannedAcl
+    import aws.sdk.kotlin.services.s3.model.ObjectLockEventHold as SdkObjectLockEventHold
+    import aws.sdk.kotlin.services.s3.model.ObjectLockLegalHoldStatus as SdkObjectLockLegalHoldStatus
+    import aws.sdk.kotlin.services.s3.model.ObjectLockMode as SdkObjectLockMode
+    import aws.sdk.kotlin.services.s3.model.PutObjectRequest as SdkPutObjectRequest
+    import aws.sdk.kotlin.services.s3.model.PutObjectResponse as SdkPutObjectResponse
+    import aws.sdk.kotlin.services.s3.model.RequestPayer as SdkRequestPayer
+    import aws.sdk.kotlin.services.s3.model.ServerSideEncryption as SdkServerSideEncryption
+    import aws.sdk.kotlin.services.s3.model.StorageClass as SdkStorageClass
     import kotlinx.coroutines.launch
     import aws.smithy.kotlin.runtime.content.asByteStream
     import aws.smithy.kotlin.runtime.content.toInputStream
@@ -29,96 +43,96 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
     private val scope = kotlinx.coroutines.CoroutineScope(
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
     )
-    private val salvoConfig = @{config}
+    private val @{salvoConfig : AwsConfig} = @{config}
     private val client = aws.sdk.kotlin.services.s3.S3Client {
-        region = @{(`salvoConfig` : AwsConfig).region.code}
+        region = @{salvoConfig.region.code}
         credentialsProvider = salvoCredentials(salvoConfig)
-        @{(`salvoConfig` : AwsConfig).endpoint}?.let { endpointUrl = aws.smithy.kotlin.runtime.net.url.Url.parse(it) }
-        forcePathStyle = @{(`salvoConfig` : AwsConfig).endpoint} != null
+        @{salvoConfig.endpoint}?.let { endpointUrl = aws.smithy.kotlin.runtime.net.url.Url.parse(it) }
+        forcePathStyle = @{salvoConfig.endpoint} != null
     }
 
     init {
         salvoCloseWhenMainEnds(client)
     }
 
-    private fun toSdkPutObjectInput(v: @{: PutObjectInput}, bodyStream: aws.smithy.kotlin.runtime.content.ByteStream): aws.sdk.kotlin.services.s3.model.PutObjectRequest = aws.sdk.kotlin.services.s3.model.PutObjectRequest {
-        acl = @{(`v` : PutObjectInput).acl}?.let { aws.sdk.kotlin.services.s3.model.ObjectCannedAcl.fromValue(it) }
+    private fun toSdkPutObjectInput(@{v : PutObjectInput}, bodyStream: aws.smithy.kotlin.runtime.content.ByteStream): SdkPutObjectRequest = SdkPutObjectRequest {
+        acl = @{v.acl}?.let { SdkObjectCannedAcl.fromValue(it) }
         body = bodyStream
-        bucket = @{(`v` : PutObjectInput).bucket}
-        cacheControl = @{(`v` : PutObjectInput).cache_control}
-        contentDisposition = @{(`v` : PutObjectInput).content_disposition}
-        contentEncoding = @{(`v` : PutObjectInput).content_encoding}
-        contentLanguage = @{(`v` : PutObjectInput).content_language}
-        contentLength = @{(`v` : PutObjectInput).content_length}
-        contentMd5 = @{(`v` : PutObjectInput).content_md5}
-        contentType = @{(`v` : PutObjectInput).content_type}
-        checksumAlgorithm = @{(`v` : PutObjectInput).checksum_algorithm}?.let { aws.sdk.kotlin.services.s3.model.ChecksumAlgorithm.fromValue(it) }
-        checksumCrc32 = @{(`v` : PutObjectInput).checksum_crc32}
-        checksumCrc32C = @{(`v` : PutObjectInput).checksum_crc32_c}
-        checksumCrc64Nvme = @{(`v` : PutObjectInput).checksum_crc64_nvme}
-        checksumSha1 = @{(`v` : PutObjectInput).checksum_sha1}
-        checksumSha256 = @{(`v` : PutObjectInput).checksum_sha256}
-        checksumSha512 = @{(`v` : PutObjectInput).checksum_sha512}
-        checksumMd5 = @{(`v` : PutObjectInput).checksum_md5}
-        checksumXxhash64 = @{(`v` : PutObjectInput).checksum_xxhash64}
-        checksumXxhash3 = @{(`v` : PutObjectInput).checksum_xxhash3}
-        checksumXxhash128 = @{(`v` : PutObjectInput).checksum_xxhash128}
-        ifMatch = @{(`v` : PutObjectInput).if_match}
-        ifNoneMatch = @{(`v` : PutObjectInput).if_none_match}
-        grantFullControl = @{(`v` : PutObjectInput).grant_full_control}
-        grantRead = @{(`v` : PutObjectInput).grant_read}
-        grantReadAcp = @{(`v` : PutObjectInput).grant_read_acp}
-        grantWriteAcp = @{(`v` : PutObjectInput).grant_write_acp}
-        key = @{(`v` : PutObjectInput).key}
-        writeOffsetBytes = @{(`v` : PutObjectInput).write_offset_bytes}
-        metadata = @{(`v` : PutObjectInput).metadata}?.let { it.entries.associate { (k1, v1) -> k1 to v1 } }
-        serverSideEncryption = @{(`v` : PutObjectInput).server_side_encryption}?.let { aws.sdk.kotlin.services.s3.model.ServerSideEncryption.fromValue(it) }
-        storageClass = @{(`v` : PutObjectInput).storage_class}?.let { aws.sdk.kotlin.services.s3.model.StorageClass.fromValue(it) }
-        websiteRedirectLocation = @{(`v` : PutObjectInput).website_redirect_location}
-        sseCustomerAlgorithm = @{(`v` : PutObjectInput).sse_customer_algorithm}
-        sseCustomerKey = @{(`v` : PutObjectInput).sse_customer_key}
-        sseCustomerKeyMd5 = @{(`v` : PutObjectInput).sse_customer_key_md5}
-        ssekmsKeyId = @{(`v` : PutObjectInput).ssekms_key_id}
-        ssekmsEncryptionContext = @{(`v` : PutObjectInput).ssekms_encryption_context}
-        bucketKeyEnabled = @{(`v` : PutObjectInput).bucket_key_enabled}
-        requestPayer = @{(`v` : PutObjectInput).request_payer}?.let { aws.sdk.kotlin.services.s3.model.RequestPayer.fromValue(it) }
-        tagging = @{(`v` : PutObjectInput).tagging}
-        objectLockMode = @{(`v` : PutObjectInput).object_lock_mode}?.let { aws.sdk.kotlin.services.s3.model.ObjectLockMode.fromValue(it) }
-        objectLockRetainUntilDate = @{(`v` : PutObjectInput).object_lock_retain_until_date}?.let { salvoDateTime(it) }
-        objectLockLegalHoldStatus = @{(`v` : PutObjectInput).object_lock_legal_hold_status}?.let { aws.sdk.kotlin.services.s3.model.ObjectLockLegalHoldStatus.fromValue(it) }
-        objectLockEventHold = @{(`v` : PutObjectInput).object_lock_event_hold}?.let { aws.sdk.kotlin.services.s3.model.ObjectLockEventHold.fromValue(it) }
-        objectLockEventHoldDurationDays = @{(`v` : PutObjectInput).object_lock_event_hold_duration_days}
-        objectLockEventHoldDurationYears = @{(`v` : PutObjectInput).object_lock_event_hold_duration_years}
-        expectedBucketOwner = @{(`v` : PutObjectInput).expected_bucket_owner}
+        bucket = @{v.bucket}
+        cacheControl = @{v.cache_control}
+        contentDisposition = @{v.content_disposition}
+        contentEncoding = @{v.content_encoding}
+        contentLanguage = @{v.content_language}
+        contentLength = @{v.content_length}
+        contentMd5 = @{v.content_md5}
+        contentType = @{v.content_type}
+        checksumAlgorithm = @{v.checksum_algorithm}?.let { SdkChecksumAlgorithm.fromValue(it) }
+        checksumCrc32 = @{v.checksum_crc32}
+        checksumCrc32C = @{v.checksum_crc32_c}
+        checksumCrc64Nvme = @{v.checksum_crc64_nvme}
+        checksumSha1 = @{v.checksum_sha1}
+        checksumSha256 = @{v.checksum_sha256}
+        checksumSha512 = @{v.checksum_sha512}
+        checksumMd5 = @{v.checksum_md5}
+        checksumXxhash64 = @{v.checksum_xxhash64}
+        checksumXxhash3 = @{v.checksum_xxhash3}
+        checksumXxhash128 = @{v.checksum_xxhash128}
+        ifMatch = @{v.if_match}
+        ifNoneMatch = @{v.if_none_match}
+        grantFullControl = @{v.grant_full_control}
+        grantRead = @{v.grant_read}
+        grantReadAcp = @{v.grant_read_acp}
+        grantWriteAcp = @{v.grant_write_acp}
+        key = @{v.key}
+        writeOffsetBytes = @{v.write_offset_bytes}
+        metadata = @{v.metadata}?.let { it.entries.associate { (k1, v1) -> k1 to v1 } }
+        serverSideEncryption = @{v.server_side_encryption}?.let { SdkServerSideEncryption.fromValue(it) }
+        storageClass = @{v.storage_class}?.let { SdkStorageClass.fromValue(it) }
+        websiteRedirectLocation = @{v.website_redirect_location}
+        sseCustomerAlgorithm = @{v.sse_customer_algorithm}
+        sseCustomerKey = @{v.sse_customer_key}
+        sseCustomerKeyMd5 = @{v.sse_customer_key_md5}
+        ssekmsKeyId = @{v.ssekms_key_id}
+        ssekmsEncryptionContext = @{v.ssekms_encryption_context}
+        bucketKeyEnabled = @{v.bucket_key_enabled}
+        requestPayer = @{v.request_payer}?.let { SdkRequestPayer.fromValue(it) }
+        tagging = @{v.tagging}
+        objectLockMode = @{v.object_lock_mode}?.let { SdkObjectLockMode.fromValue(it) }
+        objectLockRetainUntilDate = @{v.object_lock_retain_until_date}?.let { salvoDateTime(it) }
+        objectLockLegalHoldStatus = @{v.object_lock_legal_hold_status}?.let { SdkObjectLockLegalHoldStatus.fromValue(it) }
+        objectLockEventHold = @{v.object_lock_event_hold}?.let { SdkObjectLockEventHold.fromValue(it) }
+        objectLockEventHoldDurationDays = @{v.object_lock_event_hold_duration_days}
+        objectLockEventHoldDurationYears = @{v.object_lock_event_hold_duration_years}
+        expectedBucketOwner = @{v.expected_bucket_owner}
     }
 
-    private fun fromSdkPutObjectOutput(v: aws.sdk.kotlin.services.s3.model.PutObjectResponse): @{: PutObjectOutput} = @{ PutObjectOutput { expiration: `v.expiration`, e_tag: `v.eTag`, checksum_crc32: `v.checksumCrc32`, checksum_crc32_c: `v.checksumCrc32C`, checksum_crc64_nvme: `v.checksumCrc64Nvme`, checksum_sha1: `v.checksumSha1`, checksum_sha256: `v.checksumSha256`, checksum_sha512: `v.checksumSha512`, checksum_md5: `v.checksumMd5`, checksum_xxhash64: `v.checksumXxhash64`, checksum_xxhash3: `v.checksumXxhash3`, checksum_xxhash128: `v.checksumXxhash128`, checksum_type: `v.checksumType?.let { it.value }`, server_side_encryption: `v.serverSideEncryption?.let { it.value }`, version_id: `v.versionId`, sse_customer_algorithm: `v.sseCustomerAlgorithm`, sse_customer_key_md5: `v.sseCustomerKeyMd5`, ssekms_key_id: `v.ssekmsKeyId`, ssekms_encryption_context: `v.ssekmsEncryptionContext`, bucket_key_enabled: `v.bucketKeyEnabled`, size: `v.size`, request_charged: `v.requestCharged?.let { it.value }` } }
+    private fun fromSdkPutObjectOutput(v: SdkPutObjectResponse): @{: PutObjectOutput} = @{ PutObjectOutput { expiration: `v.expiration`, e_tag: `v.eTag`, checksum_crc32: `v.checksumCrc32`, checksum_crc32_c: `v.checksumCrc32C`, checksum_crc64_nvme: `v.checksumCrc64Nvme`, checksum_sha1: `v.checksumSha1`, checksum_sha256: `v.checksumSha256`, checksum_sha512: `v.checksumSha512`, checksum_md5: `v.checksumMd5`, checksum_xxhash64: `v.checksumXxhash64`, checksum_xxhash3: `v.checksumXxhash3`, checksum_xxhash128: `v.checksumXxhash128`, checksum_type: `v.checksumType?.let { it.value }`, server_side_encryption: `v.serverSideEncryption?.let { it.value }`, version_id: `v.versionId`, sse_customer_algorithm: `v.sseCustomerAlgorithm`, sse_customer_key_md5: `v.sseCustomerKeyMd5`, ssekms_key_id: `v.ssekmsKeyId`, ssekms_encryption_context: `v.ssekmsEncryptionContext`, bucket_key_enabled: `v.bucketKeyEnabled`, size: `v.size`, request_charged: `v.requestCharged?.let { it.value }` } }
 
-    private fun toSdkGetObjectInput(v: @{: GetObjectInput}): aws.sdk.kotlin.services.s3.model.GetObjectRequest = aws.sdk.kotlin.services.s3.model.GetObjectRequest {
-        bucket = @{(`v` : GetObjectInput).bucket}
-        ifMatch = @{(`v` : GetObjectInput).if_match}
-        ifModifiedSince = @{(`v` : GetObjectInput).if_modified_since}?.let { salvoDateTime(it) }
-        ifNoneMatch = @{(`v` : GetObjectInput).if_none_match}
-        ifUnmodifiedSince = @{(`v` : GetObjectInput).if_unmodified_since}?.let { salvoDateTime(it) }
-        key = @{(`v` : GetObjectInput).key}
-        range = @{(`v` : GetObjectInput).range}
-        responseCacheControl = @{(`v` : GetObjectInput).response_cache_control}
-        responseContentDisposition = @{(`v` : GetObjectInput).response_content_disposition}
-        responseContentEncoding = @{(`v` : GetObjectInput).response_content_encoding}
-        responseContentLanguage = @{(`v` : GetObjectInput).response_content_language}
-        responseContentType = @{(`v` : GetObjectInput).response_content_type}
-        responseExpires = @{(`v` : GetObjectInput).response_expires}?.let { salvoDateTime(it) }
-        versionId = @{(`v` : GetObjectInput).version_id}
-        sseCustomerAlgorithm = @{(`v` : GetObjectInput).sse_customer_algorithm}
-        sseCustomerKey = @{(`v` : GetObjectInput).sse_customer_key}
-        sseCustomerKeyMd5 = @{(`v` : GetObjectInput).sse_customer_key_md5}
-        requestPayer = @{(`v` : GetObjectInput).request_payer}?.let { aws.sdk.kotlin.services.s3.model.RequestPayer.fromValue(it) }
-        partNumber = @{(`v` : GetObjectInput).part_number}
-        expectedBucketOwner = @{(`v` : GetObjectInput).expected_bucket_owner}
-        checksumMode = @{(`v` : GetObjectInput).checksum_mode}?.let { aws.sdk.kotlin.services.s3.model.ChecksumMode.fromValue(it) }
+    private fun toSdkGetObjectInput(@{v : GetObjectInput}): SdkGetObjectRequest = SdkGetObjectRequest {
+        bucket = @{v.bucket}
+        ifMatch = @{v.if_match}
+        ifModifiedSince = @{v.if_modified_since}?.let { salvoDateTime(it) }
+        ifNoneMatch = @{v.if_none_match}
+        ifUnmodifiedSince = @{v.if_unmodified_since}?.let { salvoDateTime(it) }
+        key = @{v.key}
+        range = @{v.range}
+        responseCacheControl = @{v.response_cache_control}
+        responseContentDisposition = @{v.response_content_disposition}
+        responseContentEncoding = @{v.response_content_encoding}
+        responseContentLanguage = @{v.response_content_language}
+        responseContentType = @{v.response_content_type}
+        responseExpires = @{v.response_expires}?.let { salvoDateTime(it) }
+        versionId = @{v.version_id}
+        sseCustomerAlgorithm = @{v.sse_customer_algorithm}
+        sseCustomerKey = @{v.sse_customer_key}
+        sseCustomerKeyMd5 = @{v.sse_customer_key_md5}
+        requestPayer = @{v.request_payer}?.let { SdkRequestPayer.fromValue(it) }
+        partNumber = @{v.part_number}
+        expectedBucketOwner = @{v.expected_bucket_owner}
+        checksumMode = @{v.checksum_mode}?.let { SdkChecksumMode.fromValue(it) }
     }
 
-    private fun fromSdkGetObjectOutput(v: aws.sdk.kotlin.services.s3.model.GetObjectResponse, bodyHandle: Long): @{: GetObjectOutput} = @{ GetObjectOutput { body: InStream { handle: `bodyHandle` }, delete_marker: `v.deleteMarker`, accept_ranges: `v.acceptRanges`, expiration: `v.expiration`, restore: `v.restore`, last_modified: `v.lastModified?.let { salvoInstant(it) }`, content_length: `v.contentLength`, e_tag: `v.eTag`, checksum_crc32: `v.checksumCrc32`, checksum_crc32_c: `v.checksumCrc32C`, checksum_crc64_nvme: `v.checksumCrc64Nvme`, checksum_sha1: `v.checksumSha1`, checksum_sha256: `v.checksumSha256`, checksum_sha512: `v.checksumSha512`, checksum_md5: `v.checksumMd5`, checksum_xxhash64: `v.checksumXxhash64`, checksum_xxhash3: `v.checksumXxhash3`, checksum_xxhash128: `v.checksumXxhash128`, checksum_type: `v.checksumType?.let { it.value }`, missing_meta: `v.missingMeta`, version_id: `v.versionId`, cache_control: `v.cacheControl`, content_disposition: `v.contentDisposition`, content_encoding: `v.contentEncoding`, content_language: `v.contentLanguage`, content_range: `v.contentRange`, content_type: `v.contentType`, website_redirect_location: `v.websiteRedirectLocation`, server_side_encryption: `v.serverSideEncryption?.let { it.value }`, metadata: `v.metadata?.let { it.entries.sortedBy { it.key }.associate { (k1, v1) -> k1 to v1 } }`, sse_customer_algorithm: `v.sseCustomerAlgorithm`, sse_customer_key_md5: `v.sseCustomerKeyMd5`, ssekms_key_id: `v.ssekmsKeyId`, bucket_key_enabled: `v.bucketKeyEnabled`, storage_class: `v.storageClass?.let { it.value }`, request_charged: `v.requestCharged?.let { it.value }`, replication_status: `v.replicationStatus?.let { it.value }`, parts_count: `v.partsCount`, tag_count: `v.tagCount`, object_lock_mode: `v.objectLockMode?.let { it.value }`, object_lock_retain_until_date: `v.objectLockRetainUntilDate?.let { salvoInstant(it) }`, object_lock_legal_hold_status: `v.objectLockLegalHoldStatus?.let { it.value }`, object_lock_event_hold: `v.objectLockEventHold?.let { it.value }`, object_lock_event_hold_duration_days: `v.objectLockEventHoldDurationDays`, object_lock_event_hold_duration_years: `v.objectLockEventHoldDurationYears` } }
+    private fun fromSdkGetObjectOutput(v: SdkGetObjectResponse, bodyHandle: Long): @{: GetObjectOutput} = @{ GetObjectOutput { body: InStream { handle: `bodyHandle` }, delete_marker: `v.deleteMarker`, accept_ranges: `v.acceptRanges`, expiration: `v.expiration`, restore: `v.restore`, last_modified: `v.lastModified?.let { salvoInstant(it) }`, content_length: `v.contentLength`, e_tag: `v.eTag`, checksum_crc32: `v.checksumCrc32`, checksum_crc32_c: `v.checksumCrc32C`, checksum_crc64_nvme: `v.checksumCrc64Nvme`, checksum_sha1: `v.checksumSha1`, checksum_sha256: `v.checksumSha256`, checksum_sha512: `v.checksumSha512`, checksum_md5: `v.checksumMd5`, checksum_xxhash64: `v.checksumXxhash64`, checksum_xxhash3: `v.checksumXxhash3`, checksum_xxhash128: `v.checksumXxhash128`, checksum_type: `v.checksumType?.let { it.value }`, missing_meta: `v.missingMeta`, version_id: `v.versionId`, cache_control: `v.cacheControl`, content_disposition: `v.contentDisposition`, content_encoding: `v.contentEncoding`, content_language: `v.contentLanguage`, content_range: `v.contentRange`, content_type: `v.contentType`, website_redirect_location: `v.websiteRedirectLocation`, server_side_encryption: `v.serverSideEncryption?.let { it.value }`, metadata: `v.metadata?.let { it.entries.sortedBy { it.key }.associate { (k1, v1) -> k1 to v1 } }`, sse_customer_algorithm: `v.sseCustomerAlgorithm`, sse_customer_key_md5: `v.sseCustomerKeyMd5`, ssekms_key_id: `v.ssekmsKeyId`, bucket_key_enabled: `v.bucketKeyEnabled`, storage_class: `v.storageClass?.let { it.value }`, request_charged: `v.requestCharged?.let { it.value }`, replication_status: `v.replicationStatus?.let { it.value }`, parts_count: `v.partsCount`, tag_count: `v.tagCount`, object_lock_mode: `v.objectLockMode?.let { it.value }`, object_lock_retain_until_date: `v.objectLockRetainUntilDate?.let { salvoInstant(it) }`, object_lock_legal_hold_status: `v.objectLockLegalHoldStatus?.let { it.value }`, object_lock_event_hold: `v.objectLockEventHold?.let { it.value }`, object_lock_event_hold_duration_days: `v.objectLockEventHoldDurationDays`, object_lock_event_hold_duration_years: `v.objectLockEventHoldDurationYears` } }
 
     /** A code as the model names it (see the Rust block's `salvo_code`). */
     private fun salvoCode(code: String): String = when (val c = code.substringAfterLast('#')) {
@@ -132,8 +146,8 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
         val message = meta.errorMessage ?: ""
         val status = response?.status?.value ?: 0
         val requestId = meta.requestId
-        val extra0 = (e as? aws.sdk.kotlin.services.s3.model.InvalidObjectState)?.let { it.storageClass?.let { it.value } }
-        val extra1 = (e as? aws.sdk.kotlin.services.s3.model.InvalidObjectState)?.let { it.accessTier?.let { it.value } }
+        val extra0 = (e as? SdkInvalidObjectState)?.let { it.storageClass?.let { it.value } }
+        val extra1 = (e as? SdkInvalidObjectState)?.let { it.accessTier?.let { it.value } }
         return @{ S3Error { code: `code`, message: `message`, status: `status`, request_id: `requestId`, storage_class: `extra0`, access_tier: `extra1` } }
     }
 
@@ -151,8 +165,8 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
     }
 
     /** A `time.Instant` as a Smithy timestamp. */
-    private fun salvoDateTime(at: @{: Instant}): aws.smithy.kotlin.runtime.time.Instant {
-        val nanos = @{(`at` : Instant).nanos}
+    private fun salvoDateTime(@{at : Instant}): aws.smithy.kotlin.runtime.time.Instant {
+        val nanos = @{at.nanos}
         return aws.smithy.kotlin.runtime.time.Instant.fromEpochSeconds(
             Math.floorDiv(nanos, 1_000_000_000L),
             Math.floorMod(nanos, 1_000_000_000L).toInt(),
@@ -241,8 +255,8 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
 
     /** The SDK credentials provider an `AwsConfig`'s credentials name. */
     @OptIn(aws.sdk.kotlin.runtime.InternalSdkApi::class)
-    private fun salvoCredentials(config: @{: AwsConfig}): aws.smithy.kotlin.runtime.auth.awscredentials.CredentialsProvider {
-        val profile = @{profile_of((`config` : AwsConfig).credentials)}
+    private fun salvoCredentials(@{cfg : AwsConfig}): aws.smithy.kotlin.runtime.auth.awscredentials.CredentialsProvider {
+        val profile = @{profile_of(cfg.credentials)}
         if (profile != null) {
             return aws.sdk.kotlin.runtime.auth.credentials.ProfileCredentialsProvider(
                 profileName = @{(`profile` : ProfileCredentials).profile},
@@ -253,7 +267,7 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
                 ),
             )
         }
-        if (@{uses_environment((`config` : AwsConfig).credentials)}) {
+        if (@{uses_environment(cfg.credentials)}) {
             return aws.sdk.kotlin.runtime.auth.credentials.EnvironmentCredentialsProvider()
         }
         return aws.sdk.kotlin.runtime.auth.credentials.DefaultChainCredentialsProvider()
@@ -285,6 +299,8 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
     ```
     ```rust
     use aws_sdk_s3::error::ProvideErrorMetadata;
+    use aws_sdk_s3::types as sdk;
+    use aws_sdk_s3::operation::{put_object, get_object};
 
     // The handler's host state: the SDK client, cheap to clone and safe to share,
     // and the tokio runtime each call runs on as a task.
@@ -312,10 +328,10 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
     // The SDK configuration an `AwsConfig` describes: the region, the credentials
     // it names, and the endpoint override when there is one.
     #[allow(deprecated)]
-    async fn salvo_aws_config(config: @{: AwsConfig}) -> aws_config::SdkConfig {
+    async fn salvo_aws_config(@{cfg : AwsConfig}) -> aws_config::SdkConfig {
         let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(aws_config::Region::new(@{(`config` : AwsConfig).region.code}));
-        if let Some(p) = @{profile_of((`config` : AwsConfig).credentials)} {
+            .region(aws_config::Region::new(@{cfg.region.code}));
+        if let Some(p) = @{profile_of(cfg.credentials)} {
             use aws_config::profile::profile_file::{ProfileFileKind, ProfileFiles};
             let files = ProfileFiles::builder()
                 .with_file(ProfileFileKind::Credentials, salvo_expand_home(&@{(`p` : ProfileCredentials).path}))
@@ -325,12 +341,12 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
                 .profile_name(@{(`p` : ProfileCredentials).profile})
                 .build();
             loader = loader.credentials_provider(provider);
-        } else if @{uses_environment((`config` : AwsConfig).credentials)} {
+        } else if @{uses_environment(cfg.credentials)} {
             loader = loader.credentials_provider(
                 aws_config::environment::EnvironmentVariableCredentialsProvider::new(),
             );
         }
-        if let Some(endpoint) = @{(`config` : AwsConfig).endpoint} {
+        if let Some(endpoint) = @{cfg.endpoint} {
             loader = loader.endpoint_url(endpoint);
         }
         loader.load().await
@@ -344,11 +360,11 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
         }
     }
 
-    fn from_sdk_put_object_output(v: &aws_sdk_s3::operation::put_object::PutObjectOutput) -> @{: PutObjectOutput} {
+    fn from_sdk_put_object_output(v: &put_object::PutObjectOutput) -> @{: PutObjectOutput} {
         @{ PutObjectOutput { expiration: `v.expiration().map(|x| x.to_string())`, e_tag: `v.e_tag().map(|x| x.to_string())`, checksum_crc32: `v.checksum_crc32().map(|x| x.to_string())`, checksum_crc32_c: `v.checksum_crc32_c().map(|x| x.to_string())`, checksum_crc64_nvme: `v.checksum_crc64_nvme().map(|x| x.to_string())`, checksum_sha1: `v.checksum_sha1().map(|x| x.to_string())`, checksum_sha256: `v.checksum_sha256().map(|x| x.to_string())`, checksum_sha512: `v.checksum_sha512().map(|x| x.to_string())`, checksum_md5: `v.checksum_md5().map(|x| x.to_string())`, checksum_xxhash64: `v.checksum_xxhash64().map(|x| x.to_string())`, checksum_xxhash3: `v.checksum_xxhash3().map(|x| x.to_string())`, checksum_xxhash128: `v.checksum_xxhash128().map(|x| x.to_string())`, checksum_type: `v.checksum_type().map(|x| x.as_str().to_string())`, server_side_encryption: `v.server_side_encryption().map(|x| x.as_str().to_string())`, version_id: `v.version_id().map(|x| x.to_string())`, sse_customer_algorithm: `v.sse_customer_algorithm().map(|x| x.to_string())`, sse_customer_key_md5: `v.sse_customer_key_md5().map(|x| x.to_string())`, ssekms_key_id: `v.ssekms_key_id().map(|x| x.to_string())`, ssekms_encryption_context: `v.ssekms_encryption_context().map(|x| x.to_string())`, bucket_key_enabled: `v.bucket_key_enabled().map(|x| *(&x))`, size: `v.size().map(|x| *(&x))`, request_charged: `v.request_charged().map(|x| x.as_str().to_string())` } }
     }
 
-    fn from_sdk_get_object_output(mut v: aws_sdk_s3::operation::get_object::GetObjectOutput, rt: &tokio::runtime::Handle) -> @{: GetObjectOutput} {
+    fn from_sdk_get_object_output(mut v: get_object::GetObjectOutput, rt: &tokio::runtime::Handle) -> @{: GetObjectOutput} {
         let bytes = std::mem::replace(&mut v.body, aws_sdk_s3::primitives::ByteStream::from_static(b""));
         let handle = salvo_register_body("S3 GetObject body", bytes, rt);
         let v = &v;
@@ -381,7 +397,7 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
             aws_sdk_s3::error::SdkError::ResponseError(_) => "ResponseError",
             _ => "ConstructionFailure",
         };
-        let value: @{: S3Failure} = match &e {
+        let @{value : S3Failure} = match &e {
             aws_sdk_s3::error::SdkError::ServiceError(ctx) => {
                 let err = ctx.err();
                 let code = salvo_code(err.code().unwrap_or("Unknown"));
@@ -392,7 +408,7 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
             }
             _ => @{ AwsError { code: `kind.to_string()`, message: `text` } : S3Failure },
         };
-        @{ checked<S3Failure>((`value` : S3Failure)) }
+        @{ checked<S3Failure>(value) }
     }
 
     /// A Smithy timestamp as a `time.Instant`: nanoseconds since the epoch,
@@ -403,8 +419,8 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
     }
 
     /// A `time.Instant` as a Smithy timestamp.
-    fn salvo_date_time(at: @{: Instant}) -> aws_sdk_s3::primitives::DateTime {
-        aws_sdk_s3::primitives::DateTime::from_nanos(@{(`at` : Instant).nanos} as i128).expect("an i64 of nanoseconds is a valid timestamp")
+    fn salvo_date_time(@{at : Instant}) -> aws_sdk_s3::primitives::DateTime {
+        aws_sdk_s3::primitives::DateTime::from_nanos(@{at.nanos} as i128).expect("an i64 of nanoseconds is a valid timestamp")
     }
 
     /// [stream-table] Registers a response body in the host's stream table,
@@ -545,24 +561,24 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
         scope.launch {
             if (length == null || length < 0) {
                 body.closeInput()
-                val failed: @{: Ok PutObjectOutput | Err Checked<S3Failure>} = @{ err(checked<S3Failure>(AwsError { code: "MissingContentLength", message: `"S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"` })) : Ok PutObjectOutput | Err Checked<S3Failure> }
+                val @{failed : Ok PutObjectOutput | Err Checked<S3Failure>} = @{ err(checked<S3Failure>(AwsError { code: "MissingContentLength", message: `"S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"` })) : Ok PutObjectOutput | Err Checked<S3Failure> }
                 host.send(failed)
                 return@launch
             }
             val upload = SalvoUpload(body, length)
-            val answer: @{: Ok PutObjectOutput | Err Checked<S3Failure>} = try {
-                val value = fromSdkPutObjectOutput(client.putObject(toSdkPutObjectInput(request, upload.asByteStream(length))))
-                @{ ok((`value` : PutObjectOutput)) : Ok PutObjectOutput | Err Checked<S3Failure> }
+            val @{answer : Ok PutObjectOutput | Err Checked<S3Failure>} = try {
+                val @{value : PutObjectOutput} = fromSdkPutObjectOutput(client.putObject(toSdkPutObjectInput(request, upload.asByteStream(length))))
+                @{ ok(value) : Ok PutObjectOutput | Err Checked<S3Failure> }
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                val failure = salvoFailure(e)
-                @{ err(checked<S3Failure>((`failure` : S3Error))) : Ok PutObjectOutput | Err Checked<S3Failure> }
+                val @{failure : S3Error} = salvoFailure(e)
+                @{ err(checked<S3Failure>(failure)) : Ok PutObjectOutput | Err Checked<S3Failure> }
             } catch (e: Exception) {
-                val failure = salvoAwsError(e)
-                @{ err(checked<S3Failure>((`failure` : AwsError))) : Ok PutObjectOutput | Err Checked<S3Failure> }
+                val @{failure : AwsError} = salvoAwsError(e)
+                @{ err(checked<S3Failure>(failure)) : Ok PutObjectOutput | Err Checked<S3Failure> }
             }
             val problem = upload.finish()
             body.closeInput()
-            val result: @{: Ok PutObjectOutput | Err Checked<S3Failure>} = if (problem != null) @{ err(checked<S3Failure>(AwsError { code: "StreamFailed", message: `problem` })) : Ok PutObjectOutput | Err Checked<S3Failure> } else answer
+            val @{result : Ok PutObjectOutput | Err Checked<S3Failure>} = if (problem != null) @{ err(checked<S3Failure>(AwsError { code: "StreamFailed", message: `problem` })) : Ok PutObjectOutput | Err Checked<S3Failure> } else answer
             host.send(result)
         }
     ```
@@ -572,7 +588,7 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
         let body = crate::scheduler::salvo_stream_take_in(@{input.body.handle});
         let length = @{input.content_length};
         let call = client.put_object()
-            .set_acl(@{input.acl}.as_ref().map(|x| aws_sdk_s3::types::ObjectCannedAcl::from(x.as_str())))
+            .set_acl(@{input.acl}.as_ref().map(|x| sdk::ObjectCannedAcl::from(x.as_str())))
             .set_bucket(Some((&@{input.bucket}).clone()))
             .set_cache_control(@{input.cache_control}.as_ref().map(|x| x.clone()))
             .set_content_disposition(@{input.content_disposition}.as_ref().map(|x| x.clone()))
@@ -581,7 +597,7 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
             .set_content_length(@{input.content_length}.as_ref().map(|x| *x))
             .set_content_md5(@{input.content_md5}.as_ref().map(|x| x.clone()))
             .set_content_type(@{input.content_type}.as_ref().map(|x| x.clone()))
-            .set_checksum_algorithm(@{input.checksum_algorithm}.as_ref().map(|x| aws_sdk_s3::types::ChecksumAlgorithm::from(x.as_str())))
+            .set_checksum_algorithm(@{input.checksum_algorithm}.as_ref().map(|x| sdk::ChecksumAlgorithm::from(x.as_str())))
             .set_checksum_crc32(@{input.checksum_crc32}.as_ref().map(|x| x.clone()))
             .set_checksum_crc32_c(@{input.checksum_crc32_c}.as_ref().map(|x| x.clone()))
             .set_checksum_crc64_nvme(@{input.checksum_crc64_nvme}.as_ref().map(|x| x.clone()))
@@ -601,8 +617,8 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
             .set_key(Some((&@{input.key}).clone()))
             .set_write_offset_bytes(@{input.write_offset_bytes}.as_ref().map(|x| *x))
             .set_metadata(@{input.metadata}.as_ref().map(|x| x.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::HashMap<_, _>>()))
-            .set_server_side_encryption(@{input.server_side_encryption}.as_ref().map(|x| aws_sdk_s3::types::ServerSideEncryption::from(x.as_str())))
-            .set_storage_class(@{input.storage_class}.as_ref().map(|x| aws_sdk_s3::types::StorageClass::from(x.as_str())))
+            .set_server_side_encryption(@{input.server_side_encryption}.as_ref().map(|x| sdk::ServerSideEncryption::from(x.as_str())))
+            .set_storage_class(@{input.storage_class}.as_ref().map(|x| sdk::StorageClass::from(x.as_str())))
             .set_website_redirect_location(@{input.website_redirect_location}.as_ref().map(|x| x.clone()))
             .set_sse_customer_algorithm(@{input.sse_customer_algorithm}.as_ref().map(|x| x.clone()))
             .set_sse_customer_key(@{input.sse_customer_key}.as_ref().map(|x| x.clone()))
@@ -610,12 +626,12 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
             .set_ssekms_key_id(@{input.ssekms_key_id}.as_ref().map(|x| x.clone()))
             .set_ssekms_encryption_context(@{input.ssekms_encryption_context}.as_ref().map(|x| x.clone()))
             .set_bucket_key_enabled(@{input.bucket_key_enabled}.as_ref().map(|x| *x))
-            .set_request_payer(@{input.request_payer}.as_ref().map(|x| aws_sdk_s3::types::RequestPayer::from(x.as_str())))
+            .set_request_payer(@{input.request_payer}.as_ref().map(|x| sdk::RequestPayer::from(x.as_str())))
             .set_tagging(@{input.tagging}.as_ref().map(|x| x.clone()))
-            .set_object_lock_mode(@{input.object_lock_mode}.as_ref().map(|x| aws_sdk_s3::types::ObjectLockMode::from(x.as_str())))
+            .set_object_lock_mode(@{input.object_lock_mode}.as_ref().map(|x| sdk::ObjectLockMode::from(x.as_str())))
             .set_object_lock_retain_until_date(@{input.object_lock_retain_until_date}.as_ref().map(|x| salvo_date_time((x).clone())))
-            .set_object_lock_legal_hold_status(@{input.object_lock_legal_hold_status}.as_ref().map(|x| aws_sdk_s3::types::ObjectLockLegalHoldStatus::from(x.as_str())))
-            .set_object_lock_event_hold(@{input.object_lock_event_hold}.as_ref().map(|x| aws_sdk_s3::types::ObjectLockEventHold::from(x.as_str())))
+            .set_object_lock_legal_hold_status(@{input.object_lock_legal_hold_status}.as_ref().map(|x| sdk::ObjectLockLegalHoldStatus::from(x.as_str())))
+            .set_object_lock_event_hold(@{input.object_lock_event_hold}.as_ref().map(|x| sdk::ObjectLockEventHold::from(x.as_str())))
             .set_object_lock_event_hold_duration_days(@{input.object_lock_event_hold_duration_days}.as_ref().map(|x| *x))
             .set_object_lock_event_hold_duration_years(@{input.object_lock_event_hold_duration_years}.as_ref().map(|x| *x))
             .set_expected_bucket_owner(@{input.expected_bucket_owner}.as_ref().map(|x| x.clone()));
@@ -624,19 +640,19 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
                 Some(n) if n >= 0 => n,
                 _ => {
                     drop(body);
-                    let failed: @{: Ok PutObjectOutput | Err Checked<S3Failure>} = @{ err(checked<S3Failure>(AwsError { code: "MissingContentLength", message: `"S3 PutObject streams its body, so the input needs content_length: the body's length in bytes".to_string()` })) : Ok PutObjectOutput | Err Checked<S3Failure> };
+                    let @{failed : Ok PutObjectOutput | Err Checked<S3Failure>} = @{ err(checked<S3Failure>(AwsError { code: "MissingContentLength", message: `"S3 PutObject streams its body, so the input needs content_length: the body's length in bytes".to_string()` })) : Ok PutObjectOutput | Err Checked<S3Failure> };
                     reply.send(failed);
                     return;
                 }
             };
             let (upload, problem) = salvo_upload(body, length);
             let call = call.set_body(Some(aws_sdk_s3::primitives::ByteStream::from_body_1_x(upload)));
-            let answer: @{: Ok PutObjectOutput | Err Checked<S3Failure>} = match call.send().await {
-                Ok(out) => { let value = from_sdk_put_object_output(&out); @{ ok((`value` : PutObjectOutput)) : Ok PutObjectOutput | Err Checked<S3Failure> } }
-                Err(e) => { let failure = salvo_failure(e, |_| (None, None)); @{ err((`failure` : Checked<S3Failure>)) : Ok PutObjectOutput | Err Checked<S3Failure> } }
+            let @{answer : Ok PutObjectOutput | Err Checked<S3Failure>} = match call.send().await {
+                Ok(out) => { let @{value : PutObjectOutput} = from_sdk_put_object_output(&out); @{ ok(value) : Ok PutObjectOutput | Err Checked<S3Failure> } }
+                Err(e) => { let @{failure : Checked<S3Failure>} = salvo_failure(e, |_| (None, None)); @{ err(failure) : Ok PutObjectOutput | Err Checked<S3Failure> } }
             };
             let problem = problem.lock().unwrap().take();
-            let answer: @{: Ok PutObjectOutput | Err Checked<S3Failure>} = match problem {
+            let @{answer : Ok PutObjectOutput | Err Checked<S3Failure>} = match problem {
                 Some(message) => @{ err(checked<S3Failure>(AwsError { code: "StreamFailed", message: `message` })) : Ok PutObjectOutput | Err Checked<S3Failure> },
                 None => answer,
             };
@@ -651,23 +667,23 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
         val request = @{input}
         scope.launch {
             var sent = false
-            val answer: @{: Ok GetObjectOutput | Err Checked<S3Failure>}? = try {
+            val @{answer : (Ok GetObjectOutput | Err Checked<S3Failure>)?} = try {
                 client.getObject(toSdkGetObjectInput(request)) { response ->
                     val closed = kotlinx.coroutines.CompletableDeferred<Unit>()
                     val handle = salvoRegisterBody("S3 GetObject body", response.body, closed)
                     sent = true
-                    val value = fromSdkGetObjectOutput(response, handle)
-                    val ok: @{: Ok GetObjectOutput | Err Checked<S3Failure>} = @{ ok((`value` : GetObjectOutput)) : Ok GetObjectOutput | Err Checked<S3Failure> }
-                    host.send(ok)
+                    val @{value : GetObjectOutput} = fromSdkGetObjectOutput(response, handle)
+                    val @{success : Ok GetObjectOutput | Err Checked<S3Failure>} = @{ ok(value) : Ok GetObjectOutput | Err Checked<S3Failure> }
+                    host.send(success)
                     closed.await()
                 }
                 null
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                val failure = salvoFailure(e)
-                @{ err(checked<S3Failure>((`failure` : S3Error))) : Ok GetObjectOutput | Err Checked<S3Failure> }
+                val @{failure : S3Error} = salvoFailure(e)
+                @{ err(checked<S3Failure>(failure)) : Ok GetObjectOutput | Err Checked<S3Failure> }
             } catch (e: Exception) {
-                val failure = salvoAwsError(e)
-                @{ err(checked<S3Failure>((`failure` : AwsError))) : Ok GetObjectOutput | Err Checked<S3Failure> }
+                val @{failure : AwsError} = salvoAwsError(e)
+                @{ err(checked<S3Failure>(failure)) : Ok GetObjectOutput | Err Checked<S3Failure> }
             }
             if (!sent && answer != null) host.send(answer)
         }
@@ -694,14 +710,14 @@ export threadsafe platform handler HostS3(config: AwsConfig) of S3 {
             .set_sse_customer_algorithm(@{input.sse_customer_algorithm}.as_ref().map(|x| x.clone()))
             .set_sse_customer_key(@{input.sse_customer_key}.as_ref().map(|x| x.clone()))
             .set_sse_customer_key_md5(@{input.sse_customer_key_md5}.as_ref().map(|x| x.clone()))
-            .set_request_payer(@{input.request_payer}.as_ref().map(|x| aws_sdk_s3::types::RequestPayer::from(x.as_str())))
+            .set_request_payer(@{input.request_payer}.as_ref().map(|x| sdk::RequestPayer::from(x.as_str())))
             .set_part_number(@{input.part_number}.as_ref().map(|x| *x))
             .set_expected_bucket_owner(@{input.expected_bucket_owner}.as_ref().map(|x| x.clone()))
-            .set_checksum_mode(@{input.checksum_mode}.as_ref().map(|x| aws_sdk_s3::types::ChecksumMode::from(x.as_str())));
+            .set_checksum_mode(@{input.checksum_mode}.as_ref().map(|x| sdk::ChecksumMode::from(x.as_str())));
         self.rt.spawn(async move {
-            let answer: @{: Ok GetObjectOutput | Err Checked<S3Failure>} = match call.send().await {
-                Ok(out) => { let value = from_sdk_get_object_output(out, &rt); @{ ok((`value` : GetObjectOutput)) : Ok GetObjectOutput | Err Checked<S3Failure> } }
-                Err(e) => { let failure = salvo_failure(e, |err| match err { aws_sdk_s3::operation::get_object::GetObjectError::InvalidObjectState(x) => (x.storage_class().map(|x| x.as_str().to_string()), x.access_tier().map(|x| x.as_str().to_string())), _ => (None, None) }); @{ err((`failure` : Checked<S3Failure>)) : Ok GetObjectOutput | Err Checked<S3Failure> } }
+            let @{answer : Ok GetObjectOutput | Err Checked<S3Failure>} = match call.send().await {
+                Ok(out) => { let @{value : GetObjectOutput} = from_sdk_get_object_output(out, &rt); @{ ok(value) : Ok GetObjectOutput | Err Checked<S3Failure> } }
+                Err(e) => { let @{failure : Checked<S3Failure>} = salvo_failure(e, |err| match err { get_object::GetObjectError::InvalidObjectState(x) => (x.storage_class().map(|x| x.as_str().to_string()), x.access_tier().map(|x| x.as_str().to_string())), _ => (None, None) }); @{ err(failure) : Ok GetObjectOutput | Err Checked<S3Failure> } }
             };
             reply.send(answer);
         });

@@ -6595,6 +6595,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.locals.push(top);
         let saved_hole = std::mem::replace(&mut self.in_hole, true);
+        let mut declared_here: HashSet<String> = HashSet::new();
         for block in blocks {
             for part in &block.parts {
                 let HostBlockPart::Hole(hole) = part else { continue };
@@ -6606,8 +6607,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.out.host_types.insert(self.key(hole.span), ty.clone());
                 }
                 // A bare name nothing declares, with a type: a declaration.
+                // A name an earlier declaring hole introduced may be declared
+                // again — each helper of a handler-level block names its own
+                // `v` — but a parameter or state field never is.
                 if let (Some(Expr::Ident(id)), Some(ty)) = (&hole.expr, &want) {
-                    if self.lookup(&id.name).is_none() {
+                    if self.lookup(&id.name).is_none() || declared_here.contains(&id.name) {
+                        declared_here.insert(id.name.clone());
                         let var = LocalVar {
                             declared: ty.clone(),
                             narrowed: ty.clone(),
@@ -6616,10 +6621,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                             poison: None,
                             consumed_by: None,
                             linear_settled: false,
-                            is_param: true,
+                            is_param: false,
                             for_origin: None,
                             decl_span: id.span,
-                            lambda_kept: true,
+                            lambda_kept: false,
                             is_handler_state: false,
                             widened: None,
                             place_narrows: Vec::new(),

@@ -8223,7 +8223,10 @@ replaced the working document TESTING.md).
     `a` names nothing in scope **declares** a host name of Salvo type `T` —
     rendered `a: T` on both backends — which later holes of the block may read
     (`@{a.string_value}`); its scope is the rest of the block, since the
-    checker cannot see host scopes. Where there is no binding to declare (a
+    checker cannot see host scopes. A name an earlier declaring hole
+    introduced may be declared again (each helper of a handler-level block
+    names its own `v`), a parameter or state field never; a declared name is
+    the host's value, so a hole may consume it (`@{ ok(value) : … }`). Where there is no binding to declare (a
     Rust pattern, a chain, an arm test), an **ascribed leaf** `` (`e` : T) ``
     gives host code a Salvo type inside a hole: `` @{ (`first` : Attr).data_type } ``,
     rendered `(e)` and read like any value of `T`.

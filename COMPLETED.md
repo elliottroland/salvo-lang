@@ -135,6 +135,18 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The aws glue without host-side annotations (2026-09-30, the user's review).**
+Reading `sqs/host.sv`, the user asked for declaring holes in helper
+parameters instead of `v: @{: T}` plus ascriptions, declared answers
+(`val @{answer : …} = try {`), and short names for the SDK's shapes — all
+built. Needed in the checker: a declaring hole may redeclare a name an
+earlier one introduced (never a parameter or state), and a declared name is
+consumable, since it is the host's value (`@{ ok(value) : … }` moves a linear
+output). The generator had named one host value `ok`, shadowing `ok(…)` in a
+later hole; renamed. Rust aliases `types as sdk` and the operation modules;
+Kotlin imports each model type as `Sdk<Name>`. One checker test; the drift
+test and both demos unchanged.
+
 **The aws glue as host splices (2026-09-30; ROADMAP §4c step 4).** The
 generator now writes `aws/<svc>/host.sv` — a `threadsafe platform handler`
 written in place, the Rust and Kotlin glue in fences, every Salvo-side spelling
@@ -19077,7 +19089,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1678)
+## Test inventory (all green: 1679)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

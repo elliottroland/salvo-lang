@@ -84,3 +84,10 @@ fn a_handler_level_block_sees_the_constructor_parameters() {
     assert_eq!(errors(&base.replace("HOLE", "start")), Vec::<String>::new());
     assert!(!errors(&base.replace("HOLE", "nope")).is_empty(), "an unknown name in a handler-level hole");
 }
+
+#[test]
+fn a_declared_host_name_may_be_declared_again_but_not_a_parameter() {
+    let base = "struct A { x: Int }\nstruct B { y: Int }\nfn f(p: Int) [] -> Int => p\n```kotlin\nfun one(@{v : A}) = @{v.x}\nfun two(@{v : B}) = @{v.y}\nSHADOW\nreturn 0\n```\n";
+    assert_eq!(errors(&base.replace("SHADOW", "")), Vec::<String>::new());
+    assert!(!errors(&base.replace("SHADOW", "val @{p : A} = 1")).is_empty(), "a parameter is not redeclared");
+}

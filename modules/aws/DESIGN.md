@@ -205,6 +205,14 @@ through two Salvo helpers in `aws.sv` (`profile_of`, `uses_environment`)
 rather than a match on the union's host shape. Kotlin's file-level opt-in
 became an `@OptIn` on the one helper that needs it. The drift test still
 compiles both against both SDKs, and both demos print as before.
+The glue then lost its type annotations in host text too: helpers take
+`@{v : MessageAttributeValue}` and read `@{v.data_type}`, answers are declared
+(`val @{answer : Ok … | Err …} = try {`), and the SDK's shapes go by short
+names — Rust `use aws_sdk_sqs::types as sdk;` plus the operation modules,
+Kotlin one `import …model.Message as SdkMessage` per shape used (a package
+cannot be aliased, and a wildcard would collide with the Salvo struct of the
+same name). The ascribed form is left only where host code binds the name
+itself (`if let Some(p) = …`, a Kotlin null check).
 
 ### Rebuilt: enums and errors as data (2026-09-30)
 

@@ -18,6 +18,22 @@ import aws.sqs
 // every pool with no lock.
 export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
     ```kotlin
+    import aws.sdk.kotlin.services.sqs.model.CreateQueueRequest as SdkCreateQueueRequest
+    import aws.sdk.kotlin.services.sqs.model.CreateQueueResponse as SdkCreateQueueResponse
+    import aws.sdk.kotlin.services.sqs.model.DeleteMessageRequest as SdkDeleteMessageRequest
+    import aws.sdk.kotlin.services.sqs.model.DeleteQueueRequest as SdkDeleteQueueRequest
+    import aws.sdk.kotlin.services.sqs.model.GetQueueUrlRequest as SdkGetQueueUrlRequest
+    import aws.sdk.kotlin.services.sqs.model.GetQueueUrlResponse as SdkGetQueueUrlResponse
+    import aws.sdk.kotlin.services.sqs.model.Message as SdkMessage
+    import aws.sdk.kotlin.services.sqs.model.MessageAttributeValue as SdkMessageAttributeValue
+    import aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName as SdkMessageSystemAttributeName
+    import aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeNameForSends as SdkMessageSystemAttributeNameForSends
+    import aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeValue as SdkMessageSystemAttributeValue
+    import aws.sdk.kotlin.services.sqs.model.QueueAttributeName as SdkQueueAttributeName
+    import aws.sdk.kotlin.services.sqs.model.ReceiveMessageRequest as SdkReceiveMessageRequest
+    import aws.sdk.kotlin.services.sqs.model.ReceiveMessageResponse as SdkReceiveMessageResponse
+    import aws.sdk.kotlin.services.sqs.model.SendMessageRequest as SdkSendMessageRequest
+    import aws.sdk.kotlin.services.sqs.model.SendMessageResponse as SdkSendMessageResponse
     import kotlinx.coroutines.launch
 
     // The handler's host state: the SDK client, safe to share, and the scope
@@ -25,96 +41,96 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
     private val scope = kotlinx.coroutines.CoroutineScope(
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
     )
-    private val salvoConfig = @{config}
+    private val @{salvoConfig : AwsConfig} = @{config}
     private val client = aws.sdk.kotlin.services.sqs.SqsClient {
-        region = @{(`salvoConfig` : AwsConfig).region.code}
+        region = @{salvoConfig.region.code}
         credentialsProvider = salvoCredentials(salvoConfig)
-        @{(`salvoConfig` : AwsConfig).endpoint}?.let { endpointUrl = aws.smithy.kotlin.runtime.net.url.Url.parse(it) }
+        @{salvoConfig.endpoint}?.let { endpointUrl = aws.smithy.kotlin.runtime.net.url.Url.parse(it) }
     }
 
     init {
         salvoCloseWhenMainEnds(client)
     }
 
-    private fun toSdkCreateQueueInput(v: @{: CreateQueueInput}): aws.sdk.kotlin.services.sqs.model.CreateQueueRequest = aws.sdk.kotlin.services.sqs.model.CreateQueueRequest {
-        queueName = @{(`v` : CreateQueueInput).queue_name}
-        attributes = @{(`v` : CreateQueueInput).attributes}?.let { it.entries.associate { (k1, v1) -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue(k1) to v1 } }
-        tags = @{(`v` : CreateQueueInput).tags}?.let { it.entries.associate { (k1, v1) -> k1 to v1 } }
+    private fun toSdkCreateQueueInput(@{v : CreateQueueInput}): SdkCreateQueueRequest = SdkCreateQueueRequest {
+        queueName = @{v.queue_name}
+        attributes = @{v.attributes}?.let { it.entries.associate { (k1, v1) -> SdkQueueAttributeName.fromValue(k1) to v1 } }
+        tags = @{v.tags}?.let { it.entries.associate { (k1, v1) -> k1 to v1 } }
     }
 
-    private fun fromSdkCreateQueueOutput(v: aws.sdk.kotlin.services.sqs.model.CreateQueueResponse): @{: CreateQueueOutput} = @{ CreateQueueOutput { queue_url: `v.queueUrl` } }
+    private fun fromSdkCreateQueueOutput(v: SdkCreateQueueResponse): @{: CreateQueueOutput} = @{ CreateQueueOutput { queue_url: `v.queueUrl` } }
 
-    private fun toSdkGetQueueUrlInput(v: @{: GetQueueUrlInput}): aws.sdk.kotlin.services.sqs.model.GetQueueUrlRequest = aws.sdk.kotlin.services.sqs.model.GetQueueUrlRequest {
-        queueName = @{(`v` : GetQueueUrlInput).queue_name}
-        queueOwnerAwsAccountId = @{(`v` : GetQueueUrlInput).queue_owner_aws_account_id}
+    private fun toSdkGetQueueUrlInput(@{v : GetQueueUrlInput}): SdkGetQueueUrlRequest = SdkGetQueueUrlRequest {
+        queueName = @{v.queue_name}
+        queueOwnerAwsAccountId = @{v.queue_owner_aws_account_id}
     }
 
-    private fun fromSdkGetQueueUrlOutput(v: aws.sdk.kotlin.services.sqs.model.GetQueueUrlResponse): @{: GetQueueUrlOutput} = @{ GetQueueUrlOutput { queue_url: `v.queueUrl` } }
+    private fun fromSdkGetQueueUrlOutput(v: SdkGetQueueUrlResponse): @{: GetQueueUrlOutput} = @{ GetQueueUrlOutput { queue_url: `v.queueUrl` } }
 
-    private fun toSdkSendMessageInput(v: @{: SendMessageInput}): aws.sdk.kotlin.services.sqs.model.SendMessageRequest = aws.sdk.kotlin.services.sqs.model.SendMessageRequest {
-        queueUrl = @{(`v` : SendMessageInput).queue_url}
-        messageBody = @{(`v` : SendMessageInput).message_body}
-        delaySeconds = @{(`v` : SendMessageInput).delay_seconds}
-        messageAttributes = @{(`v` : SendMessageInput).message_attributes}?.let { it.entries.associate { (k1, v1) -> k1 to toSdkMessageAttributeValue(v1) } }
-        messageSystemAttributes = @{(`v` : SendMessageInput).message_system_attributes}?.let { it.entries.associate { (k1, v1) -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeNameForSends.fromValue(k1) to toSdkMessageSystemAttributeValue(v1) } }
-        messageDeduplicationId = @{(`v` : SendMessageInput).message_deduplication_id}
-        messageGroupId = @{(`v` : SendMessageInput).message_group_id}
+    private fun toSdkSendMessageInput(@{v : SendMessageInput}): SdkSendMessageRequest = SdkSendMessageRequest {
+        queueUrl = @{v.queue_url}
+        messageBody = @{v.message_body}
+        delaySeconds = @{v.delay_seconds}
+        messageAttributes = @{v.message_attributes}?.let { it.entries.associate { (k1, v1) -> k1 to toSdkMessageAttributeValue(v1) } }
+        messageSystemAttributes = @{v.message_system_attributes}?.let { it.entries.associate { (k1, v1) -> SdkMessageSystemAttributeNameForSends.fromValue(k1) to toSdkMessageSystemAttributeValue(v1) } }
+        messageDeduplicationId = @{v.message_deduplication_id}
+        messageGroupId = @{v.message_group_id}
     }
 
-    private fun fromSdkMessageAttributeValue(v: aws.sdk.kotlin.services.sqs.model.MessageAttributeValue): @{: MessageAttributeValue} = @{ MessageAttributeValue { string_value: `v.stringValue`, binary_value: `v.binaryValue?.let { salvo.SalvoBytes(it) }`, string_list_values: `v.stringListValues?.let { it.map { e1 -> e1 } }`, binary_list_values: `v.binaryListValues?.let { it.map { e1 -> salvo.SalvoBytes(e1) } }`, data_type: `(v.dataType ?: error("missing required member DataType"))` } }
+    private fun fromSdkMessageAttributeValue(v: SdkMessageAttributeValue): @{: MessageAttributeValue} = @{ MessageAttributeValue { string_value: `v.stringValue`, binary_value: `v.binaryValue?.let { salvo.SalvoBytes(it) }`, string_list_values: `v.stringListValues?.let { it.map { e1 -> e1 } }`, binary_list_values: `v.binaryListValues?.let { it.map { e1 -> salvo.SalvoBytes(e1) } }`, data_type: `(v.dataType ?: error("missing required member DataType"))` } }
 
-    private fun toSdkMessageAttributeValue(v: @{: MessageAttributeValue}): aws.sdk.kotlin.services.sqs.model.MessageAttributeValue = aws.sdk.kotlin.services.sqs.model.MessageAttributeValue {
-        stringValue = @{(`v` : MessageAttributeValue).string_value}
-        binaryValue = @{(`v` : MessageAttributeValue).binary_value}?.let { it.toByteArray() }
-        stringListValues = @{(`v` : MessageAttributeValue).string_list_values}?.let { it.map { e1 -> e1 } }
-        binaryListValues = @{(`v` : MessageAttributeValue).binary_list_values}?.let { it.map { e1 -> e1.toByteArray() } }
-        dataType = @{(`v` : MessageAttributeValue).data_type}
+    private fun toSdkMessageAttributeValue(@{v : MessageAttributeValue}): SdkMessageAttributeValue = SdkMessageAttributeValue {
+        stringValue = @{v.string_value}
+        binaryValue = @{v.binary_value}?.let { it.toByteArray() }
+        stringListValues = @{v.string_list_values}?.let { it.map { e1 -> e1 } }
+        binaryListValues = @{v.binary_list_values}?.let { it.map { e1 -> e1.toByteArray() } }
+        dataType = @{v.data_type}
     }
 
-    private fun fromSdkMessageSystemAttributeValue(v: aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeValue): @{: MessageSystemAttributeValue} = @{ MessageSystemAttributeValue { string_value: `v.stringValue`, binary_value: `v.binaryValue?.let { salvo.SalvoBytes(it) }`, string_list_values: `v.stringListValues?.let { it.map { e1 -> e1 } }`, binary_list_values: `v.binaryListValues?.let { it.map { e1 -> salvo.SalvoBytes(e1) } }`, data_type: `(v.dataType ?: error("missing required member DataType"))` } }
+    private fun fromSdkMessageSystemAttributeValue(v: SdkMessageSystemAttributeValue): @{: MessageSystemAttributeValue} = @{ MessageSystemAttributeValue { string_value: `v.stringValue`, binary_value: `v.binaryValue?.let { salvo.SalvoBytes(it) }`, string_list_values: `v.stringListValues?.let { it.map { e1 -> e1 } }`, binary_list_values: `v.binaryListValues?.let { it.map { e1 -> salvo.SalvoBytes(e1) } }`, data_type: `(v.dataType ?: error("missing required member DataType"))` } }
 
-    private fun toSdkMessageSystemAttributeValue(v: @{: MessageSystemAttributeValue}): aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeValue = aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeValue {
-        stringValue = @{(`v` : MessageSystemAttributeValue).string_value}
-        binaryValue = @{(`v` : MessageSystemAttributeValue).binary_value}?.let { it.toByteArray() }
-        stringListValues = @{(`v` : MessageSystemAttributeValue).string_list_values}?.let { it.map { e1 -> e1 } }
-        binaryListValues = @{(`v` : MessageSystemAttributeValue).binary_list_values}?.let { it.map { e1 -> e1.toByteArray() } }
-        dataType = @{(`v` : MessageSystemAttributeValue).data_type}
+    private fun toSdkMessageSystemAttributeValue(@{v : MessageSystemAttributeValue}): SdkMessageSystemAttributeValue = SdkMessageSystemAttributeValue {
+        stringValue = @{v.string_value}
+        binaryValue = @{v.binary_value}?.let { it.toByteArray() }
+        stringListValues = @{v.string_list_values}?.let { it.map { e1 -> e1 } }
+        binaryListValues = @{v.binary_list_values}?.let { it.map { e1 -> e1.toByteArray() } }
+        dataType = @{v.data_type}
     }
 
-    private fun fromSdkSendMessageOutput(v: aws.sdk.kotlin.services.sqs.model.SendMessageResponse): @{: SendMessageOutput} = @{ SendMessageOutput { md5_of_message_body: `v.md5OfMessageBody`, md5_of_message_attributes: `v.md5OfMessageAttributes`, md5_of_message_system_attributes: `v.md5OfMessageSystemAttributes`, message_id: `v.messageId`, sequence_number: `v.sequenceNumber` } }
+    private fun fromSdkSendMessageOutput(v: SdkSendMessageResponse): @{: SendMessageOutput} = @{ SendMessageOutput { md5_of_message_body: `v.md5OfMessageBody`, md5_of_message_attributes: `v.md5OfMessageAttributes`, md5_of_message_system_attributes: `v.md5OfMessageSystemAttributes`, message_id: `v.messageId`, sequence_number: `v.sequenceNumber` } }
 
-    private fun toSdkReceiveMessageInput(v: @{: ReceiveMessageInput}): aws.sdk.kotlin.services.sqs.model.ReceiveMessageRequest = aws.sdk.kotlin.services.sqs.model.ReceiveMessageRequest {
-        queueUrl = @{(`v` : ReceiveMessageInput).queue_url}
-        attributeNames = @{(`v` : ReceiveMessageInput).attribute_names}?.let { it.map { e1 -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue(e1) } }
-        messageSystemAttributeNames = @{(`v` : ReceiveMessageInput).message_system_attribute_names}?.let { it.map { e1 -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue(e1) } }
-        messageAttributeNames = @{(`v` : ReceiveMessageInput).message_attribute_names}?.let { it.map { e1 -> e1 } }
-        maxNumberOfMessages = @{(`v` : ReceiveMessageInput).max_number_of_messages}
-        visibilityTimeout = @{(`v` : ReceiveMessageInput).visibility_timeout}
-        waitTimeSeconds = @{(`v` : ReceiveMessageInput).wait_time_seconds}
-        receiveRequestAttemptId = @{(`v` : ReceiveMessageInput).receive_request_attempt_id}
+    private fun toSdkReceiveMessageInput(@{v : ReceiveMessageInput}): SdkReceiveMessageRequest = SdkReceiveMessageRequest {
+        queueUrl = @{v.queue_url}
+        attributeNames = @{v.attribute_names}?.let { it.map { e1 -> SdkQueueAttributeName.fromValue(e1) } }
+        messageSystemAttributeNames = @{v.message_system_attribute_names}?.let { it.map { e1 -> SdkMessageSystemAttributeName.fromValue(e1) } }
+        messageAttributeNames = @{v.message_attribute_names}?.let { it.map { e1 -> e1 } }
+        maxNumberOfMessages = @{v.max_number_of_messages}
+        visibilityTimeout = @{v.visibility_timeout}
+        waitTimeSeconds = @{v.wait_time_seconds}
+        receiveRequestAttemptId = @{v.receive_request_attempt_id}
     }
 
-    private fun fromSdkReceiveMessageOutput(v: aws.sdk.kotlin.services.sqs.model.ReceiveMessageResponse): @{: ReceiveMessageOutput} = @{ ReceiveMessageOutput { messages: `v.messages?.let { it.map { e1 -> fromSdkMessage(e1) } }` } }
+    private fun fromSdkReceiveMessageOutput(v: SdkReceiveMessageResponse): @{: ReceiveMessageOutput} = @{ ReceiveMessageOutput { messages: `v.messages?.let { it.map { e1 -> fromSdkMessage(e1) } }` } }
 
-    private fun fromSdkMessage(v: aws.sdk.kotlin.services.sqs.model.Message): @{: Message} = @{ Message { message_id: `v.messageId`, receipt_handle: `v.receiptHandle`, md5_of_body: `v.md5OfBody`, body: `v.body`, attributes: `v.attributes?.let { it.entries.sortedBy { it.key.value }.associate { (k1, v1) -> k1.value to v1 } }`, md5_of_message_attributes: `v.md5OfMessageAttributes`, message_attributes: `v.messageAttributes?.let { it.entries.sortedBy { it.key }.associate { (k1, v1) -> k1 to fromSdkMessageAttributeValue(v1) } }` } }
+    private fun fromSdkMessage(v: SdkMessage): @{: Message} = @{ Message { message_id: `v.messageId`, receipt_handle: `v.receiptHandle`, md5_of_body: `v.md5OfBody`, body: `v.body`, attributes: `v.attributes?.let { it.entries.sortedBy { it.key.value }.associate { (k1, v1) -> k1.value to v1 } }`, md5_of_message_attributes: `v.md5OfMessageAttributes`, message_attributes: `v.messageAttributes?.let { it.entries.sortedBy { it.key }.associate { (k1, v1) -> k1 to fromSdkMessageAttributeValue(v1) } }` } }
 
-    private fun toSdkMessage(v: @{: Message}): aws.sdk.kotlin.services.sqs.model.Message = aws.sdk.kotlin.services.sqs.model.Message {
-        messageId = @{(`v` : Message).message_id}
-        receiptHandle = @{(`v` : Message).receipt_handle}
-        md5OfBody = @{(`v` : Message).md5_of_body}
-        body = @{(`v` : Message).body}
-        attributes = @{(`v` : Message).attributes}?.let { it.entries.associate { (k1, v1) -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue(k1) to v1 } }
-        md5OfMessageAttributes = @{(`v` : Message).md5_of_message_attributes}
-        messageAttributes = @{(`v` : Message).message_attributes}?.let { it.entries.associate { (k1, v1) -> k1 to toSdkMessageAttributeValue(v1) } }
+    private fun toSdkMessage(@{v : Message}): SdkMessage = SdkMessage {
+        messageId = @{v.message_id}
+        receiptHandle = @{v.receipt_handle}
+        md5OfBody = @{v.md5_of_body}
+        body = @{v.body}
+        attributes = @{v.attributes}?.let { it.entries.associate { (k1, v1) -> SdkMessageSystemAttributeName.fromValue(k1) to v1 } }
+        md5OfMessageAttributes = @{v.md5_of_message_attributes}
+        messageAttributes = @{v.message_attributes}?.let { it.entries.associate { (k1, v1) -> k1 to toSdkMessageAttributeValue(v1) } }
     }
 
-    private fun toSdkDeleteMessageInput(v: @{: DeleteMessageInput}): aws.sdk.kotlin.services.sqs.model.DeleteMessageRequest = aws.sdk.kotlin.services.sqs.model.DeleteMessageRequest {
-        queueUrl = @{(`v` : DeleteMessageInput).queue_url}
-        receiptHandle = @{(`v` : DeleteMessageInput).receipt_handle}
+    private fun toSdkDeleteMessageInput(@{v : DeleteMessageInput}): SdkDeleteMessageRequest = SdkDeleteMessageRequest {
+        queueUrl = @{v.queue_url}
+        receiptHandle = @{v.receipt_handle}
     }
 
-    private fun toSdkDeleteQueueInput(v: @{: DeleteQueueInput}): aws.sdk.kotlin.services.sqs.model.DeleteQueueRequest = aws.sdk.kotlin.services.sqs.model.DeleteQueueRequest {
-        queueUrl = @{(`v` : DeleteQueueInput).queue_url}
+    private fun toSdkDeleteQueueInput(@{v : DeleteQueueInput}): SdkDeleteQueueRequest = SdkDeleteQueueRequest {
+        queueUrl = @{v.queue_url}
     }
 
     /** A code as the model names it (see the Rust block's `salvo_code`). */
@@ -152,8 +168,8 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
 
     /** The SDK credentials provider an `AwsConfig`'s credentials name. */
     @OptIn(aws.sdk.kotlin.runtime.InternalSdkApi::class)
-    private fun salvoCredentials(config: @{: AwsConfig}): aws.smithy.kotlin.runtime.auth.awscredentials.CredentialsProvider {
-        val profile = @{profile_of((`config` : AwsConfig).credentials)}
+    private fun salvoCredentials(@{cfg : AwsConfig}): aws.smithy.kotlin.runtime.auth.awscredentials.CredentialsProvider {
+        val profile = @{profile_of(cfg.credentials)}
         if (profile != null) {
             return aws.sdk.kotlin.runtime.auth.credentials.ProfileCredentialsProvider(
                 profileName = @{(`profile` : ProfileCredentials).profile},
@@ -164,7 +180,7 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
                 ),
             )
         }
-        if (@{uses_environment((`config` : AwsConfig).credentials)}) {
+        if (@{uses_environment(cfg.credentials)}) {
             return aws.sdk.kotlin.runtime.auth.credentials.EnvironmentCredentialsProvider()
         }
         return aws.sdk.kotlin.runtime.auth.credentials.DefaultChainCredentialsProvider()
@@ -196,6 +212,8 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
     ```
     ```rust
     use aws_sdk_sqs::error::ProvideErrorMetadata;
+    use aws_sdk_sqs::types as sdk;
+    use aws_sdk_sqs::operation::{create_queue, get_queue_url, send_message, receive_message, delete_message, delete_queue};
 
     // The handler's host state: the SDK client, cheap to clone and safe to share,
     // and the tokio runtime each call runs on as a task.
@@ -219,10 +237,10 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
     // The SDK configuration an `AwsConfig` describes: the region, the credentials
     // it names, and the endpoint override when there is one.
     #[allow(deprecated)]
-    async fn salvo_aws_config(config: @{: AwsConfig}) -> aws_config::SdkConfig {
+    async fn salvo_aws_config(@{cfg : AwsConfig}) -> aws_config::SdkConfig {
         let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(aws_config::Region::new(@{(`config` : AwsConfig).region.code}));
-        if let Some(p) = @{profile_of((`config` : AwsConfig).credentials)} {
+            .region(aws_config::Region::new(@{cfg.region.code}));
+        if let Some(p) = @{profile_of(cfg.credentials)} {
             use aws_config::profile::profile_file::{ProfileFileKind, ProfileFiles};
             let files = ProfileFiles::builder()
                 .with_file(ProfileFileKind::Credentials, salvo_expand_home(&@{(`p` : ProfileCredentials).path}))
@@ -232,12 +250,12 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
                 .profile_name(@{(`p` : ProfileCredentials).profile})
                 .build();
             loader = loader.credentials_provider(provider);
-        } else if @{uses_environment((`config` : AwsConfig).credentials)} {
+        } else if @{uses_environment(cfg.credentials)} {
             loader = loader.credentials_provider(
                 aws_config::environment::EnvironmentVariableCredentialsProvider::new(),
             );
         }
-        if let Some(endpoint) = @{(`config` : AwsConfig).endpoint} {
+        if let Some(endpoint) = @{cfg.endpoint} {
             loader = loader.endpoint_url(endpoint);
         }
         loader.load().await
@@ -251,63 +269,63 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
         }
     }
 
-    fn from_sdk_create_queue_output(v: &aws_sdk_sqs::operation::create_queue::CreateQueueOutput) -> @{: CreateQueueOutput} {
+    fn from_sdk_create_queue_output(v: &create_queue::CreateQueueOutput) -> @{: CreateQueueOutput} {
         @{ CreateQueueOutput { queue_url: `v.queue_url().map(|x| x.to_string())` } }
     }
 
-    fn from_sdk_get_queue_url_output(v: &aws_sdk_sqs::operation::get_queue_url::GetQueueUrlOutput) -> @{: GetQueueUrlOutput} {
+    fn from_sdk_get_queue_url_output(v: &get_queue_url::GetQueueUrlOutput) -> @{: GetQueueUrlOutput} {
         @{ GetQueueUrlOutput { queue_url: `v.queue_url().map(|x| x.to_string())` } }
     }
 
-    fn from_sdk_message_attribute_value(v: &aws_sdk_sqs::types::MessageAttributeValue) -> @{: MessageAttributeValue} {
+    fn from_sdk_message_attribute_value(v: &sdk::MessageAttributeValue) -> @{: MessageAttributeValue} {
         @{ MessageAttributeValue { string_value: `v.string_value().map(|x| x.to_string())`, binary_value: `v.binary_value().map(|x| x.as_ref().to_vec())`, string_list_values: `{ let __s = v.string_list_values(); if __s.is_empty() { None } else { Some(__s.iter().map(|e| e.to_string()).collect::<Vec<_>>()) } }`, binary_list_values: `{ let __s = v.binary_list_values(); if __s.is_empty() { None } else { Some(__s.iter().map(|e| e.as_ref().to_vec()).collect::<Vec<_>>()) } }`, data_type: `v.data_type().to_string()` } }
     }
 
-    fn to_sdk_message_attribute_value(v: @{: MessageAttributeValue}) -> aws_sdk_sqs::types::MessageAttributeValue {
-        let b = aws_sdk_sqs::types::MessageAttributeValue::builder()
-            .set_string_value(@{(`v` : MessageAttributeValue).string_value}.as_ref().map(|x| x.clone()))
-            .set_binary_value(@{(`v` : MessageAttributeValue).binary_value}.as_ref().map(|x| aws_sdk_sqs::primitives::Blob::new(x.clone())))
-            .set_string_list_values(@{(`v` : MessageAttributeValue).string_list_values}.as_ref().map(|x| x.iter().map(|e| e.clone()).collect::<Vec<_>>()))
-            .set_binary_list_values(@{(`v` : MessageAttributeValue).binary_list_values}.as_ref().map(|x| x.iter().map(|e| aws_sdk_sqs::primitives::Blob::new(e.clone())).collect::<Vec<_>>()))
-            .set_data_type(Some((&@{(`v` : MessageAttributeValue).data_type}).clone()));
+    fn to_sdk_message_attribute_value(@{v : MessageAttributeValue}) -> sdk::MessageAttributeValue {
+        let b = sdk::MessageAttributeValue::builder()
+            .set_string_value(@{v.string_value}.as_ref().map(|x| x.clone()))
+            .set_binary_value(@{v.binary_value}.as_ref().map(|x| aws_sdk_sqs::primitives::Blob::new(x.clone())))
+            .set_string_list_values(@{v.string_list_values}.as_ref().map(|x| x.iter().map(|e| e.clone()).collect::<Vec<_>>()))
+            .set_binary_list_values(@{v.binary_list_values}.as_ref().map(|x| x.iter().map(|e| aws_sdk_sqs::primitives::Blob::new(e.clone())).collect::<Vec<_>>()))
+            .set_data_type(Some((&@{v.data_type}).clone()));
         b.build().expect("every required member of MessageAttributeValue is set")
     }
 
-    fn from_sdk_message_system_attribute_value(v: &aws_sdk_sqs::types::MessageSystemAttributeValue) -> @{: MessageSystemAttributeValue} {
+    fn from_sdk_message_system_attribute_value(v: &sdk::MessageSystemAttributeValue) -> @{: MessageSystemAttributeValue} {
         @{ MessageSystemAttributeValue { string_value: `v.string_value().map(|x| x.to_string())`, binary_value: `v.binary_value().map(|x| x.as_ref().to_vec())`, string_list_values: `{ let __s = v.string_list_values(); if __s.is_empty() { None } else { Some(__s.iter().map(|e| e.to_string()).collect::<Vec<_>>()) } }`, binary_list_values: `{ let __s = v.binary_list_values(); if __s.is_empty() { None } else { Some(__s.iter().map(|e| e.as_ref().to_vec()).collect::<Vec<_>>()) } }`, data_type: `v.data_type().to_string()` } }
     }
 
-    fn to_sdk_message_system_attribute_value(v: @{: MessageSystemAttributeValue}) -> aws_sdk_sqs::types::MessageSystemAttributeValue {
-        let b = aws_sdk_sqs::types::MessageSystemAttributeValue::builder()
-            .set_string_value(@{(`v` : MessageSystemAttributeValue).string_value}.as_ref().map(|x| x.clone()))
-            .set_binary_value(@{(`v` : MessageSystemAttributeValue).binary_value}.as_ref().map(|x| aws_sdk_sqs::primitives::Blob::new(x.clone())))
-            .set_string_list_values(@{(`v` : MessageSystemAttributeValue).string_list_values}.as_ref().map(|x| x.iter().map(|e| e.clone()).collect::<Vec<_>>()))
-            .set_binary_list_values(@{(`v` : MessageSystemAttributeValue).binary_list_values}.as_ref().map(|x| x.iter().map(|e| aws_sdk_sqs::primitives::Blob::new(e.clone())).collect::<Vec<_>>()))
-            .set_data_type(Some((&@{(`v` : MessageSystemAttributeValue).data_type}).clone()));
+    fn to_sdk_message_system_attribute_value(@{v : MessageSystemAttributeValue}) -> sdk::MessageSystemAttributeValue {
+        let b = sdk::MessageSystemAttributeValue::builder()
+            .set_string_value(@{v.string_value}.as_ref().map(|x| x.clone()))
+            .set_binary_value(@{v.binary_value}.as_ref().map(|x| aws_sdk_sqs::primitives::Blob::new(x.clone())))
+            .set_string_list_values(@{v.string_list_values}.as_ref().map(|x| x.iter().map(|e| e.clone()).collect::<Vec<_>>()))
+            .set_binary_list_values(@{v.binary_list_values}.as_ref().map(|x| x.iter().map(|e| aws_sdk_sqs::primitives::Blob::new(e.clone())).collect::<Vec<_>>()))
+            .set_data_type(Some((&@{v.data_type}).clone()));
         b.build().expect("every required member of MessageSystemAttributeValue is set")
     }
 
-    fn from_sdk_send_message_output(v: &aws_sdk_sqs::operation::send_message::SendMessageOutput) -> @{: SendMessageOutput} {
+    fn from_sdk_send_message_output(v: &send_message::SendMessageOutput) -> @{: SendMessageOutput} {
         @{ SendMessageOutput { md5_of_message_body: `v.md5_of_message_body().map(|x| x.to_string())`, md5_of_message_attributes: `v.md5_of_message_attributes().map(|x| x.to_string())`, md5_of_message_system_attributes: `v.md5_of_message_system_attributes().map(|x| x.to_string())`, message_id: `v.message_id().map(|x| x.to_string())`, sequence_number: `v.sequence_number().map(|x| x.to_string())` } }
     }
 
-    fn from_sdk_receive_message_output(v: &aws_sdk_sqs::operation::receive_message::ReceiveMessageOutput) -> @{: ReceiveMessageOutput} {
+    fn from_sdk_receive_message_output(v: &receive_message::ReceiveMessageOutput) -> @{: ReceiveMessageOutput} {
         @{ ReceiveMessageOutput { messages: `{ let __s = v.messages(); if __s.is_empty() { None } else { Some(__s.iter().map(|e| from_sdk_message(e)).collect::<Vec<_>>()) } }` } }
     }
 
-    fn from_sdk_message(v: &aws_sdk_sqs::types::Message) -> @{: Message} {
+    fn from_sdk_message(v: &sdk::Message) -> @{: Message} {
         @{ Message { message_id: `v.message_id().map(|x| x.to_string())`, receipt_handle: `v.receipt_handle().map(|x| x.to_string())`, md5_of_body: `v.md5_of_body().map(|x| x.to_string())`, body: `v.body().map(|x| x.to_string())`, attributes: `v.attributes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.as_str().to_string(), v.to_string())).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::collections::SalvoMap::from_entries::<crate::collections::HostHash, crate::collections::HostEq, _>(__es) })`, md5_of_message_attributes: `v.md5_of_message_attributes().map(|x| x.to_string())`, message_attributes: `v.message_attributes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_message_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::collections::SalvoMap::from_entries::<crate::collections::HostHash, crate::collections::HostEq, _>(__es) })` } }
     }
 
-    fn to_sdk_message(v: @{: Message}) -> aws_sdk_sqs::types::Message {
-        let b = aws_sdk_sqs::types::Message::builder()
-            .set_message_id(@{(`v` : Message).message_id}.as_ref().map(|x| x.clone()))
-            .set_receipt_handle(@{(`v` : Message).receipt_handle}.as_ref().map(|x| x.clone()))
-            .set_md5_of_body(@{(`v` : Message).md5_of_body}.as_ref().map(|x| x.clone()))
-            .set_body(@{(`v` : Message).body}.as_ref().map(|x| x.clone()))
-            .set_attributes(@{(`v` : Message).attributes}.as_ref().map(|x| x.iter().map(|(k, v)| (aws_sdk_sqs::types::MessageSystemAttributeName::from(k.as_str()), v.clone())).collect::<std::collections::HashMap<_, _>>()))
-            .set_md5_of_message_attributes(@{(`v` : Message).md5_of_message_attributes}.as_ref().map(|x| x.clone()))
-            .set_message_attributes(@{(`v` : Message).message_attributes}.as_ref().map(|x| x.iter().map(|(k, v)| (k.clone(), to_sdk_message_attribute_value((v).clone()))).collect::<std::collections::HashMap<_, _>>()));
+    fn to_sdk_message(@{v : Message}) -> sdk::Message {
+        let b = sdk::Message::builder()
+            .set_message_id(@{v.message_id}.as_ref().map(|x| x.clone()))
+            .set_receipt_handle(@{v.receipt_handle}.as_ref().map(|x| x.clone()))
+            .set_md5_of_body(@{v.md5_of_body}.as_ref().map(|x| x.clone()))
+            .set_body(@{v.body}.as_ref().map(|x| x.clone()))
+            .set_attributes(@{v.attributes}.as_ref().map(|x| x.iter().map(|(k, v)| (sdk::MessageSystemAttributeName::from(k.as_str()), v.clone())).collect::<std::collections::HashMap<_, _>>()))
+            .set_md5_of_message_attributes(@{v.md5_of_message_attributes}.as_ref().map(|x| x.clone()))
+            .set_message_attributes(@{v.message_attributes}.as_ref().map(|x| x.iter().map(|(k, v)| (k.clone(), to_sdk_message_attribute_value((v).clone()))).collect::<std::collections::HashMap<_, _>>()));
         b.build()
     }
 
@@ -347,7 +365,7 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
             aws_sdk_sqs::error::SdkError::ResponseError(_) => "ResponseError",
             _ => "ConstructionFailure",
         };
-        let value: @{: SqsFailure} = match &e {
+        let @{value : SqsFailure} = match &e {
             aws_sdk_sqs::error::SdkError::ServiceError(ctx) => {
                 let err = ctx.err();
                 let code = salvo_code(err.code().unwrap_or("Unknown"));
@@ -357,7 +375,7 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
             }
             _ => @{ AwsError { code: `kind.to_string()`, message: `text` } : SqsFailure },
         };
-        @{ checked<SqsFailure>((`value` : SqsFailure)) }
+        @{ checked<SqsFailure>(value) }
     }
     ```
 
@@ -367,15 +385,15 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
         val host = @{reply}.hosted()
         val request = @{input}
         scope.launch {
-            val answer: @{: Ok CreateQueueOutput | Err Checked<SqsFailure>} = try {
-                val value = fromSdkCreateQueueOutput(client.createQueue(toSdkCreateQueueInput(request)))
-                @{ ok((`value` : CreateQueueOutput)) : Ok CreateQueueOutput | Err Checked<SqsFailure> }
+            val @{answer : Ok CreateQueueOutput | Err Checked<SqsFailure>} = try {
+                val @{value : CreateQueueOutput} = fromSdkCreateQueueOutput(client.createQueue(toSdkCreateQueueInput(request)))
+                @{ ok(value) : Ok CreateQueueOutput | Err Checked<SqsFailure> }
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                val failure = salvoFailure(e)
-                @{ err(checked<SqsFailure>((`failure` : SqsError))) : Ok CreateQueueOutput | Err Checked<SqsFailure> }
+                val @{failure : SqsError} = salvoFailure(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok CreateQueueOutput | Err Checked<SqsFailure> }
             } catch (e: Exception) {
-                val failure = salvoAwsError(e)
-                @{ err(checked<SqsFailure>((`failure` : AwsError))) : Ok CreateQueueOutput | Err Checked<SqsFailure> }
+                val @{failure : AwsError} = salvoAwsError(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok CreateQueueOutput | Err Checked<SqsFailure> }
             }
             host.send(answer)
         }
@@ -385,12 +403,12 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
         let client = self.client.clone();
         let call = client.create_queue()
             .set_queue_name(Some((&@{input.queue_name}).clone()))
-            .set_attributes(@{input.attributes}.as_ref().map(|x| x.iter().map(|(k, v)| (aws_sdk_sqs::types::QueueAttributeName::from(k.as_str()), v.clone())).collect::<std::collections::HashMap<_, _>>()))
+            .set_attributes(@{input.attributes}.as_ref().map(|x| x.iter().map(|(k, v)| (sdk::QueueAttributeName::from(k.as_str()), v.clone())).collect::<std::collections::HashMap<_, _>>()))
             .set_tags(@{input.tags}.as_ref().map(|x| x.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::HashMap<_, _>>()));
         self.rt.spawn(async move {
-            let answer: @{: Ok CreateQueueOutput | Err Checked<SqsFailure>} = match call.send().await {
-                Ok(out) => { let value = from_sdk_create_queue_output(&out); @{ ok((`value` : CreateQueueOutput)) : Ok CreateQueueOutput | Err Checked<SqsFailure> } }
-                Err(e) => { let failure = salvo_failure(e); @{ err((`failure` : Checked<SqsFailure>)) : Ok CreateQueueOutput | Err Checked<SqsFailure> } }
+            let @{answer : Ok CreateQueueOutput | Err Checked<SqsFailure>} = match call.send().await {
+                Ok(out) => { let @{value : CreateQueueOutput} = from_sdk_create_queue_output(&out); @{ ok(value) : Ok CreateQueueOutput | Err Checked<SqsFailure> } }
+                Err(e) => { let @{failure : Checked<SqsFailure>} = salvo_failure(e); @{ err(failure) : Ok CreateQueueOutput | Err Checked<SqsFailure> } }
             };
             reply.send(answer);
         });
@@ -402,15 +420,15 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
         val host = @{reply}.hosted()
         val request = @{input}
         scope.launch {
-            val answer: @{: Ok GetQueueUrlOutput | Err Checked<SqsFailure>} = try {
-                val value = fromSdkGetQueueUrlOutput(client.getQueueUrl(toSdkGetQueueUrlInput(request)))
-                @{ ok((`value` : GetQueueUrlOutput)) : Ok GetQueueUrlOutput | Err Checked<SqsFailure> }
+            val @{answer : Ok GetQueueUrlOutput | Err Checked<SqsFailure>} = try {
+                val @{value : GetQueueUrlOutput} = fromSdkGetQueueUrlOutput(client.getQueueUrl(toSdkGetQueueUrlInput(request)))
+                @{ ok(value) : Ok GetQueueUrlOutput | Err Checked<SqsFailure> }
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                val failure = salvoFailure(e)
-                @{ err(checked<SqsFailure>((`failure` : SqsError))) : Ok GetQueueUrlOutput | Err Checked<SqsFailure> }
+                val @{failure : SqsError} = salvoFailure(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok GetQueueUrlOutput | Err Checked<SqsFailure> }
             } catch (e: Exception) {
-                val failure = salvoAwsError(e)
-                @{ err(checked<SqsFailure>((`failure` : AwsError))) : Ok GetQueueUrlOutput | Err Checked<SqsFailure> }
+                val @{failure : AwsError} = salvoAwsError(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok GetQueueUrlOutput | Err Checked<SqsFailure> }
             }
             host.send(answer)
         }
@@ -422,9 +440,9 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
             .set_queue_name(Some((&@{input.queue_name}).clone()))
             .set_queue_owner_aws_account_id(@{input.queue_owner_aws_account_id}.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
-            let answer: @{: Ok GetQueueUrlOutput | Err Checked<SqsFailure>} = match call.send().await {
-                Ok(out) => { let value = from_sdk_get_queue_url_output(&out); @{ ok((`value` : GetQueueUrlOutput)) : Ok GetQueueUrlOutput | Err Checked<SqsFailure> } }
-                Err(e) => { let failure = salvo_failure(e); @{ err((`failure` : Checked<SqsFailure>)) : Ok GetQueueUrlOutput | Err Checked<SqsFailure> } }
+            let @{answer : Ok GetQueueUrlOutput | Err Checked<SqsFailure>} = match call.send().await {
+                Ok(out) => { let @{value : GetQueueUrlOutput} = from_sdk_get_queue_url_output(&out); @{ ok(value) : Ok GetQueueUrlOutput | Err Checked<SqsFailure> } }
+                Err(e) => { let @{failure : Checked<SqsFailure>} = salvo_failure(e); @{ err(failure) : Ok GetQueueUrlOutput | Err Checked<SqsFailure> } }
             };
             reply.send(answer);
         });
@@ -436,15 +454,15 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
         val host = @{reply}.hosted()
         val request = @{input}
         scope.launch {
-            val answer: @{: Ok SendMessageOutput | Err Checked<SqsFailure>} = try {
-                val value = fromSdkSendMessageOutput(client.sendMessage(toSdkSendMessageInput(request)))
-                @{ ok((`value` : SendMessageOutput)) : Ok SendMessageOutput | Err Checked<SqsFailure> }
+            val @{answer : Ok SendMessageOutput | Err Checked<SqsFailure>} = try {
+                val @{value : SendMessageOutput} = fromSdkSendMessageOutput(client.sendMessage(toSdkSendMessageInput(request)))
+                @{ ok(value) : Ok SendMessageOutput | Err Checked<SqsFailure> }
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                val failure = salvoFailure(e)
-                @{ err(checked<SqsFailure>((`failure` : SqsError))) : Ok SendMessageOutput | Err Checked<SqsFailure> }
+                val @{failure : SqsError} = salvoFailure(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok SendMessageOutput | Err Checked<SqsFailure> }
             } catch (e: Exception) {
-                val failure = salvoAwsError(e)
-                @{ err(checked<SqsFailure>((`failure` : AwsError))) : Ok SendMessageOutput | Err Checked<SqsFailure> }
+                val @{failure : AwsError} = salvoAwsError(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok SendMessageOutput | Err Checked<SqsFailure> }
             }
             host.send(answer)
         }
@@ -457,13 +475,13 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
             .set_message_body(Some((&@{input.message_body}).clone()))
             .set_delay_seconds(@{input.delay_seconds}.as_ref().map(|x| *x))
             .set_message_attributes(@{input.message_attributes}.as_ref().map(|x| x.iter().map(|(k, v)| (k.clone(), to_sdk_message_attribute_value((v).clone()))).collect::<std::collections::HashMap<_, _>>()))
-            .set_message_system_attributes(@{input.message_system_attributes}.as_ref().map(|x| x.iter().map(|(k, v)| (aws_sdk_sqs::types::MessageSystemAttributeNameForSends::from(k.as_str()), to_sdk_message_system_attribute_value((v).clone()))).collect::<std::collections::HashMap<_, _>>()))
+            .set_message_system_attributes(@{input.message_system_attributes}.as_ref().map(|x| x.iter().map(|(k, v)| (sdk::MessageSystemAttributeNameForSends::from(k.as_str()), to_sdk_message_system_attribute_value((v).clone()))).collect::<std::collections::HashMap<_, _>>()))
             .set_message_deduplication_id(@{input.message_deduplication_id}.as_ref().map(|x| x.clone()))
             .set_message_group_id(@{input.message_group_id}.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
-            let answer: @{: Ok SendMessageOutput | Err Checked<SqsFailure>} = match call.send().await {
-                Ok(out) => { let value = from_sdk_send_message_output(&out); @{ ok((`value` : SendMessageOutput)) : Ok SendMessageOutput | Err Checked<SqsFailure> } }
-                Err(e) => { let failure = salvo_failure(e); @{ err((`failure` : Checked<SqsFailure>)) : Ok SendMessageOutput | Err Checked<SqsFailure> } }
+            let @{answer : Ok SendMessageOutput | Err Checked<SqsFailure>} = match call.send().await {
+                Ok(out) => { let @{value : SendMessageOutput} = from_sdk_send_message_output(&out); @{ ok(value) : Ok SendMessageOutput | Err Checked<SqsFailure> } }
+                Err(e) => { let @{failure : Checked<SqsFailure>} = salvo_failure(e); @{ err(failure) : Ok SendMessageOutput | Err Checked<SqsFailure> } }
             };
             reply.send(answer);
         });
@@ -475,15 +493,15 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
         val host = @{reply}.hosted()
         val request = @{input}
         scope.launch {
-            val answer: @{: Ok ReceiveMessageOutput | Err Checked<SqsFailure>} = try {
-                val value = fromSdkReceiveMessageOutput(client.receiveMessage(toSdkReceiveMessageInput(request)))
-                @{ ok((`value` : ReceiveMessageOutput)) : Ok ReceiveMessageOutput | Err Checked<SqsFailure> }
+            val @{answer : Ok ReceiveMessageOutput | Err Checked<SqsFailure>} = try {
+                val @{value : ReceiveMessageOutput} = fromSdkReceiveMessageOutput(client.receiveMessage(toSdkReceiveMessageInput(request)))
+                @{ ok(value) : Ok ReceiveMessageOutput | Err Checked<SqsFailure> }
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                val failure = salvoFailure(e)
-                @{ err(checked<SqsFailure>((`failure` : SqsError))) : Ok ReceiveMessageOutput | Err Checked<SqsFailure> }
+                val @{failure : SqsError} = salvoFailure(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok ReceiveMessageOutput | Err Checked<SqsFailure> }
             } catch (e: Exception) {
-                val failure = salvoAwsError(e)
-                @{ err(checked<SqsFailure>((`failure` : AwsError))) : Ok ReceiveMessageOutput | Err Checked<SqsFailure> }
+                val @{failure : AwsError} = salvoAwsError(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok ReceiveMessageOutput | Err Checked<SqsFailure> }
             }
             host.send(answer)
         }
@@ -493,17 +511,17 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
         let client = self.client.clone();
         let call = client.receive_message()
             .set_queue_url(Some((&@{input.queue_url}).clone()))
-            .set_attribute_names(@{input.attribute_names}.as_ref().map(|x| x.iter().map(|e| aws_sdk_sqs::types::QueueAttributeName::from(e.as_str())).collect::<Vec<_>>()))
-            .set_message_system_attribute_names(@{input.message_system_attribute_names}.as_ref().map(|x| x.iter().map(|e| aws_sdk_sqs::types::MessageSystemAttributeName::from(e.as_str())).collect::<Vec<_>>()))
+            .set_attribute_names(@{input.attribute_names}.as_ref().map(|x| x.iter().map(|e| sdk::QueueAttributeName::from(e.as_str())).collect::<Vec<_>>()))
+            .set_message_system_attribute_names(@{input.message_system_attribute_names}.as_ref().map(|x| x.iter().map(|e| sdk::MessageSystemAttributeName::from(e.as_str())).collect::<Vec<_>>()))
             .set_message_attribute_names(@{input.message_attribute_names}.as_ref().map(|x| x.iter().map(|e| e.clone()).collect::<Vec<_>>()))
             .set_max_number_of_messages(@{input.max_number_of_messages}.as_ref().map(|x| *x))
             .set_visibility_timeout(@{input.visibility_timeout}.as_ref().map(|x| *x))
             .set_wait_time_seconds(@{input.wait_time_seconds}.as_ref().map(|x| *x))
             .set_receive_request_attempt_id(@{input.receive_request_attempt_id}.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
-            let answer: @{: Ok ReceiveMessageOutput | Err Checked<SqsFailure>} = match call.send().await {
-                Ok(out) => { let value = from_sdk_receive_message_output(&out); @{ ok((`value` : ReceiveMessageOutput)) : Ok ReceiveMessageOutput | Err Checked<SqsFailure> } }
-                Err(e) => { let failure = salvo_failure(e); @{ err((`failure` : Checked<SqsFailure>)) : Ok ReceiveMessageOutput | Err Checked<SqsFailure> } }
+            let @{answer : Ok ReceiveMessageOutput | Err Checked<SqsFailure>} = match call.send().await {
+                Ok(out) => { let @{value : ReceiveMessageOutput} = from_sdk_receive_message_output(&out); @{ ok(value) : Ok ReceiveMessageOutput | Err Checked<SqsFailure> } }
+                Err(e) => { let @{failure : Checked<SqsFailure>} = salvo_failure(e); @{ err(failure) : Ok ReceiveMessageOutput | Err Checked<SqsFailure> } }
             };
             reply.send(answer);
         });
@@ -515,15 +533,15 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
         val host = @{reply}.hosted()
         val request = @{input}
         scope.launch {
-            val answer: @{: Ok None | Err Checked<SqsFailure>} = try {
+            val @{answer : Ok None | Err Checked<SqsFailure>} = try {
                 client.deleteMessage(toSdkDeleteMessageInput(request))
                 @{ ok(None) : Ok None | Err Checked<SqsFailure> }
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                val failure = salvoFailure(e)
-                @{ err(checked<SqsFailure>((`failure` : SqsError))) : Ok None | Err Checked<SqsFailure> }
+                val @{failure : SqsError} = salvoFailure(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok None | Err Checked<SqsFailure> }
             } catch (e: Exception) {
-                val failure = salvoAwsError(e)
-                @{ err(checked<SqsFailure>((`failure` : AwsError))) : Ok None | Err Checked<SqsFailure> }
+                val @{failure : AwsError} = salvoAwsError(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok None | Err Checked<SqsFailure> }
             }
             host.send(answer)
         }
@@ -535,9 +553,9 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
             .set_queue_url(Some((&@{input.queue_url}).clone()))
             .set_receipt_handle(Some((&@{input.receipt_handle}).clone()));
         self.rt.spawn(async move {
-            let answer: @{: Ok None | Err Checked<SqsFailure>} = match call.send().await {
-                Ok(out) => { let value = (); @{ ok(None) : Ok None | Err Checked<SqsFailure> } }
-                Err(e) => { let failure = salvo_failure(e); @{ err((`failure` : Checked<SqsFailure>)) : Ok None | Err Checked<SqsFailure> } }
+            let @{answer : Ok None | Err Checked<SqsFailure>} = match call.send().await {
+                Ok(out) => { let @{value : None} = (); @{ ok(None) : Ok None | Err Checked<SqsFailure> } }
+                Err(e) => { let @{failure : Checked<SqsFailure>} = salvo_failure(e); @{ err(failure) : Ok None | Err Checked<SqsFailure> } }
             };
             reply.send(answer);
         });
@@ -549,15 +567,15 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
         val host = @{reply}.hosted()
         val request = @{input}
         scope.launch {
-            val answer: @{: Ok None | Err Checked<SqsFailure>} = try {
+            val @{answer : Ok None | Err Checked<SqsFailure>} = try {
                 client.deleteQueue(toSdkDeleteQueueInput(request))
                 @{ ok(None) : Ok None | Err Checked<SqsFailure> }
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                val failure = salvoFailure(e)
-                @{ err(checked<SqsFailure>((`failure` : SqsError))) : Ok None | Err Checked<SqsFailure> }
+                val @{failure : SqsError} = salvoFailure(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok None | Err Checked<SqsFailure> }
             } catch (e: Exception) {
-                val failure = salvoAwsError(e)
-                @{ err(checked<SqsFailure>((`failure` : AwsError))) : Ok None | Err Checked<SqsFailure> }
+                val @{failure : AwsError} = salvoAwsError(e)
+                @{ err(checked<SqsFailure>(failure)) : Ok None | Err Checked<SqsFailure> }
             }
             host.send(answer)
         }
@@ -568,9 +586,9 @@ export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs {
         let call = client.delete_queue()
             .set_queue_url(Some((&@{input.queue_url}).clone()));
         self.rt.spawn(async move {
-            let answer: @{: Ok None | Err Checked<SqsFailure>} = match call.send().await {
-                Ok(out) => { let value = (); @{ ok(None) : Ok None | Err Checked<SqsFailure> } }
-                Err(e) => { let failure = salvo_failure(e); @{ err((`failure` : Checked<SqsFailure>)) : Ok None | Err Checked<SqsFailure> } }
+            let @{answer : Ok None | Err Checked<SqsFailure>} = match call.send().await {
+                Ok(out) => { let @{value : None} = (); @{ ok(None) : Ok None | Err Checked<SqsFailure> } }
+                Err(e) => { let @{failure : Checked<SqsFailure>} = salvo_failure(e); @{ err(failure) : Ok None | Err Checked<SqsFailure> } }
             };
             reply.send(answer);
         });

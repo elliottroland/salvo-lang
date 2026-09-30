@@ -284,27 +284,40 @@ final class Generator {
     private String rsSdkStruct(ShapeId id) {
         for (OperationShape op : operations) {
             if (output(op).map(Shape::getId).filter(id::equals).isPresent()) {
-                return rsCrate() + "::operation::" + snake(op.getId().getName()) + "::"
+                return snake(op.getId().getName()) + "::"
                         + rsSdkName(op.getId().getName()) + "Output";
             }
         }
         if (model.expectShape(id).hasTrait("smithy.api#error")) {
-            return rsCrate() + "::types::error::" + rsSdkName(id.getName());
+            return "sdk::error::" + rsSdkName(id.getName());
         }
-        return rsCrate() + "::types::" + rsSdkName(id.getName());
+        return "sdk::" + rsSdkName(id.getName());
     }
 
     /** A structure's SDK type, Kotlin (operation shapes are renamed Request/Response). */
     private String ktSdkStruct(ShapeId id) {
         for (OperationShape op : operations) {
             if (input(op).map(Shape::getId).filter(id::equals).isPresent()) {
-                return ktModel() + "." + NamingKt.capitalizedDefaultName(op) + "Request";
+                return ktAlias(NamingKt.capitalizedDefaultName(op) + "Request");
             }
             if (output(op).map(Shape::getId).filter(id::equals).isPresent()) {
-                return ktModel() + "." + NamingKt.capitalizedDefaultName(op) + "Response";
+                return ktAlias(NamingKt.capitalizedDefaultName(op) + "Response");
             }
         }
-        return ktModel() + "." + ktSdkName(id);
+        return ktAlias(ktSdkName(id));
+    }
+
+    /** Kotlin model types the glue names, each imported once as `Sdk<Name>`. */
+    private final Set<String> ktAliases = new TreeSet<>();
+
+    /**
+     * An SDK model type under its import alias, `SdkMessage`: Kotlin cannot
+     * alias a package, and a wildcard import would collide with the Salvo
+     * struct of the same name.
+     */
+    private String ktAlias(String modelName) {
+        ktAliases.add(modelName);
+        return "Sdk" + modelName;
     }
 
     private String effectOp(OperationShape op) {
@@ -1025,6 +1038,11 @@ final class Generator {
         return "@{: " + ty + "}";
     }
 
+    /** `@{name : ty}`: declares the host name [name] as a Salvo value of type [ty]. */
+    private static String declHole(String name, String ty) {
+        return "@{" + name + " : " + ty + "}";
+    }
+
     /** A host name [name] seen as a Salvo value of type [ty], inside a hole. */
     private static String asSalvo(String name, String ty) {
         return "(`" + name + "` : " + ty + ")";
@@ -1035,10 +1053,14 @@ final class Generator {
         return "@{ " + value + " : " + replyPayload(op) + " }";
     }
 
-    private String okAnswer(OperationShape op, String hostValue) {
-        String out = output(op).map(s -> structs.get(s.getId())).orElse(null);
-        if (out == null) return answer(op, "ok(None)");
-        return answer(op, "ok(" + asSalvo(hostValue, out) + ")");
+    /** The success answer, from the host name [value] declared as the output. */
+    private String okAnswer(OperationShape op, String value) {
+        return output(op).isPresent() ? answer(op, "ok(" + value + ")") : answer(op, "ok(None)");
+    }
+
+    /** Declares the host name [name] as the operation's output: `let @{value : Out}`. */
+    private String outputDecl(OperationShape op, String name) {
+        return declHole(name, output(op).map(s -> structs.get(s.getId())).orElse("None"));
     }
 
     private String awsErrAnswer(OperationShape op, String code, String messageLeaf) {
@@ -1067,14 +1089,19 @@ final class Generator {
                 + "client is safe to share, so the instance is used from every pool with no lock.", ""));
         out.append("export threadsafe platform handler Host").append(settings.effect())
                 .append("(config: AwsConfig) of ").append(settings.effect()).append(" {\n");
-        out.append(fence("kotlin", kotlinClassBody(), 1));
-        out.append(fence("rust", rustModuleItems(), 1));
+        StringBuilder members = new StringBuilder();
         for (OperationShape op : operations) {
-            out.append('\n');
-            out.append("    ").append(effectSignature(op).replace("\n    =>", "\n    =>")).append('\n');
-            out.append(fence("kotlin", kotlinMember(op), 2));
-            out.append(fence("rust", rustMember(op), 2));
+            members.append('\n');
+            members.append("    ").append(effectSignature(op)).append('\n');
+            members.append(fence("kotlin", kotlinMember(op), 2));
+            members.append(fence("rust", rustMember(op), 2));
         }
+        String classBody = kotlinClassBody();
+        StringBuilder imports = new StringBuilder();
+        for (String a : ktAliases) imports.append("import ").append(ktModel()).append('.').append(a).append(" as Sdk").append(a).append('\n');
+        out.append(fence("kotlin", imports + classBody, 1));
+        out.append(fence("rust", rustModuleItems(), 1));
+        out.append(members);
         out.append("}\n");
         return out.toString();
     }
@@ -1097,7 +1124,7 @@ final class Generator {
     /** Salvo → SDK, from a *reference* expression [ref] to a Salvo value. */
     private String rsToSdk(Shape t, String ref) {
         if (t instanceof EnumShape e) {
-            return rsCrate() + "::types::" + rsSdkName(e.getId().getName()) + "::from(" + ref + ".as_str())";
+            return "sdk::" + rsSdkName(e.getId().getName()) + "::from(" + ref + ".as_str())";
         }
         if (t instanceof StructureShape s) return "to_sdk_" + snake(structs.get(s.getId())) + "((" + ref + ").clone())";
         if (t instanceof ListShape l) {
@@ -1106,7 +1133,7 @@ final class Generator {
         if (t instanceof MapShape m) {
             Shape key = target(m.getKey());
             String k = key instanceof EnumShape
-                    ? rsCrate() + "::types::" + rsSdkName(key.getId().getName()) + "::from(k.as_str())"
+                    ? "sdk::" + rsSdkName(key.getId().getName()) + "::from(k.as_str())"
                     : "k.clone()";
             return ref + ".iter().map(|(k, v)| (" + k + ", " + rsToSdk(target(m.getValue()), "v")
                     + ")).collect::<std::collections::HashMap<_, _>>()";
@@ -1176,7 +1203,13 @@ final class Generator {
         String crate = rsCrate();
         String effect = settings.effect();
         StringBuilder out = new StringBuilder();
-        out.append("use ").append(crate).append("::error::ProvideErrorMetadata;\n\n");
+        out.append("use ").append(crate).append("::error::ProvideErrorMetadata;\n");
+        // The SDK's shapes under short names: `sdk::Message`, and each
+        // operation's module (`send_message::SendMessageOutput`).
+        out.append("use ").append(crate).append("::types as sdk;\n");
+        List<String> ops = new ArrayList<>();
+        for (OperationShape op : operations) ops.add(effectOp(op));
+        out.append("use ").append(crate).append("::operation::{").append(String.join(", ", ops)).append("};\n\n");
         out.append("// The handler's host state: the SDK client, cheap to clone and safe to share,\n")
                 .append("// and the tokio runtime each call runs on as a task.\n");
         out.append("pub struct Host").append(effect).append(" {\n    rt: tokio::runtime::Runtime,\n    client: ")
@@ -1196,13 +1229,13 @@ final class Generator {
             out.append("        let client = ").append(crate).append("::Client::new(&shared);\n");
         }
         out.append("        Self { rt, client }\n    }\n}\n\n");
-        String cfg = asSalvo("config", "AwsConfig");
+        String cfg = "cfg";
         String prof = asSalvo("p", "ProfileCredentials");
         out.append("""
                 // The SDK configuration an `AwsConfig` describes: the region, the credentials
                 // it names, and the endpoint override when there is one.
                 #[allow(deprecated)]
-                async fn salvo_aws_config(config: %s) -> aws_config::SdkConfig {
+                async fn salvo_aws_config(%s) -> aws_config::SdkConfig {
                     let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
                         .region(aws_config::Region::new(@{%s.region.code}));
                     if let Some(p) = @{profile_of(%s.credentials)} {
@@ -1233,7 +1266,7 @@ final class Generator {
                         _ => path.to_string(),
                     }
                 }
-                """.formatted(tyHole("AwsConfig"), cfg, cfg, prof, prof, cfg, cfg));
+                """.formatted(declHole("cfg", "AwsConfig"), cfg, cfg, prof, prof, cfg, cfg));
         for (Map.Entry<ShapeId, String> s : structs.entrySet()) {
             StructureShape shape = model.expectShape(s.getKey(), StructureShape.class);
             if (!inputs.contains(s.getKey())) out.append('\n').append(rustFromSdk(shape, s.getValue()));
@@ -1278,7 +1311,7 @@ final class Generator {
             out.append("    let length = match length {\n")
                     .append("        Some(n) if n >= 0 => n,\n")
                     .append("        _ => {\n            drop(body);\n")
-                    .append("            let failed: ").append(tyHole(replyPayload(op))).append(" = ")
+                    .append("            let ").append(declHole("failed", replyPayload(op))).append(" = ")
                     .append(awsErrAnswer(op, "MissingContentLength", "\"" + missingLengthText(op) + "\".to_string()"))
                     .append(";\n            reply.send(failed);\n            return;\n        }\n    };\n");
             out.append("    let (upload, problem) = salvo_upload(body, length);\n");
@@ -1286,21 +1319,21 @@ final class Generator {
                     .append(crate).append("::primitives::ByteStream::from_body_1_x(upload)));\n");
         }
         String extra = rustExtra(op);
-        out.append("    let answer: ").append(tyHole(replyPayload(op))).append(" = match call.send().await {\n");
+        out.append("    let ").append(declHole("answer", replyPayload(op))).append(" = match call.send().await {\n");
         String okValue = outStream != null
                 ? "from_sdk_" + snake(structs.get(output(op).get().getId())) + "(out, &rt)"
                 : output(op).map(s -> "from_sdk_" + snake(structs.get(s.getId())) + "(&out)").orElse("()");
-        out.append("        Ok(out) => { let value = ").append(okValue).append("; ").append(okAnswer(op, "value"))
-                .append(" }\n");
-        out.append("        Err(e) => { let failure = salvo_failure(e").append(extra.isEmpty() ? "" : ", " + extra)
-                .append("); ").append(answer(op, "err(" + asSalvo("failure", "Checked<" + errorUnion() + ">") + ")"))
-                .append(" }\n");
+        out.append("        Ok(out) => { let ").append(outputDecl(op, "value")).append(" = ").append(okValue).append("; ")
+                .append(okAnswer(op, "value")).append(" }\n");
+        out.append("        Err(e) => { let ").append(declHole("failure", "Checked<" + errorUnion() + ">"))
+                .append(" = salvo_failure(e").append(extra.isEmpty() ? "" : ", " + extra)
+                .append("); ").append(answer(op, "err(failure)")).append(" }\n");
         out.append("    };\n");
         if (inStream != null) {
             // A body that failed, or did not match its length, is the answer
             // whatever the service said about the bytes it did get.
             out.append("    let problem = problem.lock().unwrap().take();\n")
-                    .append("    let answer: ").append(tyHole(replyPayload(op))).append(" = match problem {\n")
+                    .append("    let ").append(declHole("answer", replyPayload(op))).append(" = match problem {\n")
                     .append("        Some(message) => ").append(awsErrAnswer(op, "StreamFailed", "message")).append(",\n")
                     .append("        None => answer,\n    };\n");
         }
@@ -1345,12 +1378,12 @@ final class Generator {
     private String rustToSdk(StructureShape s, String name) {
         String sdk = rsSdkStruct(s.getId());
         StringBuilder out = new StringBuilder();
-        out.append("fn to_sdk_").append(snake(name)).append("(v: ").append(tyHole(name)).append(") -> ").append(sdk)
+        out.append("fn to_sdk_").append(snake(name)).append("(").append(declHole("v", name)).append(") -> ").append(sdk)
                 .append(" {\n    let b = ").append(sdk).append("::builder()");
         boolean fallible = false;
         for (MemberShape m : members(s)) {
             out.append("\n        .set_").append(snake(m.getMemberName())).append('(')
-                    .append(rsSetArg(m, asSalvo("v", name))).append(')');
+                    .append(rsSetArg(m, "v")).append(')');
             fallible |= m.hasTrait(RequiredTrait.class);
         }
         out.append(";\n    b.build()");
@@ -1395,7 +1428,7 @@ final class Generator {
                 .append("        ").append(crate).append("::error::SdkError::DispatchFailure(_) => \"DispatchFailure\",\n")
                 .append("        ").append(crate).append("::error::SdkError::ResponseError(_) => \"ResponseError\",\n")
                 .append("        _ => \"ConstructionFailure\",\n    };\n")
-                .append("    let value: ").append(tyHole(errorUnion())).append(" = match &e {\n")
+                .append("    let ").append(declHole("value", errorUnion())).append(" = match &e {\n")
                 .append("        ").append(crate).append("::error::SdkError::ServiceError(ctx) => {\n")
                 .append("            let err = ctx.err();\n")
                 .append("            let code = salvo_code(err.code().unwrap_or(\"Unknown\"));\n")
@@ -1415,7 +1448,7 @@ final class Generator {
                 .append(errorUnion()).append(" }\n        }\n");
         out.append("        _ => @{ AwsError { code: `kind.to_string()`, message: `text` } : ").append(errorUnion())
                 .append(" },\n    };\n");
-        out.append("    @{ checked<").append(errorUnion()).append(">(").append(asSalvo("value", errorUnion())).append(") }\n}\n");
+        out.append("    @{ checked<").append(errorUnion()).append(">(value) }\n}\n");
         return out.toString();
     }
 
@@ -1424,7 +1457,7 @@ final class Generator {
         Map<String, MemberShape> extras = extraErrorMembers();
         if (extras.isEmpty()) return "";
         String crate = rsCrate();
-        String errEnum = crate + "::operation::" + effectOp(op) + "::" + rsSdkName(op.getId().getName()) + "Error";
+        String errEnum = effectOp(op) + "::" + rsSdkName(op.getId().getName()) + "Error";
         List<String> none = new ArrayList<>();
         for (int i = 0; i < extras.size(); i++) none.add("None");
         String nothing = extras.size() == 1 ? "None" : "(" + String.join(", ", none) + ")";
@@ -1462,8 +1495,8 @@ final class Generator {
                 }
 
                 /// A `time.Instant` as a Smithy timestamp.
-                fn salvo_date_time(at: @{: Instant}) -> %1$s {
-                    %1$s::from_nanos(@{(`at` : Instant).nanos} as i128).expect("an i64 of nanoseconds is a valid timestamp")
+                fn salvo_date_time(@{at : Instant}) -> %1$s {
+                    %1$s::from_nanos(@{at.nanos} as i128).expect("an i64 of nanoseconds is a valid timestamp")
                 }
                 """.formatted(dt);
     }
@@ -1476,14 +1509,14 @@ final class Generator {
 
     /** Salvo → SDK, from a non-null Kotlin expression [v]; [d] numbers nested lambda parameters. */
     private String ktToSdk(Shape t, String v, int d) {
-        if (t instanceof EnumShape e) return ktModel() + "." + ktSdkName(e.getId()) + ".fromValue(" + v + ")";
+        if (t instanceof EnumShape e) return ktAlias(ktSdkName(e.getId())) + ".fromValue(" + v + ")";
         if (t instanceof StructureShape s) return "toSdk" + structs.get(s.getId()) + "(" + v + ")";
         if (t instanceof ListShape l) {
             return v + ".map { e" + d + " -> " + ktToSdk(target(l.getMember()), "e" + d, d + 1) + " }";
         }
         if (t instanceof MapShape m) {
             Shape key = target(m.getKey());
-            String k = key instanceof EnumShape ? ktModel() + "." + ktSdkName(key.getId()) + ".fromValue(k" + d + ")" : "k" + d;
+            String k = key instanceof EnumShape ? ktAlias(ktSdkName(key.getId())) + ".fromValue(k" + d + ")" : "k" + d;
             return v + ".entries.associate { (k" + d + ", v" + d + ") -> " + k + " to "
                     + ktToSdk(target(m.getValue()), "v" + d, d + 1) + " }";
         }
@@ -1546,8 +1579,8 @@ final class Generator {
                 .append("// each call is a coroutine on.\n");
         out.append("private val scope = kotlinx.coroutines.CoroutineScope(\n")
                 .append("    kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO\n)\n");
-        out.append("private val salvoConfig = ").append(hole("config")).append('\n');
-        String cfg = asSalvo("salvoConfig", "AwsConfig");
+        out.append("private val ").append(declHole("salvoConfig", "AwsConfig")).append(" = ").append(hole("config")).append('\n');
+        String cfg = "salvoConfig";
         out.append("private val client = ").append(ktClient()).append(" {\n")
                 .append("    region = @{").append(cfg).append(".region.code}\n")
                 .append("    credentialsProvider = salvoCredentials(salvoConfig)\n")
@@ -1569,7 +1602,6 @@ final class Generator {
     private String kotlinMember(OperationShape op) {
         MemberShape inStream = streamOf(input(op));
         MemberShape outStream = streamOf(output(op));
-        String payload = tyHole(replyPayload(op));
         StringBuilder out = new StringBuilder();
         out.append("val host = ").append(hole("reply")).append(".hosted()\n");
         input(op).ifPresent(in -> out.append("val request = ").append(hole("input")).append('\n'));
@@ -1583,7 +1615,7 @@ final class Generator {
         if (inStream != null) {
             out.append("    if (length == null || length < 0) {\n")
                     .append("        body.closeInput()\n")
-                    .append("        val failed: ").append(payload).append(" = ")
+                    .append("        val ").append(declHole("failed", replyPayload(op))).append(" = ")
                     .append(awsErrAnswer(op, "MissingContentLength", "\"" + missingLengthText(op) + "\"")).append('\n')
                     .append("        host.send(failed)\n        return@launch\n    }\n");
             out.append("    val upload = SalvoUpload(body, length)\n");
@@ -1596,22 +1628,22 @@ final class Generator {
             // block answers the reply itself and then waits for the program
             // to close the stream it was handed.
             out.append("    var sent = false\n");
-            out.append("    val answer: ").append(payload.replace("}", "}")).append("? = try {\n");
+            out.append("    val ").append(declHole("answer", "(" + replyPayload(op) + ")?")).append(" = try {\n");
             out.append("        ").append(call).append(" { response ->\n")
                     .append("            val closed = kotlinx.coroutines.CompletableDeferred<Unit>()\n")
                     .append("            val handle = salvoRegisterBody(\"").append(bodySource(op))
                     .append("\", response.").append(ktMember(outStream)).append(", closed)\n")
                     .append("            sent = true\n")
-                    .append("            val value = fromSdk").append(structs.get(output(op).get().getId()))
+                    .append("            val ").append(outputDecl(op, "value")).append(" = fromSdk").append(structs.get(output(op).get().getId()))
                     .append("(response, handle)\n")
-                    .append("            val ok: ").append(payload).append(" = ").append(okAnswer(op, "value")).append('\n')
-                    .append("            host.send(ok)\n")
+                    .append("            val ").append(declHole("success", replyPayload(op))).append(" = ").append(okAnswer(op, "value")).append('\n')
+                    .append("            host.send(success)\n")
                     .append("            closed.await()\n        }\n")
                     .append("        null\n");
         } else {
-            out.append("    val answer: ").append(payload).append(" = try {\n");
+            out.append("    val ").append(declHole("answer", replyPayload(op))).append(" = try {\n");
             if (output(op).isPresent()) {
-                out.append("        val value = fromSdk").append(structs.get(output(op).get().getId())).append('(')
+                out.append("        val ").append(outputDecl(op, "value")).append(" = fromSdk").append(structs.get(output(op).get().getId())).append('(')
                         .append(call).append(")\n");
                 out.append("        ").append(okAnswer(op, "value")).append('\n');
             } else {
@@ -1619,19 +1651,19 @@ final class Generator {
             }
         }
         out.append("    } catch (e: aws.smithy.kotlin.runtime.ServiceException) {\n")
-                .append("        val failure = salvoFailure(e)\n")
-                .append("        ").append(answer(op, "err(checked<" + errorUnion() + ">(" + asSalvo("failure", errorStruct()) + "))"))
+                .append("        val ").append(declHole("failure", errorStruct())).append(" = salvoFailure(e)\n")
+                .append("        ").append(answer(op, "err(checked<" + errorUnion() + ">(failure))"))
                 .append('\n');
         out.append("    } catch (e: Exception) {\n")
-                .append("        val failure = salvoAwsError(e)\n")
-                .append("        ").append(answer(op, "err(checked<" + errorUnion() + ">(" + asSalvo("failure", "AwsError") + "))"))
+                .append("        val ").append(declHole("failure", "AwsError")).append(" = salvoAwsError(e)\n")
+                .append("        ").append(answer(op, "err(checked<" + errorUnion() + ">(failure))"))
                 .append("\n    }\n");
         if (outStream != null) {
             out.append("    if (!sent && answer != null) host.send(answer)\n}\n");
         } else if (inStream != null) {
             out.append("    val problem = upload.finish()\n")
                     .append("    body.closeInput()\n")
-                    .append("    val result: ").append(payload).append(" = if (problem != null) ")
+                    .append("    val ").append(declHole("result", replyPayload(op))).append(" = if (problem != null) ")
                     .append(awsErrAnswer(op, "StreamFailed", "problem")).append(" else answer\n")
                     .append("    host.send(result)\n}\n");
         } else {
@@ -1663,8 +1695,8 @@ final class Generator {
         for (Map.Entry<String, MemberShape> x : extraErrorMembers().entrySet()) {
             String owner = x.getValue().getContainer().getName();
             String local = "extra" + i++;
-            out.append("    val ").append(local).append(" = (e as? ").append(ktModel()).append('.')
-                    .append(ktSdkName(x.getValue().getContainer())).append(")?.let { ")
+            out.append("    val ").append(local).append(" = (e as? ").append(ktAlias(ktSdkName(x.getValue().getContainer())))
+                    .append(")?.let { ")
                     .append(ktReadField(x.getValue(), "it")).append(" }\n");
             fields.add(x.getKey() + ": `" + local + "`");
             if (owner.isEmpty()) break;
@@ -1704,11 +1736,11 @@ final class Generator {
         String sdk = ktSdkStruct(s.getId());
         MemberShape body = streaming.get(s.getId());
         StringBuilder out = new StringBuilder();
-        out.append("private fun toSdk").append(name).append("(v: ").append(tyHole(name))
+        out.append("private fun toSdk").append(name).append("(").append(declHole("v", name))
                 .append(body != null ? ", bodyStream: aws.smithy.kotlin.runtime.content.ByteStream" : "").append("): ")
                 .append(sdk).append(" = ").append(sdk).append(" {\n");
         for (MemberShape m : members(s)) {
-            String value = m.equals(body) ? "bodyStream" : ktSetField(m, asSalvo("v", name));
+            String value = m.equals(body) ? "bodyStream" : ktSetField(m, "v");
             out.append("    ").append(ktMember(m)).append(" = ").append(value).append('\n');
         }
         out.append("}\n");
@@ -1725,8 +1757,8 @@ final class Generator {
                 }
 
                 /** A `time.Instant` as a Smithy timestamp. */
-                private fun salvoDateTime(at: @{: Instant}): aws.smithy.kotlin.runtime.time.Instant {
-                    val nanos = @{(`at` : Instant).nanos}
+                private fun salvoDateTime(@{at : Instant}): aws.smithy.kotlin.runtime.time.Instant {
+                    val nanos = @{at.nanos}
                     return aws.smithy.kotlin.runtime.time.Instant.fromEpochSeconds(
                         Math.floorDiv(nanos, 1_000_000_000L),
                         Math.floorMod(nanos, 1_000_000_000L).toInt(),
@@ -1736,13 +1768,13 @@ final class Generator {
     }
 
     private String kotlinCredentials() {
-        String cfg = asSalvo("config", "AwsConfig");
+        String cfg = "cfg";
         String prof = asSalvo("profile", "ProfileCredentials");
         return """
 
                 /** The SDK credentials provider an `AwsConfig`'s credentials name. */
                 @OptIn(aws.sdk.kotlin.runtime.InternalSdkApi::class)
-                private fun salvoCredentials(config: @{: AwsConfig}): aws.smithy.kotlin.runtime.auth.awscredentials.CredentialsProvider {
+                private fun salvoCredentials(@{cfg : AwsConfig}): aws.smithy.kotlin.runtime.auth.awscredentials.CredentialsProvider {
                     val profile = @{profile_of(%1$s.credentials)}
                     if (profile != null) {
                         return aws.sdk.kotlin.runtime.auth.credentials.ProfileCredentialsProvider(
