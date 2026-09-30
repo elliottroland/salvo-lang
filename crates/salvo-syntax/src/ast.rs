@@ -1130,6 +1130,40 @@ impl TypeLit {
     }
 }
 
+impl TypeLit {
+    /// [type-literal] A literal standing in an `is` check, which is a chain
+    /// of type refs: the ref is *named* by the literal as written
+    /// (`"STANDARD"`, `-3`, `3L`, `true`), which no type name can be.
+    pub fn as_type_ref(&self, span: Span) -> TypeRef {
+        let name = match self {
+            TypeLit::Str(v) => format!("\"{v}\""),
+            other => other.to_string(),
+        };
+        let Type::Named { mut base, .. } = self.base_type(span) else { unreachable!() };
+        base.name.name = name;
+        base
+    }
+
+    /// The literal a type ref made by [`TypeLit::as_type_ref`] stands for.
+    pub fn from_ref_name(name: &str) -> Option<TypeLit> {
+        if name.len() >= 2 && name.starts_with('"') && name.ends_with('"') {
+            return Some(TypeLit::Str(name[1..name.len() - 1].to_string()));
+        }
+        match name {
+            "true" => return Some(TypeLit::Bool(true)),
+            "false" => return Some(TypeLit::Bool(false)),
+            _ => {}
+        }
+        if let Some(digits) = name.strip_suffix('L') {
+            return digits.parse().ok().map(TypeLit::Long);
+        }
+        if name.starts_with(|c: char| c == '-' || c.is_ascii_digit()) {
+            return name.parse().ok().map(TypeLit::Int);
+        }
+        None
+    }
+}
+
 impl std::fmt::Display for TypeLit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

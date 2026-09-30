@@ -628,6 +628,14 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         // containment would need the qualifier's own semantics, which is
         // the recorded remainder of the constants step (ROADMAP.md).
         (Ty::ConstInt(x), Ty::ConstInt(y)) => x == y,
+        // [type-literal] A literal widens to its base: a `"A"` is a `Str`.
+        (Ty::Lit(l), Ty::Named { name, args }) if args.is_empty() && name == l.base() => true,
+        // [type-literal] A union with literals widens to its runtime shape
+        // (`"A" | "B" | Other Str` is a `Str` where one is expected).
+        (Ty::Union(_), _) if crate::literal::mentions_lit(a) && {
+            let w = crate::literal::widen(a);
+            w != *a && is_subtype(&w, b)
+        } => true,
         // A union is a subtype when every arm is.
         (Ty::Union(arms), _) => arms.iter().all(|arm| is_subtype(arm, b)),
         // A qualified union group (`Ok (A | B)`) matches an identical union

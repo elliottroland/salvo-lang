@@ -6126,7 +6126,11 @@ impl<'p> Emitter<'p> {
         // [type-literal] A literal is its base, and a union collapses its
         // literals, before anything is rendered [union-arm-identity].
         if matches!(ty, Type::Literal { .. } | Type::Union { .. }) {
-            let collapsed = salvo_core::literal::collapse_ast(ty);
+            let aliases = &self.symbols.type_aliases;
+            let lookup = |n: &str| {
+                aliases.get(n).and_then(|d| if d.generics.is_empty() { d.alias.as_ref() } else { None })
+            };
+            let collapsed = salvo_core::literal::collapse_ast_with(ty, &lookup);
             if &collapsed != ty {
                 return self.emit_type(&collapsed);
             }
@@ -12222,6 +12226,17 @@ impl<'p> Emitter<'p> {
         if test.match_none {
             return format!("{subj}.is_none()");
         }
+        if literal_test(test) {
+            if test.size >= 2 {
+                self.union_sizes.insert(test.size);
+            }
+            let pats: Vec<String> = test.arms.iter().map(|a| literal_arm_pattern(test, *a)).collect();
+            if pats.is_empty() {
+                return "false".to_string();
+            }
+            let conds: Vec<String> = pats.iter().map(|p| format!("matches!({subj}, {p})")).collect();
+            return if conds.len() == 1 { conds.into_iter().next().unwrap() } else { format!("({})", conds.join(" || ")) };
+        }
         if test.size == 1 {
             // `T?` representation.
             return if test.arms.is_empty() {
@@ -13305,9 +13320,22 @@ impl<'p> Emitter<'p> {
         let mut out = format!("match {subj} {{\n");
         let mut covered_arms: BTreeSet<usize> = BTreeSet::new();
         let mut covered_none = !nullable;
-        for (branch, test) in branches.iter().zip(&tests) {
+        // [type-literal] Value conditions are guards; the checker proved the
+        // `when` exhaustive, so the last branch is the catch-all rustc needs.
+        let literal_mode = tests.iter().flatten().any(literal_test);
+        let count = branches.len();
+        for (bi, (branch, test)) in branches.iter().zip(&tests).enumerate() {
             let Some(test) = test else { continue };
-            let pattern = if test.match_none {
+            let pattern = if literal_mode && !test.match_none {
+                if bi + 1 == count {
+                    covered_none = true;
+                    covered_arms.extend(0..size.max(1));
+                    "_".to_string()
+                } else {
+                    let pats: Vec<String> = test.arms.iter().map(|a| literal_arm_pattern(test, *a)).collect();
+                    if pats.is_empty() { "_ if false".to_string() } else { pats.join(" | ") }
+                }
+            } else if test.match_none {
                 covered_none = true;
                 "None".to_string()
             } else if size == 1 {
@@ -18258,5 +18286,43 @@ fn strip_proj(ty: &Type) -> Type {
             }
         }
         other => other.clone(),
+    }
+}
+
+/// [type-literal] Whether an `is` test carries value conditions, or tests a
+/// union of literals that collapsed to its base (no wrapper, no `None`).
+fn literal_test(test: &UnionTest) -> bool {
+    !test.match_none && (!test.values.is_empty() || (test.size == 1 && !test.nullable))
+}
+
+/// [type-literal] The pattern (with a guard, when the arm carries a value
+/// condition) matching one runtime arm of a literal-union test.
+fn literal_arm_pattern(test: &UnionTest, arm: usize) -> String {
+    let cond = test.values.iter().find(|(a, _, _)| *a == arm);
+    let bind = if cond.is_some() { "ref __v" } else { "_" };
+    let mut pat = if test.size >= 2 { format!("Union{}::U{}({bind})", test.size, arm + 1) } else { bind.to_string() };
+    if test.nullable {
+        pat = format!("Some({pat})");
+    }
+    if let Some((_, negate, lits)) = cond {
+        if !lits.is_empty() {
+            let cmp: Vec<String> = lits
+                .iter()
+                .map(|l| format!("*__v {} {}", if *negate { "!=" } else { "==" }, rs_literal(l)))
+                .collect();
+            pat = format!("{pat} if ({})", cmp.join(if *negate { " && " } else { " || " }));
+        }
+    }
+    pat
+}
+
+/// [type-literal] A literal type's value as a Rust literal.
+fn rs_literal(lit: &salvo_syntax::ast::TypeLit) -> String {
+    use salvo_syntax::ast::TypeLit;
+    match lit {
+        TypeLit::Str(v) => format!("{v:?}"),
+        TypeLit::Int(v) => format!("{v}i32"),
+        TypeLit::Long(v) => format!("{v}i64"),
+        TypeLit::Bool(v) => v.to_string(),
     }
 }

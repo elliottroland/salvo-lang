@@ -135,6 +135,46 @@ pub fn collapse_ty(ty: &Ty) -> Ty {
     }
 }
 
+/// [type-literal] The *widened* reading of a type with literals, for where
+/// its base is expected: like [`collapse_ty`], but an arm that holds literals
+/// is its plain base — the open arm's qualifier included, so `"A" | "B" |
+/// Other Str` widens to `Str`. The widening rule is exactly this: a value of a
+/// literal union is its runtime shape.
+pub fn widen(ty: &Ty) -> Ty {
+    if !mentions_lit(ty) {
+        return ty.clone();
+    }
+    match ty {
+        Ty::Lit(l) => Ty::named(l.base()),
+        Ty::Union(arms) => {
+            let values: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
+            let has_none = values.len() < arms.len();
+            let lay = layout(&values);
+            let mut out: Vec<Ty> = lay
+                .runtime
+                .iter()
+                .enumerate()
+                .map(|(r, t)| {
+                    let has_lit = values
+                        .iter()
+                        .zip(&lay.to_runtime)
+                        .any(|(a, at)| *at == r && matches!(a, Ty::Lit(_)));
+                    if has_lit {
+                        t.strip_quals().clone()
+                    } else {
+                        t.clone()
+                    }
+                })
+                .collect();
+            if has_none {
+                out.push(Ty::none());
+            }
+            Ty::union_of(out)
+        }
+        other => collapse_ty(other),
+    }
+}
+
 /// Where declared value arm [arm] of [union] lives at run time: the index
 /// among the runtime union's value arms, or `None` when the runtime type is
 /// not a union at all (every value arm collapsed into one base).
@@ -150,6 +190,48 @@ pub fn runtime_arm(union: &Ty, arm: usize) -> Option<usize> {
 /// How many value arms the runtime union has (1 when it is not a union).
 pub fn runtime_size(union: &Ty) -> usize {
     layout(&union.value_arms()).runtime.len()
+}
+
+/// [type-literal] [`collapse_ast`] after expanding, inside a union, every arm
+/// that names a non-generic type alias — `Kms | "QueueDoesNotExist" | Other
+/// Str` must see `Kms`'s literals to collapse them. [alias] answers an alias's
+/// definition by name.
+pub fn collapse_ast_with<'a>(ty: &ast::Type, alias: &dyn Fn(&str) -> Option<&'a ast::Type>) -> ast::Type {
+    fn expand<'a>(ty: &ast::Type, alias: &dyn Fn(&str) -> Option<&'a ast::Type>, depth: usize) -> ast::Type {
+        match ty {
+            ast::Type::Union { arms, span } if depth < 16 => {
+                let mut out = Vec::new();
+                for arm in arms {
+                    let arm = match arm {
+                        ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() => {
+                            match alias(&base.name.name) {
+                                Some(def) => expand(def, alias, depth + 1),
+                                None => arm.clone(),
+                            }
+                        }
+                        other => expand(other, alias, depth + 1),
+                    };
+                    match arm {
+                        ast::Type::Union { arms: inner, .. } => out.extend(inner),
+                        other => out.push(other),
+                    }
+                }
+                ast::Type::Union { arms: out, span: *span }
+            }
+            ast::Type::Nullable { inner, span } => {
+                ast::Type::Nullable { inner: Box::new(expand(inner, alias, depth + 1)), span: *span }
+            }
+            other => other.clone(),
+        }
+    }
+    let expanded = expand(ty, alias, 0);
+    let collapsed = collapse_ast(&expanded);
+    // Nothing had literals: keep the written type, aliases and all.
+    if collapsed == expanded {
+        ty.clone()
+    } else {
+        collapsed
+    }
 }
 
 /// [type-literal] The written-type counterpart of [`collapse_ty`], for the
@@ -220,6 +302,61 @@ pub fn collapse_ast(ty: &ast::Type) -> ast::Type {
         ast::Type::Array { elem, span } => ast::Type::Array { elem: Box::new(collapse_ast(elem)), span: *span },
         ast::Type::Tuple { elems, span } => ast::Type::Tuple { elems: elems.iter().map(collapse_ast).collect(), span: *span },
         other => other.clone(),
+    }
+}
+
+/// [union-arm-identity] Rewrites the checker's coercions into the runtime
+/// arms, once, after the last round: an arm index into a declared union with
+/// literals becomes its runtime arm, a wrap into a union that collapsed to its
+/// base is no wrap at all (or an optional wrap, where `None` remains), and a
+/// rewrap between two unions with the same runtime shape is nothing. The `is`
+/// tests are already lowered where they are recorded.
+pub fn lower_tables(out: &mut crate::check::Checked) {
+    use crate::check::Coercion;
+    fn lower(c: &Coercion) -> Option<Coercion> {
+        match c {
+            Coercion::WrapUnion { target, arm, inner } if mentions_lit(target) => {
+                let inner = inner.as_ref().and_then(|i| lower(i).map(Box::new));
+                // A backend renders the target arm by arm, so it gets the
+                // runtime union itself.
+                match runtime_arm(target, *arm) {
+                    Some(r) => Some(Coercion::WrapUnion { target: collapse_ty(target), arm: r, inner }),
+                    None if target.has_none_arm() => Some(Coercion::WrapOption { target: collapse_ty(target) }),
+                    None => None,
+                }
+            }
+            Coercion::WrapOption { target } if mentions_lit(target) => {
+                Some(Coercion::WrapOption { target: collapse_ty(target) })
+            }
+            Coercion::Rewrap { from, to } if (mentions_lit(from) || mentions_lit(to)) => {
+                let (f, t) = (collapse_ty(from), collapse_ty(to));
+                if f == t {
+                    None
+                } else {
+                    Some(Coercion::Rewrap { from: f, to: t })
+                }
+            }
+            other => Some(other.clone()),
+        }
+    }
+    // The declared type of a narrowed identifier decides whether a backend
+    // unwraps it (`.value`), so it must be the runtime shape too.
+    for ty in out.repr_ty.values_mut() {
+        if mentions_lit(ty) {
+            *ty = collapse_ty(ty);
+        }
+    }
+    let keys: Vec<_> = out.coerce.keys().copied().collect();
+    for k in keys {
+        let c = out.coerce[&k].clone();
+        match lower(&c) {
+            Some(l) => {
+                out.coerce.insert(k, l);
+            }
+            None => {
+                out.coerce.remove(&k);
+            }
+        }
     }
 }
 

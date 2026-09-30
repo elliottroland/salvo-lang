@@ -156,6 +156,14 @@ pub struct UnionTest {
     pub nullable: bool,
     /// True for `is None` checks (lowered to `== null`).
     pub match_none: bool,
+    /// [type-literal] Value conditions on runtime arms whose declared arms
+    /// were only partly matched — literals that collapsed into one arm
+    /// [union-arm-identity]: `(arm, negate, literals)` means the value on that
+    /// arm must equal one of `literals` (or, `negate`d, none of them). An arm
+    /// in `arms` with no entry matches whole. `size` and `arms` are already
+    /// the *runtime* union's; `size` 1 with no `None` arm means there is no
+    /// wrapper at all and only the value is tested.
+    pub values: Vec<(usize, bool, Vec<salvo_syntax::ast::TypeLit>)>,
 }
 
 /// [iter-protocol] Which function a `for` calls to drive a pass — the `next`
@@ -1060,6 +1068,16 @@ pub fn check_program<'p>(
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
 ) -> Checked {
+    let mut out = check_program_rounds(program, resolution, symbols);
+    crate::literal::lower_tables(&mut out);
+    out
+}
+
+fn check_program_rounds<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &Symbols<'p>,
+) -> Checked {
     // [fate-move-mode] S2 state carried across the rounds: bind events
     // whose bound variable an earlier round saw moved or mutated
     // (move-mode candidates), and parameters claimed by such bindings
@@ -1792,6 +1810,10 @@ struct Checker<'p, 'r> {
     /// root is *owned* (moved by the contract) for move-mode bindings
     /// [fate-move-mode]. `None` for member fns and in round one.
     own_contract: Option<Vec<crate::deduce::ParamDeduction>>,
+    /// [type-literal] Every plain literal expression checked, by span: what a
+    /// coercion consults when an argument typed without an expected type (so
+    /// as its base) lands in a slot listing the literal.
+    lit_spans: HashMap<Key, TypeLit>,
     /// [linear-group] The parameter name of the designated `close` currently
     /// being checked, if this fn is one: its obligation is discharged by
     /// being closed.
@@ -2088,6 +2110,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             in_comptime_decl: false,
             own_stamp: None,
             own_contract: None,
+            lit_spans: HashMap::new(),
             own_discharges: std::collections::HashSet::new(),
             own_written: Vec::new(),
             lambda_ctx: Vec::new(),
@@ -10267,6 +10290,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         r: &Ty,
     ) {
         let equality = matches!(op, ast::BinaryOp::Eq | ast::BinaryOp::NotEq);
+        // [type-literal] A literal (or a union of them) compares as its base.
+        let (lw, rw) = (crate::literal::widen(l), crate::literal::widen(r));
+        let (l, r) = (&lw, &rw);
         let (lb, rb) = (l.strip_quals(), r.strip_quals());
         // [type-unknown-lenient] `Unknown` and `Never` stay lenient — one
         // mistake, one diagnostic. A **type variable** does not: comparing an
@@ -19064,6 +19090,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     arms: left_idx,
                     nullable: subj_ty.has_none_arm(),
                     match_none: false,
+                    values: Vec::new(),
                 },
             );
         }
@@ -20032,6 +20059,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn check_expr_inner(&mut self, expr: &'p Expr, expected: Option<&Ty>) -> Ty {
+        if let Some(lit) = expr_literal(expr) {
+            let key = self.key(expr.span());
+            self.lit_spans.insert(key, lit);
+        }
         match expr {
             // [lit-adopt] An *unsuffixed* numeric literal adopts the
             // expected numeric type where one exists (`let x: Long = 1`,
@@ -20040,16 +20071,49 @@ impl<'p, 'r> Checker<'p, 'r> {
             // 2026-09-14). A written suffix stays explicit and never
             // adopts; an integer literal never adopts `Int`-ward (a
             // `Float` literal cannot become `Int`).
-            Expr::Int { long, .. } => match adopted_numeric(expected, *long, false) {
-                Some(name) => Ty::named(name),
-                None => Ty::named(if *long { "Long" } else { "Int" }),
-            },
+            Expr::Int { value, long, .. } => {
+                let lit = if *long { TypeLit::Long(*value) } else { TypeLit::Int(*value) };
+                if let Some(t) = adopt_literal(expected, lit) {
+                    return t;
+                }
+                match adopted_numeric(expected, *long, false) {
+                    Some(name) => Ty::named(name),
+                    None => Ty::named(if *long { "Long" } else { "Int" }),
+                }
+            }
             Expr::Float { single, .. } => match adopted_numeric(expected, *single, true) {
                 Some(name) => Ty::named(name),
                 None => Ty::named(if *single { "Float" } else { "Double" }),
             },
-            Expr::Bool { .. } => Ty::named("Bool"),
+            Expr::Bool { value, .. } => {
+                adopt_literal(expected, TypeLit::Bool(*value)).unwrap_or_else(|| Ty::named("Bool"))
+            }
             Expr::Char { .. } => Ty::named("Char"),
+            // [type-literal] A plain string (no interpolation) takes a literal
+            // type where the expected type lists it — contextual only, so
+            // `let x = "a"` stays a `Str`.
+            Expr::Str { parts, .. }
+                if parts.iter().all(|p| matches!(p, StrExprPart::Text(_)))
+                    && {
+                        let text: String = parts
+                            .iter()
+                            .map(|p| match p {
+                                StrExprPart::Text(t) => t.as_str(),
+                                StrExprPart::Interp(_) => "",
+                            })
+                            .collect();
+                        adopt_literal(expected, TypeLit::Str(text)).is_some()
+                    } =>
+            {
+                let text: String = parts
+                    .iter()
+                    .map(|p| match p {
+                        StrExprPart::Text(t) => t.as_str(),
+                        StrExprPart::Interp(_) => "",
+                    })
+                    .collect();
+                Ty::Lit(TypeLit::Str(text))
+            }
             Expr::Str { parts, .. } => {
                 for part in parts {
                     if let StrExprPart::Interp(e) = part {
@@ -20981,6 +21045,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         arms: (0..value_arms.len()).collect(),
                         nullable: true,
                         match_none: false,
+                        values: Vec::new(),
                     },
                 );
                 // A diverging right side contributes nothing, exactly as a
@@ -23598,6 +23663,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (i, r) in check.iter().enumerate() {
             let last = i + 1 == check.len();
             let name = r.name.name.as_str();
+            // [type-literal] `is "A"`: the check's one ref is the literal.
+            if let Some(lit) = salvo_syntax::ast::TypeLit::from_ref_name(name) {
+                base = Some(Ty::Lit(lit));
+                continue;
+            }
             let is_qual = self.qual_name_exists(name) || self.generics.contains(name);
             let is_type = self.type_name_exists(name) || self.generics.contains(name);
             // Every position but the last is a qualifier; the last is a
@@ -23677,6 +23747,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// The runtime lowering of a check against a union representation.
     fn union_test_for(&mut self, repr: &Ty, pat: &CheckPat) -> Option<UnionTest> {
         let Ty::Union(_) = repr else { return None };
+        if crate::literal::mentions_lit(repr) {
+            return self.literal_union_test(repr, pat);
+        }
         let value_arms = repr.value_arms();
         let size = value_arms.len();
         let nullable = repr.has_none_arm();
@@ -23689,6 +23762,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 arms: Vec::new(),
                 nullable,
                 match_none: true,
+                values: Vec::new(),
             });
         }
         let arms: Vec<usize> = value_arms
@@ -23702,7 +23776,53 @@ impl<'p, 'r> Checker<'p, 'r> {
             arms,
             nullable,
             match_none: false,
+            values: Vec::new(),
         })
+    }
+
+    /// [type-literal] [union-arm-identity] An `is` test against a union with
+    /// literals, lowered onto the *runtime* union: the matched declared arms
+    /// become runtime arms, and a runtime arm only partly matched gets a
+    /// value condition — `is "A"` on `"A" | "B" | Other Str` is "the value is
+    /// `"A"`", `is Other` is "the value is none of the listed literals".
+    fn literal_union_test(&mut self, repr: &Ty, pat: &CheckPat) -> Option<UnionTest> {
+        let declared = repr.value_arms();
+        let size = crate::literal::runtime_size(repr);
+        let nullable = repr.has_none_arm();
+        if size >= 2 {
+            self.out.union_sizes.insert(size);
+        }
+        if pat.is_none {
+            return Some(UnionTest { size, arms: Vec::new(), nullable, match_none: true, values: Vec::new() });
+        }
+        let runtime_of = |i: usize| crate::literal::runtime_arm(repr, i).unwrap_or(0);
+        let matched: Vec<usize> =
+            (0..declared.len()).filter(|i| self.arm_matches(declared[*i], pat)).collect();
+        let mut arms: Vec<usize> = Vec::new();
+        let mut values = Vec::new();
+        for i in &matched {
+            let r = runtime_of(*i);
+            if arms.contains(&r) {
+                continue;
+            }
+            arms.push(r);
+            let on_arm: Vec<usize> = (0..declared.len()).filter(|j| runtime_of(*j) == r).collect();
+            if on_arm.iter().all(|j| matched.contains(j)) {
+                continue;
+            }
+            let lit = |j: &usize| match declared[*j] {
+                Ty::Lit(l) => Some(l.clone()),
+                _ => None,
+            };
+            let hit: Vec<usize> = on_arm.iter().copied().filter(|j| matched.contains(j)).collect();
+            if hit.iter().all(|j| lit(j).is_some()) {
+                values.push((r, false, hit.iter().filter_map(lit).collect()));
+            } else {
+                let missed: Vec<_> = on_arm.iter().filter(|j| !matched.contains(j)).filter_map(lit).collect();
+                values.push((r, true, missed));
+            }
+        }
+        Some(UnionTest { size, arms, nullable, match_none: false, values })
     }
 
     // ================= if / when =================
@@ -24160,6 +24280,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         if expected.is_unknown() || logical.is_unknown() || matches!(logical, Ty::Never) {
             return;
         }
+        // [type-literal] A literal typed as its base (no expected type when
+        // it was checked) is the literal wherever the slot lists it.
+        if let Some(lit) = self.lit_spans.get(&self.key(span)).cloned() {
+            if logical == &Ty::named(lit.base()) {
+                if let Some(t) = adopt_literal(Some(expected), lit) {
+                    return self.coerce_repr(span, &t, &t, expected);
+                }
+            }
+        }
         // The emitter unwraps identifier uses narrowed to a single arm, so
         // the effective representation is the narrowed type in that case.
         // The same holds for a `T?` representation narrowed to its value
@@ -24330,6 +24459,42 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 }
 
+/// [type-literal] The literal a plain literal expression writes: a string with
+/// no interpolation, an integer (negated too), a `Long`, a `Bool`.
+fn expr_literal(e: &Expr) -> Option<TypeLit> {
+    match e {
+        Expr::Str { parts, .. } => {
+            let mut text = String::new();
+            for p in parts {
+                match p {
+                    StrExprPart::Text(t) => text.push_str(t),
+                    StrExprPart::Interp(_) => return None,
+                }
+            }
+            Some(TypeLit::Str(text))
+        }
+        Expr::Int { value, long, .. } => Some(if *long { TypeLit::Long(*value) } else { TypeLit::Int(*value) }),
+        Expr::Bool { value, .. } => Some(TypeLit::Bool(*value)),
+        _ => None,
+    }
+}
+
+/// [type-literal] The literal type a literal expression takes from the
+/// expected type: the literal itself, when the expected type is it or lists it
+/// as a union arm — the contextual rule, so a literal nowhere near a literal
+/// type stays its base.
+fn adopt_literal(expected: Option<&Ty>, lit: TypeLit) -> Option<Ty> {
+    fn lists(t: &Ty, lit: &TypeLit) -> bool {
+        match t {
+            Ty::Lit(l) => l == lit,
+            Ty::Union(arms) => arms.iter().any(|a| lists(a, lit)),
+            _ => false,
+        }
+    }
+    let e = expected?;
+    lists(e, &lit).then(|| Ty::Lit(lit))
+}
+
 /// [implicit-resolve] Whether a function *value* of type `candidate` fits a
 /// position that wants `want`: **parameters contravariant, result
 /// covariant**, plus the contract and effect variance [fn-contract]
@@ -24377,6 +24542,15 @@ fn fn_value_fits(candidate: &Ty, want: &Ty) -> bool {
 fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
     if arg.is_unknown() || param.is_unknown() || *arg == Ty::Never {
         return true;
+    }
+    // [type-literal] A literal argument binds a type variable to its *base*
+    // (`list_of("a", "b")` is a `List<Str>`), and a union of literals meets a
+    // non-literal parameter as its base — the widening rule.
+    if crate::literal::mentions_lit(arg) && !crate::literal::mentions_lit(param) {
+        let w = crate::literal::widen(arg);
+        if w != *arg {
+            return unify(param, &w, subst);
+        }
     }
     match (param, arg) {
         (Ty::Var(g), _) => {
@@ -26082,10 +26256,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
 
+            // [type-literal] A literal argument is typed without an expected
+            // type (its base, `Str`); where this candidate's parameter lists
+            // the literal, it is that literal for the fit.
+            let lit_tys: Vec<Ty> = arg_tys
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    patterns
+                        .get(i)
+                        .and_then(|p| expr_literal(args[i]).and_then(|l| adopt_literal(Some(p), l)))
+                        .unwrap_or_else(|| t.clone())
+                })
+                .collect();
+            let arg_tys = &lit_tys;
             let mut subst = HashMap::new();
             let ok = patterns
                 .iter()
-                .zip(&arg_tys)
+                .zip(arg_tys)
                 .all(|(p, a)| unify(p, a, &mut subst));
             if !ok {
                 continue;
@@ -26116,6 +26304,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .map(|d| d.kept)
                     })
                     .unwrap_or(true);
+                // [type-literal] A literal argument fits a parameter listing
+                // it, though it was typed without one (its base, `Str`).
                 let fits = self.arg_fits_param(&arg_tys[i], &sp, kept);
                 if !fits {
                     // Remember when *only* the projection stood in the way,

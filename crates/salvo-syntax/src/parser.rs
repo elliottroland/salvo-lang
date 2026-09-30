@@ -4696,6 +4696,16 @@ impl<'s> Parser<'s> {
                 refs.push(self.parse_type_ref()?);
                 continue;
             }
+            // [type-literal] `is "STANDARD"`, `is 3`, `is true`: a literal
+            // tests the value. It rides the check as a type ref spelled as
+            // the literal ([`TypeLit::from_ref_name`] reads it back), and
+            // takes no qualifiers or binding of its own.
+            if refs.is_empty() {
+                if let Some(Type::Literal { value, span }) = self.parse_type_literal() {
+                    refs.push(value.as_type_ref(span));
+                    break;
+                }
+            }
             let TokenKind::Ident(name) = self.kind() else {
                 break;
             };

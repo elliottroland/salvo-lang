@@ -3656,7 +3656,11 @@ impl<'p> Emitter<'p> {
         // [type-literal] A literal is its base, and a union collapses its
         // literals, before anything is rendered [union-arm-identity].
         if matches!(ty, Type::Literal { .. } | Type::Union { .. }) {
-            let collapsed = salvo_core::literal::collapse_ast(ty);
+            let aliases = &self.symbols.type_aliases;
+            let lookup = |n: &str| {
+                aliases.get(n).and_then(|d| if d.generics.is_empty() { d.alias.as_ref() } else { None })
+            };
+            let collapsed = salvo_core::literal::collapse_ast_with(ty, &lookup);
             if &collapsed != ty {
                 return self.emit_type(&collapsed);
             }
@@ -5542,7 +5546,10 @@ impl<'p> Emitter<'p> {
             return String::new();
         };
 
-        let mut out = if size >= 2 {
+        // [type-literal] A test with value conditions is a condition, not a
+        // subject pattern: the whole `when` goes subject-less.
+        let literal_mode = tests.iter().flatten().any(literal_test);
+        let mut out = if size >= 2 && !literal_mode {
             format!("when ({subj}) {{\n")
         } else {
             "when {\n".to_string()
@@ -5550,7 +5557,13 @@ impl<'p> Emitter<'p> {
         let count = branches.len();
         for (i, (branch, test)) in branches.iter().zip(&tests).enumerate() {
             let Some(test) = test else { continue };
-            let label = if size >= 2 {
+            let label = if literal_mode {
+                if i + 1 == count {
+                    "else".to_string()
+                } else {
+                    self.emit_union_test(&subj, test)
+                }
+            } else if size >= 2 {
                 if test.match_none {
                     "null".to_string()
                 } else {
@@ -6178,6 +6191,9 @@ impl<'p> Emitter<'p> {
         if test.match_none {
             return format!("{subj} == null");
         }
+        if literal_test(test) {
+            return self.emit_literal_union_test(subj, test);
+        }
         if test.size == 1 {
             // Nullable `T?` representation.
             return if test.arms.is_empty() {
@@ -6207,6 +6223,50 @@ impl<'p> Emitter<'p> {
             parts.into_iter().next().unwrap()
         } else {
             format!("({})", parts.join(" || "))
+        }
+    }
+
+    /// [type-literal] An `is` test whose runtime arms carry value conditions,
+    /// or over a union that collapsed to its base: the arm test (when there is
+    /// a wrapper) and the value compared against the literals.
+    fn emit_literal_union_test(&mut self, subj: &str, test: &UnionTest) -> String {
+        let wrapped = test.size >= 2;
+        if wrapped {
+            self.union_sizes.insert(test.size);
+        }
+        let stars = vec!["*"; test.size.max(1)].join(", ");
+        let mut parts: Vec<String> = Vec::new();
+        for arm in &test.arms {
+            let (is_arm, value) = if wrapped {
+                (format!("{subj} is U{}_{}<{stars}>", test.size, arm + 1), format!("{subj}.value"))
+            } else if test.nullable {
+                (format!("{subj} != null"), subj.to_string())
+            } else {
+                ("true".to_string(), subj.to_string())
+            };
+            let cond = match test.values.iter().find(|(a, _, _)| a == arm) {
+                None => is_arm,
+                Some((_, negate, lits)) => {
+                    let cmp: Vec<String> = lits
+                        .iter()
+                        .map(|l| format!("{value} {} {}", if *negate { "!=" } else { "==" }, kt_literal(l)))
+                        .collect();
+                    let joined = cmp.join(if *negate { " && " } else { " || " });
+                    if is_arm == "true" {
+                        if cmp.is_empty() { "true".to_string() } else { format!("({joined})") }
+                    } else if cmp.is_empty() {
+                        is_arm
+                    } else {
+                        format!("({is_arm} && ({joined}))")
+                    }
+                }
+            };
+            parts.push(cond);
+        }
+        match parts.len() {
+            0 => "false".to_string(),
+            1 => parts.pop().unwrap(),
+            _ => format!("({})", parts.join(" || ")),
         }
     }
 
@@ -10015,5 +10075,22 @@ fn collect_is_bindings<'a>(
             collect_is_bindings(rhs, f);
         }
         _ => {}
+    }
+}
+
+/// [type-literal] Whether an `is` test carries value conditions, or tests a
+/// union of literals that collapsed to its base (no wrapper, no `None`).
+fn literal_test(test: &UnionTest) -> bool {
+    !test.match_none && (!test.values.is_empty() || (test.size == 1 && !test.nullable))
+}
+
+/// [type-literal] A literal type's value as a Kotlin literal.
+fn kt_literal(lit: &salvo_syntax::ast::TypeLit) -> String {
+    use salvo_syntax::ast::TypeLit;
+    match lit {
+        TypeLit::Str(v) => format!("{v:?}").replace('$', "\\$"),
+        TypeLit::Int(v) => v.to_string(),
+        TypeLit::Long(v) => format!("{v}L"),
+        TypeLit::Bool(v) => v.to_string(),
     }
 }
