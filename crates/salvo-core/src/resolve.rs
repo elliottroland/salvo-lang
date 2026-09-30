@@ -635,6 +635,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
             // The span it was first declared at, and whether that one was
             // *generated* [obligation-by].
             let mut seen: HashMap<(&str, Vec<String>), (Span, bool)> = HashMap::new();
+            let mut erased_seen: HashMap<(&str, Vec<String>), Vec<String>> = HashMap::new();
             for (key, f) in &items.fns {
                 let mut generics: Vec<&str> =
                     f.generics.iter().map(|g| g.name.as_str()).collect();
@@ -678,7 +679,37 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                     ));
                     continue;
                 }
-                seen.insert((f.name.name.as_str(), sig), (f.name.span, f.stamped.is_some()));
+                seen.insert((f.name.name.as_str(), sig.clone()), (f.name.span, f.stamped.is_some()));
+                // [type-literal] Two overloads apart only by literal types of
+                // one base erase to the same host signature (a literal *is*
+                // its base at run time), so neither backend could declare both.
+                let erased: Vec<salvo_syntax::ast::Param> = f
+                    .params
+                    .iter()
+                    .map(|p| salvo_syntax::ast::Param { ty: crate::literal::collapse_ast(&p.ty), ..p.clone() })
+                    .collect();
+                let erased_sig = crate::refine::param_type_signature(&erased, &generics);
+                if erased_sig != sig {
+                    if let Some(first) = erased_seen.get(&(f.name.name.as_str(), erased_sig.clone())) {
+                        if *first != sig {
+                            errors.push(FileDiagnostic::error(
+                                key.file,
+                                f.name.span,
+                                format!(
+                                    "`{}` is overloaded on literal types of one base, and a literal \
+                                     is its base at run time, so both would be `{}({})` on either \
+                                     backend; take the union of the literals in one fn and `when` \
+                                     over it [type-literal]",
+                                    f.name.name,
+                                    f.name.name,
+                                    erased_sig.join(", ")
+                                ),
+                            ));
+                        }
+                    } else {
+                        erased_seen.insert((f.name.name.as_str(), erased_sig), sig);
+                    }
+                }
             }
         }
     }

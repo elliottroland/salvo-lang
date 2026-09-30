@@ -17093,6 +17093,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for a in arms {
                     self.validate_type(a);
                 }
+                // [type-literal] A literal beside its own bare base adds
+                // nothing: every value of the base is already an arm. The
+                // open arm is spelled `Other Str`.
+                for a in arms {
+                    if let ast::Type::Literal { value, span } = a {
+                        let base = value.base();
+                        let bare = arms.iter().any(|b| {
+                            matches!(b, ast::Type::Named { qualifiers, base: r }
+                                if qualifiers.is_empty() && r.args.is_empty() && r.name.name == base)
+                        });
+                        if bare {
+                            self.warn(
+                                *span,
+                                format!(
+                                    "`{value}` is subsumed by the `{base}` arm beside it, which already \
+                                     holds every `{base}`; for the rest of a set of values, write \
+                                     `Other {base}` [type-literal]"
+                                ),
+                            );
+                        }
+                    }
+                }
             }
             ast::Type::Tuple { elems, .. } => {
                 for e in elems {
@@ -19444,7 +19466,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_expr(value, annotated.as_ref())
                 };
                 if let Some(ann) = &annotated {
-                    if !is_subtype(&value_ty, ann) {
+                    // [type-literal] A value outside a literal union's list
+                    // is reported once, by the coercion, naming the values.
+                    let listed_elsewhere = crate::literal::mentions_lit(ann)
+                        && literal_refusal(ann, &value_ty, self.lit_spans.get(&self.key(value.span()))).is_some();
+                    if !is_subtype(&value_ty, ann) && !listed_elsewhere {
                         self.error(
                             value.span(),
                             format!("expected `{ann}`, found `{value_ty}`"),
@@ -24415,6 +24441,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                         _ => false,
                     });
+                    if let Some(msg) =
+                        literal_refusal(expected, logical, self.lit_spans.get(&self.key(span)))
+                    {
+                        self.error(span, msg);
+                        return;
+                    }
                     let mut msg =
                         format!("no arm of `{expected}` accepts a value of type `{logical}`");
                     if deduplicated {
@@ -24457,6 +24489,44 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
     }
+}
+
+/// [type-literal] Why a value of type [got] does not fit the union of literals
+/// [want], when that is the reason: a literal it does not list (a typo, most
+/// often), or a plain value of the literals' base, which must be narrowed to
+/// one of them first — or, where the union has an open arm, wrapped with
+/// `other(…)`. `None` when the mismatch is something else.
+fn literal_refusal(want: &Ty, got: &Ty, written: Option<&TypeLit>) -> Option<String> {
+    let lits: Vec<&TypeLit> = want
+        .arms()
+        .iter()
+        .filter_map(|a| match a {
+            Ty::Lit(l) => Some(l),
+            _ => None,
+        })
+        .collect();
+    let base = lits.first()?.base();
+    if got != &Ty::named(base) {
+        return None;
+    }
+    let listed: Vec<String> = lits.iter().filter(|l| l.base() == base).map(|l| l.to_string()).collect();
+    let open = want.arms().iter().any(|a| {
+        !matches!(a, Ty::Lit(_)) && a.strip_quals() == &Ty::named(base) && a.quals().iter().any(|q| q.name == "Other")
+    });
+    let listed = listed.join(", ");
+    Some(match written {
+        Some(lit) => {
+            let hint = if open { format!(" — or `other({lit})` for the open arm") } else { String::new() };
+            format!("`{lit}` is not one of the values `{want}` lists ({listed}){hint} [type-literal]")
+        }
+        None => {
+            let hint = if open { ", or wrap it with `other(…)` for the open arm" } else { "" };
+            format!(
+                "a `{base}` is not a `{want}`: narrow it to one of {listed} with `is` or `when` first{hint} \
+                 [type-literal]"
+            )
+        }
+    })
 }
 
 /// [type-literal] The literal a plain literal expression writes: a string with

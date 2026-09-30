@@ -1061,3 +1061,97 @@ fn a_dependency_brings_its_host_libraries_only_when_reached() {
     assert!(cargo.contains("no-such-crate-salvo-test"), "{cargo}");
     __stamp.verified();
 }
+
+/// [type-literal] [union-arm-identity] Unions of literals on both backends,
+/// same stdout: an open union (`Other Str`) that is a plain string at run time,
+/// `is "A"` and `is Other` in a `when`, a `?`-typed literal union assigned
+/// later and narrowed, a named literal sub-union tested with `is`, widening to
+/// `Str` for a call and for `==`, and a mixed union whose two `Str` literals
+/// share one arm beside an `Int` and a struct.
+#[test]
+fn unions_of_literals_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("literal_unions", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("literal_unions");
+    fs::write(dir.join("main.sv"), LITERAL_PROGRAM).unwrap();
+    let expected = "hot\ncold\nunknown: DEEP\ncold\nkms\nmissing\nother Throttling\nKmsDisabled!\nequal\nthe name\nthree\nthe other\nperson Ada\n";
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), expected, "{backend}");
+    }
+    __stamp.verified();
+}
+
+const LITERAL_PROGRAM: &str = r#"type Class = "STANDARD" | "GLACIER" | Other Str
+
+fn describe_class(c: Class) [] -> Str => c {
+    when c {
+        is "STANDARD" { return "hot" }
+        is "GLACIER" { return "cold" }
+        is Other { return "unknown: ${c}" }
+    }
+}
+
+fn part_one() [Console] {
+    let a: Class = "STANDARD"
+    println(describe_class(a))
+    println(describe_class("GLACIER"))
+    println(describe_class(other("DEEP")))
+    let later: Class? = None
+    later = "GLACIER"
+    if later is None {
+        return None
+    }
+    println(describe_class(later))
+}
+
+struct Person { name: Str }
+
+type Kms = "KmsDisabled" | "KmsThrottled"
+type Code = Kms | "QueueDoesNotExist" | Other Str
+type Mixed = "name" | 3 | "other" | Person
+
+fn kind(c: Code) [] -> Str => c {
+    if c is Kms {
+        return "kms"
+    }
+    when c {
+        is "QueueDoesNotExist" { return "missing" }
+        is Other { return "other ${c}" }
+    }
+}
+
+fn shout(s: Str) [] -> Str => s {
+    return "${s}!"
+}
+
+fn mixed(m: Mixed) [] -> Str => m {
+    when m {
+        is "name" { return "the name" }
+        is 3 { return "three" }
+        is "other" { return "the other" }
+        is Person { return "person ${m.name}" }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    part_one()
+    println(kind("KmsThrottled"))
+    println(kind("QueueDoesNotExist"))
+    println(kind(other("Throttling")))
+    let c: Code = "KmsDisabled"
+    println(shout(c))
+    if c == "KmsDisabled" {
+        println("equal")
+    }
+    println(mixed("name"))
+    println(mixed(3))
+    println(mixed("other"))
+    println(mixed(Person { name: "Ada" }))
+}
+"#;

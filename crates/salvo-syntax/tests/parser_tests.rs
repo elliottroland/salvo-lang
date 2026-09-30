@@ -3010,3 +3010,36 @@ handler H() of Reg<E> {
     let (_, diagnostics) = salvo_syntax::parse_module("handler H() of R {\n    init {}\n    init {}\n}\n");
     assert!(diagnostics.iter().any(|d| d.message.contains("one `init` block")), "{diagnostics:?}");
 }
+
+// [type-literal] A literal is a type: strings, integers (negative too), `L`
+// longs and booleans, in a union or alone, and after `is`. A float is refused.
+#[test]
+fn literal_types_parse() {
+    use salvo_syntax::ast::{Item, Type, TypeLit};
+    let (module, diagnostics) =
+        salvo_syntax::parse_module("type T = \"A\" | 3 | -1 | 2L | true | Other Str\n");
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let Item::Type(decl) = &module.items[0] else { panic!("a type declaration") };
+    let Some(Type::Union { arms, .. }) = &decl.alias else { panic!("a union: {:?}", decl.alias) };
+    let lits: Vec<&TypeLit> = arms
+        .iter()
+        .filter_map(|a| match a {
+            Type::Literal { value, .. } => Some(value),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        lits,
+        vec![
+            &TypeLit::Str("A".into()),
+            &TypeLit::Int(3),
+            &TypeLit::Int(-1),
+            &TypeLit::Long(2),
+            &TypeLit::Bool(true)
+        ]
+    );
+    assert_eq!(arms.len(), 6);
+    assert!(errors_of("fn f(c: Str) [] -> Bool => c { return c is \"A\" }\n").is_empty());
+    let errs = errors_of("type F = 1.5 | 2\n");
+    assert!(errs.iter().any(|e| e.contains("a float cannot be a literal type")), "{errs:?}");
+}
