@@ -8196,6 +8196,24 @@ replaced the working document TESTING.md).
   — a trap [stream-provider] — and never another live stream, which is what
   per-table counters starting at 1 made likely. Making the mismatch a
   compile-time error is ROADMAP §4b item 4.
+* [platform-abi] **The host ABI** (written down 2026-09-30, ROADMAP §4c step
+  4): what hand-written or generated host code may rely on about the code the
+  compiler emits — how a Salvo type is spelled in the target language, how a
+  struct is built and read, how a union arm is made and tested, what `Checked`,
+  `Reply` and a stream handle are, and what a platform handler's class must
+  look like. Each backend states its half as `[rs-host-abi]` /
+  `[kt-host-abi]`; anything *not* listed there (the scheduler's internals, the
+  handle and monitor wrappers, generated helper names, overload suffixes) may
+  change without notice.
+  * The contract is **checked**, not just stated: `salvo platform generate`
+    writes skeletons against it, std's own host files are compiled by every
+    run that reaches them, and `the_aws_glue_compiles_against_both_sdks`
+    compiles the generated aws glue against both SDKs whenever they are
+    available locally — the case the contract exists for, a generator outside
+    the compiler writing host code.
+  * Changing an entry is a breaking change to every host file: update the
+    backend spec, std's `platform/` files, the aws generator, and say so in
+    COMPLETED.md.
 * [platform-reply] **Host code can complete a `Reply` later, from any thread**
   (ROADMAP §4b item 2, 2026-09-29; the `aws` design's D3 — a service is a plain
   effect whose members take a `Reply` and return at once). A `platform effect`

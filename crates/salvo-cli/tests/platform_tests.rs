@@ -694,7 +694,7 @@ fn content_stamp(what: &str, tree: &[(String, Vec<u8>)], tools: &[&str]) -> Opti
     salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), what, &refs)
 }
 
-/// [platform-tree] [platform-host-deps] The `aws` module's **generated** host
+/// [platform-abi] [platform-tree] [platform-host-deps] The `aws` module's **generated** host
 /// glue (`modules/aws/salvo/platform/aws/**`) compiles against the real SDKs,
 /// through the two live demos that reach it. The generator writes host code
 /// that names what the Salvo emitters produce (`UnionN`, `Checked`, a

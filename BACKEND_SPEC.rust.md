@@ -814,8 +814,8 @@ the blanket rule:
   [rs-narrow-mut]), and a `Display` impl (bounded on
   every arm being `Display`) so still-union values interpolate directly.
 * [union-arm-identity] Arm indices from the checker map 1:1 onto the
-  `Ui` variants (positional over the declared type's non-`None` arms,
-  qualifiers erased).
+  `Ui` variants (positional over the runtime union's non-`None` arms,
+  qualifiers erased; literals collapse [type-literal]).
   * Wrap at boundaries: `UnionN::<A, .., Z>::Ui(code)` (turbofish —
     the other type parameters are not inferable from one arm), wrapped
     in `Some(...)` when the target union has a `None` arm.
@@ -1554,6 +1554,26 @@ facts worth knowing") and keeps the history ("One shape for effects").
   `ContTarget::Private` variant of `__Cont_H`, and `decode_reply` covers it
   by its answer type. `k@self(…)` builds `__Priv_H::K(payload)`, or the
   method call inline when `__addr` is unset.
+* [rs-host-abi] [platform-abi] **What host code may rely on**, in one place
+  (the rules it summarizes are the ones cited):
+
+  | Salvo | Rust, as host code sees it |
+  |---|---|
+  | module `a.b` | `crate::a_b` (items `pub`); its companion is `platform/a/b.rs` [rs-platform-host] |
+  | `Int` `Long` `Float` `Double` `Bool` `Char` `Byte` | `i32` `i64` `f32` `f64` `bool` `char` `u8` [type-basic] |
+  | `Str`, `Bytes` | `String`, `Vec<u8>` (`Mut` erases) |
+  | a literal, a union of one base's literals | its base (`"A" \| "B" \| Other Str` is a `String`) [type-literal] |
+  | `List<T>` | `Vec<T>` |
+  | `Map<K, V>`, `Set<T>` | `crate::collections::SalvoMap` / `SalvoSet` — insertion-ordered; build one with `SalvoMap::from_entries::<HostHash, HostEq, _>(entries)` [rs-collections] |
+  | `T?` | `Option<T>` [rs-option] |
+  | a union of *n* ≥ 2 runtime arms | `crate::unions::UnionN<A, …>` with variants `U1`…`Un` in runtime-arm order [union-arm-identity]; `Some(…)` around it when it has a `None` arm |
+  | `struct S { f: T }` | `pub struct S { pub f: T }`, built with a literal of every field; a dot-name `A.B` is `AB`; a field that is a Rust keyword is `r#f` |
+  | `Checked<T>` | `crate::core_checked::Checked { value: T }` |
+  | `Reply<T>` parameter | `crate::scheduler::SalvoReply`; `.hosted()` answers the `SalvoHostReply` whose `send(v)` may run on any thread, exactly once [platform-reply] |
+  | `InStream` / `OutStream` | `crate::stream::InStream { handle: i64 }`; the table is `crate::scheduler::salvo_stream_register_in/out`, `salvo_stream_in/out`, `salvo_stream_take_in/out`, over `SalvoIn`/`SalvoOut` [stream-table] |
+  | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::__Stateless_E` (`&self`) when `threadsafe`, `__Stateful_E` (`&mut self`) otherwise [rs-platform-handler] |
+  | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
+
 * [rs-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `trait` is emitted as any effect's, and the `use` site
   constructs the host struct as `crate::platform_<M>::H::new(args)` — `M`

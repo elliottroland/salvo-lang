@@ -296,8 +296,8 @@ Conventions:
   with `data class UN_i(override val value: Ti)` per arm, generated for
   every size the program uses.
 * [union-arm-identity] Arm indices from the checker map 1:1 onto the
-  `UN_i` wrapper variants (positional over the declared type's non-`None`
-  arms, qualifiers erased).
+  `UN_i` wrapper variants (positional over the runtime union's non-`None`
+  arms, qualifiers erased; literals collapse [type-literal]).
   * Wrap at boundaries: `U2_1<Int, String>(expr)`; re-wrap between union
     reprs via a `let { when (it) { is U3_2<*,*,*> -> U2_1<...>(...) } }`
     chain (unmatched source arms are unreachable at runtime).
@@ -838,6 +838,24 @@ nothing but the monitor.
   which calls the method; `resume` and `decodeReply` cover `ContTarget::
   Private` subclasses of `__Cont_H`. `k@self(…)` builds `__Priv_H.K(payload)`
   when `__addr` is set, the method call otherwise.
+* [kt-host-abi] [platform-abi] **What host code may rely on**, in one place
+  (the rules it summarizes are the ones cited):
+
+  | Salvo | Kotlin, as host code sees it |
+  |---|---|
+  | module `a.b` | package `salvo.a.b`; its companion is `platform/a/b.kt`, package `salvo.platform.a.b` [kt-platform-host] |
+  | `Int` `Long` `Float` `Double` `Bool` `Char` `Byte` | `Int` `Long` `Float` `Double` `Boolean` `Char` `Byte` |
+  | `Str`, `Bytes` | `String`, `salvo.SalvoBytes` |
+  | a literal, a union of one base's literals | its base (`"A" \| "B" \| Other Str` is a `String`) [type-literal] |
+  | `List<T>`, `Map<K, V>`, `Set<T>` | `List<T>`, `Map<K, V>`, `Set<T>` — insertion-ordered (`LinkedHashMap`/`LinkedHashSet`) |
+  | `T?` | `T?` [kt-union-nullable] |
+  | a union of *n* ≥ 2 runtime arms | `salvo.UnionN<A, …>`, arms `UN_k(value)` in runtime-arm order, tested `is UN_k<*, …>` [kt-union-wrappers] [union-arm-identity]; nullable when it has a `None` arm |
+  | `struct S { f: T }` | `data class S(val f: T)` with the Salvo field names (snake case); a dot-name `A.B` is `A.B`, nested in an `object` [kt-nested-dot-name]; a keyword is back-quoted |
+  | `Checked<T>` | `salvo.core.checked.Checked(value)` |
+  | `Reply<T>` parameter | `salvo.SalvoReply`; `.hosted()` answers the host reply whose `send(v)` may run on any thread, exactly once [platform-reply] |
+  | `InStream` / `OutStream` | `salvo.stream.InStream(handle: Long)`; the table is `SalvoStreams.registerIn/registerOut`, `inStream/outStream`, `takeIn/takeOut`, over `SalvoIn`/`SalvoOut`, whose failures are `SalvoFaultException` [stream-table] |
+  | `platform handler H(p: T) of E` | `class H(p: T) : E`, every member `override`n [kt-platform-handler] |
+
 * [kt-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `interface` is emitted as any effect's, and the `use`
   site constructs the host class — `salvo.platform.<M>.H(args)`,
