@@ -3808,14 +3808,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                      host block [host-splice]",
                 );
             }
-            for block in &h.host {
-                if !HOST_LANGS.contains(&block.lang.as_str()) {
-                    self.error(
-                        block.span,
-                        format!("no backend is called `{}`: a host block is ```kotlin or ```rust [host-splice]", block.lang),
-                    );
-                }
-            }
+            // A handler may hold one handler-level block per backend; its
+            // holes see the constructor parameters.
+            self.check_host_blocks(&h.host, h.params.iter(), &format!("platform handler {}", h.name.name));
         }
         // Bodyless: the members are the host's, in the target language.
         // Reported at the first offending declaration, since a body is a
@@ -6464,8 +6459,22 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// type, `e` as an expression with the parameters in scope, `e : T` as
     /// one of `T`, recording the coercion a backend renders.
     fn check_host_body(&mut self, f: &'p FnDecl, extra_params: &'p [Param]) {
+        self.check_host_blocks(&f.host, extra_params.iter().chain(&f.params), &format!("fn {}", f.name.name));
+    }
+
+    /// [host-splice] The shared half: [blocks]' languages, and every hole with
+    /// [params] in scope — a fn's (and its handler's constructor's), or a
+    /// handler-level block's constructor parameters.
+    fn check_host_blocks<'q>(
+        &mut self,
+        blocks: &'p [HostBlock],
+        params: impl Iterator<Item = &'q Param>,
+        what: &str,
+    ) where
+        'p: 'q,
+    {
         let mut seen: Vec<&str> = Vec::new();
-        for block in &f.host {
+        for block in blocks {
             if !HOST_LANGS.contains(&block.lang.as_str()) {
                 self.error(
                     block.span,
@@ -6477,13 +6486,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             } else if seen.contains(&block.lang.as_str()) {
                 self.error(
                     block.span,
-                    format!("`fn {}` has two ```{} blocks: one per backend [host-splice]", f.name.name, block.lang),
+                    format!("`{what}` has two ```{} blocks: one per backend [host-splice]", block.lang),
                 );
             }
             seen.push(&block.lang);
         }
         let mut top = HashMap::new();
-        for p in extra_params.iter().chain(&f.params) {
+        for p in params {
             let ty = self.lower_type(&p.ty);
             self.out.expr_ty.entry(self.key(p.name.span)).or_insert_with(|| ty.clone());
             let id = self.next_var_id;
@@ -6512,7 +6521,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.locals.push(top);
         let saved_hole = std::mem::replace(&mut self.in_hole, true);
-        for block in &f.host {
+        for block in blocks {
             for part in &block.parts {
                 let HostBlockPart::Hole(hole) = part else { continue };
                 let want = hole.ty.as_ref().map(|t| {

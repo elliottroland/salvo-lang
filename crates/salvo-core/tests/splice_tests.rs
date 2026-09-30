@@ -61,3 +61,10 @@ fn a_platform_handler_written_in_place_has_host_members_and_no_salvo_state() {
     assert!(errs.iter().any(|e| e.contains("needs a body in host code")), "{errs:?}");
     assert!(errs.iter().any(|e| e.contains("state is the host's")), "{errs:?}");
 }
+
+#[test]
+fn a_handler_level_block_sees_the_constructor_parameters() {
+    let base = "effect E {\n    fn go(n: Int) -> Int => n\n}\nplatform handler H(start: Int) of E {\n    ```kotlin\n    private var at = @{HOLE}\n    ```\n    fn go(n: Int) -> Int => n\n    ```kotlin\n    return @{n} + at\n    ```\n}\n";
+    assert_eq!(errors(&base.replace("HOLE", "start")), Vec::<String>::new());
+    assert!(!errors(&base.replace("HOLE", "nope")).is_empty(), "an unknown name in a handler-level hole");
+}
