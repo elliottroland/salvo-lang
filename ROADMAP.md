@@ -434,9 +434,10 @@ reads fields of Salvo values it holds in *host* variables — each element of
 the Kotlin and Rust conversions read — and a hole can read fields only of a
 Salvo *parameter*: a host leaf has no Salvo type of its own. Options put to the
 user: a typed host leaf inside a hole (`` @{ (`m` : MessageAttributeValue).string_value } ``,
-the closed set's field read extended to host-held values), or keeping nested
-conversions as per-struct free host fns taking the Salvo value as a parameter
-(no language change; one generated fn per struct and direction); (5) DynamoDB.
+the closed set's field read extended to host-held values), or a hybrid with no
+language change — splices carry the handler, its members and the conversions
+that only *build* Salvo values, while the conversions that *read* nested Salvo
+values stay generator-written host files (drift-tested, as today); (5) DynamoDB.
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
