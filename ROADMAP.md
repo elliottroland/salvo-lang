@@ -427,9 +427,7 @@ The user's order: (1) ✅ a drift test for the aws glue; (2) ✅ **unions of
 literals** (built 2026-09-30, [type-literal]; left: `Byte` literals, which
 need literal syntax first); (3) ✅
 regenerate `aws.sqs`/`aws.s3` with literal-union enums and one error struct per
-service (built 2026-09-30); (4) the host ABI written down in each BACKEND_SPEC, then **host code
-with Salvo splices** (`` ```kotlin … ``` `` blocks) designed against what is
-left; (5) DynamoDB.
+(4) ✅ the host ABI written down; splices DECISION pending; (5) DynamoDB.
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
