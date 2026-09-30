@@ -862,7 +862,7 @@ fn generated_imports(
         let has_symbol = scope
             .fns
             .get(alias_name)
-            .is_some_and(|entries| entries.iter().any(|e| e.decl.body.is_some()))
+            .is_some_and(|entries| entries.iter().any(|e| e.decl.has_body()))
             || scope.structs.contains_key(alias_name)
             || scope.effects.contains_key(alias_name)
             || scope.handlers.contains_key(alias_name);
@@ -1050,7 +1050,7 @@ fn module_produces_code(module: &Module) -> bool {
         Item::Struct(s) => !s.comptime,
         Item::Effect(_) => true,
         Item::Handler(_) => true,
-        Item::Fn(f) => f.body.is_some(),
+        Item::Fn(f) => f.has_body(),
         Item::Qualifier(q) => q.fns.iter().any(|f| f.body.is_some()),
         _ => false,
     })
@@ -2684,7 +2684,7 @@ impl<'p> Emitter<'p> {
                 Item::Effect(e) if e.name.name == salvo_core::THROW_EFFECT => {}
                 Item::Effect(e) => body.push_str(&self.emit_effect(e)),
                 Item::Handler(h) => body.push_str(&self.emit_handler(h)),
-                Item::Fn(f) if f.body.is_some() => {
+                Item::Fn(f) if f.has_body() => {
                     body.push_str(&self.emit_fn(f))
                 }
                 Item::Qualifier(q) => body.push_str(&self.emit_qualifier(q)),
@@ -3531,6 +3531,90 @@ impl<'p> Emitter<'p> {
     /// generated trait of the ordinary effect it handles. The `use` site
     /// constructs exactly this — `HostX::new(args)` — so neither the name nor
     /// the constructor is the host's to choose.
+    /// [host-splice] Whether any call in the program resolves to [f].
+    fn fn_is_called(&self, f: &FnDecl) -> bool {
+        let Some(key) = self.checked.fn_refs.get(&(self.file_idx, f.name.span)) else {
+            return true;
+        };
+        self.checked.call_fn.values().any(|k| k == key)
+    }
+
+    /// [host-splice] A host block as Rust: its text as written, re-indented
+    /// to [indent], every hole rendered by this emitter — `: T` as the type,
+    /// an expression as it would be anywhere, its coercion applied.
+    fn render_host(&mut self, block: &HostBlock, indent: usize) -> String {
+        let mut text = String::new();
+        for part in &block.parts {
+            match part {
+                HostBlockPart::Text(t) => text.push_str(t),
+                HostBlockPart::Hole(hole) => {
+                    let rendered = match &hole.expr {
+                        Some(e) => self.emit_expr(e),
+                        None => match self.checked.host_types.get(&(self.file_idx, hole.span)).cloned() {
+                            Some(ty) => self.rust_ty(&ty),
+                            None => hole.ty.as_ref().map(|t| self.emit_type(t)).unwrap_or_default(),
+                        },
+                    };
+                    text.push_str(&rendered);
+                }
+            }
+        }
+        let lines: Vec<&str> = text.lines().collect();
+        reindent(&lines, indent)
+    }
+
+    /// [host-splice] [rs-host-abi] A platform handler written in place: its
+    /// handler-level ```rust block at module level — declaring `pub struct H`
+    /// and its `pub fn new(…)`, which the `use` site calls — and the face's
+    /// trait implemented with the members' host bodies: `__Stateless_E`
+    /// (`&self`) when `threadsafe`, `__Stateful_E` (`&mut self`) otherwise.
+    fn emit_spliced_handler(&mut self, h: &HandlerDecl) -> String {
+        let mut out = String::new();
+        let rust_blocks: Vec<&HostBlock> = h.host.iter().filter(|b| b.lang == "rust").collect();
+        if rust_blocks.is_empty() {
+            self.error(format!(
+                "`platform handler {}` is written in place and has no handler-level ```rust block \
+                 declaring `pub struct {}` and its `new` [host-splice]",
+                h.name.name, h.name.name
+            ));
+            return out;
+        }
+        for block in rust_blocks {
+            out.push('\n');
+            let text = self.render_host(block, 0);
+            out.push_str(&text);
+        }
+        let stateful = !h.threadsafe;
+        let trait_path = self.face_trait_type(&h.of[0], stateful);
+        let receiver = if stateful { "&mut self" } else { "&self" };
+        let Some(effect) = type_base_name(&h.of[0]).and_then(|n| self.symbols.effects.get(n)).copied() else {
+            return out;
+        };
+        out.push_str(&format!("\nimpl {trait_path} for {} {{\n", rs_ident(&h.name.name)));
+        for f in &h.fns {
+            let Some(i) = effect.fns.iter().position(|m| m.name.name == f.name.name) else { continue };
+            let Some(block) = f.host.iter().find(|b| b.lang == "rust") else {
+                self.error(format!(
+                    "`{}.{}` is written in host code and has no ```rust block [host-splice]",
+                    h.name.name, f.name.name
+                ));
+                continue;
+            };
+            let saved = self.enter_generics(&f.generics);
+            let params = format!("{}{}", self.emit_member_param_list(f), self.emit_member_implicits(f));
+            let ret = self.emit_return_type(f.return_type.as_ref());
+            let name = self.member_name(effect, i);
+            for p in &f.params {
+                self.bindings.insert(p.name.name.clone(), BindKind::Owned);
+            }
+            let body = self.render_host(block, 2);
+            out.push_str(&format!("    fn {name}({receiver}{params}){ret} {{\n{body}    }}\n"));
+            self.generics = saved;
+        }
+        out.push_str("}\n");
+        out
+    }
+
     fn host_handler_impl(&mut self, h: &HandlerDecl, effect_path: &str, own_path: &str) -> String {
         let of = self.emit_type(&h.of[0]);
         let Some(effect) = type_base_name(&h.of[0])
@@ -3795,6 +3879,9 @@ impl<'p> Emitter<'p> {
         // `HostX::new(…)` (`handler_ctor_path`). The generated *trait* is the
         // effect's, emitted as any effect's is — which is what the host
         // struct implements.
+        if h.platform && h.spliced {
+            return self.emit_spliced_handler(h);
+        }
         if h.platform {
             return String::new();
         }
@@ -5031,7 +5118,29 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_fn_inner<'a>(&mut self, f: &FnDecl, style: FnStyle<'a>, indent: usize) -> String {
-        let Some(body) = &f.body else {
+        // [host-splice] A body in host code: the signature as for any fn, the
+        // ```rust block as the body.
+        let host_empty = Block { stmts: Vec::new(), span: f.span };
+        let host = if f.host.is_empty() {
+            None
+        } else {
+            match f.host.iter().find(|b| b.lang == "rust") {
+                Some(b) => Some(b),
+                // [host-splice] Nothing calls it: this backend simply goes
+                // without it (the manifest rule already said whether that is
+                // allowed). Something that did would be a missing function.
+                None if !self.fn_is_called(f) => return String::new(),
+                None => {
+                    self.error(format!(
+                        "`fn {}` is written in host code and has no ```rust block: add one, or \
+                         build without the Rust backend [host-splice]",
+                        f.name.name
+                    ));
+                    return String::new();
+                }
+            }
+        };
+        let Some(body) = f.body.as_ref().or(host.map(|_| &host_empty)) else {
             return String::new();
         };
         // [rs-fn-field] A fn that *stores* its callback renders fn-typed
@@ -5873,7 +5982,13 @@ impl<'p> Emitter<'p> {
             if is_main {
                 out.push_str(&self.protocol_table_prelude(indent + 1));
             }
-            out.push_str(&self.emit_block_stmts(body, indent + 1, StmtCtx::Normal));
+            match host {
+                Some(block) => {
+                    let text = self.render_host(block, indent + 1);
+                    out.push_str(&text);
+                }
+                None => out.push_str(&self.emit_block_stmts(body, indent + 1, StmtCtx::Normal)),
+            }
             // [rs-throw-controlflow] A `None`-returning fn that may throw
             // still has to produce a `ControlFlow` value on the way out.
             if self.throw_message.is_some()
@@ -5947,7 +6062,7 @@ impl<'p> Emitter<'p> {
             // without this, three `auto Eq` structs would all emit `eq`.
             Some(o) if o.len() > 1 => o
                 .iter()
-                .filter(|f| f.body.is_some())
+                .filter(|f| f.has_body())
                 .copied()
                 .collect(),
             _ => return rs_ident(&name),
@@ -9459,6 +9574,10 @@ impl<'p> Emitter<'p> {
     /// sit in any module and nothing imports the host mount.
     fn handler_ctor_path(&mut self, name: &str, decl: &HandlerDecl) -> String {
         if !decl.platform {
+            return rs_ident(name);
+        }
+        // [host-splice] Written in place: the struct is the module's own.
+        if decl.spliced {
             return rs_ident(name);
         }
         match self.symbols.handler_modules.get(name) {
@@ -18332,4 +18451,35 @@ fn rs_literal(lit: &salvo_syntax::ast::TypeLit) -> String {
         TypeLit::Long(v) => format!("{v}i64"),
         TypeLit::Bool(v) => v.to_string(),
     }
+}
+
+/// [host-splice] Host lines re-indented: the block's common leading
+/// whitespace removed, [indent] levels added, blank lines at either end
+/// dropped. Host code keeps its own relative indentation.
+fn reindent(lines: &[&str], indent: usize) -> String {
+    let mut lines: Vec<&str> = lines.to_vec();
+    while lines.first().is_some_and(|l| l.trim().is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    let common = lines
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    let pad = "    ".repeat(indent);
+    let mut out = String::new();
+    for l in lines {
+        if l.trim().is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str(&pad);
+            out.push_str(&l[common.min(l.len())..]);
+            out.push('\n');
+        }
+    }
+    out
 }

@@ -319,9 +319,9 @@ fn a_platform_handler_is_not_std_only() {
     );
 }
 
-/// [platform-handler] The members are the host's, in the target language:
-/// there is nothing for a Salvo body to mean, and the diagnostic names both
-/// ways out (write the host file, or drop `platform`).
+/// [platform-handler] [host-splice] The members are the host's, in the target
+/// language: a braced platform handler is one written in place, so a member
+/// with a Salvo body is refused, naming the host blocks it needs.
 #[test]
 fn a_platform_handler_with_a_body_is_rejected() {
     let errs = messages(&src(
@@ -331,15 +331,14 @@ fn a_platform_handler_with_a_body_is_rejected() {
     ));
     assert!(
         errs.iter().any(|m| m
-            .contains("`platform handler HostClock` has no body in Salvo")
-            && m.contains("`platform/` companion")
-            && m.contains("salvo platform generate")),
+            .contains("`platform handler HostClock` is written in place, so `now` needs a body in host code")),
         "got {errs:?}"
     );
 }
 
-/// [platform-handler] [effect-handler] State is a body too: a host class
-/// hangs its own state on itself, in its own language.
+/// [platform-handler] [effect-handler] [host-splice] State is a body too: a host
+/// class hangs its own state on itself, in its own language — the handler-level
+/// host block.
 #[test]
 fn a_platform_handler_with_state_is_rejected() {
     let errs = messages(&src(
@@ -347,8 +346,7 @@ fn a_platform_handler_with_state_is_rejected() {
          platform handler HostClock of Clock {\n    ticks: Int = 0\n}\n",
     ));
     assert!(
-        errs.iter()
-            .any(|m| m.contains("`platform handler HostClock` has no body in Salvo")),
+        errs.iter().any(|m| m.contains("state is the host's: declare it in the handler-level")),
         "got {errs:?}"
     );
 }

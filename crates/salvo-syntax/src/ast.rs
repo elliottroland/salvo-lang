@@ -933,6 +933,15 @@ pub struct FnDecl {
     pub span: Span,
 }
 
+impl FnDecl {
+    /// Whether the declaration has a body to emit — in Salvo, or in host code
+    /// [host-splice]. `false` for a bodiless declaration (`intrinsic`, a
+    /// member signature).
+    pub fn has_body(&self) -> bool {
+        self.body.is_some() || !self.host.is_empty()
+    }
+}
+
 /// [host-splice] A fenced block of host code: its language, and the text
 /// with `@{ … }` holes the compiler renders.
 #[derive(Clone, Debug, PartialEq)]

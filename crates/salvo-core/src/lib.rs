@@ -45,7 +45,7 @@ pub use manifest::{
 };
 pub use place::{Place, Step};
 pub use platform::{
-    declares_platform_effect, host_file, host_rel_path, missing_handler_host_error,
+    declares_platform_effect, host_block_coverage, host_file, host_rel_path, required_backends, missing_handler_host_error,
     missing_host_error, platform_effects, platform_entry, platform_handlers, reply_contract_comment,
     reply_params,
 };

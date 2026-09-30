@@ -10,7 +10,9 @@
 //! whether the host file exists — so they live here rather than twice in the
 //! emitters.
 
-use salvo_syntax::ast::{EffectDecl, EffectRef, FnDecl, HandlerDecl, Item, Module};
+use salvo_syntax::ast::{EffectDecl, EffectRef, FnDecl, HandlerDecl, HostBlock, Item, Module};
+
+use crate::program::Program;
 
 use crate::program::Symbols;
 use crate::source::{CompanionFile, ModulePath};
@@ -34,7 +36,8 @@ pub fn platform_handlers(ast: &Module) -> Vec<&HandlerDecl> {
     ast.items
         .iter()
         .filter_map(|item| match item {
-            Item::Handler(h) if h.platform => Some(h),
+            // [host-splice] One written in place has no companion.
+            Item::Handler(h) if h.platform && !h.spliced => Some(h),
             _ => None,
         })
         .collect()
@@ -154,4 +157,69 @@ pub fn reply_contract_comment(f: &FnDecl) -> String {
          \x20   // exactly once, from any thread. Until then the scheduler counts the\n\
          \x20   // work as pending, so a waiter is not reported deadlocked.\n"
     )
+}
+
+/// [host-splice] The backends a project must build: its manifest's `[build]
+/// backend` — `"*"` is every backend, absent is Rust, as the CLI defaults.
+pub fn required_backends(project: &crate::Project) -> Vec<&'static str> {
+    match project.manifest.build.backend.as_deref() {
+        Some("*") => vec!["kotlin", "rust"],
+        Some("kotlin") => vec!["kotlin"],
+        _ => vec!["rust"],
+    }
+}
+
+/// [host-splice] Every declaration written in host code has a block for each
+/// backend the project builds (user decision 2026-09-30). A declaration whose
+/// only block is Kotlin is allowed, as a warning — a code base reaches parity
+/// before its Rust backend is enabled — and building Rust over it is then the
+/// emitter's error where it is reached. A dependency's declarations are its
+/// own project's concern.
+pub fn host_block_coverage(program: &Program, backends: &[&str]) -> Vec<crate::FileDiagnostic> {
+    let mut out = Vec::new();
+    let mut check = |file: usize, what: String, span: salvo_syntax::Span, blocks: &[HostBlock]| {
+        let langs: Vec<&str> = blocks.iter().map(|b| b.lang.as_str()).collect();
+        let missing: Vec<&str> = backends.iter().copied().filter(|b| !langs.contains(b)).collect();
+        if missing.is_empty() {
+            return;
+        }
+        let msg = format!(
+            "{what} has no ```{} block, and this project builds {} [host-splice]",
+            missing.join(" or ```"),
+            backends.join(" and ")
+        );
+        if langs == ["kotlin"] {
+            out.push(crate::FileDiagnostic::warning(
+                file,
+                span,
+                format!("{msg}: allowed while the code base reaches parity, but a Rust build that reaches it fails"),
+            ));
+        } else {
+            out.push(crate::FileDiagnostic::error(file, span, msg));
+        }
+    };
+    for (file, unit) in program.units().enumerate() {
+        if unit.file.is_std || unit.file.dependency.is_some() {
+            continue;
+        }
+        for item in &unit.ast.items {
+            match item {
+                Item::Fn(f) if !f.host.is_empty() => {
+                    check(file, format!("`fn {}`", f.name.name), f.name.span, &f.host)
+                }
+                Item::Handler(h) if h.spliced => {
+                    if !h.host.is_empty() {
+                        check(file, format!("`platform handler {}`", h.name.name), h.name.span, &h.host);
+                    }
+                    for f in &h.fns {
+                        if !f.host.is_empty() {
+                            check(file, format!("`{}.{}`", h.name.name, f.name.name), f.name.span, &f.host);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    out
 }

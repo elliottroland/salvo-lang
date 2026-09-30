@@ -8196,6 +8196,44 @@ replaced the working document TESTING.md).
   — a trap [stream-provider] — and never another live stream, which is what
   per-table counters starting at 1 made likely. Making the mismatch a
   compile-time error is ROADMAP §4b item 4.
+* [host-splice] **Host code written in Salvo files** (user decisions
+  2026-09-30): a body in the host languages — fenced blocks, `` ```kotlin …
+  ``` `` and `` ```rust … ``` ``, one per backend, where a `{` would open (on
+  the next line too). It may stand as the body of a **free fn**, of a member of
+  a **platform handler written in place** (a braced `platform handler`, which
+  also takes **handler-level blocks** for host state and helpers, and no Salvo
+  state), and nowhere else yet.
+  * **Holes**, `@{ … }`, are what the compiler renders, since their spelling
+    depends on emission: `@{e}` an expression (a parameter, a field read, a
+    struct literal, a qualifier constructor call), `@{e : T}` the same as a
+    value of `T` — the coercion into a union a host call cannot see — and
+    `@{: T}` the type. Inside a hole, `` `…` `` is host code
+    (`Expr::HostLeaf`), written through verbatim and taking the type expected
+    of it; outside a hole it is an error. Holes are checked like any Salvo
+    (`this hole is `T`, and `U` is not one`), with the fn's parameters — and a
+    handler's constructor parameters — in scope. The set is deliberately
+    closed; full Salvo expressions with typed host escapes are recorded in
+    ROADMAP's "not scheduled" to revisit.
+  * **The contract is the written clause** [decl-explicit], complete, since the
+    body is opaque; no obligation is tracked through host code.
+  * **Blocks**: a known language (`kotlin`, `rust`), each once.
+  * **Required backends come from the manifest** (`required_backends`,
+    `host_block_coverage`, checked by `analyze` and by every build): each
+    backend `[build] backend` names (`*` both; absent Rust) needs a block. A
+    declaration whose *only* block is Kotlin is a warning, for a code base
+    reaching parity before the Rust backend is enabled; a build of a backend
+    whose block is missing fails where the declaration is **called**, naming
+    it, and an uncalled one is simply not emitted there.
+  * Backends: a fn's host body replaces its block, re-indented, holes rendered
+    by the emitter (Kotlin hoists `import` lines to the file's imports). A
+    handler written in place is a real handler class — Kotlin `class H(ctor) :
+    E { <handler-level block> override fun … }` in the module's package; Rust
+    the handler-level block at module level (it must declare `pub struct H`
+    and `pub fn new(ctor)`) and `impl <E's trait> for H` with the members'
+    bodies (`__Stateless_E`/`&self` when `threadsafe`, `__Stateful_E`/`&mut
+    self` otherwise) — needing no `platform/` companion.
+  * Editor: the VS Code grammar highlights each fence as its language
+    (`embeddedLanguages`) and `@{ … }` holes as Salvo.
 * [platform-abi] **The host ABI** (written down 2026-09-30, ROADMAP §4c step
   4): what hand-written or generated host code may rely on about the code the
   compiler emits — how a Salvo type is spelled in the target language, how a

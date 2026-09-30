@@ -1161,3 +1161,130 @@ fn main() [use] {
     println("${kind(f.code)} ${f.status}")
 }
 "#;
+
+/// [host-splice] Host code written in Salvo files, on both backends with the
+/// same stdout: free fns whose bodies are ```kotlin / ```rust blocks, holes
+/// reading parameters and fields, building a struct from host leaves, and
+/// wrapping into a union (`@{ ok(`n`) : Ok Int | Err Str }`); and a platform
+/// handler written in place, with a handler-level block holding its state.
+/// Then the manifest rule: with `backend = "*"` a Kotlin-only fn is a warning
+/// (and a Rust build reaching it fails, naming the block), a Rust-only one an
+/// error.
+#[test]
+fn host_splices_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("host_splices", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("host_splices");
+    fs::create_dir_all(dir.join("salvo")).unwrap();
+    fs::write(dir.join("salvo.toml"), "[project]\nname = \"splice\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\n").unwrap();
+    fs::write(dir.join("salvo/main.sv"), SPLICE_PROGRAM).unwrap();
+    let expected = "HELLO!\nquiet\nok 42\nerr not a number: x\n15 16\n";
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), expected, "{backend}");
+        assert!(stderr.contains("`fn only_kotlin` has no ```rust block"), "{backend}: {stderr}");
+    }
+    // Reaching the Kotlin-only fn from a Rust build fails, naming it.
+    let reaching = SPLICE_PROGRAM.replace("println(\"${next(5)} ${next(1)}\")", "println(\"${next(5)} ${next(1)} ${only_kotlin()}\")");
+    fs::write(dir.join("salvo/main.sv"), &reaching).unwrap();
+    if have("rustc") {
+        let out = salvo_in(&dir, &["compile", "--backend", "rust", "--target", "out"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{stderr}");
+        assert!(stderr.contains("has no ```rust block: add one"), "{stderr}");
+    }
+    // A Rust-only fn in a project building both is an error.
+    fs::write(dir.join("salvo/main.sv"), format!("{SPLICE_PROGRAM}\nfn only_rust() [] -> Int\n```rust\n    1\n```\n")).unwrap();
+    let out = salvo_in(&dir, &["analyze"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        format!("{stdout}{stderr}").contains("`fn only_rust` has no ```kotlin block, and this project builds kotlin and rust"),
+        "{stdout}{stderr}"
+    );
+    __stamp.verified();
+}
+
+const SPLICE_PROGRAM: &str = r#"struct Greeting { text: Str, loud: Bool }
+
+// A free fn written in host code.
+fn shout(g: Greeting) [] -> Str => g
+```kotlin
+    return if (@{g.loud}) @{g.text}.uppercase() else @{g.text}
+```
+```rust
+    if @{g.loud} { @{g.text}.to_uppercase() } else { @{g.text}.clone() }
+```
+
+fn make(text: Str) [] -> Greeting => text
+```kotlin
+    return @{ Greeting { text: `text + "!"`, loud: true } }
+```
+```rust
+    @{ Greeting { text: `format!("{}!", text)`, loud: true } }
+```
+
+fn parse(s: Str) [] -> Ok Int | Err Str => s
+```kotlin
+    val n = s.toIntOrNull()
+    return if (n != null) @{ ok(`n`) : Ok Int | Err Str } else @{ err(`"not a number: $s"`) : Ok Int | Err Str }
+```
+```rust
+    match s.parse::<i32>() {
+        Ok(n) => @{ ok(`n`) : Ok Int | Err Str },
+        Err(_) => @{ err(`format!("not a number: {}", s)`) : Ok Int | Err Str },
+    }
+```
+
+effect Counter {
+    fn next(step: Int) -> Int => step
+}
+
+platform handler HostCounter(start: Int) of Counter {
+    ```kotlin
+    private var at = start
+    ```
+    ```rust
+    pub struct HostCounter { at: std::cell::Cell<i32> }
+    impl HostCounter {
+        pub fn new(start: i32) -> Self { Self { at: std::cell::Cell::new(start) } }
+    }
+    ```
+
+    fn next(step: Int) -> Int => step
+    ```kotlin
+        at += step
+        return at
+    ```
+    ```rust
+        self.at.set(self.at.get() + step);
+        self.at.get()
+    ```
+}
+
+fn describe(r: Ok Int | Err Str) [] -> Str => r {
+    when r {
+        is Ok { return "ok ${r}" }
+        is Err { return "err ${r}" }
+    }
+}
+
+fn only_kotlin() [] -> Int
+```kotlin
+    return 1
+```
+
+fn main() [use] {
+    use StdOutConsole()
+    use HostCounter(10)
+    println(shout(make("hello")))
+    println(shout(Greeting { text: "quiet", loud: false }))
+    println(describe(parse("42")))
+    println(describe(parse("x")))
+    println("${next(5)} ${next(1)}")
+}
+"#;

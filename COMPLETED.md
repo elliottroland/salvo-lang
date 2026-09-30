@@ -135,8 +135,30 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**Host code with Salvo splices — decided (2026-09-30, user decisions; not yet
-built).** For glue that depends on emission (the aws generator writes Rust and
+**Host code with Salvo splices — built (2026-09-30).** [host-splice]: the lexer
+reads a fenced block as one token (text and `@{…}` holes, a `` `…` `` inside a
+hole skipped whole so host braces do not close it) and a bare `` `…` `` as a
+host leaf; `FnDecl.host`, `HandlerDecl.{spliced, host}`, `Hole { expr, ty }`,
+`Expr::HostLeaf`, `FnDecl::has_body()` for "is emitted". The checker checks a
+host body's blocks and every hole with the parameters in scope (and a
+handler's constructor parameters), records `@{: T}` types in
+`Checked::host_types` and the coercion of `@{e : T}`, requires the full clause,
+refuses host code outside a hole, and for a braced platform handler requires a
+host body per member and no Salvo state. Both emitters render the body through
+their own expression and type emission, re-indented; Kotlin hoists `import`
+lines; a handler written in place is emitted as a real handler (Kotlin class in
+the module's package, Rust the handler-level block plus the trait impl) with no
+companion. The manifest rule (`required_backends`, `host_block_coverage`) runs
+in `analyze` and in every build: missing block an error, Kotlin-only a warning,
+and a backend skips an uncalled declaration it has no block for. The VS Code
+grammar embeds Kotlin and Rust in fences. Tests: a parser test, 4 checker
+tests, a CLI test running free fns and a handler written in place on both
+backends with identical output plus the manifest rule; two platform tests
+changed meaning (a braced platform handler is now one written in place, so the
+diagnostics name the host bodies it needs). AST snapshots gained the empty
+fields.
+
+**Host code with Salvo splices — decided (2026-09-30, user decisions).** For glue that depends on emission (the aws generator writes Rust and
 Kotlin that name `UnionN`, `Checked`, module paths), the user chose host code
 written *in* Salvo files, in Markdown's fenced-block spelling, with holes the
 compiler renders. **Decided:** (1) a block may stand as the body of a platform

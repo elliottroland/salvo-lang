@@ -195,6 +195,11 @@ fn analyze_project(
         let mut checked = salvo_core::check_program(&program, &resolution, &symbols);
         checked.errors.retain(|d| !parse_broken.contains(&d.file));
         diagnostics.append(&mut checked.errors);
+        // [host-splice] The backends the manifest builds, each with its block.
+        if let Some(project) = &project {
+            let backends = salvo_core::required_backends(project);
+            diagnostics.extend(salvo_core::host_block_coverage(&program, &backends));
+        }
         (Some(checked), overloads)
     };
 

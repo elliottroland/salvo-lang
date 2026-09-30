@@ -583,6 +583,18 @@ fn assemble(
         modules,
         companions: sources.companions,
     };
+    // [host-splice] Every backend the manifest builds has its host block —
+    // whichever one this command builds.
+    if let Some(project) = project {
+        let backends = salvo_core::required_backends(project);
+        let coverage = salvo_core::host_block_coverage(&program, &backends);
+        for diag in &coverage {
+            eprintln!("{}", diag.render(&program.files));
+        }
+        if coverage.iter().any(|d| d.is_error()) {
+            return Err(ExitCode::FAILURE);
+        }
+    }
     Ok(Some(Assembled {
         program,
         main_module,

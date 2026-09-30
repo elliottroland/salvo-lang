@@ -671,7 +671,7 @@ fn module_produces_code(module: &Module) -> bool {
         Item::Struct(s) => !s.comptime,
         Item::Effect(_) => true,
         Item::Handler(_) => true,
-        Item::Fn(f) => f.body.is_some(),
+        Item::Fn(f) => f.has_body(),
         Item::Qualifier(q) => q.fns.iter().any(|f| f.body.is_some()),
         _ => false,
     })
@@ -1429,7 +1429,7 @@ impl<'p> Emitter<'p> {
                 // constructs, so nothing callable is emitted for it.
                 // [obligation-by] A structural member has no body and is still
                 // emitted: its body is the host's own operation.
-                Item::Fn(f) if f.body.is_some() => {
+                Item::Fn(f) if f.has_body() => {
                     body.push_str(&self.emit_fn(f))
                 }
                 Item::Qualifier(q) => body.push_str(&self.emit_qualifier(q)),
@@ -2198,6 +2198,47 @@ impl<'p> Emitter<'p> {
     /// parameters as its own and every member stubbed with `TODO`. The `use`
     /// site constructs exactly this class, so the name is not the emitter's
     /// to choose.
+    /// [host-splice] Whether any call in the program resolves to [f].
+    fn fn_is_called(&self, f: &FnDecl) -> bool {
+        let Some(key) = self.checked.fn_refs.get(&(self.file_idx, f.name.span)) else {
+            return true;
+        };
+        self.checked.call_fn.values().any(|k| k == key)
+    }
+
+    /// [host-splice] A host block as Kotlin: its text as written, re-indented
+    /// to [indent], and every hole rendered by this emitter — `: T` as the
+    /// type, an expression as it would be anywhere, its coercion applied.
+    /// `import` lines are the file's, so they are hoisted into its imports.
+    fn render_host(&mut self, block: &HostBlock, indent: usize) -> String {
+        let mut text = String::new();
+        for part in &block.parts {
+            match part {
+                HostBlockPart::Text(t) => text.push_str(t),
+                HostBlockPart::Hole(hole) => {
+                    let rendered = match &hole.expr {
+                        Some(e) => self.emit_expr(e),
+                        None => match self.checked.host_types.get(&(self.file_idx, hole.span)).cloned() {
+                            Some(ty) => self.emit_ty(&ty),
+                            None => hole.ty.as_ref().map(|t| self.emit_type(t)).unwrap_or_default(),
+                        },
+                    };
+                    text.push_str(&rendered);
+                }
+            }
+        }
+        let mut kept = Vec::new();
+        for line in text.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("import ") {
+                self.imports.insert(trimmed.trim_end().to_string());
+            } else {
+                kept.push(line);
+            }
+        }
+        reindent(&kept, indent)
+    }
+
     fn host_handler_impl(&mut self, h: &HandlerDecl) -> String {
         let of = self.emit_type(&h.of[0]);
         let Some(effect) = type_base_name(&h.of[0])
@@ -2324,7 +2365,9 @@ impl<'p> Emitter<'p> {
         // `platform/` companion, and the `use` site constructs it by name
         // (`emit_use`). The generated *interface* is the effect's, emitted
         // as any effect's is — which is what the host class implements.
-        if h.platform {
+        // [host-splice] One written in place is emitted like any handler, its
+        // members' bodies and the handler-level block in host code.
+        if h.platform && !h.spliced {
             return String::new();
         }
         let saved = self.enter_generics(&h.generics);
@@ -2406,6 +2449,11 @@ impl<'p> Emitter<'p> {
                 h.name.name
             )
         };
+        // [host-splice] The handler-level block: host fields and helpers.
+        for block in h.host.iter().filter(|b| b.lang == "kotlin") {
+            let text = self.render_host(block, 1);
+            out.push_str(&text);
+        }
         for field in &h.state {
             let ty = self.emit_type(&field.ty);
             let init = match &field.default {
@@ -3148,7 +3196,29 @@ impl<'p> Emitter<'p> {
     /// Emits a function declaration. `top_level` functions get effect
     /// parameters; handler methods (`override fun`) do not.
     fn emit_fn_inner(&mut self, f: &FnDecl, kw: &str, indent: usize, top_level: bool) -> String {
-        let Some(body) = &f.body else {
+        // [host-splice] A body in host code: the signature as for any fn, the
+        // ```kotlin block as the body.
+        let host_empty = Block { stmts: Vec::new(), span: f.span };
+        let host = if f.host.is_empty() {
+            None
+        } else {
+            match f.host.iter().find(|b| b.lang == "kotlin") {
+                Some(b) => Some(b),
+                // [host-splice] Nothing calls it: this backend simply goes
+                // without it (the manifest rule already said whether that is
+                // allowed). Something that did would be a missing function.
+                None if !self.fn_is_called(f) => return String::new(),
+                None => {
+                    self.error(format!(
+                        "`fn {}` is written in host code and has no ```kotlin block: add one, or \
+                         build without the Kotlin backend [host-splice]",
+                        f.name.name
+                    ));
+                    return String::new();
+                }
+            }
+        };
+        let Some(body) = f.body.as_ref().or(host.map(|_| &host_empty)) else {
             return String::new();
         };
         let saved_generics = self.enter_generics(&f.generics);
@@ -3315,7 +3385,10 @@ impl<'p> Emitter<'p> {
         let body_out = {
             let saved_ctx = self.stmt_ctx;
             self.stmt_ctx = StmtCtx::Normal;
-            let rendered = self.emit_block_stmts(body, indent + 1);
+            let rendered = match host {
+                Some(block) => self.render_host(block, indent + 1),
+                None => self.emit_block_stmts(body, indent + 1),
+            };
             self.stmt_ctx = saved_ctx;
             rendered
         };
@@ -4480,6 +4553,13 @@ impl<'p> Emitter<'p> {
     fn handler_ctor_name(&mut self, name: &str, decl: &HandlerDecl) -> String {
         if !decl.platform {
             return kt_ident(name);
+        }
+        // [host-splice] Written in place: the class is the module's own.
+        if decl.spliced {
+            return match self.symbols.handler_modules.get(name) {
+                Some(module) => format!("{}.{}", kotlin_package(module), kt_ident(name)),
+                None => kt_ident(name),
+            };
         }
         match self.symbols.handler_modules.get(name) {
             Some(module) => {
@@ -10117,4 +10197,35 @@ fn kt_literal(lit: &salvo_syntax::ast::TypeLit) -> String {
         TypeLit::Long(v) => format!("{v}L"),
         TypeLit::Bool(v) => v.to_string(),
     }
+}
+
+/// [host-splice] Host lines re-indented: the block's common leading
+/// whitespace removed, [indent] levels added, blank lines at either end
+/// dropped. Host code keeps its own relative indentation.
+fn reindent(lines: &[&str], indent: usize) -> String {
+    let mut lines: Vec<&str> = lines.to_vec();
+    while lines.first().is_some_and(|l| l.trim().is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    let common = lines
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    let pad = "    ".repeat(indent);
+    let mut out = String::new();
+    for l in lines {
+        if l.trim().is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str(&pad);
+            out.push_str(&l[common.min(l.len())..]);
+            out.push('\n');
+        }
+    }
+    out
 }

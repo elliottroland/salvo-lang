@@ -422,6 +422,9 @@ pub struct Checked {
     /// narrowed by flow analysis.
     pub repr_ty: HashMap<Key, Ty>,
     pub coerce: HashMap<Key, Coercion>,
+    /// [host-splice] The type written in a `@{ … : T }` or `@{ : T }` hole,
+    /// keyed by the hole's span: what a backend renders for `: T`.
+    pub host_types: HashMap<Key, Ty>,
     /// Keyed by the span of the `is` expression or the `when` branch.
     pub is_tests: HashMap<Key, UnionTest>,
     /// Predicate-qualifier `is` checks on non-union subjects, keyed by the
@@ -3316,7 +3319,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// of. Effect members are the same case with one exception: they may
     /// not declare effects at all [effect-member-no-effects].
     fn require_explicit_decl(&mut self, f: &FnDecl) {
-        if f.body.is_some() {
+        if f.has_body() {
             return;
         }
         if !f.intrinsic {
@@ -3782,10 +3785,43 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !h.platform {
             return;
         }
+        // [host-splice] Written in place: every member's body is host code,
+        // and there is no Salvo state — host fields go in the handler-level
+        // block.
+        if h.spliced {
+            for f in &h.fns {
+                if f.host.is_empty() {
+                    self.error(
+                        f.name.span,
+                        format!(
+                            "`platform handler {}` is written in place, so `{}` needs a body in host \
+                             code: one ```kotlin / ```rust block per backend [host-splice]",
+                            h.name.name, f.name.name
+                        ),
+                    );
+                }
+            }
+            if let Some(field) = h.state.first() {
+                self.error(
+                    field.name.span,
+                    "a platform handler's state is the host's: declare it in the handler-level \
+                     host block [host-splice]",
+                );
+            }
+            for block in &h.host {
+                if !HOST_LANGS.contains(&block.lang.as_str()) {
+                    self.error(
+                        block.span,
+                        format!("no backend is called `{}`: a host block is ```kotlin or ```rust [host-splice]", block.lang),
+                    );
+                }
+            }
+        }
         // Bodyless: the members are the host's, in the target language.
         // Reported at the first offending declaration, since a body is a
         // whole-declaration mistake either way.
-        if let Some(span) = h
+        if h.spliced {
+        } else if let Some(span) = h
             .fns
             .first()
             .map(|f| f.name.span)
@@ -6421,11 +6457,93 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [host-splice] A body written in the host languages. The written clause
+    /// is the whole contract [decl-explicit] and the host code discharges
+    /// what it consumes, so no obligation is tracked here; what is checked is
+    /// the blocks (a known language, once each) and every hole — `: T` as a
+    /// type, `e` as an expression with the parameters in scope, `e : T` as
+    /// one of `T`, recording the coercion a backend renders.
+    fn check_host_body(&mut self, f: &'p FnDecl, extra_params: &'p [Param]) {
+        let mut seen: Vec<&str> = Vec::new();
+        for block in &f.host {
+            if !HOST_LANGS.contains(&block.lang.as_str()) {
+                self.error(
+                    block.span,
+                    format!(
+                        "no backend is called `{}`: a host block is ```kotlin or ```rust [host-splice]",
+                        block.lang
+                    ),
+                );
+            } else if seen.contains(&block.lang.as_str()) {
+                self.error(
+                    block.span,
+                    format!("`fn {}` has two ```{} blocks: one per backend [host-splice]", f.name.name, block.lang),
+                );
+            }
+            seen.push(&block.lang);
+        }
+        let mut top = HashMap::new();
+        for p in extra_params.iter().chain(&f.params) {
+            let ty = self.lower_type(&p.ty);
+            self.out.expr_ty.entry(self.key(p.name.span)).or_insert_with(|| ty.clone());
+            let id = self.next_var_id;
+            self.next_var_id += 1;
+            top.insert(
+                p.name.name.clone(),
+                LocalVar {
+                    declared: ty.clone(),
+                    narrowed: ty,
+                    id,
+                    links: Vec::new(),
+                    poison: None,
+                    consumed_by: None,
+                    linear_settled: false,
+                    is_param: true,
+                    for_origin: None,
+                    decl_span: p.name.span,
+                    lambda_kept: false,
+                    is_handler_state: false,
+                    widened: None,
+                    place_narrows: Vec::new(),
+                    moved_places: Vec::new(),
+                    used: true,
+                },
+            );
+        }
+        self.locals.push(top);
+        let saved_hole = std::mem::replace(&mut self.in_hole, true);
+        for block in &f.host {
+            for part in &block.parts {
+                let HostBlockPart::Hole(hole) = part else { continue };
+                let want = hole.ty.as_ref().map(|t| {
+                    self.validate_type(t);
+                    self.lower_type(t)
+                });
+                if let Some(ty) = &want {
+                    self.out.host_types.insert(self.key(hole.span), ty.clone());
+                }
+                if let Some(e) = &hole.expr {
+                    let got = self.check_expr(e, want.as_ref());
+                    if let Some(w) = &want {
+                        if !is_subtype(&got, w) && !got.is_unknown() {
+                            self.error(e.span(), format!("this hole is `{w}`, and `{got}` is not one"));
+                        } else {
+                            self.maybe_coerce(e.span(), &got, &got, w);
+                        }
+                    }
+                }
+            }
+        }
+        self.in_hole = saved_hole;
+        self.locals.pop();
+    }
+
     fn check_fn(&mut self, f: &'p FnDecl, extra_params: &'p [Param], state: &'p [FieldDecl]) {
         let saved_generics = self.enter_generics(&f.generics);
         self.require_explicit_decl(f);
         if f.body.is_none() {
-            self.require_full_clause(f, "an `intrinsic fn`");
+            let what = if f.host.is_empty() { "an `intrinsic fn`" } else { "a fn written in host code" };
+            self.require_full_clause(f, what);
         }
         for p in &f.params {
             self.validate_type(&p.ty);
@@ -6774,6 +6892,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.out
                 .fn_effects
                 .insert(key, fn_effects.iter().map(|a| a.ty.clone()).collect());
+        }
+        if !f.host.is_empty() {
+            self.check_host_body(f, extra_params);
+            self.generics = saved_generics;
+            return;
         }
         let Some(body) = &f.body else {
             self.generics = saved_generics;
@@ -24542,6 +24665,9 @@ fn literal_refusal(want: &Ty, got: &Ty, written: Option<&TypeLit>) -> Option<Str
         }
     })
 }
+
+/// [host-splice] The backends a host block may be written for.
+pub const HOST_LANGS: &[&str] = &["kotlin", "rust"];
 
 /// [type-literal] The literal a plain literal expression writes: a string with
 /// no interpolation, an integer (negated too), a `Long`, a `Bool`.

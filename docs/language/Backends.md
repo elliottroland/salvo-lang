@@ -176,6 +176,50 @@ The two forms answer different questions. Use a `platform effect` when the *capa
 
 # Specific backend details
 
+## Host code in Salvo files
+
+A host implementation does not have to live in a separate file. A function, or a member of a `platform handler`, can be **written in host code** right where it is declared, in the fenced-block spelling Markdown uses: one ```` ```kotlin ```` and one ```` ```rust ```` block where a `{` body would open.
+
+````
+fn shout(g: Greeting) [] -> Str => g
+```kotlin
+    return if (@{g.loud}) @{g.text}.uppercase() else @{g.text}
+```
+```rust
+    if @{g.loud} { @{g.text}.to_uppercase() } else { @{g.text}.clone() }
+```
+````
+
+The text is written through as it is. What the compiler renders is the **holes**, `@{ … }`, because those are the parts whose spelling depends on how Salvo is emitted: a parameter or field read (`@{g.text}`), a struct built from host values (`` @{ Greeting { text: `name + "!"`, loud: true } } ``), a type (`@{ : Ok Int | Err Str }`), and a value wrapped into a union a host call cannot see (`` @{ ok(`n`) : Ok Int | Err Str } ``). Inside a hole, `` `…` `` is host code again, written through verbatim, taking the type the hole expects of it. Everything in a hole is checked against the Salvo types, so a hole cannot build a struct with a missing field or put an `Int` where a `Str` goes; the host code around it is the target compiler's to check. A host body's written deduction clause is its whole contract, as for any declaration Salvo cannot see into.
+
+A `platform handler` written with braces is written in place: each member's body is host code, and a handler-level block holds the host's own state and helpers — in Kotlin, inside the class the compiler emits; in Rust, beside it, declaring `pub struct H` and the `new` the `use` site calls. The compiler emits the class and the effect's interface around them, so nothing has to match a generated name by hand:
+
+````
+platform handler HostCounter(start: Int) of Counter {
+    ```kotlin
+    private var at = start
+    ```
+    ```rust
+    pub struct HostCounter { at: std::cell::Cell<i32> }
+    impl HostCounter {
+        pub fn new(start: i32) -> Self { Self { at: std::cell::Cell::new(start) } }
+    }
+    ```
+
+    fn next(step: Int) -> Int => step
+    ```kotlin
+        at += step
+        return at
+    ```
+    ```rust
+        self.at.set(self.at.get() + step);
+        self.at.get()
+    ```
+}
+````
+
+**Which blocks are required** is the project manifest's call: every backend `[build] backend` names must have one. A declaration written only in Kotlin is allowed, with a warning, so a code base can reach parity before its Rust backend is enabled; a Rust build that reaches it fails, naming the block. A Kotlin `import` line in a block goes to the top of the file.
+
 ## Kotlin
 
 * When `None` is the only return type of a function, it should be translated to `Unit`.
