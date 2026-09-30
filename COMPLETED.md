@@ -135,6 +135,41 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Unions of literals — decided (2026-09-30, user decisions; not yet built).**
+Prompted by the generated AWS clients: every Smithy enum became a union of
+unit-tag structs with an `Unknown` arm, and every error a struct in a 21-arm
+union, so most of the host glue was mapping wire strings to tags and back. The
+user proposed literal types in unions, with same-type literals collapsing into
+one runtime arm; the rules put to the user were taken with three changes.
+**Decided:** (1) a literal is a type (`"STANDARD"`, `3`, `3L`, `true`; `Str`,
+`Int`, `Long`, `Byte`, `Bool` literals, no floats); (2) **representation** — a
+union of one base type's literals *is* that base type on both backends, and in
+a mixed union each base's literals collapse into one arm, arms ordered by first
+appearance (this rewrites the arm-identity invariant); (3) **the open arm is
+`Other`, an ordinary constructive qualifier in `core`** — `Other Str` collapses
+with the `Str` literals by the normal union rules, with no special error or
+matching rules of its own (the user's change: "a convenience type people can
+use or not"); (4) **a value reaches the `Other` arm only through `other(…)`**,
+its constructor — anything not so constructed must be one of the listed
+literals, or it is an error (the user's change: no free flow of a `Str` value
+into an open union); (5) narrowing: `is "A"`, `is KmsCode` (a named literal
+sub-union), `is Other`, and `when` exhaustive over the literals plus `Other` or
+an `else`; (6) widening: a literal union's value is its base type wherever the
+base is expected, and `==` against a literal is allowed; (7) inference is
+contextual only — `let x = "a"` is `Str`, `let x: StorageClass = "STANDARD"`
+is the literal — including `let x: StorageClass? = None` assigned later and
+narrowed to non-`None` for a return (the user's addition); (8) duplicate
+literals across sub-unions merge, `"a" | Str` is a warning (subsumed), a float
+literal as a type is an error, and overloading on two literal types of one base
+is refused (they erase alike). Also decided for the generated clients: one
+error struct per service (`SqsError { code: SqsErrorCode, message, status,
+request_id? }`, codes as a literal union with `Other`, KMS codes a named
+sub-union), `AwsError` kept for failures with no response, rare extra error
+members as optional fields, and codes normalised to the model's names from
+`@awsQueryError` so both backends agree. And the direction for glue that
+depends on emission: **host code with Salvo splices**, written as a fenced
+block — `` ```kotlin … ``` `` — highlighted as Markdown would be.
+
 **The aws glue's drift test (2026-09-30; step 1 of the order the user set
 after the literal-union / splices discussion).** The generator writes host code
 naming what the emitters produce (`UnionN`, `U2_1`, `Checked`, module paths),
