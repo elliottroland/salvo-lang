@@ -427,12 +427,16 @@ The user's order: (1) ✅ a drift test for the aws glue; (2) ✅ **unions of
 literals** (built 2026-09-30, [type-literal]; left: `Byte` literals, which
 need literal syntax first); (3) ✅ `aws.sqs`/`aws.s3` regenerated with
 literal-union enums and one error struct per service; (4) ✅ the host ABI
-written down ([platform-abi], [rs-host-abi], [kt-host-abi]), then **host code
-with Salvo splices** — decided 2026-09-30 (COMPLETED.md's entry), being built:
-fenced `` ```kotlin … ``` `` / `` ```rust … ``` `` blocks as member, handler-level
-and free-fn bodies; `@{…}` holes of a closed set, `` `…` `` host leaves inside;
-required backends from the manifest, Kotlin-only items allowed; the aws glue
-first; (5) DynamoDB.
+written down ([platform-abi], [rs-host-abi], [kt-host-abi]), then ✅ **host code with Salvo splices** (built 2026-09-30, [host-splice]).
+**Next, blocked on a DECISION**: moving the aws glue onto splices. The glue
+reads fields of Salvo values it holds in *host* variables — each element of
+`input.message_attributes` is a `MessageAttributeValue` whose `string_value`
+the Kotlin and Rust conversions read — and a hole can read fields only of a
+Salvo *parameter*: a host leaf has no Salvo type of its own. Options put to the
+user: a typed host leaf inside a hole (`` @{ (`m` : MessageAttributeValue).string_value } ``,
+the closed set's field read extended to host-held values), or keeping nested
+conversions as per-struct free host fns taking the Salvo value as a parameter
+(no language change; one generated fn per struct and direction); (5) DynamoDB.
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
