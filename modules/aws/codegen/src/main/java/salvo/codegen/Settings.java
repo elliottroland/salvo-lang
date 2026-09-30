@@ -15,7 +15,9 @@ record Settings(
         List<String> operations,
         String rustCrate,
         String kotlinPackage,
-        String modelFile) {
+        String modelFile,
+        boolean forcePathStyle,
+        List<String> omitMembers) {
 
     static Settings from(ObjectNode node) {
         List<String> ops = new ArrayList<>();
@@ -29,6 +31,16 @@ record Settings(
                 ops,
                 node.expectStringMember("rustCrate").getValue(),
                 node.expectStringMember("kotlinPackage").getValue(),
-                node.getStringMemberOrDefault("modelFile", "the pinned model"));
+                node.getStringMemberOrDefault("modelFile", "the pinned model"),
+                // S3 only: with an `endpoint` override, address buckets in the
+                // path (`http://host/bucket/key`) rather than the host name —
+                // what a local stand-in or LocalStack needs.
+                node.getBooleanMemberOrDefault("forcePathStyle", false),
+                // Members to leave out, by shape id (`ns#Shape$Member`): where
+                // the SDKs customize a member away from the model, so neither
+                // spelling would convert.
+                node.getArrayMember("omitMembers")
+                        .map(a -> a.getElements().stream().map(e -> e.expectStringNode().getValue()).toList())
+                        .orElse(List.of()));
     }
 }

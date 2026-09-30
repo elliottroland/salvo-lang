@@ -55,6 +55,7 @@ tasks.register<JavaExec>("generate") {
 // the ones `[kotlin] artifacts` records; keep the two in step.
 val kotlinSdk by configurations.creating
 dependencies {
+    kotlinSdk("aws.sdk.kotlin:s3:1.9.11")
     kotlinSdk("aws.sdk.kotlin:sqs:1.9.11")
 }
 tasks.register<Sync>("fetchKotlinSdk") {

@@ -33,6 +33,7 @@ import software.amazon.smithy.model.shapes.ShapeId;
 import software.amazon.smithy.model.shapes.ShortShape;
 import software.amazon.smithy.model.shapes.StringShape;
 import software.amazon.smithy.model.shapes.StructureShape;
+import software.amazon.smithy.model.shapes.TimestampShape;
 import software.amazon.smithy.model.traits.DefaultTrait;
 import software.amazon.smithy.model.traits.DocumentationTrait;
 import software.amazon.smithy.model.traits.RequiredTrait;
@@ -53,10 +54,14 @@ import software.amazon.smithy.model.traits.TitleTrait;
  *       SDK's own async machinery and completes the {@code Reply} from there.</li>
  * </ul>
  *
+ * <p>A {@code @streaming} blob is a {@code stream.InStream}, which makes the
+ * structure holding it a {@code linear struct} with a {@code close} beside it;
+ * the glue registers a response body in the host's stream table and reads a
+ * request body out of it [stream-table]. A timestamp is a {@code time.Instant}.
+ *
  * <p>Anything the model uses that this generator does not map yet — documents,
- * event streams, {@code @streaming} blobs, timestamps, unions, big numbers —
- * stops generation with an error naming the shape, rather than emitting
- * something approximate.
+ * event streams, unions, big numbers — stops generation with an error naming
+ * the shape, rather than emitting something approximate.
  */
 final class Generator {
     private final Model model;
@@ -72,6 +77,10 @@ final class Generator {
     private final Map<String, StructureShape> errorShapes = new TreeMap<>();
     private final Set<ShapeId> inputs = new LinkedHashSet<>();
     private final Set<ShapeId> outputs = new LinkedHashSet<>();
+    /** The `@streaming` member of each structure that has one (Smithy allows one, top-level). */
+    private final Map<ShapeId, MemberShape> streaming = new LinkedHashMap<>();
+    /** Whether any selected shape holds a timestamp. */
+    private boolean usesTime = false;
 
     Generator(Model model, Settings settings) {
         this.model = model;
@@ -127,15 +136,46 @@ final class Generator {
                 .map(id -> model.expectShape(id, StructureShape.class));
     }
 
-    private void walkStruct(StructureShape s) {
+    /** A structure's members in model order, without the ones the settings omit. */
+    private List<MemberShape> members(StructureShape s) {
+        List<MemberShape> out = new ArrayList<>();
         for (MemberShape m : s.getAllMembers().values()) {
+            if (!settings.omitMembers().contains(m.getId().toString())) {
+                out.add(m);
+            } else if (m.hasTrait(RequiredTrait.class)) {
+                throw fail(m.getId().toString(), "is required, so it cannot be omitted");
+            }
+        }
+        return out;
+    }
+
+    private void walkStruct(StructureShape s) {
+        for (MemberShape m : members(s)) {
             walkType(model.expectShape(m.getTarget()), m);
         }
     }
 
     private void walkType(Shape t, MemberShape via) {
         if (t.hasTrait(StreamingTrait.class)) {
-            throw fail(via.getId().toString(), "is a streaming member, which this generator does not map yet");
+            // Smithy puts a streaming member only at the top of an operation's
+            // input or output (and one per structure); an event stream is a
+            // streaming *union*, which is not mapped yet.
+            ShapeId holder = via.getContainer();
+            if (!(t instanceof BlobShape)) {
+                throw fail(via.getId().toString(), "is an event stream, which this generator does not map yet");
+            }
+            if (!inputs.contains(holder) && !outputs.contains(holder)) {
+                throw fail(via.getId().toString(), "is a streaming member outside an operation's input or output");
+            }
+            if (streaming.containsKey(holder) && !streaming.get(holder).equals(via)) {
+                throw fail(holder.toString(), "has two streaming members");
+            }
+            streaming.put(holder, via);
+            return;
+        }
+        if (t instanceof TimestampShape) {
+            usesTime = true;
+            return;
         }
         if (t instanceof EnumShape e) {
             enums.putIfAbsent(e.getId(), e.getId().getName());
@@ -231,31 +271,41 @@ final class Generator {
         return settings.kotlinPackage() + "." + NamingKt.clientName(sdkId) + "Client";
     }
 
+    /** A shape's type name in aws-sdk-rust: smithy-rs Pascal-cases it (`ObjectCannedAcl`). */
+    private static String rsSdkName(String modelName) {
+        return pascal(modelName);
+    }
+
+    /** A shape's type name in aws-sdk-kotlin, by smithy-kotlin's own rule. */
+    private String ktSdkName(ShapeId id) {
+        return NamingKt.defaultName(model.expectShape(id), service);
+    }
+
     /** A structure's SDK type, Rust. */
     private String rsSdkStruct(ShapeId id) {
         for (OperationShape op : operations) {
             if (output(op).map(Shape::getId).filter(id::equals).isPresent()) {
                 return rsCrate() + "::operation::" + snake(op.getId().getName()) + "::"
-                        + op.getId().getName() + "Output";
+                        + rsSdkName(op.getId().getName()) + "Output";
             }
         }
         if (model.expectShape(id).hasTrait("smithy.api#error")) {
-            return rsCrate() + "::types::error::" + id.getName();
+            return rsCrate() + "::types::error::" + rsSdkName(id.getName());
         }
-        return rsCrate() + "::types::" + id.getName();
+        return rsCrate() + "::types::" + rsSdkName(id.getName());
     }
 
     /** A structure's SDK type, Kotlin (operation shapes are renamed Request/Response). */
     private String ktSdkStruct(ShapeId id) {
         for (OperationShape op : operations) {
             if (input(op).map(Shape::getId).filter(id::equals).isPresent()) {
-                return ktModel() + "." + op.getId().getName() + "Request";
+                return ktModel() + "." + NamingKt.capitalizedDefaultName(op) + "Request";
             }
             if (output(op).map(Shape::getId).filter(id::equals).isPresent()) {
-                return ktModel() + "." + op.getId().getName() + "Response";
+                return ktModel() + "." + NamingKt.capitalizedDefaultName(op) + "Response";
             }
         }
-        return ktModel() + "." + id.getName();
+        return ktModel() + "." + ktSdkName(id);
     }
 
     private String effectOp(OperationShape op) {
@@ -268,8 +318,19 @@ final class Generator {
 
     // =============================================================== types ===
 
+    private boolean isStreaming(MemberShape m) {
+        return target(m).hasTrait(StreamingTrait.class);
+    }
+
+    /** Whether a structure holds a stream, which makes it a `linear struct`. */
+    private boolean isLinear(ShapeId struct) {
+        return streaming.containsKey(struct);
+    }
+
     /** A member's Salvo type, without optionality. */
     private String salvoType(Shape t) {
+        if (t.hasTrait(StreamingTrait.class)) return "InStream";
+        if (t instanceof TimestampShape) return "Instant";
         if (t instanceof EnumShape e) return enums.get(e.getId());
         if (t instanceof StructureShape s) {
             return s.hasTrait("smithy.api#error") ? s.getId().getName() : structs.get(s.getId());
@@ -286,13 +347,17 @@ final class Generator {
         throw fail(t.getId().toString(), "has no Salvo type");
     }
 
-    /** Whether a member is present on every value: required, or defaulted. */
-    private static boolean present(MemberShape m) {
-        return m.hasTrait(RequiredTrait.class) || defaultOf(m) != null;
+    /**
+     * Whether a member is present on every value: required, or defaulted — a
+     * streaming member always is, since its `@default` is the empty body.
+     */
+    private boolean present(MemberShape m) {
+        return m.hasTrait(RequiredTrait.class) || isStreaming(m) || defaultOf(m) != null;
     }
 
-    /** A literal Salvo default for a `@default` member, or null. */
-    private static String defaultOf(MemberShape m) {
+    /** A literal Salvo default for a `@default` member, or null (never for a stream). */
+    private String defaultOf(MemberShape m) {
+        if (isStreaming(m)) return null;
         return m.getTrait(DefaultTrait.class).map(d -> {
             var n = d.toNode();
             if (n.isNullNode()) return null;
@@ -309,9 +374,14 @@ final class Generator {
 
     // ================================================================ docs ===
 
-    /** The first paragraph of a shape's documentation, as plain text. */
+    /**
+     * The first paragraph of a shape's documentation, as plain text. Admonitions
+     * (`<important>`, `<note>`) are not the summary, so they are skipped — S3's
+     * `PutObject` opens with an end-of-support notice.
+     */
     private static String docText(Shape s) {
         String html = s.getTrait(DocumentationTrait.class).map(DocumentationTrait::getValue).orElse("");
+        html = html.replaceAll("(?s)<(important|note)>.*?</\\1>", "").trim();
         int end = html.indexOf("</p>");
         if (end >= 0) html = html.substring(0, end);
         String text = html.replaceAll("</?(p|li|ul|ol|br|dd|dt|dl)[^>]*>", " ").replaceAll("<[^>]+>", "")
@@ -360,6 +430,8 @@ final class Generator {
         out.append("//\n");
         out.append(header(""));
         out.append("\nimport aws\n");
+        if (!streaming.isEmpty()) out.append("import stream\n");
+        if (usesTime) out.append("import time.Instant\n");
 
         for (Map.Entry<ShapeId, String> e : enums.entrySet()) {
             out.append('\n').append(salvoEnum(model.expectShape(e.getKey(), EnumShape.class)));
@@ -396,20 +468,31 @@ final class Generator {
         out.append('\n');
         out.append(comment("What a [Fake" + settings.effect() + "] was asked, in order: one operation name per call.", ""));
         out.append("export effect ").append(calls).append(" {\n");
-        out.append("    // The names of the operations called so far (`create_queue`, …).\n");
+        out.append("    // The names of the operations called so far (`").append(effectOp(operations.get(0)))
+                .append("`, …).\n");
         out.append("    fn calls() -> List<Str>\n}\n");
         out.append('\n');
         out.append(comment("A recording double for [" + settings.effect() + "]: every call is noted by operation "
                 + "name — read them through [" + calls + "] — and answered with an empty output where the "
                 + "operation's output has no required members, otherwise with `AwsError { code: \"NotStubbed\" }`. "
+                + (streaming.isEmpty() ? "" : "A body it is handed is closed unread, and a body it answers with "
+                        + "is empty, minted in the `Streams` in scope. ")
                 + "A test that needs real answers implements [" + settings.effect() + "] itself.", ""));
-        out.append("export handler Fake").append(settings.effect()).append("() of ").append(settings.effect())
-                .append(", ").append(calls).append(" {\n");
+        // A fake that hands out or takes in bodies does so through the
+        // `Streams` in scope, as every other producer does [stream-layer].
+        String deps = streaming.isEmpty() ? "" : " [Streams]";
+        out.append("export handler Fake").append(settings.effect()).append("()").append(deps).append(" of ")
+                .append(settings.effect()).append(", ").append(calls).append(" {\n");
         out.append("    recorded: Mut List<Str> = mut_list_of()\n");
         for (OperationShape op : operations) {
             out.append('\n');
             out.append("    ").append(effectSignature(op).replace("\n    =>", " =>")).append(" {\n");
             out.append("        recorded.add(\"").append(effectOp(op)).append("\")\n");
+            if (input(op).map(i -> isLinear(i.getId())).orElse(false)) {
+                // The body is not read; closing it is what discharges the input.
+                out.append("        let closed = close(input)\n");
+                out.append("        if closed is Err {\n            ignore(closed)\n        }\n");
+            }
             out.append("        reply.send(").append(fakeAnswer(op)).append(")\n");
             out.append("    }\n");
         }
@@ -438,8 +521,17 @@ final class Generator {
     private String fakeAnswer(OperationShape op) {
         Optional<StructureShape> out = output(op);
         if (out.isEmpty()) return "ok(None)";
-        boolean stubbable = out.get().getAllMembers().values().stream().noneMatch(Generator::present);
-        if (stubbable) return "ok(" + structs.get(out.get().getId()) + " {})";
+        // A stream is present on every value, and the empty one is an empty body.
+        boolean stubbable = members(out.get()).stream()
+                .noneMatch(m -> present(m) && !isStreaming(m));
+        if (stubbable) {
+            List<String> fields = new ArrayList<>();
+            for (MemberShape m : members(out.get())) {
+                if (isStreaming(m)) fields.add(salvoField(m) + ": from_bytes(bytes_of())");
+            }
+            String body = fields.isEmpty() ? " {}" : " { " + String.join(", ", fields) + " }";
+            return "ok(" + structs.get(out.get().getId()) + body + ")";
+        }
         return "err(checked<" + errorUnion() + ">(AwsError { code: \"NotStubbed\", message: \"Fake"
                 + settings.effect() + " cannot answer " + effectOp(op) + "\" }))";
     }
@@ -476,19 +568,36 @@ final class Generator {
     private String salvoStruct(StructureShape s, String name) {
         StringBuilder out = new StringBuilder();
         out.append(comment(docText(s), ""));
-        List<MemberShape> members = new ArrayList<>(s.getAllMembers().values());
+        List<MemberShape> members = new ArrayList<>(members(s));
+        List<String> omitted = new ArrayList<>();
+        for (MemberShape m : s.getAllMembers().values()) {
+            if (!members.contains(m)) omitted.add("`" + salvoField(m) + "`");
+        }
+        if (!omitted.isEmpty()) {
+            if (!docText(s).isEmpty()) out.append("//\n");
+            out.append(comment("Not mapped: " + String.join(", ", omitted) + " — the SDKs customize "
+                    + (omitted.size() == 1 ? "it" : "them") + " away from the model (`omitMembers` in "
+                    + "smithy-build.json).", ""));
+        }
         if (members.isEmpty()) {
             out.append("export struct ").append(name).append(" {}\n");
             return out.toString();
         }
-        out.append("export struct ").append(name).append(" {\n");
+        boolean linear = isLinear(s.getId());
+        if (linear) {
+            if (!docText(s).isEmpty()) out.append("//\n");
+            out.append(comment("Linear, because it holds a stream: take the stream out (`let {"
+                    + salvoField(streaming.get(s.getId())) + "} = value`) and close it when done, or give "
+                    + "the whole value up with [close] [linear-group].", ""));
+        }
+        out.append(linear ? "export linear struct " : "export struct ").append(name).append(" {\n");
         for (int i = 0; i < members.size(); i++) {
             MemberShape m = members.get(i);
             out.append(comment(docText(m), "    "));
             String ty = salvoType(target(m));
             out.append("    ").append(salvoField(m)).append(": ");
             String def = defaultOf(m);
-            if (m.hasTrait(RequiredTrait.class)) {
+            if (m.hasTrait(RequiredTrait.class) || isStreaming(m)) {
                 out.append(ty);
             } else if (def != null) {
                 out.append(ty).append(" = ").append(def);
@@ -498,6 +607,15 @@ final class Generator {
             out.append(i + 1 < members.size() ? ",\n" : "\n");
         }
         out.append("}\n");
+        if (linear) {
+            String field = salvoField(streaming.get(s.getId()));
+            out.append('\n');
+            out.append(comment("Gives up [value] without reading its " + field + ": the stream is closed and "
+                    + "the other members are dropped. The discharger of [" + name + "] [linear-group].", ""));
+            out.append("export fn close(value: ").append(name)
+                    .append(") [Streams] -> Ok None | Err Checked<StreamError> => !value {\n");
+            out.append("    return close(value.").append(field).append(")\n}\n");
+        }
         return out.toString();
     }
 
@@ -557,13 +675,14 @@ final class Generator {
         if (t instanceof MapShape m) {
             Shape key = target(m.getKey());
             String k = key instanceof EnumShape
-                    ? rsCrate() + "::types::" + key.getId().getName() + "::from(k.as_str())"
+                    ? rsCrate() + "::types::" + rsSdkName(key.getId().getName()) + "::from(k.as_str())"
                     : "k.clone()";
             return ref + ".iter().map(|(k, v)| (" + k + ", " + rsToSdk(target(m.getValue()), "v")
                     + ")).collect::<std::collections::HashMap<_, _>>()";
         }
         if (t instanceof StringShape) return ref + ".clone()";
         if (t instanceof BlobShape) return rsCrate() + "::primitives::Blob::new(" + ref + ".clone())";
+        if (t instanceof TimestampShape) return "salvo_date_time(" + ref + ")";
         return "*" + ref;
     }
 
@@ -585,6 +704,7 @@ final class Generator {
         }
         if (t instanceof StringShape) return ref + ".to_string()";
         if (t instanceof BlobShape) return ref + ".as_ref().to_vec()";
+        if (t instanceof TimestampShape) return "salvo_instant(" + ref + ")";
         return "*" + ref;
     }
 
@@ -642,7 +762,12 @@ final class Generator {
                 .append("            .enable_all()\n            .build()\n")
                 .append("            .expect(\"a tokio runtime for the AWS SDK\");\n")
                 .append("        let shared = rt.block_on(salvo_aws_config(&config));\n")
-                .append("        let client = ").append(crate).append("::Client::new(&shared);\n")
+                .append(settings.forcePathStyle()
+                        ? "        let client = " + crate + "::Client::from_conf(\n"
+                                + "            " + crate + "::config::Builder::from(&shared)\n"
+                                + "                .force_path_style(config.endpoint.is_some())\n"
+                                + "                .build(),\n        );\n"
+                        : "        let client = " + crate + "::Client::new(&shared);\n")
                 .append("        Self { rt, client }\n    }\n}\n\n");
         out.append(rustConfigLoader());
 
@@ -670,12 +795,29 @@ final class Generator {
         }
         for (OperationShape op : operations) out.append('\n').append(rustErrorConv(op));
         out.append(rustExpandHome());
+        if (usesTime) out.append(rustTimeHelpers());
+        if (!streaming.isEmpty()) out.append(rustStreamHelpers());
         return out.toString();
+    }
+
+    /** The streaming member of an operation's input or output, or null. */
+    private MemberShape streamOf(Optional<StructureShape> s) {
+        return s.map(x -> streaming.get(x.getId())).orElse(null);
+    }
+
+    /** How a stream the glue registers describes itself: `S3 GetObject body`. */
+    private String bodySource(OperationShape op) {
+        return settings.effect() + " " + op.getId().getName() + " " + snake(streamOf(output(op)).getMemberName());
     }
 
     private String rustMember(OperationShape op) {
         String crate = rsCrate();
         String name = effectOp(op);
+        MemberShape inStream = streamOf(input(op));
+        MemberShape outStream = streamOf(output(op));
+        String okType = output(op).map(s -> rsType(structs.get(s.getId()))).orElse("()");
+        String answerType = "Union2<" + okType + ", Checked<" + rsErrorUnionType() + ">>";
+        int n = errorNames.size() + 1;
         StringBuilder out = new StringBuilder();
         out.append("    fn ").append(name).append("(&self, ");
         if (input(op).isPresent()) {
@@ -683,20 +825,45 @@ final class Generator {
         }
         out.append("reply: crate::scheduler::SalvoReply) {\n");
         out.append("        let reply = reply.hosted();\n        let client = self.client.clone();\n");
+        if (inStream != null) {
+            // [stream-table] The request body is taken out of the host's table
+            // now — the token was given up with the input — and read on a
+            // blocking thread once the task runs. A handle another table
+            // minted traps here [stream-provider].
+            out.append("        let body = crate::scheduler::salvo_stream_take_in(input.")
+                    .append(rsIdent(salvoField(inStream))).append(".handle);\n");
+        }
+        if (outStream != null) out.append("        let rt = self.rt.handle().clone();\n");
         out.append("        let call = client.").append(name).append("()");
         input(op).ifPresent(in -> {
-            for (MemberShape m : in.getAllMembers().values()) {
+            for (MemberShape m : members(in)) {
+                if (isStreaming(m)) continue;
                 out.append("\n            .set_").append(snake(m.getMemberName())).append('(')
                         .append(rsSetArg(m, "input")).append(')');
             }
         });
         out.append(";\n");
         out.append("        self.rt.spawn(async move {\n");
-        String okType = output(op).map(s -> rsType(structs.get(s.getId()))).orElse("()");
-        out.append("            let answer: Union2<").append(okType).append(", Checked<").append(rsErrorUnionType())
-                .append(">> = match call.send().await {\n");
-        String ok = output(op).map(s -> "from_sdk_" + snake(structs.get(s.getId())) + "(&out)").orElse("()");
-        out.append("                Ok(out) => { let _ = &out; Union2::U1(").append(ok).append(") }\n");
+        if (inStream != null) {
+            out.append("            let call = match salvo_read_body(body).await {\n")
+                    .append("                Ok(bytes) => call.set_").append(snake(inStream.getMemberName()))
+                    .append("(Some(").append(crate).append("::primitives::ByteStream::from(bytes))),\n")
+                    .append("                Err(message) => {\n")
+                    .append("                    let failed: ").append(answerType).append(" = Union2::U2(Checked {\n")
+                    .append("                        value: Union").append(n).append("::U").append(n)
+                    .append("(AwsError { code: \"StreamFailed\".to_string(), message }),\n")
+                    .append("                    });\n")
+                    .append("                    reply.send(failed);\n                    return;\n                }\n")
+                    .append("            };\n");
+        }
+        out.append("            let answer: ").append(answerType).append(" = match call.send().await {\n");
+        if (outStream != null) {
+            out.append("                Ok(out) => Union2::U1(from_sdk_").append(snake(structs.get(output(op).get().getId())))
+                    .append("(out, &rt)),\n");
+        } else {
+            String ok = output(op).map(s -> "from_sdk_" + snake(structs.get(s.getId())) + "(&out)").orElse("()");
+            out.append("                Ok(out) => { let _ = &out; Union2::U1(").append(ok).append(") }\n");
+        }
         out.append("                Err(e) => Union2::U2(Checked { value: error_of_").append(name).append("(e) }),\n");
         out.append("            };\n            reply.send(answer);\n        });\n    }\n");
         return out.toString();
@@ -705,7 +872,7 @@ final class Generator {
     private String rustEnumConv(EnumShape e) {
         String crate = rsCrate();
         String name = enums.get(e.getId());
-        String sdk = crate + "::types::" + e.getId().getName();
+        String sdk = crate + "::types::" + rsSdkName(e.getId().getName());
         String union = rsEnumUnion(e);
         int n = e.getEnumValues().size() + 1;
         StringBuilder to = new StringBuilder();
@@ -730,10 +897,31 @@ final class Generator {
     }
 
     private String rustFromSdk(StructureShape s, String name) {
+        MemberShape body = streaming.get(s.getId());
         StringBuilder out = new StringBuilder();
+        if (body != null) {
+            // The answer is taken by value: its body moves into the host's
+            // stream table, read later by whichever `Streams` the program binds.
+            OperationShape op = operations.stream()
+                    .filter(o -> output(o).map(Shape::getId).filter(s.getId()::equals).isPresent())
+                    .findFirst().orElseThrow();
+            out.append("fn from_sdk_").append(snake(name)).append("(v: ").append(rsSdkStruct(s.getId()))
+                    .append(", rt: &tokio::runtime::Handle) -> ").append(rsType(name)).append(" {\n    ")
+                    .append(rsType(name)).append(" {\n");
+            for (MemberShape m : members(s)) {
+                if (m.equals(body)) continue;
+                out.append("        ").append(rsIdent(salvoField(m))).append(": ").append(rsReadField(m, "v")).append(",\n");
+            }
+            // Last: moving the body out of `v` ends every borrow above.
+            out.append("        ").append(rsIdent(salvoField(body))).append(": crate::stream::InStream {\n")
+                    .append("            handle: salvo_register_body(\"").append(bodySource(op)).append("\", v.")
+                    .append(rsAccessor(body)).append(", rt),\n        },\n");
+            out.append("    }\n}\n");
+            return out.toString();
+        }
         out.append("fn from_sdk_").append(snake(name)).append("(v: &").append(rsSdkStruct(s.getId())).append(") -> ")
                 .append(rsType(name)).append(" {\n    ").append(rsType(name)).append(" {");
-        List<MemberShape> members = new ArrayList<>(s.getAllMembers().values());
+        List<MemberShape> members = new ArrayList<>(members(s));
         if (members.isEmpty()) return out.append("}\n}\n").toString();
         out.append('\n');
         for (MemberShape m : members) {
@@ -749,7 +937,7 @@ final class Generator {
         out.append("fn to_sdk_").append(snake(name)).append("(v: &").append(rsType(name)).append(") -> ").append(sdk)
                 .append(" {\n    let b = ").append(sdk).append("::builder()");
         boolean fallible = false;
-        for (MemberShape m : s.getAllMembers().values()) {
+        for (MemberShape m : members(s)) {
             out.append("\n        .set_").append(snake(m.getMemberName())).append('(').append(rsSetArg(m, "v")).append(')');
             fallible |= m.hasTrait(RequiredTrait.class);
         }
@@ -762,7 +950,7 @@ final class Generator {
     private String rustErrorConv(OperationShape op) {
         String crate = rsCrate();
         String opSnake = effectOp(op);
-        String errEnum = crate + "::operation::" + opSnake + "::" + op.getId().getName() + "Error";
+        String errEnum = crate + "::operation::" + opSnake + "::" + rsSdkName(op.getId().getName()) + "Error";
         List<String> all = new ArrayList<>(errorNames);
         int n = all.size() + 1;
         StringBuilder out = new StringBuilder();
@@ -772,7 +960,7 @@ final class Generator {
         out.append("    match e.into_service_error() {\n");
         for (ShapeId err : op.getErrors(service)) {
             int at = all.indexOf(err.getName()) + 1;
-            out.append("        ").append(errEnum).append("::").append(err.getName()).append("(x) => Union").append(n)
+            out.append("        ").append(errEnum).append("::").append(rsSdkName(err.getName())).append("(x) => Union").append(n)
                     .append("::U").append(at).append("(from_sdk_").append(snake(err.getName())).append("(&x)),\n");
         }
         out.append("        other => Union").append(n).append("::U").append(n)
@@ -817,6 +1005,83 @@ final class Generator {
                 """;
     }
 
+    private String rustTimeHelpers() {
+        String dt = rsCrate() + "::primitives::DateTime";
+        return """
+
+                /// A Smithy timestamp as a `time.Instant`: nanoseconds since the epoch,
+                /// saturating outside `Instant`'s range (1678–2262).
+                fn salvo_instant(t: &%1$s) -> crate::time::Instant {
+                    let nanos = t.as_nanos().clamp(i64::MIN as i128, i64::MAX as i128) as i64;
+                    crate::time::Instant { nanos }
+                }
+
+                /// A `time.Instant` as a Smithy timestamp.
+                fn salvo_date_time(at: &crate::time::Instant) -> %1$s {
+                    %1$s::from_nanos(at.nanos as i128).expect("an i64 of nanoseconds is a valid timestamp")
+                }
+                """.formatted(dt);
+    }
+
+    private String rustStreamHelpers() {
+        String bs = rsCrate() + "::primitives::ByteStream";
+        return """
+
+                /// [stream-table] Registers a response body in the host's stream table,
+                /// answering its handle. The table reads synchronously, from a Salvo worker
+                /// or the stream host's reader thread — never from a task on the SDK's
+                /// runtime — so each read blocks on the next chunk through [rt].
+                fn salvo_register_body(source: &str, body: %1$s, rt: &tokio::runtime::Handle) -> i64 {
+                    let reader = SalvoBody { rt: rt.clone(), body, chunk: Vec::new(), at: 0 };
+                    crate::scheduler::salvo_stream_register_in(source.to_string(), Box::new(reader), 0)
+                }
+
+                /// A response body as `std::io::Read`.
+                struct SalvoBody {
+                    rt: tokio::runtime::Handle,
+                    body: %1$s,
+                    chunk: Vec<u8>,
+                    at: usize,
+                }
+
+                impl std::io::Read for SalvoBody {
+                    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                        while self.at == self.chunk.len() {
+                            match self.rt.block_on(self.body.try_next()) {
+                                Ok(Some(bytes)) => {
+                                    self.chunk = bytes.to_vec();
+                                    self.at = 0;
+                                }
+                                Ok(None) => return Ok(0),
+                                Err(e) => return Err(std::io::Error::other(e)),
+                            }
+                        }
+                        let n = buf.len().min(self.chunk.len() - self.at);
+                        buf[..n].copy_from_slice(&self.chunk[self.at..self.at + n]);
+                        self.at += n;
+                        Ok(n)
+                    }
+                }
+
+                /// [stream-table] Everything left in a request body taken out of the host's
+                /// table, read on a blocking thread. The stream is released when this ends.
+                /// Buffered: the SDKs sign and checksum a body of known length, and a
+                /// streaming upload is recorded as left (the aws module's DESIGN.md).
+                async fn salvo_read_body(
+                    body: std::sync::Arc<std::sync::Mutex<crate::scheduler::SalvoIn>>,
+                ) -> Result<Vec<u8>, String> {
+                    let read = tokio::task::spawn_blocking(move || {
+                        let mut stream = body.lock().unwrap();
+                        stream.read_all_bytes().map_err(|fault| match fault {
+                            crate::scheduler::SalvoFault::Utf8 => format!("{}: not valid UTF-8", stream.source),
+                            crate::scheduler::SalvoFault::Failed(m) => format!("{}: {m}", stream.source),
+                        })
+                    });
+                    read.await.unwrap_or_else(|e| Err(e.to_string()))
+                }
+                """.formatted(bs);
+    }
+
     private String rustExpandHome() {
         return """
 
@@ -853,11 +1118,12 @@ final class Generator {
         }
         if (t instanceof MapShape m) {
             Shape key = target(m.getKey());
-            String k = key instanceof EnumShape ? ktModel() + "." + key.getId().getName() + ".fromValue(k" + d + ")" : "k" + d;
+            String k = key instanceof EnumShape ? ktModel() + "." + ktSdkName(key.getId()) + ".fromValue(k" + d + ")" : "k" + d;
             return v + ".entries.associate { (k" + d + ", v" + d + ") -> " + k + " to "
                     + ktToSdk(target(m.getValue()), "v" + d, d + 1) + " }";
         }
         if (t instanceof BlobShape) return v + ".toByteArray()";
+        if (t instanceof TimestampShape) return "salvoDateTime(" + v + ")";
         return v;
     }
 
@@ -876,6 +1142,7 @@ final class Generator {
                     + ktFromSdk(target(m.getValue()), "v" + d, d + 1) + " }";
         }
         if (t instanceof BlobShape) return "salvo.SalvoBytes(" + v + ")";
+        if (t instanceof TimestampShape) return "salvoInstant(" + v + ")";
         return v;
     }
 
@@ -910,7 +1177,9 @@ final class Generator {
         out.append("@file:Suppress(\"DEPRECATION\", \"UNUSED_PARAMETER\", \"UNCHECKED_CAST\", \"USELESS_ELVIS\", \"UNNECESSARY_SAFE_CALL\")\n\n");
         out.append("package ").append(pkg).append("\n\nimport salvo.*\nimport salvo.aws.*\nimport salvo.")
                 .append(settings.module()).append(".*\nimport salvo.").append(settings.module()).append(".host.*\n");
-        out.append("import kotlinx.coroutines.launch\n\n");
+        out.append("import kotlinx.coroutines.launch\n");
+        if (!streaming.isEmpty()) out.append("import aws.smithy.kotlin.runtime.content.toInputStream\n");
+        out.append('\n');
 
         out.append("// `threadsafe platform handler Host").append(effect).append("`: the SDK client is safe to share, and\n")
                 .append("// each call is a coroutine on the handler's own scope, completing its reply there.\n");
@@ -921,6 +1190,8 @@ final class Generator {
                 .append("        region = this@Host").append(effect).append(".config.region.code\n")
                 .append("        credentialsProvider = salvoCredentials(this@Host").append(effect).append(".config.credentials)\n")
                 .append("        this@Host").append(effect).append(".config.endpoint?.let { endpointUrl = aws.smithy.kotlin.runtime.net.url.Url.parse(it) }\n")
+                .append(settings.forcePathStyle()
+                        ? "        forcePathStyle = this@Host" + effect + ".config.endpoint != null\n" : "")
                 .append("    }\n");
         for (OperationShape op : operations) out.append('\n').append(kotlinMember(op));
         out.append("}\n");
@@ -935,6 +1206,8 @@ final class Generator {
         for (Map.Entry<String, StructureShape> e : errorShapes.entrySet()) {
             out.append('\n').append(kotlinFromSdk(e.getValue(), e.getKey()));
         }
+        if (usesTime) out.append(kotlinTimeHelpers());
+        if (!streaming.isEmpty()) out.append(kotlinStreamHelpers());
         out.append("""
 
                 private fun salvoAwsError(e: Throwable): AwsError {
@@ -948,6 +1221,8 @@ final class Generator {
 
     private String kotlinMember(OperationShape op) {
         String name = effectOp(op);
+        MemberShape inStream = streamOf(input(op));
+        MemberShape outStream = streamOf(output(op));
         List<String> all = new ArrayList<>(errorNames);
         int n = all.size() + 1;
         StringBuilder out = new StringBuilder();
@@ -955,36 +1230,77 @@ final class Generator {
         input(op).ifPresent(in -> out.append("input: ").append(structs.get(in.getId())).append(", "));
         out.append("reply: salvo.SalvoReply) {\n");
         out.append("        val host = reply.hosted()\n");
-        String request = input(op).map(in -> "toSdk" + structs.get(in.getId()) + "(input)").orElse("");
+        if (inStream != null) {
+            // [stream-table] Taken out of the host's table now — the token was
+            // given up with the input; a foreign handle traps [stream-provider].
+            out.append("        val body = SalvoStreams.takeIn(input.").append(ktIdent(salvoField(inStream)))
+                    .append(".handle)\n");
+        }
         String okType = output(op).map(o -> structs.get(o.getId())).orElse("Unit");
         List<String> errArms = new ArrayList<>(errorNames);
         errArms.add("AwsError");
         String errType = "Union" + errArms.size() + "<" + String.join(", ", errArms) + ">";
-        out.append("        scope.launch {\n            val answer: Union2<").append(okType)
-                .append(", salvo.core.checked.Checked<").append(errType).append(">> = try {\n");
+        String answerType = "Union2<" + okType + ", salvo.core.checked.Checked<" + errType + ">>";
+        out.append("        scope.launch {\n");
+        String request = input(op).map(in -> "toSdk" + structs.get(in.getId()) + "(input"
+                + (inStream != null ? ", bytes" : "") + ")").orElse("");
+        if (inStream != null) {
+            out.append("            val bytes = try {\n")
+                    .append("                salvoReadBody(body)\n")
+                    .append("            } catch (e: SalvoFaultException) {\n")
+                    .append("                val message = (e.fault as? SalvoFault.Failed)?.message ?: \"not valid UTF-8\"\n")
+                    .append("                val failed: ").append(answerType).append(" = U2_2(salvo.core.checked.Checked(U")
+                    .append(n).append('_').append(n)
+                    .append("(AwsError(code = \"StreamFailed\", message = \"${body.source}: $message\"))))\n")
+                    .append("                host.send(failed)\n")
+                    .append("                return@launch\n            }\n");
+        }
         String call = "client." + NamingKt.defaultName(op) + "(" + request + ")";
-        if (output(op).isPresent()) {
-            out.append("                U2_1(fromSdk").append(structs.get(output(op).get().getId())).append('(')
-                    .append(call).append("))\n");
+        if (outStream != null) {
+            // The SDK's body lives only inside the response block, so the
+            // block answers the reply itself and then waits for the program
+            // to close the stream it was handed.
+            out.append("            var sent = false\n");
+            out.append("            val answer: ").append(answerType).append("? = try {\n");
+            out.append("                ").append(call).append(" { response ->\n")
+                    .append("                    val closed = kotlinx.coroutines.CompletableDeferred<Unit>()\n")
+                    .append("                    val handle = salvoRegisterBody(\"").append(bodySource(op))
+                    .append("\", response.").append(ktMember(outStream)).append(", closed)\n")
+                    .append("                    sent = true\n")
+                    .append("                    val ok: ").append(answerType).append(" = U2_1(fromSdk")
+                    .append(structs.get(output(op).get().getId())).append("(response, handle))\n")
+                    .append("                    host.send(ok)\n")
+                    .append("                    closed.await()\n                }\n")
+                    .append("                null\n");
         } else {
-            out.append("                ").append(call).append("\n                U2_1(Unit)\n");
+            out.append("            val answer: ").append(answerType).append(" = try {\n");
+            if (output(op).isPresent()) {
+                out.append("                U2_1(fromSdk").append(structs.get(output(op).get().getId())).append('(')
+                        .append(call).append("))\n");
+            } else {
+                out.append("                ").append(call).append("\n                U2_1(Unit)\n");
+            }
         }
         for (ShapeId err : op.getErrors(service)) {
             int at = all.indexOf(err.getName()) + 1;
-            out.append("            } catch (e: ").append(ktModel()).append('.').append(err.getName()).append(") {\n")
+            out.append("            } catch (e: ").append(ktModel()).append('.').append(ktSdkName(err)).append(") {\n")
                     .append("                U2_2(salvo.core.checked.Checked(U").append(n).append('_').append(at)
                     .append("(fromSdk").append(err.getName()).append("(e))))\n");
         }
         out.append("            } catch (e: Exception) {\n")
                 .append("                U2_2(salvo.core.checked.Checked(U").append(n).append('_').append(n)
                 .append("(salvoAwsError(e))))\n            }\n");
-        out.append("            host.send(answer)\n        }\n    }\n");
+        if (outStream != null) {
+            out.append("            if (!sent && answer != null) host.send(answer)\n        }\n    }\n");
+        } else {
+            out.append("            host.send(answer)\n        }\n    }\n");
+        }
         return out.toString();
     }
 
     private String kotlinEnumConv(EnumShape e) {
         String name = enums.get(e.getId());
-        String sdk = ktModel() + "." + e.getId().getName();
+        String sdk = ktModel() + "." + ktSdkName(e.getId());
         String union = ktEnumUnion(e);
         int n = e.getEnumValues().size() + 1;
         StringBuilder to = new StringBuilder();
@@ -1010,14 +1326,17 @@ final class Generator {
 
     private String kotlinFromSdk(StructureShape s, String name) {
         StringBuilder out = new StringBuilder();
-        String sdk = s.hasTrait("smithy.api#error") ? ktModel() + "." + s.getId().getName() : ktSdkStruct(s.getId());
-        out.append("private fun fromSdk").append(name).append("(v: ").append(sdk).append("): ").append(name)
+        MemberShape body = streaming.get(s.getId());
+        String sdk = s.hasTrait("smithy.api#error") ? ktModel() + "." + ktSdkName(s.getId()) : ktSdkStruct(s.getId());
+        out.append("private fun fromSdk").append(name).append("(v: ").append(sdk)
+                .append(body != null ? ", bodyHandle: Long" : "").append("): ").append(name)
                 .append(" = ").append(name).append('(');
-        List<MemberShape> members = new ArrayList<>(s.getAllMembers().values());
+        List<MemberShape> members = new ArrayList<>(members(s));
         if (members.isEmpty()) return out.append(")\n").toString();
         out.append('\n');
         for (MemberShape m : members) {
-            out.append("    ").append(ktIdent(salvoField(m))).append(" = ").append(ktReadField(m, "v")).append(",\n");
+            String value = m.equals(body) ? "salvo.stream.InStream(bodyHandle)" : ktReadField(m, "v");
+            out.append("    ").append(ktIdent(salvoField(m))).append(" = ").append(value).append(",\n");
         }
         out.append(")\n");
         return out.toString();
@@ -1025,14 +1344,81 @@ final class Generator {
 
     private String kotlinToSdk(StructureShape s, String name) {
         String sdk = ktSdkStruct(s.getId());
+        MemberShape body = streaming.get(s.getId());
         StringBuilder out = new StringBuilder();
-        out.append("private fun toSdk").append(name).append("(v: ").append(name).append("): ").append(sdk)
+        out.append("private fun toSdk").append(name).append("(v: ").append(name)
+                .append(body != null ? ", bodyBytes: ByteArray" : "").append("): ").append(sdk)
                 .append(" = ").append(sdk).append(" {\n");
-        for (MemberShape m : s.getAllMembers().values()) {
-            out.append("    ").append(ktMember(m)).append(" = ").append(ktSetField(m, "v")).append('\n');
+        for (MemberShape m : members(s)) {
+            String value = m.equals(body)
+                    ? "aws.smithy.kotlin.runtime.content.ByteStream.fromBytes(bodyBytes)" : ktSetField(m, "v");
+            out.append("    ").append(ktMember(m)).append(" = ").append(value).append('\n');
         }
         out.append("}\n");
         return out.toString();
+    }
+
+    private String kotlinTimeHelpers() {
+        return """
+
+                /** A Smithy timestamp as a `time.Instant`: nanoseconds since the epoch. */
+                private fun salvoInstant(t: aws.smithy.kotlin.runtime.time.Instant): salvo.time.Instant =
+                    salvo.time.Instant(nanos = t.epochSeconds * 1_000_000_000L + t.nanosecondsOfSecond)
+
+                /** A `time.Instant` as a Smithy timestamp. */
+                private fun salvoDateTime(at: salvo.time.Instant): aws.smithy.kotlin.runtime.time.Instant =
+                    aws.smithy.kotlin.runtime.time.Instant.fromEpochSeconds(
+                        Math.floorDiv(at.nanos, 1_000_000_000L),
+                        Math.floorMod(at.nanos, 1_000_000_000L).toInt(),
+                    )
+                """;
+    }
+
+    private String kotlinStreamHelpers() {
+        return """
+
+                /**
+                 * [stream-table] Registers a response body in the host's stream table,
+                 * answering its handle. [closed] completes when the program closes the
+                 * stream — or reads it to its end — which is what lets the SDK's response
+                 * block return and release the connection.
+                 */
+                private fun salvoRegisterBody(
+                    source: String,
+                    body: aws.smithy.kotlin.runtime.content.ByteStream?,
+                    closed: kotlinx.coroutines.CompletableDeferred<Unit>,
+                ): Long {
+                    val input = body?.toInputStream()
+                        ?: java.io.ByteArrayInputStream(ByteArray(0))
+                    return SalvoStreams.registerIn(source, SalvoBody(input, closed), 0)
+                }
+
+                private class SalvoBody(
+                    input: java.io.InputStream,
+                    private val closed: kotlinx.coroutines.CompletableDeferred<Unit>,
+                ) : java.io.FilterInputStream(input) {
+                    override fun close() {
+                        try {
+                            super.close()
+                        } finally {
+                            closed.complete(Unit)
+                        }
+                    }
+                }
+
+                /**
+                 * [stream-table] Everything left in a request body taken out of the host's
+                 * table; the stream is released either way. Buffered: the SDKs sign and
+                 * checksum a body of known length, and a streaming upload is recorded as
+                 * left (the aws module's DESIGN.md).
+                 */
+                private fun salvoReadBody(body: SalvoIn): ByteArray =
+                    try {
+                        synchronized(body) { body.readAllBytes() }
+                    } finally {
+                        body.closeInput()
+                    }
+                """;
     }
 
     private String kotlinCredentials() {

@@ -262,9 +262,8 @@ export struct SendMessageOutput {
 export struct ReceiveMessageInput {
     // The URL of the Amazon SQS queue from which messages are received.
     queue_url: Str,
-    // This parameter has been discontinued but will be supported for backward
-    // compatibility. To provide attribute names, you are encouraged to use
-    // MessageSystemAttributeNames.
+    // A list of attributes that need to be returned along with each message.
+    // These attributes include:
     attribute_names: List<QueueAttributeName>? = None,
     // A list of attributes that need to be returned along with each message.
     // These attributes include:
