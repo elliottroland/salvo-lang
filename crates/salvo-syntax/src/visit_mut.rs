@@ -187,6 +187,7 @@ pub fn walk_type<V: MutVisitor>(v: &mut V, t: &mut Type) {
                 walk_type(v, a);
             }
         }
+        Type::Literal { span, .. } => v.visit_span(span),
         Type::Tuple { elems, span } => {
             v.visit_span(span);
             for e in elems {

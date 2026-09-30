@@ -224,6 +224,11 @@ pub enum Ty {
     /// A qualified type: `Ok Int`, `Mut NonEmpty List<T>`. Invariants:
     /// `quals` is non-empty and sorted by name; `base` is never `Qualified`.
     Qualified { quals: Vec<Qual>, base: Box<Ty> },
+    /// [type-literal] A literal type — the type whose one value is the
+    /// literal. A subtype of its base (`"A"` of `Str`); at run time it *is*
+    /// the base, and a union collapses a base's literals into one arm
+    /// [union-arm-identity].
+    Lit(salvo_syntax::ast::TypeLit),
     /// A union: at least two arms, no arm is itself a union, arms are
     /// deduplicated [type-union], declaration order preserved (arm order
     /// is the wrapper arm identity for codegen [union-arm-identity]).
@@ -287,6 +292,7 @@ impl Ty {
     /// [iter-type] Whether the placeholder occurs anywhere in this type.
     pub fn mentions_iter_marker(&self) -> bool {
         match self {
+            Ty::Lit(_) => false,
             Ty::Named { name, args } => {
                 name == ITER_MARKER || args.iter().any(|a| a.mentions_iter_marker())
             }
@@ -391,6 +397,7 @@ impl Ty {
 
     fn collect_binders(&self, out: &mut Vec<String>) {
         match self {
+            Ty::Lit(_) => {}
             Ty::ValueRef { .. } | Ty::ConstInt(_) => {}
             Ty::FnName(FnId::Binder(name)) => {
                 if !out.iter().any(|n| n == name) {
@@ -1197,6 +1204,7 @@ impl fmt::Display for Qual {
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Ty::Lit(lit) => write!(f, "{lit}"),
             // [qual-depend] A place argument reads as it is written:
             // `KeyOf(m)`, `ValidFor(state.data)`.
             Ty::ValueRef { path, .. } => write!(f, "{path}"),

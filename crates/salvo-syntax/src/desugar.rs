@@ -959,6 +959,7 @@ pub fn type_mentions_iter(ty: &Type) -> bool {
         Type::Fn { params, ret, .. } => {
             params.iter().any(type_mentions_iter) || type_mentions_iter(ret)
         }
+        Type::Literal { .. } => false,
     }
 }
 
@@ -1896,6 +1897,7 @@ fn rename_proj_source(ty: &mut Type, old: &str, new: &str) {
             }
             rename_proj_source(base, old, new);
         }
+        Type::Literal { .. } => {}
         Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
             for a in arms {
                 rename_proj_source(a, old, new);
@@ -1939,6 +1941,7 @@ fn value_arg_roots(ty: &Type, out: &mut Vec<String>) {
             }
             value_arg_roots(base, out);
         }
+        Type::Literal { .. } => {}
         Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
             for a in arms {
                 value_arg_roots(a, out);
@@ -1985,6 +1988,7 @@ fn rename_value_arg_root(ty: &mut Type, old: &str, new: &str) {
             }
             rename_value_arg_root(base, old, new);
         }
+        Type::Literal { .. } => {}
         Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
             for a in arms {
                 rename_value_arg_root(a, old, new);

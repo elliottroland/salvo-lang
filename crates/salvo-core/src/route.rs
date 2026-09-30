@@ -258,6 +258,7 @@ fn group_args(ty: &Type, out: &mut BTreeSet<String>) {
         }
     }
     match ty {
+        Type::Literal { .. } => {}
         Type::Named { base, qualifiers } => {
             in_ref(base, out);
             for q in qualifiers {
@@ -290,6 +291,7 @@ fn type_names(ty: &Type, out: &mut BTreeSet<String>) {
         }
     }
     match ty {
+        Type::Literal { .. } => {}
         Type::Named { base, qualifiers } => {
             in_ref(base, out);
             for q in qualifiers {
@@ -495,6 +497,7 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
 
 fn respan_type(ty: &mut Type, spans: &mut Spans) {
     match ty {
+        Type::Literal { span, .. } => *span = spans.take(),
         Type::Named { qualifiers, base } => {
             for q in qualifiers {
                 respan_ref(q, spans);

@@ -1528,6 +1528,7 @@ fn proj_sources_of(ty: &Type) -> Vec<String> {
     }
     fn walk(ty: &Type, out: &mut Vec<String>) {
         match ty {
+            Type::Literal { .. } => {}
             Type::Named { qualifiers, base } => {
                 for q in qualifiers {
                     in_ref(q, out);

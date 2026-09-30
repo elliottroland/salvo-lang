@@ -3653,8 +3653,17 @@ impl<'p> Emitter<'p> {
                 }
             };
         }
+        // [type-literal] A literal is its base, and a union collapses its
+        // literals, before anything is rendered [union-arm-identity].
+        if matches!(ty, Type::Literal { .. } | Type::Union { .. }) {
+            let collapsed = salvo_core::literal::collapse_ast(ty);
+            if &collapsed != ty {
+                return self.emit_type(&collapsed);
+            }
+        }
         match ty {
             Type::Named { qualifiers, base } => self.emit_named_type(qualifiers, base),
+            Type::Literal { value, span } => self.emit_type(&value.base_type(*span)),
             Type::Nullable { inner, .. } => format!("{}?", self.emit_type(inner)),
             Type::Array { elem, .. } => format!("Array<{}>", self.emit_type(elem)),
             Type::Union { arms, .. } => self.emit_union_type(arms),
@@ -4167,7 +4176,12 @@ impl<'p> Emitter<'p> {
     /// Renders a checker type to Kotlin (qualifiers erased, unions as
     /// sealed wrappers).
     fn emit_ty(&mut self, ty: &Ty) -> String {
+        // [type-literal] A backend only ever renders the runtime shape.
+        if salvo_core::literal::mentions_lit(ty) {
+            return self.emit_ty(&salvo_core::literal::collapse_ty(ty));
+        }
         match ty {
+            Ty::Lit(l) => self.emit_ty(&Ty::named(l.base())),
             // [qual-depend] A place argument is the checker's alone: it
             // lives inside an erased qualifier and never reaches output.
             Ty::ValueRef { .. } | Ty::ConstInt(_) => String::new(),
@@ -8642,7 +8656,7 @@ impl<'p> Emitter<'p> {
     /// spines stays immutable).
     fn ty_immutable(&self, ty: &Ty, visiting: &mut Vec<String>) -> bool {
         match ty {
-            Ty::ValueRef { .. } | Ty::ConstInt(_) => true,
+            Ty::ValueRef { .. } | Ty::ConstInt(_) | Ty::Lit(_) => true,
             Ty::Qualified { quals, base } => {
                 !quals.iter().any(|q| q.name == "Mut")
                     && self.ty_immutable(base, visiting)
@@ -8719,6 +8733,7 @@ impl<'p> Emitter<'p> {
     /// immutability analysis [kt-copy].
     fn approx_ty(t: &Type, subst: &HashMap<String, Ty>) -> Option<Ty> {
         match t {
+            Type::Literal { value, .. } => Some(Ty::Lit(value.clone())),
             Type::Named { qualifiers, base } => {
                 if qualifiers.is_empty() && base.args.is_empty() {
                     if let Some(ty) = subst.get(&base.name.name) {
@@ -9500,6 +9515,7 @@ fn qual_suffix(decl: &FnDecl) -> String {
 /// Substitutes generic parameters in an AST type (for alias expansion).
 fn subst_ast_type(ty: &Type, map: &std::collections::HashMap<&str, &Type>) -> Type {
     match ty {
+        Type::Literal { .. } => ty.clone(),
         Type::Named { qualifiers, base } => {
             if qualifiers.is_empty() && base.args.is_empty() {
                 if let Some(replacement) = map.get(base.name.name.as_str()) {

@@ -11,6 +11,7 @@ pub mod effects;
 pub mod erase;
 pub mod expand;
 pub mod lends;
+pub mod literal;
 pub mod lock;
 pub mod manifest;
 pub mod place;

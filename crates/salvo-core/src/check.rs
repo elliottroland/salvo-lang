@@ -3562,6 +3562,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return false;
         }
         match ty {
+            ast::Type::Literal { .. } => false,
             ast::Type::Fn { .. } => true,
             ast::Type::Union { arms, .. } => arms.iter().any(|a| self.ast_type_holds_fn(a, depth + 1)),
             ast::Type::Tuple { elems, .. } => {
@@ -11549,6 +11550,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [linear-container] LC-3's positions, which explain themselves.
         let mut reasoned: Vec<(Span, String, String)> = Vec::new();
         match ty {
+            ast::Type::Literal { .. } => {}
             ast::Type::Named { base, .. } => {
                 let opted = self.linear_opt_in_positions(base.name.name.as_str());
                 for (i, a) in base.args.iter().enumerate() {
@@ -14300,6 +14302,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// are declared syntactically [fate-move-mode].
     fn ast_type_mut(&self, ty: &ast::Type, visited: &mut HashSet<String>) -> bool {
         match ty {
+            ast::Type::Literal { .. } => false,
             ast::Type::Named { qualifiers, base } => {
                 if qualifiers.iter().any(|q| q.name.name == "Mut") {
                     return true;
@@ -15235,6 +15238,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::iter_marker(elem).qualify(quals);
         }
         match ty {
+            ast::Type::Literal { value, .. } => Ty::Lit(value.clone()),
             ast::Type::Named { qualifiers, base } => {
                 let lowered = self.lower_base_ref(base, subst, depth);
                 let quals = self.lower_quals(qualifiers, subst, depth);
@@ -16615,6 +16619,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let inside =
             |c: &ast::Type| Self::type_mentions_var(c, var) || self.var_in_composite(c, var);
         match ty {
+            ast::Type::Literal { .. } => false,
             // [linear-container] A type argument to a *conditional
             // container's* opted-in parameter is not a refused store (user
             // decision 2026-09-12, extended to opaque containers like `List`
@@ -16658,6 +16663,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Whether a written type mentions the type variable `var` anywhere.
     fn type_mentions_var(ty: &ast::Type, var: &str) -> bool {
         match ty {
+            ast::Type::Literal { .. } => false,
             ast::Type::Named { base, .. } => {
                 base.name.name == var || base.args.iter().any(|a| Self::type_mentions_var(a, var))
             }
@@ -16742,6 +16748,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return false;
         }
         match ty {
+            ast::Type::Literal { .. } => false,
             // An array indirects (`Vec<T>`), so it is not a cycle edge.
             ast::Type::Array { .. } => false,
             ast::Type::Fn { .. } => false,
@@ -16839,6 +16846,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn type_stores_inline(&self, ty: &ast::Type, param: &str, depth: usize) -> bool {
         match ty {
+            ast::Type::Literal { .. } => false,
             ast::Type::Array { .. } | ast::Type::Fn { .. } => false,
             ast::Type::Nullable { inner, .. } => self.type_stores_inline(inner, param, depth),
             ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => {
@@ -17004,6 +17012,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         match ty {
+            ast::Type::Literal { .. } => {}
             ast::Type::Named { qualifiers, base } => {
                 self.require_name(base, false);
                 self.reject_effect_as_data(base);
@@ -28185,6 +28194,7 @@ fn proj_refs_in_type_args(ty: &ast::Type) -> Vec<&TypeRef> {
             }
         }
         match ty {
+            ast::Type::Literal { .. } => {}
             ast::Type::Named { qualifiers, base } => {
                 for q in qualifiers {
                     in_ref(q, inside_arg, out);

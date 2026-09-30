@@ -1087,6 +1087,60 @@ pub enum DeductionKind {
 
 // --- Types ---
 
+/// [type-literal] The value of a literal type. No floats: equality on them is
+/// not what a set of named values wants.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum TypeLit {
+    Str(String),
+    Int(i64),
+    Long(i64),
+    Bool(bool),
+}
+
+impl TypeLit {
+    /// The base type the literal belongs to — what it is at run time.
+    pub fn base(&self) -> &'static str {
+        match self {
+            TypeLit::Str(_) => "Str",
+            TypeLit::Int(_) => "Int",
+            TypeLit::Long(_) => "Long",
+            TypeLit::Bool(_) => "Bool",
+        }
+    }
+}
+
+impl TypeLit {
+    /// The written base type, as a plain `Named` type at [span] — what a
+    /// literal type is rendered as by a backend.
+    pub fn base_type(&self, span: Span) -> Type {
+        Type::Named {
+            qualifiers: Vec::new(),
+            base: TypeRef {
+                name: Ident { name: self.base().to_string(), span },
+                args: Vec::new(),
+                value_args: Vec::new(),
+                from: Vec::new(),
+                at: None,
+                binder: false,
+                established: false,
+                alias: None,
+                span,
+            },
+        }
+    }
+}
+
+impl std::fmt::Display for TypeLit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeLit::Str(v) => write!(f, "{v:?}"),
+            TypeLit::Int(v) => write!(f, "{v}"),
+            TypeLit::Long(v) => write!(f, "{v}L"),
+            TypeLit::Bool(v) => write!(f, "{v}"),
+        }
+    }
+}
+
 /// A type expression as written in source.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Type {
@@ -1106,6 +1160,11 @@ pub enum Type {
     },
     /// `A | B | C`
     Union { arms: Vec<Type>, span: Span },
+    /// [type-literal] A literal as a type — `"STANDARD"`, `3`, `-1`, `3L`,
+    /// `true` — the type whose one value is that literal. Meant for unions
+    /// (`"A" | "B" | Other Str`), which collapse a base type's literals into
+    /// one arm of that base [union-arm-identity].
+    Literal { value: TypeLit, span: Span },
     /// `(A, B, C)`
     Tuple { elems: Vec<Type>, span: Span },
     /// `T[]`
@@ -1136,6 +1195,7 @@ impl Type {
                 .map(|q| q.span.to(base.span))
                 .unwrap_or(base.span),
             Type::Union { span, .. }
+            | Type::Literal { span, .. }
             | Type::Tuple { span, .. }
             | Type::Array { span, .. }
             | Type::Nullable { span, .. }
@@ -1317,6 +1377,7 @@ impl fmt::Display for Type {
                 let arms: Vec<String> = arms.iter().map(|a| a.to_string()).collect();
                 write!(f, "{}", arms.join(" | "))
             }
+            Type::Literal { value, .. } => write!(f, "{value}"),
             Type::Tuple { elems, .. } => {
                 let elems: Vec<String> = elems.iter().map(|e| e.to_string()).collect();
                 write!(f, "({})", elems.join(", "))

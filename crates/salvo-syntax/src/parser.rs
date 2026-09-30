@@ -3094,6 +3094,55 @@ impl<'s> Parser<'s> {
         Some(Type::Union { arms, span })
     }
 
+    /// [type-literal] A literal in type position: a plain string (no
+    /// interpolation), an integer (optionally negative, `L` for a `Long`), or
+    /// `true`/`false`. A float is refused here rather than parsed, since it
+    /// is never a literal type.
+    fn parse_type_literal(&mut self) -> Option<Type> {
+        let start = self.peek().span;
+        let negative = self.at(&TokenKind::Minus) && matches!(self.peek_at(1).kind, TokenKind::Int { .. } | TokenKind::Float { .. });
+        let at = if negative { 1 } else { 0 };
+        let value = match &self.peek_at(at).kind {
+            TokenKind::Str(parts) if !negative => {
+                let mut text = String::new();
+                for part in parts {
+                    match part {
+                        StrPart::Text(t) => text.push_str(t),
+                        StrPart::Interp { .. } => {
+                            self.error("a literal type cannot interpolate", start);
+                            self.bump();
+                            return Some(Type::Literal { value: TypeLit::Str(String::new()), span: start });
+                        }
+                    }
+                }
+                TypeLit::Str(text)
+            }
+            TokenKind::Int { value, long } => {
+                let v = if negative { -*value } else { *value };
+                if *long { TypeLit::Long(v) } else { TypeLit::Int(v) }
+            }
+            TokenKind::KwTrue if !negative => TypeLit::Bool(true),
+            TokenKind::KwFalse if !negative => TypeLit::Bool(false),
+            TokenKind::Float { .. } => {
+                if negative {
+                    self.bump();
+                }
+                let span = self.bump().span;
+                self.error(
+                    "a float cannot be a literal type: equality on floats does not name a value [type-literal]",
+                    start.to(span),
+                );
+                return Some(Type::Literal { value: TypeLit::Int(0), span: start.to(span) });
+            }
+            _ => return None,
+        };
+        if negative {
+            self.bump();
+        }
+        let end = self.bump().span;
+        Some(Type::Literal { value, span: start.to(end) })
+    }
+
     /// A type atom followed by `[]` / `?` postfixes.
     fn parse_type_postfix(&mut self) -> Option<Type> {
         let mut ty = self.parse_type_atom()?;
@@ -3125,6 +3174,9 @@ impl<'s> Parser<'s> {
     fn parse_type_atom(&mut self) -> Option<Type> {
         if self.at(&TokenKind::LParen) {
             return self.parse_paren_type();
+        }
+        if let Some(lit) = self.parse_type_literal() {
+            return Some(lit);
         }
         // A sequence of type refs: qualifiers followed by a base type.
         // Only continue the sequence on the same line (or inside a group) so

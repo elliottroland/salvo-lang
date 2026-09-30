@@ -51,6 +51,7 @@ pub fn type_has_proj(ty: &Type) -> bool {
         r.name.name == "proj" || r.args.iter().any(type_has_proj)
     }
     match ty {
+        Type::Literal { .. } => false,
         Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),
         Type::QualifiedGroup {
             qualifiers, base, ..
@@ -70,6 +71,7 @@ pub fn type_arg_has_proj(ty: &Type) -> bool {
         r.args.iter().any(type_has_proj)
     }
     match ty {
+        Type::Literal { .. } => false,
         Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),
         Type::QualifiedGroup {
             qualifiers, base, ..
@@ -87,6 +89,7 @@ pub fn type_arg_has_proj(ty: &Type) -> bool {
 /// sit in).
 fn struct_names(ty: &Type, out: &mut Vec<String>) {
     match ty {
+        Type::Literal { .. } => {}
         Type::Named { base, .. } => out.push(base.name.name.clone()),
         Type::QualifiedGroup { base, .. } => struct_names(base, out),
         Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {

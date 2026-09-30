@@ -1675,6 +1675,7 @@ fn resolve_import<'p>(
 fn mentions_type(ty: &salvo_syntax::ast::Type, name: &str) -> bool {
     use salvo_syntax::ast::Type as T;
     match ty {
+        T::Literal { .. } => false,
         T::Named { base, .. } => {
             base.name.name == name || base.args.iter().any(|a| mentions_type(a, name))
         }

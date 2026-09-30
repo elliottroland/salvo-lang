@@ -1063,6 +1063,7 @@ impl World {
 
     fn classify(&self, ty: &Type, generics: &[String], depth: u32) -> TypeKindWord {
         match ty {
+            Type::Literal { .. } => TypeKindWord::Basic,
             Type::Union { .. } | Type::Nullable { .. } => TypeKindWord::Union,
             Type::Tuple { .. } => TypeKindWord::Tuple,
             Type::Fn { .. } => TypeKindWord::FnType,
@@ -1111,6 +1112,7 @@ impl World {
     /// [qual-erasure], for the compile-time `is <Type>` test.
     fn normalized(&self, ty: &Type) -> String {
         match ty {
+            Type::Literal { value, .. } => value.to_string(),
             Type::Named { base, .. } => {
                 if let Some(t) = self.types.get(base.name.name.as_str()) {
                     if let Some(alias) = &t.alias {

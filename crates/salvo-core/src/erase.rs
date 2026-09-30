@@ -68,6 +68,7 @@ fn occurrences_effect_only(
         effect_position: bool,
     ) {
         match ty {
+            Type::Literal { .. } => {}
             Type::Named { base, qualifiers } => {
                 for q in qualifiers {
                     for a in &q.args {

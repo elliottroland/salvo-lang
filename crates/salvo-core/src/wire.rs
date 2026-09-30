@@ -249,6 +249,7 @@ pub fn struct_has_wire_form(symbols: &Symbols<'_>, name: &str) -> bool {
 /// emitter's private helper until the wire needed it in three places).
 pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>) -> Option<Ty> {
     match t {
+        Type::Literal { value, .. } => Some(Ty::Lit(value.clone())),
         Type::Named { qualifiers, base } => {
             if qualifiers.is_empty() && base.args.is_empty() {
                 if let Some(ty) = subst.get(&base.name.name) {

@@ -2757,6 +2757,7 @@ impl<'p> Emitter<'p> {
 
     fn type_derivable(&self, ty: &Type, depth: usize) -> bool {
         match ty {
+            Type::Literal { .. } => true,
             Type::Named { base, .. } => match base.name.name.as_str() {
                 "Int" | "Long" | "Byte" | "Char" | "Bool" | "Str" | "Bytes" | "None" => true,
                 "List" | "Set" | "Map" => base.args.iter().all(|a| self.type_derivable(a, depth + 1)),
@@ -6122,8 +6123,17 @@ impl<'p> Emitter<'p> {
                 .unwrap_or_default();
             return format!("&{lt}{rendered}");
         }
+        // [type-literal] A literal is its base, and a union collapses its
+        // literals, before anything is rendered [union-arm-identity].
+        if matches!(ty, Type::Literal { .. } | Type::Union { .. }) {
+            let collapsed = salvo_core::literal::collapse_ast(ty);
+            if &collapsed != ty {
+                return self.emit_type(&collapsed);
+            }
+        }
         match ty {
             Type::Named { qualifiers, base } => self.emit_named_type(qualifiers, base),
+            Type::Literal { value, span } => self.emit_type(&value.base_type(*span)),
             Type::Nullable { inner, .. } => format!("Option<{}>", self.emit_type(inner)),
             Type::Array { elem, .. } => format!("Vec<{}>", self.emit_type(elem)),
             Type::Union { arms, .. } => self.emit_union_type(arms),
@@ -6810,7 +6820,12 @@ impl<'p> Emitter<'p> {
     /// enum encoding). Must agree with `emit_type` on the same source
     /// type — checker-resolved effect types key the effect environment.
     fn rust_ty(&mut self, ty: &Ty) -> String {
+        // [type-literal] A backend only ever renders the runtime shape.
+        if salvo_core::literal::mentions_lit(ty) {
+            return self.rust_ty(&salvo_core::literal::collapse_ty(ty));
+        }
         match ty {
+            Ty::Lit(l) => self.rust_ty(&Ty::named(l.base())),
             // [qual-depend] A place argument is the checker's alone: it
             // lives inside an erased qualifier and never reaches output.
             Ty::ValueRef { .. } | Ty::ConstInt(_) => String::new(),
@@ -16945,6 +16960,7 @@ fn proj_refs_with_from(ty: &Type) -> Vec<Vec<String>> {
     }
     fn walk(ty: &Type, out: &mut Vec<Vec<String>>) {
         match ty {
+            Type::Literal { .. } => {}
             Type::Named { qualifiers, base } => {
                 for q in qualifiers {
                     in_ref(q, out);
@@ -17375,6 +17391,7 @@ fn qual_suffix(decl: &FnDecl) -> String {
 /// Substitutes generic parameters in an AST type (alias expansion).
 fn subst_ast_type(ty: &Type, map: &HashMap<&str, &Type>) -> Type {
     match ty {
+        Type::Literal { .. } => ty.clone(),
         Type::Named { qualifiers, base } => {
             if qualifiers.is_empty() && base.args.is_empty() {
                 if let Some(replacement) = map.get(base.name.name.as_str()) {

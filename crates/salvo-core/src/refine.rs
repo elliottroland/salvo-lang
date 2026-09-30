@@ -831,6 +831,7 @@ fn kept_in(list: &[Deduction], param: &str) -> bool {
 /// excluded: `Mut` and friends are the language's, not declarations).
 fn base_names<'t>(ty: &'t Type, out: &mut Vec<&'t Ident>) {
     match ty {
+        Type::Literal { .. } => {}
         Type::Named { base, .. } => {
             out.push(&base.name);
             for a in &base.args {
@@ -1036,6 +1037,7 @@ fn normalize(ty: &Type, generics: &[&str]) -> String {
         s
     };
     match ty {
+        Type::Literal { value, .. } => value.to_string(),
         Type::Named { qualifiers, base } => {
             let mut s = String::new();
             for q in qualifiers {
