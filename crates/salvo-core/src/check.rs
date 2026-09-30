@@ -2681,7 +2681,27 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let context = self.member_discharge_context(h, f);
                         let saved_discharges =
                             std::mem::replace(&mut self.own_discharges, context);
+                        // [fate-move-mode] A member's clause is written, and
+                        // it is the member's own contract: a parameter it
+                        // consumes is owned here, so a binding taken from it
+                        // (`let {body} = input`) is move-mode exactly as in a
+                        // fn. Without this every derived binding in a member
+                        // stayed read-only and a consumed parameter could
+                        // only be handed on whole (found 2026-09-30 writing
+                        // `MemS3.put_object`).
+                        let contract = self.effective_contract(None, f);
+                        let saved_contract = std::mem::replace(&mut self.own_contract, contract);
+                        let saved_written = std::mem::replace(
+                            &mut self.own_written,
+                            f.deductions
+                                .iter()
+                                .flatten()
+                                .filter_map(|d| d.param_name().map(|n| n.name.clone()))
+                                .collect(),
+                        );
                         self.check_fn(f, &h.params, member_state);
+                        self.own_contract = saved_contract;
+                        self.own_written = saved_written;
                         self.own_discharges = saved_discharges;
                         self.servant_reply_params = saved_replies;
                         self.facade_handler = saved_facade;

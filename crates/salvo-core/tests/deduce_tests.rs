@@ -798,6 +798,51 @@ fn list_size<T>(list: List<T>) [] -> Int => list {{ return 0 }}
     assert_eq!(facts(&program, &checked, "caller", "list").0, false);
 }
 
+// [fate-move-mode] A handler member's written clause is its own contract, as
+// a fn's is: a parameter it consumes is owned in the body, so a binding taken
+// from it is move-mode and may be moved on. A kept one stays read-only.
+// (Found 2026-09-30: members had no contract in scope, so every derived
+// binding in a member was read-only — `let {body} = input` then
+// `close(body)` was refused.)
+#[test]
+fn a_handler_member_owns_what_it_consumes() {
+    let src = "
+struct Pair { a: List<Int>, b: List<Int> }
+
+fn sink(l: List<Int>) [] -> None => !l { return None }
+
+effect Take {
+    fn take(p: Pair) -> None => !p
+    fn look(p: Pair) -> None => p
+}
+
+handler Taker() of Take {
+    fn take(p: Pair) -> None => !p {
+        let {a, b} = p
+        sink(a)
+        sink(b)
+    }
+
+    fn look(p: Pair) -> None => p {
+        let {a} = p
+        sink(a)
+    }
+}
+";
+    let (_, checked) = check_src(src);
+    let errors: Vec<String> = checked
+        .errors
+        .iter()
+        .filter(|e| e.is_error())
+        .map(|e| e.message.clone())
+        .collect();
+    assert_eq!(errors.len(), 1, "errors: {errors:?}");
+    assert!(
+        errors[0].contains("cannot move `a`: it was bound from `p` and shares its fate"),
+        "errors: {errors:?}"
+    );
+}
+
 // [fate-lambda] A lambda that captures and mutates a parameter claims it
 // as moved (the closure takes ownership at creation); a read-only
 // capture keeps the parameter kept.
