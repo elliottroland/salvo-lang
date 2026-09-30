@@ -9,10 +9,10 @@ src = "salvo"
 # compiles against. Joins a build only when that glue is reached — a program
 # that uses only the fakes needs neither SDK.
 [rust]
-crates = { aws-config = { version = "1", features = ["behavior-version-latest"] }, aws-sdk-sqs = "1", tokio = { version = "1", features = ["rt-multi-thread"] } }
+crates = { aws-config = { version = "1", features = ["behavior-version-latest"] }, aws-sdk-s3 = "1", aws-sdk-sqs = "1", tokio = { version = "1", features = ["rt-multi-thread"] } }
 
 [kotlin]
 # Recorded for the day the compiler resolves Maven; until then
 # `./gradlew fetchKotlinSdk` in codegen/ fills `libs` with their closure.
-artifacts = ["aws.sdk.kotlin:sqs:1.9.11"]
+artifacts = ["aws.sdk.kotlin:s3:1.9.11", "aws.sdk.kotlin:sqs:1.9.11"]
 libs = "lib/kotlin"
