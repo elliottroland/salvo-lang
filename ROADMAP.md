@@ -421,13 +421,21 @@ Uploads stream and require `content_length` (2026-09-30). Left, in the module
 (DESIGN §9): multipart upload for a body of unknown length, Smithy unions,
 paginators and waiters, more S3 operations (buckets, listing).
 
-### 4c — Unions of literals, then the clients over them (decided 2026-09-30, not built)
+### 4c — Unions of literals, then the clients over them (decided 2026-09-30)
 
 The user's order: (1) ✅ a drift test for the aws glue; (2) ✅ **unions of
 literals** (built 2026-09-30, [type-literal]; left: `Byte` literals, which
-need literal syntax first); (3) ✅
-regenerate `aws.sqs`/`aws.s3` with literal-union enums and one error struct per
-(4) ✅ the host ABI written down; splices DECISION pending; (5) DynamoDB.
+need literal syntax first); (3) ✅ `aws.sqs`/`aws.s3` regenerated with
+literal-union enums and one error struct per service; (4) ✅ the host ABI
+written down ([platform-abi], [rs-host-abi], [kt-host-abi]), then **host code
+with Salvo splices** (`` ```kotlin … ``` `` blocks, the user's direction) —
+**DECISION**, put to the user 2026-09-30: where a block may stand (member
+bodies; a handler-level block for host state and helpers), the hole delimiter
+(`@{…}` recommended: legal in neither Rust nor Kotlin, where `${` is a Kotlin
+template), what a hole holds (a closed set of emission-dependent spellings — a
+type, a constructor, a field read, an arm wrap and test — recommended over full
+Salvo expressions with typed host escapes), whether every backend must have a
+block, and whether std's `platform/` files move into splices; (5) DynamoDB.
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
