@@ -428,14 +428,11 @@ literals** (built 2026-09-30, [type-literal]; left: `Byte` literals, which
 need literal syntax first); (3) ✅ `aws.sqs`/`aws.s3` regenerated with
 literal-union enums and one error struct per service; (4) ✅ the host ABI
 written down ([platform-abi], [rs-host-abi], [kt-host-abi]), then **host code
-with Salvo splices** (`` ```kotlin … ``` `` blocks, the user's direction) —
-**DECISION**, put to the user 2026-09-30: where a block may stand (member
-bodies; a handler-level block for host state and helpers), the hole delimiter
-(`@{…}` recommended: legal in neither Rust nor Kotlin, where `${` is a Kotlin
-template), what a hole holds (a closed set of emission-dependent spellings — a
-type, a constructor, a field read, an arm wrap and test — recommended over full
-Salvo expressions with typed host escapes), whether every backend must have a
-block, and whether std's `platform/` files move into splices; (5) DynamoDB.
+with Salvo splices** — decided 2026-09-30 (COMPLETED.md's entry), being built:
+fenced `` ```kotlin … ``` `` / `` ```rust … ``` `` blocks as member, handler-level
+and free-fn bodies; `@{…}` holes of a closed set, `` `…` `` host leaves inside;
+required backends from the manifest, Kotlin-only items allowed; the aws glue
+first; (5) DynamoDB.
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
@@ -870,6 +867,12 @@ backends**.
 
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
+
+- **Full Salvo expressions in splice holes** (user decision 2026-09-30:
+  revisit if splices prove themselves at the small scale). Today a hole
+  holds a closed set of emission-dependent spellings with host code only at
+  the leaves; the general form would type-check Salvo embedded in host text,
+  with typed escapes back to it.
 
 - **Whether the monitor spawn of a plain-effect handler stays** (user
   decision 2026-09-28: keep the split as is for now). `spawn H()` where every

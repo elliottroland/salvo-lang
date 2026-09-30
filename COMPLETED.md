@@ -135,6 +135,26 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Host code with Salvo splices — decided (2026-09-30, user decisions; not yet
+built).** For glue that depends on emission (the aws generator writes Rust and
+Kotlin that name `UnionN`, `Checked`, module paths), the user chose host code
+written *in* Salvo files, in Markdown's fenced-block spelling, with holes the
+compiler renders. **Decided:** (1) a block may stand as the body of a platform
+handler's member, as a handler-level block (host fields and helpers), and as
+the body of a **free fn** (the user's addition: more places to write platform
+code); (2) a hole is `@{ … }`, and inside a hole a piece of host code is
+`` `…` `` — no `@`, since a backtick is not Salvo and it matches the fence's
+association with the host language; (3) a hole holds a **closed set** of
+emission-dependent spellings — a type, a struct constructor, a field read, a
+union-arm wrap (`ok(…)`, `err(…)`) and an arm test — checked against the Salvo
+types, host code only at the leaves; full Salvo expressions in holes are
+recorded to revisit if the feature proves itself; (4) **which backends are
+required comes from the manifest**: every backend it builds must have a block,
+except that a Kotlin-only item is allowed (a warning), so a code base can reach
+parity before the Rust backend is enabled; (5) the aws glue moves first, std's
+`platform/` files stay hand-written; (6) the editor highlights each fence as its
+language, and the LSP serves only the holes.
+
 **The aws clients over unions of literals (2026-09-30; ROADMAP §4c step 3).**
 The generator rewritten on the user's two decisions: an enum is a union of its
 wire values plus `Other Str`, and a service has one error struct —
