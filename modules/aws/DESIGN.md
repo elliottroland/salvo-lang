@@ -141,11 +141,25 @@ the decisions — worth a second look:
 - **A streaming member is always present** (`body: InStream`, no `?`): its
   `@default` is the empty body, which Salvo cannot write as a literal of a
   linear type.
-- **Request bodies are buffered.** The glue takes the stream out of the host
-  table at the call, reads it to the end on a blocking thread (tokio's
-  `spawn_blocking`; `Dispatchers.IO`), and sends the bytes: both SDKs sign and
-  checksum a body of known length without `aws-chunked`. Response bodies do
-  stream. A streaming upload is §9.
+- **Request bodies stream, and must say their length** (user decisions the
+  same day, after a first cut that buffered): the caller's `content_length` is
+  the length — found by the member bound to the `Content-Length` header, and a
+  streamed input without one is refused by the generator — and without it the
+  call answers `AwsError { code: "MissingContentLength" }`, sending nothing;
+  never buffering to find it out, so memory is predictable. Rust: a blocking
+  thread reads 64 KiB chunks into a four-slot channel an `http_body::Body`
+  drains (`ByteStream::from_body_1_x`; `bytes` and `http-body` crates, tokio's
+  `sync`). Kotlin: an `InputStream` over the table stream, through
+  `asByteStream(length)`. A body shorter or longer than its length is a
+  `StreamFailed` answer, found before the last chunk goes so nothing is stored.
+  Not retryable — a stream is read once (accepted). `FakeS3` refuses a missing
+  length the same way. Measured on a 200 MiB round trip: 31 MiB peak on Rust,
+  and the Kotlin program passing with a 32 MiB heap.
+- **The JVM exits when `main` does**, by a stopgap in the Kotlin glue: OkHttp's
+  non-daemon dispatcher thread held every program using a host AWS handler open
+  for 60s after its last call, so a daemon thread joins `main` and closes the
+  client (`salvoCloseWhenMainEnds`). The general fix — the runtime ending the
+  process — is ROADMAP §4b item 7, to be designed.
 - **Response bodies stay in the SDK.** Rust wraps the `ByteStream` in a
   `std::io::Read` that blocks on the next chunk through the handler's tokio
   handle — the table is read from Salvo workers and the stream host's reader
@@ -363,10 +377,9 @@ types without them.
 ## 9. Deferred, recorded
 
 `Document`; event streams; Smithy unions; paginators and waiters (ordinary
-Salvo over the operations, later); **streaming uploads** — a request body sent
-as it is read rather than buffered, which needs an `http-body` over the table
-on Rust, `InputStream.asByteStream(length)` on Kotlin, and either a known
-length or `aws-chunked` with a trailing checksum; the writer pair for Salvo-produced bodies and host-minted
+Salvo over the operations, later); **uploads of unknown length** — multipart
+upload (`CreateMultipartUpload`/`UploadPart`/`CompleteMultipartUpload`), for a
+body relayed from a stream whose length nobody knows; the writer pair for Salvo-produced bodies and host-minted
 replies (6); asynchronous `Lines`; a consumer-only `ByteSource` face;
 implementing the protocols in Salvo (D1's alternative); Maven resolution in the
 compiler (3b); transitive dependencies for `modules/aws` itself ([manifest-deps]

@@ -60,6 +60,15 @@ A structure holding a body (`PutObjectInput`, `GetObjectOutput`) is a
 `linear struct`: take the stream out with `let {body} = output`, or give the
 whole value up with the generated `close`.
 
+**An upload streams, so it must say its length.** `PutObjectInput.content_length`
+is the body's size in bytes — for a file, `metadata(path)`'s `size`. Without
+it, `put_object` answers `AwsError { code: "MissingContentLength" }` and sends
+nothing (`FakeS3` refuses the same way, so a test catches it); a body shorter or
+longer than it answers `AwsError { code: "StreamFailed" }` and nothing is
+stored. Nothing is buffered to find a length out, so memory stays at a few
+64 KiB chunks whatever the object's size. A failed upload is not retried: a
+stream is read once.
+
 ## Setting up from scratch
 
 What a new machine needs, in order. Everything below is run from the
@@ -238,6 +247,4 @@ It stops with an error naming the shape rather than emitting something
 approximate: documents, event streams, Smithy unions, big numbers, and
 non-scalar `@default`s. Enum-keyed maps are `Map<Str, V>` keyed by the enum's
 wire value; timestamps are `time.Instant`; a `@streaming` blob is a
-`stream.InStream`. Paginators and waiters are not generated. A request body is
-read out of the stream table into memory before it is sent (the SDKs sign and
-checksum a body of known length); a response body streams.
+`stream.InStream`, streamed both ways. Paginators and waiters are not generated.

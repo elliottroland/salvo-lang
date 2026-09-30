@@ -135,6 +135,29 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Streaming uploads, and the JVM's exit (2026-09-30, user decisions).** Asked
+what streaming uploads needed: a length, since both SDKs stream only a body of
+known size (aws-sdk-s3 refuses an unsized one for `aws-chunked`) and S3 refuses
+a `PutObject` without `Content-Length`. **Decided:** the length is the caller's
+`content_length` (the user's own practice with S3 on the JVM: fetch the file's
+size first); a missing one is **refused, never buffered**, so memory behaviour
+is predictable; no `Streams.length` in std; a streamed upload that cannot be
+retried is acceptable. Built in the generator: the Rust glue pumps 64 KiB
+chunks from a blocking thread through a bounded channel into an
+`http_body::Body`, the Kotlin glue hands the SDK an `InputStream` over the
+table stream; `MissingContentLength` for no length, `StreamFailed` for a body
+shorter or longer than it (checked before the last chunk, so nothing is
+stored); `FakeS3` refuses a missing length too. Measured with a 200 MiB round
+trip: byte-identical on both, 31 MiB peak on Rust, the Kotlin program passing
+with `-Xmx32m`. *Found on the way:* every Kotlin program using a host AWS
+handler stayed alive 60s after `main` — OkHttp's dispatcher thread is not a
+daemon, and a JVM ends with its last non-daemon thread where a Rust process
+ends with `main`. Two fixes were put; **the user chose the glue stopgap** (a
+daemon thread joins `main` and closes the SDK client) and asked for the
+runtime fix — the process ending when the program does — to be designed fully
+first (ROADMAP §4b item 7). The S3 demo went from ~60s to 1.45s. No compiler
+change; test count unchanged.
+
 **`aws.s3` — streaming bodies from the generator (2026-09-30; DESIGN §8 step
 5).** The generator maps a `@streaming` blob onto `stream.InStream` — allowed
 only as a top-level input/output member, which is where Smithy puts it — and
@@ -20087,6 +20110,13 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A JVM ends with its last non-daemon thread, not with `main`** (2026-09-30).
+  Host libraries start such threads (OkHttp's dispatcher, 60s keep-alive), so a
+  Kotlin program can outlive its `main` by a minute while the Rust build of the
+  same program exits at once. When a Kotlin run is inexplicably slow and the
+  output is complete, `jstack` the JVM and look for non-daemon threads; the
+  timing is the only tell, since Salvo's Kotlin stdout is flushed at exit.
 
 - **Every checked body needs its contract in scope** (2026-09-30,
   [fate-move-mode]). Move-mode asks `param_owned`, which reads

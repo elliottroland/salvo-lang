@@ -417,9 +417,9 @@ has the from-scratch setup), `aws.sqs` for six operations with a recording
 structs and timestamps as `time.Instant`, `examples/aws_sqs` and
 `examples/aws_s3` in the suite, and `modules/aws/demo/{sqs,s3}_live` run by
 hand against both SDKs through local stand-ins (COMPLETED.md has both entries).
-Left, in the module (DESIGN §9): streaming uploads (request bodies are
-buffered today), Smithy unions, paginators and waiters, more S3 operations
-(buckets, listing, multipart).
+Uploads stream and require `content_length` (2026-09-30). Left, in the module
+(DESIGN §9): multipart upload for a body of unknown length, Smithy unions,
+paginators and waiters, more S3 operations (buckets, listing).
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
