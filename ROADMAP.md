@@ -48,9 +48,9 @@ effects on both backends (every binding a handle, no fusion, no `local`), and
 the first comptime slice (`comptime fn` and `by auto`, replacing `auto`: the
 structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
-Thirteen worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print, one of them consuming the first dependency
-(`modules/aws/`). 1656 tests green.
+Fourteen worked examples in `examples/` carry the checked-in generated code for both
+targets and the output they print, three of them consuming the first dependency
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1657 tests green.
 
 ## The sequence
 
@@ -396,15 +396,17 @@ refused; an undischarged reply reported to the fault sink where detectable;
 provider-sized non-empty chunks; `Err Checked<StreamError>`; a wrong-provider
 handle traps; `InStream` and `OutStream` both move.
 
-Then, outside the compiler — **built 2026-09-29 for SQS**: the generator
-(`modules/aws/codegen`, a smithy-build plugin; `modules/aws/README.md` has the
-from-scratch setup), `aws.sqs` for six operations with a recording `FakeSqs`,
-`AwsConfig` with a `Credentials` union and an `endpoint` override,
-`examples/aws_sqs` in the suite, and `modules/aws/demo/sqs_live` run by hand
-against both SDKs through a local stand-in. **Next: S3** `GetObject`/`PutObject`
-over `Streams` — the generator's `@streaming` blob mapping onto `InStream`, and
-glue that registers SDK bodies in the host stream table — then timestamps
-(`time.Instant`), Smithy unions, paginators.
+Then, outside the compiler — **built 2026-09-29/30 for SQS and S3**: the
+generator (`modules/aws/codegen`, a smithy-build plugin; `modules/aws/README.md`
+has the from-scratch setup), `aws.sqs` for six operations with a recording
+`FakeSqs`, `AwsConfig` with a `Credentials` union and an `endpoint` override,
+`aws.s3` for `PutObject`/`GetObject` with bodies as `stream.InStream` in linear
+structs and timestamps as `time.Instant`, `examples/aws_sqs` and
+`examples/aws_s3` in the suite, and `modules/aws/demo/{sqs,s3}_live` run by
+hand against both SDKs through local stand-ins (COMPLETED.md has both entries).
+Left, in the module (DESIGN §9): streaming uploads (request bodies are
+buffered today), Smithy unions, paginators and waiters, more S3 operations
+(buckets, listing, multipart).
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 

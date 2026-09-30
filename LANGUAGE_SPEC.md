@@ -4093,7 +4093,10 @@ Conventions:
     `RawStreams.raw_receive`, and mints it back in `host_received`, the
     continuation the host completes. `HostRawStreams.raw_receive` reads on a
     thread of its own and completes the reply from there [platform-reply], so
-    no Salvo worker waits.
+    no Salvo worker waits. At `End` or a failure it releases the stream —
+    out of the table *and closed*, which on Kotlin must be said: a JVM stream
+    is not closed by being dropped (fixed 2026-09-30; an S3 body's response
+    block waits for exactly that close).
   * Memory: `MemFs.receive` answers at once (still as a later activation).
 * [stream-from-bytes] **`Streams.from_bytes(data) -> InStream`** mints a
   stream over bytes in hand, in the table of the `Streams` in scope — the host
@@ -6403,6 +6406,11 @@ between endpoints and delivers what arrives into the scheduler.
     [deduce-infer]). A *written* list that keeps the parameter blocks
     the claim: the binding stays borrow-mode and the S1 error stands at
     the move site [fate-derived-readonly].
+  * **A handler member's clause is its contract too** (2026-09-30): the
+    member's written list decides which of its parameters it owns, exactly
+    as a fn's does, so `let {body} = input` in a member consuming `input`
+    is move-mode. Until then a member had no contract in scope and every
+    derived binding in it stayed read-only.
   * Mode inference rides the checking rounds [deduce-fixpoint]: the
     first round is strict (every derived move/mutation records its bind
     chain as move-mode candidates and its parameter claims; the errors

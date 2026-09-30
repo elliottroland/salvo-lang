@@ -3,8 +3,8 @@
 How AWS services become Salvo: generated from the public Smithy models, wrapping
 the host SDKs each backend already has, non-blocking, with streaming bodies as
 ordinary Salvo streams. Decided with the user on 2026-09-29 (the decision log in
-the repository's COMPLETED.md has the entry); nothing below is built yet except
-`ProfileCredentials`.
+the repository's COMPLETED.md has the entry). Built: the generator, `aws.sqs`
+and `aws.s3` (§8 steps 3–5; the "Built" sections below).
 
 The module is a **user of Salvo**, not part of the compiler: it lives in
 `modules/aws/`, is consumed through `[dependencies]` like any other project
@@ -125,6 +125,55 @@ while building, within the decisions above — worth a second look:
   and `codegen/build.gradle.kts`'s `kotlinSdk` — until the compiler resolves
   Maven itself.
 
+### Built: S3 and streaming bodies (2026-09-30)
+
+§8 step 5: `aws.s3` for `PutObject` and `GetObject`, `examples/aws_s3` in the
+suite (the generated fake and a hand-written `MemS3` over `MemFs`), and
+`demo/s3_live` with `local_s3.py`, run by hand through both SDKs with
+identical output — a file put and got back, a 3 MiB binary round trip
+byte-identical, and a modeled `NoSuchKey`. Choices made while building, within
+the decisions — worth a second look:
+
+- **A structure holding a stream is a `linear struct`**, with a generated
+  `close(value)` beside it as its discharger ([linear-group] needs one in the
+  type's own file). A caller takes the body out (`let {body} = output`) and the
+  other members owe nothing.
+- **A streaming member is always present** (`body: InStream`, no `?`): its
+  `@default` is the empty body, which Salvo cannot write as a literal of a
+  linear type.
+- **Request bodies are buffered.** The glue takes the stream out of the host
+  table at the call, reads it to the end on a blocking thread (tokio's
+  `spawn_blocking`; `Dispatchers.IO`), and sends the bytes: both SDKs sign and
+  checksum a body of known length without `aws-chunked`. Response bodies do
+  stream. A streaming upload is §9.
+- **Response bodies stay in the SDK.** Rust wraps the `ByteStream` in a
+  `std::io::Read` that blocks on the next chunk through the handler's tokio
+  handle — the table is read from Salvo workers and the stream host's reader
+  thread, never from a tokio task. Kotlin's body lives only inside
+  `getObject`'s response block, so the coroutine registers it, answers the
+  reply from inside the block, and waits for the stream's `close` before
+  leaving it.
+- **A request-body read failure** answers `AwsError { code: "StreamFailed" }`,
+  the arm for everything the model does not name.
+- **`FakeS3` closes a body it is handed unread and answers `GetObject` with an
+  empty body** minted in the `Streams` in scope, so it needs `[Streams]` as a
+  dependency; a stream member no longer makes an output "not stubbable".
+- **Timestamps are `time.Instant`** (§4's table), nanoseconds through
+  `DateTime::as_nanos` / `epochSeconds`+`nanosecondsOfSecond`; the generated
+  file imports `time.Instant` alone.
+- **SDK type names follow each SDK's rule**: smithy-rs Pascal-cases shape names
+  (`ObjectCannedAcl`), smithy-kotlin's `defaultName(shape, service)` for Kotlin.
+  SQS had no acronym in a type name, so this had not shown.
+- **`omitMembers`** in the projection leaves out members the SDKs customize
+  away from the model — S3's `Expires` is a string in the model and a timestamp
+  in both SDKs — noted in the struct's doc comment.
+- **`forcePathStyle`** in the projection: with an `endpoint` override, buckets
+  are addressed in the path, which a local stand-in needs; real S3 keeps the
+  virtual-host style.
+- **Admonitions are not summaries**: a doc comment's first paragraph skips
+  `<important>`/`<note>` blocks (S3's `PutObject` opens with an
+  end-of-support notice). One SQS field comment changed with it.
+
 ## 3. Layout
 
 ```
@@ -138,12 +187,16 @@ modules/aws/
 ├── salvo/
 │   ├── aws.sv                 # hand-written: ProfileCredentials, Region, AwsError
 │   ├── aws/sqs.sv             # generated: shapes, errors, the effect, the handler decl
-│   ├── aws/s3.sv              # generated
+│   ├── aws/s3.sv  aws/s3/host.sv
 │   └── platform/aws/          # generated host glue [platform-tree]
-│       ├── sqs.kt  sqs.rs
-│       └── s3.kt   s3.rs
-└── tests/                     # Salvo: a fake per service, over MemByteSource
+│       ├── sqs/host.kt  sqs/host.rs
+│       └── s3/host.kt   s3/host.rs
+└── demo/                      # sqs_live, s3_live: the real SDKs against local stand-ins
 ```
+
+(Planned here as a `tests/` directory; the fakes are generated into each
+service's module instead, and the suite exercises them from
+`examples/aws_sqs` and `examples/aws_s3`.)
 
 The generated files are checked in, as `examples/*/rust` are, and a test
 regenerates from `models/` and diffs. Nothing here needs the compiler: the
@@ -309,8 +362,11 @@ types without them.
 
 ## 9. Deferred, recorded
 
-`Document`; event streams; paginators and waiters (ordinary Salvo over the
-operations, later); the writer pair for Salvo-produced bodies and host-minted
+`Document`; event streams; Smithy unions; paginators and waiters (ordinary
+Salvo over the operations, later); **streaming uploads** — a request body sent
+as it is read rather than buffered, which needs an `http-body` over the table
+on Rust, `InputStream.asByteStream(length)` on Kotlin, and either a known
+length or `aws-chunked` with a trailing checksum; the writer pair for Salvo-produced bodies and host-minted
 replies (6); asynchronous `Lines`; a consumer-only `ByteSource` face;
 implementing the protocols in Salvo (D1's alternative); Maven resolution in the
 compiler (3b); transitive dependencies for `modules/aws` itself ([manifest-deps]

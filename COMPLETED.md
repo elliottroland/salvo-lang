@@ -135,6 +135,47 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`aws.s3` — streaming bodies from the generator (2026-09-30; DESIGN §8 step
+5).** The generator maps a `@streaming` blob onto `stream.InStream` — allowed
+only as a top-level input/output member, which is where Smithy puts it — and
+makes the structure holding it a `linear struct` with a generated `close`
+discharger; timestamps become `time.Instant`. `aws.s3` has `PutObject` and
+`GetObject` (`smithy-build.json`'s `s3` projection, model vendored at the same
+api-models-aws commit; `aws-sdk-s3` 1 and `aws.sdk.kotlin:s3:1.9.11` added to
+`salvo.toml` and `codegen/build.gradle.kts`). The glue reads a request body out
+of the host's stream table [stream-table] (taken at the call, read on a
+blocking thread, sent buffered) and registers a response body in it: Rust
+wraps the `ByteStream` in an `io::Read` that blocks on the SDK's runtime
+handle, Kotlin registers the body inside `getObject`'s response block and
+holds the block open until the program closes the stream. `demo/s3_live` +
+`local_s3.py` (restXml, path-style, `aws-chunked` decoded) put a file and pipe
+it back into another file through both real SDKs with identical output; a
+3 MiB binary round trip was byte-identical on both. `examples/aws_s3` runs the
+generated `FakeS3` and a hand-written `MemS3` over `MemFs` in the suite on both
+backends. The choices made within the design are DESIGN.md's "Built: S3"
+list — the ones to look at are the buffered upload (a streaming upload is
+recorded in DESIGN §9), `FakeS3` answering an empty body, and `omitMembers`
+for S3's `Expires`, which both SDKs customize to a timestamp while the model
+says string.
+
+*Generator fixes S3 needed, invisible with SQS:* SDK type names by each SDK's
+own rule (smithy-rs Pascal-cases `ObjectCannedACL` to `ObjectCannedAcl`;
+smithy-kotlin's `defaultName(shape, service)`), `forcePathStyle` for an
+endpoint override, and a doc summary that skips `<important>`/`<note>`
+admonitions (one SQS field comment changed with it).
+
+*Compiler and std defects found and fixed:* (1) **a handler member had no
+contract in scope** for move-mode, so `let {body} = input` in a member
+consuming `input` was refused as a move out of a fate-shared binding — the
+member's written clause is now its contract, as a fn's is ([fate-move-mode];
+one core test, and `MemS3.put_object` is the customer); (2) **Kotlin's
+`raw_receive` left the stream open** at `End` or a failure — out of the table
+but never closed, so a file's descriptor leaked and an S3 response block
+would never have returned; it now calls `closeInput()` ([stream-receive]);
+(3) **`salvo compile` deleted cargo's build-script output** when the output
+tree held a `target/` from following its own hint; cache directories are
+skipped (one assertion in the host-library CLI test). **1657 tests.**
+
 **The aws generator and `aws.sqs` (2026-09-29; DESIGN §8 steps 3–4).**
 `modules/aws/codegen` is a `smithy-build` plugin (`salvo-client-codegen`, Java,
 Gradle 9.8 wrapper checked in) and a driver (`./gradlew generate`) that writes
@@ -18838,7 +18879,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1656)
+## Test inventory (all green: 1657)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -18846,7 +18887,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 773 - 12 assertion tests (`tests/assert_tests.rs` [assert-op]
+- `salvo-core`: 774 - 12 assertion tests (`tests/assert_tests.rs` [assert-op]
   [assert-fn] [assert-narrow]: `!` refused on a never-absent value and on a
   `None`-less union with the alternatives named, `!` on an optional still fine,
   `assert!` narrowing a union with its control, the optional and interpolating
@@ -18936,6 +18977,8 @@ cache, with per-test timings.
   reads through the alias are free, `copy` severs [fate-link] — and
   move-mode bindings *claiming* parameters as moved, through binding
   chains and propagated through the call graph [fate-move-mode], a
+  handler member owning what its written clause consumes (a binding from a
+  consumed parameter moves, from a kept one stays read-only), a
   lambda capture-mutation claiming its parameter while a read capture
   keeps it [fate-lambda], and late move-mode candidates converging in a
   third round with the refined diagnostic superseding the raw
@@ -20044,6 +20087,35 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Every checked body needs its contract in scope** (2026-09-30,
+  [fate-move-mode]). Move-mode asks `param_owned`, which reads
+  `own_contract` — set for top-level fns and nowhere else, so every derived
+  binding inside a *handler member* was read-only and `let {body} = input`
+  could not be moved on. A member's written clause was always its contract;
+  the checker just never installed it. When a body-level rule behaves
+  differently in a member than in a fn, look for per-fn state that only the
+  top-level fn path sets.
+
+- **A JVM stream is not closed by being dropped** (2026-09-30). Rust releases a
+  table entry by removing it: the `Box<dyn Read>` drops and the file closes.
+  The Kotlin host did the same removal at a `receive`'s `End` and leaked the
+  descriptor — invisible for files, and a hang-in-waiting for an S3 body,
+  whose SDK response block returns only when the stream is closed. Anything
+  that takes a stream out of the table on Kotlin also calls `closeInput()`.
+
+- **`salvo compile` prunes the output tree, and the hint puts cargo in it**
+  (2026-09-30). `clean_stale` removes every `.rs` the compile did not write;
+  following the hint (`cargo build --manifest-path out/Cargo.toml`) makes
+  `out/target/`, whose build scripts write `.rs` files, and the next compile
+  deleted them (`build_env.rs` missing in `aws-types`). Cache directories
+  (`CACHEDIR.TAG`) are now skipped, as source discovery already skipped them.
+
+- **The embedded std is compiled in: rebuild before regenerating example
+  trees** (2026-09-30). After editing `std/platform/stream/host.kt`, `salvo
+  compile` in each example changed nothing until `cargo build` re-embedded
+  `std/`. A regeneration that shows no diff right after a std edit is a stale
+  binary, not a clean one.
 
 - **Overriding `HOME` hides rustup** (2026-09-29, the aws demo). Pointing `HOME`
   at a throwaway directory to feed the SDK a credentials file also makes
