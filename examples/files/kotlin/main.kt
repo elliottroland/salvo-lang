@@ -370,9 +370,9 @@ fun sandboxEdges(fs: Fs, console: Console, streams: Streams) {
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults)))
     val console: Console = StdOutConsole()
-    val raw_streams: RawStreams = salvo.platform.stream.host.HostRawStreams()
+    val raw_streams: RawStreams = salvo.stream.host.__Platform_HostRawStreams()
     val streams: Streams = DefaultStreams(raw_streams)
-    val raw_fs: RawFs = __Mon_RawFs(salvo.platform.fs.host.HostRawFs())
+    val raw_fs: RawFs = __Mon_RawFs(salvo.fs.host.__Platform_HostRawFs())
     val fs: Fs = DefaultFs(raw_fs, streams)
     val root = "tmp/files-example"
     val made = fs.createDirs(root)

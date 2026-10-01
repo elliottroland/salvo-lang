@@ -60,6 +60,43 @@ class __Mon_RawStreams(private val inner: RawStreams) : RawStreams {
         synchronized(inner) { inner.rawFromBytes(data) }
 }
 
+// The interface a `platform handler` of `RawStreams` implements [platform-abi].
+interface RawStreamsPlatform {
+    fun rawReadLine(handle: Long): String?
+    fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>>
+    fun rawReadBytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>>
+    fun rawReadToBytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>>
+    fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>>
+    fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean
+    fun rawReadPosition(handle: Long): Long
+    fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
+    fun rawWrite(handle: Long, text: String): Long
+    fun rawWriteBytes(handle: Long, data: salvo.SalvoBytes): Long
+    fun rawWritePosition(handle: Long): Long
+    fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
+    fun rawCloseWrite(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
+    fun rawReceive(handle: Long, reply: salvo.SalvoReply)
+    fun rawFromBytes(data: salvo.SalvoBytes): Long
+}
+
+open class __Platform_RawStreams(private val impl: RawStreamsPlatform) : RawStreams {
+    override fun rawReadLine(handle: Long): String? = impl.rawReadLine(handle)
+    override fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>> = impl.rawReadAll(handle)
+    override fun rawReadBytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> = impl.rawReadBytes(handle, max)
+    override fun rawReadToBytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>> = impl.rawReadToBytes(handle, buf, max)
+    override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>> = impl.rawReadToStr(handle, buf)
+    override fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean = impl.rawReadLineToStr(handle, buf)
+    override fun rawReadPosition(handle: Long): Long = impl.rawReadPosition(handle)
+    override fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = impl.rawCloseRead(handle)
+    override fun rawWrite(handle: Long, text: String): Long = impl.rawWrite(handle, text)
+    override fun rawWriteBytes(handle: Long, data: salvo.SalvoBytes): Long = impl.rawWriteBytes(handle, data)
+    override fun rawWritePosition(handle: Long): Long = impl.rawWritePosition(handle)
+    override fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = impl.rawFlush(handle)
+    override fun rawCloseWrite(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = impl.rawCloseWrite(handle)
+    override fun rawReceive(handle: Long, reply: salvo.SalvoReply) = impl.rawReceive(handle, reply)
+    override fun rawFromBytes(data: salvo.SalvoBytes): Long = impl.rawFromBytes(data)
+}
+
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun hostReceived(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>) {
     when (got) {
@@ -74,6 +111,8 @@ fun hostReceived(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.SalvoB
         }
     }
 }
+
+class __Platform_HostRawStreams() : salvo.stream.host.__Platform_RawStreams(salvo.platform.stream.host.HostRawStreams())
 
 class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
 

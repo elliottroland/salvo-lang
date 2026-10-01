@@ -244,3 +244,14 @@ class __Mon_S3(private val inner: S3) : S3 {
     override fun getObject(input: GetObjectInput, reply: salvo.SalvoReply) =
         synchronized(inner) { inner.getObject(input, reply) }
 }
+
+// The interface a `platform handler` of `S3` implements [platform-abi].
+interface S3Platform {
+    fun putObject(input: PutObjectInput, reply: salvo.SalvoReply)
+    fun getObject(input: GetObjectInput, reply: salvo.SalvoReply)
+}
+
+open class __Platform_S3(private val impl: S3Platform) : S3 {
+    override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) = impl.putObject(input, reply)
+    override fun getObject(input: GetObjectInput, reply: salvo.SalvoReply) = impl.getObject(input, reply)
+}

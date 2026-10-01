@@ -358,3 +358,37 @@ impl Sqs {
         }
     }
 }
+
+/// The adapter a `use` of a platform handler of `Sqs` constructs [platform-abi].
+pub struct __Platform_Sqs<T>(pub T);
+
+/// What a `threadsafe platform handler` of `Sqs` implements [platform-abi].
+pub trait SqsPlatformSync: Send + Sync {
+    fn create_queue(&self, input: CreateQueueInput, reply: crate::scheduler::SalvoReply);
+    fn get_queue_url(&self, input: GetQueueUrlInput, reply: crate::scheduler::SalvoReply);
+    fn send_message(&self, input: SendMessageInput, reply: crate::scheduler::SalvoReply);
+    fn receive_message(&self, input: ReceiveMessageInput, reply: crate::scheduler::SalvoReply);
+    fn delete_message(&self, input: DeleteMessageInput, reply: crate::scheduler::SalvoReply);
+    fn delete_queue(&self, input: DeleteQueueInput, reply: crate::scheduler::SalvoReply);
+}
+
+impl<T: SqsPlatformSync> __Stateless_Sqs for __Platform_Sqs<T> {
+    fn create_queue(&self, input: CreateQueueInput, reply: crate::scheduler::SalvoReply) {
+        self.0.create_queue(input, reply)
+    }
+    fn get_queue_url(&self, input: GetQueueUrlInput, reply: crate::scheduler::SalvoReply) {
+        self.0.get_queue_url(input, reply)
+    }
+    fn send_message(&self, input: SendMessageInput, reply: crate::scheduler::SalvoReply) {
+        self.0.send_message(input, reply)
+    }
+    fn receive_message(&self, input: ReceiveMessageInput, reply: crate::scheduler::SalvoReply) {
+        self.0.receive_message(input, reply)
+    }
+    fn delete_message(&self, input: DeleteMessageInput, reply: crate::scheduler::SalvoReply) {
+        self.0.delete_message(input, reply)
+    }
+    fn delete_queue(&self, input: DeleteQueueInput, reply: crate::scheduler::SalvoReply) {
+        self.0.delete_queue(input, reply)
+    }
+}

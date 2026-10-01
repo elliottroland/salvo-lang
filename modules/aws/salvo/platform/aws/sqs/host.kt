@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
 
 // `threadsafe platform handler HostSqs`: the SDK client is safe to share, and
 // each call is a coroutine on the handler's own scope, completing its reply there.
-class HostSqs(private val config: AwsConfig) : Sqs {
+class HostSqs(private val config: AwsConfig) : SqsPlatform {
     private val scope = kotlinx.coroutines.CoroutineScope(
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
     )

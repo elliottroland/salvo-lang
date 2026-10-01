@@ -71,7 +71,7 @@ private fun kindOf(path: String, e: Exception): Kind {
 // `platform handler HostRawFs` holds nothing of its own now: what it opens goes
 // into the runtime's stream table [stream-table], where `stream.host`'s
 // `HostRawStreams` reads it.
-class HostRawFs : RawFs {
+class HostRawFs : RawFsPlatform {
     override fun rawOpenRead(path: String): Union2<Long, Kind> {
         return try {
             Union2.U1(SalvoStreams.registerIn(path, BufferedInputStream(FileInputStream(path)), 0))

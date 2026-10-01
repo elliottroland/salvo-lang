@@ -13,6 +13,45 @@ use crate::program::Program;
 
 use crate::source::{CompanionFile, ModulePath};
 
+/// [platform-abi] What the platform handlers of one effect need of it: the
+/// host-facing interface and the adapter are emitted beside the effect, in its
+/// declaring module, so a handler anywhere (a customer's of std's `Clock`)
+/// reaches them through one path.
+#[derive(Debug, Clone, Default)]
+pub struct PlatformEffect {
+    /// Some handler of it is serialized by the compiler (not `threadsafe`).
+    pub serialized: bool,
+    /// Some handler of it is `threadsafe`.
+    pub threadsafe: bool,
+}
+
+/// [platform-abi] Every effect some platform handler implements, by name (one
+/// face each: [platform-handler]), over the modules `include` admits — the
+/// reachable ones for a build, all of them for a host project.
+pub fn platform_effects(
+    program: &Program,
+    include: impl Fn(&ModulePath) -> bool,
+) -> std::collections::BTreeMap<String, PlatformEffect> {
+    let mut out: std::collections::BTreeMap<String, PlatformEffect> = Default::default();
+    for unit in program.units() {
+        if !include(&unit.file.module) {
+            continue;
+        }
+        for h in platform_handlers(unit.ast) {
+            let Some(salvo_syntax::ast::Type::Named { base, .. }) = h.of.first() else {
+                continue;
+            };
+            let entry = out.entry(base.name.name.clone()).or_default();
+            if h.threadsafe {
+                entry.threadsafe = true;
+            } else {
+                entry.serialized = true;
+            }
+        }
+    }
+    out
+}
+
 /// [platform-handler] The platform handlers a module declares, in
 /// declaration order: the host classes the module's `platform/` companion
 /// must define.

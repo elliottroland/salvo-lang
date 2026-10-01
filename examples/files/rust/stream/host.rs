@@ -167,6 +167,76 @@ impl RawStreams {
     }
 }
 
+/// The adapter a `use` of a platform handler of `RawStreams` constructs [platform-abi].
+pub struct __Platform_RawStreams<T>(pub T);
+
+/// What a `threadsafe platform handler` of `RawStreams` implements [platform-abi].
+pub trait RawStreamsPlatformSync: Send + Sync {
+    fn raw_read_line(&self, handle: i64) -> Option<String>;
+    fn raw_read_all(&self, handle: i64) -> Union2<String, Union2<InvalidUtf8, StreamFailed>>;
+    fn raw_read_bytes(&self, handle: i64, max: i32) -> Union2<Vec<u8>, Union2<InvalidUtf8, StreamFailed>>;
+    fn raw_read_to_bytes(&self, handle: i64, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Union2<InvalidUtf8, StreamFailed>>;
+    fn raw_read_to_str(&self, handle: i64, buf: &mut String) -> Union2<i64, Union2<InvalidUtf8, StreamFailed>>;
+    fn raw_read_line_to_str(&self, handle: i64, buf: &mut String) -> bool;
+    fn raw_read_position(&self, handle: i64) -> i64;
+    fn raw_close_read(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>>;
+    fn raw_write(&self, handle: i64, text: &String) -> i64;
+    fn raw_write_bytes(&self, handle: i64, data: &Vec<u8>) -> i64;
+    fn raw_write_position(&self, handle: i64) -> i64;
+    fn raw_flush(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>>;
+    fn raw_close_write(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>>;
+    fn raw_receive(&self, handle: i64, reply: crate::scheduler::SalvoReply);
+    fn raw_from_bytes(&self, data: Vec<u8>) -> i64;
+}
+
+impl<T: RawStreamsPlatformSync> __Stateless_RawStreams for __Platform_RawStreams<T> {
+    fn raw_read_line(&self, handle: i64) -> Option<String> {
+        self.0.raw_read_line(handle)
+    }
+    fn raw_read_all(&self, handle: i64) -> Union2<String, Union2<InvalidUtf8, StreamFailed>> {
+        self.0.raw_read_all(handle)
+    }
+    fn raw_read_bytes(&self, handle: i64, max: i32) -> Union2<Vec<u8>, Union2<InvalidUtf8, StreamFailed>> {
+        self.0.raw_read_bytes(handle, max)
+    }
+    fn raw_read_to_bytes(&self, handle: i64, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Union2<InvalidUtf8, StreamFailed>> {
+        self.0.raw_read_to_bytes(handle, buf, max)
+    }
+    fn raw_read_to_str(&self, handle: i64, buf: &mut String) -> Union2<i64, Union2<InvalidUtf8, StreamFailed>> {
+        self.0.raw_read_to_str(handle, buf)
+    }
+    fn raw_read_line_to_str(&self, handle: i64, buf: &mut String) -> bool {
+        self.0.raw_read_line_to_str(handle, buf)
+    }
+    fn raw_read_position(&self, handle: i64) -> i64 {
+        self.0.raw_read_position(handle)
+    }
+    fn raw_close_read(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        self.0.raw_close_read(handle)
+    }
+    fn raw_write(&self, handle: i64, text: &String) -> i64 {
+        self.0.raw_write(handle, text)
+    }
+    fn raw_write_bytes(&self, handle: i64, data: &Vec<u8>) -> i64 {
+        self.0.raw_write_bytes(handle, data)
+    }
+    fn raw_write_position(&self, handle: i64) -> i64 {
+        self.0.raw_write_position(handle)
+    }
+    fn raw_flush(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        self.0.raw_flush(handle)
+    }
+    fn raw_close_write(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        self.0.raw_close_write(handle)
+    }
+    fn raw_receive(&self, handle: i64, reply: crate::scheduler::SalvoReply) {
+        self.0.raw_receive(handle, reply)
+    }
+    fn raw_from_bytes(&self, data: Vec<u8>) -> i64 {
+        self.0.raw_from_bytes(data)
+    }
+}
+
 pub fn host_received(reply: crate::scheduler::SalvoReply, handle: i64, got: Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>) {
     match got {
         Union3::U1(_) => {
@@ -178,6 +248,14 @@ pub fn host_received(reply: crate::scheduler::SalvoReply, handle: i64, got: Unio
         Union3::U3(_) => {
             (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3(err(checked(got.u3().clone())))));
         }
+    }
+}
+
+pub type __Platform_HostRawStreams = crate::stream_host::__Platform_RawStreams<crate::platform_stream_host::HostRawStreams>;
+
+impl __Platform_HostRawStreams {
+    pub fn new() -> Self {
+        crate::stream_host::__Platform_RawStreams(crate::platform_stream_host::HostRawStreams::new())
     }
 }
 

@@ -410,9 +410,9 @@ pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console,
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string())]);
     let console = crate::core_console::Console::shared(StdOutConsole::new());
-    let raw_streams = crate::stream_host::RawStreams::shared(crate::platform_stream_host::HostRawStreams::new());
+    let raw_streams = crate::stream_host::RawStreams::shared(crate::stream_host::__Platform_HostRawStreams::new());
     let streams = crate::stream::Streams::shared(DefaultStreams::new(raw_streams.clone()));
-    let raw_fs = crate::fs_host::RawFs::locked(crate::platform_fs_host::HostRawFs::new());
+    let raw_fs = crate::fs_host::RawFs::locked(crate::fs_host::__Platform_HostRawFs::new());
     let fs = crate::fs::Fs::shared(DefaultFs::new(raw_fs.clone(), streams.clone()));
     let mut root = "tmp/files-example".to_string();
     let mut made = fs.create_dirs(&root);

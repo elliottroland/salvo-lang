@@ -865,7 +865,7 @@ nothing but the monitor.
   | `Checked<T>` | `salvo.core.checked.Checked(value)` |
   | `Reply<T>` parameter | `salvo.SalvoReply`; `.hosted()` answers the host reply whose `send(v)` may run on any thread, exactly once [platform-reply] |
   | `InStream` / `OutStream` | `salvo.stream.InStream(handle: Long)`; the table is `SalvoStreams.registerIn/registerOut`, `inStream/outStream`, `takeIn/takeOut`, over `SalvoIn`/`SalvoOut`, whose failures are `SalvoFaultException` [stream-table] |
-  | `platform handler H(p: T) of E` | `class H(p: T) : E`, every member `override`n [kt-platform-handler] |
+  | `platform handler H(p: T) of E` | `class H(p: T) : EPlatform`, every member `override`n [kt-platform-handler] |
 
 * [kt-abi] [platform-abi] **The Kotlin host project** is `emit_abi`: the
   ordinary emission in ABI mode — kept modules are those holding a
@@ -882,15 +882,19 @@ nothing but the monitor.
   Verified by kotlinc over a root alone
   (`the_host_project_compiles_on_its_own`) and by Gradle's `compileKotlin` on
   aws's root against the SDK.
-* [kt-platform-handler] [platform-handler] A `platform handler H of E` emits
-  **nothing**: `E`'s `interface` is emitted as any effect's, and the `use`
-  site constructs the host class — `salvo.platform.<M>.H(args)`,
-  fully qualified, because the host package is nobody's generated import and
-  a `use` may sit in any module. `M` is the module that *declared* the
-  handler, from `Symbols::handler_modules`, so std's handlers work from a
-  customer's `use` unchanged, wrapped in the effect's monitor like any
-  construction [kt-handle].
-  * The skeleton is `class H(private val p: T, …) : E` with every member
+* [kt-platform-handler] [platform-handler] Beside an effect `E` some reachable
+  platform handler implements, `E`'s module emits `interface EPlatform` (E's
+  members) and `open class __Platform_E(private val impl: EPlatform) : E`,
+  forwarding each member — the adapter [platform-abi]. A `platform handler H
+  of E` in module `M` emits `class __Platform_H(p: T) :
+  <E's package>.__Platform_E(salvo.platform.<M>.H(p))`, and the `use` site
+  constructs `salvo.<M>.__Platform_H(args)`, fully qualified because a `use`
+  may sit in any module. `M` is the module that *declared* the handler, from
+  `Symbols::handler_modules`, so std's handlers work from a customer's `use`
+  unchanged, wrapped in the effect's monitor like any construction
+  [kt-handle]. The handler's class is emitted only when the host file exists
+  (or in a host project).
+  * The skeleton is `class H(private val p: T, …) : EPlatform` with every member
     `override`n and stubbed — named after the *handler*, since the `use` site
     names it, and taking the handler's declared constructor parameters.
   * A `use` whose declaring module has no host companion is a codegen error

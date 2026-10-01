@@ -3,3 +3,11 @@
 // by every build — do not edit; the build never reads this file.
 use crate::aws::*;
 use crate::aws_s3::*;
+
+pub type __Platform_HostS3 = crate::aws_s3::__Platform_S3<crate::platform_aws_s3_host::HostS3>;
+
+impl __Platform_HostS3 {
+    pub fn new(config: AwsConfig) -> Self {
+        crate::aws_s3::__Platform_S3(crate::platform_aws_s3_host::HostS3::new(config))
+    }
+}

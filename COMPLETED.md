@@ -135,6 +135,28 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Platform handlers behind a host interface and an adapter (2026-10-01; ABI.md
+step 8a).** Under D7 and D8, the host no longer implements the program's own
+effect interface. Beside an effect some platform handler implements, the
+compiler now emits the interface the host implements (`EPlatform`, and on
+Rust `EPlatformSync` with `&self` for `threadsafe` handlers, as D8's example
+named them) and an adapter `__Platform_E` implementing the effect by
+forwarding each member, where step 8b's checks will go. A platform handler
+emits `__Platform_H`: on Kotlin a subclass of the adapter whose constructor
+builds `salvo.platform.<m>.H`; on Rust a type alias of `__Platform_E<H>` with
+an inherent `new`, so every existing `ctor::new(args)` use site works
+unchanged. The adapter lives in the effect's module so its signatures resolve
+there (a customer's handler of std's effect included); the per-handler part
+names only the handler's own parameter types. std's three host files, the aws
+generator and the tests' inline hosts were ported; the platform root's host
+project now holds the adapters too, so an implementation file that does not
+match its interface fails there. What fell out: emitting `__Platform_H` for
+every reachable platform handler would have demanded a host file for unused
+ones, so it is emitted only where the host file exists (or in a host
+project); `platform_effects` counts only reachable modules in a build.
+Generic effects and borrowing members are refused for platform handlers
+(codegen errors). **1660 tests.**
+
 **The host project in each platform root (2026-10-01, user decisions; ABI.md
 steps 6–7).** The user chose D4 option (a) for now, declarations only, and had
 two items recorded on ROADMAP: (b), the whole program in the root, and an

@@ -123,3 +123,61 @@ impl RawFs {
         }
     }
 }
+
+/// The adapter a `use` of a platform handler of `RawFs` constructs [platform-abi].
+pub struct __Platform_RawFs<T>(pub T);
+
+/// What a `platform handler` of `RawFs` implements [platform-abi].
+pub trait RawFsPlatform: Send {
+    fn raw_open_read(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_open_read_at(&mut self, path: &String, offset: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_open_write(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_open_append(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_exists(&mut self, path: &String) -> bool;
+    fn raw_metadata(&mut self, path: &String) -> Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_list_dir(&mut self, path: &String) -> Union2<Vec<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_create_dirs(&mut self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_delete(&mut self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_rename_path(&mut self, from: &String, to: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+}
+
+impl<T: RawFsPlatform> __Stateful_RawFs for __Platform_RawFs<T> {
+    fn raw_open_read(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        self.0.raw_open_read(path)
+    }
+    fn raw_open_read_at(&mut self, path: &String, offset: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        self.0.raw_open_read_at(path, offset)
+    }
+    fn raw_open_write(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        self.0.raw_open_write(path)
+    }
+    fn raw_open_append(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        self.0.raw_open_append(path)
+    }
+    fn raw_exists(&mut self, path: &String) -> bool {
+        self.0.raw_exists(path)
+    }
+    fn raw_metadata(&mut self, path: &String) -> Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        self.0.raw_metadata(path)
+    }
+    fn raw_list_dir(&mut self, path: &String) -> Union2<Vec<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        self.0.raw_list_dir(path)
+    }
+    fn raw_create_dirs(&mut self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        self.0.raw_create_dirs(path)
+    }
+    fn raw_delete(&mut self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        self.0.raw_delete(path)
+    }
+    fn raw_rename_path(&mut self, from: &String, to: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        self.0.raw_rename_path(from, to)
+    }
+}
+
+pub type __Platform_HostRawFs = crate::fs_host::__Platform_RawFs<crate::platform_fs_host::HostRawFs>;
+
+impl __Platform_HostRawFs {
+    pub fn new() -> Self {
+        crate::fs_host::__Platform_RawFs(crate::platform_fs_host::HostRawFs::new())
+    }
+}

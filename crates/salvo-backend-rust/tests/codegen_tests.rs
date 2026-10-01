@@ -4036,7 +4036,7 @@ fn a_platform_handler_emits_no_struct_and_a_host_constructor() {
         "a platform handler must not emit a struct of its own:\n{src}"
     );
     assert!(
-        src.contains("crate::platform_main::HostRawClock::new(35)"),
+        src.contains("crate::__Platform_HostRawClock::new(35)"),
         "expected the `use` site to construct the host struct, got:\n{src}"
     );
     // The host companion is mounted, and `main` is still generated.
@@ -4064,7 +4064,7 @@ fn platform_generate_renders_a_host_handler_skeleton() {
         "pub struct HostRawClock {",
         "offset: i32,",
         "pub fn new(offset: i32) -> Self {",
-        "impl crate::__Stateful_RawClock for HostRawClock {",
+        "impl crate::RawClockPlatform for HostRawClock {",
         "fn raw_now(&mut self) -> i32 {",
         "todo!(\"implement RawClock.raw_now\")",
     ] {
@@ -4127,7 +4127,7 @@ fn an_undeclared_platform_handler_is_serialized_behind_the_handle() {
         .expect("main.rs should be generated");
     let src = &main.content;
     assert!(
-        src.contains("RawClock::locked(crate::platform_main::HostRawClock::new(35))"),
+        src.contains("RawClock::locked(crate::__Platform_HostRawClock::new(35))"),
         "expected the handle around the host, got:\n{src}"
     );
 }
@@ -4201,7 +4201,7 @@ fn a_threadsafe_platform_handler_binds_like_any_other() {
         .expect("main.rs should be generated");
     let src = &main.content;
     assert!(
-        src.contains("RawClock::shared(crate::platform_main::HostRawClock::new(35))"),
+        src.contains("RawClock::shared(crate::__Platform_HostRawClock::new(35))"),
         "expected the handle around the host, got:\n{src}"
     );
     assert!(
@@ -4221,7 +4221,7 @@ fn platform_generate_prints_the_threadsafe_contract_into_the_skeleton() {
         "`threadsafe platform handler HostRawClock` — THE CONTRACT YOU ARE SIGNING",
         "safe to run concurrently",
         "pub struct HostRawClock {",
-        "impl crate::__Stateless_RawClock for HostRawClock {",
+        "impl crate::RawClockPlatformSync for HostRawClock {",
         "fn raw_now(&self) -> i32 {",
         "[threadsafe-platform]",
     ] {
@@ -12743,7 +12743,7 @@ fn an_unused_threadsafe_platform_handler_emits_nothing() {
     assert!(
         !all.contains("__Shared_HostTcpTransport")
             && !all.contains("__Arc_HostTcpTransport")
-            && !all.contains("HostTcpTransport::new("),
+            && !all.contains("__Platform_HostTcpTransport::new("),
         "an unused threadsafe platform handler emitted something:\n{all}"
     );
 }
@@ -12833,7 +12833,7 @@ fn rustc_compiles_and_runs_the_tcp_transport_on_localhost() {
     let files = generate(&[("main.sv", NET_TCP_SMOKE)]);
     let all: String = files.iter().map(|f| f.content.as_str()).collect();
     assert!(
-        all.contains("Transport::shared(crate::platform_net::HostTcpTransport::new("),
+        all.contains("Transport::shared(crate::net::__Platform_HostTcpTransport::new("),
         "expected the host behind the effect's handle:\n{all}"
     );
     run_rust_files(&files, "net-tcp-smoke", NET_TCP_SMOKE_OUTPUT);

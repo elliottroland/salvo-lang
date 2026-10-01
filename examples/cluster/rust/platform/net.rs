@@ -131,7 +131,7 @@ impl HostTcpTransport {
     }
 }
 
-impl crate::net::__Stateless_Transport for HostTcpTransport {
+impl crate::net::TransportPlatformSync for HostTcpTransport {
     fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
         let mut listening = self.listening.lock().unwrap();
         if let Some(slot) = listening.get(at) {

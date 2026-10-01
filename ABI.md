@@ -455,6 +455,12 @@ go in any order.
    implementation files compile against the host projects alone.
 8. **Interface files** (D7, D8): handler interfaces and adapters, fn wrappers
    with validation, validating host replies, factory functions (D5).
+   - 8a. ✅ Host-facing interfaces and adapters (2026-10-01): `EPlatform`
+     (Rust also `EPlatformSync` for `threadsafe`) and `__Platform_E` beside
+     the effect, `__Platform_H` per handler; std's host files and the aws
+     generator ported (this was step 10's and part of 11's work).
+   - 8b. Validation in the adapters and wrappers (D7, D10), host replies.
+   - 8c. Factories (D5), and the aws generator onto them.
 9. ✅ **Implementation skeletons** (done in 5b).
 10. **Port std's host files** onto the generated interfaces.
 11. **Port the aws generator** onto the generated interface files and their

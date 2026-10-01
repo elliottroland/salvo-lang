@@ -130,6 +130,22 @@ fn abi_modules_or_project(program: &Program, module: &ModulePath) -> bool {
         .any(|u| u.file.module == *module && (!u.file.is_std || u.file.is_shadow) && u.file.dependency.is_none())
 }
 
+/// [platform-abi] The host-facing trait of an effect's platform handlers:
+/// `EPlatform` (`&mut self`), or `EPlatformSync` (`&self`) for `threadsafe`.
+fn platform_trait_name(effect: &str, threadsafe: bool) -> String {
+    if threadsafe {
+        format!("{effect}PlatformSync")
+    } else {
+        format!("{effect}Platform")
+    }
+}
+
+/// [platform-abi] The adapter of an effect (`__Platform_E<T>`) or of one
+/// platform handler (`__Platform_H`): generated, never host-facing.
+fn platform_adapter_name(name: &str) -> String {
+    format!("__Platform_{name}")
+}
+
 /// [platform-abi] The name an item is kept by in ABI mode.
 fn abi_item_name(item: &Item) -> Option<&str> {
     match item {
@@ -187,6 +203,9 @@ fn emit_program_mode(
     // holding any. Names and the crate root stay the build's (computed over
     // the build's modules plus these), so paths agree between the two crates.
     let closure = abi.then(|| salvo_core::abi::platform_closure(program, &symbols));
+    // [platform-abi] [rs-platform-handler] The effects whose host-facing
+    // traits and adapter are emitted beside them.
+    let platform_effects = salvo_core::platform_effects(program, |m| abi || reachable.contains(m));
     let abi_modules: HashSet<&ModulePath> = program
         .units()
         .filter(|u| {
@@ -305,6 +324,7 @@ fn emit_program_mode(
         emitter.module_paths = module_paths.clone();
         emitter.erased = erased.clone();
         emitter.abi_keep = closure.clone();
+        emitter.platform_effects = platform_effects.clone();
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
@@ -1256,6 +1276,8 @@ struct EffectEntry {
 struct Emitter<'p> {
     /// [platform-abi] In ABI mode, the declarations to keep (`emit_abi`).
     abi_keep: Option<std::collections::BTreeSet<String>>,
+    /// [platform-abi] The effects some platform handler implements, and how.
+    platform_effects: std::collections::BTreeMap<String, salvo_core::PlatformEffect>,
     symbols: &'p Symbols<'p>,
     checked: &'p Checked,
     program: &'p Program,
@@ -2201,6 +2223,7 @@ impl<'p> Emitter<'p> {
         let value_keyed_fns = stored.value_keyed;
         Emitter {
             abi_keep: None,
+            platform_effects: Default::default(),
             symbols,
             checked,
             program,
@@ -2728,7 +2751,9 @@ impl<'p> Emitter<'p> {
         for item in &module.items {
             // [platform-abi] Declarations only, and only the reached ones.
             if let Some(keep) = &self.abi_keep {
-                if !abi_item_name(item).is_some_and(|n| keep.contains(n)) {
+                let platform = matches!(item, Item::Handler(h) if h.platform)
+                    || matches!(item, Item::Fn(f) if f.platform);
+                if !platform && !abi_item_name(item).is_some_and(|n| keep.contains(n)) {
                     continue;
                 }
             }
@@ -3139,7 +3164,92 @@ impl<'p> Emitter<'p> {
         // and knows only the effect it serves — which is the same reason the
         // binding swap works at all.
         out.push_str(&self.emit_message_enum(e));
+        out.push_str(&self.emit_platform_interface(e));
         self.generics = saved;
+        out
+    }
+
+    /// [platform-abi] [rs-platform-handler] For an effect some platform handler
+    /// implements: the **host-facing traits** — `EPlatform` with `&mut self`
+    /// for a serialized handler, `EPlatformSync` with `&self` for a
+    /// `threadsafe` one, each only when some handler needs it — and the
+    /// **adapter** `__Platform_E<T>`, which implements the effect's own trait
+    /// for the program by forwarding to the implementation. The adapter is
+    /// where host→Salvo values are checked (D7).
+    fn emit_platform_interface(&mut self, e: &EffectDecl) -> String {
+        let Some(how) = self.platform_effects.get(&e.name.name).cloned() else {
+            return String::new();
+        };
+        let name = &e.name.name;
+        if !e.generics.is_empty() {
+            self.error(format!(
+                "a platform handler of the generic effect `{name}` is not supported yet \
+                 [platform-abi]"
+            ));
+            return String::new();
+        }
+        let mut sigs: Vec<(String, String)> = Vec::new();
+        for (i, f) in e.fns.iter().enumerate() {
+            if !f.generics.is_empty() {
+                continue; // refused by `emit_effect`
+            }
+            let mut params = format!(
+                "{}{}",
+                self.emit_member_param_list(f),
+                self.emit_member_implicits(f)
+            );
+            let mut ret = self.emit_return_type(f.return_type.as_ref());
+            let lt = self.member_lend_lifetime(f, &mut params, &mut ret);
+            if !lt.is_empty() || f.return_type.as_ref().is_some_and(fn_type_lends_mut) {
+                self.error(format!(
+                    "`{name}.{}` returns a borrow, which a platform handler cannot \
+                     implement [platform-abi]",
+                    f.name.name
+                ));
+                continue;
+            }
+            let member = self.member_name(e, i);
+            let mut args: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| rs_ident(&p.name.name))
+                .collect();
+            args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
+            sigs.push((
+                format!("fn {member}(&RECV{params}){ret}"),
+                format!("self.0.{member}({})", args.join(", ")),
+            ));
+        }
+        let adapter = platform_adapter_name(name);
+        let mut out = format!(
+            "\n/// The adapter a `use` of a platform handler of `{name}` constructs \
+             [platform-abi].\npub struct {adapter}<T>(pub T);\n"
+        );
+        let faces = [
+            (how.serialized, platform_trait_name(name, false), stateful_trait_name(name), "&mut self", "Send"),
+            (how.threadsafe, platform_trait_name(name, true), stateless_trait_name(name), "&self", "Send + Sync"),
+        ];
+        for (wanted, host_trait, own_trait, recv, bounds) in faces {
+            if !wanted {
+                continue;
+            }
+            out.push_str(&format!(
+                "\n/// What a `{}platform handler` of `{name}` implements [platform-abi].\n\
+                 pub trait {host_trait}: {bounds} {{\n",
+                if recv == "&self" { "threadsafe " } else { "" }
+            ));
+            for (sig, _) in &sigs {
+                out.push_str(&format!("    {};\n", sig.replace("&RECV", recv)));
+            }
+            out.push_str(&format!(
+                "}}\n\nimpl<T: {host_trait}> {own_trait} for {adapter}<T> {{\n"
+            ));
+            for (sig, call) in &sigs {
+                out.push_str(&format!("    {} {{\n        {call}\n    }}\n", sig.replace("&RECV", recv)));
+            }
+            out.push_str("}\n");
+        }
         out
     }
 
@@ -3672,12 +3782,12 @@ impl<'p> Emitter<'p> {
         let _ = own_path;
         let (trait_path, receiver) = if h.threadsafe {
             (
-                format!("{effect_path}::{}", stateless_trait_name(&effect.name.name)),
+                format!("{effect_path}::{}", platform_trait_name(&effect.name.name, true)),
                 "&self",
             )
         } else {
             (
-                format!("{effect_path}::{}", stateful_trait_name(&effect.name.name)),
+                format!("{effect_path}::{}", platform_trait_name(&effect.name.name, false)),
                 "&mut self",
             )
         };
@@ -3798,6 +3908,45 @@ impl<'p> Emitter<'p> {
             .unwrap_or_default()
     }
 
+    /// [platform-abi] [rs-platform-handler] A platform handler is its effect's
+    /// adapter at the implementation's type, with the handler's constructor:
+    /// `pub type __Platform_H = E::__Platform_E<crate::platform_m::H>` and an
+    /// inherent `new` building the implementation — what a `use` constructs.
+    fn emit_platform_handler(&mut self, h: &HandlerDecl) -> String {
+        let Some(Type::Named { base, .. }) = h.of.first() else {
+            return String::new();
+        };
+        let effect = base.name.name.clone();
+        let module = self.program.files[self.file_idx].module.clone();
+        // Only with the implementation present (or in a host project, where it
+        // is the root's to supply): a handler nobody uses needs no host file,
+        // and a used one without it is reported at the `use`.
+        if self.abi_keep.is_none() && salvo_core::host_file(&self.program.companions, &module).is_none() {
+            return String::new();
+        }
+        let host = format!("crate::{}::{}", host_mod_name(&module), rs_ident(&h.name.name));
+        let alias = platform_adapter_name(&h.name.name);
+        let params: Vec<String> = h
+            .params
+            .iter()
+            .map(|p| {
+                format!(
+                    "{}: {}",
+                    rs_ident(&p.name.name),
+                    self.param_type(&p.ty, p.variadic, ParamMode::Owned)
+                )
+            })
+            .collect();
+        let args: Vec<String> = h.params.iter().map(|p| rs_ident(&p.name.name)).collect();
+        let adapter = self.effect_path(&effect, &platform_adapter_name(&effect));
+        format!(
+            "\npub type {alias} = {adapter}<{host}>;\n\nimpl {alias} {{\n    \
+             pub fn new({}) -> Self {{\n        {adapter}({host}::new({}))\n    }}\n}}\n",
+            params.join(", "),
+            args.join(", ")
+        )
+    }
+
     fn emit_handler(&mut self, h: &HandlerDecl) -> String {
         if h.intrinsic {
             return self.emit_intrinsic_handler(h);
@@ -3809,7 +3958,7 @@ impl<'p> Emitter<'p> {
         // effect's, emitted as any effect's is — which is what the host
         // struct implements.
         if h.platform {
-            return String::new();
+            return self.emit_platform_handler(h);
         }
         // [effect-handler-deps] [rs-handle] Dependencies are the handler's
         // own effect list, captured as handles at construction — fields and
@@ -9436,7 +9585,15 @@ impl<'p> Emitter<'p> {
         match self.symbols.handler_modules.get(name) {
             Some(module) => {
                 self.platform_hosts.insert((*module).clone());
-                format!("crate::{}::{}", host_mod_name(module), rs_ident(name))
+                let module = (*module).clone();
+                let prefix = self
+                    .program
+                    .units()
+                    .enumerate()
+                    .find(|(_, u)| u.file.module == module)
+                    .and_then(|(i, _)| self.module_paths.get(&i).cloned())
+                    .unwrap_or_default();
+                format!("{prefix}{}", platform_adapter_name(name))
             }
             None => {
                 self.error(format!(

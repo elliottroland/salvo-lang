@@ -64,7 +64,7 @@ async fn salvo_aws_config(config: &AwsConfig) -> aws_config::SdkConfig {
     loader.load().await
 }
 
-impl crate::aws_sqs::__Stateless_Sqs for HostSqs {
+impl crate::aws_sqs::SqsPlatformSync for HostSqs {
     fn create_queue(&self, input: CreateQueueInput, reply: crate::scheduler::SalvoReply) {
         let reply = reply.hosted();
         let client = self.client.clone();

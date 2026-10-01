@@ -215,3 +215,37 @@ impl Transport {
         }
     }
 }
+
+/// The adapter a `use` of a platform handler of `Transport` constructs [platform-abi].
+pub struct __Platform_Transport<T>(pub T);
+
+/// What a `threadsafe platform handler` of `Transport` implements [platform-abi].
+pub trait TransportPlatformSync: Send + Sync {
+    fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
+    fn unlisten(&self, at: &NodeEndpoint);
+    fn deliver(&self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>>;
+    fn local_endpoint(&self) -> NodeEndpoint;
+}
+
+impl<T: TransportPlatformSync> __Stateless_Transport for __Platform_Transport<T> {
+    fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
+        self.0.listen(at, sink)
+    }
+    fn unlisten(&self, at: &NodeEndpoint) {
+        self.0.unlisten(at)
+    }
+    fn deliver(&self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>> {
+        self.0.deliver(to, frame)
+    }
+    fn local_endpoint(&self) -> NodeEndpoint {
+        self.0.local_endpoint()
+    }
+}
+
+pub type __Platform_HostTcpTransport = crate::net::__Platform_Transport<crate::platform_net::HostTcpTransport>;
+
+impl __Platform_HostTcpTransport {
+    pub fn new(bind: NodeEndpoint) -> Self {
+        crate::net::__Platform_Transport(crate::platform_net::HostTcpTransport::new(bind))
+    }
+}

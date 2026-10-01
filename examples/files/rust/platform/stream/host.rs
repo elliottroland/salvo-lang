@@ -39,7 +39,7 @@ impl HostRawStreams {
     }
 }
 
-impl crate::stream_host::__Stateless_RawStreams for HostRawStreams {
+impl crate::stream_host::RawStreamsPlatformSync for HostRawStreams {
     fn raw_read_line(&self, handle: i64) -> Option<String> {
         let slot = crate::scheduler::salvo_stream_in(handle);
         let mut stream = slot.lock().unwrap();

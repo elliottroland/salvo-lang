@@ -47,7 +47,8 @@ pub use manifest::{
 };
 pub use place::{Place, Step};
 pub use platform::{
-    host_file, host_rel_path, missing_handler_host_error, platform_declarations, platform_handlers,
+    host_file, host_rel_path, missing_handler_host_error, platform_declarations, platform_effects,
+    platform_handlers, PlatformEffect,
     platform_root_required, reply_contract_comment, reply_params, required_backends,
 };
 pub use program::{Program, Symbols};

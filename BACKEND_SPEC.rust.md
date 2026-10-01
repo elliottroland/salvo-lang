@@ -1563,20 +1563,28 @@ facts worth knowing") and keeps the history ("One shape for effects").
   | `Checked<T>` | `crate::core_checked::Checked { value: T }` |
   | `Reply<T>` parameter | `crate::scheduler::SalvoReply`; `.hosted()` answers the `SalvoHostReply` whose `send(v)` may run on any thread, exactly once [platform-reply] |
   | `InStream` / `OutStream` | `crate::stream::InStream { handle: i64 }`; the table is `crate::scheduler::salvo_stream_register_in/out`, `salvo_stream_in/out`, `salvo_stream_take_in/out`, over `SalvoIn`/`SalvoOut` [stream-table] |
-  | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::__Stateless_E` (`&self`) when `threadsafe`, `__Stateful_E` (`&mut self`) otherwise [rs-platform-handler] |
+  | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
 
-* [rs-platform-handler] [platform-handler] A `platform handler H of E` emits
-  **nothing**: `E`'s `trait` is emitted as any effect's, and the `use` site
-  constructs the host struct as `crate::platform_<M>::H::new(args)` — `M`
-  being the module that *declared* the handler
-  (`Symbols::handler_modules`), so a std handler works from a customer's
-  `use` unchanged, wrapped in the effect's handle like any construction
-  [rs-handle].
+* [rs-platform-handler] [platform-handler] Beside an effect `E` some reachable
+  platform handler implements, `E`'s module emits the host-facing traits —
+  `EPlatform: Send` (`&mut self`) when a serialized handler needs it,
+  `EPlatformSync: Send + Sync` (`&self`) when a `threadsafe` one does — and
+  the adapter `pub struct __Platform_E<T>(pub T)`, with `impl<T: EPlatform>
+  __Stateful_E` and `impl<T: EPlatformSync> __Stateless_E` forwarding each
+  member [platform-abi]. A `platform handler H of E` in module `M` emits
+  `pub type __Platform_H = <E path>::__Platform_E<crate::platform_<M>::H>`
+  with an inherent `new(p: T)` building the host struct (an inherent impl on
+  one instantiation of a local type, so several handlers of one effect each
+  have their own), and the `use` site constructs `<M path>::__Platform_H::
+  new(args)`, wrapped in the effect's handle like any construction
+  [rs-handle]. `M` is the module that *declared* the handler
+  (`Symbols::handler_modules`). Emitted only when the host file exists (or
+  in a host project).
   * The skeleton is `pub struct H { p: T, … }` with `impl H { pub fn new(p:
     T, …) -> Self }` and an impl with every member stubbed — of
-    `<path>::E` (`&mut self`) for an undeclared handler, of `__Shared_H`
-    (`&self`) for a `threadsafe` one [threadsafe-platform] — named after
+    `<path>::EPlatform` (`&mut self`) for an undeclared handler, of
+    `EPlatformSync` (`&self`) for a `threadsafe` one [threadsafe-platform] — named after
     the *handler*, and with a `new` because the `use` site calls one,
     exactly as it does for a generated handler struct.
   * A `use` whose declaring module has no host companion is a codegen error
@@ -1590,16 +1598,16 @@ facts worth knowing") and keeps the history ("One shape for effects").
     stayed invisible until a `platform handler` whose members trade in more
     than primitives arrived (`HostRawFs`, 2026-09-14).
   * **Sharing follows the declared contract** [threadsafe-platform]
-    [rs-handle]: a `threadsafe` host implements `__Stateless_E` with `&self`
+    [rs-handle]: a `threadsafe` host implements `EPlatformSync` with `&self`
     receivers and its `use` binds `E::shared(H::new(args))` — no lock, and
     rustc refuses a host whose fields are not `Sync`; an undeclared host
-    implements `__Stateful_E` with `&mut self` behind `E::locked(…)`, so a
+    implements `EPlatform` with `&mut self` behind `E::locked(…)`, so a
     host that did not claim safety behaves identically on both backends and
     pays only the lock.
   * **The skeleton prints the contract** in both shapes: the threadsafe one
     opens with the signing comment and implements `<effect_path>::
-    __Stateless_E` with `&self` receivers; the undeclared one says the
-    compiler serializes the instance and implements `__Stateful_E` with
+    EPlatformSync` with `&self` receivers; the undeclared one says the
+    compiler serializes the instance and implements `EPlatform` with
     `&mut self`. Regenerating after toggling the word changes the receivers.
 * [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
   a bare identifier clones its binding place (whatever its binding

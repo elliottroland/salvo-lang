@@ -442,8 +442,8 @@ platform roots; (5) DynamoDB.
 **Next, before DynamoDB: the platform ABI (user direction 2026-10-01).**
 Generated ABI and interface files beside hand-written implementation files.
 Done so far: platform effects removed, `platform fn`, Kotlin camel case,
-nested Kotlin union arms, templates removed, and the host project with its
-declaration files. The design, its decisions (D1–D10) and the remaining build
+nested Kotlin union arms, templates removed, the host project with its
+declaration files, and platform handlers behind host interfaces and adapters. The design, its decisions (D1–D10) and the remaining build
 sequence (interface files with adapters, wrappers and factories, std's and the
 aws glue's ports, ABI stamps) live in [ABI.md](ABI.md).
 

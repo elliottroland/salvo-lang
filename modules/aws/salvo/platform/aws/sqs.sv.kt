@@ -218,3 +218,22 @@ class __Mon_Sqs(private val inner: Sqs) : Sqs {
     override fun deleteQueue(input: DeleteQueueInput, reply: salvo.SalvoReply) =
         synchronized(inner) { inner.deleteQueue(input, reply) }
 }
+
+// The interface a `platform handler` of `Sqs` implements [platform-abi].
+interface SqsPlatform {
+    fun createQueue(input: CreateQueueInput, reply: salvo.SalvoReply)
+    fun getQueueUrl(input: GetQueueUrlInput, reply: salvo.SalvoReply)
+    fun sendMessage(input: SendMessageInput, reply: salvo.SalvoReply)
+    fun receiveMessage(input: ReceiveMessageInput, reply: salvo.SalvoReply)
+    fun deleteMessage(input: DeleteMessageInput, reply: salvo.SalvoReply)
+    fun deleteQueue(input: DeleteQueueInput, reply: salvo.SalvoReply)
+}
+
+open class __Platform_Sqs(private val impl: SqsPlatform) : Sqs {
+    override fun createQueue(input: CreateQueueInput, reply: salvo.SalvoReply) = impl.createQueue(input, reply)
+    override fun getQueueUrl(input: GetQueueUrlInput, reply: salvo.SalvoReply) = impl.getQueueUrl(input, reply)
+    override fun sendMessage(input: SendMessageInput, reply: salvo.SalvoReply) = impl.sendMessage(input, reply)
+    override fun receiveMessage(input: ReceiveMessageInput, reply: salvo.SalvoReply) = impl.receiveMessage(input, reply)
+    override fun deleteMessage(input: DeleteMessageInput, reply: salvo.SalvoReply) = impl.deleteMessage(input, reply)
+    override fun deleteQueue(input: DeleteQueueInput, reply: salvo.SalvoReply) = impl.deleteQueue(input, reply)
+}

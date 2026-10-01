@@ -107,7 +107,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
         std::path::PathBuf::from("platform/core/rawclock.kt"),
         salvo_core::ModulePath(vec!["core".into(), "rawclock".into()]),
         "package salvo.platform.core.rawclock\n\nimport salvo.core.rawclock.*\n\n\
-         class HostRawClock : RawClock {\n    override fun raw_now(): Int = 7\n}\n"
+         class HostRawClock : RawClockPlatform {\n    override fun raw_now(): Int = 7\n}\n"
             .to_string(),
         true,
     );
@@ -135,7 +135,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
         .expect("main.kt");
     assert!(
         main.content
-            .contains("salvo.platform.core.rawclock.HostRawClock()"),
+            .contains("salvo.core.rawclock.__Platform_HostRawClock()"),
         "expected the shipped host class to be constructed, got:\n{}",
         main.content
     );
@@ -8669,7 +8669,7 @@ fn a_platform_handler_emits_no_class_and_a_host_constructor() {
         "a platform handler must not emit a class of its own:\n{src}"
     );
     assert!(
-        src.contains("salvo.platform.main.HostRawClock(35)"),
+        src.contains("salvo.main.__Platform_HostRawClock(35)"),
         "expected the `use` site to construct the host class, got:\n{src}"
     );
     // The ordinary handler beside it is still emitted, and `main` is still
@@ -8693,7 +8693,7 @@ fn platform_generate_renders_a_host_handler_skeleton() {
     for expected in [
         "package salvo.platform.main",
         "import salvo.main.*",
-        "class HostRawClock(private val offset: Int) : RawClock {",
+        "class HostRawClock(private val offset: Int) : RawClockPlatform {",
         "override fun rawNow(): Int {",
         "TODO(\"implement RawClock.raw_now\")",
     ] {
@@ -8753,7 +8753,7 @@ fn an_undeclared_platform_handler_is_serialized_behind_the_monitor() {
         .expect("main.kt should be generated");
     let src = &main.content;
     assert!(
-        src.contains("__Mon_RawClock(salvo.platform.main.HostRawClock(35))"),
+        src.contains("__Mon_RawClock(salvo.main.__Platform_HostRawClock(35))"),
         "expected the monitor wrapper around the undeclared host, got:\n{src}"
     );
 }
@@ -8827,14 +8827,14 @@ fn a_threadsafe_platform_handler_binds_raw_and_its_skeleton_prints_the_contract(
         .expect("main.kt should be generated");
     let src = &main.content;
     assert!(
-        src.contains("salvo.platform.main.HostRawClock(35)")
-            && !src.contains("__Mon_RawClock(salvo.platform.main.HostRawClock(35))"),
+        src.contains("salvo.main.__Platform_HostRawClock(35)")
+            && !src.contains("__Mon_RawClock(salvo.main.__Platform_HostRawClock(35))"),
         "a threadsafe host binds raw, got:\n{src}"
     );
     for expected in [
         "`threadsafe platform handler HostRawClock` — THE CONTRACT YOU ARE SIGNING",
         "NO\n// lock around it",
-        "class HostRawClock(private val offset: Int) : RawClock {",
+        "class HostRawClock(private val offset: Int) : RawClockPlatform {",
         "[threadsafe-platform]",
     ] {
         assert!(
@@ -8939,7 +8939,7 @@ fn an_unused_threadsafe_platform_handler_is_never_constructed() {
     let files = generate_files(&[("main.sv", NET_MEM_TRANSPORT)]);
     let all: String = files.iter().map(|f| f.content.as_str()).collect();
     assert!(
-        !all.contains("salvo.platform.net.HostTcpTransport("),
+        !all.contains("salvo.net.__Platform_HostTcpTransport("),
         "an unused platform handler was constructed:\n{all}"
     );
 }
@@ -12338,7 +12338,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
     // The `use` site constructs the shipped host class through its package.
     let main = file("main.kt");
     assert!(
-        main.contains("__Mon_RawFs(salvo.platform.fs.host.HostRawFs())"),
+        main.contains("__Mon_RawFs(salvo.fs.host.__Platform_HostRawFs())"),
         "expected the shipped host class at the `use` site, got:\n{main}"
     );
     // std ships the host files, and they travel into the output.

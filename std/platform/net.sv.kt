@@ -93,3 +93,20 @@ class __Mon_Transport(private val inner: Transport) : Transport {
     override fun localEndpoint(): NodeEndpoint =
         synchronized(inner) { inner.localEndpoint() }
 }
+
+// The interface a `platform handler` of `Transport` implements [platform-abi].
+interface TransportPlatform {
+    fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>>
+    fun unlisten(at: NodeEndpoint)
+    fun deliver(to: NodeEndpoint, frame: salvo.SalvoBytes): Union2<Unit, Union2<Unreachable, WireFailed>>
+    fun localEndpoint(): NodeEndpoint
+}
+
+open class __Platform_Transport(private val impl: TransportPlatform) : Transport {
+    override fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>> = impl.listen(at, sink)
+    override fun unlisten(at: NodeEndpoint) = impl.unlisten(at)
+    override fun deliver(to: NodeEndpoint, frame: salvo.SalvoBytes): Union2<Unit, Union2<Unreachable, WireFailed>> = impl.deliver(to, frame)
+    override fun localEndpoint(): NodeEndpoint = impl.localEndpoint()
+}
+
+class __Platform_HostTcpTransport(bind: NodeEndpoint) : salvo.net.__Platform_Transport(salvo.platform.net.HostTcpTransport(bind))

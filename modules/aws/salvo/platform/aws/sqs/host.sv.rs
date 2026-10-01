@@ -3,3 +3,11 @@
 // by every build — do not edit; the build never reads this file.
 use crate::aws::*;
 use crate::aws_sqs::*;
+
+pub type __Platform_HostSqs = crate::aws_sqs::__Platform_Sqs<crate::platform_aws_sqs_host::HostSqs>;
+
+impl __Platform_HostSqs {
+    pub fn new(config: AwsConfig) -> Self {
+        crate::aws_sqs::__Platform_Sqs(crate::platform_aws_sqs_host::HostSqs::new(config))
+    }
+}

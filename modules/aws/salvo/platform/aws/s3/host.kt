@@ -18,7 +18,7 @@ import aws.smithy.kotlin.runtime.content.toInputStream
 
 // `threadsafe platform handler HostS3`: the SDK client is safe to share, and
 // each call is a coroutine on the handler's own scope, completing its reply there.
-class HostS3(private val config: AwsConfig) : S3 {
+class HostS3(private val config: AwsConfig) : S3Platform {
     private val scope = kotlinx.coroutines.CoroutineScope(
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
     )

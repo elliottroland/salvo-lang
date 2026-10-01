@@ -44,6 +44,35 @@ class __Mon_RawFs(private val inner: RawFs) : RawFs {
         synchronized(inner) { inner.rawRenamePath(from, to) }
 }
 
+// The interface a `platform handler` of `RawFs` implements [platform-abi].
+interface RawFsPlatform {
+    fun rawOpenRead(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawOpenWrite(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawOpenAppend(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawExists(path: String): Boolean
+    fun rawMetadata(path: String): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawListDir(path: String): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawCreateDirs(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawDelete(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+}
+
+open class __Platform_RawFs(private val impl: RawFsPlatform) : RawFs {
+    override fun rawOpenRead(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawOpenRead(path)
+    override fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawOpenReadAt(path, offset)
+    override fun rawOpenWrite(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawOpenWrite(path)
+    override fun rawOpenAppend(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawOpenAppend(path)
+    override fun rawExists(path: String): Boolean = impl.rawExists(path)
+    override fun rawMetadata(path: String): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawMetadata(path)
+    override fun rawListDir(path: String): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawListDir(path)
+    override fun rawCreateDirs(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawCreateDirs(path)
+    override fun rawDelete(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawDelete(path)
+    override fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawRenamePath(from, to)
+}
+
+class __Platform_HostRawFs() : salvo.fs.host.__Platform_RawFs(salvo.platform.fs.host.HostRawFs())
+
 class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Streams) : Fs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")

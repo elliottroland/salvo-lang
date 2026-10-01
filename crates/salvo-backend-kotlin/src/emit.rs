@@ -139,6 +139,9 @@ fn emit_program_mode(
     // [platform-abi] In ABI mode the kept declarations, by name, and the
     // modules holding any of them.
     let closure = abi.then(|| salvo_core::abi::platform_closure(program, &symbols));
+    // [platform-abi] [kt-platform-handler] The effects whose host-facing
+    // interface and adapter are emitted beside them.
+    let platform_effects = salvo_core::platform_effects(program, |m| abi || reachable.contains(m));
     let in_abi = |u: &salvo_core::program::Unit| {
         closure.as_ref().is_some_and(|c| {
             u.ast.items.iter().any(|i| abi_item_name(i).is_some_and(|n| c.contains(n)))
@@ -223,6 +226,7 @@ fn emit_program_mode(
         );
         emitter.generated_imports = generated;
         emitter.abi_keep = closure.clone();
+        emitter.platform_effects = platform_effects.clone();
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
@@ -365,6 +369,17 @@ fn emit_program_mode(
     } else {
         Err(errors)
     }
+}
+
+/// [platform-abi] The host-facing interface of an effect's platform handlers.
+fn platform_interface_name(effect: &str) -> String {
+    format!("{effect}Platform")
+}
+
+/// [platform-abi] The adapter of an effect (`__Platform_E`) or of one platform
+/// handler (`__Platform_H`): generated, never host-facing.
+fn platform_adapter_name(name: &str) -> String {
+    format!("__Platform_{name}")
 }
 
 /// [platform-abi] The name an item is kept by in ABI mode: a struct, a type
@@ -888,6 +903,9 @@ struct Emitter<'p> {
     /// [platform-abi] In ABI mode, the declarations to keep: every other item
     /// of the module is left out (`emit_abi`).
     abi_keep: Option<std::collections::BTreeSet<String>>,
+    /// [platform-abi] The effects some platform handler implements: each
+    /// gets `interface EPlatform` and `open class __Platform_E` beside it.
+    platform_effects: std::collections::BTreeMap<String, salvo_core::PlatformEffect>,
     /// [placeholder] The code `_` renders as: the unpicked arm's read, set while
     /// a qualifier pick's right-hand side is emitted [pick].
     placeholder_code: Option<String>,
@@ -1061,6 +1079,7 @@ impl<'p> Emitter<'p> {
     ) -> Self {
         Emitter {
             abi_keep: None,
+            platform_effects: Default::default(),
             placeholder_code: None,
             pick_vars: 0,
             symbols,
@@ -1382,7 +1401,9 @@ impl<'p> Emitter<'p> {
         for item in &module.items {
             // [platform-abi] Declarations only, and only the reached ones.
             if let Some(keep) = &self.abi_keep {
-                if !abi_item_name(item).is_some_and(|n| keep.contains(n) && !n.contains('.')) {
+                let platform = matches!(item, Item::Handler(h) if h.platform)
+                    || matches!(item, Item::Fn(f) if f.platform);
+                if !platform && !abi_item_name(item).is_some_and(|n| keep.contains(n) && !n.contains('.')) {
                     continue;
                 }
             }
@@ -1871,8 +1892,68 @@ impl<'p> Emitter<'p> {
         // the *effect*, because a sender holds an `Addr` and knows only the
         // effect it serves — the same reason the binding swap works.
         out.push_str(&self.emit_message_classes(e));
+        out.push_str(&self.emit_platform_interface(e));
         self.generics = saved;
         out
+    }
+
+    /// [platform-abi] [kt-platform-handler] For an effect some platform handler
+    /// implements: the **host-facing interface** `EPlatform` the
+    /// implementation class implements, and the **adapter** `__Platform_E`,
+    /// which implements the effect for the program by forwarding each member
+    /// to the implementation. The adapter is where host→Salvo values are
+    /// checked (D7); each platform handler subclasses it with its own
+    /// constructor (`emit_handler`).
+    fn emit_platform_interface(&mut self, e: &EffectDecl) -> String {
+        if !self.platform_effects.contains_key(&e.name.name) {
+            return String::new();
+        }
+        if !e.generics.is_empty() {
+            self.error(format!(
+                "a platform handler of the generic effect `{}` is not supported yet \
+                 [platform-abi]",
+                e.name.name
+            ));
+            return String::new();
+        }
+        let name = &e.name.name;
+        let iface = platform_interface_name(name);
+        let mut decl = format!(
+            "\n// The interface a `platform handler` of `{name}` implements [platform-abi].\n\
+             interface {iface} {{\n"
+        );
+        let mut adapter = format!(
+            "\nopen class {}(private val impl: {iface}) : {name} {{\n",
+            platform_adapter_name(name)
+        );
+        for (i, f) in e.fns.iter().enumerate() {
+            let member_saved = self.enter_generics(&f.generics);
+            let generics = self.emit_generic_params(&f.generics);
+            let params = self.emit_member_param_list_with_implicits(f);
+            let ret = self.emit_return_type(f.return_type.as_ref());
+            let member = self.member_name(e, i);
+            let mut args: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| kt_ident(&p.name.name))
+                .collect();
+            args.extend(self.implicits_of(f).iter().map(|imp| kt_ident(&imp.name)));
+            let type_args = if f.generics.is_empty() {
+                String::new()
+            } else {
+                generics.clone()
+            };
+            decl.push_str(&format!("    fun{generics} {member}({params}){ret}\n"));
+            adapter.push_str(&format!(
+                "    override fun{generics} {member}({params}){ret} = impl.{member}{type_args}({})\n",
+                args.join(", ")
+            ));
+            self.generics = member_saved;
+        }
+        decl.push_str("}\n");
+        adapter.push_str("}\n");
+        decl + &adapter
     }
 
     /// [kt-actor] `sealed class __Msg_E { class Member(payload…) : __Msg_E() }`
@@ -2215,6 +2296,7 @@ impl<'p> Emitter<'p> {
 
     fn host_handler_impl(&mut self, h: &HandlerDecl) -> String {
         let of = self.emit_type(&h.of[0]);
+        let iface = platform_interface_name(type_base_name(&h.of[0]).unwrap_or(&of));
         let Some(effect) = type_base_name(&h.of[0])
             .and_then(|n| self.symbols.effects.get(n))
             .copied()
@@ -2269,7 +2351,7 @@ impl<'p> Emitter<'p> {
                 h.name.name
             )
         };
-        let mut out = format!("{contract}class {}{ctor} : {of} {{\n", kt_ident(&h.name.name));
+        let mut out = format!("{contract}class {}{ctor} : {iface} {{\n", kt_ident(&h.name.name));
         for (i, f) in effect.fns.iter().enumerate() {
             let member_saved = self.enter_generics(&f.generics);
             let params = self.emit_member_param_list_with_implicits(f);
@@ -2288,6 +2370,59 @@ impl<'p> Emitter<'p> {
         out
     }
 
+    /// [platform-abi] [kt-platform-handler] A platform handler is the adapter
+    /// of its effect with the handler's constructor:
+    /// `class __Platform_H(p: T) : pkg.__Platform_E(salvo.platform.M.H(p))` —
+    /// what a `use` constructs, so the implementation is only ever reached
+    /// through the adapter.
+    fn emit_platform_handler(&mut self, h: &HandlerDecl) -> String {
+        let Some(effect) = type_base_name(&h.of[0]) else {
+            return String::new();
+        };
+        let Some(effect_module) = self.effect_module(effect) else {
+            self.error(format!(
+                "platform handler `{}` implements `{effect}`, whose declaration could not \
+                 be located",
+                h.name.name
+            ));
+            return String::new();
+        };
+        let module = self.program.files[self.file_idx].module.clone();
+        // Only with the implementation present (or in a host project, where it
+        // is the root's to supply): a handler nobody uses needs no host file,
+        // and a used one without it is reported at the `use`.
+        if self.abi_keep.is_none() && salvo_core::host_file(&self.program.companions, &module).is_none() {
+            return String::new();
+        }
+        let params: Vec<String> = h
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", kt_ident(&p.name.name), self.emit_type(&p.ty)))
+            .collect();
+        let args: Vec<String> = h.params.iter().map(|p| kt_ident(&p.name.name)).collect();
+        format!(
+            "\nclass {}({}) : {}.{}({}.{}({}))\n",
+            platform_adapter_name(&h.name.name),
+            params.join(", "),
+            kotlin_package(&effect_module),
+            platform_adapter_name(effect),
+            host_package(&module),
+            kt_ident(&h.name.name),
+            args.join(", ")
+        )
+    }
+
+    /// The module declaring the effect named `name`.
+    fn effect_module(&self, name: &str) -> Option<ModulePath> {
+        self.program.units().find_map(|u| {
+            u.ast
+                .items
+                .iter()
+                .any(|i| matches!(i, Item::Effect(e) if e.name.name == name))
+                .then(|| u.file.module.clone())
+        })
+    }
+
     fn emit_handler(&mut self, h: &'p HandlerDecl) -> String {
         if h.intrinsic {
             return self.emit_intrinsic_handler(h);
@@ -2298,7 +2433,7 @@ impl<'p> Emitter<'p> {
         // (`emit_use`). The generated *interface* is the effect's, emitted
         // as any effect's is — which is what the host class implements.
         if h.platform {
-            return String::new();
+            return self.emit_platform_handler(h);
         }
         let saved = self.enter_generics(&h.generics);
         let generics = self.emit_generic_params(&h.generics);
@@ -4452,7 +4587,7 @@ impl<'p> Emitter<'p> {
         match self.symbols.handler_modules.get(name) {
             Some(module) => {
                 self.platform_hosts.insert((*module).clone());
-                format!("{}.{}", host_package(module), kt_ident(name))
+                format!("{}.{}", kotlin_package(module), platform_adapter_name(name))
             }
             None => {
                 self.error(format!(

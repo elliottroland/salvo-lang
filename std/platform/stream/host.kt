@@ -38,7 +38,7 @@ private fun decode(stream: SalvoIn, bytes: ByteArray): String? =
 // `threadsafe platform handler HostRawStreams` — THE CONTRACT: every member
 // below is safe to run concurrently with every other. The state is the
 // runtime's table, which locks per stream (each entry is its own monitor).
-class HostRawStreams : RawStreams {
+class HostRawStreams : RawStreamsPlatform {
     override fun rawReadLine(handle: Long): String? {
         val stream = SalvoStreams.inStream(handle)
         synchronized(stream) {

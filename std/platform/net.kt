@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicReference
 // acceptor thread per endpoint and one reader per connection; a reader turns
 // each frame into a send on the registered `Inbound` addr through the
 // generated forwarding stub.
-class HostTcpTransport(private val bind: NodeEndpoint) : Transport {
+class HostTcpTransport(private val bind: NodeEndpoint) : TransportPlatform {
     private class Peer(val socket: Socket) {
         val out = DataOutputStream(socket.getOutputStream().buffered())
     }

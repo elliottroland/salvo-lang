@@ -68,7 +68,7 @@ async fn salvo_aws_config(config: &AwsConfig) -> aws_config::SdkConfig {
     loader.load().await
 }
 
-impl crate::aws_s3::__Stateless_S3 for HostS3 {
+impl crate::aws_s3::S3PlatformSync for HostS3 {
     fn put_object(&self, input: PutObjectInput, reply: crate::scheduler::SalvoReply) {
         let reply = reply.hosted();
         let client = self.client.clone();

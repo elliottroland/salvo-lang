@@ -8105,11 +8105,18 @@ replaced the working document TESTING.md).
     monitor unless it declares `threadsafe` [threadsafe-platform], bare when
     it does — so handlers depending on its effect are written the same
     whichever the host declared.
-  * Nothing is emitted for the declaration itself: the effect's
-    interface/trait is emitted as any effect's, and the `use` site
-    constructs the *host's* class by name — `salvo.platform.<module>.H`
-    (Kotlin) / `crate::platform_<module>::H::new(…)` (Rust). The class is
-    named after the **handler**, since the `use` site names it.
+  * **The host implements a host-facing interface, and the program reaches
+    it through an adapter** (ABI.md D7, D8; 2026-10-01). Beside an effect
+    some platform handler implements, the compiler emits the interface the
+    host class implements (`EPlatform`; on Rust `EPlatform` with `&mut self`,
+    or `EPlatformSync` with `&self` for a `threadsafe` handler) and the
+    adapter `__Platform_E`, which implements the effect for the program by
+    forwarding each member — the place host→Salvo values are checked. The
+    declaration emits `__Platform_H`, the adapter with the handler's
+    constructor, which builds the host's class; a `use` constructs that. The
+    class is named after the **handler**. Emitted only where the host file
+    exists (or in the host project), so a handler nobody uses needs none.
+    Not generic effects, and no member returning a borrow (codegen errors).
   * The class lives in the `platform/` companion of the module that
     *declared* the handler [platform-tree], and `salvo platform generate`
     writes its skeleton. std ships its own, under `std`'s `platform/` tree,

@@ -893,7 +893,7 @@ final class Generator {
                 .append("        Self { rt, client }\n    }\n}\n\n");
         out.append(rustConfigLoader());
 
-        out.append("impl ").append(rsSalvoModule()).append("::__Stateless_").append(effect).append(" for Host")
+        out.append("impl ").append(rsSalvoModule()).append("::").append(effect).append("PlatformSync for Host")
                 .append(effect).append(" {\n");
         boolean first = true;
         for (OperationShape op : operations) {
@@ -1422,7 +1422,7 @@ final class Generator {
 
         out.append("// `threadsafe platform handler Host").append(effect).append("`: the SDK client is safe to share, and\n")
                 .append("// each call is a coroutine on the handler's own scope, completing its reply there.\n");
-        out.append("class Host").append(effect).append("(private val config: AwsConfig) : ").append(effect).append(" {\n");
+        out.append("class Host").append(effect).append("(private val config: AwsConfig) : ").append(effect).append("Platform {\n");
         out.append("    private val scope = kotlinx.coroutines.CoroutineScope(\n")
                 .append("        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO\n    )\n");
         out.append("    private val client = ").append(ktClient()).append(" {\n")

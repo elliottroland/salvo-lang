@@ -70,7 +70,7 @@ impl HostRawFs {
     }
 }
 
-impl crate::fs_host::__Stateful_RawFs for HostRawFs {
+impl crate::fs_host::RawFsPlatform for HostRawFs {
     fn raw_open_read(&mut self, path: &String) -> Union2<i64, Kind> {
         match std::fs::File::open(path) {
             Ok(file) => Union2::U1(crate::scheduler::salvo_stream_register_in(

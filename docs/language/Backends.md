@@ -34,7 +34,7 @@ The `Mut` auto-qualifier is also handled at this level: a type declaration can o
 
 The `platform` layer is where an application reaches its target language. Where `intrinsic` is the compiler's, `platform` is yours: you declare what you need from the host, and the compiler generates an interface for the host to implement.
 
-You declare an ordinary effect for what you need, and a **`platform handler`** of it whose implementation is host code. The compiler generates the effect's interface — `interface Clock` in Kotlin, a trait in Rust — and the host implements it. Write `salvo platform generate` to get the skeleton:
+You declare an ordinary effect for what you need, and a **`platform handler`** of it whose implementation is host code. The compiler generates an interface for the host to implement — `interface ClockPlatform` in Kotlin, a trait `ClockPlatform` in Rust (`ClockPlatformSync` for a `threadsafe` handler, whose members take `&self`) — and an adapter between it and the program, which is where values the host returns are checked. Write `salvo platform generate` to get the skeleton:
 
 ```bash
 salvo platform generate --backend kotlin --src ./my_project
@@ -84,7 +84,7 @@ The implementation goes in the platform root, as a class named after the *handle
 
 ```kotlin
 // platform/main.kt, as generated
-class HostRawClock : RawClock {
+class HostRawClock : RawClockPlatform {
     override fun rawNow(): Int {
         TODO("implement RawClock.raw_now")
     }

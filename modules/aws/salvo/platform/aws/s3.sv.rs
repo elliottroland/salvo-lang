@@ -349,3 +349,21 @@ impl S3 {
         }
     }
 }
+
+/// The adapter a `use` of a platform handler of `S3` constructs [platform-abi].
+pub struct __Platform_S3<T>(pub T);
+
+/// What a `threadsafe platform handler` of `S3` implements [platform-abi].
+pub trait S3PlatformSync: Send + Sync {
+    fn put_object(&self, input: PutObjectInput, reply: crate::scheduler::SalvoReply);
+    fn get_object(&self, input: GetObjectInput, reply: crate::scheduler::SalvoReply);
+}
+
+impl<T: S3PlatformSync> __Stateless_S3 for __Platform_S3<T> {
+    fn put_object(&self, input: PutObjectInput, reply: crate::scheduler::SalvoReply) {
+        self.0.put_object(input, reply)
+    }
+    fn get_object(&self, input: GetObjectInput, reply: crate::scheduler::SalvoReply) {
+        self.0.get_object(input, reply)
+    }
+}

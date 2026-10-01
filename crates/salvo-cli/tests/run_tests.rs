@@ -1037,7 +1037,7 @@ fn a_dependency_brings_its_host_libraries_only_when_reached() {
     fs::write(lib.join("salvo/lib/host.sv"), "import lib\n\nexport platform handler HostGreet of Greet\n").unwrap();
     fs::write(lib.join("salvo/platform/lib/host.rs"), "use crate::lib::*;\npub struct HostGreet;\n\
          impl HostGreet { pub fn new() -> Self { HostGreet } }\n\
-         impl crate::lib::__Stateful_Greet for HostGreet { fn greet(&mut self) -> String { \"host\".into() } }\n").unwrap();
+         impl crate::lib::GreetPlatform for HostGreet { fn greet(&mut self) -> String { \"host\".into() } }\n").unwrap();
     fs::create_dir_all(dir.join("salvo")).unwrap();
     fs::write(
         dir.join("salvo.toml"),
@@ -1246,7 +1246,7 @@ fun parse(s: String): Union2<Int, String> {
 fun describeAttrs(attrs: List<Attr>): String =
     attrs.joinToString(", ") { "${it.dataType}=${it.stringValue ?: "-"}" }
 
-class HostCounter(start: Int) : Counter {
+class HostCounter(start: Int) : CounterPlatform {
     private var at = start
     override fun next(step: Int): Int {
         at += step
@@ -1291,7 +1291,7 @@ impl HostCounter {
     }
 }
 
-impl crate::__Stateful_Counter for HostCounter {
+impl crate::CounterPlatform for HostCounter {
     fn next(&mut self, step: i32) -> i32 {
         self.at += step;
         self.at
