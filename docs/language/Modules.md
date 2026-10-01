@@ -93,7 +93,7 @@ version = "0.1.0"
 src = "salvo"          # the source root, relative to this file (default: here)
 main = "salvo/main.sv" # the entry point, when several files declare one (optional)
 backend = "*"          # rust, kotlin, or * for every backend
-platform = "salvo/platform"  # host files and platform templates (required if there are any)
+platform = "salvo/platform"  # host implementation files (required if there are any)
 
 [rust]
 target = "rust"        # where `salvo compile` writes each backend's output

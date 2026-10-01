@@ -226,9 +226,9 @@ fn a_platform_handler_is_not_std_only() {
     );
 }
 
-/// [platform-handler] [host-splice] The members are the host's, in the target
-/// language: a member written with a Salvo body is refused, naming both places
-/// host code can live.
+/// [platform-handler] The members are the host's, in the target language: a
+/// member written with a Salvo body is refused, naming the implementation
+/// file.
 #[test]
 fn a_platform_handler_with_a_body_is_rejected() {
     let errs = messages(&src(
@@ -239,21 +239,21 @@ fn a_platform_handler_with_a_body_is_rejected() {
     assert!(
         errs.iter().any(|m| m
             .contains("`platform handler HostClock` has no body in Salvo")
-            && m.contains("platform template")),
+            && m.contains("implementation file")),
         "got {errs:?}"
     );
 }
 
-/// [platform-handler] [host-splice] Salvo state is laid out by the compiler,
-/// so a hand-written companion cannot implement a handler holding it — only a
-/// platform template can.
+/// [platform-handler] A platform handler declares parameters, not state:
+/// its implementation class owns its fields (user decision 2026-10-01, ABI.md
+/// D8).
 #[test]
-fn a_platform_handler_with_state_needs_a_template() {
+fn a_platform_handler_with_state_is_refused() {
     let errs = messages(&src(
         "effect Clock {\n    fn now() [] -> Int\n}\n\n\
          platform handler HostClock of Clock {\n    ticks: Int = 0\n}\n",
     ));
-    assert!(errs.iter().any(|m| m.contains("so a platform template must implement it")), "got {errs:?}");
+    assert!(errs.iter().any(|m| m.contains("declares Salvo state, but its implementation class owns")), "got {errs:?}");
 }
 
 /// [platform-handler] [effect-handler-deps] A dependency is supplied *to a

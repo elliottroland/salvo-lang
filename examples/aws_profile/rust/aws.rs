@@ -104,17 +104,6 @@ impl crate::wire::__Wire for AwsError {
     }
 }
 
-pub fn profile_of(c: &Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain>) -> Option<ProfileCredentials> {
-    if matches!(c, Union3::U1(_)) {
-        return Some(c.u1().clone());
-    }
-    return None;
-}
-
-pub fn uses_environment(c: &Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain>) -> bool {
-    return matches!(c, Union3::U2(_));
-}
-
 pub fn to_str__7(value: &ProfileCredentials) -> String {
     let mut out: String = [&"ProfileCredentials {".to_string()[..]].concat();
     out.push_str(&" ".to_string()[..]);

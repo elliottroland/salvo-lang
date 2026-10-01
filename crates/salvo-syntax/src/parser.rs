@@ -409,7 +409,7 @@ impl<'s> Parser<'s> {
                 self.bump();
             }
         }
-        Module { docs, items, host: Vec::new() }
+        Module { docs, items }
     }
 
     /// Skips tokens until something that can plausibly start a top-level item.
@@ -2131,10 +2131,7 @@ impl<'s> Parser<'s> {
         let mut fns = Vec::new();
         let mut mailbox = None;
         let mut init: Option<FnDecl> = None;
-        let host = Vec::new();
         let mut end = of.last().map(|t| t.span()).unwrap_or(start);
-        // [host-splice] Set when a platform template implements the handler.
-        let spliced = false;
         if self.at(&TokenKind::LBrace) && self.same_line() {
             self.bump();
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {
@@ -2182,7 +2179,6 @@ impl<'s> Parser<'s> {
                         return_type: None,
                         constructs: None,
                         body: Some(body),
-                        host: Vec::new(),
                         span,
                     });
                 } else if is_mailbox {
@@ -2239,9 +2235,6 @@ impl<'s> Parser<'s> {
             mailbox,
             state,
             fns,
-            spliced,
-            host,
-            host_fields: Vec::new(),
             span: start.to(end),
         })
     }
@@ -2397,8 +2390,6 @@ impl<'s> Parser<'s> {
         // parsed here rather than as a statement so the body that follows is an
         // ordinary block: `state` declares data, it does not run.
         let mut iter_state = Vec::new();
-        // [host-splice] A host body is attached later, from a platform template.
-        let host: Vec<HostBlock> = Vec::new();
         let body = if by.is_none() && self.at(&TokenKind::LBrace) && self.same_line() {
             if is_iter {
                 Some(self.parse_iter_body(&mut iter_state)?)
@@ -2424,7 +2415,6 @@ impl<'s> Parser<'s> {
         let end = body
             .as_ref()
             .map(|b| b.span)
-            .or_else(|| host.last().map(|h| h.span))
             .or_else(|| by.as_ref().map(|b| b.span))
             .or_else(|| constructs.as_ref().map(|c| c.span))
             .or_else(|| return_type.as_ref().map(|t| t.span()))
@@ -2453,7 +2443,6 @@ impl<'s> Parser<'s> {
             return_type,
             constructs,
             body,
-            host,
             span: start.to(end),
         })
     }
@@ -5493,29 +5482,6 @@ impl<'s> Parser<'s> {
                     span: tok.span,
                 })
             }
-            TokenKind::HostLeaf(text) => {
-                let tok = self.bump();
-                // `@value : T`: the host value given a Salvo type.
-                if self.at(&TokenKind::Colon) {
-                    self.bump();
-                    let ty = self.parse_type()?;
-                    let span = tok.span.to(ty.span());
-                    return Some(Expr::HostLeaf { text, ty: Some(ty), span });
-                }
-                Some(Expr::HostLeaf { text, ty: None, span: tok.span })
-            }
-            // [host-splice] `` (`…` : T) ``: host code given a Salvo type.
-            TokenKind::LParen
-                if matches!(self.peek_at(1).kind, TokenKind::HostLeaf(_))
-                    && matches!(self.peek_at(2).kind, TokenKind::Colon) =>
-            {
-                let start = self.bump().span;
-                let TokenKind::HostLeaf(text) = self.bump().kind else { unreachable!() };
-                self.bump();
-                let ty = self.parse_type()?;
-                let end = self.expect(&TokenKind::RParen)?.span;
-                Some(Expr::HostLeaf { text, ty: Some(ty), span: start.to(end) })
-            }
             TokenKind::Str(parts) => {
                 let tok = self.bump();
                 let parts = self.parse_str_parts(parts);
@@ -6356,81 +6322,6 @@ impl<'s> Parser<'s> {
     }
 }
 
-/// [host-splice] Parses a platform template's `` `…` `` marker as a hole: a
-/// type alone (`` `AwsError` ``, `` `Ok X | Err Y` ``), `e`, `e : T`, a
-/// declaration `name : T`, or an assignment `name = e` to a declared name.
-/// Spans are shifted by `offset`, the source's place in its file.
-pub fn parse_template_marker(source: &str, offset: u32) -> (Hole, Vec<Diagnostic>) {
-    let lex = |src: &str| {
-        let lexed = lexer::lex_template(src);
-        let tokens: Vec<Token> = lexed
-            .tokens
-            .into_iter()
-            .map(|mut t| {
-                t.span = Span::new(t.span.start + offset, t.span.end + offset);
-                t
-            })
-            .collect();
-        let mut diags = lexed.diagnostics;
-        for d in &mut diags {
-            d.span = Span::new(d.span.start + offset, d.span.end + offset);
-        }
-        (tokens, diags)
-    };
-    let span = Span::new(offset, offset + source.len() as u32);
-    // A type alone: it parses as one to the end, and names a type.
-    if source.trim_start().starts_with(|c: char| c.is_uppercase()) {
-        let (tokens, diags) = lex(source);
-        let mut parser = Parser::new(source, tokens, Vec::new());
-        if let Some(ty) = parser.parse_type() {
-            if parser.at_eof() && parser.into_diagnostics().is_empty() && diags.is_empty() {
-                return (Hole { expr: None, ty: Some(ty), assign: None, place: None, in_return: false, span }, Vec::new());
-            }
-        }
-    }
-    let (tokens, mut diagnostics) = lex(source);
-    let mut parser = Parser::new(source, tokens, Vec::new());
-    // `name = e`: an assignment to a declared name.
-    let assign = match (&parser.peek().kind, &parser.peek_at(1).kind) {
-        (TokenKind::Ident(_), TokenKind::Eq) => {
-            let id = parser.ident();
-            parser.bump();
-            id
-        }
-        _ => None,
-    };
-    let expr = parser.parse_expr();
-    let mut place = None;
-    let ty = if parser.eat(&TokenKind::Colon).is_some() {
-        // [host-splice] `e : name` / `e : return`: a lowercase name (or the
-        // keyword) standing alone after the colon is a place, not a type.
-        match (&parser.peek().kind, &parser.peek_at(1).kind) {
-            (TokenKind::Ident(name), TokenKind::Eof) if name.starts_with(|c: char| c.is_lowercase() || c == '_') => {
-                place = parser.ident();
-                None
-            }
-            (TokenKind::KwReturn, TokenKind::Eof) => {
-                let at = parser.peek().span;
-                parser.bump();
-                place = Some(Ident { name: "return".to_string(), span: at });
-                None
-            }
-            _ => parser.parse_type(),
-        }
-    } else {
-        None
-    };
-    if !parser.at_eof() {
-        let at = parser.peek().span;
-        let found = parser.kind().describe();
-        parser.error(
-            format!("unexpected {found} in a template marker: it is `e`, `e : T`, `e : place`, `name = e` or a type"),
-            at,
-        );
-    }
-    diagnostics.extend(parser.into_diagnostics());
-    (Hole { expr, ty, assign, place, in_return: false, span }, diagnostics)
-}
 
 /// Parses a `${...}` fragment as an expression, shifting all spans by
 /// `offset` so they point back into the original file.

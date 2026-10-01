@@ -106,10 +106,10 @@ fn generate_never_overwrites_an_existing_host() {
     let out = salvo_in(&dir, &["platform", "generate", "--backend", "rust", "--src", "."]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 
-    let host = dir.join("platform/main.sv.rs");
+    let host = dir.join("platform/main.rs");
     let edited = fs::read_to_string(&host)
         .unwrap()
-        .replace("todo!(\"implement RawClock.raw_now\")", "`offset` + 7");
+        .replace("todo!(\"implement RawClock.raw_now\")", "self.offset + 7");
     fs::write(&host, &edited).unwrap();
 
     let out = salvo_in(&dir, &["platform", "generate", "--backend", "rust", "--src", "."]);
@@ -140,8 +140,8 @@ fn each_backend_writes_its_own_host_file() {
             String::from_utf8_lossy(&out.stderr)
         );
     }
-    assert!(dir.join("platform/main.sv.kt").is_file());
-    assert!(dir.join("platform/main.sv.rs").is_file());
+    assert!(dir.join("platform/main.kt").is_file());
+    assert!(dir.join("platform/main.rs").is_file());
 }
 
 /// [cli-platform] A program with no platform declaration has nothing to
@@ -181,14 +181,14 @@ fn generate_then_run_works_for_a_platform_handler() {
             "kotlinc",
             "kt",
             "TODO(\"implement RawClock.raw_now\")",
-            "return `offset` + 7",
+            "return offset + 7",
         ),
         (
             "rust",
             "rustc",
             "rs",
             "todo!(\"implement RawClock.raw_now\")",
-            "`offset` + 7",
+            "self.offset + 7",
         ),
     ] {
         if !have(tool) {
@@ -203,26 +203,18 @@ fn generate_then_run_works_for_a_platform_handler() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(!out.status.success(), "{backend} should not have run");
         assert!(
-            stderr.contains("use HostRawClock")
+            stderr.contains("`HostRawClock`")
                 && stderr.contains("salvo platform generate")
-                && stderr.contains(&format!("platform/main.sv.{ext}")),
+                && stderr.contains(&format!("platform/main.{ext}")),
             "{backend} stderr: {stderr}"
         );
 
-        // [host-splice] A platform handler's skeleton is a template: the
-        // declaring markers with their signatures, no hand-written host class.
         let out =
             salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend} generate failed: {stderr}");
-        assert!(!dir.join("platform").join(format!("main.{ext}")).exists(), "{backend}: no host class");
-        let host = dir.join("platform").join(format!("main.sv.{ext}"));
+        let host = dir.join("platform").join(format!("main.{ext}"));
         let src = fs::read_to_string(&host).unwrap();
-        assert!(
-            src.contains("`platform handler HostRawClock(offset: Int) of RawClock`")
-                && src.contains("`fn raw_now() -> Int`"),
-            "{backend} template:\n{src}"
-        );
         assert!(
             src.contains("HostRawClock") && src.contains(stub),
             "{backend} host:\n{src}"
@@ -241,8 +233,8 @@ fn generate_then_run_works_for_a_platform_handler() {
     __stamp.verified();
 }
 
-/// [platform-tree] The tree mirrors the sources, per module: the template of
-/// a handler declared in `telemetry.sv` is `platform/telemetry.sv.<ext>`, and
+/// [platform-tree] The tree mirrors the sources, per module: the implementation
+/// of a handler declared in `telemetry.sv` is `platform/telemetry.<ext>`, and
 /// a `use` of it from another module (`bin/tool.sv`, chosen with `--main`)
 /// constructs it across modules. Run end to end on both backends, because
 /// the cross-module path is where a mistake would be a target-language error
@@ -258,14 +250,14 @@ fn the_platform_tree_mirrors_the_source_tree() {
             "kotlinc",
             "kt",
             "TODO(\"implement Telemetry.record\")",
-            "val n = `name`\n        val v = `value`\n        kotlin.io.println(\"[t] $n=$v\")",
+            "kotlin.io.println(\"[t] $name=$value\")",
         ),
         (
             "rust",
             "rustc",
             "rs",
             "todo!(\"implement Telemetry.record\")",
-            "println!(\"[t] {}={}\", `name`, `value`);",
+            "println!(\"[t] {}={}\", name, value);",
         ),
     ] {
         let dir = work_dir(&format!("nested_{backend}"));
@@ -296,14 +288,11 @@ fn the_platform_tree_mirrors_the_source_tree() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend} stderr: {stderr}");
 
-        // The declaring module gets the template, mirroring its source path;
-        // the entry's module gets nothing.
-        let template = dir.join(format!("platform/telemetry.sv.{ext}"));
+        // The declaring module gets the implementation file, mirroring its
+        // source path; the entry's module gets nothing.
+        let template = dir.join(format!("platform/telemetry.{ext}"));
         let src = fs::read_to_string(&template).unwrap();
-        assert!(
-            src.contains("`platform handler HostTelemetry of Telemetry`") && src.contains(stub),
-            "{backend} template:\n{src}"
-        );
+        assert!(src.contains("HostTelemetry") && src.contains(stub), "{backend} host:\n{src}");
         assert!(!dir.join("platform/bin").exists(), "{backend}: nothing for the entry module");
 
         if !have(tool) {
@@ -384,9 +373,9 @@ fn main() [use] {
         fs::write(dir.join("salvo/main.sv"), PROGRAM).unwrap();
         let out = salvo_in(&dir, &["platform", "generate"]);
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        let host = dir.join("salvo/platform/main.sv.rs");
+        let host = dir.join("salvo/platform/main.rs");
         let src = fs::read_to_string(&host).unwrap();
-        fs::write(&host, src.replace("todo!(\"implement Greeter.greet\")", "greeter::greet(`n` as i64)")).unwrap();
+        fs::write(&host, src.replace("todo!(\"implement Greeter.greet\")", "greeter::greet(n as i64)")).unwrap();
 
         let out = salvo_in(&dir, &["run"]);
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -454,9 +443,9 @@ fn main() [use] {
         fs::write(dir.join("salvo/main.sv"), PROGRAM).unwrap();
         let out = salvo_in(&dir, &["platform", "generate"]);
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        let host = dir.join("salvo/platform/main.sv.kt");
+        let host = dir.join("salvo/platform/main.kt");
         let src = fs::read_to_string(&host).unwrap();
-        fs::write(&host, src.replace("TODO(\"implement Greeter.greet\")", "return greeter.greet(`n`)")).unwrap();
+        fs::write(&host, src.replace("TODO(\"implement Greeter.greet\")", "return greeter.greet(n)")).unwrap();
         let out = salvo_in(&dir, &["run"]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "kotlin run failed: {stderr}");
@@ -610,14 +599,14 @@ fn main() [use] {
             "rustc",
             "rs",
             "todo!(\"implement Slow.later\")",
-            "let done = `done`.hosted();\n        let n = `n`;\n        std::thread::spawn(move || {\n            std::thread::sleep(std::time::Duration::from_millis(50));\n            if n >= 0 { done.send(n + 1) } else { drop(done) }\n        });",
+            "let done = done.hosted();\n        std::thread::spawn(move || {\n            std::thread::sleep(std::time::Duration::from_millis(50));\n            if n >= 0 { done.send(n + 1) } else { drop(done) }\n        });",
         ),
         (
             "kotlin",
             "kotlinc",
             "kt",
             "TODO(\"implement Slow.later\")",
-            "val host = `done`.hosted()\n        val n = `n`\n        Thread { Thread.sleep(50); host.send(n + 1) }.start()",
+            "val host = done.hosted()\n        Thread { Thread.sleep(50); host.send(n + 1) }.start()",
         ),
     ] {
         if !have(tool) {
@@ -629,7 +618,7 @@ fn main() [use] {
         fs::write(dir.join("main.sv"), PROGRAM).unwrap();
         let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        let host = dir.join("platform").join(format!("main.sv.{ext}"));
+        let host = dir.join("platform").join(format!("main.{ext}"));
         let src = fs::read_to_string(&host).unwrap();
         assert!(
             src.contains("`done`: a continuation [platform-reply]") && src.contains(".hosted()"),
@@ -794,13 +783,13 @@ fn the_aws_glue_compiles_against_both_sdks() {
     }
 }
 
-/// [platform-root] [cli-platform] [host-splice] Each backend has its own
+/// [platform-root] [cli-platform] [platform-fn] Each backend has its own
 /// platform root when the manifest says so, and `generate` fills each: a
-/// template (`main.sv.<ext>`) for the platform handler and the bodiless fn.
+/// implementation file (`main.<ext>`) for the platform handler and the platform fn.
 /// The skeletons type-check as written, a second run keeps every file, and
 /// without a root for a backend the program is refused naming the key.
 #[test]
-fn generate_writes_templates_into_each_backends_root() {
+fn generate_writes_implementations_into_each_backends_root() {
     let dir = work_dir("split_roots");
     fs::create_dir_all(dir.join("salvo")).unwrap();
     let manifest = |roots: &str| {
@@ -830,20 +819,16 @@ fn main() [use] {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "{stderr}");
     for (root, ext, todo) in [("kotlin", "kt", "TODO(\"implement shout\")"), ("rust", "rs", "todo!(\"implement shout\")")] {
-        let template = fs::read_to_string(dir.join(root).join(format!("main.sv.{ext}")))
-            .unwrap_or_else(|e| panic!("{root}: no template ({e}): {stderr}"));
-        assert!(template.contains("`fn shout(s: Str) -> Str` {") && template.contains(todo), "{template}");
-        assert!(
-            template.contains("`platform handler HostClock(offset: Int) of Clock` {")
-                && template.contains("`fn now() -> Int`"),
-            "{template}"
-        );
-        assert!(!dir.join(root).join(format!("main.{ext}")).exists(), "no host file");
+        let host = fs::read_to_string(dir.join(root).join(format!("main.{ext}")))
+            .unwrap_or_else(|e| panic!("{root}: no implementation file ({e}): {stderr}"));
+        let shout = if ext == "kt" { "fun shout(s: String): String {" } else { "pub fn shout(s: &String) -> String {" };
+        assert!(host.contains(shout) && host.contains(todo), "{host}");
+        assert!(host.contains("HostClock") && host.contains("implement Clock.now"), "{host}");
         assert!(!dir.join("salvo/platform").exists(), "nothing under the source root");
     }
     let out = salvo_in(&dir, &["analyze"]);
     let all = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success() && all.contains("no errors"), "the skeletons type-check: {all}");
+    assert!(out.status.success() && all.contains("no errors"), "{all}");
 
     let out = salvo_in(&dir, &["platform", "generate"]);
     let stderr = String::from_utf8_lossy(&out.stderr);

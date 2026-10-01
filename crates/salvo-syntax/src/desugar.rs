@@ -762,7 +762,6 @@ fn expand(
             span: mint_span,
         }),
         span: mint_span,
-        host: Vec::new(),
     };
 
     // 3. `next`: the author's body, with the struct's fields written out.
@@ -874,7 +873,6 @@ fn expand(
         constructs: None,
         body: Some(next_body),
         span: f.span,
-        host: Vec::new(),
     };
 
     Some(vec![
@@ -1226,7 +1224,6 @@ fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
         constructs: None,
         body: Some(test.body),
         span: test.span,
-        host: Vec::new(),
     }
 }
 
@@ -1388,7 +1385,7 @@ impl Rewrite {
             Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::Bool { .. }
-            | Expr::Char { .. } | Expr::HostLeaf { .. }
+            | Expr::Char { .. }
             | Expr::Error { .. } => {}
             Expr::Str { parts, .. } => {
                 for part in parts {
@@ -1835,7 +1832,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::Bool { .. }
-            | Expr::Char { .. } | Expr::HostLeaf { .. }
+            | Expr::Char { .. }
             | Expr::Ident(_)
             | Expr::Error { .. } => {}
         }
@@ -2281,7 +2278,7 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
         Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::Bool { .. }
-        | Expr::Char { .. } | Expr::HostLeaf { .. }
+        | Expr::Char { .. }
         | Expr::Ident(_)
         | Expr::Placeholder { .. }
         | Expr::Continue { .. }

@@ -135,6 +135,39 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Platform templates removed (2026-10-01, user decisions; ABI.md step 5b).**
+Templates went because they made the reader hold two languages at once and
+left the host's tooling unusable; this step removes them ahead of the
+generated ABI files, so the `*.sv.kt` / `*.sv.rs` names are free before
+anything generated takes them (layout and `<name>Platform` wrapper names
+confirmed by the user). Removed: `salvo_core::template`, the marker lexer and
+`Expr::HostLeaf`, `Hole`/`HostBlock`/`HostField` and the AST fields that
+carried them (`Module.host`, `FnDecl.host`, `HandlerDecl.{spliced, host,
+host_fields}`), the checker's host-block checks and `Checked.{host_types,
+host_decls}`, both emitters' `render_host` and host-field layout,
+`host_block_coverage`, the source appendix and the diagnostic remapping, the
+template grammars, the extension's template languages and the language
+server's template support (all built 2026-09-30). [host-splice] is a
+tombstone. Built in their place: a **`platform fn` compiles to a wrapper**,
+`shoutPlatform` / `shout_platform`, whose body calls the implementation by its
+real name in the module's implementation file (`salvo.platform.<m>.shout` /
+`crate::platform_<m>::shout`), the seam where ABI.md's boundary checks will
+go; `salvo platform generate` writes **implementation skeletons** for platform
+fns (the wrapper's own signature under the real name, so the two cannot
+disagree) beside the handler classes it already wrote; a platform fn is
+refused when generic, taking implicits or declaring effects; a platform
+handler declaring state is refused again (D8: the class owns its fields); a
+root's `*.sv.*` files are skipped by the build. The **aws generator** went
+back to `883b8e9`, its last version before splices, writing
+`platform/aws/<svc>/host.{kt,rs}`, with two changes for today's emission:
+camel case through its `ktIdent`, and `Union2.U1` arms; `aws.profile_of` and
+`aws.uses_environment`, added for the splice glue, are gone. The drift test
+compiles the glue against both SDKs. Tests: the template tests (6 checker,
+1 parser, the CLI template run, the LSP template test, 3 grammar tests) were
+deleted; a new run test implements platform fns and a stateful handler on
+both backends; the generate tests check implementation files; an LSP test
+keeps the source-root definition fix covered. **1658 tests.**
+
 **Kotlin union arms as `UnionN.Uk`, tuples as `TupleN` (2026-10-01, user
 decisions; ABI.md step 5).** A union arm is now nested in its sealed interface,
 `Union2.U1(x)` — Rust's `Union2::U1` — instead of a top-level `U2_1(x)`
@@ -19311,7 +19344,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1672; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1658; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

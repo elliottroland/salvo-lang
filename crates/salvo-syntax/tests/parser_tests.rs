@@ -3018,37 +3018,3 @@ fn literal_types_parse() {
     assert!(errs.iter().any(|e| e.contains("a float cannot be a literal type")), "{errs:?}");
 }
 
-// [host-splice] A platform template's marker parses as a hole: a type alone,
-// an expression with `@name` / `@{…}` host code in it, `e : T`, `e : place`,
-// a declaration `name : T`, and an assignment `name = e`.
-#[test]
-fn template_markers_parse() {
-    use salvo_syntax::ast::Expr;
-    use salvo_syntax::parser::parse_template_marker;
-    let (h, d) = parse_template_marker("Ok Int | Err Str", 0);
-    assert!(d.is_empty() && h.expr.is_none() && h.ty.is_some(), "{h:?} {d:?}");
-    let (h, d) = parse_template_marker("AwsError { code: @code, message: @{e.message ?: \"\"} }", 0);
-    assert!(d.is_empty(), "{d:?}");
-    assert!(matches!(h.expr, Some(Expr::StructLit { .. })), "{h:?}");
-    let (h, d) = parse_template_marker("ok(@value : Out)", 0);
-    assert!(d.is_empty(), "{d:?}");
-    let Some(Expr::Call { args, .. }) = &h.expr else { panic!("{h:?}") };
-    assert!(matches!(&args[0], Expr::HostLeaf { text, ty: Some(_), .. } if text == "value"));
-    let (h, _) = parse_template_marker("answer : Ok Out | Err Str", 0);
-    assert!(matches!(h.expr, Some(Expr::Ident(_))) && h.ty.is_some());
-    let (h, _) = parse_template_marker("answer = ok(value)", 0);
-    assert_eq!(h.assign.map(|i| i.name), Some("answer".to_string()));
-    // `e : place` and `e : return`: a lowercase name, or the keyword, alone
-    // after the colon is a place; a capitalized one is still a type.
-    let (h, d) = parse_template_marker("ok(value) : answer", 0);
-    assert!(d.is_empty() && h.ty.is_none(), "{h:?} {d:?}");
-    assert_eq!(h.place.map(|i| i.name), Some("answer".to_string()));
-    let (h, d) = parse_template_marker("err(e) : return", 0);
-    assert!(d.is_empty() && h.ty.is_none(), "{h:?} {d:?}");
-    assert_eq!(h.place.map(|i| i.name), Some("return".to_string()));
-    let (h, _) = parse_template_marker("ok(value) : Answer", 0);
-    assert!(h.place.is_none() && h.ty.is_some(), "{h:?}");
-    // `size@core.list` stays a selector: `@` after a name is Salvo.
-    let (h, d) = parse_template_marker("xs.size@core.list()", 0);
-    assert!(d.is_empty() && !matches!(h.expr, Some(Expr::HostLeaf { .. })), "{h:?} {d:?}");
-}

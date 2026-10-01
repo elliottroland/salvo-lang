@@ -10,7 +10,6 @@
 //! salvo platform generate --backend kotlin --src ./some_dir
 //! salvo lsp
 //! salvo lang tm-grammar [--out vscode/syntaxes/salvo.tmLanguage.json]
-//! salvo lang tm-grammar --template kotlin [--out vscode/syntaxes/salvo-kotlin.tmLanguage.json]
 //! ```
 
 mod analysis;
@@ -199,11 +198,6 @@ enum LangCommand {
         /// Write the grammar to this file instead of stdout.
         #[arg(long)]
         out: Option<PathBuf>,
-        /// The grammar of a platform template in this host language
-        /// (`kotlin` for `*.sv.kt`, `rust` for `*.sv.rs`) instead of Salvo's
-        /// [host-splice].
-        #[arg(long)]
-        template: Option<String>,
     },
 }
 
@@ -234,9 +228,7 @@ fn main() -> ExitCode {
         } => test(backend, src, filter.as_deref(), list, target, clean_target),
         Command::Lsp => lsp::run(),
         Command::Lang { command } => match command {
-            LangCommand::TmGrammar { out, template } => {
-                lang::run_tm_grammar(out.as_ref(), template.as_deref())
-            }
+            LangCommand::TmGrammar { out } => lang::run_tm_grammar(out.as_ref()),
         },
         Command::Platform { command } => match command {
             PlatformCommand::Generate {
@@ -417,10 +409,6 @@ struct Layout {
     /// `salvo test` sets it: a production build does not walk them, which is
     /// the whole of how tests stay out of a shipped program.
     tests: bool,
-    /// [cli-platform] `salvo platform generate` is assembling: a declaration
-    /// missing its host implementation is what the command is about to write,
-    /// so the coverage check is not a reason to stop.
-    generate: bool,
 }
 
 /// A parsed, entry-resolved program: what `compile`, `run` and
@@ -505,12 +493,6 @@ fn assemble(
             }
         }
         modules.push(module);
-    }
-    // [host-splice] Platform templates attach to their modules' declarations.
-    let templates = std::mem::take(&mut sources.templates);
-    for diag in salvo_core::template::apply(&templates, &mut sources.files, &mut modules) {
-        eprintln!("{}", diag.render(&sources.files));
-        error_count += 1;
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     for diag in &expansion.diagnostics {
@@ -618,18 +600,6 @@ fn assemble(
             eprintln!("{}", diag.render(&program.files));
         }
         if !missing.is_empty() {
-            return Err(ExitCode::FAILURE);
-        }
-    }
-    // [host-splice] Every backend the manifest builds has its host block —
-    // whichever one this command builds.
-    if let (Some(project), false) = (project, layout.generate) {
-        let backends = salvo_core::required_backends(project);
-        let coverage = salvo_core::host_block_coverage(&program, &backends);
-        for diag in &coverage {
-            eprintln!("{}", diag.render(&program.files));
-        }
-        if coverage.iter().any(|d| d.is_error()) {
             return Err(ExitCode::FAILURE);
         }
     }
@@ -1145,7 +1115,6 @@ fn run_test_pass(
         // clear of an `import <module>.test` for an annex of `test` itself.
         is_test: true,
         dependency: None,
-        appendix: Vec::new(),
     });
     program.modules.push(ast);
     let emitted = backend.emit(program, target, Some(harness_module));
@@ -1248,14 +1217,13 @@ fn platform_generate(
     main_file: Option<PathBuf>,
 ) -> ExitCode {
     let registry = registry();
-    let mut inputs = match resolve_inputs(src, main_file, backend_name, "kotlin", false) {
+    let inputs = match resolve_inputs(src, main_file, backend_name, "kotlin", false) {
         Ok(i) => i,
         Err(msg) => {
             eprintln!("error: {msg}");
             return ExitCode::FAILURE;
         }
     };
-    inputs.layout.generate = true;
     for name in &inputs.backends {
         let Some(backend) = registry.get(name) else {
             eprintln!("{}", unknown_backend(&registry, name));
@@ -1291,15 +1259,13 @@ fn write_once(path: &Path, content: &str) -> Result<bool, ExitCode> {
 }
 
 /// [cli-platform] [platform-root] One backend's skeletons, into that
-/// backend's platform root: a **template** (`<m>.sv.<ext>`) for the platform
-/// handlers and `platform fn`s of each module. A file that exists is never
-/// touched; a handler whose
-/// module already has a hand-written host file is left to it.
+/// backend's platform root: an **implementation file** (`<m>.<ext>`) per
+/// module with platform handlers or `platform fn`s, every member and fn
+/// stubbed. A file that exists is never touched.
 fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) -> ExitCode {
     let layout = &inputs.layout;
     let project = inputs.project.as_ref();
-    let assemble_now = || assemble(backend, layout, None, false, project);
-    let Some(assembled) = (match assemble_now() {
+    let Some(assembled) = (match assemble(backend, layout, None, false, project) {
         Ok(assembled) => assembled,
         Err(code) => return code,
     }) else {
@@ -1314,56 +1280,9 @@ fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) 
         );
         return ExitCode::SUCCESS;
     };
-    let ext = backend.file_extension();
-    let under_root = |module: &salvo_core::ModulePath, suffix: &str| {
-        let mut path = root.clone();
-        for part in &module.0 {
-            path.push(part);
-        }
-        let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
-        name.push(suffix);
-        path.set_file_name(name);
-        path
-    };
-
     let mut written = 0usize;
     let mut kept = 0usize;
     let mut any = false;
-    // Templates first: once they exist, the handlers they implement are no
-    // longer the backend's to write a host class for.
-    for unit in assembled.program.units() {
-        if unit.file.is_std || unit.file.dependency.is_some() {
-            continue;
-        }
-        let module = &unit.file.module;
-        let companion = under_root(module, &format!(".{ext}"));
-        let mut ast = unit.ast.clone();
-        if companion.exists() {
-            // A hand-written host file implements this module's handlers.
-            ast.items.retain(|i| !matches!(i, salvo_syntax::ast::Item::Handler(_)));
-        }
-        let Some(content) =
-            salvo_core::template::skeleton(&ast, &assembled.program.modules, backend.name())
-        else {
-            continue;
-        };
-        any = true;
-        match write_once(&under_root(module, &format!(".sv.{ext}")), &content) {
-            Ok(true) => written += 1,
-            Ok(false) => kept += 1,
-            Err(code) => return code,
-        }
-    }
-    let assembled = if written > 0 {
-        match assemble_now() {
-            Ok(Some(assembled)) => assembled,
-            Ok(None) => return ExitCode::SUCCESS,
-            Err(code) => return code,
-        }
-    } else {
-        assembled
-    };
-
     let skeletons = match backend
         .platform_skeletons(&assembled.program, assembled.main_module.as_ref())
     {
@@ -1586,7 +1505,6 @@ fn layout_of(src: Option<PathBuf>, main_file: Option<PathBuf>) -> Result<Layout,
             src,
             main_file: None,
             tests: false,
-                generate: false,
         });
     };
     check_entry_file(&main)?;
@@ -1603,7 +1521,6 @@ fn layout_of(src: Option<PathBuf>, main_file: Option<PathBuf>) -> Result<Layout,
                 src: dir.map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")),
                 main_file: Some(name.to_string()),
                 tests: false,
-                generate: false,
             })
         }
         // Both given: the entry is identified by its path *relative to the
@@ -1624,7 +1541,6 @@ fn layout_of(src: Option<PathBuf>, main_file: Option<PathBuf>) -> Result<Layout,
                 src,
                 main_file: Some(rel.display().to_string()),
                 tests: false,
-                generate: false,
             })
         }
     }

@@ -1,8 +1,7 @@
 // VS Code extension for Salvo: starts `salvo lsp` (LSP over stdio) and
-// wires it to .sv documents and to platform templates (.sv.kt, .sv.rs).
-// The binary path is configurable via `salvo.serverPath` so a freshly
-// rebuilt compiler can be picked up with the "Salvo: Restart Language
-// Server" command (or a settings change).
+// wires it to .sv documents. The binary path is configurable via
+// `salvo.serverPath` so a freshly rebuilt compiler can be picked up with the
+// "Salvo: Restart Language Server" command (or a settings change).
 
 import * as fs from "fs";
 import * as path from "path";
@@ -54,13 +53,7 @@ async function startClient(): Promise<void> {
 
   const serverOptions: ServerOptions = { command, args };
   const clientOptions: LanguageClientOptions = {
-    // [host-splice] Platform templates (`*.sv.kt`, `*.sv.rs`) too: the server
-    // answers inside their markers and reports their diagnostics.
-    documentSelector: [
-      { scheme: "file", language: "salvo" },
-      { scheme: "file", language: "salvo-kotlin" },
-      { scheme: "file", language: "salvo-rust" },
-    ],
+    documentSelector: [{ scheme: "file", language: "salvo" }],
   };
 
   client = new LanguageClient(

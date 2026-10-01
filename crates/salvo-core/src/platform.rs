@@ -7,7 +7,7 @@
 //! which host classes a module declares, and whether the host file exists —
 //! so they live here rather than twice in the emitters.
 
-use salvo_syntax::ast::{FnDecl, HandlerDecl, HostBlock, Item, Module};
+use salvo_syntax::ast::{FnDecl, HandlerDecl, Item, Module};
 
 use crate::program::Program;
 
@@ -20,28 +20,43 @@ pub fn platform_handlers(ast: &Module) -> Vec<&HandlerDecl> {
     ast.items
         .iter()
         .filter_map(|item| match item {
-            // [host-splice] One written in place has no companion.
-            Item::Handler(h) if h.platform && !h.spliced => Some(h),
+            Item::Handler(h) if h.platform => Some(h),
             _ => None,
         })
         .collect()
 }
 
-/// [platform-handler] [platform-tree] The message for a `use` of a platform
-/// handler whose host class has nowhere to live. Like
-/// [`missing_host_error`] it names the command, because the alternative is
-/// the *target* compiler reporting an unresolved class in generated code.
+/// [platform-handler] [platform-fn] [platform-tree] The message for a module
+/// whose platform declarations the program reaches but whose implementation
+/// file is missing. Like every interop error it names the command, because
+/// the alternative is the *target* compiler reporting an unresolved class or
+/// function in generated code.
 pub fn missing_handler_host_error(
-    handler: &str,
+    what: &str,
     module: &ModulePath,
     rel_path: &std::path::Path,
 ) -> String {
     format!(
-        "error: `use {handler}` registers a platform handler, which is implemented in \
-         the platform template `{}` (under the platform root), but that file does not \
-         exist: run `salvo platform generate` to create the skeleton for module `{module}`",
+        "error: module `{module}` declares {what}, implemented by the host in `{}` under the \
+         platform root, but that file does not exist: run `salvo platform generate` to create \
+         the skeleton",
         rel_path.display()
     )
+}
+
+/// [platform-handler] [platform-fn] What a module's implementation file
+/// implements, for a message: `` `HostClock`, `fn shout` ``.
+pub fn platform_declarations(ast: &Module) -> String {
+    let names: Vec<String> = ast
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Handler(h) if h.platform => Some(format!("`{}`", h.name.name)),
+            Item::Fn(f) if f.platform => Some(format!("`platform fn {}`", f.name.name)),
+            _ => None,
+        })
+        .collect();
+    names.join(", ")
 }
 
 /// [platform-tree] The host file for `module`, if the sources carry one.
@@ -104,7 +119,7 @@ pub fn reply_contract_comment(f: &FnDecl) -> String {
     )
 }
 
-/// [host-splice] The backends a project must build: its manifest's `[build]
+/// [platform-root] The backends a project must build: its manifest's `[build]
 /// backend` — `"*"` is every backend, absent is Rust, as the CLI defaults.
 pub fn required_backends(project: &crate::Project) -> Vec<&'static str> {
     match project.manifest.build.backend.as_deref() {
@@ -171,71 +186,3 @@ pub fn platform_root_required(
     out
 }
 
-/// [host-splice] Every declaration written in host code has a block for each
-/// backend the project builds (user decision 2026-09-30). A declaration whose
-/// only block is Kotlin is allowed, as a warning — a code base reaches parity
-/// before its Rust backend is enabled — and building Rust over it is then the
-/// emitter's error where it is reached. A dependency's declarations are its
-/// own project's concern.
-pub fn host_block_coverage(program: &Program, backends: &[&str]) -> Vec<crate::FileDiagnostic> {
-    let mut out = Vec::new();
-    let mut check = |file: usize, what: String, span: salvo_syntax::Span, blocks: &[HostBlock]| {
-        let langs: Vec<&str> = blocks.iter().map(|b| b.lang.as_str()).collect();
-        let missing: Vec<&str> = backends.iter().copied().filter(|b| !langs.contains(b)).collect();
-        if missing.is_empty() {
-            return;
-        }
-        let names: Vec<String> = missing
-            .iter()
-            .map(|b| format!("{} (`.sv.{}`)", if *b == "kotlin" { "Kotlin" } else { "Rust" }, if *b == "kotlin" { "kt" } else { "rs" }))
-            .collect();
-        let msg = format!(
-            "{what} has no {} implementation in its platform template, and this project builds {} [host-splice]",
-            names.join(" or "),
-            backends.join(" and ")
-        );
-        if langs == ["kotlin"] {
-            out.push(crate::FileDiagnostic::warning(
-                file,
-                span,
-                format!("{msg}: allowed while the code base reaches parity, but a Rust build that reaches it fails"),
-            ));
-        } else {
-            out.push(crate::FileDiagnostic::error(file, span, msg));
-        }
-    };
-    for (file, unit) in program.units().enumerate() {
-        if unit.file.is_std || unit.file.dependency.is_some() {
-            continue;
-        }
-        for item in &unit.ast.items {
-            match item {
-                Item::Fn(f) if !f.host.is_empty() => {
-                    check(file, format!("`fn {}`", f.name.name), f.name.span, &f.host)
-                }
-                Item::Handler(h) if h.spliced => {
-                    // Which backends implement the handler at all: any of its
-                    // blocks, members or host fields.
-                    let mut langs: Vec<HostBlock> = h.host.clone();
-                    for f in &h.fns {
-                        langs.extend(f.host.iter().cloned());
-                    }
-                    for fld in &h.host_fields {
-                        langs.push(HostBlock { lang: fld.lang.clone(), parts: Vec::new(), span: h.name.span });
-                    }
-                    langs.dedup_by(|a, b| a.lang == b.lang);
-                    let mut seen = std::collections::BTreeSet::new();
-                    langs.retain(|b| seen.insert(b.lang.clone()));
-                    check(file, format!("`platform handler {}`", h.name.name), h.name.span, &langs);
-                    for f in &h.fns {
-                        if !f.host.is_empty() {
-                            check(file, format!("`{}.{}`", h.name.name, f.name.name), f.name.span, &f.host);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    out
-}

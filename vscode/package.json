@@ -1,7 +1,7 @@
 {
   "name": "salvo-vscode",
   "displayName": "Salvo",
-  "description": "Syntax highlighting and language server support for the Salvo programming language and its platform templates.",
+  "description": "Syntax highlighting and language server support for the Salvo programming language.",
   "version": "0.1.0",
   "publisher": "salvo-lang",
   "private": true,
@@ -14,9 +14,7 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:salvo",
-    "onLanguage:salvo-kotlin",
-    "onLanguage:salvo-rust"
+    "onLanguage:salvo"
   ],
   "contributes": {
     "languages": [
@@ -30,26 +28,6 @@
           ".sv"
         ],
         "configuration": "./language-configuration.json"
-      },
-      {
-        "id": "salvo-kotlin",
-        "aliases": [
-          "Salvo template (Kotlin)"
-        ],
-        "extensions": [
-          ".sv.kt"
-        ],
-        "configuration": "./template-language-configuration.json"
-      },
-      {
-        "id": "salvo-rust",
-        "aliases": [
-          "Salvo template (Rust)"
-        ],
-        "extensions": [
-          ".sv.rs"
-        ],
-        "configuration": "./template-language-configuration.json"
       }
     ],
     "grammars": [
@@ -57,24 +35,6 @@
         "language": "salvo",
         "scopeName": "source.salvo",
         "path": "./syntaxes/salvo.tmLanguage.json"
-      },
-      {
-        "language": "salvo-kotlin",
-        "scopeName": "source.salvo-template.kotlin",
-        "path": "./syntaxes/salvo-kotlin.tmLanguage.json",
-        "embeddedLanguages": {
-          "meta.embedded.marker.salvo": "salvo",
-          "meta.embedded.host.kotlin": "kotlin"
-        }
-      },
-      {
-        "language": "salvo-rust",
-        "scopeName": "source.salvo-template.rust",
-        "path": "./syntaxes/salvo-rust.tmLanguage.json",
-        "embeddedLanguages": {
-          "meta.embedded.marker.salvo": "salvo",
-          "meta.embedded.host.rust": "rust"
-        }
       }
     ],
     "configuration": {

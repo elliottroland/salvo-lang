@@ -74,30 +74,6 @@ pub struct SourceFile {
     /// root); its `main` is never an entry point, its protocols are not the
     /// project's to lock, and it is std only if its own manifest says so.
     pub dependency: Option<String>,
-    /// [host-splice] The platform templates attached to this module, whose
-    /// spans follow the file's own [`crate::template::apply`].
-    pub appendix: Vec<crate::template::Appendix>,
-}
-
-impl SourceFile {
-    /// [host-splice] The text a span of this file lies in: the file's own, or
-    /// a platform template appended past it ([`crate::template::Appendix`]) —
-    /// as that text's display name and content, and the span within it.
-    pub fn locate(&self, span: salvo_syntax::Span) -> (&str, &str, salvo_syntax::Span) {
-        match self
-            .appendix
-            .iter()
-            .rev()
-            .find(|a| span.start >= a.base && span.start as usize >= self.content.len())
-        {
-            Some(a) => (
-                &a.name,
-                &a.content,
-                salvo_syntax::Span::new(span.start - a.base, span.end.saturating_sub(a.base)),
-            ),
-            None => (&self.name, &self.content, span),
-        }
-    }
 }
 
 /// The directory host files are written under **in the output** [platform-tree]:
@@ -107,7 +83,7 @@ impl SourceFile {
 pub const PLATFORM_DIR: &str = "platform";
 
 /// [platform-root] Where each backend's platform files — host companions
-/// (`app/entry.kt`) and templates (`app/entry.sv.kt`) — are read from, as the
+/// (`app/entry.kt`) and generated files (`app/entry.sv.kt`) — are read from, as the
 /// project manifest names them (`[build] platform`, `[kotlin] platform`,
 /// `[rust] platform`). Both may be one directory, which is how the two
 /// languages coexist. A backend with no root has no platform files: there is
@@ -124,8 +100,9 @@ pub struct PlatformFile {
     /// `kotlin` or `rust`.
     pub backend: &'static str,
     pub module: ModulePath,
-    /// A template (`<m>.sv.kt`) rather than a host companion (`<m>.kt`).
-    pub template: bool,
+    /// A generated file (`<m>.sv.kt`: the ABI and interface files
+    /// [platform-abi]) rather than an implementation file (`<m>.kt`).
+    pub generated: bool,
 }
 
 impl PlatformRoots {
@@ -161,7 +138,7 @@ impl PlatformRoots {
     /// What the file at `path` is, when it lies under a root: the backend its
     /// extension names — which must be a backend that root is configured for
     /// — its module (the path under the root, the way `.sv` files map), and
-    /// whether it is a template. `Err` for a host file under a root that is
+    /// whether it is a generated file. `Err` for a host file under a root that is
     /// not its language's. `Ok(None)` outside every root, or for a file that
     /// is not a host file.
     pub fn classify(&self, path: &Path) -> Result<Option<PlatformFile>, String> {
@@ -172,7 +149,7 @@ impl PlatformRoots {
             "rs" => "rust",
             _ => return Ok(None),
         };
-        let (stem, template) = match stem.strip_suffix(".sv") {
+        let (stem, generated) = match stem.strip_suffix(".sv") {
             Some(s) => (s, true),
             None => (stem, false),
         };
@@ -183,7 +160,7 @@ impl PlatformRoots {
                     .map(|p| p.components().filter_map(|c| c.as_os_str().to_str().map(str::to_string)).collect())
                     .unwrap_or_default();
                 module.push(stem.to_string());
-                Ok(Some(PlatformFile { backend, module: ModulePath(module), template }))
+                Ok(Some(PlatformFile { backend, module: ModulePath(module), generated }))
             }
             None => {
                 let other = if backend == "kotlin" { "rust" } else { "kotlin" };
@@ -234,10 +211,6 @@ pub struct SourceSet {
     pub files: Vec<SourceFile>,
     /// Backend-native companion files ([backend-companion]).
     pub companions: Vec<CompanionFile>,
-    /// [host-splice] Platform templates (`platform/**/<m>.sv.kt|.sv.rs`), of
-    /// every backend: which backends a declaration covers is checked against
-    /// the manifest whatever this build compiles.
-    pub templates: Vec<crate::template::TemplateFile>,
     /// [platform-root] Where `add_dir` reads platform files from; empty
     /// means none are loaded (a `platform/` directory at the source root is
     /// then reported, never reinterpreted).
@@ -337,7 +310,6 @@ impl SourceSet {
             is_shadow: false,
             is_test: false,
             dependency: None,
-            appendix: Vec::new(),
         });
     }
 
@@ -353,7 +325,6 @@ impl SourceSet {
             is_shadow: false,
             is_test: true,
             dependency: None,
-            appendix: Vec::new(),
         });
     }
 
@@ -514,18 +485,10 @@ impl SourceSet {
                         }
                     };
                     let ext = if pf.backend == "kotlin" { "kt" } else { "rs" };
-                    if pf.template {
-                        // [host-splice] Templates of every backend: which
-                        // backends a declaration covers is checked against
-                        // the manifest whatever this build compiles.
-                        self.templates.push(crate::template::TemplateFile {
-                            rel_path: rel.to_path_buf(),
-                            module: pf.module,
-                            lang: pf.backend.to_string(),
-                            content,
-                            name: rel.display().to_string(),
-                        });
-                    } else if ext == native_ext {
+                    // [platform-abi] A generated file (`<m>.sv.kt`, the ABI
+                    // and interface files) is for the host project's tooling
+                    // only: the build generates its own (ABI.md D4).
+                    if !pf.generated && ext == native_ext {
                         let out = Self::platform_output_path(&pf.module, ext);
                         self.add_companion(out, pf.module, content, true);
                     }
@@ -718,10 +681,6 @@ impl SourceSet {
         }
         self.files.extend(loaded.files);
         self.companions.extend(loaded.companions);
-        for mut t in loaded.templates {
-            t.name = root.join(&t.rel_path).display().to_string();
-            self.templates.push(t);
-        }
         errors
     }
 
@@ -815,16 +774,7 @@ pub fn dependencies_with_reached_platform(
     for &i in &seen {
         let f = &files[i];
         if let Some(dep) = &f.dependency {
-            // [host-splice] Host code written in the module counts as its
-            // platform code, as a companion file does.
-            let spliced = modules.get(i).is_some_and(|ast| {
-                ast.items.iter().any(|item| match item {
-                    Item::Fn(f) => !f.host.is_empty(),
-                    Item::Handler(h) => h.spliced,
-                    _ => false,
-                })
-            });
-            if spliced || companions.iter().any(|c| c.module == f.module) {
+            if companions.iter().any(|c| c.module == f.module) {
                 out.insert(dep.clone());
             }
         }
@@ -951,16 +901,16 @@ mod tests {
 
     /// [platform-root] A platform file is attributed by its root to the
     /// module whose platform declarations it implements — which is what
-    /// makes it reachable at all — and a template is told apart by its
+    /// makes it reachable at all — and a generated file is told apart by its
     /// `.sv.<ext>` suffix. Two backends may share a root; a file of the
     /// other language under a backend's own root is an error.
     #[test]
     fn platform_files_are_classified_by_their_root() {
         let shared = PlatformRoots { kotlin: Some("/p/platform".into()), rust: Some("/p/platform".into()) };
         let f = shared.classify(Path::new("/p/platform/app/entry.kt")).unwrap().unwrap();
-        assert_eq!((f.backend, f.module.to_string(), f.template), ("kotlin", "app.entry".to_string(), false));
+        assert_eq!((f.backend, f.module.to_string(), f.generated), ("kotlin", "app.entry".to_string(), false));
         let f = shared.classify(Path::new("/p/platform/main.sv.rs")).unwrap().unwrap();
-        assert_eq!((f.backend, f.module.to_string(), f.template), ("rust", "main".to_string(), true));
+        assert_eq!((f.backend, f.module.to_string(), f.generated), ("rust", "main".to_string(), true));
         assert_eq!(shared.classify(Path::new("/p/salvo/app/entry.kt")), Ok(None));
         let split = PlatformRoots { kotlin: Some("/p/kotlin".into()), rust: Some("/p/rust".into()) };
         assert!(split.classify(Path::new("/p/kotlin/main.rs")).is_err());

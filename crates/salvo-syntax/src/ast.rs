@@ -25,9 +25,6 @@ pub struct Module {
     /// above a declaration (that run is the declaration's).
     pub docs: Vec<String>,
     pub items: Vec<Item>,
-    /// [host-splice] Host code a platform template writes at file level —
-    /// helpers, imports — rendered into the module's own emitted file.
-    pub host: Vec<HostBlock>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -801,15 +798,6 @@ pub struct HandlerDecl {
     /// State fields with initializers, e.g. `i: Int = 0`.
     pub state: Vec<FieldDecl>,
     pub fns: Vec<FnDecl>,
-    /// [host-splice] A `platform handler` written with a body: its members'
-    /// bodies are host blocks, and `host` holds the handler-level blocks —
-    /// host fields and helpers (Kotlin: inside the class; Rust: beside the
-    /// impl, declaring `struct H` and its `new`). `false` for a platform
-    /// handler whose class is a hand-written companion [platform-tree].
-    pub spliced: bool,
-    pub host: Vec<HostBlock>,
-    /// [host-splice] Host fields a template's `` `struct H` `` adds, in order.
-    pub host_fields: Vec<HostField>,
     pub span: Span,
 }
 
@@ -919,68 +907,9 @@ pub struct FnDecl {
     pub constructs: Option<TypeRef>,
     /// `None` for signatures (`intrinsic fn`, effect members).
     pub body: Option<Block>,
-    /// [host-splice] The body written in the host languages instead: one
-    /// body per backend, attached from its platform template. Non-empty means
-    /// `body` is `None` and the declaration's written clause is its whole
-    /// contract, as for a bodiless one [decl-explicit].
-    pub host: Vec<HostBlock>,
     pub span: Span,
 }
 
-impl FnDecl {
-    /// Whether the declaration has a body to emit — in Salvo, or in host code
-    /// [host-splice]. `false` for a bodiless declaration (`intrinsic`, a
-    /// member signature).
-    pub fn has_body(&self) -> bool {
-        self.body.is_some() || !self.host.is_empty()
-    }
-}
-
-/// [host-splice] A body of host code from a platform template: its language, and the text
-/// with `@{ … }` holes the compiler renders.
-#[derive(Clone, Debug, PartialEq)]
-pub struct HostBlock {
-    pub lang: String,
-    pub parts: Vec<HostBlockPart>,
-    pub span: Span,
-}
-
-/// [host-splice] A host field of a platform handler: `name: T = init`, the
-/// type and initialiser host text with holes.
-#[derive(Clone, Debug, PartialEq)]
-pub struct HostField {
-    pub lang: String,
-    pub name: String,
-    pub ty: Vec<HostBlockPart>,
-    pub init: Vec<HostBlockPart>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum HostBlockPart {
-    Text(String),
-    Hole(Hole),
-}
-
-/// [host-splice] A template marker: `` `e` `` renders `e`, `` `e : T` ``
-/// renders `e` as a value of `T` (the wrap into a union host code cannot
-/// see), `` `T` `` renders the type.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Hole {
-    pub expr: Option<Expr>,
-    pub ty: Option<Type>,
-    /// `name = e`: the declared host name assigned, `e` checked as its type.
-    pub assign: Option<Ident>,
-    /// `e : name` / `e : return`: ascription by a **place** — the value takes
-    /// the type of a parameter, state field or declared host name, or (for
-    /// `return`) of the enclosing fn's return type, so a long union is
-    /// written once. A place is lowercase and a type capitalized
-    /// [name-casing], which is what tells the two apart.
-    pub place: Option<Ident>,
-    /// The marker follows host `return` in a `` `fn` `` body: it takes the
-    /// fn's return type as its expected type.
-    pub in_return: bool,
-    pub span: Span,
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Param {
@@ -1615,11 +1544,6 @@ pub enum Expr {
     Char { value: char, span: Span },
     /// String literal with interpolation parts.
     Str { parts: Vec<StrExprPart>, span: Span },
-    /// [host-splice] `` `…` ``: host code inside a hole, written through
-    /// verbatim; it takes the type the hole expects of it — or, ascribed as
-    /// `` (`…` : T) ``, the type written, so a hole can read its fields or
-    /// test its arm.
-    HostLeaf { text: String, ty: Option<Type>, span: Span },
     /// A variable or type-name reference.
     Ident(Ident),
     /// `expr.field`
@@ -2092,7 +2016,6 @@ impl Expr {
             | Expr::Bool { span, .. }
             | Expr::Char { span, .. }
             | Expr::Str { span, .. }
-            | Expr::HostLeaf { span, .. }
             | Expr::Field { span, .. }
             | Expr::TupleIndex { span, .. }
             | Expr::Scoped { span, .. }

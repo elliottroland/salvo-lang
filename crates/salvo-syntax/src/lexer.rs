@@ -29,14 +29,6 @@ pub struct Comment {
 
 /// Lex a full source file into tokens. Never fails: unknown characters are
 /// reported as diagnostics and skipped.
-/// [host-splice] Lexes the Salvo inside a platform template's `` `…` `` marker,
-/// where `@name` and `@{…}` are host code.
-pub fn lex_template(source: &str) -> LexResult {
-    let mut lexer = Lexer::new(source);
-    lexer.host_escapes = true;
-    lexer.run()
-}
-
 pub fn lex(source: &str) -> LexResult {
     Lexer::new(source).run()
 }
@@ -50,8 +42,6 @@ struct Lexer<'s> {
     diagnostics: Vec<Diagnostic>,
     comments: Vec<Comment>,
     newline_pending: bool,
-    /// [host-splice] Lexing a template marker's Salvo: `@` escapes to host.
-    host_escapes: bool,
 }
 
 impl<'s> Lexer<'s> {
@@ -64,7 +54,6 @@ impl<'s> Lexer<'s> {
             diagnostics: Vec::new(),
             comments: Vec::new(),
             newline_pending: false,
-            host_escapes: false,
         }
     }
 
@@ -89,15 +78,6 @@ impl<'s> Lexer<'s> {
                     self.push_comment(start);
                 }
                 '"' => self.string(start),
-                // [host-splice] In a template marker, `@{…}` and a token-start
-                // `@name` are host code.
-                '@' if self.host_escapes && self.peek_at(1) == Some('{') => self.host_escape_block(start),
-                '@' if self.host_escapes
-                    && self.peek_at(1).is_some_and(|c| c.is_alphabetic() || c == '_')
-                    && !self.prev_is_ident() =>
-                {
-                    self.host_escape_name(start)
-                }
                 '\'' => self.char_literal(start),
                 c if c.is_ascii_digit() => self.number(start),
                 c if c.is_alphabetic() || c == '_' => self.ident(start),
@@ -296,55 +276,6 @@ impl<'s> Lexer<'s> {
                 Err(_) => self.error(format!("invalid integer literal `{text}`"), span),
             },
         }
-    }
-
-    /// Whether the character before the cursor continues an identifier —
-    /// `size@core` is a Salvo selector, not a host escape.
-    fn prev_is_ident(&self) -> bool {
-        self.pos > 0 && self.chars[self.pos - 1].1.is_alphanumeric() || (self.pos > 0 && self.chars[self.pos - 1].1 == '_')
-    }
-
-    /// [host-splice] `@{ … }` in a template marker: host code, balanced braces.
-    fn host_escape_block(&mut self, start: u32) {
-        self.bump();
-        self.bump();
-        let mut depth = 1usize;
-        let mut text = String::new();
-        loop {
-            match self.peek() {
-                None => {
-                    let span = Span::new(start, self.offset());
-                    self.error("unterminated `@{` host escape", span);
-                    break;
-                }
-                Some('{') => depth += 1,
-                Some('}') => {
-                    depth -= 1;
-                    if depth == 0 {
-                        self.bump();
-                        break;
-                    }
-                }
-                _ => {}
-            }
-            text.push(self.bump().unwrap());
-        }
-        self.push_here(TokenKind::HostLeaf(text.trim().to_string()), start);
-    }
-
-    /// [host-splice] `@name` in a template marker: a host name.
-    fn host_escape_name(&mut self, start: u32) {
-        self.bump();
-        let mut text = String::new();
-        while let Some(c) = self.peek() {
-            if c.is_alphanumeric() || c == '_' {
-                text.push(c);
-                self.bump();
-            } else {
-                break;
-            }
-        }
-        self.push_here(TokenKind::HostLeaf(text), start);
     }
 
     /// Scans a `"..."` string literal, splitting out `${...}` interpolations.

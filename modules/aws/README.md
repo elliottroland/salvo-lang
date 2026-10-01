@@ -22,8 +22,8 @@ modules/aws/
 │   ├── aws/sqs/host.sv generated: `HostSqs`, declared
 │   ├── aws/s3.sv       generated: `PutObject`/`GetObject`, the `S3` effect, `FakeS3`
 │   ├── aws/s3/host.sv  generated: `HostS3`, declared
-│   └── platform/aws/{sqs,s3}/host.sv.{kt,rs}   generated platform templates: the
-│                       SDK glue, host code with Salvo between backticks
+│   └── platform/aws/{sqs,s3}/host.{kt,rs}   generated implementation files:
+│                       the SDK glue, plain Kotlin and Rust
 └── demo/               programs against the real SDKs, run by hand:
     ├── sqs_live/       + local_sqs.py, an in-memory SQS
     └── s3_live/        + local_s3.py, an in-memory S3

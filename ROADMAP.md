@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1672 tests green.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1658 tests green.
 
 ## The sequence
 
@@ -435,14 +435,17 @@ written down ([platform-abi], [rs-host-abi], [kt-host-abi]), then ✅ **host cod
 module has no `.sv` file is reported at file 0, span 0 — the embedded std — so
 `salvo analyze` names it but the editor drops it; the diagnostic needs a
 location of its own, the template), ✅ platform roots in the manifest, a
-template-writing `platform generate` and ascription by a place (2026-09-30);
-(5) DynamoDB.
+template-writing `platform generate` and ascription by a place (2026-09-30) —
+all of which the templates' removal (2026-10-01) has since undone except the
+platform roots; (5) DynamoDB.
 
 **Next, before DynamoDB: the platform ABI (user direction 2026-10-01).**
-Templates are to be replaced by generated ABI and interface files beside
-hand-written implementation files, platform effects dropped, and union naming
-and Kotlin case revisited. The design, its open decisions (D1–D9) and the
-build sequence live in [ABI.md](ABI.md) while they are worked out.
+Generated ABI and interface files beside hand-written implementation files.
+Done so far: platform effects removed, `platform fn`, Kotlin camel case,
+nested Kotlin union arms, and templates removed. The design, its decisions
+(D1–D10) and the remaining build sequence (the host project, the ABI and
+interface files, std's and the aws glue's ports, ABI stamps) live in
+[ABI.md](ABI.md).
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 

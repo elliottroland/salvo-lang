@@ -194,7 +194,6 @@ fn is_only_a_fn_name(scope: &crate::resolve::ModuleScope<'_>, name: &str) -> boo
 /// handler names, effect references, qualifier names).
 pub fn used_names(module: &Module) -> HashSet<&str> {
     let mut used = HashSet::new();
-    host_names(&module.host, &mut used);
     for item in &module.items {
         match item {
             Item::Fn(f) => fn_names(f, &mut used),
@@ -245,19 +244,6 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
                 }
                 for f in &h.fns {
                     fn_names(f, &mut used);
-                }
-                host_names(&h.host, &mut used);
-                for field in &h.host_fields {
-                    for part in field.ty.iter().chain(&field.init) {
-                        if let salvo_syntax::ast::HostBlockPart::Hole(hole) = part {
-                            if let Some(e) = &hole.expr {
-                                expr_names(e, &mut used);
-                            }
-                            if let Some(t) = &hole.ty {
-                                type_names(t, &mut used);
-                            }
-                        }
-                    }
                 }
             }
             Item::Qualifier(q) => {
@@ -322,24 +308,6 @@ fn fn_names<'p>(f: &'p FnDecl, used: &mut HashSet<&'p str>) {
     }
     if let Some(body) = &f.body {
         block_names(body, used);
-    }
-    host_names(&f.host, used);
-}
-
-/// [host-splice] What a host body's holes mention is used like any Salvo:
-/// the types they render and the names they read reach their modules.
-fn host_names<'p>(blocks: &'p [salvo_syntax::ast::HostBlock], used: &mut HashSet<&'p str>) {
-    for block in blocks {
-        for part in &block.parts {
-            if let salvo_syntax::ast::HostBlockPart::Hole(h) = part {
-                if let Some(e) = &h.expr {
-                    expr_names(e, used);
-                }
-                if let Some(t) = &h.ty {
-                    type_names(t, used);
-                }
-            }
-        }
     }
 }
 
@@ -423,7 +391,6 @@ fn block_names<'p>(block: &'p Block, used: &mut HashSet<&'p str>) {
 
 fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
     match expr {
-        Expr::HostLeaf { ty: Some(t), .. } => type_names(t, used),
         Expr::Assert { cond, message, .. } => {
             expr_names(cond, used);
             if let Some(m) = message {
@@ -670,7 +637,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::Bool { .. }
-        | Expr::Char { .. } | Expr::HostLeaf { ty: None, .. }
+        | Expr::Char { .. }
         | Expr::Error { .. } => {}
     }
 }

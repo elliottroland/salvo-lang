@@ -50,7 +50,7 @@ platform = "salvo/platform"    # every backend's platform files
 platform = "kotlin"            # or one root per backend, over the shared one
 ```
 
-Inside a root the files mirror the source layout: `main.sv.kt` implements the platform declarations of `main.sv`, `app/entry.sv.rs` those of `app/entry.sv`. Both languages can sit side by side in one root — a build only ever picks up the extensions of the backend it is compiling for — so one source tree stays buildable for both targets; or each backend can have a root of its own. A program with platform declarations and no root for a backend it builds is refused, naming the key to add. The examples below assume `platform = "platform"`.
+Inside a root the files mirror the source layout: `main.kt` implements the platform declarations of `main.sv`, `app/entry.rs` those of `app/entry.sv`. Both languages can sit side by side in one root — a build only ever picks up the extensions of the backend it is compiling for — so one source tree stays buildable for both targets; or each backend can have a root of its own. A program with platform declarations and no root for a backend it builds is refused, naming the key to add. The examples below assume `platform = "platform"`.
 
 The skeleton is generated **once**: run the command again and it reports that the file exists and leaves it alone, because from that point on it is yours. Forgetting to run it at all is an ordinary compile error that names the command.
 
@@ -78,24 +78,22 @@ fn main() [use] {
 }
 ```
 
-The implementation goes in the platform root as a **platform template** (below), and `salvo platform generate` writes the skeleton for it — the handler's signature and each member of its effect, stubbed:
+The implementation goes in the platform root, as a class named after the *handler* — the `use` site constructs that name, so it is not the host's to choose — and `salvo platform generate` writes the skeleton for it:
 
 ```kotlin
-// platform/main.sv.kt, as generated
-`platform handler HostRawClock of RawClock` {
-    `fn raw_now() -> Int` {
+// platform/main.kt, as generated
+class HostRawClock : RawClock {
+    override fun rawNow(): Int {
         TODO("implement RawClock.raw_now")
     }
 }
 ```
 
-The compiler emits the class, named after the *handler* — the `use` site constructs that name, so it is not the host's to choose. A hand-written host class in `platform/main.kt` still works, and `generate` leaves a module that has one alone.
-
 `main` stays the program's entry point, because the instance is constructed *inside* the program. Constructor parameters are how a host implementation is configured — `platform handler HostS3(bucket: Str) of Store`, registered as `use HostS3("my-bucket")`, becomes a class with a `bucket` parameter.
 
 Three restrictions, each following from the implementation not being Salvo's:
 
-* **No body in Salvo** — no members. Its state is laid out by the compiler when a template implements it.
+* **No body in Salvo** — no members, no state. The host class holds both.
 * **No effect dependencies.** A handler's dependencies are supplied to its *members*, and these members are host code, which performs no Salvo effect: the host reaches the outside world directly. Write an ordinary Salvo handler that depends on this one's effect when something has to sit in between — `handler DefaultClock [RawClock] of Clock` is exactly that.
 * **Not generic**: the host writes one concrete class.
 
@@ -122,9 +120,8 @@ effect Slow {
 threadsafe platform handler HostSlow of Slow
 ```
 ```kotlin
-`fn later(n: Int, done: Reply<Int>) -> None` {
-    val host = `done`.hosted()
-    val n = `n`
+override fun later(n: Int, done: salvo.SalvoReply) {
+    val host = done.hosted()
     Thread { Thread.sleep(50); host.send(n + 1) }.start()
 }
 ```
@@ -137,65 +134,29 @@ A platform handler fits wherever several implementations of a capability exist a
 
 # Specific backend details
 
-## Platform templates
+## Platform functions
 
-A platform handler or a function can be implemented in host code that still speaks Salvo: a **platform template**, `<module>.sv.kt` for Kotlin and `.sv.rs` for Rust, under the backend's platform root beside its other files. `salvo platform generate` writes one for every module with platform handlers or platform functions. The `.sv` file declares the Salvo side with no body — a function with the `platform` modifier:
+A single function can be implemented by the host too: a **`platform fn`**, a signature with no body.
 
 ```
 // counter.sv
 platform fn shout(g: Greeting) [] -> Str => g
-
-effect Counter {
-    fn next(step: Int) -> Int => step
-}
-
-platform handler HostCounter(start: Int) of Counter {
-    at: Int = start
-}
 ```
 
-and the template is ordinary host code in which anything between backticks is Salvo, rendered by the compiler:
+The implementation is a function of the same name in the module's implementation file under the platform root, which `salvo platform generate` writes alongside the module's handlers:
 
 ```kotlin
-// platform/counter.sv.kt
-`fn shout(g: Greeting) -> Str` {
-    return if (`g.loud`) `g.text`.uppercase() else `g.text`
-}
-
-`platform handler HostCounter(start: Int) of Counter` {
-    private val log = mutableListOf<Int>()
-
-    `fn next(step: Int) -> Int` {
-        `at` += step
-        log.add(`at`)
-        return `at`
-    }
-}
+// platform/counter.kt
+fun shout(g: Greeting): String = if (g.loud) g.text.uppercase() else g.text
 ```
-
-A marker that declares something — `` `fn …` ``, `` `platform handler …` ``, and on Rust `` `struct H` `` for host fields — repeats the full signature, which the compiler checks against the `.sv` declaration and replaces with the host header it emits. Every other marker renders Salvo: a field read (`` `g.text` ``), a type (`` `AwsError` ``), a struct built from host values (`` `AwsError { code: @code, message: @{e.message ?: ""} }` ``, where `@name` and `@{…}` go back to host code), and a value wrapped into a union host code cannot see (`` `ok(value) : Ok Out | Err Str` `` — or just `` return `ok(value)` ``, which takes the function's return type). `` `v : Attr` `` declares a host name with a Salvo type, so later markers can read `` `v.data_type` ``.
-
-A union is written once: after the colon, a lowercase name is a **place** whose type the value takes — a declared name, a parameter or a state field — and `return` the function's return type. The branches of host control flow then name the place instead of repeating its type:
-
-```kotlin
-val `answer : Ok Out | Err Checked<Failure>` = try {
-    `ok(value) : answer`
-} catch (e: Exception) {
-    `err(checked<Failure>(failure)) : answer`
-}
-```
-
-A type alias in the `.sv` file is the other way to shorten a long type. Strings and comments are never scanned; ```` `` ```` is a literal backtick.
-
-The handler's Salvo state is laid out by the compiler on both backends. Host-only fields go in the Kotlin class body as usual, and on Rust in a `` `struct H` { name: Type = init } `` block, initialised in order after the constructor's parameters are available:
-
 ```rust
-`struct HostCounter` {
-    log: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new()),
+// platform/counter.rs
+pub fn shout(g: &Greeting) -> String {
+    if g.loud { g.text.to_uppercase() } else { g.text.clone() }
 }
 ```
 
-A mistake in a template is reported at its line in the template, and a template naming something its `.sv` file does not declare is an error. **Which backends are required** is the project manifest's call: every backend `[build] backend` names needs an implementation. A declaration implemented only in Kotlin is allowed, with a warning, so a code base can reach parity before its Rust backend is enabled.
+The program calls a generated wrapper (`shoutPlatform` / `shout_platform`), which calls the implementation; the wrapper is where the boundary checks the planned ABI adds will go. A platform fn is not generic, takes no implicit parameters and declares no effects, and two platform fns may not overload each other.
 
 ## Kotlin
 

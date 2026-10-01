@@ -187,7 +187,17 @@ the decisions — worth a second look:
   `<important>`/`<note>` blocks (S3's `PutObject` opens with an
   end-of-support notice). One SQS field comment changed with it.
 
-### Rebuilt: the glue as platform templates (2026-09-30)
+### Rebuilt: the glue as plain implementation files again (2026-10-01)
+
+Platform templates were removed (ABI.md), so the generator is back at its
+pre-splice shape (`883b8e9`): it writes `platform/aws/<svc>/host.{kt,rs}`,
+plain host code that names what the emitters produce. Two spellings changed
+since: Kotlin names are camel case ([kt-camel]) and union arms are nested
+(`Union2.U1`). The drift test checks both against the real SDKs. The ABI work
+in ABI.md (generated interface files with factories and adapters) is what will
+let this code stop spelling emitted names.
+
+### Rebuilt: the glue as platform templates (2026-09-30, superseded 2026-10-01)
 
 The user found host code split per backend inside one Salvo function, and the
 Salvo → host → Salvo nesting of fences and holes, hard to read, and moved host

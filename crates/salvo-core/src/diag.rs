@@ -68,14 +68,13 @@ impl FileDiagnostic {
     /// e.g. `error: unknown effect --> main.sv:3:7` with a caret line and
     /// a `help:` line per suggested import [diag-import-suggest].
     pub fn render(&self, files: &[SourceFile]) -> String {
-        // [host-splice] A span past the file's own text is in a template.
-        let (name, content, span) = files[self.file].locate(self.span);
+        let f = &files[self.file];
         let mut out = Diagnostic {
             severity: self.severity,
             message: self.message.clone(),
-            span,
+            span: self.span,
         }
-        .render(name, content);
+        .render(&f.name, &f.content);
         for import in &self.suggested_imports {
             out.push_str(&format!("\n  help: add `import {import}`"));
         }

@@ -4086,8 +4086,8 @@ fn a_missing_host_file_for_a_platform_handler_names_the_command() {
         .err()
         .expect("a `use` of a platform handler without a host must not emit");
     assert!(
-        errors.iter().any(|e| e.contains("use HostRawClock")
-            && e.contains("platform/main.sv.rs")
+        errors.iter().any(|e| e.contains("`HostRawClock`")
+            && e.contains("platform/main.rs")
             && e.contains("salvo platform generate")),
         "expected the missing-host error, got:\n{}",
         errors.join("\n")

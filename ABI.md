@@ -432,19 +432,29 @@ go in any order.
 3. ✅ **`platform fn`** (2026-10-01, [platform-fn]).
 4. ✅ **Kotlin camel case** (2026-10-01, [name-camel] [kt-camel]).
 5. ✅ **Kotlin union arms as `UnionN.Uk`, and `TupleN`** (2026-10-01).
+5b. ✅ **Remove templates first** (2026-10-01). Done ahead of the ABI files,
+    so the `*.sv.kt` / `*.sv.rs` names are free before anything generated uses
+    them: implementation files are plain host code again (`<m>.kt` / `<m>.rs`),
+    a `platform fn` compiles to a `<name>Platform` / `<name>_platform` wrapper
+    calling the implementation's real name, `salvo platform generate` writes
+    implementation skeletons for handlers and platform fns, the aws generator
+    is back at its pre-splice shape (updated for camel case and `Union2.U1`),
+    and a root's `*.sv.*` files are skipped by the build. This took steps 9,
+    11 (partly) and 13 out of the sequence below; the aws glue still spells
+    emitted names until step 8 gives it factories.
 6. **The host project and ABI files** (D2, D3): generate and write them into
    each root on every build, and switch the build to consume them.
 7. **Types in the host tree** (D4): move the definitions, and re-export them
    from the emitted modules.
 8. **Interface files** (D7, D8): handler interfaces and adapters, fn wrappers
    with validation, validating host replies, factory functions (D5).
-9. **Implementation skeletons**: `salvo platform generate` writes the missing
-   implementation files.
+9. ✅ **Implementation skeletons** (done in 5b).
 10. **Port std's host files** onto the generated interfaces.
-11. **Port the aws generator** to write implementation files. Its drift test
+11. **Port the aws generator** onto the generated interface files and their
+    factories (it writes implementation files again since 5b). Its drift test
     keeps checking against both SDKs.
 12. **ABI stamps and the dependency check** (D9).
-13. **Remove templates** and everything listed above.
+13. ✅ **Remove templates** (done in 5b).
 14. **Docs**: LANGUAGE_SPEC rules ([platform-abi] rewritten, new rules for the
     file kinds), both backend specs' host-ABI tables, `docs/language/Backends.md`,
     README, vscode README.

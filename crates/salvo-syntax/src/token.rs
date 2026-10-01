@@ -24,9 +24,6 @@ pub enum TokenKind {
     /// String literal, decomposed into text and `${...}` interpolation parts.
     Str(Vec<StrPart>),
     Char(char),
-    /// [host-splice] Host code inside a template marker: `@name`, or the
-    /// text of `@{…}`.
-    HostLeaf(String),
 
     // Keywords
     KwFn,
@@ -219,7 +216,6 @@ impl TokenKind {
             }
             TokenKind::Str(_) => "string literal".to_string(),
             TokenKind::Char(c) => format!("character literal `{c}`"),
-            TokenKind::HostLeaf(_) => "host code (`@…`)".to_string(),
             TokenKind::Eof => "end of file".to_string(),
             other => format!("`{}`", other.symbol()),
         }

@@ -41,7 +41,7 @@ cargo test         # run the test suite
 #   src = "salvo"        # the source root (default: the manifest's directory)
 #   backend = "rust"     # or "kotlin", or "*" for both
 #   modules = "salvo_modules"   # where dependencies live (only with [dependencies])
-#   platform = "salvo/platform" # host files and platform templates — required
+#   platform = "salvo/platform" # host implementation files — required
 #                               # when there are any; `[rust]`/`[kotlin] platform`
 #                               # give a backend its own
 #
@@ -83,15 +83,14 @@ cargo run -- test --src ./my_project                 # or --list, or a filter
 cargo run -- test --src std                          # the standard library's own
 
 # Generate the implementation skeletons into each backend's platform root —
-# a platform template (`<m>.sv.kt` / `.sv.rs`) for platform handlers and
+# an implementation file (`<m>.kt` / `.rs`) for platform handlers and
 # platform fns (written once, never overwritten):
 cargo run -- platform generate --backend kotlin --src ./my_project
 
 # Start a language server (LSP over stdio) for editor integration:
 cargo run -- lsp
-# A VS Code extension bundling syntax highlighting and the language server,
-# for `.sv` files and platform templates, lives in vscode/ — see
-# vscode/README.md.
+# A VS Code extension bundling syntax highlighting and the language server
+# lives in vscode/ — see vscode/README.md.
 
 # Or generate the target sources and build them yourself:
 cargo run -- compile --backend kotlin --src ./my_project --target ./out
@@ -310,11 +309,11 @@ fn main() [use] {
   filesystem to one directory.
 - **Interop**: a `platform handler` is a host implementation of an
   *ordinary* Salvo effect — registered with `use` like any handler, so the
-  entry point stays put. The compiler generates the interface and
-  `salvo platform generate` writes the implementation skeleton — a platform
-  template, Kotlin or Rust with Salvo between backticks — into the platform
-  root `salvo.toml` names, so the *target's* compiler checks the two against
-  each other.
+  entry point stays put — and a `platform fn` a host implementation of one
+  function. The compiler generates the interface and `salvo platform
+  generate` writes the implementation skeleton, plain Kotlin or Rust, into the
+  platform root `salvo.toml` names, so the *target's* compiler checks the two
+  against each other.
   That is the whole interop surface: std's own primitives are
   `intrinsic`, lowered by code inside each backend, and `intrinsic` is the
   compiler's to declare.

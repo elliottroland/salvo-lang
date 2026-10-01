@@ -71,18 +71,6 @@ object __Codec_AwsError : salvo.WireCodec<AwsError> {
     override fun dec(inp: salvo.WireIn): AwsError = AwsError(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp))
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun profileOf(c: Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain>): ProfileCredentials? {
-    if (c is Union3.U1<*, *, *>) {
-        return (c.value as ProfileCredentials)
-    }
-    return null
-}
-
-fun usesEnvironment(c: Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain>): Boolean {
-    return c is Union3.U2<*, *, *>
-}
-
 fun toStr__7(value: ProfileCredentials): String {
     val out: StringBuilder = StringBuilder(listOf("ProfileCredentials {").joinToString(""))
     out.append(" ")

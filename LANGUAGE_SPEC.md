@@ -2177,11 +2177,16 @@ Conventions:
   point is one searchable word). It is a signature only: a body is a parse
   error, as is `threadsafe` (a claim about a handler's class). `export
   platform fn` exports it.
-  * Today its implementation is a platform template's `` `fn …` `` marker
-    [host-splice]; one with no implementation in any backend is a checker
-    error naming `salvo platform generate`, and per-backend coverage is
-    [host-splice]'s rule. ABI.md replaces templates with generated interface
-    and implementation files.
+  * Its implementation is a function with the **real name** in the module's
+    implementation file under the platform root [platform-tree]
+    (`salvo.platform.<m>.shout` / `crate::platform_<m>::shout`). The program
+    calls a generated **wrapper**, `shoutPlatform` (Kotlin) /
+    `shout_platform` (Rust), which calls the implementation (user decision
+    2026-10-01, ABI.md); the wrapper is where boundary validation goes. A
+    program reaching a platform fn whose implementation file is missing is a
+    codegen error naming `salvo platform generate`.
+  * Not generic, no implicit parameters, no effects beyond `[]`: the host
+    writes one concrete function that performs no Salvo effect.
   * **Two platform fns may not overload each other** (user decision
     2026-10-01, ABI.md D5): each gets its own namespace at the boundary. A
     platform fn may share its name with ordinary fns.
@@ -8168,7 +8173,9 @@ replaced the working document TESTING.md).
     program with no manifest has no root and cannot use platform files.
   * A file is attributed by its root (`PlatformRoots::classify`): its path
     under the root, the way `.sv` files map, so `<root>/app/entry.kt` is
-    module `app.entry`, and `<root>/app/entry.sv.kt` its template. A Kotlin
+    module `app.entry`. `<root>/app/entry.sv.kt` (any `*.sv.kt` / `*.sv.rs`)
+    is a generated file for the host project's tooling and is never read by
+    the build (ABI.md D4). A Kotlin
     file under the Rust-only root (or the reverse) is an error; so is a host
     file in a `platform/` directory at the source root that no root covers
     — it is reported, never read as a module called `platform.…`.
@@ -8192,7 +8199,8 @@ replaced the working document TESTING.md).
   * Rust mounts a host file under `platform_<module>`; Kotlin gives it the
     package `salvo.platform.<module>`.
   * The module declaring a platform handler the program `use`s
-    [platform-handler] **must** have a host file or a template: the error
+    [platform-handler] or reaches a `platform fn` [platform-fn] **must** have an
+    implementation file: the error
     names `salvo platform generate` rather than leaving the target toolchain
     to report a missing class against generated code [backend-never-wrong].
   * The tree is not the *customer's* alone: std ships its host classes
@@ -8215,67 +8223,15 @@ replaced the working document TESTING.md).
   Counter { at: Int = start * 2 }`. The state is built once, at construction,
   so the parameters are in scope read-only. Kotlin initialises the field from
   the constructor's `val`; Rust inside `new`.
-* [host-splice] **Platform templates: host code with Salvo in it** (user
-  decisions 2026-09-30, replacing the same day's fenced blocks inside `.sv`
-  files). `platform/<path>.sv.kt` and `.sv.rs` implement the **platform**
-  declarations of `<path>.sv`: they are ordinary Kotlin and Rust in which a
-  `` `…` `` marker is Salvo the compiler renders. The path is under the
-  backend's platform root [platform-root] (`platform/` above is the usual
-  choice, not a default). Loaded for every backend
-  (`SourceSet.templates`), attached to the module's AST before expansion
-  (`salvo_core::template::apply`), and appended to the module's source file
-  for diagnostics, so an error inside a template names the template's line.
-  * **Scanning**: strings, character literals and comments are host text and
-    are not scanned (Kotlin `"""…"""`, Rust raw strings and lifetimes
-    included); ```` `` ```` is a literal backtick (Kotlin's escaped names).
-  * **Inside a marker**, `@name` (at the start of a token — `size@core` stays
-    a selector) and `@{…}` are host code again; `@x : T` gives host code a
-    Salvo type.
-  * **Declaring markers**, each followed by a braced host body, name the
-    `.sv` declaration with its **full signature**, checked against it:
-    `` `fn name(params) -> R` { … } `` for a `platform fn` [platform-fn] (or, inside a
-    handler, one of its effect's members, whose clause it takes);
-    `` `platform handler H(params) of E` { … } `` for a platform handler;
-    `` `struct H` { name: HostType = init, … } `` for handler `H`'s **host
-    fields**. A template naming anything its `.sv` file does not declare is
-    an error; so is a platform declaration no template implements for a
-    backend the manifest builds (Kotlin-only a warning, as before).
-  * **Other markers** are holes: a type alone (`` `AwsError` ``), a value
-    (`` `input.queue_name` ``), `e : T` (the wrap into a union host code
-    cannot see), a declaration `name : T` (a host name with a Salvo type,
-    redeclarable by a later one), an assignment `name = e` to a declared
-    name, and — right after host `return`, as the whole statement — a value
-    taking the fn's return type (`` return `ok(n)` ``). A name a marker reads
-    must be a parameter, state field, declared name or fn.
-  * **Ascription by a place** (user decision 2026-09-30, option (a) of the
-    round on repeated unions): `` `e : name` `` gives `e` the type of a
-    parameter, state field or declared host name, and `` `e : return` `` the
-    enclosing fn's return type — so a union is written once, where the place
-    is declared (`` val `answer : Ok Out | Err E` = try { … `ok(v) : answer` }
-    catch … { `err(x) : answer` } ``). A lowercase name (or `return`) alone
-    after the colon is a place, a capitalized one a type [name-casing]; a
-    declaration may take a place too (`` `b : a` ``). A place nothing
-    declares, or `: return` outside a `` `fn` `` body, is an error. A type
-    alias in the `.sv` file remains the other way to shorten a long type.
-  * **State**: a platform handler's Salvo state is laid out by the compiler
-    (so it needs a template, not a hand-written companion) and refused on a
-    `threadsafe` handler for now. Host fields are the template's: Kotlin
-    `private val` after the state; Rust fields of the one struct, each
-    initialised by a `let` in `new` in written order, so an initialiser may
-    read an earlier field and the constructor parameters. A struct with Rust
-    host fields derives no `Clone`.
-  * **Rendering**: each attached body replaces a Salvo body; a handler's
-    level text goes in its Kotlin class body or a Rust inherent `impl H`;
-    file-level text at the end of the module's file. Kotlin `import` lines
-    are hoisted to the file's imports.
-  * **Editor support** (2026-09-30): the VS Code extension highlights a
-    template as its host language with each marker as Salvo and `@name` /
-    `@{…}` inside it as the host again, from generated grammars
-    [cli-lang]; the language server treats a template as a document of its
-    own — its diagnostics, and hover and definition inside markers only
-    [cli-lsp].
-  * Recorded: full Salvo expressions in markers with typed host escapes is
-    the general form (ROADMAP "not scheduled").
+* [host-splice] **Removed 2026-10-01** (user decision; ABI.md). Platform
+  templates — `<m>.sv.kt` / `.sv.rs` files of host code with Salvo in
+  `` `…` `` markers — made the reader keep two languages in mind at once and
+  left the host's own tooling unusable. A platform handler or `platform fn`
+  is implemented by an ordinary implementation file again ([platform-tree],
+  [platform-fn]); the `*.sv.kt` / `*.sv.rs` names now belong to generated
+  files the build never reads ([platform-root]). The markers, place
+  ascription, the template grammars and the language server's template
+  support went with them.
 * [platform-abi] **The host ABI** (written down 2026-09-30, ROADMAP §4c step
   4): what hand-written or generated host code may rely on about the code the
   compiler emits — how a Salvo type is spelled in the target language, how a
@@ -8676,28 +8632,6 @@ replaced the working document TESTING.md).
     2026-09-02) [fate-link].
   * `textDocument/codeAction` serves import quickfixes from the
     suggestions on published diagnostics [diag-import-suggest].
-  * **Platform templates are documents** [host-splice] (2026-09-30). A
-    template is analysed as the text appended to its module's file
-    (`template::Appendix`), so the checker's `(file, span)` tables already
-    hold its markers at `base + offset`; `SourceFile::locate` maps a span
-    back to the template.
-    * An open template's buffer is part of the overlay: it replaces the
-      loaded template (or adds one not on disk), so an unsaved edit
-      re-checks as it stands. A template finds its project by the nearest
-      manifest, as a `.sv` file does [manifest-discovery].
-    * Diagnostics whose span lies in a template are published at the
-      template's URI, at its own line and column.
-    * Hover and definition answer **inside markers only**
-      (`template::marker_spans`, the scanner's own markers — strings,
-      comments and ```` `` ```` excluded); host text gets nothing. A
-      declaring marker's header answers at the matching position of the
-      `.sv` declaration it repeats (`template::headers`), since the
-      analysis compares a header with its declaration and keeps the
-      declaration; a name nothing references there (the declared name, a
-      parameter) jumps to the declaration when it is written in the `.sv`
-      file.
-    * An import quickfix on a template's diagnostic edits the module's
-      `.sv` file: a template has no imports of its own.
 * [doc-markdown] Doc comments are markdown and pass through verbatim: the
   lines are already stripped of `//`, so emphasis, inline code, lists and
   code fences work as written, and a bare `//` line is a paragraph break
@@ -8749,27 +8683,12 @@ replaced the working document TESTING.md).
     source root [manifest-discovery] — the project's `src` — not the
     workspace root (a defect until 2026-09-30: in a project whose `src` is
     a subdirectory, a definition and a hover's doc links named a path that
-    did not exist). A span in a platform template names the template
-    [host-splice].
+    did not exist).
   * Positions convert between byte offsets (Salvo spans) and UTF-16
     line/character pairs (the LSP default encoding).
-* [cli-lang] `salvo lang tm-grammar [--template HOST] [--out PATH]` emits
-  the TextMate grammar consumed by the VS Code extension
-  (`vscode/syntaxes/`); without `--out` it prints to stdout.
-  * `--template kotlin|rust` emits a **platform template's** grammar
-    instead [host-splice] (2026-09-30), `salvo-<host>.tmLanguage.json`,
-    scope `source.salvo-template.<host>`: the host grammar
-    (`source.kotlin`, `source.rust`) with the markers as a grammar-level
-    injection, `L:` so it wins over the host's patterns at every depth,
-    and excluded inside strings, comments and markers — the text the
-    template scanner skips. The injection tries ```` `` ```` first (on
-    Kotlin a doubled pair around a name is an escaped identifier), then a
-    marker, which ends at the next backtick and holds `@{…}` (host, braces
-    balanced), `@name` (host, at a token's start only) and `source.salvo`.
-    The checked-in files must byte-equal the generated ones
-    (`vscode_template_grammars_are_up_to_date`), and `package.json` must
-    register each under that scope with its suffix
-    (`vscode_extension_registers_the_template_languages`).
+* [cli-lang] `salvo lang tm-grammar [--out PATH]` emits the TextMate
+  grammar consumed by the VS Code extension (`vscode/syntaxes/`); without
+  `--out` it prints to stdout.
   * Keyword alternations are derived from the lexer's keyword table
     (`salvo_syntax::token::KEYWORDS` — the same table
     `TokenKind::keyword` consults), partitioned into highlighting
@@ -8832,16 +8751,13 @@ replaced the working document TESTING.md).
   --main FILE]` writes the implementation skeletons into each backend's
   platform root [platform-root] — every backend the manifest builds, or the
   one named. `--src` and `--main` behave as in `salvo run` [cli-run].
-  * **A template** (`<m>.sv.<ext>`) per module with platform handlers or
-    `platform fn`s (user decision 2026-09-30) [host-splice]: a declaring marker
-    with the full signature for each — a handler's header, each member of the
-    effect it implements, each platform fn — with a `TODO` / `todo!` body, and
-    the [platform-reply] contract above a member taking a `Reply`
-    (`template::skeleton`). A declaration already implemented in that
-    language is left out; a handler whose module already has a hand-written
-    host file (`<m>.<ext>`) is left to it.
-  * A missing implementation is what the command is about to write, so the
-    per-backend coverage check [host-splice] does not stop it.
+  * **An implementation file** (`<m>.<ext>`) per module with platform
+    handlers or `platform fn`s: a function with the real name for each
+    platform fn, and a class (Kotlin) / struct with `new` (Rust) for each
+    platform handler, implementing the effect's generated interface, every
+    body stubbed `TODO` / `todo!`, with the [platform-reply] contract above a
+    member taking a `Reply`. A platform fn's stub is the wrapper's own
+    signature under the real name, so the two cannot disagree.
   * **Generated once, never overwritten.** An existing file is reported and
     left alone. This is what the interface framing bought: because Salvo and
     the host meet at a generated interface, every later divergence is a

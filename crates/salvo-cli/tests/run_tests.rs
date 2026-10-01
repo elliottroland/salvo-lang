@@ -1163,61 +1163,40 @@ fn main() [use] {
 "#;
 
 
-/// [host-splice] Platform templates on both backends, same stdout: free fns
-/// implemented in `platform/main.sv.kt` / `.sv.rs` (field reads, a struct built
-/// from host values, `ok(@n : Int)` after `return` taking the fn's return type,
-/// a declared host name in a closure), and a platform handler whose Salvo state
-/// the compiler lays out, with a Rust host field from `` `struct H` ``. Then
-/// the manifest rule: with `backend = "*"`, a fn only the Kotlin template
-/// implements is a warning (and a Rust build reaching it fails), a Rust-only
-/// one an error; and a template naming a fn the `.sv` file lacks is an error.
+/// [platform-fn] [platform-handler] Implementation files on both backends,
+/// same stdout: `platform fn`s (a field read, a struct built from host
+/// values, a union answered through its arm, a list of structs) and a platform
+/// handler with constructor parameters whose class keeps its own state. The
+/// program calls each fn's wrapper (`shoutPlatform` / `shout_platform`), which
+/// calls the implementation by its real name. Without the implementation
+/// file the build fails naming `salvo platform generate`.
 #[test]
-fn platform_templates_run_on_both_backends() {
-    let Some(__stamp) = e2e_stamp("platform_templates", &["rustc", "kotlinc"]) else { return };
-    let dir = work_dir("platform_templates");
+fn platform_fns_and_handlers_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("platform_impls", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("platform_impls");
     fs::create_dir_all(dir.join("salvo/platform")).unwrap();
-    fs::write(dir.join("salvo.toml"), "[project]\nname = \"tpl\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\nplatform = \"salvo/platform\"\n").unwrap();
-    let write = |sv: &str, kt: &str, rs: &str| {
-        fs::write(dir.join("salvo/main.sv"), sv).unwrap();
-        fs::write(dir.join("salvo/platform/main.sv.kt"), kt).unwrap();
-        fs::write(dir.join("salvo/platform/main.sv.rs"), rs).unwrap();
-    };
-    write(TPL_SV, TPL_KT, TPL_RS);
+    fs::write(dir.join("salvo.toml"), "[project]\nname = \"impls\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\nplatform = \"salvo/platform\"\n").unwrap();
+    fs::write(dir.join("salvo/main.sv"), IMPL_SV).unwrap();
     let expected = "HELLO!\nquiet\nok 42\nerr not a number: x\n15 16\nString=hi, Number=-\n";
-    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+    for (backend, tool, ext, implementation) in [("rust", "rustc", "rs", IMPL_RS), ("kotlin", "kotlinc", "kt", IMPL_KT)] {
         if !have(tool) {
             continue;
         }
+        let host = dir.join(format!("salvo/platform/main.{ext}"));
+        let _ = fs::remove_file(&host);
+        let out = salvo_in(&dir, &["run", "--backend", backend]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success() && stderr.contains("salvo platform generate"), "{backend}: {stderr}");
+        fs::write(&host, implementation).unwrap();
         let out = salvo_in(&dir, &["run", "--backend", backend]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend}: {stderr}");
         assert_eq!(String::from_utf8_lossy(&out.stdout), expected, "{backend}");
     }
-    // A Kotlin-only fn: a warning; reaching it from a Rust build: an error.
-    let sv = format!("{TPL_SV}\nplatform fn only_kotlin() [] -> Int\n");
-    let kt = format!("{TPL_KT}\n`fn only_kotlin() -> Int` {{\n    return 1\n}}\n");
-    write(&sv, &kt, TPL_RS);
-    let out = salvo_in(&dir, &["analyze"]);
-    let all = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    assert!(all.contains("`fn only_kotlin` has no Rust (`.sv.rs`) implementation"), "{all}");
-    assert!(all.contains("warning"), "{all}");
-    if have("rustc") {
-        write(&sv.replace("println(\"${next(5)} ${next(1)}\")", "println(\"${next(5)} ${next(1)} ${only_kotlin()}\")"), &kt, TPL_RS);
-        let out = salvo_in(&dir, &["compile", "--backend", "rust", "--target", "out"]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(!out.status.success() && stderr.contains("has no Rust implementation in its platform template"), "{stderr}");
-    }
-    // A Rust-only fn is an error; so is a template naming what the `.sv` lacks.
-    let sv = format!("{TPL_SV}\nplatform fn only_rust() [] -> Int\n");
-    write(&sv, &format!("{TPL_KT}\n`fn missing() -> Int` {{\n    return 1\n}}\n"), &format!("{TPL_RS}\n`fn only_rust() -> Int` {{\n    1\n}}\n"));
-    let out = salvo_in(&dir, &["analyze"]);
-    let all = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    assert!(all.contains("`fn only_rust` has no Kotlin (`.sv.kt`) implementation"), "{all}");
-    assert!(all.contains("the template implements `fn missing()`") && all.contains("platform/main.sv.kt"), "{all}");
     __stamp.verified();
 }
 
-const TPL_SV: &str = r#"struct Greeting { text: Str, loud: Bool }
+const IMPL_SV: &str = r#"struct Greeting { text: Str, loud: Bool }
 struct Attr { data_type: Str, string_value: Str? = None }
 
 platform fn shout(g: Greeting) [] -> Str => g
@@ -1229,9 +1208,7 @@ effect Counter {
     fn next(step: Int) -> Int => step
 }
 
-platform handler HostCounter(start: Int) of Counter {
-    at: Int = start
-}
+platform handler HostCounter(start: Int) of Counter
 
 fn describe(r: Ok Int | Err Str) [] -> Str => r {
     when r {
@@ -1251,70 +1228,73 @@ fn main() [use] {
     println(describe_attrs([Attr { data_type: "String", string_value: "hi" }, Attr { data_type: "Number" }]))
 }
 "#;
-const TPL_KT: &str = r#"// Kotlin for main.sv's bodiless declarations.
 
-`fn shout(g: Greeting) -> Str` {
-    return if (`g.loud`) `g.text`.uppercase() else `g.text`
+const IMPL_KT: &str = r#"package salvo.platform.main
+
+import salvo.*
+import salvo.main.*
+
+fun shout(g: Greeting): String = if (g.loud) g.text.uppercase() + "!" else g.text
+
+fun make(text: String): Greeting = Greeting(text = text, loud = true)
+
+fun parse(s: String): Union2<Int, String> {
+    val n = s.toIntOrNull() ?: return Union2.U2("not a number: $s")
+    return Union2.U1(n)
 }
 
-`fn make(text: Str) -> Greeting` {
-    return `Greeting { text: @{text + "!"}, loud: true }`
-}
+fun describeAttrs(attrs: List<Attr>): String =
+    attrs.joinToString(", ") { "${it.dataType}=${it.stringValue ?: "-"}" }
 
-`fn parse(s: Str) -> Ok Int | Err Str` {
-    val n = `s`.toIntOrNull()
-    if (n != null) {
-        return `ok(@n : Int)`
-    }
-    return `err(@{"not a number: " + s} : Str)`
-}
-
-`fn describe_attrs(attrs: List<Attr>) -> Str` {
-    val parts = `attrs`.map { `a : Attr` -> `a.data_type` + "=" + (`a.string_value` ?: "-") }
-    return parts.joinToString(", ")
-}
-
-`platform handler HostCounter(start: Int) of Counter` {
-    private val log = mutableListOf<Int>()
-
-    `fn next(step: Int) -> Int` {
-        `at` += step
-        log.add(`at`)
-        return `at`
+class HostCounter(start: Int) : Counter {
+    private var at = start
+    override fun next(step: Int): Int {
+        at += step
+        return at
     }
 }
 "#;
-const TPL_RS: &str = r#"// Rust for main.sv's bodiless declarations.
 
-`fn shout(g: Greeting) -> Str` {
-    if `g.loud` { `g.text`.to_uppercase() } else { `g.text` }
+const IMPL_RS: &str = r#"use crate::*;
+use crate::unions::*;
+
+pub fn shout(g: &Greeting) -> String {
+    if g.loud { format!("{}!", g.text.to_uppercase()) } else { g.text.clone() }
 }
 
-`fn make(text: Str) -> Greeting` {
-    return `Greeting { text: @{format!("{}!", text)}, loud: true }`;
+pub fn make(text: &String) -> Greeting {
+    Greeting { text: text.clone(), loud: true }
 }
 
-`fn parse(s: Str) -> Ok Int | Err Str` {
-    match `s`.parse::<i32>() {
-        Ok(n) => return `ok(@n : Int)`,
-        Err(_) => return `err(@{format!("not a number: {}", s)} : Str)`,
+pub fn parse(s: &String) -> Union2<i32, String> {
+    match s.parse::<i32>() {
+        Ok(n) => Union2::U1(n),
+        Err(_) => Union2::U2(format!("not a number: {s}")),
     }
 }
 
-`fn describe_attrs(attrs: List<Attr>) -> Str` {
-    let parts: Vec<String> = `attrs`.into_iter().map(|`a : Attr`| format!("{}={}", `a.data_type`, `a.string_value`.unwrap_or("-".to_string()))).collect();
-    parts.join(", ")
+pub fn describe_attrs(attrs: &Vec<Attr>) -> String {
+    attrs
+        .iter()
+        .map(|a| format!("{}={}", a.data_type, a.string_value.clone().unwrap_or("-".to_string())))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
-`struct HostCounter` {
-    log: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new()),
+pub struct HostCounter {
+    at: i32,
 }
 
-`platform handler HostCounter(start: Int) of Counter` {
-    `fn next(step: Int) -> Int` {
-        `at` += step;
-        self.log.lock().unwrap().push(`at`);
-        `at`
+impl HostCounter {
+    pub fn new(start: i32) -> Self {
+        Self { at: start }
+    }
+}
+
+impl crate::__Stateful_Counter for HostCounter {
+    fn next(&mut self, step: i32) -> i32 {
+        self.at += step;
+        self.at
     }
 }
 "#;

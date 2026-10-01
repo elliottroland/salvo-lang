@@ -301,16 +301,16 @@ pub fn emit_program_reporting(
         if salvo_core::host_file(&program.companions, module).is_some() {
             continue;
         }
-        let handlers: Vec<&str> = program
+        let what: String = program
             .units()
             .filter(|u| u.file.module == *module)
-            .flat_map(|u| salvo_core::platform_handlers(u.ast))
-            .map(|h| h.name.name.as_str())
-            .collect();
+            .map(|u| salvo_core::platform_declarations(u.ast))
+            .collect::<Vec<_>>()
+            .join(", ");
         errors.push(salvo_core::missing_handler_host_error(
-            &handlers.join("`, `"),
+            &what,
             module,
-            &salvo_core::host_rel_path(module, "sv.kt"),
+            &salvo_core::host_rel_path(module, "kt"),
         ));
     }
 
@@ -657,7 +657,7 @@ fn module_produces_code(module: &Module) -> bool {
         Item::Struct(s) => !s.comptime,
         Item::Effect(_) => true,
         Item::Handler(_) => true,
-        Item::Fn(f) => f.has_body(),
+        Item::Fn(f) => f.body.is_some() || f.platform,
         Item::Qualifier(q) => q.fns.iter().any(|f| f.body.is_some()),
         _ => false,
     })
@@ -723,7 +723,16 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
             continue;
         }
         let handlers = salvo_core::platform_handlers(unit.ast);
-        if handlers.is_empty() {
+        let platform_fns: Vec<&FnDecl> = unit
+            .ast
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Fn(f) if f.platform => Some(f),
+                _ => None,
+            })
+            .collect();
+        if handlers.is_empty() && platform_fns.is_empty() {
             continue;
         }
         let module = &unit.file.module;
@@ -731,6 +740,10 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
             Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
 
         let mut body = String::new();
+        // [platform-fn] One function per platform fn, with the real name.
+        for f in &platform_fns {
+            body.push_str(&emitter.platform_fn_skeleton(f));
+        }
         // [platform-handler] One class per platform handler, named after the
         // handler itself: the `use` site constructs *this* class, so the
         // Salvo name and the Kotlin name are the same name.
@@ -1362,7 +1375,7 @@ impl<'p> Emitter<'p> {
                 // constructs, so nothing callable is emitted for it.
                 // [obligation-by] A structural member has no body and is still
                 // emitted: its body is the host's own operation.
-                Item::Fn(f) if f.has_body() => {
+                Item::Fn(f) if f.body.is_some() || f.platform => {
                     body.push_str(&self.emit_fn(f))
                 }
                 Item::Qualifier(q) => body.push_str(&self.emit_qualifier(q)),
@@ -1372,12 +1385,6 @@ impl<'p> Emitter<'p> {
         // Generated items go last.
         for item in std::mem::take(&mut self.generated_items) {
             body.push_str(&item);
-        }
-        // [host-splice] A template's file-level host code.
-        for block in module.host.iter().filter(|b| b.lang == "kotlin") {
-            body.push('\n');
-            let text = self.render_host(block, 0);
-            body.push_str(&text);
         }
         // [kt-package] Each module gets its own Kotlin package.
         let pkg = kotlin_package(&self.program.files[self.file_idx].module);
@@ -2108,68 +2115,36 @@ impl<'p> Emitter<'p> {
     /// parameters as its own and every member stubbed with `TODO`. The `use`
     /// site constructs exactly this class, so the name is not the emitter's
     /// to choose.
-    /// [host-splice] Whether any call in the program resolves to [f].
-    fn fn_is_called(&self, f: &FnDecl) -> bool {
-        let Some(key) = self.checked.fn_refs.get(&(self.file_idx, f.name.span)) else {
-            return true;
+    /// [platform-fn] The body of a platform fn's wrapper: a call of the
+    /// implementation, `salvo.platform.<module>.<name>(args)`, which records
+    /// that the module's implementation file is needed.
+    fn platform_fn_body(&mut self, f: &FnDecl, indent: usize) -> String {
+        let module = self.program.files[self.file_idx].module.clone();
+        self.platform_hosts.insert(module.clone());
+        let args: Vec<String> = f.params.iter().map(|p| kt_ident(&p.name.name)).collect();
+        format!(
+            "{}return {}.{}({})\n",
+            "    ".repeat(indent),
+            host_package(&module),
+            kt_ident(&f.name.name),
+            args.join(", ")
+        )
+    }
+
+    /// [platform-fn] The skeleton of a platform fn's implementation: the
+    /// wrapper's own signature — so the two cannot disagree — under the real
+    /// name, with a stub body.
+    fn platform_fn_skeleton(&mut self, f: &FnDecl) -> String {
+        let wrapper = self.emit_fn(f);
+        let Some(open) = wrapper.find(" {\n") else {
+            return String::new();
         };
-        self.checked.call_fn.values().any(|k| k == key)
-    }
-
-    /// [host-splice] A host block as Kotlin: its text as written, re-indented
-    /// to [indent], and every hole rendered by this emitter — `: T` as the
-    /// type, an expression as it would be anywhere, its coercion applied.
-    /// `import` lines are the file's, so they are hoisted into its imports.
-    fn render_host(&mut self, block: &HostBlock, indent: usize) -> String {
-        let mut text = String::new();
-        for part in &block.parts {
-            match part {
-                HostBlockPart::Text(t) => text.push_str(t),
-                HostBlockPart::Hole(hole) if hole.assign.is_some() => {
-                    let target = kt_ident(&hole.assign.as_ref().unwrap().name);
-                    let value = hole.expr.as_ref().map(|e| self.emit_expr(e)).unwrap_or_default();
-                    text.push_str(&format!("{target} = {value}"));
-                }
-                HostBlockPart::Hole(hole) => {
-                    // A declaring hole: the name and its type.
-                    if self.checked.host_decls.contains(&(self.file_idx, hole.span)) {
-                        let name = match &hole.expr {
-                            Some(Expr::Ident(id)) => id.name.clone(),
-                            _ => String::new(),
-                        };
-                        let ty = self.checked.host_types.get(&(self.file_idx, hole.span)).cloned();
-                        let rendered = ty.map(|t| self.emit_ty(&t)).unwrap_or_default();
-                        
-                        text.push_str(&format!("{name}: {rendered}"));
-                        continue;
-                    }
-                    let rendered = match &hole.expr {
-                        Some(e) => self.emit_expr(e),
-                        None => match self.checked.host_types.get(&(self.file_idx, hole.span)).cloned() {
-                            Some(ty) => self.emit_ty(&ty),
-                            None => hole.ty.as_ref().map(|t| self.emit_type(t)).unwrap_or_default(),
-                        },
-                    };
-                    text.push_str(&rendered);
-                }
-            }
-        }
-        let mut kept = Vec::new();
-        for line in text.lines() {
-            let trimmed = line.trim_start();
-            if trimmed.starts_with("import ") {
-                self.imports.insert(trimmed.trim_end().to_string());
-            } else {
-                kept.push(line);
-            }
-        }
-        reindent(&kept, indent)
-    }
-
-    /// [host-splice] Host parts rendered on one line, holes included.
-    fn render_host_inline(&mut self, parts: &[HostBlockPart]) -> String {
-        let block = HostBlock { lang: "kotlin".to_string(), parts: parts.to_vec(), span: salvo_syntax::Span::new(0, 0) };
-        self.render_host(&block, 0).trim_end().to_string()
+        let header = wrapper[..open].replacen(
+            &format!("{}{}", "fun ", kt_ident(&format!("{}_platform", f.name.name))),
+            &format!("{}{}", "fun ", kt_ident(&f.name.name)),
+            1,
+        );
+        format!("{header} {{\n{}}}\n", format!("    TODO(\"implement {}\")\n", f.name.name))
     }
 
     fn host_handler_impl(&mut self, h: &HandlerDecl) -> String {
@@ -2256,22 +2231,7 @@ impl<'p> Emitter<'p> {
         // `platform/` companion, and the `use` site constructs it by name
         // (`emit_use`). The generated *interface* is the effect's, emitted
         // as any effect's is — which is what the host class implements.
-        // [host-splice] One written in place is emitted like any handler, its
-        // members' bodies and the handler-level block in host code.
-        if h.platform && !h.spliced {
-            return String::new();
-        }
-        // [host-splice] A template implements it — for this backend too?
-        if h.spliced
-            && !h.fns.iter().any(|f| f.host.iter().any(|b| b.lang == "kotlin"))
-            && !h.host.iter().any(|b| b.lang == "kotlin")
-            && !h.host_fields.iter().any(|f| f.lang == "kotlin")
-        {
-            self.error(format!(
-                "`platform handler {}` has no kotlin template (`platform/…/<module>.sv.kt`): write one, or build \
-                 without this backend [host-splice]",
-                h.name.name
-            ));
+        if h.platform {
             return String::new();
         }
         let saved = self.enter_generics(&h.generics);
@@ -2353,17 +2313,6 @@ impl<'p> Emitter<'p> {
                 h.name.name
             )
         };
-        // [host-splice] The handler-level block: host helpers.
-        for block in h.host.iter().filter(|b| b.lang == "kotlin") {
-            let text = self.render_host(block, 1);
-            out.push_str(&text);
-        }
-        // [host-splice] The template's host fields, after the Salvo state.
-        for field in h.host_fields.iter().filter(|f| f.lang == "kotlin") {
-            let ty = self.render_host_inline(&field.ty);
-            let init = self.render_host_inline(&field.init);
-            out.push_str(&format!("    private val {}: {} = {}\n", field.name, ty.trim(), init.trim()));
-        }
         for field in &h.state {
             let ty = self.emit_type(&field.ty);
             let init = match &field.default {
@@ -3106,29 +3055,11 @@ impl<'p> Emitter<'p> {
     /// Emits a function declaration. `top_level` functions get effect
     /// parameters; handler methods (`override fun`) do not.
     fn emit_fn_inner(&mut self, f: &FnDecl, kw: &str, indent: usize, top_level: bool) -> String {
-        // [host-splice] A body in host code: the signature as for any fn, the
-        // Kotlin template's body as the body.
-        let host_empty = Block { stmts: Vec::new(), span: f.span };
-        let host = if f.host.is_empty() {
-            None
-        } else {
-            match f.host.iter().find(|b| b.lang == "kotlin") {
-                Some(b) => Some(b),
-                // [host-splice] Nothing calls it: this backend simply goes
-                // without it (the manifest rule already said whether that is
-                // allowed). Something that did would be a missing function.
-                None if !self.fn_is_called(f) => return String::new(),
-                None => {
-                    self.error(format!(
-                        "`fn {}` has no Kotlin implementation in its platform template (`.sv.kt`): add one, or \
-                         build without the Kotlin backend [host-splice]",
-                        f.name.name
-                    ));
-                    return String::new();
-                }
-            }
-        };
-        let Some(body) = f.body.as_ref().or(host.map(|_| &host_empty)) else {
+        // [platform-fn] A platform fn is a wrapper the program calls, which
+        // calls the implementation in the host package (ABI.md: the wrapper is
+        // `nameFnPlatform`, the implementation has the real name).
+        let empty = Block { stmts: Vec::new(), span: f.span };
+        let Some(body) = f.body.as_ref().or(f.platform.then_some(&empty)) else {
             return String::new();
         };
         let saved_generics = self.enter_generics(&f.generics);
@@ -3276,9 +3207,10 @@ impl<'p> Emitter<'p> {
         let body_out = {
             let saved_ctx = self.stmt_ctx;
             self.stmt_ctx = StmtCtx::Normal;
-            let rendered = match host {
-                Some(block) => self.render_host(block, indent + 1),
-                None => self.emit_block_stmts(body, indent + 1),
+            let rendered = if f.platform && top_level {
+                self.platform_fn_body(f, indent + 1)
+            } else {
+                self.emit_block_stmts(body, indent + 1)
             };
             self.stmt_ctx = saved_ctx;
             rendered
@@ -3498,6 +3430,12 @@ impl<'p> Emitter<'p> {
     /// then positional suffixes for whatever still collides. Both backends
     /// therefore pick the same names.
     fn kotlin_fn_name(&mut self, decl: &FnDecl) -> String {
+        // [platform-fn] The program calls a platform fn's wrapper,
+        // `<name>Platform`; the implementation keeps the real name (user
+        // decision 2026-10-01). Two platform fns never overload each other.
+        if decl.platform {
+            return kt_ident(&format!("{}_platform", decl.name.name));
+        }
         let name = decl.name.name.clone();
         let overloads: Vec<&FnDecl> = match self.symbols.fns.get(name.as_str()) {
             // [obligation-by] A generated structural member has no body and is
@@ -4444,13 +4382,6 @@ impl<'p> Emitter<'p> {
     fn handler_ctor_name(&mut self, name: &str, decl: &HandlerDecl) -> String {
         if !decl.platform {
             return kt_ident(name);
-        }
-        // [host-splice] Written in place: the class is the module's own.
-        if decl.spliced {
-            return match self.symbols.handler_modules.get(name) {
-                Some(module) => format!("{}.{}", kotlin_package(module), kt_ident(name)),
-                None => kt_ident(name),
-            };
         }
         match self.symbols.handler_modules.get(name) {
             Some(module) => {
@@ -6512,9 +6443,6 @@ impl<'p> Emitter<'p> {
             }
             Expr::Bool { value, .. } => value.to_string(),
             Expr::Char { value, .. } => format!("'{}'", escape_char(*value)),
-            // [host-splice] Host code inside a hole, as it was written.
-            Expr::HostLeaf { text, ty: None, .. } => text.clone(),
-            Expr::HostLeaf { text, ty: Some(_), .. } => format!("({text})"),
             Expr::Str { parts, .. } => self.emit_string(parts),
             Expr::Ident(id) => {
                 if id.name == "None" {
@@ -9626,7 +9554,6 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
 
 fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
-        Expr::HostLeaf { .. } => {}
         // [assert-fn] A condition or a message may mutate, like any expression.
         Expr::Assert { cond, message, .. } => {
             collect_mutated_expr(cond, out);
@@ -10060,33 +9987,3 @@ fn kt_literal(lit: &salvo_syntax::ast::TypeLit) -> String {
     }
 }
 
-/// [host-splice] Host lines re-indented: the block's common leading
-/// whitespace removed, [indent] levels added, blank lines at either end
-/// dropped. Host code keeps its own relative indentation.
-fn reindent(lines: &[&str], indent: usize) -> String {
-    let mut lines: Vec<&str> = lines.to_vec();
-    while lines.first().is_some_and(|l| l.trim().is_empty()) {
-        lines.remove(0);
-    }
-    while lines.last().is_some_and(|l| l.trim().is_empty()) {
-        lines.pop();
-    }
-    let common = lines
-        .iter()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| l.len() - l.trim_start().len())
-        .min()
-        .unwrap_or(0);
-    let pad = "    ".repeat(indent);
-    let mut out = String::new();
-    for l in lines {
-        if l.trim().is_empty() {
-            out.push('\n');
-        } else {
-            out.push_str(&pad);
-            out.push_str(&l[common.min(l.len())..]);
-            out.push('\n');
-        }
-    }
-    out
-}

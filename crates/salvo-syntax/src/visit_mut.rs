@@ -460,7 +460,6 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
         | Expr::Float { span, .. }
         | Expr::Bool { span, .. }
         | Expr::Char { span, .. }
-        | Expr::HostLeaf { span, .. }
         | Expr::Placeholder { span }
         | Expr::Continue { span } => v.visit_span(span),
         Expr::Str { parts, span } => {

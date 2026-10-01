@@ -149,32 +149,6 @@ fn analyze_project(
             };
             sources.add(rel.display().to_string(), module, content.clone(), false);
         }
-        // [host-splice] A platform template's open buffer replaces its disk
-        // content the same way — a template is analysed as part of its
-        // module, so an unsaved edit must reach `template::apply` — and a
-        // template not on disk yet is added. A template's `name` is relative
-        // to the root, or absolute for a dependency's, so `root.join` finds
-        // either.
-        for t in sources.templates.iter_mut() {
-            if let Some(content) = overlay.get(&root.join(&t.name)) {
-                t.content = content.clone();
-            }
-        }
-        let roots = sources.platform.canonical();
-        for (path, content) in overlay {
-            let Ok(Some(pf)) = roots.classify(path) else { continue };
-            if !pf.template || sources.templates.iter().any(|t| root.join(&t.name) == *path) {
-                continue;
-            }
-            let rel = path.strip_prefix(&root).unwrap_or(path);
-            sources.templates.push(salvo_core::template::TemplateFile {
-                rel_path: rel.to_path_buf(),
-                module: pf.module,
-                lang: pf.backend.to_string(),
-                content: content.clone(),
-                name: rel.display().to_string(),
-            });
-        }
     }
 
     // Parse every module, attributing diagnostics to files
@@ -195,9 +169,6 @@ fn analyze_project(
         }));
         modules.push(module);
     }
-    // [host-splice] Platform templates attach to their modules' declarations.
-    let templates = std::mem::take(&mut sources.templates);
-    diagnostics.extend(salvo_core::template::apply(&templates, &mut sources.files, &mut modules));
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     diagnostics.extend(expansion.diagnostics);
     let comptime_hovers = expansion.comptime_hovers;
@@ -231,11 +202,6 @@ fn analyze_project(
         // [platform-root] Platform declarations need a platform root.
         let backends = project.as_ref().map(salvo_core::required_backends).unwrap_or_else(|| vec!["rust"]);
         diagnostics.extend(salvo_core::platform_root_required(&program, project.as_ref(), &backends));
-        // [host-splice] The backends the manifest builds, each with its block.
-        if let Some(project) = &project {
-            let backends = salvo_core::required_backends(project);
-            diagnostics.extend(salvo_core::host_block_coverage(&program, &backends));
-        }
         (Some(checked), overloads)
     };
 
@@ -356,7 +322,7 @@ pub fn load_embedded_std(sources: &mut SourceSet, native_ext: &str) {
         };
         if path.extension().is_some_and(|e| e == native_ext) {
             match roots.classify(path) {
-                Ok(Some(pf)) if !pf.template => {
+                Ok(Some(pf)) if !pf.generated => {
                     let out = SourceSet::platform_output_path(&pf.module, native_ext);
                     sources.add_companion(out, pf.module, content.to_string(), true);
                 }

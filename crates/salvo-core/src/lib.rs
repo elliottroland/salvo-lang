@@ -12,7 +12,6 @@ pub mod effects;
 pub mod erase;
 pub mod expand;
 pub mod lends;
-pub mod template;
 pub mod literal;
 pub mod lock;
 pub mod manifest;
@@ -47,7 +46,7 @@ pub use manifest::{
 };
 pub use place::{Place, Step};
 pub use platform::{
-    host_block_coverage, host_file, host_rel_path, missing_handler_host_error, platform_handlers,
+    host_file, host_rel_path, missing_handler_host_error, platform_declarations, platform_handlers,
     platform_root_required, reply_contract_comment, reply_params, required_backends,
 };
 pub use program::{Program, Symbols};

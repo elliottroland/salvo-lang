@@ -10,10 +10,6 @@
 //! clearing), hover showing the checker's type for the smallest
 //! expression under the cursor (`Checked::expr_ty` [diag-structured]),
 //! and go-to-definition [lsp-definition].
-//! Platform templates (`*.sv.kt`, `*.sv.rs`) are documents too
-//! [host-splice]: their diagnostics are published at the template, and hover
-//! and definition answer inside their `` `…` `` markers (and nowhere in the
-//! host text) — see `DocView`.
 //! Positions are converted between byte offsets (Salvo spans) and UTF-16
 //! line/character pairs (the LSP default encoding).
 
@@ -280,11 +276,9 @@ impl Server<'_> {
                     continue;
                 }
                 // Open documents keep the URI the client opened them under
-                // (clients compare URIs exactly). [host-splice] A span past
-                // the file's own text is in a platform template, and is
-                // reported there.
-                let (name, content, span) = file.locate(diag.span);
-                let path = analysis.root.join(name);
+                // (clients compare URIs exactly).
+                let (content, span) = (&file.content, diag.span);
+                let path = analysis.root.join(&file.name);
                 let uri = match self.doc_uris.get(&path) {
                     Some(uri) => uri.clone(),
                     None => match Url::from_file_path(&path) {
@@ -370,21 +364,9 @@ impl Server<'_> {
         let analysis = self.analyze_for(&path)?;
         let checked = analysis.checked.as_ref()?;
 
-        // [host-splice] A `.sv` file, or a template: inside a marker only,
-        // and in a declaring marker's header as at the declaration.
         let view = doc_view(&analysis, &path)?;
         let offset = view.offset(doc.position);
-        if !view.serves(offset) {
-            return None;
-        }
-        match view.header_target(&analysis, offset) {
-            Some((at, header, _)) => {
-                let mut hover = self.hover_at(&analysis, checked, &view, at)?;
-                hover.range = Some(view.range(header));
-                Some(hover)
-            }
-            None => self.hover_at(&analysis, checked, &view, offset),
-        }
+        self.hover_at(&analysis, checked, &view, offset)
     }
 
     /// The hover at `offset` of the analysed file `view` is about.
@@ -554,9 +536,7 @@ impl Server<'_> {
             let roots: Vec<String> = reads
                 .iter()
                 .map(|r| {
-                    // The binding may be in the `.sv` file or in a template.
-                    let (_, text, bind) = analysis.program.files[file_idx].locate(r.bind_span);
-                    let pos = span_to_range(text, bind).start;
+                    let pos = view.range(r.bind_span).start;
                     // [fate-field-disjoint] Name the storage actually
                     // shared: a link to `p.name` is not a link to all of
                     // `p`, and the hover must not overstate it.
@@ -716,9 +696,8 @@ impl Server<'_> {
     }
 
     /// Where a span of the analysis is, as a document: the file's own URI —
-    /// the one an open document was opened under — or, for a span past the
-    /// file's text, the platform template it lies in [host-splice]. `None`
-    /// for the embedded std, which is not on disk.
+    /// the one an open document was opened under. `None` for the embedded
+    /// std, which is not on disk.
     ///
     /// A file's `name` resolves against the analysis's source root
     /// [manifest-discovery], which is the workspace root only when no
@@ -728,8 +707,8 @@ impl Server<'_> {
         if target.is_std && !target.is_shadow {
             return None;
         }
-        let (name, content, span) = target.locate(span);
-        let path = analysis.root.join(name);
+        let (content, span) = (&target.content, span);
+        let path = analysis.root.join(&target.name);
         let uri = match self.doc_uris.get(&path) {
             Some(uri) => uri.clone(),
             None => Url::from_file_path(&path).ok()?,
@@ -1043,17 +1022,9 @@ impl Server<'_> {
         let analysis = self.analyze_for(&path)?;
         let checked = analysis.checked.as_ref()?;
 
-        // [host-splice] A `.sv` file, or a template: inside a marker only,
-        // and in a declaring marker's header as at the declaration — whose
-        // own name, when nothing is referenced there, is the answer.
         let view = doc_view(&analysis, &path)?;
         let file_idx = view.file;
         let offset = view.offset(doc.position);
-        if !view.serves(offset) {
-            return None;
-        }
-        let header = view.header_target(&analysis, offset);
-        let offset = header.map_or(offset, |(at, _, _)| at);
 
         // The smallest name span containing the cursor wins, whichever
         // table it comes from.
@@ -1084,18 +1055,6 @@ impl Server<'_> {
 
         let (_, site) = match best {
             Some(found) => found,
-            // In a header, a name nothing references — the declared name, a
-            // parameter — is the declaration's own, when the declaration is
-            // written in the `.sv` file (a handler member is kept from one
-            // template, which is not where a reader would want to land).
-            None if header.is_some() => {
-                let (_, _, decl) = header?;
-                let own = analysis.program.files.get(file_idx)?.content.len();
-                if decl.start as usize >= own {
-                    return None;
-                }
-                (decl, DefSite { file: file_idx, span: decl })
-            }
             // [doc-module] A module name jumps to the top of its file.
             None => {
                 let (_, module) = module_at(&analysis, checked, file_idx, offset)?;
@@ -1125,23 +1084,7 @@ impl Server<'_> {
         let Some(path) = file_path(&params.text_document.uri) else {
             return Vec::new();
         };
-        // [host-splice] A template's imports are its module's: the edit goes
-        // to the `.sv` file the template is appended to.
-        let (path, uri) = if is_template_path(&path) {
-            let Some(analysis) = self.analyze_for(&path) else { return Vec::new() };
-            let Some(view) = doc_view(&analysis, &path) else { return Vec::new() };
-            let sv = analysis.root.join(&analysis.program.files[view.file].name);
-            let uri = match self.doc_uris.get(&sv) {
-                Some(uri) => uri.clone(),
-                None => match Url::from_file_path(&sv) {
-                    Ok(uri) => uri,
-                    Err(()) => return Vec::new(),
-                },
-            };
-            (sv, uri)
-        } else {
-            (path, params.text_document.uri.clone())
-        };
+        let uri = params.text_document.uri.clone();
         let content = match self.overlay.get(&path) {
             Some(content) => content.clone(),
             None => match std::fs::read_to_string(&path) {
@@ -2016,16 +1959,6 @@ fn render_declared(list: &[salvo_syntax::ast::Deduction]) -> String {
     entries.join(", ")
 }
 
-/// [host-splice] Whether a document is a platform template
-/// (`*.sv.kt`, `*.sv.rs`).
-fn is_template_path(path: &Path) -> bool {
-    path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
-        n.rsplit_once('.').is_some_and(|(stem, ext)| {
-            stem.ends_with(".sv") && salvo_core::template::template_lang(ext).is_some()
-        })
-    })
-}
-
 /// URI -> canonical absolute path (`None` for non-file URIs, which the
 /// server ignores). For files that do not exist on disk yet (unsaved
 /// buffers), the *parent* is canonicalized so symlinked directories
@@ -2044,187 +1977,34 @@ fn file_path(uri: &Url) -> Option<PathBuf> {
     }
 }
 
-/// [host-splice] An open document as the analysis sees it. A `.sv` file is
-/// one of `program.files`; a platform template (`*.sv.kt`, `*.sv.rs`) is the
-/// text appended to its module's file at `base` ([`salvo_core::template`]),
-/// so every table the checker keys by `(file, span)` already covers the
-/// template's markers at `base + offset`.
+/// An open document as the analysis sees it: one of `program.files`.
 struct DocView<'a> {
     file: usize,
-    base: u32,
     content: &'a str,
-    /// A template's markers, as offsets into `content`; `None` for a `.sv`
-    /// file, where everything is Salvo.
-    markers: Option<Vec<Span>>,
-    /// A template's declaring markers, parsed (offsets into `content`).
-    headers: Vec<salvo_core::template::Header>,
 }
 
 impl DocView<'_> {
-    /// The document position as an offset into the analysed file.
+    /// The document position as an offset into the file.
     fn offset(&self, position: Position) -> u32 {
-        self.base + position_to_offset(self.content, position)
+        position_to_offset(self.content, position)
     }
 
-    /// A span of the analysed file as a range of this document.
+    /// A span of the file as a range of this document.
     fn range(&self, span: Span) -> Range {
-        span_to_range(
-            self.content,
-            Span::new(span.start.saturating_sub(self.base), span.end.saturating_sub(self.base)),
-        )
-    }
-
-    /// Whether the server answers at `offset`: anywhere in a `.sv` file, and
-    /// in a template only inside a marker — host text is the host
-    /// language's, and nothing of the analysis is about it.
-    fn serves(&self, offset: u32) -> bool {
-        match &self.markers {
-            None => true,
-            Some(markers) => {
-                let at = offset.saturating_sub(self.base);
-                markers.iter().any(|m| m.start <= at && at < m.end)
-            }
-        }
+        span_to_range(self.content, span)
     }
 }
 
-impl DocView<'_> {
-    /// [host-splice] A declaring marker's header repeats the signature of the
-    /// declaration it implements, and the analysis may never have seen it — a
-    /// free fn's header is only compared with its `.sv` declaration, and of a
-    /// handler member written in both templates one header is kept. So a
-    /// position in a header answers as the same position of the declaration:
-    /// the offset to look up, the header's span there (absolute) for the
-    /// answer's range, and the declaration's span it stands for. `None`
-    /// outside every header.
-    fn header_target(&self, analysis: &Analysis, offset: u32) -> Option<(u32, Span, Span)> {
-        use salvo_core::template::Header;
-        let at = offset.checked_sub(self.base)?;
-        let items = &analysis.program.modules.get(self.file)?.items;
-        let handler = |name: &str| {
-            items.iter().find_map(|i| match i {
-                Item::Handler(h) if h.name.name == name => Some(h),
-                _ => None,
-            })
-        };
-        let same_params = |a: &[salvo_syntax::ast::Param], b: &[salvo_syntax::ast::Param]| {
-            a.len() == b.len()
-                && a.iter().zip(b).all(|(x, y)| x.ty.to_string() == y.ty.to_string())
-        };
-        // (span in the template, span of the declaration) for every name and
-        // type the header writes.
-        let mut pairs: Vec<(Span, Span)> = Vec::new();
-        let fn_pairs = |t: &FnDecl, d: &FnDecl, pairs: &mut Vec<(Span, Span)>| {
-            pairs.push((t.name.span, d.name.span));
-            for (a, b) in t.params.iter().zip(&d.params) {
-                pairs.push((a.name.span, b.name.span));
-                pairs.push((a.ty.span(), b.ty.span()));
-            }
-            if let (Some(a), Some(b)) = (&t.return_type, &d.return_type) {
-                pairs.push((a.span(), b.span()));
-            }
-        };
-        for header in &self.headers {
-            match header {
-                Header::Struct(name) => {
-                    if let Some(h) = handler(&name.name) {
-                        pairs.push((name.span, h.name.span));
-                    }
-                }
-                Header::Handler(t) => {
-                    let Some(h) = handler(&t.name.name) else { continue };
-                    pairs.push((t.name.span, h.name.span));
-                    for (a, b) in t.params.iter().zip(&h.params) {
-                        pairs.push((a.name.span, b.name.span));
-                        pairs.push((a.ty.span(), b.ty.span()));
-                    }
-                    for (a, b) in t.of.iter().zip(&h.of) {
-                        pairs.push((a.span(), b.span()));
-                    }
-                }
-                Header::Fn { decl: t, handler: None } => {
-                    let found = items.iter().find_map(|i| match i {
-                        Item::Fn(d)
-                            if d.name.name == t.name.name
-                                && d.platform
-                                && same_params(&d.params, &t.params) =>
-                        {
-                            Some(d)
-                        }
-                        _ => None,
-                    });
-                    if let Some(d) = found {
-                        fn_pairs(t, d, &mut pairs);
-                    }
-                }
-                Header::Fn { decl: t, handler: Some(owner) } => {
-                    let found = handler(owner).and_then(|h| {
-                        h.fns
-                            .iter()
-                            .find(|d| d.name.name == t.name.name && same_params(&d.params, &t.params))
-                    });
-                    if let Some(d) = found {
-                        fn_pairs(t, d, &mut pairs);
-                    }
-                }
-            }
-        }
-        // The smallest template span holding the cursor: a type's name inside
-        // a parameter, rather than the parameter.
-        let (t, d) = pairs
-            .into_iter()
-            .filter(|(t, _)| t.start <= at && at < t.end)
-            .min_by_key(|(t, _)| t.len())?;
-        // The same text at both: the same position in it; otherwise (the
-        // signatures agree up to spacing) the declaration's start.
-        let file = analysis.program.files.get(self.file)?;
-        let (_, text, local) = file.locate(d);
-        let decl_text = text.get(local.start as usize..local.end as usize);
-        let same = decl_text == self.content.get(t.start as usize..t.end as usize);
-        let lookup = if same { d.start + (at - t.start) } else { d.start };
-        Some((lookup, Span::new(self.base + t.start, self.base + t.end), d))
-    }
-}
-
-/// [host-splice] The document at `path`: a user `.sv` file of the analysis,
-/// or a platform template appended to one.
+/// The document at `path`: a user `.sv` file of the analysis.
 fn doc_view<'a>(analysis: &'a Analysis, path: &Path) -> Option<DocView<'a>> {
     let files = &analysis.program.files;
-    if let Some(file) = files
+    let file = files
         .iter()
-        .position(|f| (!f.is_std || f.is_shadow) && analysis.root.join(&f.name) == path)
-    {
-        return Some(DocView {
-            file,
-            base: 0,
-            content: &files[file].content,
-            markers: None,
-            headers: Vec::new(),
-        });
-    }
-    for (file, f) in files.iter().enumerate() {
-        for a in &f.appendix {
-            if analysis.root.join(&a.name) != path {
-                continue;
-            }
-            let lang = Path::new(&a.name)
-                .extension()
-                .and_then(|e| e.to_str())
-                .and_then(salvo_core::template::template_lang)?;
-            return Some(DocView {
-                file,
-                base: a.base,
-                content: &a.content,
-                markers: Some(salvo_core::template::marker_spans(&a.content, lang)),
-                headers: salvo_core::template::headers(&a.content, lang),
-            });
-        }
-    }
-    None
+        .position(|f| (!f.is_std || f.is_shadow) && analysis.root.join(&f.name) == path)?;
+    Some(DocView { file, content: &files[file].content })
 }
 
-/// `diag` as the LSP sees it, at `span` of `content` — the diagnostic's own
-/// span located in the file or the template it lies in (`SourceFile::locate`).
+/// `diag` as the LSP sees it, at `span` of `content`.
 fn to_lsp_diagnostic(diag: &FileDiagnostic, content: &str, span: Span) -> Diagnostic {
     Diagnostic {
         range: span_to_range(content, span),
