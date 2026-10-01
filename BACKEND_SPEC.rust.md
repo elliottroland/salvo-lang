@@ -1566,6 +1566,13 @@ facts worth knowing") and keeps the history ("One shape for effects").
   | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
 
+* [rs-platform-factory] [platform-factory] A named union gets `pub type FsError =
+  Union7<…>;` (Rust otherwise spells union aliases out) and `impl FsError {
+  pub fn not_found(value: NotFound) -> Self { crate::unions::Union7::U1(value)
+  } … }` — an inherent impl on one instantiation of a crate-local type. A
+  signature's union gets `pub struct ReadToStr;` with an `impl`. Two named
+  unions over the same instantiation with a shared arm name collide in rustc
+  rather than silently.
 * [rs-platform-check] [platform-check] A check renders as statements over a
   reference (`let __c = &__r;`), panicking with `"salvo: … [platform-check]"`
   and the value's `{:?}`: closed literals as `matches!(v.as_str(), "a" | "b")`

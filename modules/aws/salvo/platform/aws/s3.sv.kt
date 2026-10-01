@@ -233,6 +233,12 @@ object __Codec_S3Error : salvo.WireCodec<S3Error> {
     override fun dec(inp: salvo.WireIn): S3Error = S3Error(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp))
 }
 
+// Factories for the host: one per arm of the union [platform-factory].
+object S3Failures {
+    fun s3Error(value: S3Error): Union2<S3Error, AwsError> = salvo.Union2.U1(value)
+    fun awsError(value: AwsError): Union2<S3Error, AwsError> = salvo.Union2.U2(value)
+}
+
 interface S3 {
     fun putObject(input: PutObjectInput, reply: salvo.SalvoReply)
     fun getObject(input: GetObjectInput, reply: salvo.SalvoReply)
@@ -254,4 +260,16 @@ interface S3Platform {
 open class __Platform_S3(private val impl: S3Platform) : S3 {
     override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) = impl.putObject(input, reply)
     override fun getObject(input: GetObjectInput, reply: salvo.SalvoReply) = impl.getObject(input, reply)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object PutObject {
+    fun ok(value: PutObjectOutput): Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: Checked<Union2<S3Error, AwsError>>): Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object GetObject {
+    fun ok(value: GetObjectOutput): Union2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: Checked<Union2<S3Error, AwsError>>): Union2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>> = salvo.Union2.U2(value)
 }

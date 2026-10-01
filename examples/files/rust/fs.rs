@@ -10,6 +10,33 @@ use crate::core_string::*;
 use crate::stream::*;
 use crate::unions::*;
 
+pub type FsError = Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>;
+
+/// Factories for the host: one per arm of the union [platform-factory].
+impl FsError {
+    pub fn not_found(value: NotFound) -> Self {
+        crate::unions::Union7::U1(value)
+    }
+    pub fn permission_denied(value: PermissionDenied) -> Self {
+        crate::unions::Union7::U2(value)
+    }
+    pub fn already_exists(value: AlreadyExists) -> Self {
+        crate::unions::Union7::U3(value)
+    }
+    pub fn not_a_directory(value: NotADirectory) -> Self {
+        crate::unions::Union7::U4(value)
+    }
+    pub fn path_escapes(value: PathEscapes) -> Self {
+        crate::unions::Union7::U5(value)
+    }
+    pub fn io_error(value: IoError) -> Self {
+        crate::unions::Union7::U6(value)
+    }
+    pub fn streaming(value: Streaming) -> Self {
+        crate::unions::Union7::U7(value)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct NotFound {
     pub path: String,

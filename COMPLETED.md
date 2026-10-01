@@ -135,6 +135,23 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Factories at the platform boundary (2026-10-01; ABI.md step 8c).** D5
+built: the checker plans, for every named union any module's platform
+signatures reach and for each platform fn's or platform-handled member's
+anonymous result or reply union, one factory per runtime arm
+(`abi::Factories`, `Checked::factories`), naming arms by struct, first
+qualifier or base, sharing one checked factory among a base's literals and
+dropping names two arms would share. Kotlin emits `object FsErrors` /
+`object ReadToStr`; Rust `pub type FsError` with `impl FsError`, and `pub
+struct ReadToStr` with an impl. What fell out: Rust spelled union aliases out
+everywhere, so the factories needed the alias declared; Kotlin's failure
+message had escaped every `$`, which broke the value interpolation once a
+check ran on a parameter not named `__…` (now a marker is replaced after
+escaping); factories are emitted for every module's platform signatures, not
+just the project's, because std's implementation files compile in every
+build that reaches them. The boundary test now builds its unions with
+factories on both backends. **1663 tests.**
+
 **Checks at the platform boundary (2026-10-01; ABI.md step 8b).** D7 and D10
 C3 built: the checker plans, per platform fn result, platform-handled effect
 member result and `Reply<T>` parameter, what a host value must be checked for

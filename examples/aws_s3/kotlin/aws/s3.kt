@@ -247,6 +247,12 @@ object __Codec_S3Error : salvo.WireCodec<S3Error> {
     override fun dec(inp: salvo.WireIn): S3Error = S3Error(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp))
 }
 
+// Factories for the host: one per arm of the union [platform-factory].
+object S3Failures {
+    fun s3Error(value: S3Error): Union2<S3Error, AwsError> = salvo.Union2.U1(value)
+    fun awsError(value: AwsError): Union2<S3Error, AwsError> = salvo.Union2.U2(value)
+}
+
 interface S3 {
     fun putObject(input: PutObjectInput, reply: salvo.SalvoReply)
     fun getObject(input: GetObjectInput, reply: salvo.SalvoReply)

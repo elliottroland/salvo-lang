@@ -279,6 +279,18 @@ impl crate::wire::__Wire for SqsError {
     }
 }
 
+pub type SqsFailure = Union2<SqsError, AwsError>;
+
+/// Factories for the host: one per arm of the union [platform-factory].
+impl SqsFailure {
+    pub fn sqs_error(value: SqsError) -> Self {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn aws_error(value: AwsError) -> Self {
+        crate::unions::Union2::U2(value)
+    }
+}
+
 pub trait __Stateless_Sqs: Send + Sync {
     fn create_queue(&self, input: CreateQueueInput, reply: crate::scheduler::SalvoReply);
     fn get_queue_url(&self, input: GetQueueUrlInput, reply: crate::scheduler::SalvoReply);

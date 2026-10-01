@@ -310,6 +310,18 @@ impl crate::wire::__Wire for S3Error {
     }
 }
 
+pub type S3Failure = Union2<S3Error, AwsError>;
+
+/// Factories for the host: one per arm of the union [platform-factory].
+impl S3Failure {
+    pub fn s3_error(value: S3Error) -> Self {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn aws_error(value: AwsError) -> Self {
+        crate::unions::Union2::U2(value)
+    }
+}
+
 pub trait __Stateless_S3: Send + Sync {
     fn put_object(&self, input: PutObjectInput, reply: crate::scheduler::SalvoReply);
     fn get_object(&self, input: GetObjectInput, reply: crate::scheduler::SalvoReply);

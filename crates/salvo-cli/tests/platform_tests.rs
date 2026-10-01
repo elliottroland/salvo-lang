@@ -1058,7 +1058,10 @@ fn the_checked_in_host_projects_are_current_and_compile() {
 /// back (ABI.md D7, D10 C3): a closed literal union, a literal field of a
 /// struct inside a list (element by element, which warns), a state qualifier
 /// (`NonEmpty`, by running its `qualifies`), a literal arm of a positional
-/// union, and a `Reply<T>` the host completes from its own thread. Good values
+/// union, and a `Reply<T>` the host completes from its own thread — the hosts
+/// building their unions with the factories [platform-factory] (a named
+/// union's `Problems.notFound` / `Problem::not_found`, a signature's
+/// `Open.err`, a literal arm's checked `Find.str`). Good values
 /// pass on both backends; a bad one fails where it crosses — Rust panics,
 /// Kotlin throws — naming the declaration and the value.
 #[test]
@@ -1077,6 +1080,12 @@ platform fn tier(n: Int) [] -> \"gold\" | \"silver\" | None
 platform fn items(n: Int) [] -> List<Item>
 
 platform fn names(n: Int) [] -> NonEmpty List<Str>
+
+struct NotFound { path: Str }
+struct Denied { path: Str }
+type Problem = NotFound | Denied
+
+platform fn open(p: Str) [] -> Ok Str | Err Problem => p
 
 effect Lookup {
     fn find(key: Str) [] -> Int | \"missing\" => key
@@ -1098,6 +1107,16 @@ fn main() [use] {
     use HostLookup()
     println(\"${show(tier(1))} ${show(tier(2))}\")
     println(\"${items(1).size()} ${names(1)}\")
+    let o = open(\"x\")
+    when o {
+        is Ok { println(\"ok\") }
+        is ^Err {
+            when o {
+                is NotFound { println(\"not found ${o.path}\") }
+                is Denied { println(\"denied\") }
+            }
+        }
+    }
     let found = find(\"x\")
     when found {
         is Int { println(\"int\") }
@@ -1117,7 +1136,8 @@ fn main() [use] {
                 ("todo!(\"implement tier\")", "match n { 1 => Some(\"gold\".to_string()), 2 => None, _ => Some(\"bronze\".to_string()) }"),
                 ("todo!(\"implement items\")", "vec![Item { tier: \"gold\".to_string(), tags: vec![\"a\".to_string(), \"b\".to_string()] }]"),
                 ("todo!(\"implement names\")", "if n > 0 { vec![\"x\".to_string()] } else { vec![] }"),
-                ("todo!(\"implement Lookup.find\")", "Union2::U2(\"missing\".to_string())"),
+                ("todo!(\"implement open\")", "Open::err(Problem::not_found(NotFound { path: p.clone() }))"),
+                ("todo!(\"implement Lookup.find\")", "Find::str(\"missing\".to_string())"),
                 (
                     "todo!(\"implement Lookup.parity\")",
                     "let done = done.hosted();\n        std::thread::spawn(move || {\n            \
@@ -1134,7 +1154,8 @@ fn main() [use] {
                 ("TODO(\"implement tier\")", "return when (n) { 1 -> \"gold\"; 2 -> null; else -> \"bronze\" }"),
                 ("TODO(\"implement items\")", "return listOf(Item(tier = \"gold\", tags = listOf(\"a\", \"b\")))"),
                 ("TODO(\"implement names\")", "return if (n > 0) listOf(\"x\") else listOf()"),
-                ("TODO(\"implement Lookup.find\")", "return Union2.U2(\"missing\")"),
+                ("TODO(\"implement open\")", "return Open.err(Problems.notFound(NotFound(p)))"),
+                ("TODO(\"implement Lookup.find\")", "return Find.str(\"missing\")"),
                 (
                     "TODO(\"implement Lookup.parity\")",
                     "val host = done.hosted()\n        Thread {\n            \
@@ -1166,7 +1187,7 @@ fn main() [use] {
         let out = salvo_in(&dir, &["run", "--backend", backend]);
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
         assert!(out.status.success(), "{backend}: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "gold none\n1 [x]\nmissing\nodd\ngold\n", "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "gold none\n1 [x]\nnot found x\nmissing\nodd\ngold\n", "{backend}: {stderr}");
         assert!(
             stderr.contains("`platform fn items`'s result is checked element by element"),
             "{backend}: the walk is not warned about: {stderr}"

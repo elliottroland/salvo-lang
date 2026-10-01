@@ -48,6 +48,21 @@ impl crate::wire::__Wire for DefaultChain {
     }
 }
 
+pub type Credentials = Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain>;
+
+/// Factories for the host: one per arm of the union [platform-factory].
+impl Credentials {
+    pub fn profile_credentials(value: ProfileCredentials) -> Self {
+        crate::unions::Union3::U1(value)
+    }
+    pub fn environment_credentials(value: EnvironmentCredentials) -> Self {
+        crate::unions::Union3::U2(value)
+    }
+    pub fn default_chain(value: DefaultChain) -> Self {
+        crate::unions::Union3::U3(value)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Region {
     pub code: String,

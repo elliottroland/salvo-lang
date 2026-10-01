@@ -32,6 +32,13 @@ object __Codec_DefaultChain : salvo.WireCodec<DefaultChain> {
     override fun dec(inp: salvo.WireIn): DefaultChain = DefaultChain()
 }
 
+// Factories for the host: one per arm of the union [platform-factory].
+object Credentialss {
+    fun profileCredentials(value: ProfileCredentials): Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain> = salvo.Union3.U1(value)
+    fun environmentCredentials(value: EnvironmentCredentials): Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain> = salvo.Union3.U2(value)
+    fun defaultChain(value: DefaultChain): Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain> = salvo.Union3.U3(value)
+}
+
 data class Region(
     val code: String,
 )

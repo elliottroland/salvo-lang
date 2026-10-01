@@ -201,6 +201,12 @@ object __Codec_SqsError : salvo.WireCodec<SqsError> {
     override fun dec(inp: salvo.WireIn): SqsError = SqsError(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp))
 }
 
+// Factories for the host: one per arm of the union [platform-factory].
+object SqsFailures {
+    fun sqsError(value: SqsError): Union2<SqsError, AwsError> = salvo.Union2.U1(value)
+    fun awsError(value: AwsError): Union2<SqsError, AwsError> = salvo.Union2.U2(value)
+}
+
 interface Sqs {
     fun createQueue(input: CreateQueueInput, reply: salvo.SalvoReply)
     fun getQueueUrl(input: GetQueueUrlInput, reply: salvo.SalvoReply)

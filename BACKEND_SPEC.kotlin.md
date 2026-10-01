@@ -882,6 +882,12 @@ nothing but the monitor.
   Verified by kotlinc over a root alone
   (`the_host_project_compiles_on_its_own`) and by Gradle's `compileKotlin` on
   aws's root against the SDK.
+* [kt-platform-factory] [platform-factory] `object FsErrors { fun notFound(value:
+  NotFound): Union7<…> = salvo.Union7.U1(value) … }` beside the named union's
+  module code (Kotlin emits no alias, so the object is the union's only
+  name), and `object ReadToStr { … }` beside a platform fn or a
+  platform-handled effect. A checked literal factory has a block body that
+  throws like a boundary check.
 * [kt-platform-check] [platform-check] A check renders as statements over
   locals (`val __r = impl.m(…)`, then each field, element and arm bound to its
   own `val`, so smart casts hold), throwing `IllegalStateException("salvo: …

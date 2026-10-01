@@ -12,6 +12,17 @@ import salvo.core.sorted.*
 import salvo.core.string.*
 import salvo.stream.*
 
+// Factories for the host: one per arm of the union [platform-factory].
+object FsErrors {
+    fun notFound(value: NotFound): Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming> = salvo.Union7.U1(value)
+    fun permissionDenied(value: PermissionDenied): Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming> = salvo.Union7.U2(value)
+    fun alreadyExists(value: AlreadyExists): Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming> = salvo.Union7.U3(value)
+    fun notADirectory(value: NotADirectory): Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming> = salvo.Union7.U4(value)
+    fun pathEscapes(value: PathEscapes): Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming> = salvo.Union7.U5(value)
+    fun ioError(value: IoError): Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming> = salvo.Union7.U6(value)
+    fun streaming(value: Streaming): Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming> = salvo.Union7.U7(value)
+}
+
 data class NotFound(
     val path: String,
 )

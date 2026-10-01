@@ -809,6 +809,13 @@ pub struct Checked {
     /// effect member's name span (its result, for a platform-handled effect),
     /// or a `Reply<T>` parameter's name span (the value the host sends).
     pub boundary_checks: HashMap<Key, crate::abi::BoundaryCheck>,
+    /// [platform-factory] The factories of each union a host builds (ABI.md
+    /// D5): keyed by a type alias's name span (a named union reached from a
+    /// platform signature), a platform fn's or platform-handled member's name
+    /// span (its result), or a `Reply<T>` parameter's name span.
+    pub factories: HashMap<Key, crate::abi::Factories>,
+    /// [platform-factory] What every module's platform signatures reach.
+    pub platform_closure_all: std::collections::BTreeSet<String>,
     /// [iter-type] Every written `iter T` **pattern** that was filled from a
     /// value — a `let` annotation, a fn's return type — keyed by the span of
     /// the written type, with the concrete type it stands for. What the
@@ -1245,6 +1252,7 @@ fn check_once<'p>(
     // dropped: the signature check re-derives them in the file they belong to,
     // where a reader is.
     let mark = out.errors.len();
+    out.platform_closure_all = crate::abi::platform_closure_all(program, symbols);
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         let mut checker = Checker::new(
             file_idx,
@@ -2364,6 +2372,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let ty = self.lower_type(rt);
                         let what = format!("`platform fn {}`'s result", f.name.name);
                         self.plan_boundary(&ty, &what, f.name.span, f.name.span);
+                        self.plan_factories(&ty, f.name.span);
+                    }
+                }
+                Item::Type(t) if t.alias.is_some() && self.out.platform_closure_all.contains(&t.name.name) => {
+                    if t.generics.is_empty() {
+                        let ty = self.lower_type(t.alias.as_ref().unwrap());
+                        self.plan_factories(&ty, t.name.span);
                     }
                 }
                 Item::Effect(e) if platform_handled(&e.name.name, self.symbols) => {
@@ -2372,6 +2387,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             let ty = self.lower_type(rt);
                             let what = format!("`{}.{}`'s result", e.name.name, f.name.name);
                             self.plan_boundary(&ty, &what, f.name.span, f.name.span);
+                            self.plan_factories(&ty, f.name.span);
                         }
                         for p in &f.params {
                             let ty = self.lower_type(&p.ty);
@@ -2383,6 +2399,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     );
                                     let inner = args[0].clone();
                                     self.plan_boundary(&inner, &what, p.name.span, p.name.span);
+                                    self.plan_factories(&inner, p.name.span);
                                 }
                             }
                         }
@@ -2391,6 +2408,62 @@ impl<'p, 'r> Checker<'p, 'r> {
                 _ => {}
             }
         }
+    }
+
+    /// [platform-factory] The factories of `ty` when it is a runtime union of two
+    /// or more value arms (ABI.md D5), recorded under `key`: one per arm, named
+    /// by `abi::factory_name`; a base's literals share one checked factory; a
+    /// name two arms would share gets none.
+    fn plan_factories(&mut self, ty: &Ty, key: Span) {
+        use crate::abi::{BoundaryCheck, Factories, Factory};
+        let Ty::Union(arms) = ty.strip_quals() else { return };
+        let values: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
+        let nullable = values.len() < arms.len();
+        let groups = crate::literal::runtime_groups(&values);
+        if groups.len() < 2 {
+            return;
+        }
+        let mut made: Vec<Factory> = Vec::new();
+        for (i, group) in groups.iter().enumerate() {
+            let lits: Vec<salvo_syntax::ast::TypeLit> = group
+                .iter()
+                .filter_map(|g| match values[*g] {
+                    Ty::Lit(l) => Some(l.clone()),
+                    _ => None,
+                })
+                .collect();
+            let joiner = group.iter().find(|g| !matches!(values[**g], Ty::Lit(_))).map(|g| values[*g]);
+            let (name, param, check) = match joiner {
+                Some(j) if lits.is_empty() => (crate::abi::factory_name(j), crate::literal::collapse_ty(j), None),
+                // A base's literals and its open arm (`| Other Str`): one
+                // factory of the base, unchecked since any value is admitted.
+                Some(j) => (
+                    Some(crate::abi::snake(lits[0].base())),
+                    crate::literal::collapse_ty(j).strip_quals().clone(),
+                    None,
+                ),
+                None => (
+                    Some(crate::abi::snake(lits[0].base())),
+                    Ty::named(lits[0].base()),
+                    Some(BoundaryCheck::OneOf(lits.clone())),
+                ),
+            };
+            if let Some(name) = name {
+                made.push(Factory { name, arm: i, param, check });
+            }
+        }
+        let mut dropped: Vec<String> = Vec::new();
+        for f in &made {
+            if made.iter().filter(|g| g.name == f.name).count() > 1 && !dropped.contains(&f.name) {
+                dropped.push(f.name.clone());
+            }
+        }
+        made.retain(|f| !dropped.contains(&f.name));
+        let union = crate::literal::collapse_ty(ty.strip_quals());
+        self.out.factories.insert(
+            (self.file_idx, key),
+            Factories { arity: groups.len(), nullable, union, arms: made, dropped },
+        );
     }
 
     /// [platform-check] Plans one crossing, records it under `key`, and warns

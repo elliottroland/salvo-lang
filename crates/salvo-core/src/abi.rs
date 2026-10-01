@@ -20,11 +20,22 @@ use crate::program::{Program, Symbols};
 /// The names of the structs, type aliases and effects the platform surface
 /// reaches. Empty when the project declares nothing platform.
 pub fn platform_closure(program: &Program, symbols: &Symbols<'_>) -> BTreeSet<String> {
+    closure(program, symbols, false)
+}
+
+/// [platform-factory] The same over **every** module's platform declarations,
+/// std's and dependencies' included: the build emits factories for all of
+/// them, since every implementation file it compiles may call one.
+pub fn platform_closure_all(program: &Program, symbols: &Symbols<'_>) -> BTreeSet<String> {
+    closure(program, symbols, true)
+}
+
+fn closure(program: &Program, symbols: &Symbols<'_>, all: bool) -> BTreeSet<String> {
     let mut walk = Walk { symbols, seen: BTreeSet::new(), queue: Vec::new() };
     for unit in program.units() {
         // The project's own modules — std's too when the tree being built is
         // std (its files shadow the embedded copy [std-shadow]).
-        if (unit.file.is_std && !unit.file.is_shadow) || unit.file.dependency.is_some() {
+        if !all && ((unit.file.is_std && !unit.file.is_shadow) || unit.file.dependency.is_some()) {
             continue;
         }
         for item in &unit.ast.items {
@@ -185,4 +196,84 @@ impl BoundaryCheck {
             BoundaryCheck::Tuple { elems, .. } => elems.iter().any(|(_, c)| c.walks()),
         }
     }
+}
+
+/// [platform-factory] One factory of a union at the boundary (user decisions
+/// 2026-10-01, ABI.md D5): builds runtime arm `arm` from a `param`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Factory {
+    /// Snake case; each backend spells it in its own case.
+    pub name: String,
+    /// The runtime arm, 0-based.
+    pub arm: usize,
+    /// The arm's runtime type: what the factory takes.
+    pub param: crate::types::Ty,
+    /// A literal arm's factory checks its argument (one `str(value)`, D5).
+    pub check: Option<BoundaryCheck>,
+}
+
+/// [platform-factory] The factories of one union: a named one's (`FsErrors`
+/// on Kotlin, `impl FsError` on Rust) or a signature's anonymous one (an
+/// object named after the fn or member, `ReadToStr`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Factories {
+    /// The runtime value arms.
+    pub arity: usize,
+    /// The union admits `None`.
+    pub nullable: bool,
+    /// The runtime type the factories return.
+    pub union: crate::types::Ty,
+    pub arms: Vec<Factory>,
+    /// Names two or more arms would share, which get no factory (D5).
+    pub dropped: Vec<String>,
+}
+
+/// [platform-factory] The snake-case name of a factory for a runtime arm of
+/// type `ty`: a qualified arm by its qualifier (`Ok Int` → `ok`), a struct or
+/// a named union by its name (`NotFound` → `not_found`), a base type by its
+/// own (`Str` → `str`, `List<T>` → `list`). `None` for an arm with no name.
+pub fn factory_name(ty: &crate::types::Ty) -> Option<String> {
+    use crate::types::Ty;
+    match ty {
+        Ty::Qualified { quals, base } => quals
+            .iter()
+            .find(|q| !q.effect && q.name != "Mut")
+            .map(|q| snake(&q.name))
+            .or_else(|| factory_name(base)),
+        Ty::Named { name, .. } => Some(snake(name.rsplit('.').next().unwrap_or(name))),
+        Ty::Tuple(_) => Some("tuple".to_string()),
+        Ty::Array(_) => Some("array".to_string()),
+        Ty::Lit(l) => Some(snake(l.base())),
+        _ => None,
+    }
+}
+
+/// `NotFound` → `not_found`, `Str` → `str`, `ok` → `ok`.
+pub fn snake(name: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 && !out.ends_with('_') {
+                out.push('_');
+            }
+            out.extend(c.to_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `read_to_str` → `ReadToStr`: the object of a signature's factories.
+pub fn upper_camel(name: &str) -> String {
+    name.split('_')
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let mut c = p.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect()
 }

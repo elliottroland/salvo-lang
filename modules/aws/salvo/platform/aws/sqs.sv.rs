@@ -272,6 +272,18 @@ impl crate::wire::__Wire for SqsError {
     }
 }
 
+pub type SqsFailure = Union2<SqsError, AwsError>;
+
+/// Factories for the host: one per arm of the union [platform-factory].
+impl SqsFailure {
+    pub fn sqs_error(value: SqsError) -> Self {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn aws_error(value: AwsError) -> Self {
+        crate::unions::Union2::U2(value)
+    }
+}
+
 pub trait __Stateless_Sqs: Send + Sync {
     fn create_queue(&self, input: CreateQueueInput, reply: crate::scheduler::SalvoReply);
     fn get_queue_url(&self, input: GetQueueUrlInput, reply: crate::scheduler::SalvoReply);
@@ -390,5 +402,77 @@ impl<T: SqsPlatformSync> __Stateless_Sqs for __Platform_Sqs<T> {
     }
     fn delete_queue(&self, input: DeleteQueueInput, reply: crate::scheduler::SalvoReply) {
         self.0.delete_queue(input, reply)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct CreateQueue;
+
+impl CreateQueue {
+    pub fn ok(value: CreateQueueOutput) -> Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Checked<Union2<SqsError, AwsError>>) -> Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct GetQueueUrl;
+
+impl GetQueueUrl {
+    pub fn ok(value: GetQueueUrlOutput) -> Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Checked<Union2<SqsError, AwsError>>) -> Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct SendMessage;
+
+impl SendMessage {
+    pub fn ok(value: SendMessageOutput) -> Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Checked<Union2<SqsError, AwsError>>) -> Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct ReceiveMessage;
+
+impl ReceiveMessage {
+    pub fn ok(value: ReceiveMessageOutput) -> Union2<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Checked<Union2<SqsError, AwsError>>) -> Union2<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct DeleteMessage;
+
+impl DeleteMessage {
+    pub fn ok(value: ()) -> Union2<(), Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Checked<Union2<SqsError, AwsError>>) -> Union2<(), Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct DeleteQueue;
+
+impl DeleteQueue {
+    pub fn ok(value: ()) -> Union2<(), Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Checked<Union2<SqsError, AwsError>>) -> Union2<(), Checked<Union2<SqsError, AwsError>>> {
+        crate::unions::Union2::U2(value)
     }
 }

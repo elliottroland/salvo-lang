@@ -71,6 +71,60 @@ open class __Platform_RawFs(private val impl: RawFsPlatform) : RawFs {
     override fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawRenamePath(from, to)
 }
 
+// Factories for the host: one per arm of the union [platform-factory].
+object RawOpenRead {
+    fun ok(value: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawOpenReadAt {
+    fun ok(value: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawOpenWrite {
+    fun ok(value: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawOpenAppend {
+    fun ok(value: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawMetadata {
+    fun ok(value: FileInfo): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawListDir {
+    fun ok(value: List<String>): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawCreateDirs {
+    fun ok(value: Unit): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawDelete {
+    fun ok(value: Unit): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawRenamePath {
+    fun ok(value: Unit): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+}
+
 class __Platform_HostRawFs() : salvo.fs.host.__Platform_RawFs(salvo.platform.fs.host.HostRawFs())
 
 class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Streams) : Fs {

@@ -8158,6 +8158,28 @@ replaced the working document TESTING.md).
     sorted collection's comparator (D10 C2), copying a Kotlin map or set that
     is not insertion-ordered (C1), refusing a platform fn's borrowed result
     (C5).
+* [platform-factory] **Factories build a union at the boundary** (user
+  decisions 2026-10-01, ABI.md D5). Positional unions stay; beside them the
+  compiler emits one factory per runtime arm for every union a host builds:
+  a **named** union reached from any platform signature (`type FsError = …`:
+  Kotlin `object FsErrors`, Rust `impl FsError` with a `pub type FsError`),
+  and a platform fn's or platform-handled member's **anonymous** result or
+  `Reply<T>` payload (an object named after the fn or member, upper camel:
+  `ReadToStr`, `GetQueueUrl`). They compose:
+  `ReadToStr.err(FsErrors.notFound(NotFound(path)))`.
+  * Names, by arm (`abi::factory_name`): a struct by its name (`notFound`),
+    a qualified arm by its first qualifier (`ok`, `err`), a base by its own
+    (`str`, `int`, `list`); a base's literals share **one** factory of the
+    base, which checks its argument when the arm is closed [platform-check];
+    `None` has none (the host writes `null` / `None`). A name two arms would
+    share gets **no** factory, and a comment says so. `Checked` is an
+    ordinary struct.
+  * Kotlin spells them in camel case, Rust in snake case. An object named
+    like an existing type is a codegen error. Rust emits no factories for a
+    named union that admits `None` (no inherent impl on `Option`).
+  * Emitted in the build for every module's platform signatures (std's and
+    dependencies' implementation files call them too), and in the host
+    project.
 * [threadsafe-platform] `threadsafe platform handler H of E` states the host
   class's **thread-safety contract** (user decision 2026-09-26, closing the
   2026-09-20 "assumed thread-safe" stance): the instance may be entered

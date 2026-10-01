@@ -464,7 +464,8 @@ go in any order.
      sets that are not insertion-ordered), C2 (refusing identity-keyed
      collections, checking a Kotlin sorted collection's comparator), C5
      (refusing a platform fn's borrowed result).
-   - 8c. Factories (D5), and the aws generator onto them.
+   - 8c. ✅ Factories (D5; 2026-10-01, [platform-factory]). The aws generator
+     onto them is step 11.
 9. ✅ **Implementation skeletons** (done in 5b).
 10. **Port std's host files** onto the generated interfaces.
 11. **Port the aws generator** onto the generated interface files and their

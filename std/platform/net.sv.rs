@@ -57,6 +57,18 @@ impl crate::wire::__Wire for WireFailed {
     }
 }
 
+pub type NetError = Union2<Unreachable, WireFailed>;
+
+/// Factories for the host: one per arm of the union [platform-factory].
+impl NetError {
+    pub fn unreachable(value: Unreachable) -> Self {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn wire_failed(value: WireFailed) -> Self {
+        crate::unions::Union2::U2(value)
+    }
+}
+
 pub trait __Stateless_Inbound: Send + Sync {
     fn receive_frame(&self, from: NodeEndpoint, frame: Vec<u8>);
 }
@@ -239,6 +251,30 @@ impl<T: TransportPlatformSync> __Stateless_Transport for __Platform_Transport<T>
     }
     fn local_endpoint(&self) -> NodeEndpoint {
         self.0.local_endpoint()
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct Listen;
+
+impl Listen {
+    pub fn ok(value: ()) -> Union2<(), Union2<Unreachable, WireFailed>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union2<Unreachable, WireFailed>) -> Union2<(), Union2<Unreachable, WireFailed>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct Deliver;
+
+impl Deliver {
+    pub fn ok(value: ()) -> Union2<(), Union2<Unreachable, WireFailed>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union2<Unreachable, WireFailed>) -> Union2<(), Union2<Unreachable, WireFailed>> {
+        crate::unions::Union2::U2(value)
     }
 }
 

@@ -3,6 +3,14 @@
 // by every build — do not edit; the build never reads this file.
 package salvo.stream
 
+import salvo.*
+
+// Factories for the host: one per arm of the union [platform-factory].
+object StreamErrors {
+    fun invalidUtf8(value: InvalidUtf8): Union2<InvalidUtf8, StreamFailed> = salvo.Union2.U1(value)
+    fun streamFailed(value: StreamFailed): Union2<InvalidUtf8, StreamFailed> = salvo.Union2.U2(value)
+}
+
 data class InvalidUtf8(
     val source: String,
 )

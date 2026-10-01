@@ -1476,6 +1476,7 @@ impl<'p> Emitter<'p> {
                 Item::Qualifier(q) => body.push_str(&self.emit_qualifier(q)),
                 _ => {}
             }
+            body.push_str(&self.emit_item_factories(item));
         }
         // Generated items go last.
         for item in std::mem::take(&mut self.generated_items) {
@@ -2340,10 +2341,11 @@ impl<'p> Emitter<'p> {
     ) -> String {
         use salvo_core::abi::BoundaryCheck as C;
         let pad = "    ".repeat(indent);
+        // `\u{1}` marks where the value goes: everything else is escaped.
         let fail = |msg: String| {
             format!(
                 "throw IllegalStateException(\"salvo: {} [platform-check]\")",
-                escape_string(&format!("{what} {msg}")).replace("\\${__", "${__")
+                escape_string(&format!("{what} {msg}")).replace('\u{1}', &format!("${{{v}}}"))
             )
         };
         let d = indent;
@@ -2354,7 +2356,7 @@ impl<'p> Emitter<'p> {
                 format!(
                     "{pad}if ({}) {}\n",
                     cond.join(" && "),
-                    fail(format!("was ${{{v}}}, which is not one of {}", listed.join(", ")))
+                    fail(format!("was \u{1}, which is not one of {}", listed.join(", ")))
                 )
             }
             C::Qualifies { quals, inner, .. } => {
@@ -2363,7 +2365,7 @@ impl<'p> Emitter<'p> {
                     out.push_str(&format!(
                         "{pad}if (!{}.{q}_qualifies({v})) {}\n",
                         kotlin_package(m),
-                        fail(format!("was ${{{v}}}, which is not `{q}`"))
+                        fail(format!("was \u{1}, which is not `{q}`"))
                     ));
                 }
                 if let Some(inner) = inner {
@@ -2561,6 +2563,88 @@ impl<'p> Emitter<'p> {
             kt_ident(&h.name.name),
             args.join(", ")
         )
+    }
+
+    /// [platform-factory] [kt-platform-factory] The factory objects an item
+    /// carries (ABI.md D5): a named union's `object FsErrors`, a platform fn's
+    /// or a platform-handled member's `object ReadToStr` (the result's and the
+    /// `Reply<T>` payload's factories together).
+    fn emit_item_factories(&mut self, item: &Item) -> String {
+        let fx = |this: &Self, span: Span| this.checked.factories.get(&(this.file_idx, span)).cloned();
+        match item {
+            Item::Type(t) => match fx(self, t.name.span) {
+                Some(f) => self.emit_factory_object(&format!("{}s", t.name.name), &[f]),
+                None => String::new(),
+            },
+            Item::Fn(f) if f.platform => match fx(self, f.name.span) {
+                Some(x) => self.emit_factory_object(&salvo_core::abi::upper_camel(&f.name.name), &[x]),
+                None => String::new(),
+            },
+            Item::Effect(e) if self.platform_effects.contains_key(&e.name.name) => {
+                let mut out = String::new();
+                for f in &e.fns {
+                    let mut sets: Vec<salvo_core::abi::Factories> = Vec::new();
+                    sets.extend(fx(self, f.name.span));
+                    for p in &f.params {
+                        sets.extend(fx(self, p.name.span));
+                    }
+                    if !sets.is_empty() {
+                        out.push_str(&self.emit_factory_object(&salvo_core::abi::upper_camel(&f.name.name), &sets));
+                    }
+                }
+                out
+            }
+            _ => String::new(),
+        }
+    }
+
+    fn emit_factory_object(&mut self, object: &str, sets: &[salvo_core::abi::Factories]) -> String {
+        if self.symbols.structs.contains_key(object)
+            || self.symbols.effects.contains_key(object)
+            || self.symbols.type_aliases.contains_key(object)
+        {
+            self.error(format!(
+                "the factories of `{object}` would be named like the type `{object}`: rename one \
+                 [platform-factory]"
+            ));
+            return String::new();
+        }
+        let mut out = format!(
+            "\n// Factories for the host: one per arm of the union [platform-factory].\nobject {object} {{\n"
+        );
+        let mut seen: Vec<String> = Vec::new();
+        for set in sets {
+            self.union_sizes.insert(set.arity);
+            let ret = self.emit_ty(&set.union);
+            for name in &set.dropped {
+                out.push_str(&format!(
+                    "    // no `{}`: two arms would share the name; build them as `Union{}.Uk(…)`\n",
+                    kt_ident(name),
+                    set.arity
+                ));
+            }
+            for f in &set.arms {
+                if seen.contains(&f.name) {
+                    continue;
+                }
+                seen.push(f.name.clone());
+                let param = self.emit_ty(&f.param);
+                let build = format!("salvo.Union{}.U{}(value)", set.arity, f.arm + 1);
+                match &f.check {
+                    Some(check) => {
+                        let what = format!("`{object}.{}`'s argument", kt_ident(&f.name));
+                        let body = self.render_boundary_check(check, "value", &what, 2);
+                        out.push_str(&format!(
+                            "    fun {}(value: {param}): {ret} {{\n{body}        return {build}\n    }}\n",
+                            kt_ident(&f.name)
+                        ));
+                    }
+                    None => out.push_str(&format!("    fun {}(value: {param}): {ret} = {build}\n", kt_ident(&f.name))),
+                }
+            }
+        }
+        out.push_str("}\n");
+        out
     }
 
     /// The module declaring the effect named `name`.

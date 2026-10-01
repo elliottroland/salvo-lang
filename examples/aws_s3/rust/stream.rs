@@ -10,6 +10,18 @@ use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
 
+pub type StreamError = Union2<InvalidUtf8, StreamFailed>;
+
+/// Factories for the host: one per arm of the union [platform-factory].
+impl StreamError {
+    pub fn invalid_utf8(value: InvalidUtf8) -> Self {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn stream_failed(value: StreamFailed) -> Self {
+        crate::unions::Union2::U2(value)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct InvalidUtf8 {
     pub source: String,

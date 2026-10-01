@@ -176,6 +176,114 @@ impl<T: RawFsPlatform> __Stateful_RawFs for __Platform_RawFs<T> {
     }
 }
 
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawOpenRead;
+
+impl RawOpenRead {
+    pub fn ok(value: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawOpenReadAt;
+
+impl RawOpenReadAt {
+    pub fn ok(value: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawOpenWrite;
+
+impl RawOpenWrite {
+    pub fn ok(value: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawOpenAppend;
+
+impl RawOpenAppend {
+    pub fn ok(value: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawMetadata;
+
+impl RawMetadata {
+    pub fn ok(value: FileInfo) -> Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawListDir;
+
+impl RawListDir {
+    pub fn ok(value: Vec<String>) -> Union2<Vec<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<Vec<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawCreateDirs;
+
+impl RawCreateDirs {
+    pub fn ok(value: ()) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawDelete;
+
+impl RawDelete {
+    pub fn ok(value: ()) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawRenamePath;
+
+impl RawRenamePath {
+    pub fn ok(value: ()) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
 pub type __Platform_HostRawFs = crate::fs_host::__Platform_RawFs<crate::platform_fs_host::HostRawFs>;
 
 impl __Platform_HostRawFs {

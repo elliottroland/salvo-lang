@@ -233,6 +233,105 @@ impl<T: RawStreamsPlatformSync> __Stateless_RawStreams for __Platform_RawStreams
     }
 }
 
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawReadAll;
+
+impl RawReadAll {
+    pub fn ok(value: String) -> Union2<String, Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<String, Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawReadBytes;
+
+impl RawReadBytes {
+    pub fn ok(value: Vec<u8>) -> Union2<Vec<u8>, Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<Vec<u8>, Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawReadToBytes;
+
+impl RawReadToBytes {
+    pub fn ok(value: i32) -> Union2<i32, Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<i32, Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawReadToStr;
+
+impl RawReadToStr {
+    pub fn ok(value: i64) -> Union2<i64, Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<i64, Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawCloseRead;
+
+impl RawCloseRead {
+    pub fn ok(value: ()) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawFlush;
+
+impl RawFlush {
+    pub fn ok(value: ()) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawCloseWrite;
+
+impl RawCloseWrite {
+    pub fn ok(value: ()) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U1(value)
+    }
+    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union2::U2(value)
+    }
+}
+
+/// Factories for the host: one per arm of the union [platform-factory].
+pub struct RawReceive;
+
+impl RawReceive {
+    pub fn ok(value: Vec<u8>) -> Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union3::U1(value)
+    }
+    pub fn end(value: End) -> Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union3::U2(value)
+    }
+    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>> {
+        crate::unions::Union3::U3(value)
+    }
+}
+
 pub type __Platform_HostRawStreams = crate::stream_host::__Platform_RawStreams<crate::platform_stream_host::HostRawStreams>;
 
 impl __Platform_HostRawStreams {

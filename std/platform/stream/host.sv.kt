@@ -94,4 +94,53 @@ open class __Platform_RawStreams(private val impl: RawStreamsPlatform) : RawStre
     override fun rawFromBytes(data: salvo.SalvoBytes): Long = impl.rawFromBytes(data)
 }
 
+// Factories for the host: one per arm of the union [platform-factory].
+object RawReadAll {
+    fun ok(value: String): Union2<String, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
+    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<String, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawReadBytes {
+    fun ok(value: salvo.SalvoBytes): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
+    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawReadToBytes {
+    fun ok(value: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
+    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<Int, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawReadToStr {
+    fun ok(value: Long): Union2<Long, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
+    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<Long, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawCloseRead {
+    fun ok(value: Unit): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
+    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawFlush {
+    fun ok(value: Unit): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
+    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawCloseWrite {
+    fun ok(value: Unit): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
+    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object RawReceive {
+    fun ok(value: salvo.SalvoBytes): Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>> = salvo.Union3.U1(value)
+    fun end(value: End): Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>> = salvo.Union3.U2(value)
+    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>> = salvo.Union3.U3(value)
+}
+
 class __Platform_HostRawStreams() : salvo.stream.host.__Platform_RawStreams(salvo.platform.stream.host.HostRawStreams())

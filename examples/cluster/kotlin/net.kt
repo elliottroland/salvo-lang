@@ -54,6 +54,12 @@ object __Codec_WireFailed : salvo.WireCodec<WireFailed> {
     override fun dec(inp: salvo.WireIn): WireFailed = WireFailed(__Codec_NodeEndpoint.dec(inp), salvo.StrCodec.dec(inp))
 }
 
+// Factories for the host: one per arm of the union [platform-factory].
+object NetErrors {
+    fun unreachable(value: Unreachable): Union2<Unreachable, WireFailed> = salvo.Union2.U1(value)
+    fun wireFailed(value: WireFailed): Union2<Unreachable, WireFailed> = salvo.Union2.U2(value)
+}
+
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun toStr__3(e: Union2<Unreachable, WireFailed>): String {
     when (e) {
@@ -131,6 +137,18 @@ open class __Platform_Transport(private val impl: TransportPlatform) : Transport
     override fun unlisten(at: NodeEndpoint) = impl.unlisten(at)
     override fun deliver(to: NodeEndpoint, frame: salvo.SalvoBytes): Union2<Unit, Union2<Unreachable, WireFailed>> = impl.deliver(to, frame)
     override fun localEndpoint(): NodeEndpoint = impl.localEndpoint()
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object Listen {
+    fun ok(value: Unit): Union2<Unit, Union2<Unreachable, WireFailed>> = salvo.Union2.U1(value)
+    fun err(value: Union2<Unreachable, WireFailed>): Union2<Unit, Union2<Unreachable, WireFailed>> = salvo.Union2.U2(value)
+}
+
+// Factories for the host: one per arm of the union [platform-factory].
+object Deliver {
+    fun ok(value: Unit): Union2<Unit, Union2<Unreachable, WireFailed>> = salvo.Union2.U1(value)
+    fun err(value: Union2<Unreachable, WireFailed>): Union2<Unit, Union2<Unreachable, WireFailed>> = salvo.Union2.U2(value)
 }
 
 data class NodeId(

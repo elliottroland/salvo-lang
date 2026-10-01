@@ -2782,6 +2782,7 @@ impl<'p> Emitter<'p> {
                 Item::Qualifier(q) => body.push_str(&self.emit_qualifier(q)),
                 _ => {}
             }
+            body.push_str(&self.emit_item_factories(item));
         }
         // [rs-imports] Generated module imports, template `imports:`
         // lines, and the union enums when this file uses any.
@@ -4060,6 +4061,113 @@ impl<'p> Emitter<'p> {
                     .cloned()
             })
             .unwrap_or_default()
+    }
+
+    /// [platform-factory] [rs-platform-factory] The factories an item carries
+    /// (ABI.md D5): `impl FsError { pub fn not_found(…) }` on a named union,
+    /// `pub struct ReadToStr;` with an `impl` for a platform fn's or a
+    /// platform-handled member's (the result's and the `Reply<T>` payload's
+    /// together).
+    fn emit_item_factories(&mut self, item: &Item) -> String {
+        let fx = |this: &Self, span: Span| this.checked.factories.get(&(this.file_idx, span)).cloned();
+        match item {
+            Item::Type(t) => match fx(self, t.name.span) {
+                Some(f) if f.nullable => format!(
+                    "\n// No factories for `{}`: it admits `None`, and Rust has no inherent impl on an \
+                     `Option` [platform-factory].\n",
+                    t.name.name
+                ),
+                // Rust spells a union alias out wherever it is used, so the
+                // alias the factories hang off is declared here.
+                Some(f) => {
+                    let alias = rs_ident(&t.name.name);
+                    let union = self.rust_ty(&f.union);
+                    format!("\npub type {alias} = {union};\n{}", self.emit_factory_impl(&alias, "Self", false, &[f]))
+                }
+                None => String::new(),
+            },
+            Item::Fn(f) if f.platform => match fx(self, f.name.span) {
+                Some(x) => self.emit_factory_impl(&salvo_core::abi::upper_camel(&f.name.name), "", true, &[x]),
+                None => String::new(),
+            },
+            Item::Effect(e) if self.platform_effects.contains_key(&e.name.name) => {
+                let mut out = String::new();
+                for f in &e.fns {
+                    let mut sets: Vec<salvo_core::abi::Factories> = Vec::new();
+                    sets.extend(fx(self, f.name.span));
+                    for p in &f.params {
+                        sets.extend(fx(self, p.name.span));
+                    }
+                    if !sets.is_empty() {
+                        out.push_str(&self.emit_factory_impl(&salvo_core::abi::upper_camel(&f.name.name), "", true, &sets));
+                    }
+                }
+                out
+            }
+            _ => String::new(),
+        }
+    }
+
+    /// `ret` empty means each set's own union type.
+    fn emit_factory_impl(
+        &mut self,
+        target: &str,
+        ret: &str,
+        declare: bool,
+        sets: &[salvo_core::abi::Factories],
+    ) -> String {
+        let mut out = String::from("\n/// Factories for the host: one per arm of the union [platform-factory].\n");
+        if declare {
+            if self.symbols.structs.contains_key(target)
+                || self.symbols.effects.contains_key(target)
+                || self.symbols.type_aliases.contains_key(target)
+            {
+                self.error(format!(
+                    "the factories of `{target}` would be named like the type `{target}`: rename one \
+                     [platform-factory]"
+                ));
+                return String::new();
+            }
+            out.push_str(&format!("pub struct {target};\n\n"));
+        }
+        out.push_str(&format!("impl {target} {{\n"));
+        let mut seen: Vec<String> = Vec::new();
+        for set in sets {
+            self.union_sizes.insert(set.arity);
+            let ret = if ret.is_empty() { self.rust_ty(&set.union) } else { ret.to_string() };
+            for name in &set.dropped {
+                out.push_str(&format!(
+                    "    // no `{}`: two arms would share the name; build them as `Union{}::Uk(…)`\n",
+                    rs_ident(name),
+                    set.arity
+                ));
+            }
+            for f in &set.arms {
+                if seen.contains(&f.name) {
+                    continue;
+                }
+                seen.push(f.name.clone());
+                let param = self.rust_ty(&f.param);
+                let mut build = format!("crate::unions::Union{}::U{}(value)", set.arity, f.arm + 1);
+                if set.nullable {
+                    build = format!("Some({build})");
+                }
+                let checks = match &f.check {
+                    Some(check) => {
+                        let what = format!("`{target}::{}`'s argument", rs_ident(&f.name));
+                        let body = self.render_boundary_check(check, "__c", &what, 3);
+                        format!("        {{\n            let __c = &value;\n{body}        }}\n")
+                    }
+                    None => String::new(),
+                };
+                out.push_str(&format!(
+                    "    pub fn {}(value: {param}) -> {ret} {{\n{checks}        {build}\n    }}\n",
+                    rs_ident(&f.name)
+                ));
+            }
+        }
+        out.push_str("}\n");
+        out
     }
 
     /// [platform-abi] [rs-platform-handler] A platform handler is its effect's
