@@ -135,6 +135,11 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**A platform fn may not return a borrow (2026-10-01; ABI.md D10 C5).** The
+checker refuses a `proj` anywhere in a platform fn's result type; a
+platform-handled member's was already refused when emitted. Checker test
+`a_platform_fn_returning_a_borrow_is_refused`. **1665 tests.**
+
 **ABI stamps and the dependency check (2026-10-01; ABI.md step 12).** D9 (b)
 built: `abi::abi_stamp` hashes an owner's platform signatures and what they
 reach in a canonical rendering, and every generated file of a host project
@@ -19462,7 +19467,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1664; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1665; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -20137,7 +20142,8 @@ cache, with per-test timings.
   check on both backends passing good values; a bad result and a bad
   host-sent reply failing with the declaration named), and 2 checker tests
   (`salvo-core/tests/platform_tests.rs`: a constructive qualifier from another
-  module refused, the walk warning)
+  module refused, the walk warning) and a third (a platform fn returning a
+  borrow refused)
   + the stamp test (`tests/platform_tests.rs` [platform-stamp]: a dependency's
   host project missing, stale against its signatures, and of another ABI
   revision, each refused by name; unreached, not checked)

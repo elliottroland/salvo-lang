@@ -8154,10 +8154,11 @@ replaced the working document TESTING.md).
     `salvo_core::abi::BoundaryCheck`), so both backends check the same
     thing; a host project's adapters carry no checks (it only type-checks
     the implementation files).
+  * A platform fn whose result borrows (`proj`) is refused (D10 C5), as a
+    platform-handled member's is at emission.
   * Not yet: refusing identity-keyed collections and checking a Kotlin
     sorted collection's comparator (D10 C2), copying a Kotlin map or set that
-    is not insertion-ordered (C1), refusing a platform fn's borrowed result
-    (C5).
+    is not insertion-ordered (C1).
 * [platform-factory] **Factories build a union at the boundary** (user
   decisions 2026-10-01, ABI.md D5). Positional unions stay; beside them the
   compiler emits one factory per runtime arm for every union a host builds:

@@ -1395,6 +1395,21 @@ fn check_intrinsic_is_std_only(program: &Program, out: &mut Checked) {
     }
 }
 
+/// [platform-check] Whether a written type borrows (`proj`) anywhere.
+fn ast_mentions_proj(ty: &ast::Type) -> bool {
+    match ty {
+        ast::Type::Named { qualifiers, base } => {
+            qualifiers.iter().any(|q| q.name.name == "proj") || base.args.iter().any(ast_mentions_proj)
+        }
+        ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+            qualifiers.iter().any(|q| q.name.name == "proj") || ast_mentions_proj(base)
+        }
+        ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => arms.iter().any(ast_mentions_proj),
+        ast::Type::Array { elem, .. } | ast::Type::Nullable { inner: elem, .. } => ast_mentions_proj(elem),
+        _ => false,
+    }
+}
+
 /// [effect-member-unique] A member name is unique **within its effect**.
 /// Across effects the name may recur ([effect-member-overload], user
 #[derive(Clone)]
@@ -2369,6 +2384,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             match item {
                 Item::Fn(f) if f.platform => {
                     if let Some(rt) = &f.return_type {
+                        // [platform-check] D10 C5: a result borrowed from a
+                        // parameter would need host lifetimes.
+                        if ast_mentions_proj(rt) {
+                            self.error(
+                                f.name.span,
+                                format!(
+                                    "`platform fn {}` returns a borrow (`proj`), which host code cannot \
+                                     hand back: return an owned value [platform-check]",
+                                    f.name.name
+                                ),
+                            );
+                        }
                         let ty = self.lower_type(rt);
                         let what = format!("`platform fn {}`'s result", f.name.name);
                         self.plan_boundary(&ty, &what, f.name.span, f.name.span);

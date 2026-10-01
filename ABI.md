@@ -461,9 +461,9 @@ go in any order.
      generator ported (this was step 10's and part of 11's work).
    - 8b. ✅ Validation in the adapters and wrappers (D7, D10 C3), host replies
      (2026-10-01, [platform-check]). Left: D10 C1 (Kotlin copies of maps and
-     sets that are not insertion-ordered), C2 (refusing identity-keyed
-     collections, checking a Kotlin sorted collection's comparator), C5
-     (refusing a platform fn's borrowed result).
+     sets that are not insertion-ordered) and C2 (refusing identity-keyed
+     collections, checking a Kotlin sorted collection's comparator). C5, a
+     platform fn's borrowed result refused, landed 2026-10-01.
    - 8c. ✅ Factories (D5; 2026-10-01, [platform-factory]). The aws generator
      onto them is step 11.
 9. ✅ **Implementation skeletons** (done in 5b).

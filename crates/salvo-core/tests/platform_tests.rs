@@ -325,3 +325,15 @@ fn a_walking_check_warns_on_the_declaration() {
         "{diags:?}"
     );
 }
+
+/// [platform-check] D10 C5: a platform fn's result may not borrow from its
+/// parameters — the host has no Salvo lifetimes to hand back.
+#[test]
+fn a_platform_fn_returning_a_borrow_is_refused() {
+    let errs: Vec<String> = check_errors("struct Box { v: Str }\n\nplatform fn peek(b: Box) [] -> proj(b) Str => b\n")
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect();
+    assert!(errs.iter().any(|m| m.contains("`platform fn peek` returns a borrow")), "{errs:?}");
+}
