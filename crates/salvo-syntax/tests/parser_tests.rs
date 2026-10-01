@@ -951,10 +951,10 @@ fn an_else_in_the_subject_form_names_the_other_form() {
     );
 }
 
-/// [platform-handler] `platform` takes `handler`, and nothing else — a
-/// `platform effect` included, since platform effects were removed
-/// (2026-10-01). The diagnostic names the form rather than reporting a bare
-/// "expected item".
+/// [platform-handler] [platform-fn] `platform` takes `handler` or `fn`, and
+/// nothing else — a `platform effect` included, since platform effects were
+/// removed (2026-10-01). The diagnostic names both forms rather than
+/// reporting a bare "expected item".
 #[test]
 fn platform_on_a_non_handler_is_an_error_naming_the_form() {
     for source in [
@@ -965,7 +965,7 @@ fn platform_on_a_non_handler_is_an_error_naming_the_form() {
         assert!(
             diagnostics.iter().any(|d| d.is_error()
                 && d.message
-                    .contains("expected `handler` after `platform`")
+                    .contains("expected `handler` or `fn` after `platform`")
                 && d.message.contains("`platform handler`")),
             "expected a platform-form error for {source:?}, got {:?}",
             diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
@@ -1090,15 +1090,25 @@ fn a_plain_handler_is_not_a_platform_handler() {
 
 // --- Bodiless declarations are gone [decl-body] ---
 
-/// [decl-body] A top-level `fn` with no body was `external fn`'s shape.
-/// It parses: a platform template may implement it.
+/// [platform-fn] [decl-body] A bodiless top-level fn is a `platform fn`: the
+/// modifier parses and sets the flag; without it the missing body is an
+/// error naming the modifier; with it, a body is an error (user decision
+/// 2026-10-01, ABI.md D1).
 #[test]
-fn a_bodiless_top_level_fn_parses_for_a_template_to_implement() {
-    // [decl-body] [host-splice] A platform template may implement it, so the
-    // parser accepts it; the checker reports one nothing implements
-    // (`splice_tests.rs`).
-    let errors = errors_of("fn chars(str: Str) [] -> Char[] => str\n");
-    assert!(errors.is_empty(), "{errors:?}");
+fn platform_fn_parses_and_a_bare_bodiless_fn_is_refused() {
+    let (module, diagnostics) = salvo_syntax::parse_module("export platform fn chars(s: Str) [] -> Char[] => s\n");
+    assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else { panic!("expected a fn") };
+    assert!(f.platform && f.exported && f.body.is_none(), "{f:?}");
+    let errors = errors_of("fn chars(s: Str) [] -> Char[] => s\n");
+    assert!(
+        errors.iter().any(|m| m.contains("`fn chars` has no body") && m.contains("platform fn chars")),
+        "{errors:?}"
+    );
+    let errors = errors_of("platform fn chars(s: Str) [] -> Str => s {\n    return s\n}\n");
+    assert!(errors.iter().any(|m| m.contains("`platform fn chars` has a body")), "{errors:?}");
+    let errors = errors_of("threadsafe platform fn chars(s: Str) [] -> Str => s\n");
+    assert!(errors.iter().any(|m| m.contains("[threadsafe-platform]")), "{errors:?}");
 }
 
 /// [decl-body] A `type` with no `= ...` alias (and not `intrinsic`) was only

@@ -429,8 +429,7 @@ go in any order.
 
 1. ✅ **Decide D1–D10** (2026-10-01).
 2. ✅ **Remove platform effects** (2026-10-01).
-3. **`platform fn`** (D1, *independent*): the modifier, the checker rule, the
-   sweep of today's bodiless fns.
+3. ✅ **`platform fn`** (2026-10-01, [platform-fn]).
 4. **Kotlin camel case** (D6, *independent*): the clash check in the checker,
    then every name in the Kotlin emitter. Touches every Kotlin golden test and
    example tree, so it lands on its own.

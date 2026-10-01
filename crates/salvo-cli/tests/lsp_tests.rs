@@ -1891,7 +1891,7 @@ fn position_of(text: &str, needle: &str, skip: u32) -> (u32, u32) {
 
 const TEMPLATE_SV: &str = "struct Greeting { text: Str, loud: Bool }
 
-fn shout(g: Greeting) [] -> Str => g
+platform fn shout(g: Greeting) [] -> Str => g
 
 effect Counter {
     fn next(step: Int) -> Int => step

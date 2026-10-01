@@ -1194,7 +1194,7 @@ fn platform_templates_run_on_both_backends() {
         assert_eq!(String::from_utf8_lossy(&out.stdout), expected, "{backend}");
     }
     // A Kotlin-only fn: a warning; reaching it from a Rust build: an error.
-    let sv = format!("{TPL_SV}\nfn only_kotlin() [] -> Int\n");
+    let sv = format!("{TPL_SV}\nplatform fn only_kotlin() [] -> Int\n");
     let kt = format!("{TPL_KT}\n`fn only_kotlin() -> Int` {{\n    return 1\n}}\n");
     write(&sv, &kt, TPL_RS);
     let out = salvo_in(&dir, &["analyze"]);
@@ -1208,7 +1208,7 @@ fn platform_templates_run_on_both_backends() {
         assert!(!out.status.success() && stderr.contains("has no Rust implementation in its platform template"), "{stderr}");
     }
     // A Rust-only fn is an error; so is a template naming what the `.sv` lacks.
-    let sv = format!("{TPL_SV}\nfn only_rust() [] -> Int\n");
+    let sv = format!("{TPL_SV}\nplatform fn only_rust() [] -> Int\n");
     write(&sv, &format!("{TPL_KT}\n`fn missing() -> Int` {{\n    return 1\n}}\n"), &format!("{TPL_RS}\n`fn only_rust() -> Int` {{\n    1\n}}\n"));
     let out = salvo_in(&dir, &["analyze"]);
     let all = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
@@ -1220,10 +1220,10 @@ fn platform_templates_run_on_both_backends() {
 const TPL_SV: &str = r#"struct Greeting { text: Str, loud: Bool }
 struct Attr { data_type: Str, string_value: Str? = None }
 
-fn shout(g: Greeting) [] -> Str => g
-fn make(text: Str) [] -> Greeting => text
-fn parse(s: Str) [] -> Ok Int | Err Str => s
-fn describe_attrs(attrs: List<Attr>) [] -> Str => attrs
+platform fn shout(g: Greeting) [] -> Str => g
+platform fn make(text: Str) [] -> Greeting => text
+platform fn parse(s: Str) [] -> Ok Int | Err Str => s
+platform fn describe_attrs(attrs: List<Attr>) [] -> Str => attrs
 
 effect Counter {
     fn next(step: Int) -> Int => step

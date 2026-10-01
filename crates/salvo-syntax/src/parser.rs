@@ -868,17 +868,14 @@ impl<'s> Parser<'s> {
             TokenKind::KwParams => self.parse_params_group().map(Item::Params),
             TokenKind::KwFn => {
                 let f = self.parse_fn(false)?;
-                // [decl-body] A top-level `fn` without a body was
-                // `external fn`'s shape. The two things it could have meant
-                // now have their own spellings, so the error names both
-                // rather than reporting a bare "expected `{`".
-                // [host-splice] A platform template may implement it, so the
-                // missing body is the checker's to report, after templates.
-                if false && f.body.is_none() && f.by.is_none() && f.host.is_empty() {
+                // [decl-body] [platform-fn] A top-level `fn` without a body:
+                // the host's to implement only when it says so.
+                if f.body.is_none() && f.by.is_none() {
                     self.error(
                         format!(
-                            "`fn {}` has no body",
-                            f.name.name
+                            "`fn {}` has no body: write one, or declare it `platform fn {}` \
+                             for the host to implement [platform-fn]",
+                            f.name.name, f.name.name
                         ),
                         f.span,
                     );
@@ -2048,9 +2045,27 @@ impl<'s> Parser<'s> {
         self.parse_handler_flavored(intrinsic, false, false)
     }
 
-    /// What follows `platform` (and `threadsafe platform`): `handler`.
+    /// What follows `platform` (and `threadsafe platform`): `handler`, or
+    /// `fn` [platform-fn].
     fn parse_platform_rest(&mut self, threadsafe: bool) -> Option<Item> {
         match self.kind() {
+            // [platform-fn] `platform fn f(…) -> T`: a host implementation of
+            // one function. Bodiless; `threadsafe` belongs to a handler.
+            TokenKind::KwFn if !threadsafe => {
+                let mut f = self.parse_fn(false)?;
+                f.platform = true;
+                if f.body.is_some() || f.by.is_some() {
+                    self.error(
+                        format!(
+                            "`platform fn {}` has a body: a platform fn is implemented by \
+                             the host, so it is a signature only [platform-fn]",
+                            f.name.name
+                        ),
+                        f.name.span,
+                    );
+                }
+                Some(Item::Fn(f))
+            }
             // [platform-handler] `platform handler HostRawFs of RawFs`: a
             // host implementation of an *ordinary* Salvo effect, registered
             // with `use` like any handler.
@@ -2062,9 +2077,9 @@ impl<'s> Parser<'s> {
                 let found = other.describe();
                 self.error(
                     format!(
-                        "expected `handler` after `platform`, found {found}: a platform \
-                         declaration is a host implementation of a Salvo effect \
-                         (`platform handler`)"
+                        "expected `handler` or `fn` after `platform`, found {found}: a \
+                         platform declaration is a host implementation of a Salvo effect \
+                         (`platform handler`) or of one function (`platform fn`)"
                     ),
                     span,
                 );
@@ -2148,6 +2163,7 @@ impl<'s> Parser<'s> {
                         docs: Vec::new(),
                         exported: false,
                         intrinsic: false,
+                        platform: false,
                         is_iter: false,
                         iter_state: Vec::new(),
                         is_send: true,
@@ -2418,6 +2434,7 @@ impl<'s> Parser<'s> {
             exported: false,
             docs,
             intrinsic,
+            platform: false,
             is_iter,
             is_send,
             iter_state,

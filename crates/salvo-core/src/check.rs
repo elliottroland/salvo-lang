@@ -2377,17 +2377,39 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (item_idx, item) in module.items.iter().enumerate() {
             match item {
                 Item::Fn(f) => {
-                    // [decl-body] [host-splice] A top-level fn has a body — in
-                    // Salvo, from `by`, or from a platform template.
-                    if f.body.is_none() && f.by.is_none() && f.host.is_empty() && !f.intrinsic && !self.is_std {
+                    // [platform-fn] [host-splice] A platform fn needs an
+                    // implementation for the host to supply; without one in
+                    // any backend it is reported here (per backend by
+                    // `host_block_coverage`).
+                    if f.platform && f.host.is_empty() {
                         self.error(
                             f.name.span,
                             format!(
-                                "`fn {}` has no body: write one, implement it in a platform template \
-                                 (`<module>.sv.kt` / `.sv.rs` under the platform root)",
+                                "`platform fn {}` has no implementation: write it in a platform \
+                                 template (`<module>.sv.kt` / `.sv.rs` under the platform root), \
+                                 or run `salvo platform generate` [platform-fn]",
                                 f.name.name
                             ),
                         );
+                    }
+                    // [platform-fn] Two platform fns may not overload each
+                    // other (user decision 2026-10-01, ABI.md D5): each has a
+                    // namespace of its own at the boundary. One may share its
+                    // name with ordinary fns.
+                    if f.platform {
+                        let first = module.items.iter().position(|i| {
+                            matches!(i, Item::Fn(g) if g.platform && g.name.name == f.name.name)
+                        });
+                        if first.is_some_and(|i| i != item_idx) {
+                            self.error(
+                                f.name.span,
+                                format!(
+                                    "`platform fn {}` is declared twice: two platform fns may not \
+                                     overload each other — give one another name [platform-fn]",
+                                    f.name.name
+                                ),
+                            );
+                        }
                     }
                     self.check_fn_item(item_idx, f)
                 }

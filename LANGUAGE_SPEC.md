@@ -2165,13 +2165,26 @@ Conventions:
 * [decl-body] A top-level `fn` with **no body**, and a `type` with neither
   an `= alias` nor the `intrinsic` modifier, are parse errors (in
   `parse_item`): both were the shape of the now-removed bodiless
-  declaration form, and there is nothing left for such a declaration to
-  mean. Each error names the surviving forms — write the body, or (if the
-  target language provides it) implement it in a platform template
-  [host-splice]; give the type a definition (`type N = ...`), or
-  declare it `intrinsic`. `intrinsic` declarations parse through their own
-  modifier branch, so they are the only bodiless `fn`/`type` forms left,
-  and only std may write them [intrinsic-std-only].
+  declaration form. Each error names the surviving forms — write the body,
+  or declare it `platform fn` for the host to implement [platform-fn]; give
+  the type a definition (`type N = ...`), or declare it `intrinsic`.
+  `intrinsic` and `platform` declarations parse through their own modifier
+  branches, so they are the only bodiless `fn`/`type` forms left; only std
+  may write `intrinsic` [intrinsic-std-only].
+* [platform-fn] **`platform fn name(…) -> T`** declares a top-level fn the
+  host implements in the target language (user decision 2026-10-01, ABI.md
+  D1; the modifier replaced "a bodiless fn" as the marker, so every interop
+  point is one searchable word). It is a signature only: a body is a parse
+  error, as is `threadsafe` (a claim about a handler's class). `export
+  platform fn` exports it.
+  * Today its implementation is a platform template's `` `fn …` `` marker
+    [host-splice]; one with no implementation in any backend is a checker
+    error naming `salvo platform generate`, and per-backend coverage is
+    [host-splice]'s rule. ABI.md replaces templates with generated interface
+    and implementation files.
+  * **Two platform fns may not overload each other** (user decision
+    2026-10-01, ABI.md D5): each gets its own namespace at the boundary. A
+    platform fn may share its name with ordinary fns.
 * [fn-must-return] A fn with a non-`None` return type must return on
   every path. Definitely-returning constructs: `return`, a **diverging
   expression** ([type-any-never]: a statement the checker typed
@@ -8133,7 +8146,7 @@ replaced the working document TESTING.md).
   `modules/aws` (`platform = "salvo/platform"`) and `std/`
   (`platform = "platform"`) — or each may have its own, inside the source
   tree or beside it (`kotlin/`, `rust/`).
-  * A program with a `platform handler` or a bodiless
+  * A program with a `platform handler` or a `platform fn`
     fn needs a root for every backend it builds, and for the one being
     built: otherwise it is refused at the first such declaration, naming the
     key (`platform_root_required`, in every build and in `analyze`). A
@@ -8189,7 +8202,7 @@ replaced the working document TESTING.md).
   the constructor's `val`; Rust inside `new`.
 * [host-splice] **Platform templates: host code with Salvo in it** (user
   decisions 2026-09-30, replacing the same day's fenced blocks inside `.sv`
-  files). `platform/<path>.sv.kt` and `.sv.rs` implement the **bodiless**
+  files). `platform/<path>.sv.kt` and `.sv.rs` implement the **platform**
   declarations of `<path>.sv`: they are ordinary Kotlin and Rust in which a
   `` `…` `` marker is Salvo the compiler renders. The path is under the
   backend's platform root [platform-root] (`platform/` above is the usual
@@ -8205,12 +8218,12 @@ replaced the working document TESTING.md).
     Salvo type.
   * **Declaring markers**, each followed by a braced host body, name the
     `.sv` declaration with its **full signature**, checked against it:
-    `` `fn name(params) -> R` { … } `` for a bodiless fn (or, inside a
+    `` `fn name(params) -> R` { … } `` for a `platform fn` [platform-fn] (or, inside a
     handler, one of its effect's members, whose clause it takes);
     `` `platform handler H(params) of E` { … } `` for a platform handler;
     `` `struct H` { name: HostType = init, … } `` for handler `H`'s **host
     fields**. A template naming anything its `.sv` file does not declare is
-    an error; so is a bodiless declaration no template implements for a
+    an error; so is a platform declaration no template implements for a
     backend the manifest builds (Kotlin-only a warning, as before).
   * **Other markers** are holes: a type alone (`` `AwsError` ``), a value
     (`` `input.queue_name` ``), `e : T` (the wrap into a union host code
@@ -8805,9 +8818,9 @@ replaced the working document TESTING.md).
   platform root [platform-root] — every backend the manifest builds, or the
   one named. `--src` and `--main` behave as in `salvo run` [cli-run].
   * **A template** (`<m>.sv.<ext>`) per module with platform handlers or
-    bodiless fns (user decision 2026-09-30) [host-splice]: a declaring marker
+    `platform fn`s (user decision 2026-09-30) [host-splice]: a declaring marker
     with the full signature for each — a handler's header, each member of the
-    effect it implements, each bodiless fn — with a `TODO` / `todo!` body, and
+    effect it implements, each platform fn — with a `TODO` / `todo!` body, and
     the [platform-reply] contract above a member taking a `Reply`
     (`template::skeleton`). A declaration already implemented in that
     language is left out; a handler whose module already has a hand-written

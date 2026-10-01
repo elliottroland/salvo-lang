@@ -45,7 +45,7 @@ fn errors(sv: &str, kotlin: &str) -> Vec<String> {
 
 #[test]
 fn markers_are_checked_against_their_types() {
-    let sv = "struct P { n: Int }\nfn f(p: P) [] -> Int => p\n";
+    let sv = "struct P { n: Int }\nplatform fn f(p: P) [] -> Int => p\n";
     assert_eq!(errors(sv, "`fn f(p: P) -> Int` {\n    return `p.n` + `P { n: @{3} }`.n\n}\n"), Vec::<String>::new());
     let errs = errors(sv, "`fn f(p: P) -> Int` {\n    return `p.n : Str`\n}\n");
     assert!(errs.iter().any(|e| e.contains("this hole is `Str`, and `Int` is not one")), "{errs:?}");
@@ -54,27 +54,27 @@ fn markers_are_checked_against_their_types() {
 
 #[test]
 fn a_template_matches_its_declarations() {
-    let sv = "fn f(s: Str) [] -> Int => s\n";
+    let sv = "platform fn f(s: Str) [] -> Int => s\n";
     let errs = errors(sv, "`fn f(s: Int) -> Int` {\n    return 1\n}\n");
-    assert!(errs.iter().any(|e| e.contains("does not declare without a body")), "{errs:?}");
+    assert!(errs.iter().any(|e| e.contains("does not declare as a `platform fn`")), "{errs:?}");
     let errs = errors(sv, "`fn f(s: Str) -> Str` {\n    return 1\n}\n");
     assert!(errs.iter().any(|e| e.contains("does not match the declaration's")), "{errs:?}");
     let errs = errors(sv, "`fn g() -> Int` {\n    return 1\n}\n`fn f(s: Str) -> Int` { return 1 }\n");
     assert!(errs.iter().any(|e| e.contains("`fn g()`")), "{errs:?}");
     // A bodiless fn nothing implements.
-    let errs = errors("fn h() [] -> Int\n", "");
-    assert!(errs.iter().any(|e| e.contains("`fn h` has no body")), "{errs:?}");
+    let errs = errors("platform fn h() [] -> Int\n", "");
+    assert!(errs.iter().any(|e| e.contains("`platform fn h` has no implementation")), "{errs:?}");
 }
 
 #[test]
 fn a_return_marker_takes_the_fn_return_type() {
-    let sv = "fn f(n: Int) [] -> Ok Int | Err Str => n\n";
+    let sv = "platform fn f(n: Int) [] -> Ok Int | Err Str => n\n";
     assert_eq!(errors(sv, "`fn f(n: Int) -> Ok Int | Err Str` {\n    return `ok(n)`\n}\n"), Vec::<String>::new());
 }
 
 #[test]
 fn typed_host_names_are_declared_redeclared_and_assigned() {
-    let sv = "struct A { x: Int }\nstruct B { y: Int }\nfn f(xs: List<A>) [] -> Int => xs\n";
+    let sv = "struct A { x: Int }\nstruct B { y: Int }\nplatform fn f(xs: List<A>) [] -> Int => xs\n";
     let body = |inner: &str| format!("`fn f(xs: List<A>) -> Int` {{\n{inner}\n}}\n");
     assert_eq!(errors(sv, &body("return `xs`.map { `a : A` -> `a.x` }.sum()")), Vec::<String>::new());
     assert!(!errors(sv, &body("return `xs`.map { `a : A` -> `a.y` }.sum()")).is_empty(), "no field `y`");
@@ -102,7 +102,7 @@ fn a_platform_handler_template_implements_its_members() {
 
 #[test]
 fn strings_and_comments_are_not_scanned_and_double_backticks_escape() {
-    let sv = "fn f(s: Str) [] -> Str => s\n";
+    let sv = "platform fn f(s: Str) [] -> Str => s\n";
     let kt = "// a `comment` with backticks\n`fn f(s: Str) -> Str` {\n    val ``in`` = \"a `string`\"\n    return `s` + ``in``\n}\n";
     assert_eq!(errors(sv, kt), Vec::<String>::new());
 }
@@ -115,7 +115,7 @@ fn strings_and_comments_are_not_scanned_and_double_backticks_escape() {
 // place's type.
 #[test]
 fn a_marker_ascribes_the_type_of_a_place() {
-    let sv = "fn f(n: Int) [] -> Ok Int | Err Str => n\n".to_string();
+    let sv = "platform fn f(n: Int) [] -> Ok Int | Err Str => n\n".to_string();
     let body = |inner: &str| format!("`fn f(n: Int) -> Ok Int | Err Str` {{\n{inner}\n}}\n");
     // By a declared name, in both branches of host control flow.
     let branches = "val `answer : Ok Int | Err Str` = if (`n` > 0) `ok(n) : answer` else `err(\"neg\") : answer`\nreturn answer";
@@ -132,4 +132,16 @@ fn a_marker_ascribes_the_type_of_a_place() {
     // `: return` where there is no fn.
     let errs = errors(&sv, &format!("{}\nval top = `ok(1) : return`\n", body("return `ok(n)`")));
     assert!(errs.iter().any(|e| e.contains("`: return` takes the enclosing fn's return type")), "{errs:?}");
+}
+
+// [platform-fn] Two platform fns may not overload each other (user decision
+// 2026-10-01, ABI.md D5); a platform fn may share its name with ordinary fns.
+#[test]
+fn platform_fns_do_not_overload_each_other() {
+    let sv = "platform fn f(n: Int) [] -> Int => n\nplatform fn f(s: Str) [] -> Int => s\n";
+    let kt = "`fn f(n: Int) -> Int` {\n    return `n`\n}\n`fn f(s: Str) -> Int` {\n    return 0\n}\n";
+    let errs = errors(sv, kt);
+    assert!(errs.iter().any(|e| e.contains("`platform fn f` is declared twice")), "{errs:?}");
+    let sv = "platform fn f(n: Int) [] -> Int => n\nfn f(s: Str) [] -> Int => s {\n    return 0\n}\n";
+    assert_eq!(errors(sv, "`fn f(n: Int) -> Int` {\n    return `n`\n}\n"), Vec::<String>::new());
 }

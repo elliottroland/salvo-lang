@@ -135,6 +135,24 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`platform fn` (2026-10-01, user decision; ABI.md step 3).** A top-level fn
+the host implements is now declared `platform fn name(…) -> T` ([platform-fn],
+ABI.md D1) instead of being recognised by its missing body. A bodiless fn
+without the modifier is a parse error naming `platform fn`; a `platform fn`
+with a body, or with `threadsafe`, is refused; `FnDecl.platform` carries it.
+The checker reports a platform fn no template implements, and — per D5 — two
+platform fns overloading each other (a platform fn may still share a name
+with ordinary fns). The template machinery, coverage check, skeleton writer,
+root requirement and language server's header lookup now key on the flag.
+A template's `` `fn …` `` marker is unchanged: its header is read as the
+platform fn it implements. No shipped source had a bodiless fn (the aws glue
+declares only handlers), so the sweep was the tests: the template tests in
+`splice_tests.rs`, `run_tests.rs`, `lsp_tests.rs` and `platform_tests.rs`
+now declare `platform fn`. Tests: a parser test (the modifier, the bare
+bodiless error, a body refused, `threadsafe` refused) and a checker test (no
+overloading between platform fns, sharing a name with an ordinary fn allowed).
+**1670 tests.**
+
 **Platform effects removed (2026-10-01, user decision; ABI.md step 2).** The
 first step of the platform ABI sequence. `platform effect` — an effect the host
 implemented wholly, whose instance a host-owned `main` handed to the generated
@@ -19256,7 +19274,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1669; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1670; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

@@ -2146,7 +2146,7 @@ impl DocView<'_> {
                     let found = items.iter().find_map(|i| match i {
                         Item::Fn(d)
                             if d.name.name == t.name.name
-                                && d.body.is_none()
+                                && d.platform
                                 && same_params(&d.params, &t.params) =>
                         {
                             Some(d)

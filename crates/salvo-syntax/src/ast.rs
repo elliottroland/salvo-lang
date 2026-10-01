@@ -832,6 +832,11 @@ pub struct FnDecl {
     /// rather than an enum: it is the only backing modifier there is, now
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
+    /// [platform-fn] `platform fn name(…) -> T`: a top-level fn the **host**
+    /// implements in the target language (user decision 2026-10-01, ABI.md
+    /// D1). Always bodiless; a bodiless top-level fn without it is an error,
+    /// so every interop point is one searchable word.
+    pub platform: bool,
     /// [iter-fn] `iter fn range(start: Int, end: Int) -> Emitted T | Finished`:
     /// a hand-written `next` whose **iterator struct is generated**. The
     /// declaration is the *minter* — its own name and parameters — the

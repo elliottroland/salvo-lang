@@ -363,7 +363,7 @@ pub fn skeleton(module: &Module, modules: &[Module], lang: &str) -> Option<Strin
     let mut parts: Vec<String> = Vec::new();
     for item in &module.items {
         match item {
-            Item::Fn(f) if f.body.is_none() && f.by.is_none() && !f.intrinsic && !has(&f.host) => {
+            Item::Fn(f) if f.platform && !has(&f.host) => {
                 parts.push(format!("`{}` {{\n    {}\n}}\n", header(f), todo(&f.name.name)));
             }
             Item::Handler(h) if h.platform => {
@@ -543,9 +543,17 @@ fn parts(nodes: &[Node], diags: &mut Vec<(Span, String)>) -> Vec<HostBlockPart> 
 /// [offset] (the source is padded rather than re-spanned).
 fn parse_header(src: &str, offset: u32) -> Option<ast::Module> {
     let padded = format!("{}{src}", " ".repeat(offset as usize));
-    let (module, diags) = salvo_syntax::parse_module(&padded);
-    if diags.iter().any(|d| d.is_error()) {
+    let (mut module, diags) = salvo_syntax::parse_module(&padded);
+    // A `fn …` header is a signature by construction: the `platform fn` it
+    // implements [platform-fn], whose missing body is legal.
+    let is_fn = src.trim_start().starts_with("fn ");
+    if diags.iter().any(|d| d.is_error() && !(is_fn && d.message.contains("has no body"))) {
         return None;
+    }
+    for item in &mut module.items {
+        if let (Item::Fn(f), true) = (item, is_fn) {
+            f.platform = true;
+        }
     }
     Some(module)
 }
@@ -749,13 +757,13 @@ fn attach_decl(
     };
     let Some(Item::Fn(written)) = parsed.items.into_iter().next() else { return };
     let target = modules[fi].items.iter_mut().find_map(|i| match i {
-        Item::Fn(f) if f.name.name == written.name.name && f.body.is_none() && !f.intrinsic
+        Item::Fn(f) if f.name.name == written.name.name && f.platform
             && (sig(&f.params, None) == sig(&written.params, None)) => Some(f),
         _ => None,
     });
     let Some(f) = target else {
         diags.push((span, format!(
-            "the template implements `fn {}{}`, which its `.sv` file does not declare without a body",
+            "the template implements `fn {}{}`, which its `.sv` file does not declare as a `platform fn`",
             written.name.name,
             params_text(&written.params)
         )));

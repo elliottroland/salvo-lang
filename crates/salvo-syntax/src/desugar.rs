@@ -715,6 +715,7 @@ fn expand(
         // [mod-export] Both halves inherit the `iter fn`'s own visibility.
         exported: f.exported,
         intrinsic: false,
+        platform: false,
         is_iter: false,
         is_send: false,
         iter_state: vec![],
@@ -839,6 +840,7 @@ fn expand(
         // [mod-export] Both halves inherit the `iter fn`'s own visibility.
         exported: f.exported,
         intrinsic: false,
+        platform: false,
         is_iter: false,
         is_send: false,
         iter_state: vec![],
@@ -1198,6 +1200,7 @@ fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
         // [test-decl].
         exported: true,
         intrinsic: false,
+        platform: false,
         is_iter: false,
         iter_state: Vec::new(),
         is_send: false,

@@ -6,7 +6,7 @@ One of the aims of Salvo is to make it easy to integrate Salvo code with the bac
 
 The `intrinsic` layer sits in a backend specific module inside the compiler. This handles complex language-specific logic, and core functionality: how to encode union types, what the `None` type transpiles to in different cases, how to pass parameters to functions, how function naming works, how imports are handled, and more. These can only be changed by making changes to the compiler itself. Anything involving syntax will appear here, and all `intrinsic` backend definitions are declared as part of the standard library (defined in `std`).
 
-`intrinsic` is the standard library's alone. Customer code cannot declare one, because there would be no lowering in any backend to give it meaning — an `intrinsic` with no compiler support behind it is a promise nothing keeps. Application code reaches the target language the other way, through the `platform` declarations — a `platform handler` implementing an ordinary effect; that is the single interop path. This is also the one exception to a plain structural rule: a top-level `fn` must have a body and a `type` must have a definition (`= ...`). The bodyless declaration forms customer code does have are the `platform` ones, whose contract the *build* fulfils; `intrinsic` (and the bodyless `intrinsic handler`) is what lets the standard library state a contract the compiler fulfils in place of one.
+`intrinsic` is the standard library's alone. Customer code cannot declare one, because there would be no lowering in any backend to give it meaning — an `intrinsic` with no compiler support behind it is a promise nothing keeps. Application code reaches the target language the other way, through the `platform` declarations — a `platform handler` implementing an ordinary effect; that is the single interop path. This is also the one exception to a plain structural rule: a top-level `fn` must have a body and a `type` must have a definition (`= ...`). The bodyless declaration forms customer code does have are the `platform` ones — `platform handler` and `platform fn` — whose contract the *build* fulfils; `intrinsic` (and the bodyless `intrinsic handler`) is what lets the standard library state a contract the compiler fulfils in place of one.
 
 For example, the basic types (`Int`, `Str`, `List<T>`, ...) are declared as `intrinsic type`s, and each backend maps them natively:
 
@@ -139,11 +139,11 @@ A platform handler fits wherever several implementations of a capability exist a
 
 ## Platform templates
 
-A platform handler or a function can be implemented in host code that still speaks Salvo: a **platform template**, `<module>.sv.kt` for Kotlin and `.sv.rs` for Rust, under the backend's platform root beside its other files. `salvo platform generate` writes one for every module with platform handlers or bodiless functions. The `.sv` file declares the Salvo side with no body:
+A platform handler or a function can be implemented in host code that still speaks Salvo: a **platform template**, `<module>.sv.kt` for Kotlin and `.sv.rs` for Rust, under the backend's platform root beside its other files. `salvo platform generate` writes one for every module with platform handlers or platform functions. The `.sv` file declares the Salvo side with no body — a function with the `platform` modifier:
 
 ```
 // counter.sv
-fn shout(g: Greeting) [] -> Str => g
+platform fn shout(g: Greeting) [] -> Str => g
 
 effect Counter {
     fn next(step: Int) -> Int => step

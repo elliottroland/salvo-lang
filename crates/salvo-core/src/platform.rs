@@ -3,7 +3,7 @@
 //! The platform root holds host code, in the target language, for
 //! declarations that have no Salvo body: a `platform handler`, a host
 //! implementation of an ordinary Salvo effect [platform-handler], and a
-//! bodiless fn a template implements. Both backends need the same answers —
+//! `platform fn` a template implements. Both backends need the same answers —
 //! which host classes a module declares, and whether the host file exists —
 //! so they live here rather than twice in the emitters.
 
@@ -115,7 +115,7 @@ pub fn required_backends(project: &crate::Project) -> Vec<&'static str> {
 }
 
 /// [platform-root] A program with declarations implemented in platform files —
-/// a `platform handler` or a bodiless fn — needs a platform
+/// a `platform handler` or a `platform fn` — needs a platform
 /// root for every backend in `backends`, and there is no default (user
 /// decision 2026-09-30): one error per backend without one, at the first such
 /// declaration, naming the manifest key. A dependency's and std's
@@ -133,8 +133,8 @@ pub fn platform_root_required(
         for item in &unit.ast.items {
             let found = match item {
                 Item::Handler(h) if h.platform => Some((h.name.span, format!("`platform handler {}`", h.name.name))),
-                Item::Fn(f) if f.body.is_none() && f.by.is_none() && !f.intrinsic => {
-                    Some((f.name.span, format!("`fn {}`, which has no body,", f.name.name)))
+                Item::Fn(f) if f.platform => {
+                    Some((f.name.span, format!("`platform fn {}`", f.name.name)))
                 }
                 _ => None,
             };

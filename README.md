@@ -84,7 +84,7 @@ cargo run -- test --src std                          # the standard library's ow
 
 # Generate the implementation skeletons into each backend's platform root —
 # a platform template (`<m>.sv.kt` / `.sv.rs`) for platform handlers and
-# bodiless fns (written once, never overwritten):
+# platform fns (written once, never overwritten):
 cargo run -- platform generate --backend kotlin --src ./my_project
 
 # Start a language server (LSP over stdio) for editor integration:

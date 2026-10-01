@@ -816,7 +816,7 @@ effect Clock {
 
 platform handler HostClock(offset: Int) of Clock
 
-fn shout(s: Str) [] -> Str => s
+platform fn shout(s: Str) [] -> Str => s
 
 fn main() [use] {
     use StdOutConsole()

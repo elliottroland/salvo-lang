@@ -157,7 +157,7 @@ enum Command {
         command: LangCommand,
     },
     /// Work with the host side of `platform handler` declarations and
-    /// bodiless fns [cli-platform].
+    /// `platform fn`s [cli-platform].
     Platform {
         #[command(subcommand)]
         command: PlatformCommand,
@@ -167,7 +167,7 @@ enum Command {
 #[derive(Subcommand)]
 enum PlatformCommand {
     /// Write the implementation skeleton for every `platform handler` and
-    /// bodiless fn into each backend's platform root [platform-root]
+    /// `platform fn` into each backend's platform root [platform-root]
     /// [cli-platform].
     ///
     /// Existing files are never touched: the skeleton is generated once and
@@ -1292,7 +1292,7 @@ fn write_once(path: &Path, content: &str) -> Result<bool, ExitCode> {
 
 /// [cli-platform] [platform-root] One backend's skeletons, into that
 /// backend's platform root: a **template** (`<m>.sv.<ext>`) for the platform
-/// handlers and bodiless fns of each module. A file that exists is never
+/// handlers and `platform fn`s of each module. A file that exists is never
 /// touched; a handler whose
 /// module already has a hand-written host file is left to it.
 fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) -> ExitCode {
@@ -1309,7 +1309,7 @@ fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) 
     // that has any has one here.
     let Some(root) = project.and_then(|p| p.platform_root(backend.name())) else {
         eprintln!(
-            "no `platform handler` or bodiless fn in `{}`: nothing to generate",
+            "no `platform handler` or `platform fn` in `{}`: nothing to generate",
             layout.src.display()
         );
         return ExitCode::SUCCESS;
@@ -1392,7 +1392,7 @@ fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) 
     }
     if !any {
         eprintln!(
-            "no `platform handler` or bodiless fn in `{}`: nothing to generate",
+            "no `platform handler` or `platform fn` in `{}`: nothing to generate",
             layout.src.display()
         );
         return ExitCode::SUCCESS;
