@@ -1531,6 +1531,21 @@ facts worth knowing") and keeps the history ("One shape for effects").
   `ContTarget::Private` variant of `__Cont_H`, and `decode_reply` covers it
   by its answer type. `k@self(…)` builds `__Priv_H::K(payload)`, or the
   method call inline when `__addr` is unset.
+* [rs-abi] [platform-abi] **The Rust host crate** is `emit_abi`: the ordinary
+  emission in ABI mode, with the crate layout the build has, so an
+  implementation file's `crate::…` paths mean the same in both. Mod names are
+  computed over the build's modules (so they are the build's), the entry
+  module's kept declarations form the crate root `lib.sv.rs` as its whole file
+  does in the build, every other kept module is mounted under its build name
+  from `<module path>.sv.rs`, the runtime modules from `salvo/<name>.sv.rs`,
+  and each project module with platform declarations has its implementation
+  file mounted as `platform_<m>` from `<module path>.rs` — written before the
+  skeleton exists, since a missing file is rustc's to report. A `use
+  crate::<m>` naming a module the host crate does not mount is dropped.
+  `Cargo.toml` names `lib.sv.rs` as the library, declares an empty
+  `[workspace]` (so a root inside another workspace is not claimed by it),
+  and lists the manifest's crates. Verified by rustc over a root alone
+  (`the_host_project_compiles_on_its_own`) and `cargo check` on aws's root.
 * [rs-host-abi] [platform-abi] **What host code may rely on**, in one place
   (the rules it summarizes are the ones cited):
 

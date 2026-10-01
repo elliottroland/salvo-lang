@@ -41,3 +41,9 @@ wiki/
 modules/aws/codegen/build/
 modules/aws/codegen/.gradle/
 modules/aws/demo/*/out/
+
+# What the host tools write into a platform root's generated host project.
+**/platform/.gradle/
+**/platform/.kotlin/
+**/platform/target/
+**/platform/Cargo.lock

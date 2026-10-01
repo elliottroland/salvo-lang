@@ -128,6 +128,23 @@ pub trait Backend {
         )))
     }
 
+    /// [platform-abi] The generated files of a platform root's **host
+    /// project** (ABI.md D2, D4): the declarations the platform surface
+    /// reaches, the runtime they need, and the project files (a Gradle build,
+    /// a `Cargo.toml` and crate root) that let the host's own tools open the
+    /// root — as `(path relative to the root, contents)` pairs. Regenerated
+    /// on every build; never read by one. Empty when the program declares
+    /// nothing platform. `entry` is as for [`Backend::platform_skeletons`].
+    fn platform_abi(
+        &self,
+        program: &Program,
+        entry: Option<&ModulePath>,
+        host: &HostDeps,
+    ) -> Result<Vec<(PathBuf, String)>, BackendError> {
+        let _ = (program, entry, host);
+        Ok(Vec::new())
+    }
+
     /// [platform-host-deps] Writes whatever the host build needs beside the
     /// emitted sources to know about the declared host libraries — a
     /// `Cargo.toml` for Rust when crates are declared — and returns the files

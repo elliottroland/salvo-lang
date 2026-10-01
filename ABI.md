@@ -94,13 +94,12 @@ resolved `[kotlin] artifacts` as dependencies), `Cargo.toml` for Rust. The
 generated files are checked in, so a checkout opens in an IDE before the first
 build.
 
-Left for implementation:
-- The layout inside a root, for example `<root>/salvo/…` for the ABI,
-  `<root>/<module path>.sv.kt` for interface files, `<root>/<module path>.kt`
-  for implementation files.
-- How the build consumes the project. Rust: a library crate the emitted
-  program depends on, or files copied into the emitted crate. Kotlin: sources
-  compiled with the program.
+Built 2026-10-01 (steps 6–7): the runtime under `<root>/salvo/*.sv.<ext>`,
+a module's declarations at `<root>/<module path>.sv.<ext>`, implementation
+files at `<root>/<module path>.<ext>`, the project files at the top. The
+build does not consume the project (D4). On Rust the root is a library crate
+whose `lib.sv.rs` mounts every file at the path the build gives it, so
+`crate::…` agrees between the two.
 
 ### D3. Every build regenerates — decided 2026-10-01
 
@@ -172,6 +171,11 @@ is that the platform project's generated files define the closure of the
 platform signatures, with the same names, packages and derives the output
 uses, so code written against them compiles unchanged in the build. A types
 file per declaring module (`<root>/fs.sv.kt` for module `fs`) holds them.
+
+**Recorded alternative** (user, 2026-10-01; ROADMAP "Recorded, not
+scheduled"): generate the *whole* emitted program into the root as `*.sv.*`,
+so the host project is the build's compilation exactly and no closure is
+computed. Not taken for now: it carries every function body into the root.
 
 ### D5. Union naming — decided 2026-10-01
 
@@ -442,10 +446,13 @@ go in any order.
     and a root's `*.sv.*` files are skipped by the build. This took steps 9,
     11 (partly) and 13 out of the sequence below; the aws glue still spells
     emitted names until step 8 gives it factories.
-6. **The host project and ABI files** (D2, D3): generate and write them into
-   each root on every build, and switch the build to consume them.
-7. **Types in the host tree** (D4): move the definitions, and re-export them
-   from the emitted modules.
+6. ✅ **The host project and ABI files** (D2, D3; 2026-10-01): written into
+   the project's root by `compile`, `run`, `test` and `platform generate`,
+   stale ones removed; std's and aws's checked in and checked current.
+7. ✅ **Types in the host tree** (D4(a); 2026-10-01): the closure of the
+   platform signatures, declarations only. Under D4 nothing moves and nothing
+   is re-exported: the output keeps its own definitions. std's and aws's
+   implementation files compile against the host projects alone.
 8. **Interface files** (D7, D8): handler interfaces and adapters, fn wrappers
    with validation, validating host replies, factory functions (D5).
 9. ✅ **Implementation skeletons** (done in 5b).

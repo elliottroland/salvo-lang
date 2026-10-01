@@ -80,6 +80,24 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
 pub fn emit_program_reporting(
     program: &Program,
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
+    emit_program_mode(program, false)
+}
+
+/// [platform-abi] [kt-abi] The declaration files of a platform root's host
+/// project: every struct, type alias and effect the platform surface reaches
+/// (`salvo_core::abi::platform_closure`), emitted exactly as the build emits
+/// them but with no functions, handlers or qualifiers, and the runtime files
+/// they need. Paths are relative to the root: a module's declarations at
+/// `<module path>.sv.kt`, the runtime under `salvo/`. Never read by the build
+/// (ABI.md D4).
+pub fn emit_abi(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
+    emit_program_mode(program, true).map(|(files, _)| files)
+}
+
+fn emit_program_mode(
+    program: &Program,
+    abi: bool,
+) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
     let original_symbols = Symbols::collect(program);
     let resolution = salvo_core::resolve(program);
     let checked = salvo_core::check_program(program, &resolution, &original_symbols);
@@ -118,13 +136,29 @@ pub fn emit_program_reporting(
         .collect();
     // [mod-used-only] Only modules the program uses are transpiled.
     let reachable = salvo_core::reachable_modules(program, &resolution, &checked);
+    // [platform-abi] In ABI mode the kept declarations, by name, and the
+    // modules holding any of them.
+    let closure = abi.then(|| salvo_core::abi::platform_closure(program, &symbols));
+    let in_abi = |u: &salvo_core::program::Unit| {
+        closure.as_ref().is_some_and(|c| {
+            u.ast.items.iter().any(|i| abi_item_name(i).is_some_and(|n| c.contains(n)))
+                // A module declaring platform items is written even when
+                // nothing of it is kept: its implementation file imports it.
+                || ((!u.file.is_std || u.file.is_shadow)
+                    && u.file.dependency.is_none()
+                    && !salvo_core::platform_declarations(u.ast).is_empty())
+        })
+    };
     // The modules that will exist as Kotlin files: targets for generated
     // imports [kt-package].
     let emitted_modules: HashSet<&ModulePath> = program
         .units()
         .filter(|u| {
-            reachable.contains(&u.file.module)
-                && module_produces_code(u.ast)
+            if abi {
+                in_abi(u)
+            } else {
+                reachable.contains(&u.file.module) && module_produces_code(u.ast)
+            }
         })
         .map(|u| &u.file.module)
         .collect();
@@ -172,7 +206,7 @@ pub fn emit_program_reporting(
     // `use` of a platform handler needs; checked once every file is emitted.
     let mut platform_hosts: BTreeSet<ModulePath> = BTreeSet::new();
     for (file_idx, unit) in program.units().enumerate() {
-        if !reachable.contains(&unit.file.module) || !module_produces_code(unit.ast) {
+        if !emitted_modules.contains(&unit.file.module) {
             continue;
         }
         // Generated Kotlin imports: a wildcard per foreign emitted module
@@ -188,6 +222,7 @@ pub fn emit_program_reporting(
             &emitted_modules,
         );
         emitter.generated_imports = generated;
+        emitter.abi_keep = closure.clone();
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
@@ -204,7 +239,7 @@ pub fn emit_program_reporting(
         for part in &unit.file.module.0 {
             rel_path.push(part);
         }
-        rel_path.set_extension("kt");
+        rel_path.set_extension(if abi { "sv.kt" } else { "kt" });
         files.push(EmittedFile { rel_path, content });
     }
     if !union_sizes.is_empty() {
@@ -276,7 +311,7 @@ pub fn emit_program_reporting(
     // verbatim whenever their module is needed. A companion must not
     // collide with a generated file.
     for comp in &program.companions {
-        if !reachable.contains(&comp.module) {
+        if abi || !reachable.contains(&comp.module) {
             continue;
         }
         if files.iter().any(|f| f.rel_path == comp.rel_path) {
@@ -298,7 +333,7 @@ pub fn emit_program_reporting(
     // in std as much as in customer code, since std ships its own
     // `platform/` files.
     for module in &platform_hosts {
-        if salvo_core::host_file(&program.companions, module).is_some() {
+        if abi || salvo_core::host_file(&program.companions, module).is_some() {
             continue;
         }
         let what: String = program
@@ -314,11 +349,32 @@ pub fn emit_program_reporting(
         ));
     }
 
+    if abi {
+        // [platform-abi] The runtime lives under `salvo/` in the root, beside
+        // the module declaration files.
+        for f in &mut files {
+            if !f.rel_path.to_string_lossy().ends_with(".sv.kt") {
+                let stem = f.rel_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                f.rel_path = std::path::PathBuf::from("salvo").join(format!("{stem}.sv.kt"));
+            }
+        }
+    }
     if errors.is_empty() {
         no_duplicate_paths(&files)?;
         Ok((files, warnings))
     } else {
         Err(errors)
+    }
+}
+
+/// [platform-abi] The name an item is kept by in ABI mode: a struct, a type
+/// alias or an effect.
+fn abi_item_name(item: &Item) -> Option<&str> {
+    match item {
+        Item::Struct(s) => Some(&s.name.name),
+        Item::Type(t) if t.alias.is_some() => Some(&t.name.name),
+        Item::Effect(e) => Some(&e.name.name),
+        _ => None,
     }
 }
 
@@ -829,6 +885,9 @@ fn kt_ident(name: &str) -> String {
 }
 
 struct Emitter<'p> {
+    /// [platform-abi] In ABI mode, the declarations to keep: every other item
+    /// of the module is left out (`emit_abi`).
+    abi_keep: Option<std::collections::BTreeSet<String>>,
     /// [placeholder] The code `_` renders as: the unpicked arm's read, set while
     /// a qualifier pick's right-hand side is emitted [pick].
     placeholder_code: Option<String>,
@@ -1001,6 +1060,7 @@ impl<'p> Emitter<'p> {
         file_name: &str,
     ) -> Self {
         Emitter {
+            abi_keep: None,
             placeholder_code: None,
             pick_vars: 0,
             symbols,
@@ -1320,6 +1380,12 @@ impl<'p> Emitter<'p> {
     fn emit_module(&mut self, module: &'p Module) -> String {
         let mut body = String::new();
         for item in &module.items {
+            // [platform-abi] Declarations only, and only the reached ones.
+            if let Some(keep) = &self.abi_keep {
+                if !abi_item_name(item).is_some_and(|n| keep.contains(n) && !n.contains('.')) {
+                    continue;
+                }
+            }
             match item {
                 // [name-dot] Dot-named structs are emitted *inside* their
                 // namespace class, not at the top level.

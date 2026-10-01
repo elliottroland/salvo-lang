@@ -102,6 +102,49 @@ pub fn emit_program_reporting(
     program: &Program,
     entry: Option<&ModulePath>,
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
+    emit_program_mode(program, entry, false)
+}
+
+/// [platform-abi] [rs-abi] The declaration files of a platform root's host
+/// crate: every struct, type alias and effect the platform surface reaches
+/// (`salvo_core::abi::platform_closure`), emitted as the build emits them but
+/// with no functions, handlers or qualifiers, the runtime modules they need,
+/// and a crate root, `lib.sv.rs`, that mounts each at the **same path it has
+/// in the build** — the entry module's declarations at the crate root, every
+/// other module under its build mod name, each implementation file as
+/// `platform_<module>` — so an implementation file's `crate::…` paths resolve
+/// alike in both. Paths are relative to the platform root; the runtime is
+/// under `salvo/`. Never read by the build (ABI.md D4).
+pub fn emit_abi(
+    program: &Program,
+    entry: Option<&ModulePath>,
+) -> Result<Vec<EmittedFile>, Vec<String>> {
+    emit_program_mode(program, entry, true).map(|(files, _)| files)
+}
+
+/// [platform-abi] Whether `module` is the project's own (not std, not a
+/// dependency): its implementation file is mounted in the host crate.
+fn abi_modules_or_project(program: &Program, module: &ModulePath) -> bool {
+    program
+        .units()
+        .any(|u| u.file.module == *module && (!u.file.is_std || u.file.is_shadow) && u.file.dependency.is_none())
+}
+
+/// [platform-abi] The name an item is kept by in ABI mode.
+fn abi_item_name(item: &Item) -> Option<&str> {
+    match item {
+        Item::Struct(s) => Some(&s.name.name),
+        Item::Type(t) if t.alias.is_some() => Some(&t.name.name),
+        Item::Effect(e) => Some(&e.name.name),
+        _ => None,
+    }
+}
+
+fn emit_program_mode(
+    program: &Program,
+    entry: Option<&ModulePath>,
+    abi: bool,
+) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
     let original_symbols = Symbols::collect(program);
     let resolution = salvo_core::resolve(program);
     let checked = salvo_core::check_program(program, &resolution, &original_symbols);
@@ -140,9 +183,29 @@ pub fn emit_program_reporting(
         .map(|d| d.render(&program.files))
         .collect();
     let reachable = salvo_core::reachable_modules(program, &resolution, &checked);
+    // [platform-abi] In ABI mode the kept declarations, and the modules
+    // holding any. Names and the crate root stay the build's (computed over
+    // the build's modules plus these), so paths agree between the two crates.
+    let closure = abi.then(|| salvo_core::abi::platform_closure(program, &symbols));
+    let abi_modules: HashSet<&ModulePath> = program
+        .units()
+        .filter(|u| {
+            closure.as_ref().is_some_and(|c| {
+                u.ast.items.iter().any(|i| abi_item_name(i).is_some_and(|n| c.contains(n)))
+                    // A module declaring platform items is mounted even when
+                    // nothing of it is kept: its implementation file imports it.
+                    || (abi_modules_or_project(program, &u.file.module)
+                        && !salvo_core::platform_declarations(u.ast).is_empty())
+            })
+        })
+        .map(|u| &u.file.module)
+        .collect();
     let emitted_modules: HashSet<&ModulePath> = program
         .units()
-        .filter(|u| reachable.contains(&u.file.module) && module_produces_code(u.ast))
+        .filter(|u| {
+            (reachable.contains(&u.file.module) && module_produces_code(u.ast))
+                || abi_modules.contains(&u.file.module)
+        })
         .map(|u| &u.file.module)
         .collect();
 
@@ -217,7 +280,12 @@ pub fn emit_program_reporting(
     let mut needs_time = false;
     let mut needs_wire = false;
     for (file_idx, unit) in program.units().enumerate() {
-        if !reachable.contains(&unit.file.module) || !module_produces_code(unit.ast) {
+        let wanted = if abi {
+            abi_modules.contains(&unit.file.module)
+        } else {
+            reachable.contains(&unit.file.module) && module_produces_code(unit.ast)
+        };
+        if !wanted {
             continue;
         }
         let generated = generated_imports(
@@ -236,6 +304,7 @@ pub fn emit_program_reporting(
         emitter.effect_paths = effect_paths.clone();
         emitter.module_paths = module_paths.clone();
         emitter.erased = erased.clone();
+        emitter.abi_keep = closure.clone();
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
@@ -250,7 +319,7 @@ pub fn emit_program_reporting(
         for part in &unit.file.module.0 {
             rel_path.push(part);
         }
-        rel_path.set_extension("rs");
+        rel_path.set_extension(if abi { "sv.rs" } else { "rs" });
         files.push(EmittedFile { rel_path, content });
     }
     if !union_sizes.is_empty() {
@@ -306,10 +375,15 @@ pub fn emit_program_reporting(
     // mounted like generated modules.
     let mut companion_mods: Vec<(String, std::path::PathBuf)> = Vec::new();
     for comp in &program.companions {
-        if !reachable.contains(&comp.module) {
+        // [platform-abi] The host crate mounts the implementation files it
+        // sits beside, never another tree's companions.
+        if abi {
             continue;
         }
-        if files.iter().any(|f| f.rel_path == comp.rel_path) {
+        if !abi && !reachable.contains(&comp.module) {
+            continue;
+        }
+        if !abi && files.iter().any(|f| f.rel_path == comp.rel_path) {
             errors.push(format!(
                 "companion file `{}` collides with the generated file of module \
                  `{}`: a companion cannot replace a module Salvo emits",
@@ -340,12 +414,34 @@ pub fn emit_program_reporting(
         });
     }
 
+    // [platform-abi] The host crate mounts the implementation file of every
+    // project module with platform declarations, at its place in the root,
+    // whether or not it exists yet: a missing one is the host compiler's to
+    // report, and the mount is right the moment the skeleton is written.
+    if abi {
+        for unit in program.units() {
+            let module = &unit.file.module;
+            if !abi_modules_or_project(program, module)
+                || salvo_core::platform_declarations(unit.ast).is_empty()
+            {
+                continue;
+            }
+            let mut name = host_mod_name(module);
+            while !used.insert(name.clone()) {
+                name.push('_');
+            }
+            let rel = salvo_core::host_rel_path(module, "rs");
+            let rel = rel.strip_prefix(salvo_core::PLATFORM_DIR).unwrap_or(&rel).to_path_buf();
+            companion_mods.push((name, rel));
+        }
+    }
+
     // [platform-handler] [platform-tree] A `use` of a platform handler
     // constructs a host struct, so the companion that defines it must exist —
     // in std as much as in customer code, since std ships its own
     // `platform/` files.
     for module in &platform_hosts {
-        if salvo_core::host_file(&program.companions, module).is_some() {
+        if abi || salvo_core::host_file(&program.companions, module).is_some() {
             continue;
         }
         let what: String = program
@@ -366,6 +462,7 @@ pub fn emit_program_reporting(
     // main-declaring module's file (or a synthetic `lib.rs`).
     if !files.is_empty() {
         let root_rel: std::path::PathBuf = match root_module {
+            _ if abi => std::path::PathBuf::from("lib.sv.rs"),
             Some(module) => {
                 let mut p = std::path::PathBuf::new();
                 for part in &module.0 {
@@ -382,47 +479,62 @@ pub fn emit_program_reporting(
             .unwrap_or_default();
         let mut header = String::from(CRATE_ATTRS);
         let mut mounts: Vec<(String, std::path::PathBuf)> = Vec::new();
+        // [platform-abi] The root module's declarations are the host crate's
+        // root, as its whole file is the build's.
+        let abi_root_body = if abi {
+            root_module
+                .and_then(|m| {
+                    let mut p = std::path::PathBuf::new();
+                    for part in &m.0 {
+                        p.push(part);
+                    }
+                    p.set_extension("sv.rs");
+                    let i = files.iter().position(|f| f.rel_path == p)?;
+                    Some(files.remove(i).content)
+                })
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let runtime = |name: &str| -> std::path::PathBuf {
+            if abi {
+                std::path::PathBuf::from(format!("salvo/{name}.sv.rs"))
+            } else {
+                std::path::PathBuf::from(format!("{name}.rs"))
+            }
+        };
         if union_sizes.is_empty() {
             // no unions.rs
         } else {
-            mounts.push(("unions".to_string(), std::path::PathBuf::from("unions.rs")));
+            mounts.push(("unions".to_string(), runtime("unions")));
         }
         if needs_str {
-            mounts.push((
-                "strings".to_string(),
-                std::path::PathBuf::from("strings.rs"),
-            ));
+            mounts.push(("strings".to_string(), runtime("strings")));
         }
         if needs_seq {
-            mounts.push(("seq".to_string(), std::path::PathBuf::from("seq.rs")));
+            mounts.push(("seq".to_string(), runtime("seq")));
         }
         if needs_collections {
-            mounts.push((
-                "collections".to_string(),
-                std::path::PathBuf::from("collections.rs"),
-            ));
+            mounts.push(("collections".to_string(), runtime("collections")));
         }
         if needs_scheduler {
-            mounts.push((
-                "scheduler".to_string(),
-                std::path::PathBuf::from("scheduler.rs"),
-            ));
+            mounts.push(("scheduler".to_string(), runtime("scheduler")));
         }
         if needs_time {
-            mounts.push(("hosttime".to_string(), std::path::PathBuf::from("hosttime.rs")));
+            mounts.push(("hosttime".to_string(), runtime("hosttime")));
         }
         if needs_wire {
-            mounts.push(("wire".to_string(), std::path::PathBuf::from("wire.rs")));
+            mounts.push(("wire".to_string(), runtime("wire")));
         }
         for (module, name) in &mod_names {
-            if Some(module) == root_module {
+            if Some(module) == root_module || (abi && !abi_modules.contains(module)) {
                 continue;
             }
             let mut p = std::path::PathBuf::new();
             for part in &module.0 {
                 p.push(part);
             }
-            p.set_extension("rs");
+            p.set_extension(if abi { "sv.rs" } else { "rs" });
             mounts.push((name.clone(), p));
         }
         mounts.extend(companion_mods);
@@ -435,6 +547,36 @@ pub fn emit_program_reporting(
             ));
         }
         header.push('\n');
+        if abi {
+            files.push(EmittedFile { rel_path: root_rel, content: format!("{header}{abi_root_body}") });
+            // The build's imports name every module the build has; the host
+            // crate mounts fewer, so a `use` of one it lacks is dropped.
+            let mounted: HashSet<String> = header
+                .lines()
+                .filter_map(|l| l.strip_prefix("pub mod ").and_then(|r| r.strip_suffix(';')))
+                .map(str::to_string)
+                .collect();
+            for f in &mut files {
+                f.content = f
+                    .content
+                    .lines()
+                    .filter(|l| {
+                        let Some(rest) = l.trim_start().strip_prefix("use crate::") else { return true };
+                        let first = rest.split(|c: char| c == ':' || c == ';' || c == ' ').next().unwrap_or("");
+                        mounted.contains(first)
+                    })
+                    .map(|l| format!("{l}\n"))
+                    .collect();
+            }
+            for f in &mut files {
+                let name = f.rel_path.to_string_lossy().to_string();
+                if !name.ends_with(".sv.rs") {
+                    let stem = f.rel_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                    f.rel_path = runtime(&stem);
+                }
+            }
+            return if errors.is_empty() { Ok((files, warnings)) } else { Err(errors) };
+        }
         let footer = String::new();
         match files.iter_mut().find(|f| f.rel_path == root_rel) {
             Some(root_file) => {
@@ -1112,6 +1254,8 @@ struct EffectEntry {
 }
 
 struct Emitter<'p> {
+    /// [platform-abi] In ABI mode, the declarations to keep (`emit_abi`).
+    abi_keep: Option<std::collections::BTreeSet<String>>,
     symbols: &'p Symbols<'p>,
     checked: &'p Checked,
     program: &'p Program,
@@ -2056,6 +2200,7 @@ impl<'p> Emitter<'p> {
         let stored_implicits = stored.owned;
         let value_keyed_fns = stored.value_keyed;
         Emitter {
+            abi_keep: None,
             symbols,
             checked,
             program,
@@ -2581,6 +2726,12 @@ impl<'p> Emitter<'p> {
     fn emit_module(&mut self, module: &Module) -> String {
         let mut body = String::new();
         for item in &module.items {
+            // [platform-abi] Declarations only, and only the reached ones.
+            if let Some(keep) = &self.abi_keep {
+                if !abi_item_name(item).is_some_and(|n| keep.contains(n)) {
+                    continue;
+                }
+            }
             match item {
                 // [comptime-fields] A `comptime struct` exists at compile time
                 // only: nothing to emit.

@@ -442,10 +442,10 @@ platform roots; (5) DynamoDB.
 **Next, before DynamoDB: the platform ABI (user direction 2026-10-01).**
 Generated ABI and interface files beside hand-written implementation files.
 Done so far: platform effects removed, `platform fn`, Kotlin camel case,
-nested Kotlin union arms, and templates removed. The design, its decisions
-(D1–D10) and the remaining build sequence (the host project, the ABI and
-interface files, std's and the aws glue's ports, ABI stamps) live in
-[ABI.md](ABI.md).
+nested Kotlin union arms, templates removed, and the host project with its
+declaration files. The design, its decisions (D1–D10) and the remaining build
+sequence (interface files with adapters, wrappers and factories, std's and the
+aws glue's ports, ABI stamps) live in [ABI.md](ABI.md).
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
@@ -880,6 +880,21 @@ backends**.
 
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
+
+- **The whole program in the host project** (user, 2026-10-01; ABI.md D4).
+  The alternative to generating only the declarations the platform surface
+  reaches: write the entire emitted program into the platform root as
+  `*.sv.*`, so the host project is exactly the build's compilation. No
+  closure to compute or keep in step with the emitter, at the cost of every
+  function body in the root and a much larger checked-in diff per change.
+
+- **How much of the scheduler runtime could be Salvo** (user, 2026-10-01).
+  `scheduler.kt` and `scheduler.rs` are about 2000 lines each, hand-written
+  twice, and every host project that reaches `Reply` or a spawn carries one.
+  Evaluate which parts (mailboxes, the deadlock graph, the fault sink, the
+  timer queue) could be written once in Salvo over a small intrinsic core
+  (threads, atomics, parking), and what that costs in speed — which would
+  shrink both the runtime and what the ABI has to expose.
 
 - **Full Salvo expressions in splice holes** (user decision 2026-09-30:
   revisit if splices prove themselves at the small scale). Today a hole

@@ -313,7 +313,9 @@ fn main() [use] {
   function. The compiler generates the interface and `salvo platform
   generate` writes the implementation skeleton, plain Kotlin or Rust, into the
   platform root `salvo.toml` names, so the *target's* compiler checks the two
-  against each other.
+  against each other. Every build also writes a host project there (Gradle
+  files or a `Cargo.toml`, and the declarations the platform code uses), so
+  the root opens in an IDE with nothing else built.
   That is the whole interop surface: std's own primitives are
   `intrinsic`, lowered by code inside each backend, and `intrinsic` is the
   compiler's to declare.

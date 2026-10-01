@@ -135,6 +135,45 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The host project in each platform root (2026-10-01, user decisions; ABI.md
+steps 6–7).** The user chose D4 option (a) for now, declarations only, and had
+two items recorded on ROADMAP: (b), the whole program in the root, and an
+evaluation of how much of the ~2000-line schedulers could be Salvo. Every
+`compile`, `run`, `test` and `platform generate` now writes, into the
+project's own platform root, a host project the implementation files compile
+in alone: `salvo_core::abi::platform_closure` collects what the platform
+handlers and platform fns reach (effects, parameters, struct fields, alias
+definitions, dot-named members, effect members and prerequisites, to a fixed
+point); each backend's emitter runs in an ABI mode (`emit_abi`) that keeps
+only those items, writing `<module>.sv.<ext>` per declaring module and the
+runtime under `salvo/`; the backends add the project files
+(`Backend::platform_abi`): `build.gradle.kts` / `settings.gradle.kts` with
+`kotlin("jvm")` and the artifacts, and a `Cargo.toml` over a generated
+`lib.sv.rs` that mounts every file at its build path, so `crate::…` agrees.
+`write_platform_abi` in the CLI removes generated files no longer produced
+(by header) and never touches others; `analyze` writes nothing. std's and
+aws's host projects are checked in (D9). What fell out of building it:
+- A module that declares only platform items has nothing in the closure, but
+  its implementation file imports it (`use crate::aws_s3_host::*`), so it is
+  always written.
+- `platform generate` writes the host project before the skeleton exists, so
+  the Rust crate root mounts implementation files by their expected path
+  rather than from the loaded companions.
+- A tree that *is* std marks its files std, so the closure counts shadowing
+  std files (`is_shadow`) as the project's.
+- The root's build output must stay out of the build's scan: Gradle's build
+  directory is set to the hidden `.gradle/build`, cargo's `target/` carries a
+  `CACHEDIR.TAG`; both and `Cargo.lock` are gitignored. Using the root as a
+  Gradle source directory also compiled the `.kts` scripts, hence
+  `include("**/*.kt")`.
+- The rust crate root keeps the build's `use crate::<m>::*` lines, some for
+  modules the host crate does not mount; those are dropped.
+Verified: std's fs/stream/net host files compile with kotlinc and rustc over
+their root alone; aws's glue passes `cargo check` and Gradle `compileKotlin`
+(the Kotlin plugin needed one online fetch, then works offline). New tests
+`the_host_project_compiles_on_its_own` and
+`the_checked_in_host_projects_are_current_and_compile`. **1660 tests.**
+
 **Platform templates removed (2026-10-01, user decisions; ABI.md step 5b).**
 Templates went because they made the reader hold two languages at once and
 left the host's tooling unusable; this step removes them ahead of the
@@ -19344,7 +19383,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1658; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1660; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -20015,6 +20054,12 @@ cache, with per-test timings.
   location asserted on stderr. Either half alone would be a bug — an abort
   rejects a legal program, and silence leaves the diagnostic visible only in
   `salvo analyze`).
+  + 2 host-project tests (`tests/platform_tests.rs` [platform-abi]: a small
+  project's Kotlin and Rust roots compile alone with kotlinc and rustc, only
+  the reached declarations written, `analyze` writing nothing, a stale
+  generated file removed and a hand-written one kept; std's and aws's
+  checked-in host projects equal a fresh generation, and aws's compiles with
+  `cargo check` and Gradle against the SDKs, skipping when not cached)
   + the missing-host-tool test (`tests/platform_tests.rs` [host-tool]: a
   named `cargo` and a named `gradle` that do not exist, reported with the key)
   + the split-roots `platform generate` test (`tests/platform_tests.rs`

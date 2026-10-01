@@ -867,6 +867,21 @@ nothing but the monitor.
   | `InStream` / `OutStream` | `salvo.stream.InStream(handle: Long)`; the table is `SalvoStreams.registerIn/registerOut`, `inStream/outStream`, `takeIn/takeOut`, over `SalvoIn`/`SalvoOut`, whose failures are `SalvoFaultException` [stream-table] |
   | `platform handler H(p: T) of E` | `class H(p: T) : E`, every member `override`n [kt-platform-handler] |
 
+* [kt-abi] [platform-abi] **The Kotlin host project** is `emit_abi`: the
+  ordinary emission in ABI mode — kept modules are those holding a
+  declaration of the platform closure, each emitted with only those items
+  (codecs, monitors and comparisons included, since they are what the build
+  emits for them), at `<module path>.sv.kt` in its usual package. Runtime files
+  (`unions.kt`, `wire.kt`, `scheduler.kt`, …) go to `salvo/<name>.sv.kt`, in
+  package `salvo` as in the build. `build.gradle.kts` applies
+  `kotlin("jvm")` at the tested Kotlin version, takes the root's `**/*.kt` as
+  the one source set (implementation and generated files, as they are one
+  compilation in the build), puts Gradle's build directory under the hidden
+  `.gradle/build` so the Salvo build's scan never sees output, and lists the
+  manifest's `artifacts` and `libs` jars as `implementation` dependencies.
+  Verified by kotlinc over a root alone
+  (`the_host_project_compiles_on_its_own`) and by Gradle's `compileKotlin` on
+  aws's root against the SDK.
 * [kt-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `interface` is emitted as any effect's, and the `use`
   site constructs the host class — `salvo.platform.<M>.H(args)`,

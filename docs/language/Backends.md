@@ -54,6 +54,8 @@ Inside a root the files mirror the source layout: `main.kt` implements the platf
 
 The skeleton is generated **once**: run the command again and it reports that the file exists and leaves it alone, because from that point on it is yours. Forgetting to run it at all is an ordinary compile error that names the command.
 
+Every build also writes a **host project** into the root, so the root opens in an IDE as an ordinary Kotlin or Rust project and the implementation files compile there with nothing else present: a `build.gradle.kts` and `settings.gradle.kts` for Kotlin, a `Cargo.toml` and a crate root `lib.sv.rs` for Rust, both naming the host libraries the manifest declares. Beside them are the **declarations** the implementation files use — every struct, type alias and effect the platform declarations reach, emitted as the build emits them, one `<module>.sv.kt` / `.sv.rs` per declaring module, and the runtime they need under `salvo/`. These files start with a `GENERATED` header and are rewritten by `compile`, `run`, `test` and `platform generate` (never by `analyze` or the language server); the build itself never reads them, since it emits its own copies. Check them in, so a fresh checkout opens before its first build.
+
 (Platform effects — an effect implemented wholly by the host and handed to `main` — were removed on 2026-10-01; a platform handler covers the same ground.)
 
 ## A host implementation of an ordinary effect
