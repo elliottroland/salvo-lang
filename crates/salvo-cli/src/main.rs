@@ -156,8 +156,8 @@ enum Command {
         #[command(subcommand)]
         command: LangCommand,
     },
-    /// Work with the host side of `platform effect` and `platform handler`
-    /// declarations [cli-platform].
+    /// Work with the host side of `platform handler` declarations and
+    /// bodiless fns [cli-platform].
     Platform {
         #[command(subcommand)]
         command: PlatformCommand,
@@ -166,9 +166,9 @@ enum Command {
 
 #[derive(Subcommand)]
 enum PlatformCommand {
-    /// Write the host implementation skeleton for every `platform effect`
-    /// and `platform handler` into the source root's `platform/` tree
-    /// [platform-tree] [cli-platform].
+    /// Write the implementation skeleton for every `platform handler` and
+    /// bodiless fn into each backend's platform root [platform-root]
+    /// [cli-platform].
     ///
     /// Existing files are never touched: the skeleton is generated once and
     /// belongs to you afterwards, and every later divergence from the
@@ -462,7 +462,7 @@ fn assemble(
         return Err(ExitCode::FAILURE);
     }
     // [manifest-deps] Dependencies load between std and the project's own
-    // tree, companions included: a dependency's platform effects need their
+    // tree, companions included: a dependency's platform handlers need their
     // host files as much as the project's do.
     let mut io_errors =
         analysis::load_dependencies(&mut sources, project, backend.file_extension());
@@ -1234,13 +1234,12 @@ fn run_test_pass(
     })
 }
 
-/// `salvo platform generate` [cli-platform]: writes the host implementation
-/// skeleton for every `platform effect` into `<src>/platform/`
-/// [platform-tree].
+/// `salvo platform generate` [cli-platform]: writes the implementation
+/// skeletons into each backend's platform root [platform-root].
 ///
 /// **Never overwrites.** With an interface between Salvo and the host, the
 /// file only has to be right once: afterwards every kind of drift — a member
-/// added, removed, or re-signed, a new platform effect — is an error from the
+/// added, removed, or re-signed — is an error from the
 /// *target* compiler, so there is nothing for this command to merge and no
 /// reason for it to touch code a human has edited.
 fn platform_generate(
@@ -1293,9 +1292,8 @@ fn write_once(path: &Path, content: &str) -> Result<bool, ExitCode> {
 
 /// [cli-platform] [platform-root] One backend's skeletons, into that
 /// backend's platform root: a **template** (`<m>.sv.<ext>`) for the platform
-/// handlers and bodiless fns of each module, and a host file (`<m>.<ext>`)
-/// for its `platform effect`s and a host-owned `main`, which a template
-/// cannot express. A file that exists is never touched; a handler whose
+/// handlers and bodiless fns of each module. A file that exists is never
+/// touched; a handler whose
 /// module already has a hand-written host file is left to it.
 fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) -> ExitCode {
     let layout = &inputs.layout;
@@ -1311,7 +1309,7 @@ fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) 
     // that has any has one here.
     let Some(root) = project.and_then(|p| p.platform_root(backend.name())) else {
         eprintln!(
-            "no `platform effect`, `platform handler` or bodiless fn in `{}`: nothing to generate",
+            "no `platform handler` or bodiless fn in `{}`: nothing to generate",
             layout.src.display()
         );
         return ExitCode::SUCCESS;
@@ -1394,7 +1392,7 @@ fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) 
     }
     if !any {
         eprintln!(
-            "no `platform effect`, `platform handler` or bodiless fn in `{}`: nothing to generate",
+            "no `platform handler` or bodiless fn in `{}`: nothing to generate",
             layout.src.display()
         );
         return ExitCode::SUCCESS;

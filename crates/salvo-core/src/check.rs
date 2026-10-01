@@ -1380,8 +1380,8 @@ fn check_intrinsic_is_std_only(program: &Program, out: &mut Checked) {
                     "`intrinsic {kind} {name}` is the compiler's to declare, not \
                      yours: every backend lowers intrinsics from a table keyed by \
                      name, so one declared here has no implementation anywhere. To \
-                     reach the target language, declare what you need from it as a \
-                     member of a `platform effect`"
+                     reach the target language, declare an effect for what you need \
+                     and implement it with a `platform handler`"
                 ),
             ));
         }
@@ -2384,8 +2384,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             f.name.span,
                             format!(
                                 "`fn {}` has no body: write one, implement it in a platform template \
-                                 (`platform/…/<module>.sv.kt` / `.sv.rs`), or — if the target language \
-                                 implements it — declare it as a member of a `platform effect`",
+                                 (`<module>.sv.kt` / `.sv.rs` under the platform root)",
                                 f.name.name
                             ),
                         );
@@ -2540,28 +2539,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                                      `try {{ ... }}` block, not handled"
                                 ),
                             );
-                        }
-                        // [platform-effect] A platform effect's implementation
-                        // is the host's, written in the target language and
-                        // handed to the Salvo entry point. A Salvo handler for
-                        // one would be a second, unreachable implementation.
-                        if let Ty::Named { name, .. } = of_ty.strip_quals() {
-                            if self
-                                .symbols
-                                .effects
-                                .get(name.as_str())
-                                .is_some_and(|e| e.platform)
-                            {
-                                self.error(
-                                    written.span(),
-                                    format!(
-                                        "`{name}` is a platform effect: the host implements \
-                                         it in the target language and supplies it to the \
-                                         entry point, so it has no Salvo handler — declare \
-                                         an ordinary `effect` if you mean to handle it here"
-                                    ),
-                                );
-                            }
                         }
                     }
                     for p in &h.params {
@@ -2777,7 +2754,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.generics = saved;
                 }
                 Item::Effect(e) => {
-                    self.check_platform_effect(e);
                     self.check_effect_member_signatures(e);
                     // [actor-effect-kind] The kind's own rules: what an
                     // `actor effect` may declare, and that `send fn` needs one.
@@ -3808,10 +3784,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// supplies rather than Salvo code (FS-1 resolved as O-M2, user decision
     /// 2026-09-14).
     ///
-    /// It is the mirror image of a `platform effect`: there the *effect* is
-    /// the host's and the instance arrives at the entry point, here the
-    /// effect is an ordinary Salvo one and only this *handler* is the host's,
-    /// so it registers with `use` like any other [platform-tree].
+    /// The effect is an ordinary Salvo one and only this *handler* is the
+    /// host's, so it registers with `use` like any other [platform-tree].
     fn check_platform_handler(&mut self, h: &'p ast::HandlerDecl) {
         if !h.platform {
             return;
@@ -3873,8 +3847,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // Generic-free for the reason a platform effect is: the host writes
-        // one concrete class, and there is no instance per type argument to
+        // Generic-free: the host writes one concrete class, and there is no instance per type argument to
         // construct at a `use` site [backend-never-wrong].
         if !h.generics.is_empty() {
             self.error(
@@ -3886,47 +3859,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     h.name.name
                 ),
             );
-        }
-    }
-
-    /// [platform-effect] The restrictions a `platform effect` carries
-    /// beyond an ordinary one, both because the *host* implements the
-    /// generated interface rather than Salvo code (user decisions
-    /// 2026-09-05).
-    ///
-    /// Neither the effect nor its members may be generic. A generic member
-    /// is already a loud codegen error on the Rust backend
-    /// ([effect-member-generics]), and a generic *effect* would need the
-    /// host to implement one interface per instantiation — Kotlin's
-    /// interfaces could carry that and Rust's traits could not, so an
-    /// instance the compiler cannot pin is refused here
-    /// rather than at codegen [backend-never-wrong].
-    fn check_platform_effect(&mut self, e: &'p EffectDecl) {
-        if !e.platform {
-            return;
-        }
-        if !e.generics.is_empty() {
-            self.error(
-                e.name.span,
-                format!(
-                    "platform effect `{}` may not be generic: the host implements \
-                     one interface, and an instance per type argument is not \
-                     expressible on every backend",
-                    e.name.name
-                ),
-            );
-        }
-        for f in &e.fns {
-            if !f.generics.is_empty() {
-                self.error(
-                    f.name.span,
-                    format!(
-                        "member `{}` of platform effect `{}` may not be generic: \
-                         the host implements a concrete signature",
-                        f.name.name, e.name.name
-                    ),
-                );
-            }
         }
     }
 
@@ -25647,8 +25579,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) -> Ty {
         // Dot-notation [fn-dot]: `base.f(args)` == `f(base, args)`. `f`
         // must be a declared function or effect member — reaching
-        // a target-language method means declaring it (as a member of a
-        // `platform effect`), so an unknown name here is an error, not
+        // a target-language method means declaring it (in an effect a
+        // `platform handler` implements), so an unknown name here is an error, not
         // interop pass-through [call-resolve].
         // [actor-self-send] `k@self(args)` — a message to the actor the
         // enclosing member belongs to. A selector, so it arrives as its own
@@ -25687,7 +25619,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     "no function named `{name}` is in scope: dot-notation calls a \
                      function with the receiver as its first argument \
                      ([fn-dot]), so a target-language method is reached by \
-                     declaring it as a member of a `platform effect`"
+                     declaring it in an effect a `platform handler` implements"
                 ),
                 name,
             );

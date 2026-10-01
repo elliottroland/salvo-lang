@@ -3,7 +3,7 @@
 // Generated once by `salvo platform generate`; the compiler never writes
 // this file again — it is yours. Nothing here is checked by Salvo: rustc
 // checks it, against the traits the backend generates from the
-// `platform effect` and `platform handler` declarations.
+// `platform handler` declarations.
 
 use crate::net::*;
 use crate::unions::*;

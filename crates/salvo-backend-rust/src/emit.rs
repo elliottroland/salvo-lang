@@ -340,24 +340,6 @@ pub fn emit_program_reporting(
         });
     }
 
-    // [platform-tree] A `main` that needs a platform effect is not the
-    // program's entry point any more, so the host file must exist — and
-    // the error names the command that creates it, or the failure only
-    // surfaces as `rustc` reporting `E0601`.
-    for unit in program.units() {
-        if unit.file.is_std
-            || !reachable.contains(&unit.file.module)
-            || salvo_core::platform_entry(unit.ast, &symbols).is_none()
-        {
-            continue;
-        }
-        if salvo_core::host_file(&program.companions, &unit.file.module).is_none() {
-            errors.push(salvo_core::missing_host_error(
-                &unit.file.module,
-                &salvo_core::host_rel_path(&unit.file.module, "rs"),
-            ));
-        }
-    }
     // [platform-handler] [platform-tree] A `use` of a platform handler
     // constructs a host struct, so the companion that defines it must exist —
     // in std as much as in customer code, since std ships its own
@@ -453,25 +435,7 @@ pub fn emit_program_reporting(
             ));
         }
         header.push('\n');
-        // [platform-tree] [rs-platform-host] Rust wants `fn main` in the
-        // crate root, but the host's `main` lives in a mounted module — so
-        // the crate root gets a one-line delegation to it. The generated
-        // entry point next to it is `salvo_main`, which the host calls with
-        // the implementations it constructed.
-        let mut footer = String::new();
-        if let Some(root) = root_module {
-            let needs_host = program
-                .units()
-                .find(|u| u.file.module == *root)
-                .and_then(|u| salvo_core::platform_entry(u.ast, &symbols))
-                .is_some();
-            if needs_host && salvo_core::host_file(&program.companions, root).is_some() {
-                footer = format!(
-                    "\nfn main() {{\n    crate::{}::main()\n}}\n",
-                    rs_ident(&host_mod_name(root))
-                );
-            }
-        }
+        let footer = String::new();
         match files.iter_mut().find(|f| f.rel_path == root_rel) {
             Some(root_file) => {
                 root_file.content = format!("{header}{}{footer}", root_file.content);
@@ -494,18 +458,8 @@ pub fn emit_program_reporting(
     }
 }
 
-/// [platform-tree] The Rust type name a host implementation gets for effect
-/// `E`: `EHost`. A named unit struct, not an anonymous one, because the file
-/// is the customer's from the moment it is written — they need something to
-/// hang state on.
-fn host_struct(effect: &str) -> String {
-    format!("{}Host", rs_ident(effect))
-}
-
 /// [platform-tree] [rs-platform-host] Renders the host implementation
-/// skeleton for every module that declares platform effects, plus the module
-/// whose `main` needs one (which is where the program's real entry point
-/// goes). This is `salvo platform generate`'s whole output.
+/// skeleton for every module that declares platform handlers.
 ///
 /// Every reference is written out in full (`crate::…`) rather than imported:
 /// the host is a module mounted from the crate root [rs-crate], and a
@@ -561,13 +515,7 @@ pub fn platform_skeletons(
                 .map(|name| format!("crate::{}", rs_ident(name)))
         }
     };
-    let mut effect_module: HashMap<&str, &ModulePath> = HashMap::new();
-    for unit in program.units() {
-        for e in salvo_core::platform_effects(unit.ast) {
-            effect_module.insert(e.name.name.as_str(), &unit.file.module);
-        }
-    }
-    // [platform-handler] And every effect, platform or not: a platform
+    // [platform-handler] Every effect: a platform
     // handler implements an *ordinary* effect, whose trait may live in
     // another module (std's, typically).
     let mut all_effect_module: HashMap<&str, &ModulePath> = HashMap::new();
@@ -587,16 +535,14 @@ pub fn platform_skeletons(
         if unit.file.is_std || unit.file.dependency.is_some() {
             continue;
         }
-        let effects = salvo_core::platform_effects(unit.ast);
         let handlers = salvo_core::platform_handlers(unit.ast);
-        let entry_fn = salvo_core::platform_entry(unit.ast, &symbols);
-        if effects.is_empty() && handlers.is_empty() && entry_fn.is_none() {
+        if handlers.is_empty() {
             continue;
         }
         let module = &unit.file.module;
         let Some(own_path) = path_to(module) else {
             errors.push(format!(
-                "{}: module `{module}` declares platform effects but emits no Rust \
+                "{}: module `{module}` declares platform handlers but emits no Rust \
                  module to attach them to",
                 unit.file.name
             ));
@@ -607,9 +553,6 @@ pub fn platform_skeletons(
         // The modules whose items the host file has to see beyond its own
         // (an effect declared elsewhere — std's, typically).
         let mut impl_paths: BTreeSet<String> = BTreeSet::new();
-        for e in &effects {
-            body.push_str(&emitter.host_impl(e, &own_path));
-        }
         // [platform-handler] One struct per platform handler, named after the
         // handler itself: the `use` site constructs *this* struct through
         // `::new(…)`, so neither the name nor the constructor is the host's
@@ -635,49 +578,6 @@ pub fn platform_skeletons(
                     unit.file.name, h.name.name
                 )),
             }
-        }
-        if let Some(f) = entry_fn {
-            let mut args = Vec::new();
-            for effect in emitter.platform_entry_effects(f) {
-                let Some(other) = effect_module.get(effect.as_str()).copied() else {
-                    errors.push(format!(
-                        "{}: `main` needs the platform effect `{effect}`, whose \
-                         declaration could not be located",
-                        unit.file.name
-                    ));
-                    continue;
-                };
-                // [rs-handle] The host struct is wrapped in the effect's
-                // handle at the one place the host constructs it: the entry
-                // takes `&mut __Handle_E` like every other fn, so a Salvo
-                // handler over the host captures it like any dependency. The
-                // handle's `new` needs `Send + 'static`, so a host struct
-                // holding a non-`Send` value is a rustc error at this line.
-                let (owner, effect_owner) = if other == module {
-                    (String::new(), own_path.clone())
-                } else {
-                    match path_to(other) {
-                        // A host struct lives in the *other module's* host
-                        // file, which is mounted under its own name.
-                        Some(path) => (format!("crate::{}::", rs_ident(&host_mod_name(other))), path),
-                        None => continue,
-                    }
-                };
-                // A platform *effect*'s host has no `threadsafe` word to
-                // declare itself, so it is the stateful (locked) arm.
-                args.push(format!(
-                    "&{effect_owner}::{}::locked({owner}{})",
-                    monitor_struct_name(&effect),
-                    host_struct(&effect)
-                ));
-            }
-            body.push_str(&format!(
-                "\n// The program's entry point [rs-platform-host]: Salvo's `main` \
-                 needs a\n// platform effect, so it is emitted as `{SALVO_ENTRY}` and \
-                 the crate root\n// calls this.\npub fn main() {{\n    {own_path}::\
-                 {SALVO_ENTRY}({})\n}}\n",
-                args.join(", ")
-            ));
         }
         errors.extend(std::mem::take(&mut emitter.errors));
 
@@ -714,8 +614,7 @@ pub fn platform_skeletons(
              `{module}`.\n//\n// Generated once by `salvo platform generate`; the \
              compiler never writes\n// this file again — it is yours. Nothing here is \
              checked by Salvo: rustc\n// checks it, against the traits the backend \
-             generates from the\n// `platform effect` and `platform handler` \
-             declarations.\n{preamble}{body}"
+             generates from the\n// `platform handler` declarations.\n{preamble}{body}"
         );
         files.push(EmittedFile {
             rel_path: salvo_core::host_rel_path(module, "rs"),
@@ -1057,10 +956,6 @@ fn module_produces_code(module: &Module) -> bool {
 }
 
 /// Rust reserved words that need escaping as identifiers.
-/// [platform-effect] The name a `main` that needs platform effects is
-/// emitted under. Rust requires `fn main` in the crate root, so the host's
-/// entry takes that name and calls this.
-pub const SALVO_ENTRY: &str = "salvo_main";
 
 
 const RUST_KEYWORDS: &[&str] = &[
@@ -3498,38 +3393,6 @@ impl<'p> Emitter<'p> {
         out.push_str("}\n");
         out
     }
-    /// a unit struct implementing the generated trait, every member stubbed
-    /// with `todo!`. The signatures come from [`Emitter::emit_effect`]'s own
-    /// renderers, so a skeleton that drifts from the trait is impossible by
-    /// construction.
-    fn host_impl(&mut self, e: &EffectDecl, owner_path: &str) -> String {
-        let name = host_struct(&e.name.name);
-        let mut out = format!(
-            "\npub struct {name};\n\nimpl {owner_path}::{} for {name} {{\n",
-            stateful_trait_name(&e.name.name)
-        );
-        for (i, f) in e.fns.iter().enumerate() {
-            if !f.generics.is_empty() {
-                continue;
-            }
-            let params = format!(
-                "{}{}",
-                self.emit_member_param_list(f),
-                self.emit_member_implicits(f)
-            );
-            let ret = self.emit_return_type(f.return_type.as_ref());
-            out.push_str(&salvo_core::reply_contract_comment(f));
-            out.push_str(&format!(
-                "    fn {}(&mut self{params}){ret} {{\n        \
-                 todo!(\"implement {}.{}\")\n    }}\n",
-                self.member_name(e, i),
-                e.name.name,
-                f.name.name
-            ));
-        }
-        out.push_str("}\n");
-        out
-    }
 
     /// [platform-handler] [rs-platform-handler] One host *handler* skeleton: a
     /// struct named after the handler, with the handler's constructor
@@ -3707,53 +3570,6 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [platform-tree] The platform effects `main` receives, as Salvo effect
-    /// names *in parameter order* — the arguments the host's `main` must
-    /// pass to the generated entry point. Read from the same checker table
-    /// the parameters themselves come from, so the two cannot disagree.
-    fn platform_entry_effects(&mut self, f: &FnDecl) -> Vec<String> {
-        let checked_effects: Option<Vec<Ty>> = self
-            .checked
-            .fn_refs
-            .get(&(self.file_idx, f.name.span))
-            .and_then(|key| self.checked.fn_effects.get(key))
-            .cloned();
-        let mut out: Vec<String> = Vec::new();
-        let push = |name: &str, out: &mut Vec<String>| {
-            if !out.iter().any(|n| n == name) {
-                out.push(name.to_string());
-            }
-        };
-        match checked_effects {
-            Some(tys) => {
-                for ty in tys {
-                    if let Ty::Named { name, .. } = ty.strip_quals() {
-                        if self
-                            .symbols
-                            .effects
-                            .get(name.as_str())
-                            .is_some_and(|e| e.platform)
-                        {
-                            push(name, &mut out);
-                        }
-                    }
-                }
-            }
-            None => {
-                for eff in f.effects.iter().flatten() {
-                    if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
-                        let name = r.name.name.as_str();
-                        if self.symbols.effects.get(name).is_some_and(|e| e.platform) {
-                            push(name, &mut out);
-                        }
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    /// Effect/handler member parameters follow the default kept rule
     /// [rs-borrows]: scalars by value, everything else `&T`.
     fn emit_member_param_list(&mut self, member: &FnDecl) -> String {
         let mut out = String::new();
@@ -5281,7 +5097,7 @@ impl<'p> Emitter<'p> {
         // Effect dependencies become leading parameters [rs-effects] [rs-handle],
         // sourced from the checker's lowered effect list when available
         // (checker-`Ty` keys; the AST rendering is the unchecked fallback).
-        if (!is_main || self.declares_platform_effect(f)) && handler_of_style.is_none() {
+        if !is_main && handler_of_style.is_none() {
             let checked_effects: Option<Vec<Ty>> = self
                 .checked
                 .fn_refs
@@ -5299,13 +5115,6 @@ impl<'p> Emitter<'p> {
                             continue;
                         }
                         let rendered = self.rust_ty(&ty);
-                        // [platform-effect] `main` takes only its *platform*
-                        // effects: the host supplies those by calling the
-                        // entry point, while everything else it needs is
-                        // registered inside it with `use`.
-                        if is_main && !self.is_platform_effect(Some(&ty), &rendered) {
-                            continue;
-                        }
                         effects.push((Some(ty), rendered));
                     }
                 }
@@ -5316,9 +5125,6 @@ impl<'p> Emitter<'p> {
                                 continue;
                             }
                             let rendered = self.emit_type_ref(r);
-                            if is_main && !self.is_platform_effect(None, &rendered) {
-                                continue;
-                            }
                             effects.push((None, rendered));
                         }
                     }
@@ -5896,14 +5702,7 @@ impl<'p> Emitter<'p> {
 
         let pad = "    ".repeat(indent);
         let name = if is_main {
-            // [platform-effect] A `main` needing platform effects is not the
-            // crate's `main` any more — the host's is, and it calls this
-            // after constructing the implementations.
-            if self.declares_platform_effect(f) {
-                SALVO_ENTRY.to_string()
-            } else {
-                "main".to_string()
-            }
+            "main".to_string()
         } else if top_level || matches!(style, FnStyle::QualifierFn) {
             let base = self.rust_fn_name(f);
             // [rs-loc] The locator variant's name.
@@ -6582,41 +6381,6 @@ impl<'p> Emitter<'p> {
         } else {
             inner
         }
-    }
-
-    /// [platform-effect] Whether an effect is host-implemented, from either
-    /// the checker's resolved type or (in unchecked contexts) its rendered
-    /// name — the same table/fallback pair every effect lookup here uses.
-    fn is_platform_effect(&self, ty: Option<&Ty>, rendered: &str) -> bool {
-        if let Some(Ty::Named { name, .. }) = ty.map(Ty::strip_quals) {
-            if let Some(e) = self.symbols.effects.get(name.as_str()) {
-                return e.platform;
-            }
-        }
-        // An effect's rendered Rust name is its Salvo name through
-        // `rs_ident`, minus any generic arguments; platform effects may not
-        // be generic, so the base name is the whole name.
-        let base = rendered.split('<').next().unwrap_or(rendered);
-        self.symbols.effects.keys().any(|n| rs_ident(n) == base)
-            && self
-                .symbols
-                .effects
-                .iter()
-                .any(|(n, e)| rs_ident(n) == base && e.platform)
-    }
-
-    /// [platform-effect] Whether this fn's declared effect list mentions a
-    /// platform effect — which is what turns `main` into an entry point the
-    /// host calls rather than the crate's own `main`.
-    fn declares_platform_effect(&self, f: &FnDecl) -> bool {
-        f.effects.iter().flatten().any(|eff| match eff {
-            EffectRef::Effect(r) | EffectRef::AnyEffect(r) => self
-                .symbols
-                .effects
-                .get(r.name.name.as_str())
-                .is_some_and(|e| e.platform),
-            _ => false,
-        })
     }
 
     /// [cmp-carry] The hash/equality **markers** a keyed container built here is

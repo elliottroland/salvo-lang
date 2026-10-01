@@ -135,6 +135,28 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Platform effects removed (2026-10-01, user decision; ABI.md step 2).** The
+first step of the platform ABI sequence. `platform effect` — an effect the host
+implemented wholly, whose instance a host-owned `main` handed to the generated
+entry point (`salvoMain` / `salvo_main`) — is no longer the language:
+`platform` takes `handler` only, and the parse error says so. No shipped source
+used one (`std`, the examples and `modules/aws` use platform handlers), so the
+work was the removal itself: `EffectDecl.platform`, the checker's
+platform-effect rules (no Salvo handler, no generics), the host-owned entry in
+both emitters and both skeleton renderers (`SALVO_ENTRY`, the entry
+delegation, `platform_entry_effects`, `host_impl`), `platform_effects` /
+`platform_entry` / `missing_host_error` in `salvo_core::platform`, and the
+Kotlin `entry_hint`'s host-facade case. Diagnostics that named a `platform
+effect` as the way to reach a target-language method now name a `platform
+handler`. Tests: the platform-effect tests were deleted (2 parser, 7 checker, 1
+monitor, 4 per backend's codegen, the effect arcs in `platform_tests.rs`); the
+CLI arcs that used one now use a platform handler with a template (generate,
+never-overwrite, both backends, the cross-module tree, a host library, a
+host-completed reply), and the declaration-kind export test exports a platform
+handler instead. Spec: [platform-effect] is a tombstone; [kt-platform-entry]
+and [rs-platform-entry] are gone, their `intrinsic handler` halves now
+[kt-intrinsic-handler] and [rs-intrinsic-handler]. **1669 tests.**
+
 **Kotlin → Gradle, as Rust → Cargo (2026-09-30, user decisions).** After
 weighing delegation to Maven (which needs `-jvm` coordinates, since Maven
 ignores Gradle metadata), the user chose Gradle: the coordinates stay the ones
@@ -19234,7 +19256,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1686)
+## Test inventory (all green: 1669; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

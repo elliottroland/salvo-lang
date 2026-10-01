@@ -1,33 +1,17 @@
 //! Platform queries shared by the backends [platform-tree].
 //!
-//! The `platform/` tree holds host code, in the target language, for the two
-//! declarations that have no Salvo body: a `platform effect`, whose whole
-//! implementation is the host's [platform-effect], and a `platform handler`,
-//! a host implementation of an *ordinary* Salvo effect [platform-handler].
-//! Both backends need the same answers — which effects a module hands to the
-//! host, which host classes it declares, whether its `main` needs a platform
-//! effect (and is therefore *not* the program's entry point any more), and
-//! whether the host file exists — so they live here rather than twice in the
-//! emitters.
+//! The platform root holds host code, in the target language, for
+//! declarations that have no Salvo body: a `platform handler`, a host
+//! implementation of an ordinary Salvo effect [platform-handler], and a
+//! bodiless fn a template implements. Both backends need the same answers —
+//! which host classes a module declares, and whether the host file exists —
+//! so they live here rather than twice in the emitters.
 
-use salvo_syntax::ast::{EffectDecl, EffectRef, FnDecl, HandlerDecl, HostBlock, Item, Module};
+use salvo_syntax::ast::{FnDecl, HandlerDecl, HostBlock, Item, Module};
 
 use crate::program::Program;
 
-use crate::program::Symbols;
 use crate::source::{CompanionFile, ModulePath};
-
-/// [platform-effect] The platform effects a module declares, in
-/// declaration order: exactly the interfaces the host must implement.
-pub fn platform_effects(ast: &Module) -> Vec<&EffectDecl> {
-    ast.items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Effect(e) if e.platform => Some(e),
-            _ => None,
-        })
-        .collect()
-}
 
 /// [platform-handler] The platform handlers a module declares, in
 /// declaration order: the host classes the module's `platform/` companion
@@ -60,35 +44,6 @@ pub fn missing_handler_host_error(
     )
 }
 
-/// [platform-effect] Whether a declared effect list mentions a platform
-/// effect — the condition that moves `main` out of the generated code and
-/// makes it an entry point the host calls.
-pub fn declares_platform_effect(f: &FnDecl, symbols: &Symbols<'_>) -> bool {
-    f.effects.iter().flatten().any(|eff| match eff {
-        EffectRef::Effect(r) | EffectRef::AnyEffect(r) => symbols
-            .effects
-            .get(r.name.name.as_str())
-            .is_some_and(|e| e.platform),
-        _ => false,
-    })
-}
-
-/// [platform-effect] The module's `main`, if it declares one with a body
-/// that needs a platform effect. `Some` means the host owns the entry
-/// point: the generated `main` is renamed and the host's calls it.
-pub fn platform_entry<'a>(ast: &'a Module, symbols: &Symbols<'_>) -> Option<&'a FnDecl> {
-    ast.items.iter().find_map(|item| match item {
-        Item::Fn(f)
-            if f.name.name == "main"
-                && f.body.is_some()
-                && declares_platform_effect(f, symbols) =>
-        {
-            Some(f)
-        }
-        _ => None,
-    })
-}
-
 /// [platform-tree] The host file for `module`, if the sources carry one.
 pub fn host_file<'c>(
     companions: &'c [CompanionFile],
@@ -97,19 +52,6 @@ pub fn host_file<'c>(
     companions
         .iter()
         .find(|c| c.platform && c.module == *module)
-}
-
-/// [platform-tree] The message for a program whose host file is missing.
-/// Naming the command is the whole point: without it the failure surfaces
-/// as the *target* toolchain not finding an entry point, which points at
-/// generated code instead of at the thing the developer has to do.
-pub fn missing_host_error(module: &ModulePath, rel_path: &std::path::Path) -> String {
-    format!(
-        "error: module `{module}` declares a `main` that needs a platform effect, \
-         so the host owns the program's entry point, but `{}` does not exist: run \
-         `salvo platform generate` to create the implementation skeleton",
-        rel_path.display()
-    )
 }
 
 /// [platform-tree] Where a module's host file lives, relative to the source
@@ -173,7 +115,7 @@ pub fn required_backends(project: &crate::Project) -> Vec<&'static str> {
 }
 
 /// [platform-root] A program with declarations implemented in platform files —
-/// a `platform effect`, a `platform handler`, a bodiless fn — needs a platform
+/// a `platform handler` or a bodiless fn — needs a platform
 /// root for every backend in `backends`, and there is no default (user
 /// decision 2026-09-30): one error per backend without one, at the first such
 /// declaration, naming the manifest key. A dependency's and std's
@@ -190,7 +132,6 @@ pub fn platform_root_required(
         }
         for item in &unit.ast.items {
             let found = match item {
-                Item::Effect(e) if e.platform => Some((e.name.span, format!("`platform effect {}`", e.name.name))),
                 Item::Handler(h) if h.platform => Some((h.name.span, format!("`platform handler {}`", h.name.name))),
                 Item::Fn(f) if f.body.is_none() && f.by.is_none() && !f.intrinsic => {
                     Some((f.name.span, format!("`fn {}`, which has no body,", f.name.name)))

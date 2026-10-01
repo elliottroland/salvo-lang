@@ -682,9 +682,7 @@ pub struct QualifierDecl {
     pub span: Span,
 }
 
-/// `effect Console { fn println(...) }`, or `platform effect Telemetry
-/// { ... }` — an effect whose handler the *host* provides
-/// [platform-effect].
+/// `effect Console { fn println(...) }`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EffectDecl {
     /// The `//` comment block directly above the declaration, one entry
@@ -695,16 +693,6 @@ pub struct EffectDecl {
     /// whole of a module's public surface — a name without it can be used
     /// only inside the file that declares it [mod-file].
     pub exported: bool,
-    /// True for `platform effect` [platform-effect]: the members are
-    /// implemented by the *host* in the target language, so the compiler
-    /// generates the interface and the instance arrives from outside the
-    /// Salvo program — there is nothing to `use`.
-    ///
-    /// A dedicated flag rather than a shared backing enum, because `platform`
-    /// applies to nothing but an effect and `intrinsic`/`external` never
-    /// apply to one: the two sets are disjoint, so keeping them apart makes
-    /// the invariant structural.
-    pub platform: bool,
     /// [actor-effect-kind] True for `actor effect` — a **actor protocol**
     /// (user decision 2026-09-15, EU-5). The kind is declared on the effect
     /// rather than diagnosed at a binding, because it is a design-time choice:
@@ -712,10 +700,6 @@ pub struct EffectDecl {
     /// parameters, `Mut` parameters, `proj` returns, non-sendable payloads),
     /// and only an actor effect may be bound with `spawn` or `use addr`. A
     /// plain effect is never actor-backed.
-    ///
-    /// Like `platform`, a flag rather than a shared enum: the two are
-    /// independent (a `platform effect` is a host interface, an `actor effect`
-    /// a message protocol) and nothing yet is both.
     pub is_actor: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
@@ -753,12 +737,12 @@ pub struct HandlerDecl {
     /// [platform-handler] `platform handler HostRawFs of RawFs`: a handler
     /// of an *ordinary* Salvo effect whose implementation is a class the
     /// host supplies — a companion in the `platform/` tree of the module
-    /// that declares it [platform-tree]. Bodyless in Salvo, and unlike a
-    /// `platform effect` it is registered with `use` like any handler: the
-    /// generated code constructs the host class.
+    /// that declares it [platform-tree]. Bodyless in Salvo, and registered
+    /// with `use` like any handler: the generated code constructs the host
+    /// class.
     ///
-    /// A flag beside `intrinsic` rather than a shared enum, for the reason
-    /// the effect's flag is one: the two never combine — `intrinsic` means
+    /// A flag beside `intrinsic` rather than a shared enum: the two never
+    /// combine — `intrinsic` means
     /// *the compiler* implements the members, `platform` means the *build*
     /// does — and the grammar admits only one of them.
     pub platform: bool,

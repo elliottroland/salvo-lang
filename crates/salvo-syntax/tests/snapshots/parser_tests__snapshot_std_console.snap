@@ -9,7 +9,6 @@ Module {
             EffectDecl {
                 docs: [],
                 exported: true,
-                platform: false,
                 is_actor: false,
                 name: Ident {
                     name: "Console",

@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1686 tests green.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1669 tests green.
 
 ## The sequence
 
@@ -105,7 +105,7 @@ sequence left behind, by step — each a leftover, none a blocker:
   dropped silently.
 - **④ node groups**: the partition/unreachable policy for gossip (a failed
   `deliver` → `left(n, "unreachable")`); the shared secret/TLS half of N-6 at
-  the handshake; `HeartbeatNodeGroup` over a `Ddb` platform effect as the
+  the handshake; `HeartbeatNodeGroup` over a `Ddb` platform handler as the
   interop example.
 - **⑥ `any`**: an `Addr<E>` answered by *spawning* a router binds as an
   ordinary `E` under `use addr` (the addr type has no room for the claim); a
@@ -437,6 +437,12 @@ module has no `.sv` file is reported at file 0, span 0 — the embedded std — 
 location of its own, the template), ✅ platform roots in the manifest, a
 template-writing `platform generate` and ascription by a place (2026-09-30);
 (5) DynamoDB.
+
+**Next, before DynamoDB: the platform ABI (user direction 2026-10-01).**
+Templates are to be replaced by generated ABI and interface files beside
+hand-written implementation files, platform effects dropped, and union naming
+and Kotlin case revisited. The design, its open decisions (D1–D9) and the
+build sequence live in [ABI.md](ABI.md) while they are worked out.
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
@@ -999,8 +1005,9 @@ several are "revisit only if a customer appears".
   parity-safe by construction and is what the filesystem uses.
 - **Intersection types (DECISION)** — whether `Addr<A & B>`-style types join the
   language; recorded 2026-09-17 when the tuple form shipped instead.
-- **`platform type`** — deferred by decision; `platform effect` and
-  `platform handler` are the whole interop surface until a need arises.
+- **`platform type`** and **`platform effect`** — deferred by decision (the
+  second removed 2026-10-01); `platform handler` and, per ABI.md, `platform fn`
+  are the whole interop surface until a need arises.
 - **`const` bindings** — announced (user intent 2026-09-19), not designed. Its
   first customer is recorded: the shareable-handler taxonomy's rung 1 keys on "no
   mutable state", which today means "no fields, no `Mut` constructor parameters";

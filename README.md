@@ -84,8 +84,7 @@ cargo run -- test --src std                          # the standard library's ow
 
 # Generate the implementation skeletons into each backend's platform root —
 # a platform template (`<m>.sv.kt` / `.sv.rs`) for platform handlers and
-# bodiless fns, a host file for each `platform effect` (written once, never
-# overwritten):
+# bodiless fns (written once, never overwritten):
 cargo run -- platform generate --backend kotlin --src ./my_project
 
 # Start a language server (LSP over stdio) for editor integration:
@@ -309,15 +308,14 @@ fn main() [use] {
   are `platform handler`s at the bottom over one process-wide stream table;
   `MemFs` fakes both at once with no disk, and `RestrictedFs(root)` scopes a
   filesystem to one directory.
-- **Interop**: a `platform effect` declares what the program needs from its
-  target language, and a `platform handler` is a host implementation of an
+- **Interop**: a `platform handler` is a host implementation of an
   *ordinary* Salvo effect — registered with `use` like any handler, so the
   entry point stays put. The compiler generates the interface and
   `salvo platform generate` writes the implementation skeleton — a platform
   template, Kotlin or Rust with Salvo between backticks — into the platform
   root `salvo.toml` names, so the *target's* compiler checks the two against
   each other.
-  Those two are the whole interop surface: std's own primitives are
+  That is the whole interop surface: std's own primitives are
   `intrinsic`, lowered by code inside each backend, and `intrinsic` is the
   compiler's to declare.
 - **Modules**: a file is a module, and its declarations are **private to it

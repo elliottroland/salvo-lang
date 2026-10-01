@@ -147,14 +147,15 @@ fn every_declaration_kind_takes_the_modifier() {
                export provenance qualifier Vetted of Shape\n\n\
                export effect Logger {\n    fn log(m: Str) -> None => !m\n}\n\n\
                export actor effect Mailer {\n    send fn mail(m: Str) => !m\n}\n\n\
-               export platform effect Host {\n    fn tick() [] -> Int\n}\n\n\
+               export effect Host {\n    fn tick() [] -> Int\n}\n\n\
+               export platform handler HostTick of Host\n\n\
                export handler Loud of Logger {\n    fn log(m: Str) -> None {}\n}\n\n\
                export params ToText<T> {\n    fn text(v: T) -> Str => v\n}\n\n\
                export fn plain() [] -> Int {\n    return 1\n}\n\n\
                export fn close(t: Ticket) [] -> None => !t {}\n";
     let user = "import lib.Shape\nimport lib.Ticket\nimport lib.Alias\n\
                 import lib.Tagged\nimport lib.Vetted\nimport lib.Logger\n\
-                import lib.Mailer\nimport lib.Host\nimport lib.Loud\n\
+                import lib.Mailer\nimport lib.Host\nimport lib.HostTick\nimport lib.Loud\n\
                 import lib.ToText\nimport lib.plain\n\n\
                 fn f() [] -> Int {\n    return plain()\n}\n";
     let errs = diags(&[("lib.sv", lib), ("main.sv", user)]);

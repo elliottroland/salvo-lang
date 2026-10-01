@@ -46,9 +46,8 @@ pub use manifest::{
 };
 pub use place::{Place, Step};
 pub use platform::{
-    declares_platform_effect, host_block_coverage, platform_root_required, host_file, host_rel_path, required_backends, missing_handler_host_error,
-    missing_host_error, platform_effects, platform_entry, platform_handlers, reply_contract_comment,
-    reply_params,
+    host_block_coverage, host_file, host_rel_path, missing_handler_host_error, platform_handlers,
+    platform_root_required, reply_contract_comment, reply_params, required_backends,
 };
 pub use program::{Program, Symbols};
 pub use erase::{erase_effect_generics, erased_generics, Erased};

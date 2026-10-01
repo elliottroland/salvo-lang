@@ -107,7 +107,7 @@ pub trait Backend {
     ) -> String;
 
     /// [platform-tree] Renders the host implementation skeleton for every
-    /// platform effect the program declares: `salvo platform generate`'s
+    /// platform handler the program declares: `salvo platform generate`'s
     /// output, as `(path relative to the source root, contents)` pairs.
     /// `entry` is the driver's chosen entry module, which matters for the
     /// same reason it does in [`Backend::emit`] — Rust puts it at the crate

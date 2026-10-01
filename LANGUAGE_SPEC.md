@@ -1101,8 +1101,7 @@ Conventions:
     justified by a declaration ([call-resolve], [field-resolve],
     [index-resolve], [iter-resolve]). Reaching a target-language feature
     means declaring it — an `intrinsic` in std [backend-intrinsic], or a
-    `platform effect` member [platform-effect] / a `platform handler`
-    [platform-handler] in customer code.
+    `platform handler` [platform-handler] in customer code.
   * The emitters keep syntactic fallbacks where a checker table may
     legitimately have no entry (an `Unknown`-typed expression still has to
     render), but *not* where the checker now guarantees resolution: an
@@ -2168,8 +2167,8 @@ Conventions:
   `parse_item`): both were the shape of the now-removed bodiless
   declaration form, and there is nothing left for such a declaration to
   mean. Each error names the surviving forms — write the body, or (if the
-  target language provides it) declare a `platform effect` member
-  [platform-effect]; give the type a definition (`type N = ...`), or
+  target language provides it) implement it in a platform template
+  [host-splice]; give the type a definition (`type N = ...`), or
   declare it `intrinsic`. `intrinsic` declarations parse through their own
   modifier branch, so they are the only bodiless `fn`/`type` forms left,
   and only std may write them [intrinsic-std-only].
@@ -2386,7 +2385,7 @@ Conventions:
 * [fn-dot] Dot-notation: `x.f(a)` ≡ `f(x, a)` whenever `f` resolves to a
   declared fn or effect member. There is no method-call fallback: an
   undeclared name is an unresolved call ([call-resolve]), and the
-  diagnostic names a `platform effect` member [platform-effect] as the way
+  diagnostic names a `platform handler` [platform-handler] as the way
   to reach a target-language method.
 * [ident-resolve] Every **identifier reference** must resolve to something
   declared — a local, a parameter, a handler, or a fn passed by name.
@@ -2420,8 +2419,8 @@ Conventions:
   (predicate-qualifier overrides refine them [qual-field-override]).
   A field on any other known type — an `intrinsic type`, an array, a fn
   value, a generic `T` — is an error; a target-language member is reached
-  through a declared accessor (an `intrinsic fn`, or a `platform effect`
-  member in customer code).
+  through a declared accessor (an `intrinsic fn`, or an effect member a
+  `platform handler` implements, in customer code).
 * [index-resolve] `[]` subscripts arrays only. Other collections expose
   element access as declared functions (std's `get(list, index)`), and
   tuples use constant positions ([expr-tuple-index]).
@@ -3460,8 +3459,8 @@ Conventions:
   * **The v1 lexical cut is lifted.** A capture used to require the
     dependency to come from a `use` *in the same function*; an effect
     arriving through the enclosing **signature** works too, since every
-    effect parameter is a handle [effect-handle] — a platform effect
-    arriving through `main` and a fn value's effects included (until
+    effect parameter is a handle [effect-handle] — a fn value's effects
+    included (until
     2026-09-28 those two were refused, and the lift went through a hidden
     handle-bundle parameter on Rust; see COMPLETED.md).
   * **The deadlock graph is unchanged**: it prices a handler's dependencies
@@ -5254,7 +5253,7 @@ docs/language/ remains the source of truth for everything that does.
     it: a **many-shot address typed by a protocol**, with `Reply<T>` the
     one-shot address typed by a single value. (It was `Pid<E>` for a few hours;
     renamed by user decision 2026-09-15, because `Pid` is the operating
-    system's word and a `platform effect` wrapping process management will want
+    system's word and a platform handler wrapping process management will want
     it. `Addr` also keeps signature-heavy code short — `List<Addr<ShardApi>>` —
     and rarely collides with a domain noun the way `Address` would.) Its argument is the **effect** the actor
     serves, the one sanctioned effect-in-a-type-position [effect-not-data]
@@ -7983,8 +7982,8 @@ replaced the working document TESTING.md).
     root-relative name would lie), and loaded with tests off. Its `main` is
     never an entry point [cli-run]; its actor protocols are not the project's
     to lock [protocol-lock]; `salvo platform generate` writes no skeleton for
-    its platform effects — but its **companions are loaded** (host files under
-    its `platform/`, user decision 2026-09-29): a dependency's platform effects
+    its platform handlers — but its **companions are loaded** (host files under
+    its platform root, user decision 2026-09-29): a dependency's platform handlers
     need their implementations as much as the project's do.
   * Hover: a declaration reached from a dependency says ``From `m` —
     dependency `name`.`` [lsp-fn-origin]; a module from one says so too
@@ -8028,7 +8027,7 @@ replaced the working document TESTING.md).
   dispatch intrinsics from a table keyed by *name* [backend-intrinsic], so
   an intrinsic the compiler does not already know has no lowering anywhere.
   The diagnostic names the one interop path customer code *does* have — a
-  member of a `platform effect` [platform-effect]. Applies to
+  `platform handler` [platform-handler]. Applies to
   `intrinsic fn`, `intrinsic type`, `intrinsic handler`, and
   `intrinsic qualifier` alike.
 * [intrinsic-fn] `intrinsic fn` declares a compiler-intrinsic function:
@@ -8050,49 +8049,20 @@ replaced the working document TESTING.md).
     [rs-borrows]: a place splices raw so a method-style lowering borrows
     natively (`list.push(..)`), while a variadic tail splices owned
     because it lands inside a constructor (`vec![..]`).
-* [platform-effect] `platform effect E { members }` declares an effect
-  whose members the **host** implements, in the target language (user
-  decisions 2026-09-05). The compiler generates the interface (Kotlin) or
-  trait (Rust) exactly as it does for an ordinary effect; what differs is
-  where the implementation comes from. With [platform-handler] it is one of
-  the two interop paths customer code has, and the one for a capability that
-  is the *host's* rather than the language's.
-  * It is an ordinary effect in every other respect: a function that
-    performs a member declares `[E]`, intermediate frames declare it and
-    thread it, and the existing interface/trait emission, `&mut dyn`
-    threading and handler fusion all apply unchanged. Grouping the
-    functions under an effect — rather than declaring them one by one — is
-    what makes the interop boundary the author's choice and gives the
-    dependency wiring somewhere to live.
-  * **The host owns the entry point.** A platform effect's instance cannot
-    be `use`d, because it is not constructed in Salvo. Instead the effects
-    `main` declares are its *parameters*: `main` is emitted as `salvoMain`
-    / `salvo_main` taking them, and the host's own `main` constructs the
-    implementations and calls it. A program with no platform effect is
-    unaffected — `main` stays `main`.
-  * A Salvo `handler H of E` for a platform effect is an error: the host's
-    implementation *is* the handler, so a Salvo one would be a second,
-    unreachable implementation. The diagnostic names the remedy (declare an
-    ordinary `effect` if you meant to handle it in Salvo).
-  * A handler may **depend** on a platform effect (a constructor parameter
-    of effect type, [effect-handler-deps]): that is how a Salvo-written
-    handler reaches the host.
-  * Neither the effect nor its members may be generic. A generic member is
-    already a loud codegen error on Rust [effect-member-generics], and a
-    generic *effect* would need the host to implement one interface per
-    instantiation — Kotlin's interfaces could carry that and Rust's traits
-    could not, so it is refused at the declaration rather than
-    at codegen [backend-never-wrong].
-  * `platform` takes `effect` or `handler` [platform-handler]; the parse
-    error names both forms rather than reporting a bare "expected item". A
-    platform *type* remains deferred (user decision 2026-09-05).
+* [platform-effect] **Removed 2026-10-01** (user decision; ABI.md). A
+  `platform effect` — an effect implemented wholly by the host, whose instance
+  was handed to `main` by a host-owned entry point (`salvoMain` /
+  `salvo_main`) — is no longer the language. `platform` takes `handler` only,
+  and the parse error says so. No shipped source used one; a platform handler
+  of an ordinary effect [platform-handler] covers the same ground, and the
+  form may return when a need for it appears.
 * [platform-handler] `platform handler H of E` declares a handler of an
   **ordinary** Salvo effect whose implementation is a class the *build*
   supplies, in the target language (FS-1 resolved as O-M2, user decision
   2026-09-14; the deferred 2026-09-05 proposal, un-deferred because
-  phase 4's `HostRawFs` needs it). Where a `platform effect` hands the whole
-  effect to the host, this hands it one *handler*: the effect stays Salvo's,
-  with as many other handlers as it likes.
+  phase 4's `HostRawFs` needs it). The effect stays Salvo's, with as many
+  other handlers as it likes; only this one is host code. It is the one
+  interop path customer code has.
   * It is registered with `use` like any handler — that is the point of the
     form — so **the entry point does not move**: the instance is
     constructed inside the program, not handed to it. Constructor
@@ -8119,9 +8089,7 @@ replaced the working document TESTING.md).
     dependencies (a dependency is supplied to *members*, and these members
     are host code, which performs no Salvo effect — put an ordinary Salvo
     handler in between, `handler DefaultFs [RawFs] of Fs`); not generic (the
-    host writes one concrete class, as for a platform effect).
-  * A `platform handler` of a *platform effect* is the ordinary
-    "platform effects have no Salvo handler" error [platform-effect].
+    host writes one concrete class).
 * [threadsafe-platform] `threadsafe platform handler H of E` states the host
   class's **thread-safety contract** (user decision 2026-09-26, closing the
   2026-09-20 "assumed thread-safe" stance): the instance may be entered
@@ -8165,7 +8133,7 @@ replaced the working document TESTING.md).
   `modules/aws` (`platform = "salvo/platform"`) and `std/`
   (`platform = "platform"`) — or each may have its own, inside the source
   tree or beside it (`kotlin/`, `rust/`).
-  * A program with a `platform effect`, a `platform handler` or a bodiless
+  * A program with a `platform handler` or a bodiless
     fn needs a root for every backend it builds, and for the one being
     built: otherwise it is refused at the first such declaration, naming the
     key (`platform_root_required`, in every build and in `analyze`). A
@@ -8183,7 +8151,7 @@ replaced the working document TESTING.md).
     read by the embedded loader as well as from a checkout.
 * [platform-tree] The host implementations live in the backend's **platform
   root** [platform-root], mirroring the source layout: `app/entry.kt` under
-  it implements the platform effects *and platform handlers*
+  it implements the platform handlers
   [platform-handler] of module `app.entry` in Kotlin, `app/entry.rs` does it
   in Rust. `salvo platform generate` writes them [cli-platform]. They are
   ordinary companion files [backend-companion] — discovered by the active
@@ -8193,16 +8161,12 @@ replaced the working document TESTING.md).
     emitted as `platform/<module path>.<ext>`. Without that, a file's module
     would be its path from the source root, which no Salvo module is ever
     called, so it would never be reachable and never be copied.
-  * The host file is where the program's entry point lives, so the backends
-    single it out: Kotlin launches its facade class, Rust mounts it under
-    `platform_<module>` and delegates the crate root's `fn main` to it.
-  * A module whose `main` needs a platform effect **must** have a host file:
-    otherwise the program has no entry point at all, and the error names
-    `salvo platform generate` rather than leaving the target toolchain to
-    report a missing `main` against generated code [backend-never-wrong].
-    The same is required of the module declaring a platform handler the
-    program `use`s [platform-handler] — that one does not move the entry
-    point, so the trigger is the `use`, not `main`.
+  * Rust mounts a host file under `platform_<module>`; Kotlin gives it the
+    package `salvo.platform.<module>`.
+  * The module declaring a platform handler the program `use`s
+    [platform-handler] **must** have a host file or a template: the error
+    names `salvo platform generate` rather than leaving the target toolchain
+    to report a missing class against generated code [backend-never-wrong].
   * The tree is not the *customer's* alone: std ships its host classes
     under its own root too (`std/platform/fs/host.kt`), which is how a std
     `platform handler` is implemented. The embedded std is loaded with the
@@ -8304,8 +8268,8 @@ replaced the working document TESTING.md).
     COMPLETED.md.
 * [platform-reply] **Host code can complete a `Reply` later, from any thread**
   (ROADMAP §4b item 2, 2026-09-29; the `aws` design's D3 — a service is a plain
-  effect whose members take a `Reply` and return at once). A `platform effect`
-  or `platform handler` member may take a `Reply<T>` parameter — that was
+  effect whose members take a `Reply` and return at once). A `platform handler`
+  member may take a `Reply<T>` parameter — that was
   already legal, and renders as the runtime's reply type in both host
   signatures (verified, decision 7). What was missing was the runtime half:
   a reply sent from a host thread raced the scheduler, which saw a waiter with
@@ -8443,8 +8407,8 @@ replaced the working document TESTING.md).
   native extension) is a *companion*: it is copied verbatim into the
   output whenever its module is reachable. It is how hand-written native
   code joins the build — most importantly the host implementations of a
-  `platform effect` or `platform handler`, which live in companions under
-  the source root's `platform/` tree [platform-tree]. A companion that collides with a
+  `platform handler`, which live in companions under the platform root
+  [platform-tree]. A companion that collides with a
   generated file is an error.
 * [backend-never-wrong] A backend must never emit silently wrong code:
   unsupported constructs are codegen/checker errors. Each backend spec
@@ -8848,13 +8812,6 @@ replaced the working document TESTING.md).
     (`template::skeleton`). A declaration already implemented in that
     language is left out; a handler whose module already has a hand-written
     host file (`<m>.<ext>`) is left to it.
-  * **A host file** (`<m>.<ext>`) for what a template cannot express: a named
-    class (Kotlin) or unit struct (Rust) per `platform effect`, implementing
-    the generated interface with every member stubbed, plus — in the module
-    whose `main` needs a platform effect — the `main` that constructs the
-    implementations and calls the generated entry point. The templates are
-    written first and the program re-assembled, so a handler they implement
-    gets no host class.
   * A missing implementation is what the command is about to write, so the
     per-backend coverage check [host-splice] does not stop it.
   * **Generated once, never overwritten.** An existing file is reported and

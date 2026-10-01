@@ -579,8 +579,7 @@ impl<'s> Parser<'s> {
                     self.error(
                         format!(
                             "`type {}` declares nothing: give it a definition \
-                             (`type {} = ...`), or declare what the target \
-                             language provides with a `platform effect`",
+                             (`type {} = ...`)",
                             t.name.name, t.name.name
                         ),
                         t.span,
@@ -781,11 +780,8 @@ impl<'s> Parser<'s> {
                 self.parse_qualifier(false, QualSubject::Provenance)
                     .map(Item::Qualifier)
             }
-            // [platform-effect] `platform effect E { ... }`: the members are
-            // implemented by the host in the target language. `effect` is
-            // the only declaration this modifier takes — a platform *type*
-            // and a platform *handler* are deferred, and the diagnostic
-            // says so rather than reporting a bare parse error.
+            // [platform-handler] `platform handler H of E`: a host
+            // implementation of a Salvo effect.
             TokenKind::KwPlatform => {
                 self.bump();
                 self.parse_platform_rest(false)
@@ -809,9 +805,7 @@ impl<'s> Parser<'s> {
                             format!(
                                 "expected `handler` after `threadsafe platform`, found \
                                  {found}: the thread-safety contract is a claim about a \
-                                 host class, so it belongs on a `platform handler` — a \
-                                 `platform effect` names members the host implements \
-                                 and has no instance to be safe or unsafe \
+                                 host class, so it belongs on a `platform handler` \
                                  [threadsafe-platform]"
                             ),
                             span,
@@ -820,7 +814,7 @@ impl<'s> Parser<'s> {
                     }
                 }
             }
-            TokenKind::KwEffect => self.parse_effect(false).map(Item::Effect),
+            TokenKind::KwEffect => self.parse_effect().map(Item::Effect),
             // [actor-effect-kind] `actor effect E { … }`: an actor protocol.
             // Contextual — at item level a bare identifier is otherwise a
             // parse error, which is what makes one token of lookahead enough
@@ -829,7 +823,7 @@ impl<'s> Parser<'s> {
                 if name == ACTOR_MODIFIER && matches!(self.peek_at(1).kind, TokenKind::KwEffect) =>
             {
                 self.bump();
-                self.parse_effect_kinded(false, true).map(Item::Effect)
+                self.parse_effect_kinded(true).map(Item::Effect)
             }
             // [actor-effect-kind] The word every other language uses for this,
             // and the one this kind was spelled with until 2026-09-16. Worth a
@@ -847,7 +841,7 @@ impl<'s> Parser<'s> {
                     span,
                 );
                 self.bump();
-                self.parse_effect_kinded(false, true).map(Item::Effect)
+                self.parse_effect_kinded(true).map(Item::Effect)
             }
             TokenKind::KwHandler => self.parse_handler(false).map(Item::Handler),
             // [qual-refn-scope] A refinement lives in the qualifier whose claim
@@ -883,9 +877,7 @@ impl<'s> Parser<'s> {
                 if false && f.body.is_none() && f.by.is_none() && f.host.is_empty() {
                     self.error(
                         format!(
-                            "`fn {}` has no body: write one, or — if the target \
-                             language implements it — declare it as a member of a \
-                             `platform effect`",
+                            "`fn {}` has no body",
                             f.name.name
                         ),
                         f.span,
@@ -1954,8 +1946,8 @@ impl<'s> Parser<'s> {
         Some(entries)
     }
 
-    fn parse_effect(&mut self, platform: bool) -> Option<EffectDecl> {
-        self.parse_effect_kinded(platform, false)
+    fn parse_effect(&mut self) -> Option<EffectDecl> {
+        self.parse_effect_kinded(false)
     }
 
     /// [actor-effect-kind] `actor effect E { … }` — an actor protocol. The
@@ -1963,7 +1955,7 @@ impl<'s> Parser<'s> {
     /// other word this phase added: nothing is reserved, so `actor` stays a
     /// legal name. There is deliberately no `actor fn` — the phase decided
     /// against colouring — so this is the only place the word appears.
-    fn parse_effect_kinded(&mut self, platform: bool, is_actor: bool) -> Option<EffectDecl> {
+    fn parse_effect_kinded(&mut self, is_actor: bool) -> Option<EffectDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwEffect)?.span;
         let name = self.ident_type("effect")?;
@@ -1985,7 +1977,6 @@ impl<'s> Parser<'s> {
             // [mod-export] Set by `parse_item`, which reads the modifier.
             exported: false,
             docs,
-            platform,
             is_actor,
             name,
             generics,
@@ -2057,15 +2048,9 @@ impl<'s> Parser<'s> {
         self.parse_handler_flavored(intrinsic, false, false)
     }
 
-    /// What follows `platform` (and `threadsafe platform`): `effect` or
-    /// `handler`, with the diagnostic naming both forms rather than a bare
-    /// "expected item". `threadsafe` is only meaningful on the handler form;
-    /// the caller has already refused it before `effect`.
+    /// What follows `platform` (and `threadsafe platform`): `handler`.
     fn parse_platform_rest(&mut self, threadsafe: bool) -> Option<Item> {
         match self.kind() {
-            // [platform-effect] `platform effect E { ... }`: the members are
-            // implemented by the host in the target language.
-            TokenKind::KwEffect => self.parse_effect(true).map(Item::Effect),
             // [platform-handler] `platform handler HostRawFs of RawFs`: a
             // host implementation of an *ordinary* Salvo effect, registered
             // with `use` like any handler.
@@ -2077,10 +2062,9 @@ impl<'s> Parser<'s> {
                 let found = other.describe();
                 self.error(
                     format!(
-                        "expected `effect` or `handler` after `platform`, found {found}: \
-                         a platform declaration is either the group of functions the \
-                         host implements (`platform effect`) or a host implementation \
-                         of a Salvo effect (`platform handler`)"
+                        "expected `handler` after `platform`, found {found}: a platform \
+                         declaration is a host implementation of a Salvo effect \
+                         (`platform handler`)"
                     ),
                     span,
                 );

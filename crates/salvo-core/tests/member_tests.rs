@@ -190,7 +190,7 @@ fn unresolved_dot_call_is_an_error() {
         .find(|m| m.contains("no function named `missing_method`"))
         .unwrap_or_else(|| panic!("got {errs:?}"));
     assert!(
-        diag.contains("`platform effect`"),
+        diag.contains("`platform handler`"),
         "the diagnostic should name the remedy: {diag}"
     );
 }

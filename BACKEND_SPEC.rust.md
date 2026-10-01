@@ -1351,13 +1351,6 @@ facts worth knowing") and keeps the history ("One shape for effects").
   declaration does not need. **A task body** takes its inherited effects as
   *owned* handles (the mint's closure is `move` and `'static`) and clones
   them into nested mints.
-* **`main` with a platform effect** ([platform-effect]) takes `&E` like any
-  fn; the host's `main()` wraps its struct at the one place it constructs it:
-  `crate::salvo_main(&crate::Telemetry::locked(TelemetryHost))` — a platform
-  *effect*'s host has no `threadsafe` word to declare itself, so it is the
-  locked arm and its skeleton implements `__Stateful_E`. A Salvo handler over
-  a platform effect captures it like any dependency (refused until
-  2026-09-28, there being no handle to mint).
 * **`threadsafe platform handler`** ([threadsafe-platform]) is the declared
   statefulness of a host the compiler cannot see: a `threadsafe` host's
   skeleton implements `__Stateless_E` with `&self` receivers and the `use`
@@ -1425,15 +1418,8 @@ facts worth knowing") and keeps the history ("One shape for effects").
     resolved type arguments for the rare construct that needs them spelled
     out (`Vec::<T>::new()`), but the current table ignores them.
   * Paths are absolute, so no lowering adds a `use` item.
-* [rs-platform-entry] [platform-effect] A `platform effect` emits the same
-  `trait` an ordinary effect does and threads as `&mut dyn` in the same way,
-  but **no** handler struct — the host writes the impl. A `main` that
-  declares one is emitted as `salvo_main` taking the instances
-  (`SALVO_ENTRY`); Rust requires `fn main` in the crate root, and the host's
-  is the one that belongs there. Only *platform* effects become `main`'s
-  parameters; everything else it needs is registered inside it with `use`.
-  * An `intrinsic handler` is the mirror image: struct + `new()` + trait
-    impl, with member signatures from the *effect* declaration and bodies
+* [rs-intrinsic-handler] An `intrinsic handler` is a struct + `new()` +
+    trait impl, with member signatures from the *effect* declaration and bodies
     from `intrinsics::handler_member`.
 * [rs-cargo] [platform-host-deps] **With crates declared, the program is a
   Cargo package.** `write_host_manifest` writes `Cargo.toml` beside the crate
@@ -1454,16 +1440,6 @@ facts worth knowing") and keeps the history ("One shape for effects").
   `#[path = "platform/<M>.rs"] pub mod platform_<M>;` — the module's own mod
   name with a `platform_` prefix, so a host and the module it implements for
   can never collide [rs-crate].
-  * Rust requires `fn main` in the crate root, and the generated entry point
-    there is `salvo_main`, so the crate root gains a delegation:
-    `fn main() { crate::platform_<M>::main() }`. The `rustc` invocation is
-    therefore unchanged, and `entry_hint` still names the crate root.
-  * The generated skeleton is `pub struct <E>Host;` plus
-    `impl <path>::<E> for <E>Host` with every member stubbed
-    `todo!("implement <E>.<member>")`, followed (in the entry module) by
-    `pub fn main() { <path>::salvo_main(&mut <E>Host, …) }`. Member
-    signatures come from `emit_member_param_list`/`emit_return_type` — the
-    same renderers `emit_effect` uses.
   * Every reference is a fully qualified `crate::…` path rather than an
     import: the host is a mounted module, and `<path>` is `crate` for the
     crate-root module and `crate::<mod_name>` otherwise. A host struct
@@ -1961,7 +1937,7 @@ facts worth knowing") and keeps the history ("One shape for effects").
     `SalvoCtx::addr`, and every internal index is an `addr`. It is emitted
     **into the user's program**, so it shows up in their stack traces beside
     their own code — which is exactly where a second name for one thing would
-    cost, and where a real OS pid (a `platform effect` wrapping process
+    cost, and where a real OS pid (a platform handler wrapping process
     management) could sit next to it. "Process" stays the noun for the thing an
     addr names, so `SalvoProcess` and `procs` are untouched.
   * **The forms**: `spawn H(args) on P` →

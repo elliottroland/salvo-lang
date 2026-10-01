@@ -421,38 +421,6 @@ fn main() [use] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [spawn-inherit] [effect-handle] A **platform effect** received through
-/// the signature is a handle like any other (2026-09-28): a Salvo handler
-/// over it captures it at construction, the `DefaultFs [RawFs]` shape with
-/// the host's instance arriving through `main`.
-#[test]
-fn a_platform_effect_is_captured_as_a_handle() {
-    let errs = errors(
-        "\
-platform effect Host {
-    fn tick() -> Int
-}
-
-effect Beacon {
-    fn shine() -> Int
-}
-
-handler Relaying [Host] of Beacon {
-    fn shine() -> Int {
-        return tick()
-    }
-}
-
-fn wire() [Host, use] {
-    use Relaying()
-    let lit = shine()
-    let sink = lit
-}
-",
-    );
-    assert!(errs.is_empty(), "expected a clean program: {errs:?}");
-}
-
 /// [monitor-handler] [actor-deadlock-cycle] Waits under a monitor's lock are
 /// priced, not refused — option (b), user decision 2026-09-20: dep-bearing
 /// shareable handlers get graph nodes, and a cycle through held locks is

@@ -1889,7 +1889,7 @@ fn std_add_consumes_its_element() {
 // implements, so only the standard library may write it. A user source
 // analyzed here is not std, so an `intrinsic` declaration in it is an
 // error naming the one interop path customer code does have — a
-// `platform effect`. (The declaration is fully explicit so this is the
+// `platform handler`. (The declaration is fully explicit so this is the
 // only diagnostic, not a decl-explicit complaint.)
 #[test]
 fn intrinsic_in_a_user_file_is_an_error() {
@@ -1906,7 +1906,7 @@ fn intrinsic_in_a_user_file_is_an_error() {
         stderr.contains("`intrinsic fn secret` is the compiler's to declare, not yours"),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("`platform effect`"), "stderr: {stderr}");
+    assert!(stderr.contains("`platform handler`"), "stderr: {stderr}");
 }
 
 // --- Qualifier refinements [qual-refn] ---

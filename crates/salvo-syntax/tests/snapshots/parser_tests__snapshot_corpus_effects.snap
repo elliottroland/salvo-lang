@@ -9,7 +9,6 @@ Module {
             EffectDecl {
                 docs: [],
                 exported: false,
-                platform: false,
                 is_actor: false,
                 name: Ident {
                     name: "Random",
@@ -77,7 +76,6 @@ Module {
             EffectDecl {
                 docs: [],
                 exported: false,
-                platform: false,
                 is_actor: false,
                 name: Ident {
                     name: "Console",

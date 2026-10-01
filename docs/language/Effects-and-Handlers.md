@@ -346,8 +346,6 @@ fn interception() [Logger, Clock, use] -> None {
 
 The effects a function receives *are* handles — on the Kotlin backend an object reference, on the Rust backend a cloneable wrapper — so capturing one costs a copy and nothing else.
 
-One shape still refuses: a **platform effect** cannot be captured this way, because the host owns that instance and hands it to `main` as a borrow — there is no handle to make. Put an ordinary Salvo handler over it (`DefaultFs [RawFs]` is exactly this).
-
 
 ## Mixed handlers — a servant behind a plain effect
 

@@ -2,7 +2,7 @@
 //! [cli-platform] [platform-tree].
 //!
 //! The arc these cover is the one a developer actually walks: write a
-//! `platform effect`, discover from the error that the host is missing, run
+//! `platform handler`, discover from the error that the host is missing, run
 //! the command, implement the stub, run the program. Tests needing a
 //! toolchain (`kotlinc`, `rustc`) skip gracefully when it is missing.
 
@@ -67,168 +67,6 @@ fn e2e_stamp(test: &str, tools: &[&str]) -> Option<salvo_testkit::Stamp> {
     salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), &format!("cli {test}"), &refs)
 }
 
-/// A platform effect, an intermediate frame that performs it, and a `main`
-/// that needs it — so the host owns the entry point and both the interface
-/// and the threading are exercised.
-const DEMO: &str = r#"
-platform effect Telemetry {
-    fn record(name: Str, value: Int) [] -> None => name, value
-}
-
-fn work(n: Int) [Telemetry] -> Int {
-    record("work", n)
-    return n + 1
-}
-
-fn main() [use, Telemetry] {
-    use StdOutConsole()
-    println("result=${work(41)}")
-}
-"#;
-
-/// The stub body each backend's skeleton carries, and what to replace it
-/// with to make the demo print. Only the body changes: everything else in
-/// the generated file is used as written, which is what makes the run a test
-/// of the *skeleton* and not of a hand-written host.
-fn implement(backend: &str, skeleton: &str) -> String {
-    let (stub, body) = match backend {
-        "kotlin" => (
-            "TODO(\"implement Telemetry.record\")",
-            "kotlin.io.println(\"[telemetry] $name=$value\")",
-        ),
-        "rust" => (
-            "todo!(\"implement Telemetry.record\")",
-            "println!(\"[telemetry] {}={}\", name, value);",
-        ),
-        other => panic!("unknown backend {other}"),
-    };
-    assert!(
-        skeleton.contains(stub),
-        "expected the {backend} stub `{stub}` in:\n{skeleton}"
-    );
-    skeleton.replace(stub, body)
-}
-
-const EXPECTED: &str = "[telemetry] work=41\nresult=42\n";
-
-/// [cli-platform] [platform-tree] The whole arc, per backend: the run fails
-/// naming the command, the command writes the skeleton into `platform/`, the
-/// stub is implemented, and the same `salvo run` now prints the program's
-/// output. The asserted stdout is identical for both backends, which is what
-/// parity means here.
-#[test]
-fn generate_then_run_works_for_each_backend() {
-    let Some(__stamp) = e2e_stamp("generate_then_run_works_for_each_backend", &["kotlinc", "rustc"]) else {
-        return;
-    };
-    for (backend, tool, ext) in [("kotlin", "kotlinc", "kt"), ("rust", "rustc", "rs")] {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
-        let dir = work_dir(&format!("arc_{backend}"));
-        project(&dir);
-        fs::write(dir.join("main.sv"), DEMO).unwrap();
-
-        // Without a host there is no entry point, and the error says so by
-        // name — this is the diagnostic that replaced a toolchain failure
-        // against generated code.
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(!out.status.success(), "{backend} should not have run");
-        assert!(
-            stderr.contains("salvo platform generate")
-                && stderr.contains(&format!("platform/main.{ext}")),
-            "{backend} stderr: {stderr}"
-        );
-
-        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend} generate failed: {stderr}");
-        let host = dir.join("platform").join(format!("main.{ext}"));
-        assert!(host.is_file(), "{backend}: {} was not written", host.display());
-
-        let implemented = implement(backend, &fs::read_to_string(&host).unwrap());
-        fs::write(&host, implemented).unwrap();
-
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend} run failed: {stderr}");
-        assert_eq!(
-            String::from_utf8_lossy(&out.stdout),
-            EXPECTED,
-            "{backend} stdout (stderr: {stderr})"
-        );
-    }
-    __stamp.verified();
-}
-
-/// [cli-platform] The command never overwrites. With an interface between
-/// Salvo and the host there is nothing to merge — every later divergence is
-/// a target-language compile error — so a second run must leave an edited
-/// file exactly as it was, and say that it did.
-#[test]
-fn generate_never_overwrites_an_existing_host() {
-    let dir = work_dir("no_overwrite");
-    project(&dir);
-    fs::write(dir.join("main.sv"), DEMO).unwrap();
-    let out = salvo_in(&dir, &["platform", "generate", "--backend", "rust", "--src", "."]);
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-
-    let host = dir.join("platform/main.rs");
-    let edited = implement("rust", &fs::read_to_string(&host).unwrap());
-    fs::write(&host, &edited).unwrap();
-
-    let out = salvo_in(&dir, &["platform", "generate", "--backend", "rust", "--src", "."]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(out.status.success(), "stderr: {stderr}");
-    assert!(stderr.contains("already exists"), "stderr: {stderr}");
-    assert_eq!(
-        fs::read_to_string(&host).unwrap(),
-        edited,
-        "the edited host must be untouched"
-    );
-}
-
-/// [cli-platform] Each backend writes its own file, and they coexist in one
-/// `platform/` tree: discovery only ever picks up the active backend's
-/// native extension, so the same sources build for both.
-#[test]
-fn each_backend_writes_its_own_host_file() {
-    let dir = work_dir("both_backends");
-    project(&dir);
-    fs::write(dir.join("main.sv"), DEMO).unwrap();
-    for backend in ["kotlin", "rust"] {
-        let out =
-            salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
-        assert!(
-            out.status.success(),
-            "{backend}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    assert!(dir.join("platform/main.kt").is_file());
-    assert!(dir.join("platform/main.rs").is_file());
-}
-
-/// [cli-platform] A program with no `platform effect` has nothing to
-/// generate, which is a success with a message rather than an empty tree.
-#[test]
-fn a_program_without_platform_effects_generates_nothing() {
-    let dir = work_dir("nothing");
-    fs::write(
-        dir.join("main.sv"),
-        "fn main() [use] -> None {\n    use StdOutConsole\n    \
-         println(\"hi\")\n}\n",
-    )
-    .unwrap();
-    let out = salvo_in(&dir, &["platform", "generate", "--backend", "rust", "--src", "."]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(out.status.success(), "stderr: {stderr}");
-    assert!(stderr.contains("nothing to generate"), "stderr: {stderr}");
-    assert!(!dir.join("platform").exists(), "no tree should be created");
-}
-
 /// [platform-handler] A host handler of an ordinary effect, with a Salvo
 /// handler depending on it — the shape phase 4's `HostRawFs`/`DefaultFs` pair
 /// has (FILE_SYSTEM.md §5.8). Application code registers both in `main` and
@@ -257,6 +95,73 @@ fn main() [use] {
     println(stamp("boot"))
 }
 "#;
+
+/// [cli-platform] The command never overwrites: a second run leaves an
+/// edited file exactly as it was, and says that it did.
+#[test]
+fn generate_never_overwrites_an_existing_host() {
+    let dir = work_dir("no_overwrite");
+    project(&dir);
+    fs::write(dir.join("main.sv"), HANDLER_DEMO).unwrap();
+    let out = salvo_in(&dir, &["platform", "generate", "--backend", "rust", "--src", "."]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    let host = dir.join("platform/main.sv.rs");
+    let edited = fs::read_to_string(&host)
+        .unwrap()
+        .replace("todo!(\"implement RawClock.raw_now\")", "`offset` + 7");
+    fs::write(&host, &edited).unwrap();
+
+    let out = salvo_in(&dir, &["platform", "generate", "--backend", "rust", "--src", "."]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert!(!stderr.contains("wrote"), "stderr: {stderr}");
+    assert_eq!(
+        fs::read_to_string(&host).unwrap(),
+        edited,
+        "the edited host must be untouched"
+    );
+}
+
+/// [cli-platform] Each backend writes its own file, and they coexist in one
+/// platform root: discovery only ever picks up the active backend's
+/// extensions, so the same sources build for both.
+#[test]
+fn each_backend_writes_its_own_host_file() {
+    let dir = work_dir("both_backends");
+    project(&dir);
+    fs::write(dir.join("main.sv"), HANDLER_DEMO).unwrap();
+    for backend in ["kotlin", "rust"] {
+        let out =
+            salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
+        assert!(
+            out.status.success(),
+            "{backend}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    assert!(dir.join("platform/main.sv.kt").is_file());
+    assert!(dir.join("platform/main.sv.rs").is_file());
+}
+
+/// [cli-platform] A program with no platform declaration has nothing to
+/// generate, which is a success with a message rather than an empty tree.
+#[test]
+fn a_program_without_platform_declarations_generates_nothing() {
+    let dir = work_dir("nothing");
+    fs::write(
+        dir.join("main.sv"),
+        "fn main() [use] -> None {\n    use StdOutConsole\n    \
+         println(\"hi\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["platform", "generate", "--backend", "rust", "--src", "."]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert!(stderr.contains("nothing to generate"), "stderr: {stderr}");
+    assert!(!dir.join("platform").exists(), "no tree should be created");
+}
+
 
 /// [cli-platform] [platform-handler] The same arc for a `platform handler`:
 /// the run fails naming the command *and the `use` that needs a host*, the
@@ -336,13 +241,12 @@ fn generate_then_run_works_for_a_platform_handler() {
     __stamp.verified();
 }
 
-/// [platform-tree] The tree mirrors the sources, per module: the effect's
-/// module gets the implementation and the entry's module gets the `main`,
-/// each at its own path. Run end to end on both backends because this is
-/// where the cross-module qualification lives — Kotlin has to import the
-/// other host's package, Rust has to name it `crate::platform_telemetry`,
-/// and a mistake in either is a target-language error rather than anything
-/// Salvo would notice.
+/// [platform-tree] The tree mirrors the sources, per module: the template of
+/// a handler declared in `telemetry.sv` is `platform/telemetry.sv.<ext>`, and
+/// a `use` of it from another module (`bin/tool.sv`, chosen with `--main`)
+/// constructs it across modules. Run end to end on both backends, because
+/// the cross-module path is where a mistake would be a target-language error
+/// rather than anything Salvo would notice.
 #[test]
 fn the_platform_tree_mirrors_the_source_tree() {
     let Some(__stamp) = e2e_stamp("the_platform_tree_mirrors_the_source_tree", &["kotlinc", "rustc"]) else {
@@ -354,14 +258,14 @@ fn the_platform_tree_mirrors_the_source_tree() {
             "kotlinc",
             "kt",
             "TODO(\"implement Telemetry.record\")",
-            "kotlin.io.println(\"[t] $name=$value\")",
+            "val n = `name`\n        val v = `value`\n        kotlin.io.println(\"[t] $n=$v\")",
         ),
         (
             "rust",
             "rustc",
             "rs",
             "todo!(\"implement Telemetry.record\")",
-            "println!(\"[t] {}={}\", name, value);",
+            "println!(\"[t] {}={}\", `name`, `value`);",
         ),
     ] {
         let dir = work_dir(&format!("nested_{backend}"));
@@ -370,14 +274,15 @@ fn the_platform_tree_mirrors_the_source_tree() {
         fs::create_dir_all(&bin).unwrap();
         fs::write(
             dir.join("telemetry.sv"),
-            "export platform effect Telemetry {\n    \
-             fn record(name: Str, value: Int) [] -> None => name, value\n}\n",
+            "export effect Telemetry {\n    \
+             fn record(name: Str, value: Int) [] -> None => name, value\n}\n\n\
+             export platform handler HostTelemetry of Telemetry\n",
         )
         .unwrap();
         fs::write(
             bin.join("tool.sv"),
-            "import telemetry.Telemetry\n\nfn main() [Telemetry] {\n    \
-             record(\"tool\", 7)\n}\n",
+            "import telemetry.Telemetry\nimport telemetry.HostTelemetry\n\n\
+             fn main() [use] {\n    use HostTelemetry()\n    record(\"tool\", 7)\n}\n",
         )
         .unwrap();
 
@@ -391,30 +296,21 @@ fn the_platform_tree_mirrors_the_source_tree() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend} stderr: {stderr}");
 
-        // The effect's module gets the implementation, the entry's module the
-        // `main` — each mirroring its own source path.
-        let effect_host = dir.join(format!("platform/telemetry.{ext}"));
-        let entry_host = dir.join(format!("platform/bin/tool.{ext}"));
-        let effect_src = fs::read_to_string(&effect_host).unwrap();
-        let entry_src = fs::read_to_string(&entry_host).unwrap();
+        // The declaring module gets the template, mirroring its source path;
+        // the entry's module gets nothing.
+        let template = dir.join(format!("platform/telemetry.sv.{ext}"));
+        let src = fs::read_to_string(&template).unwrap();
         assert!(
-            effect_src.contains("TelemetryHost") && effect_src.contains(stub),
-            "{backend} effect host:\n{effect_src}"
+            src.contains("`platform handler HostTelemetry of Telemetry`") && src.contains(stub),
+            "{backend} template:\n{src}"
         );
-        let cross = match backend {
-            "kotlin" => "import salvo.platform.telemetry.*",
-            _ => "crate::platform_telemetry::TelemetryHost",
-        };
-        assert!(
-            entry_src.contains("main()") && entry_src.contains(cross),
-            "{backend} entry host:\n{entry_src}"
-        );
+        assert!(!dir.join("platform/bin").exists(), "{backend}: nothing for the entry module");
 
         if !have(tool) {
             eprintln!("skipping {backend} run: {tool} not found on PATH");
             continue;
         }
-        fs::write(&effect_host, effect_src.replace(stub, body)).unwrap();
+        fs::write(&template, src.replace(stub, body)).unwrap();
         let out = salvo_in(
             &dir,
             &["run", "--backend", backend, "--src", ".", "--main", "bin/tool.sv"],
@@ -445,12 +341,15 @@ fn a_companion_can_use_a_declared_host_library() {
         return;
     };
     const PROGRAM: &str = "\
-platform effect Greeter {
+effect Greeter {
     fn greet(n: Int) [] -> Str => n
 }
 
-fn main() [use, Greeter] {
+platform handler HostGreeter of Greeter
+
+fn main() [use] {
     use StdOutConsole()
+    use HostGreeter()
     println(greet(7))
 }
 ";
@@ -485,9 +384,9 @@ fn main() [use, Greeter] {
         fs::write(dir.join("salvo/main.sv"), PROGRAM).unwrap();
         let out = salvo_in(&dir, &["platform", "generate"]);
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        let host = dir.join("salvo/platform/main.rs");
+        let host = dir.join("salvo/platform/main.sv.rs");
         let src = fs::read_to_string(&host).unwrap();
-        fs::write(&host, src.replace("todo!(\"implement Greeter.greet\")", "greeter::greet(n as i64)")).unwrap();
+        fs::write(&host, src.replace("todo!(\"implement Greeter.greet\")", "greeter::greet(`n` as i64)")).unwrap();
 
         let out = salvo_in(&dir, &["run"]);
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -555,9 +454,9 @@ fn main() [use, Greeter] {
         fs::write(dir.join("salvo/main.sv"), PROGRAM).unwrap();
         let out = salvo_in(&dir, &["platform", "generate"]);
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        let host = dir.join("salvo/platform/main.kt");
+        let host = dir.join("salvo/platform/main.sv.kt");
         let src = fs::read_to_string(&host).unwrap();
-        fs::write(&host, src.replace("TODO(\"implement Greeter.greet\")", "return greeter.greet(n)")).unwrap();
+        fs::write(&host, src.replace("TODO(\"implement Greeter.greet\")", "return greeter.greet(`n`)")).unwrap();
         let out = salvo_in(&dir, &["run"]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "kotlin run failed: {stderr}");
@@ -681,16 +580,19 @@ fn a_host_thread_completes_a_reply() {
         return;
     };
     const PROGRAM: &str = "\
-platform effect Slow {
+effect Slow {
     fn later(n: Int, done: Reply<Int>) [] -> None => !n, !done
 }
+
+threadsafe platform handler HostSlow of Slow
 
 send fn labelled(label: Str, out: Reply<Str>, n: Int) => !label, !out, !n {
     out.send(\"${label} ${n}\")
 }
 
-fn main() [use, Slow] {
+fn main() [use] {
     use StdOutConsole()
+    use HostSlow()
     let n = waitfor done: Reply<Int> {
         later(41, done)
     }
@@ -708,14 +610,14 @@ fn main() [use, Slow] {
             "rustc",
             "rs",
             "todo!(\"implement Slow.later\")",
-            "let done = done.hosted();\n        std::thread::spawn(move || {\n            std::thread::sleep(std::time::Duration::from_millis(50));\n            if n >= 0 { done.send(n + 1) } else { drop(done) }\n        });",
+            "let done = `done`.hosted();\n        let n = `n`;\n        std::thread::spawn(move || {\n            std::thread::sleep(std::time::Duration::from_millis(50));\n            if n >= 0 { done.send(n + 1) } else { drop(done) }\n        });",
         ),
         (
             "kotlin",
             "kotlinc",
             "kt",
             "TODO(\"implement Slow.later\")",
-            "val host = done.hosted()\n        Thread { Thread.sleep(50); host.send(n + 1) }.start()",
+            "val host = `done`.hosted()\n        val n = `n`\n        Thread { Thread.sleep(50); host.send(n + 1) }.start()",
         ),
     ] {
         if !have(tool) {
@@ -727,7 +629,7 @@ fn main() [use, Slow] {
         fs::write(dir.join("main.sv"), PROGRAM).unwrap();
         let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        let host = dir.join("platform").join(format!("main.{ext}"));
+        let host = dir.join("platform").join(format!("main.sv.{ext}"));
         let src = fs::read_to_string(&host).unwrap();
         assert!(
             src.contains("`done`: a continuation [platform-reply]") && src.contains(".hosted()"),
@@ -894,8 +796,7 @@ fn the_aws_glue_compiles_against_both_sdks() {
 
 /// [platform-root] [cli-platform] [host-splice] Each backend has its own
 /// platform root when the manifest says so, and `generate` fills each: a
-/// template (`main.sv.<ext>`) for the platform handler and the bodiless fn, a
-/// host file (`main.<ext>`) for the platform effect and the host-owned `main`.
+/// template (`main.sv.<ext>`) for the platform handler and the bodiless fn.
 /// The skeletons type-check as written, a second run keeps every file, and
 /// without a root for a backend the program is refused naming the key.
 #[test]
@@ -915,15 +816,12 @@ effect Clock {
 
 platform handler HostClock(offset: Int) of Clock
 
-platform effect Log {
-    fn log(line: Str) [] -> None => line
-}
-
 fn shout(s: Str) [] -> Str => s
 
-fn main() [use, Log] {
+fn main() [use] {
+    use StdOutConsole()
     use HostClock(1)
-    log(shout(\"${now()}\"))
+    println(shout(\"${now()}\"))
 }
 ",
     )
@@ -940,8 +838,7 @@ fn main() [use, Log] {
                 && template.contains("`fn now() -> Int`"),
             "{template}"
         );
-        let host = fs::read_to_string(dir.join(root).join(format!("main.{ext}"))).unwrap();
-        assert!(host.contains("implement Log.log") && !host.contains("HostClock"), "{host}");
+        assert!(!dir.join(root).join(format!("main.{ext}")).exists(), "no host file");
         assert!(!dir.join("salvo/platform").exists(), "nothing under the source root");
     }
     let out = salvo_in(&dir, &["analyze"]);
@@ -965,7 +862,7 @@ fn main() [use, Log] {
         "[project]\nname = \"p\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\n\n[kotlin]\nplatform = \"kotlin\"\n\n[rust]\nplatform = \"rust\"\n",
     )
     .unwrap();
-    fs::copy(dir.join("rust/main.rs"), dir.join("kotlin/stray.rs")).unwrap();
+    fs::write(dir.join("kotlin/stray.rs"), "pub fn stray() {}\n").unwrap();
     let out = salvo_in(&dir, &["analyze"]);
     let all = String::from_utf8_lossy(&out.stderr).to_string();
     assert!(all.contains("is a Rust file under the Kotlin platform root"), "{all}");

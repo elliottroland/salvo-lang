@@ -951,52 +951,21 @@ fn an_else_in_the_subject_form_names_the_other_form() {
     );
 }
 
-// --- platform effects [platform-effect] ---
-
-/// [platform-effect] `platform effect E { ... }` parses as an effect
-/// carrying the flag; the modifier is the only difference from an ordinary
-/// declaration.
+/// [platform-handler] `platform` takes `handler`, and nothing else — a
+/// `platform effect` included, since platform effects were removed
+/// (2026-10-01). The diagnostic names the form rather than reporting a bare
+/// "expected item".
 #[test]
-fn platform_effect_parses_with_the_flag() {
-    let source = "platform effect Telemetry {\n    \
-                  fn record(name: Str, value: Int) [] -> None => name, value\n}\n";
-    let (module, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        !diagnostics.iter().any(|d| d.is_error()),
-        "unexpected errors: {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-    );
-    let salvo_syntax::ast::Item::Effect(e) = &module.items[0] else {
-        panic!("expected an effect item");
-    };
-    assert!(e.platform, "expected the platform flag to be set");
-    assert_eq!(e.name.name, "Telemetry");
-    assert_eq!(e.fns.len(), 1);
-}
-
-/// [platform-effect] An ordinary `effect` is not a platform effect — the
-/// flag defaults off, so nothing existing changes meaning.
-#[test]
-fn a_plain_effect_is_not_a_platform_effect() {
-    let source = "effect Console {\n    fn print(message: Str) -> None => message\n}\n";
-    let (module, _diagnostics) = salvo_syntax::parse_module(source);
-    let salvo_syntax::ast::Item::Effect(e) = &module.items[0] else {
-        panic!("expected an effect item");
-    };
-    assert!(!e.platform);
-}
-
-/// [platform-effect] [platform-handler] `platform` takes `effect` or
-/// `handler`, and nothing else. The diagnostic names both forms rather than
-/// reporting a bare "expected item".
-#[test]
-fn platform_on_a_non_effect_is_an_error_naming_the_form() {
-    for source in ["platform type Handle\n", "platform fn now() [] -> Int\n"] {
+fn platform_on_a_non_handler_is_an_error_naming_the_form() {
+    for source in [
+        "platform type Handle\n",
+        "platform effect Telemetry {\n    fn emit(s: Str) [] -> None => s\n}\n",
+    ] {
         let (_module, diagnostics) = salvo_syntax::parse_module(source);
         assert!(
             diagnostics.iter().any(|d| d.is_error()
                 && d.message
-                    .contains("expected `effect` or `handler` after `platform`")
+                    .contains("expected `handler` after `platform`")
                 && d.message.contains("`platform handler`")),
             "expected a platform-form error for {source:?}, got {:?}",
             diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
@@ -1074,10 +1043,10 @@ fn threadsafe_platform_handler_parses_with_the_flag() {
 }
 
 /// [threadsafe-platform] The contract is a claim about a host *class*, so it
-/// belongs on a `platform handler` only: before `platform effect` it is an
+/// belongs on a `platform handler` only: before anything else it is an
 /// error naming the reason.
 #[test]
-fn threadsafe_on_a_platform_effect_is_an_error_naming_the_form() {
+fn threadsafe_on_a_non_handler_is_an_error_naming_the_form() {
     let source = "threadsafe platform effect Telemetry {\n    fn emit(s: Str) -> None\n}\n";
     let (_, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
@@ -1122,9 +1091,7 @@ fn a_plain_handler_is_not_a_platform_handler() {
 // --- Bodiless declarations are gone [decl-body] ---
 
 /// [decl-body] A top-level `fn` with no body was `external fn`'s shape.
-/// With `external` gone it is a parse error naming both forms that remain:
-/// write a body, or — for something the target language implements —
-/// declare it as a member of a `platform effect`.
+/// It parses: a platform template may implement it.
 #[test]
 fn a_bodiless_top_level_fn_parses_for_a_template_to_implement() {
     // [decl-body] [host-splice] A platform template may implement it, so the
@@ -1143,8 +1110,7 @@ fn a_bodiless_non_alias_type_is_an_error() {
     assert!(
         errors
             .iter()
-            .any(|m| m.contains("`type LinkedList` declares nothing")
-                && m.contains("`platform effect`")),
+            .any(|m| m.contains("`type LinkedList` declares nothing")),
         "expected a decl-body error for a bodiless type, got {errors:?}"
     );
 }

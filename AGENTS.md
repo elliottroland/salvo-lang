@@ -54,6 +54,7 @@ which rules are in play and where they live in the code*.
 | `BACKEND_SPEC.kotlin.md` | Kotlin interpretation of the rules + `kt-` rules | Only when working on the Kotlin backend (`salvo-backend-kotlin`, `std/**/*.kotlin.sv`) |
 | `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `std/**/*.rust.sv`) |
 | `ROADMAP.md` | What is left, as one sequence: steps, open defects, decisions, and the parked tail | Always |
+| `ABI.md` | The platform ABI redesign in progress: proposal, open decisions, build sequence | When working on platform handlers, platform fns or host code |
 | `COMPLETED.md` | The record: decision log, milestone history, abandoned options, closed defects, test inventory, gotchas | Always |
 | `AGENTS.md` | This file — how to work on the repo | Always |
 | `examples/README.md` | The worked examples: layout, how to regenerate them, and the conventions they must keep | When adding or touching an example, or when a language change invalidates one |

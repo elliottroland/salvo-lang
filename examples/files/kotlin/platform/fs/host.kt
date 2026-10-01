@@ -3,7 +3,7 @@
 // Generated once by `salvo platform generate`; the compiler never writes
 // this file again — it is yours. Nothing here is checked by Salvo: the
 // Kotlin compiler checks it, against the interfaces the backend generates
-// from the `platform effect` and `platform handler` declarations.
+// from the `platform handler` declarations.
 package salvo.platform.fs.host
 
 import salvo.*
