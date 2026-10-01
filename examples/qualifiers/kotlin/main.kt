@@ -81,9 +81,9 @@ fun main() {
     val xs: MutableList<Int> = mutableListOf<Int>()
     xs.add(3)
     println(console, "1. head after add: ${head(xs)}")
-    val maybe_empty = listOf<Int>(7, 8)
-    if (NonEmpty_qualifies(maybe_empty)) {
-        println(console, "2. checked at run time, head is ${head(maybe_empty)}")
+    val maybeEmpty = listOf<Int>(7, 8)
+    if (NonEmpty_qualifies(maybeEmpty)) {
+        println(console, "2. checked at run time, head is ${head(maybeEmpty)}")
     }
     val plain = 21
     val warm = celsius(21)

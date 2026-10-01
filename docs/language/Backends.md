@@ -199,6 +199,7 @@ A mistake in a template is reported at its line in the template, and a template 
 
 ## Kotlin
 
+* Generated Kotlin uses Kotlin's naming: every function, member, parameter, field and local is written in camel case (`read_to_str` becomes `readToStr`, a field `data_type` becomes `dataType`). Rust keeps Salvo's snake case. So that a program means the same on both, two names that differ only in this way — `foo_bar` and `fooBar` in one scope — are an error on every backend.
 * When `None` is the only return type of a function, it should be translated to `Unit`.
 * The backend should define generic union type wrappers using a sealed interface. If the larger union type is of size N, then the backend should define union types for each number from 1 to N. The qualifier checks then reduce down to checking which of the sealed types a value results in.
 * Effects and handlers map to interfaces and implementations of those interfaces. The effects a function declares are its first parameters, typed by the interfaces, and every use of an effect in the body is a call on the relevant parameter. A `use` of a stateful handler wraps it in the effect's `synchronized` monitor (`__Mon_E`), so it is safe to hand to a spawn; a stateless one binds raw. A dependent handler takes its dependencies as trailing constructor parameters.

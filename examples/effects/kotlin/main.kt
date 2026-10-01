@@ -122,11 +122,11 @@ class ConsoleMetrics(private val __dep_Console: Console) : Metrics {
     }
 }
 
-fun audit_only(audit: Audit, what: String) {
+fun auditOnly(audit: Audit, what: String) {
     audit.record(what)
 }
 
-fun audit_and_measure(audit: Audit, metrics: Metrics, what: String) {
+fun auditAndMeasure(audit: Audit, metrics: Metrics, what: String) {
     audit.record(what)
     metrics.record(what)
 }
@@ -168,9 +168,9 @@ fun main() {
     scoping(logger)
     println(console, "6. two effects, one member name:")
     val audit: Audit = ConsoleAudit(console)
-    audit_only(audit, "6. audited only")
+    auditOnly(audit, "6. audited only")
     val metrics: Metrics = ConsoleMetrics(console)
-    audit_and_measure(audit, metrics, "6. audited and measured")
+    auditAndMeasure(audit, metrics, "6. audited and measured")
     println(console, "7. two instances of one generic effect:")
     val setting_int: Setting<Int> = Fixed<Int>(3)
     val setting_string: Setting<String> = Fixed<String>("eu-west-1")

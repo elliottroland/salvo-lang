@@ -31,10 +31,10 @@ fun<T> max(set: java.util.SortedSet<T>): T {
     return (set.lastOrNull() ?: throw AssertionError("salvo: value is absent at core.sorted:164:12"))
 }
 
-fun<K, V> first_key(map: java.util.SortedMap<K, V>): K {
+fun<K, V> firstKey(map: java.util.SortedMap<K, V>): K {
     return (map.keys.firstOrNull() ?: throw AssertionError("salvo: value is absent at core.sorted:168:12"))
 }
 
-fun<K, V> last_key(map: java.util.SortedMap<K, V>): K {
+fun<K, V> lastKey(map: java.util.SortedMap<K, V>): K {
     return (map.keys.lastOrNull() ?: throw AssertionError("salvo: value is absent at core.sorted:172:12"))
 }

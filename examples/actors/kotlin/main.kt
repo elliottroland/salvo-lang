@@ -220,7 +220,7 @@ class __Actor_Bookkeeping(private val handler: Bookkeeping) : salvo.SalvoActor {
 interface Desk {
     fun ticket(out: salvo.SalvoReply)
     fun serve(name: String)
-    fun close_up(reason: String)
+    fun closeUp(reason: String)
 }
 
 class __Stub_Desk(private val addr: Int) : Desk {
@@ -230,7 +230,7 @@ class __Stub_Desk(private val addr: Int) : Desk {
     override fun serve(name: String) {
         salvo.SalvoSched.sendWire(addr, __Msg_Desk.Serve(name), __PROTO_Desk, __Codec___Msg_Desk)
     }
-    override fun close_up(reason: String) {
+    override fun closeUp(reason: String) {
         salvo.SalvoSched.sendWire(addr, __Msg_Desk.CloseUp(reason), __PROTO_Desk, __Codec___Msg_Desk)
     }
 }
@@ -240,8 +240,8 @@ class __Mon_Desk(private val inner: Desk) : Desk {
         synchronized(inner) { inner.ticket(out) }
     override fun serve(name: String) =
         synchronized(inner) { inner.serve(name) }
-    override fun close_up(reason: String) =
-        synchronized(inner) { inner.close_up(reason) }
+    override fun closeUp(reason: String) =
+        synchronized(inner) { inner.closeUp(reason) }
 }
 
 sealed class __Msg_Desk {
@@ -291,7 +291,7 @@ class Desking(private val room: Int) : Desk {
         }
     }
 
-    override fun close_up(reason: String) {
+    override fun closeUp(reason: String) {
         (waiting).toList().forEach({ r -> salvo.SalvoSched.replyWire(r, "closed: $reason", salvo.StrCodec) })
         waiting = mutableListOf<salvo.SalvoReply>()
     }
@@ -313,7 +313,7 @@ class __Actor_Desking(private val handler: Desking) : salvo.SalvoActor {
         when (m) {
             is __Msg_Desk.Ticket -> handler.ticket(m.out)
             is __Msg_Desk.Serve -> handler.serve(m.name)
-            is __Msg_Desk.CloseUp -> handler.close_up(m.reason)
+            is __Msg_Desk.CloseUp -> handler.closeUp(m.reason)
         }
     }
 
@@ -324,7 +324,7 @@ class __Actor_Desking(private val handler: Desking) : salvo.SalvoActor {
         when (c) {
             is __Cont_Desking.Ticket -> handler.ticket(value as salvo.SalvoReply)
             is __Cont_Desking.Serve -> handler.serve(value as String)
-            is __Cont_Desking.CloseUp -> handler.close_up(value as String)
+            is __Cont_Desking.CloseUp -> handler.closeUp(value as String)
         }
     }
 
@@ -423,7 +423,7 @@ fun formatted(label: String, out: salvo.SalvoReply, total: Int) {
     salvo.SalvoSched.replyWire(out, "$label totalled $total", salvo.StrCodec)
 }
 
-fun report_line(counter: Int, label: String, out: salvo.SalvoReply) {
+fun reportLine(counter: Int, label: String, out: salvo.SalvoReply) {
     salvo.SalvoSched.sendWire(counter, __Msg_Counter.Total(run { val __c0 = label; val __c1 = out; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) }) { __v -> formatted(__c0, __c1, __v as Int) } }), __PROTO_Counter, __Codec___Msg_Counter)
 }
 
@@ -498,7 +498,7 @@ fun main() {
     val line8 = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
-        report_line(mine, "the counter", out)
+        reportLine(mine, "the counter", out)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     println(console, "8. $line8")

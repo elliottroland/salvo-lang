@@ -799,11 +799,15 @@ const KOTLIN_KEYWORDS: &[&str] = &[
     "try", "typealias", "typeof", "val", "var", "when", "while",
 ];
 
+/// A Salvo value name as a Kotlin identifier: camel case [kt-camel]
+/// (`salvo_core::case::camel`, the definition the checker's clash rule uses
+/// [name-camel]), back-quoted when it is a Kotlin keyword.
 fn kt_ident(name: &str) -> String {
-    if KOTLIN_KEYWORDS.contains(&name) {
+    let name = salvo_core::case::camel(name);
+    if KOTLIN_KEYWORDS.contains(&name.as_str()) {
         format!("`{name}`")
     } else {
-        name.to_string()
+        name
     }
 }
 
@@ -1828,12 +1832,12 @@ impl<'p> Emitter<'p> {
                 .params
                 .iter()
                 .filter(|p| !p.implicit)
-                .map(|p| p.name.name.clone())
+                .map(|p| kt_ident(&p.name.name))
                 .collect();
             let built = format!("{msg}.{}({})", msg_variant_name(&member), args.join(", "));
             let call = self.send_call(&e.name.name, "addr", &built);
             out.push_str(&format!(
-                "    override fun {member}({params}) {{\n        {call}\n    }}\n"
+                "    override fun {}({params}) {{\n        {call}\n    }}\n", kt_ident(&member)
             ));
         }
         out.push_str("}\n");
@@ -1938,7 +1942,7 @@ impl<'p> Emitter<'p> {
                 .params
                 .iter()
                 .filter(|p| !p.implicit)
-                .map(|p| format!("val {}: {}", p.name.name, self.emit_type(&p.ty)))
+                .map(|p| format!("val {}: {}", kt_ident(&p.name.name), self.emit_type(&p.ty)))
                 .collect();
             out.push_str(&format!(
                 "    class {variant}({}) : {enum_name}()\n",
@@ -1985,7 +1989,7 @@ impl<'p> Emitter<'p> {
                 .params
                 .iter()
                 .filter(|p| !p.implicit)
-                .map(|p| p.name.name.clone())
+                .map(|p| kt_ident(&p.name.name))
                 .collect();
             let codecs: Vec<String> = tys.iter().map(|t| self.kotlin_codec_expr(t)).collect();
             let encs: Vec<String> = names
@@ -2050,7 +2054,7 @@ impl<'p> Emitter<'p> {
                 let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
                 let captures: Vec<String> = fixed[..fixed.len() - 1]
                     .iter()
-                    .map(|p| format!("val {}: {}", p.name.name, self.emit_type(&p.ty)))
+                    .map(|p| format!("val {}: {}", kt_ident(&p.name.name), self.emit_type(&p.ty)))
                     .collect();
                 if captures.is_empty() {
                     out.push_str(&format!("    object {variant} : {cont_name}()\n"));
@@ -2083,7 +2087,7 @@ impl<'p> Emitter<'p> {
             let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
             let captures: Vec<String> = fixed[..fixed.len() - 1]
                 .iter()
-                .map(|p| format!("val {}: {}", p.name.name, self.emit_type(&p.ty)))
+                .map(|p| format!("val {}: {}", kt_ident(&p.name.name), self.emit_type(&p.ty)))
                 .collect();
             out.push_str(&format!(
                 "    class {variant}({}) : {cont_name}()\n",
@@ -2554,10 +2558,10 @@ impl<'p> Emitter<'p> {
                     .params
                     .iter()
                     .filter(|p| !p.implicit)
-                    .map(|p| format!("m.{}", p.name.name))
+                    .map(|p| format!("m.{}", kt_ident(&p.name.name)))
                     .collect();
                 out.push_str(&format!(
-                    "            is {msg}.{variant} -> handler.{member}({})\n",
+                    "            is {msg}.{variant} -> handler.{}({})\n", kt_ident(&member),
                     args.join(", ")
                 ));
             }
@@ -2574,7 +2578,7 @@ impl<'p> Emitter<'p> {
                     .params
                     .iter()
                     .filter(|p| !p.implicit)
-                    .map(|p| format!("m.{}", p.name.name))
+                    .map(|p| format!("m.{}", kt_ident(&p.name.name)))
                     .collect();
                 out.push_str(&format!(
                     "            is {priv_class}.{variant} -> handler.{}({})\n",
@@ -2612,12 +2616,12 @@ impl<'p> Emitter<'p> {
                         let variant = msg_variant_name(&member);
                         let mut args: Vec<String> = fixed[..fixed.len() - 1]
                             .iter()
-                            .map(|p| format!("c.{}", p.name.name))
+                            .map(|p| format!("c.{}", kt_ident(&p.name.name)))
                             .collect();
                         let answer_ty = self.emit_type(&fixed[fixed.len() - 1].ty);
                         args.push(format!("value as {answer_ty}"));
                         out.push_str(&format!(
-                            "            is {cont}.{variant} -> handler.{member}({})\n",
+                            "            is {cont}.{variant} -> handler.{}({})\n", kt_ident(&member),
                             args.join(", ")
                         ));
                     }
@@ -2631,7 +2635,7 @@ impl<'p> Emitter<'p> {
                     let variant = msg_variant_name(&f.name.name);
                     let mut args: Vec<String> = fixed[..fixed.len() - 1]
                         .iter()
-                        .map(|p| format!("c.{}", p.name.name))
+                        .map(|p| format!("c.{}", kt_ident(&p.name.name)))
                         .collect();
                     let answer_ty = self.emit_type(&fixed[fixed.len() - 1].ty);
                     args.push(format!("value as {answer_ty}"));
@@ -2910,7 +2914,7 @@ impl<'p> Emitter<'p> {
                 .params
                 .iter()
                 .filter(|p| !p.implicit)
-                .map(|p| format!("val {}: {}", p.name.name, self.emit_type(&p.ty)))
+                .map(|p| format!("val {}: {}", kt_ident(&p.name.name), self.emit_type(&p.ty)))
                 .collect();
             if payload.is_empty() {
                 out.push_str(&format!("    object {variant} : {name}()\n"));
@@ -4955,7 +4959,7 @@ impl<'p> Emitter<'p> {
                 .params
                 .iter()
                 .filter(|p| !p.implicit)
-                .map(|p| format!("val {}: {}", p.name.name, self.emit_type(&p.ty)))
+                .map(|p| format!("val {}: {}", kt_ident(&p.name.name), self.emit_type(&p.ty)))
                 .collect();
             if payload.is_empty() {
                 out.push_str(&format!("    object {variant} : {msg}()\n"));
@@ -4980,7 +4984,7 @@ impl<'p> Emitter<'p> {
                 .params
                 .iter()
                 .filter(|p| !p.implicit)
-                .map(|p| format!("msg.{}", p.name.name))
+                .map(|p| format!("msg.{}", kt_ident(&p.name.name)))
                 .collect();
             if has_payload {
                 out.push_str(&format!(
@@ -5025,7 +5029,7 @@ impl<'p> Emitter<'p> {
                     let variant = msg_variant_name(&f.name.name);
                     let mut args: Vec<String> = fixed[..fixed.len() - 1]
                         .iter()
-                        .map(|p| format!("c.{}", p.name.name))
+                        .map(|p| format!("c.{}", kt_ident(&p.name.name)))
                         .collect();
                     let answer_ty = self.emit_type(&fixed[fixed.len() - 1].ty);
                     args.push(format!("value as {answer_ty}"));
@@ -6289,7 +6293,8 @@ impl<'p> Emitter<'p> {
             // [qual-depend] The places filling a dependent qualifier's value
             // slots trail the subject, in slot order: `KeyOf_qualifies(k, m)`.
             for a in &check.args {
-                args.push(a.path.clone());
+                // A place's source spelling: every segment is a Salvo name.
+                args.push(a.path.split('.').map(kt_ident).collect::<Vec<_>>().join("."));
             }
             parts.push(format!("{q}_qualifies({})", args.join(", ")));
         }

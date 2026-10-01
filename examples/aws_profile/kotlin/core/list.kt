@@ -106,7 +106,7 @@ data class __Iter_rev_indices_List<T>(
     var at: Int,
 )
 
-fun<T> rev_indices(list: List<T>): __Iter_rev_indices_List<T> {
+fun<T> revIndices(list: List<T>): __Iter_rev_indices_List<T> {
     return __Iter_rev_indices_List(list = list, at = list.size - 1)
 }
 
@@ -148,7 +148,7 @@ data class __Iter_enumerate_rev_List<T>(
     var at: Int,
 )
 
-fun<T> enumerate_rev(list: List<T>): __Iter_enumerate_rev_List<T> {
+fun<T> enumerateRev(list: List<T>): __Iter_enumerate_rev_List<T> {
     return __Iter_enumerate_rev_List(list = list, at = list.size - 1)
 }
 
@@ -166,14 +166,14 @@ fun<T> sort(list: List<T>, cmp: (T, T) -> Int): List<T> {
     return (list).let { __l -> (cmp).let { __c -> __l.sortedWith(Comparator { __a, __b -> __c(__a, __b) }).toMutableList() } }
 }
 
-fun<T> mut_sort(list: List<T>, cmp: (T, T) -> Int): MutableList<T> {
+fun<T> mutSort(list: List<T>, cmp: (T, T) -> Int): MutableList<T> {
     return (list).let { __l -> (cmp).let { __c -> __l.sortedWith(Comparator { __a, __b -> __c(__a, __b) }).toMutableList() } }
 }
 
-fun<T> add_sorted(list: MutableList<T>, elem: T, cmp: (T, T) -> Int) {
+fun<T> addSorted(list: MutableList<T>, elem: T, cmp: (T, T) -> Int) {
     (list).let { __l -> (elem).let { __e -> (cmp).let { __c -> __l.add(__l.indexOfFirst { __c(it, __e) >= 0 }.let { if (it < 0) __l.size else it }, __e) } } }
 }
 
-fun<T> binary_search(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? {
+fun<T> binarySearch(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? {
     return (list).let { __l -> (elem).let { __e -> (cmp).let { __c -> __l.indexOfFirst { __c(it, __e) >= 0 }.let { if (it >= 0 && __c(__l[it], __e) == 0) it else null } } } }
 }

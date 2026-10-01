@@ -59,7 +59,7 @@ fun wounded(squad: List<Fighter>): Fighter? {
     return null
 }
 
-fun<L> rally_at(squad: List<Fighter>, l: L, at: (List<Fighter>, L) -> Fighter?) {
+fun<L> rallyAt(squad: List<Fighter>, l: L, at: (List<Fighter>, L) -> Fighter?) {
     heal((at(squad, l) ?: throw AssertionError("salvo: value is absent at main:100:10")))
     return
 }
@@ -144,7 +144,7 @@ fun main() {
     boss.hp = boss.hp + n
     println(console, "2. ${(squad.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:236:19")).name} at ${(squad.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:236:45")).hp} after a read in the middle")
     heal((wounded(squad) ?: throw AssertionError("salvo: value is absent at main:239:10")))
-    rally_at(squad, 1, ::at)
+    rallyAt(squad, 1, ::at)
     println(console, "2. after the searches: ${(squad.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:244:39")).hp} ${(squad.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:244:60")).hp}")
     val i = 0
     val j = 1

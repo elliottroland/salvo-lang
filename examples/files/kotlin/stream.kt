@@ -37,7 +37,7 @@ object __Codec_StreamFailed : salvo.WireCodec<StreamFailed> {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun to_str__4(kind: Union2<InvalidUtf8, StreamFailed>): String {
+fun toStr__4(kind: Union2<InvalidUtf8, StreamFailed>): String {
     when (kind) {
         is U2_1<*, *> -> {
             return "not valid UTF-8: ${(kind.value as InvalidUtf8).source}"
@@ -77,47 +77,47 @@ fun close(streams: Streams, p: Packet): Union2<Unit, Checked<Union2<InvalidUtf8,
 }
 
 interface Streams {
-    fun read_line(s: InStream): String?
-    fun read_all(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>
-    fun read_bytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>
-    fun read_to(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>
-    fun read_to__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>
-    fun read_line_to(s: InStream, buf: StringBuilder): Boolean
+    fun readLine(s: InStream): String?
+    fun readAll(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>
+    fun readBytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>
+    fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>
+    fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>
+    fun readLineTo(s: InStream, buf: StringBuilder): Boolean
     fun position(s: InStream): Long
     fun close(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun write(s: OutStream, text: String): Long
-    fun write_line(s: OutStream, text: String): Long
-    fun write_bytes(s: OutStream, data: salvo.SalvoBytes): Long
+    fun writeLine(s: OutStream, text: String): Long
+    fun writeBytes(s: OutStream, data: salvo.SalvoBytes): Long
     fun position__2(s: OutStream): Long
     fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun receive(s: InStream, reply: salvo.SalvoReply)
-    fun from_bytes(data: salvo.SalvoBytes): InStream
+    fun fromBytes(data: salvo.SalvoBytes): InStream
 }
 
 class __Mon_Streams(private val inner: Streams) : Streams {
-    override fun read_line(s: InStream): String? =
-        synchronized(inner) { inner.read_line(s) }
-    override fun read_all(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>> =
-        synchronized(inner) { inner.read_all(s) }
-    override fun read_bytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> =
-        synchronized(inner) { inner.read_bytes(s, max) }
-    override fun read_to(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> =
-        synchronized(inner) { inner.read_to(s, buf, max) }
-    override fun read_to__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> =
-        synchronized(inner) { inner.read_to__2(s, buf) }
-    override fun read_line_to(s: InStream, buf: StringBuilder): Boolean =
-        synchronized(inner) { inner.read_line_to(s, buf) }
+    override fun readLine(s: InStream): String? =
+        synchronized(inner) { inner.readLine(s) }
+    override fun readAll(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>> =
+        synchronized(inner) { inner.readAll(s) }
+    override fun readBytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> =
+        synchronized(inner) { inner.readBytes(s, max) }
+    override fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> =
+        synchronized(inner) { inner.readTo(s, buf, max) }
+    override fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> =
+        synchronized(inner) { inner.readTo__2(s, buf) }
+    override fun readLineTo(s: InStream, buf: StringBuilder): Boolean =
+        synchronized(inner) { inner.readLineTo(s, buf) }
     override fun position(s: InStream): Long =
         synchronized(inner) { inner.position(s) }
     override fun close(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> =
         synchronized(inner) { inner.close(s) }
     override fun write(s: OutStream, text: String): Long =
         synchronized(inner) { inner.write(s, text) }
-    override fun write_line(s: OutStream, text: String): Long =
-        synchronized(inner) { inner.write_line(s, text) }
-    override fun write_bytes(s: OutStream, data: salvo.SalvoBytes): Long =
-        synchronized(inner) { inner.write_bytes(s, data) }
+    override fun writeLine(s: OutStream, text: String): Long =
+        synchronized(inner) { inner.writeLine(s, text) }
+    override fun writeBytes(s: OutStream, data: salvo.SalvoBytes): Long =
+        synchronized(inner) { inner.writeBytes(s, data) }
     override fun position__2(s: OutStream): Long =
         synchronized(inner) { inner.position__2(s) }
     override fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> =
@@ -126,23 +126,23 @@ class __Mon_Streams(private val inner: Streams) : Streams {
         synchronized(inner) { inner.close__2(s) }
     override fun receive(s: InStream, reply: salvo.SalvoReply) =
         synchronized(inner) { inner.receive(s, reply) }
-    override fun from_bytes(data: salvo.SalvoBytes): InStream =
-        synchronized(inner) { inner.from_bytes(data) }
+    override fun fromBytes(data: salvo.SalvoBytes): InStream =
+        synchronized(inner) { inner.fromBytes(data) }
 }
 
 fun pipe(streams: Streams, from: InStream, to: OutStream, done: salvo.SalvoReply) {
-    streams.receive(from, run { val __e0 = streams; val __c0 = to; val __c1 = done; val __c2 = 0L; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { _: ByteArray -> Pair(false, null) }) { __v -> pipe_step(__e0, __c0, __c1, __c2, __v as Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) } })
+    streams.receive(from, run { val __e0 = streams; val __c0 = to; val __c1 = done; val __c2 = 0L; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { _: ByteArray -> Pair(false, null) }) { __v -> pipeStep(__e0, __c0, __c1, __c2, __v as Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) } })
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun pipe_step(streams: Streams, to: OutStream, done: salvo.SalvoReply, moved: Long, got: Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) {
+fun pipeStep(streams: Streams, to: OutStream, done: salvo.SalvoReply, moved: Long, got: Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) {
     when (got) {
         is U3_1<*, *, *> -> {
             val __destructured2 = (got.value as Packet)
             val bytes = __destructured2.bytes
             val stream = __destructured2.stream
-            val written = streams.write_bytes(to, bytes)
-            streams.receive(stream, run { val __e0 = streams; val __c0 = to; val __c1 = done; val __c2 = moved + written; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { _: ByteArray -> Pair(false, null) }) { __v -> pipe_step(__e0, __c0, __c1, __c2, __v as Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) } })
+            val written = streams.writeBytes(to, bytes)
+            streams.receive(stream, run { val __e0 = streams; val __c0 = to; val __c1 = done; val __c2 = moved + written; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { _: ByteArray -> Pair(false, null) }) { __v -> pipeStep(__e0, __c0, __c1, __c2, __v as Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) } })
         }
         is U3_2<*, *, *> -> {
             val closed = streams.close__2(to)
@@ -178,7 +178,7 @@ fun lines(s: InStream): Lines {
 }
 
 fun next__13(streams: Streams, p: Lines): Union2<String, Finished> {
-    val line = streams.read_line(p.s)
+    val line = streams.readLine(p.s)
     when {
         line != null -> {
             return U2_1<String, Finished>(emitted(line))
@@ -204,7 +204,7 @@ fun chunks(s: InStream, size: Int): Chunks {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun next__14(streams: Streams, p: Chunks): Union2<salvo.SalvoBytes, Finished> {
-    val got = streams.read_bytes(p.s, p.size)
+    val got = streams.readBytes(p.s, p.size)
     if (got is U2_2<*, *>) {
         ignore((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         return U2_2<salvo.SalvoBytes, Finished>(finished())
@@ -220,16 +220,16 @@ fun close__3(streams: Streams, p: Chunks): Union2<Unit, Checked<Union2<InvalidUt
     return streams.close(p.s)
 }
 
-fun stream_chunk_size(): Int {
+fun streamChunkSize(): Int {
     return 65536
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun fill_from(streams: Streams, s: InStream, buf: salvo.SalvoBytes): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+fun fillFrom(streams: Streams, s: InStream, buf: salvo.SalvoBytes): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     var total: Long = 0L
     var reading = true
     while (reading) {
-        val got = streams.read_to(s, buf, stream_chunk_size())
+        val got = streams.readTo(s, buf, streamChunkSize())
         if (got is U2_2<*, *>) {
             return U2_2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
@@ -243,13 +243,13 @@ fun fill_from(streams: Streams, s: InStream, buf: salvo.SalvoBytes): Union2<Long
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun copy_stream(streams: Streams, s: InStream, w: OutStream): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+fun copyStream(streams: Streams, s: InStream, w: OutStream): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     val buf = salvo.SalvoBytes.joined()
     var total: Long = 0L
     var copying = true
     while (copying) {
         buf.clear()
-        val got = streams.read_to(s, buf, stream_chunk_size())
+        val got = streams.readTo(s, buf, streamChunkSize())
         if (got is U2_2<*, *>) {
             return U2_2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
@@ -257,7 +257,7 @@ fun copy_stream(streams: Streams, s: InStream, w: OutStream): Union2<Long, Check
         if (n == 0) {
             copying = false
         } else {
-            total = total + streams.write_bytes(w, buf)
+            total = total + streams.writeBytes(w, buf)
         }
     }
     return U2_1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(total))

@@ -10,58 +10,58 @@ import salvo.core.string.*
 import salvo.stream.*
 
 interface RawStreams {
-    fun raw_read_line(handle: Long): String?
-    fun raw_read_all(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>>
-    fun raw_read_bytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>>
-    fun raw_read_to_bytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>>
-    fun raw_read_to_str(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>>
-    fun raw_read_line_to_str(handle: Long, buf: StringBuilder): Boolean
-    fun raw_read_position(handle: Long): Long
-    fun raw_close_read(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
-    fun raw_write(handle: Long, text: String): Long
-    fun raw_write_bytes(handle: Long, data: salvo.SalvoBytes): Long
-    fun raw_write_position(handle: Long): Long
-    fun raw_flush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
-    fun raw_close_write(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
-    fun raw_receive(handle: Long, reply: salvo.SalvoReply)
-    fun raw_from_bytes(data: salvo.SalvoBytes): Long
+    fun rawReadLine(handle: Long): String?
+    fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>>
+    fun rawReadBytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>>
+    fun rawReadToBytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>>
+    fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>>
+    fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean
+    fun rawReadPosition(handle: Long): Long
+    fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
+    fun rawWrite(handle: Long, text: String): Long
+    fun rawWriteBytes(handle: Long, data: salvo.SalvoBytes): Long
+    fun rawWritePosition(handle: Long): Long
+    fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
+    fun rawCloseWrite(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
+    fun rawReceive(handle: Long, reply: salvo.SalvoReply)
+    fun rawFromBytes(data: salvo.SalvoBytes): Long
 }
 
 class __Mon_RawStreams(private val inner: RawStreams) : RawStreams {
-    override fun raw_read_line(handle: Long): String? =
-        synchronized(inner) { inner.raw_read_line(handle) }
-    override fun raw_read_all(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.raw_read_all(handle) }
-    override fun raw_read_bytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.raw_read_bytes(handle, max) }
-    override fun raw_read_to_bytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.raw_read_to_bytes(handle, buf, max) }
-    override fun raw_read_to_str(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.raw_read_to_str(handle, buf) }
-    override fun raw_read_line_to_str(handle: Long, buf: StringBuilder): Boolean =
-        synchronized(inner) { inner.raw_read_line_to_str(handle, buf) }
-    override fun raw_read_position(handle: Long): Long =
-        synchronized(inner) { inner.raw_read_position(handle) }
-    override fun raw_close_read(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.raw_close_read(handle) }
-    override fun raw_write(handle: Long, text: String): Long =
-        synchronized(inner) { inner.raw_write(handle, text) }
-    override fun raw_write_bytes(handle: Long, data: salvo.SalvoBytes): Long =
-        synchronized(inner) { inner.raw_write_bytes(handle, data) }
-    override fun raw_write_position(handle: Long): Long =
-        synchronized(inner) { inner.raw_write_position(handle) }
-    override fun raw_flush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.raw_flush(handle) }
-    override fun raw_close_write(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.raw_close_write(handle) }
-    override fun raw_receive(handle: Long, reply: salvo.SalvoReply) =
-        synchronized(inner) { inner.raw_receive(handle, reply) }
-    override fun raw_from_bytes(data: salvo.SalvoBytes): Long =
-        synchronized(inner) { inner.raw_from_bytes(data) }
+    override fun rawReadLine(handle: Long): String? =
+        synchronized(inner) { inner.rawReadLine(handle) }
+    override fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>> =
+        synchronized(inner) { inner.rawReadAll(handle) }
+    override fun rawReadBytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> =
+        synchronized(inner) { inner.rawReadBytes(handle, max) }
+    override fun rawReadToBytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>> =
+        synchronized(inner) { inner.rawReadToBytes(handle, buf, max) }
+    override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>> =
+        synchronized(inner) { inner.rawReadToStr(handle, buf) }
+    override fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean =
+        synchronized(inner) { inner.rawReadLineToStr(handle, buf) }
+    override fun rawReadPosition(handle: Long): Long =
+        synchronized(inner) { inner.rawReadPosition(handle) }
+    override fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> =
+        synchronized(inner) { inner.rawCloseRead(handle) }
+    override fun rawWrite(handle: Long, text: String): Long =
+        synchronized(inner) { inner.rawWrite(handle, text) }
+    override fun rawWriteBytes(handle: Long, data: salvo.SalvoBytes): Long =
+        synchronized(inner) { inner.rawWriteBytes(handle, data) }
+    override fun rawWritePosition(handle: Long): Long =
+        synchronized(inner) { inner.rawWritePosition(handle) }
+    override fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> =
+        synchronized(inner) { inner.rawFlush(handle) }
+    override fun rawCloseWrite(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> =
+        synchronized(inner) { inner.rawCloseWrite(handle) }
+    override fun rawReceive(handle: Long, reply: salvo.SalvoReply) =
+        synchronized(inner) { inner.rawReceive(handle, reply) }
+    override fun rawFromBytes(data: salvo.SalvoBytes): Long =
+        synchronized(inner) { inner.rawFromBytes(data) }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun host_received(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>) {
+fun hostReceived(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>) {
     when (got) {
         is U3_1<*, *, *> -> {
             reply.send(U3_1<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Packet(bytes = (got.value as salvo.SalvoBytes), stream = InStream(handle = handle)))))
@@ -77,13 +77,13 @@ fun host_received(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.Salvo
 
 class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
 
-    override fun read_line(s: InStream): String? {
-        return __dep_RawStreams.raw_read_line(s.handle)
+    override fun readLine(s: InStream): String? {
+        return __dep_RawStreams.rawReadLine(s.handle)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun read_all(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>> {
-        val r = __dep_RawStreams.raw_read_all(s.handle)
+    override fun readAll(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+        val r = __dep_RawStreams.rawReadAll(s.handle)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as String)))
@@ -95,8 +95,8 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun read_bytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
-        val r = __dep_RawStreams.raw_read_bytes(s.handle, max)
+    override fun readBytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+        val r = __dep_RawStreams.rawReadBytes(s.handle, max)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as salvo.SalvoBytes)))
@@ -108,8 +108,8 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun read_to(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
-        val r = __dep_RawStreams.raw_read_to_bytes(s.handle, buf, max)
+    override fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+        val r = __dep_RawStreams.rawReadToBytes(s.handle, buf, max)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as Int)))
@@ -121,8 +121,8 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun read_to__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
-        val r = __dep_RawStreams.raw_read_to_str(s.handle, buf)
+    override fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+        val r = __dep_RawStreams.rawReadToStr(s.handle, buf)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as Long)))
@@ -133,17 +133,17 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
         }
     }
 
-    override fun read_line_to(s: InStream, buf: StringBuilder): Boolean {
-        return __dep_RawStreams.raw_read_line_to_str(s.handle, buf)
+    override fun readLineTo(s: InStream, buf: StringBuilder): Boolean {
+        return __dep_RawStreams.rawReadLineToStr(s.handle, buf)
     }
 
     override fun position(s: InStream): Long {
-        return __dep_RawStreams.raw_read_position(s.handle)
+        return __dep_RawStreams.rawReadPosition(s.handle)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun close(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
-        val r = __dep_RawStreams.raw_close_read(s.handle)
+        val r = __dep_RawStreams.rawCloseRead(s.handle)
         (s).let {}
         when (r) {
             is U2_1<*, *> -> {
@@ -158,32 +158,32 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
     override fun receive(s: InStream, reply: salvo.SalvoReply) {
         val handle = s.handle
         (s).let {}
-        __dep_RawStreams.raw_receive(handle, run { val __c0 = reply; val __c1 = handle; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union3Codec(salvo.BytesCodec, __Codec_End, salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed))) }) { __v -> host_received(__c0, __c1, __v as Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>) } })
+        __dep_RawStreams.rawReceive(handle, run { val __c0 = reply; val __c1 = handle; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union3Codec(salvo.BytesCodec, __Codec_End, salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed))) }) { __v -> hostReceived(__c0, __c1, __v as Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>) } })
     }
 
-    override fun from_bytes(data: salvo.SalvoBytes): InStream {
-        return InStream(handle = __dep_RawStreams.raw_from_bytes(data))
+    override fun fromBytes(data: salvo.SalvoBytes): InStream {
+        return InStream(handle = __dep_RawStreams.rawFromBytes(data))
     }
 
     override fun write(s: OutStream, text: String): Long {
-        return __dep_RawStreams.raw_write(s.handle, text)
+        return __dep_RawStreams.rawWrite(s.handle, text)
     }
 
-    override fun write_line(s: OutStream, text: String): Long {
-        return __dep_RawStreams.raw_write(s.handle, "$text\n")
+    override fun writeLine(s: OutStream, text: String): Long {
+        return __dep_RawStreams.rawWrite(s.handle, "$text\n")
     }
 
-    override fun write_bytes(s: OutStream, data: salvo.SalvoBytes): Long {
-        return __dep_RawStreams.raw_write_bytes(s.handle, data)
+    override fun writeBytes(s: OutStream, data: salvo.SalvoBytes): Long {
+        return __dep_RawStreams.rawWriteBytes(s.handle, data)
     }
 
     override fun position__2(s: OutStream): Long {
-        return __dep_RawStreams.raw_write_position(s.handle)
+        return __dep_RawStreams.rawWritePosition(s.handle)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
-        val r = __dep_RawStreams.raw_flush(s.handle)
+        val r = __dep_RawStreams.rawFlush(s.handle)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
@@ -196,7 +196,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
-        val r = __dep_RawStreams.raw_close_write(s.handle)
+        val r = __dep_RawStreams.rawCloseWrite(s.handle)
         (s).let {}
         when (r) {
             is U2_1<*, *> -> {

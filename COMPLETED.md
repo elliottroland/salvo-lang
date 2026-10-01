@@ -135,6 +135,28 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Kotlin in camel case (2026-10-01, user decision; ABI.md step 4).** All
+generated Kotlin now names Salvo values the Kotlin way ([kt-camel], ABI.md D6):
+`kt_ident` maps through `salvo_core::case::camel` (an `_` before a lowercase
+letter dropped, the letter uppercased; types, `__`-prefixed compiler names and
+overload suffixes untouched), so fns, members, parameters, fields and locals
+change together. Rust keeps snake case. The language gains [name-camel]: two
+value names one camel spelling apart (`foo_bar` beside `fooBar`) in one Kotlin
+scope — a module's fns, a struct's fields, an effect's or handler's members, a
+handler's parameters and state, a fn's parameters with what its body binds —
+are an error on every backend (`case::module_clashes`), so a project's
+validity does not depend on its target; std and every example were already
+clean. Sites the emitter wrote raw rather than through `kt_ident`, found by
+kotlinc: actor stubs' `override fun` and dispatch calls, actor message and
+continuation fields, and a dependent qualifier's place arguments
+(`KeyOf_qualifies(k, withIt)`, found by the std suite). std's hand-written
+`platform/*.kt` override the camel names. The aws templates needed nothing:
+every Salvo name in them is a marker the emitter renders. All 14 examples'
+`kotlin/` trees regenerated; their output is unchanged. Tests: two unit tests
+in `case.rs` (the mapping, and clashes found per scope and nowhere else);
+Kotlin goldens re-accepted and the expected strings in eleven codegen tests
+updated. **1672 tests.**
+
 **`platform fn` (2026-10-01, user decision; ABI.md step 3).** A top-level fn
 the host implements is now declared `platform fn name(…) -> T` ([platform-fn],
 ABI.md D1) instead of being recognised by its missing body. A bodiless fn
@@ -19274,7 +19296,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1670; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1672; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

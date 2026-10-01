@@ -92,7 +92,7 @@ object __Codec_Streaming : salvo.WireCodec<Streaming> {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun to_str(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): String {
+fun toStr(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): String {
     when (kind) {
         is U7_1<*, *, *, *, *, *, *> -> {
             return "no such file or directory: ${(kind.value as NotFound).path}"
@@ -113,67 +113,67 @@ fun to_str(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory
             return "io error: ${(kind.value as IoError).path}: ${(kind.value as IoError).message}"
         }
         is U7_7<*, *, *, *, *, *, *> -> {
-            return to_str__4((kind.value as Streaming).error)
+            return toStr__4((kind.value as Streaming).error)
         }
     }
 }
 
-fun fs_stream_error(e: Checked<Union2<InvalidUtf8, StreamFailed>>): Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+fun fsStreamError(e: Checked<Union2<InvalidUtf8, StreamFailed>>): Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
     return checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(U7_7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(Streaming(error = detach(e))))
 }
 
 data class FileInfo(
     val size: Long,
-    val is_dir: Boolean,
+    val isDir: Boolean,
 )
 
 object __Codec_FileInfo : salvo.WireCodec<FileInfo> {
     override fun enc(v: FileInfo, out: salvo.WireOut) {
         salvo.LongCodec.enc(v.size, out)
-        salvo.BoolCodec.enc(v.is_dir, out)
+        salvo.BoolCodec.enc(v.isDir, out)
     }
     override fun dec(inp: salvo.WireIn): FileInfo = FileInfo(salvo.LongCodec.dec(inp), salvo.BoolCodec.dec(inp))
 }
 
 interface Fs {
-    fun open_read(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun open_read_at(path: String, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun open_write(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun open_append(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun openRead(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun openReadAt(path: String, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun openWrite(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun openAppend(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
     fun exists(path: String): Boolean
     fun metadata(path: String): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun list_dir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun create_dirs(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun listDir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun createDirs(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
     fun delete(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun rename_path(from: String, to: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun renamePath(from: String, to: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
 }
 
 class __Mon_Fs(private val inner: Fs) : Fs {
-    override fun open_read(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
-        synchronized(inner) { inner.open_read(path) }
-    override fun open_read_at(path: String, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
-        synchronized(inner) { inner.open_read_at(path, offset) }
-    override fun open_write(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
-        synchronized(inner) { inner.open_write(path) }
-    override fun open_append(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
-        synchronized(inner) { inner.open_append(path) }
+    override fun openRead(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
+        synchronized(inner) { inner.openRead(path) }
+    override fun openReadAt(path: String, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
+        synchronized(inner) { inner.openReadAt(path, offset) }
+    override fun openWrite(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
+        synchronized(inner) { inner.openWrite(path) }
+    override fun openAppend(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
+        synchronized(inner) { inner.openAppend(path) }
     override fun exists(path: String): Boolean =
         synchronized(inner) { inner.exists(path) }
     override fun metadata(path: String): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
         synchronized(inner) { inner.metadata(path) }
-    override fun list_dir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
-        synchronized(inner) { inner.list_dir(path) }
-    override fun create_dirs(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
-        synchronized(inner) { inner.create_dirs(path) }
+    override fun listDir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
+        synchronized(inner) { inner.listDir(path) }
+    override fun createDirs(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
+        synchronized(inner) { inner.createDirs(path) }
     override fun delete(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
         synchronized(inner) { inner.delete(path) }
-    override fun rename_path(from: String, to: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
-        synchronized(inner) { inner.rename_path(from, to) }
+    override fun renamePath(from: String, to: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> =
+        synchronized(inner) { inner.renamePath(from, to) }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun open_lines(fs: Fs, streams: Streams, path: String): Union2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    val opened = fs.open_read(path)
+fun openLines(fs: Fs, streams: Streams, path: String): Union2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    val opened = fs.openRead(path)
     if (opened is U2_2<*, *>) {
         return U2_2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
@@ -181,8 +181,8 @@ fun open_lines(fs: Fs, streams: Streams, path: String): Union2<Lines, Checked<Un
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun open_chunks(fs: Fs, streams: Streams, path: String, size: Int): Union2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    val opened = fs.open_read(path)
+fun openChunks(fs: Fs, streams: Streams, path: String, size: Int): Union2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    val opened = fs.openRead(path)
     if (opened is U2_2<*, *>) {
         return U2_2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
@@ -190,30 +190,30 @@ fun open_chunks(fs: Fs, streams: Streams, path: String, size: Int): Union2<Chunk
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun read_to_str(fs: Fs, streams: Streams, path: String): Union2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    val opened = fs.open_read(path)
+fun readToStr(fs: Fs, streams: Streams, path: String): Union2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    val opened = fs.openRead(path)
     if (opened is U2_2<*, *>) {
         return U2_2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
     val s: InStream = (opened.value as InStream)
-    val content = streams.read_all(s)
+    val content = streams.readAll(s)
     if (content is U2_2<*, *>) {
         val closed = streams.close(s)
         if (closed is U2_2<*, *>) {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
-        return U2_2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_stream_error((content.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+        return U2_2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((content.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
     val closed = streams.close(s)
     if (closed is U2_2<*, *>) {
-        return U2_2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_stream_error((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+        return U2_2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
     return U2_1<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok((content.value as String)))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun read_lines(fs: Fs, streams: Streams, path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    val opened = fs.open_read(path)
+fun readLines(fs: Fs, streams: Streams, path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    val opened = fs.openRead(path)
     if (opened is U2_2<*, *>) {
         return U2_2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
@@ -227,15 +227,15 @@ fun read_lines(fs: Fs, streams: Streams, path: String): Union2<List<String>, Che
     }
     val closed = close__2(streams, p)
     if (closed is U2_2<*, *>) {
-        return U2_2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_stream_error((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+        return U2_2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
     val done: List<String> = out
     return U2_1<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(done))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun write_str(fs: Fs, streams: Streams, path: String, content: String): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    val opened = fs.open_write(path)
+fun writeStr(fs: Fs, streams: Streams, path: String, content: String): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    val opened = fs.openWrite(path)
     if (opened is U2_2<*, *>) {
         return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
@@ -243,58 +243,58 @@ fun write_str(fs: Fs, streams: Streams, path: String, content: String): Union2<L
     val written = streams.write(s, content)
     val closed = streams.close__2(s)
     if (closed is U2_2<*, *>) {
-        return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_stream_error((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+        return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
     return U2_1<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(written))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun read_to_bytes(fs: Fs, streams: Streams, path: String): Union2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    val opened = fs.open_read(path)
+fun readToBytes(fs: Fs, streams: Streams, path: String): Union2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    val opened = fs.openRead(path)
     if (opened is U2_2<*, *>) {
         return U2_2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
     val s: InStream = (opened.value as InStream)
     val buf = salvo.SalvoBytes.joined()
-    val filling = fill_from(streams, s, buf)
+    val filling = fillFrom(streams, s, buf)
     if (filling is U2_2<*, *>) {
         val closed = streams.close(s)
         if (closed is U2_2<*, *>) {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
-        return U2_2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_stream_error((filling.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+        return U2_2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((filling.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
     val closed = streams.close(s)
     if (closed is U2_2<*, *>) {
-        return U2_2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_stream_error((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+        return U2_2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
     val done: salvo.SalvoBytes = buf
     return U2_1<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(done))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun write_bytes_to(fs: Fs, streams: Streams, path: String, data: salvo.SalvoBytes): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    val opened = fs.open_write(path)
+fun writeBytesTo(fs: Fs, streams: Streams, path: String, data: salvo.SalvoBytes): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    val opened = fs.openWrite(path)
     if (opened is U2_2<*, *>) {
         return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
     val s: OutStream = (opened.value as OutStream)
-    val written = streams.write_bytes(s, data)
+    val written = streams.writeBytes(s, data)
     val closed = streams.close__2(s)
     if (closed is U2_2<*, *>) {
-        return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_stream_error((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+        return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
     return U2_1<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(written))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun copy_file(fs: Fs, streams: Streams, from: String, to: String): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    val opened = fs.open_read(from)
+fun copyFile(fs: Fs, streams: Streams, from: String, to: String): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    val opened = fs.openRead(from)
     if (opened is U2_2<*, *>) {
         return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
     val s: InStream = (opened.value as InStream)
-    val created = fs.open_write(to)
+    val created = fs.openWrite(to)
     if (created is U2_2<*, *>) {
         val closed = streams.close(s)
         if (closed is U2_2<*, *>) {
@@ -303,26 +303,26 @@ fun copy_file(fs: Fs, streams: Streams, from: String, to: String): Union2<Long, 
         return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((created.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
     val w: OutStream = (created.value as OutStream)
-    val moved = copy_stream(streams, s, w)
-    val shut_w = streams.close__2(w)
-    val shut_s = streams.close(s)
+    val moved = copyStream(streams, s, w)
+    val shutW = streams.close__2(w)
+    val shutS = streams.close(s)
     if (moved is U2_2<*, *>) {
-        if (shut_w is U2_2<*, *>) {
-            ignore((shut_w.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+        if (shutW is U2_2<*, *>) {
+            ignore((shutW.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
-        if (shut_s is U2_2<*, *>) {
-            ignore((shut_s.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+        if (shutS is U2_2<*, *>) {
+            ignore((shutS.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
-        return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_stream_error((moved.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+        return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((moved.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
-    if (shut_w is U2_2<*, *>) {
-        if (shut_s is U2_2<*, *>) {
-            ignore((shut_s.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+    if (shutW is U2_2<*, *>) {
+        if (shutS is U2_2<*, *>) {
+            ignore((shutS.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
-        return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_stream_error((shut_w.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+        return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((shutW.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
-    if (shut_s is U2_2<*, *>) {
-        return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fs_stream_error((shut_s.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+    if (shutS is U2_2<*, *>) {
+        return U2_2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((shutS.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
     return U2_1<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok((moved.value as Long)))
 }

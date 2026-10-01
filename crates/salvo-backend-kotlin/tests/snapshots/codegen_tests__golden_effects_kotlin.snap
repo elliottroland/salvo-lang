@@ -181,7 +181,7 @@ data class __Iter_rev_indices_List<T>(
     var at: Int,
 )
 
-fun<T> rev_indices(list: List<T>): __Iter_rev_indices_List<T> {
+fun<T> revIndices(list: List<T>): __Iter_rev_indices_List<T> {
     return __Iter_rev_indices_List(list = list, at = list.size - 1)
 }
 
@@ -223,7 +223,7 @@ data class __Iter_enumerate_rev_List<T>(
     var at: Int,
 )
 
-fun<T> enumerate_rev(list: List<T>): __Iter_enumerate_rev_List<T> {
+fun<T> enumerateRev(list: List<T>): __Iter_enumerate_rev_List<T> {
     return __Iter_enumerate_rev_List(list = list, at = list.size - 1)
 }
 
@@ -241,15 +241,15 @@ fun<T> sort(list: List<T>, cmp: (T, T) -> Int): List<T> {
     return (list).let { __l -> (cmp).let { __c -> __l.sortedWith(Comparator { __a, __b -> __c(__a, __b) }).toMutableList() } }
 }
 
-fun<T> mut_sort(list: List<T>, cmp: (T, T) -> Int): MutableList<T> {
+fun<T> mutSort(list: List<T>, cmp: (T, T) -> Int): MutableList<T> {
     return (list).let { __l -> (cmp).let { __c -> __l.sortedWith(Comparator { __a, __b -> __c(__a, __b) }).toMutableList() } }
 }
 
-fun<T> add_sorted(list: MutableList<T>, elem: T, cmp: (T, T) -> Int) {
+fun<T> addSorted(list: MutableList<T>, elem: T, cmp: (T, T) -> Int) {
     (list).let { __l -> (elem).let { __e -> (cmp).let { __c -> __l.add(__l.indexOfFirst { __c(it, __e) >= 0 }.let { if (it < 0) __l.size else it }, __e) } } }
 }
 
-fun<T> binary_search(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? {
+fun<T> binarySearch(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? {
     return (list).let { __l -> (elem).let { __e -> (cmp).let { __c -> __l.indexOfFirst { __c(it, __e) >= 0 }.let { if (it >= 0 && __c(__l[it], __e) == 0) it else null } } } }
 }
 
@@ -373,11 +373,11 @@ fun<T> max(set: java.util.SortedSet<T>): T {
     return (set.lastOrNull() ?: throw AssertionError("salvo: value is absent at core.sorted:164:12"))
 }
 
-fun<K, V> first_key(map: java.util.SortedMap<K, V>): K {
+fun<K, V> firstKey(map: java.util.SortedMap<K, V>): K {
     return (map.keys.firstOrNull() ?: throw AssertionError("salvo: value is absent at core.sorted:168:12"))
 }
 
-fun<K, V> last_key(map: java.util.SortedMap<K, V>): K {
+fun<K, V> lastKey(map: java.util.SortedMap<K, V>): K {
     return (map.keys.lastOrNull() ?: throw AssertionError("salvo: value is absent at core.sorted:172:12"))
 }
 
@@ -441,18 +441,18 @@ import salvo.core.sorted.*
 import salvo.core.string.*
 
 interface Random<T> {
-    fun next_random(): T
+    fun nextRandom(): T
 }
 
 class __Mon_Random<T>(private val inner: Random<T>) : Random<T> {
-    override fun next_random(): T =
-        synchronized(inner) { inner.next_random() }
+    override fun nextRandom(): T =
+        synchronized(inner) { inner.nextRandom() }
 }
 
 class CyclicRandom<T>(private val values: List<T>, private val copy: (T) -> T) : Random<T> {
     private var i: Int = 0
 
-    override fun next_random(): T {
+    override fun nextRandom(): T {
         val value = (values.getOrNull(i % values.size) ?: throw AssertionError("salvo: value is absent at main:10:21"))
         i = i + 1
         return copy(value)
@@ -460,13 +460,13 @@ class CyclicRandom<T>(private val values: List<T>, private val copy: (T) -> T) :
 }
 
 fun draw(random_int: Random<Int>, random_string: Random<String>, console: Console) {
-    val n: Int = random_int.next_random()
-    val s: String = random_string.next_random()
+    val n: Int = random_int.nextRandom()
+    val s: String = random_string.nextRandom()
     println(console, "$s: $n")
 }
 
-fun lucky_number(random_int: Random<Int>): Int {
-    return random_int.next_random()
+fun luckyNumber(random_int: Random<Int>): Int {
+    return random_int.nextRandom()
 }
 
 fun main() {
@@ -475,8 +475,8 @@ fun main() {
     val random_string: Random<String> = __Mon_Random(CyclicRandom<String>(listOf<String>("a", "b"), { __i0 -> __i0 }))
     draw(random_int, random_string, console)
     draw(random_int, random_string, console)
-    println(console, "lucky: ${random_int.next_random()}")
-    println(console, "again: ${lucky_number(random_int)}")
+    println(console, "lucky: ${random_int.nextRandom()}")
+    println(console, "again: ${luckyNumber(random_int)}")
 }
 
 // ===== unions.kt =====

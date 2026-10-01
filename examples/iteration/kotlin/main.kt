@@ -12,7 +12,7 @@ import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
-fun describe_container(console: Console, xs: List<Int>) {
+fun describeContainer(console: Console, xs: List<Int>) {
     var sum = 0
     for (n in xs) {
         sum = sum + n
@@ -24,11 +24,11 @@ fun describe_container(console: Console, xs: List<Int>) {
     }
     println(console, "1. string: ${letters.toString()}")
     val arr = arrayOf<Int>(10, 20, 30)
-    var from_array = 0
+    var fromArray = 0
     for (n in arr) {
-        from_array = from_array + n
+        fromArray = fromArray + n
     }
-    println(console, "1. array sums to $from_array")
+    println(console, "1. array sums to $fromArray")
 }
 
 data class Countdown(
@@ -104,7 +104,7 @@ fun next__16(__p: __Iter_halving_Int): Union2<Int, Finished> {
     return U2_1<Int, Finished>(emitted(now))
 }
 
-fun halving_from_ten(): __Iter_halving_Int {
+fun halvingFromTen(): __Iter_halving_Int {
     return halving(10)
 }
 
@@ -195,7 +195,7 @@ fun next__19(__p: __Iter_naturals_Int): Union2<Int, Finished> {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun<It> sum_of(it: It, next: (It) -> Union2<Int, Finished>): Int {
+fun<It> sumOf(it: It, next: (It) -> Union2<Int, Finished>): Int {
     var total = 0
     while (true) {
         val __loop2_step = next(it)
@@ -234,10 +234,10 @@ fun<__It0> first__2(it: __It0, next: (__It0) -> Union2<Int, Finished>): Int {
 fun main() {
     val console: Console = StdOutConsole()
     val xs = listOf<Int>(1, 2, 3, 4)
-    describe_container(console, xs)
+    describeContainer(console, xs)
     val p = countdown(5)
     take(console, p, 2)
-    println(console, "2. rest sums to ${sum_of(p, ::next__15)}")
+    println(console, "2. rest sums to ${sumOf(p, ::next__15)}")
     val q = countdown(6)
     while (true) {
         val __loop5_step = skip(q)
@@ -253,8 +253,8 @@ fun main() {
         println(console, "2b. halving $n")
     }
     val hp = halving(20)
-    println(console, "2b. summed from a held iterator: ${sum_of(hp, ::next__16)}")
-    println(console, "2b. first from a pattern-typed fn: ${first__2(halving_from_ten(), ::next__16)}")
+    println(console, "2b. summed from a held iterator: ${sumOf(hp, ::next__16)}")
+    println(console, "2b. first from a pattern-typed fn: ${first__2(halvingFromTen(), ::next__16)}")
     val bag = Bag(items = listOf<Int>(7, 8))
     var __loop7_pass = iter__9(bag)
     while (true) {
@@ -292,7 +292,7 @@ fun main() {
     val vowels = filter(iter__8(word), { c -> c == 'i' || c == 'o' }, ::next__12)
     println(console, "5. vowels: ${vowels.size}")
     println(console, "5. halving total ${reduce(halving(20), 0, { acc, n -> acc + n }, ::next__16)}")
-    val collected = map_to(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__15)
+    val collected = mapTo(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__15)
     println(console, "6. collected ${collected.size}")
     val evens = StringBuilder()
     var __loop10_pass = range(0, 10, 2)

@@ -2,6 +2,7 @@
 //! checking, and (later) IR lowering.
 
 pub mod route;
+pub mod case;
 pub mod check;
 pub mod comptime;
 pub mod deadlock;

@@ -72,7 +72,7 @@ private fun kindOf(path: String, e: Exception): Kind {
 // into the runtime's stream table [stream-table], where `stream.host`'s
 // `HostRawStreams` reads it.
 class HostRawFs : RawFs {
-    override fun raw_open_read(path: String): Union2<Long, Kind> {
+    override fun rawOpenRead(path: String): Union2<Long, Kind> {
         return try {
             U2_1(SalvoStreams.registerIn(path, BufferedInputStream(FileInputStream(path)), 0))
         } catch (e: Exception) {
@@ -80,7 +80,7 @@ class HostRawFs : RawFs {
         }
     }
 
-    override fun raw_open_read_at(path: String, offset: Long): Union2<Long, Kind> {
+    override fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Kind> {
         return try {
             val input = FileInputStream(path)
             input.channel.position(if (offset < 0) 0 else offset)
@@ -90,7 +90,7 @@ class HostRawFs : RawFs {
         }
     }
 
-    override fun raw_open_write(path: String): Union2<Long, Kind> {
+    override fun rawOpenWrite(path: String): Union2<Long, Kind> {
         return try {
             U2_1(SalvoStreams.registerOut(path, BufferedOutputStream(FileOutputStream(path, false)), 0))
         } catch (e: Exception) {
@@ -98,7 +98,7 @@ class HostRawFs : RawFs {
         }
     }
 
-    override fun raw_open_append(path: String): Union2<Long, Kind> {
+    override fun rawOpenAppend(path: String): Union2<Long, Kind> {
         return try {
             val existing = File(path).let { if (it.exists()) it.length() else 0L }
             U2_1(SalvoStreams.registerOut(path, BufferedOutputStream(FileOutputStream(path, true)), existing))
@@ -107,15 +107,15 @@ class HostRawFs : RawFs {
         }
     }
 
-    override fun raw_exists(path: String): Boolean = File(path).exists()
+    override fun rawExists(path: String): Boolean = File(path).exists()
 
-    override fun raw_metadata(path: String): Union2<FileInfo, Kind> {
+    override fun rawMetadata(path: String): Union2<FileInfo, Kind> {
         val file = File(path)
         if (!file.exists()) return U2_2(notFound(path))
         return U2_1(FileInfo(file.length(), file.isDirectory))
     }
 
-    override fun raw_list_dir(path: String): Union2<List<String>, Kind> {
+    override fun rawListDir(path: String): Union2<List<String>, Kind> {
         val file = File(path)
         if (!file.exists()) return U2_2(notFound(path))
         if (!file.isDirectory) return U2_2(notADirectory(path))
@@ -124,7 +124,7 @@ class HostRawFs : RawFs {
         return U2_1(names.sorted())
     }
 
-    override fun raw_create_dirs(path: String): Union2<Unit, Kind> {
+    override fun rawCreateDirs(path: String): Union2<Unit, Kind> {
         return try {
             Files.createDirectories(Paths.get(path))
             U2_1(Unit)
@@ -133,7 +133,7 @@ class HostRawFs : RawFs {
         }
     }
 
-    override fun raw_delete(path: String): Union2<Unit, Kind> {
+    override fun rawDelete(path: String): Union2<Unit, Kind> {
         return try {
             Files.delete(Paths.get(path))
             U2_1(Unit)
@@ -142,7 +142,7 @@ class HostRawFs : RawFs {
         }
     }
 
-    override fun raw_rename_path(from: String, to: String): Union2<Unit, Kind> {
+    override fun rawRenamePath(from: String, to: String): Union2<Unit, Kind> {
         return try {
             Files.move(Paths.get(from), Paths.get(to), StandardCopyOption.REPLACE_EXISTING)
             U2_1(Unit)

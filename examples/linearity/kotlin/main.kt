@@ -30,7 +30,7 @@ fun redeem(console: Console, ticket: Ticket) {
     (ticket).let {}
 }
 
-fun one_use(console: Console) {
+fun oneUse(console: Console) {
     val ticket = issue(console, 1, "12A")
     redeem(console, ticket)
     println(console, "2. gone after one use")
@@ -40,27 +40,27 @@ fun describe(console: Console, ticket: Ticket) {
     println(console, "3. still holding #${ticket.id} (${ticket.seat})")
 }
 
-fun borrow_then_use(console: Console) {
+fun borrowThenUse(console: Console) {
     val ticket = issue(console, 2, "3C")
     describe(console, ticket)
     describe(console, ticket)
     redeem(console, ticket)
 }
 
-fun read_a_field(console: Console) {
+fun readAField(console: Console) {
     val ticket = issue(console, 3, "1A")
     val seat = ticket.seat
     println(console, "4. read $seat, and #${ticket.id} is still owed")
     redeem(console, ticket)
 }
 
-fun<T> hand_over(console: Console, value: T, to: (Console, T) -> Unit) {
+fun<T> handOver(console: Console, value: T, to: (Console, T) -> Unit) {
     to(console, value)
 }
 
-fun generic_handoff(console: Console) {
+fun genericHandoff(console: Console) {
     val ticket = issue(console, 4, "9B")
-    hand_over(console, ticket, { console2: Console, t -> redeem(console2, t) })
+    handOver(console, ticket, { console2: Console, t -> redeem(console2, t) })
 }
 
 fun scrap(ticket: Ticket) {
@@ -68,7 +68,7 @@ fun scrap(ticket: Ticket) {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun a_queue_of_tickets(console: Console) {
+fun aQueueOfTickets(console: Console) {
     val queue: MutableList<Ticket> = mutableListOf<Ticket>()
     queue.add(issue(console, 5, "2B"))
     queue.add(issue(console, 6, "2C"))
@@ -93,9 +93,9 @@ fun a_queue_of_tickets(console: Console) {
 
 fun main() {
     val console: Console = StdOutConsole()
-    one_use(console)
-    borrow_then_use(console)
-    read_a_field(console)
-    generic_handoff(console)
-    a_queue_of_tickets(console)
+    oneUse(console)
+    borrowThenUse(console)
+    readAField(console)
+    genericHandoff(console)
+    aQueueOfTickets(console)
 }

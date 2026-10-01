@@ -88,7 +88,7 @@ class HostTcpTransport(private val bind: NodeEndpoint) : Transport {
             while (true) {
                 val frame = readFrame(input) ?: return
                 val addr = sink.get() ?: return
-                __Stub_Inbound(addr).receive_frame(from, salvo.SalvoBytes(frame))
+                __Stub_Inbound(addr).receiveFrame(from, salvo.SalvoBytes(frame))
             }
         } catch (e: Exception) {
             // The peer went away mid-frame: this reader is done.
@@ -173,5 +173,5 @@ class HostTcpTransport(private val bind: NodeEndpoint) : Transport {
         }
     }
 
-    override fun local_endpoint(): NodeEndpoint = bind
+    override fun localEndpoint(): NodeEndpoint = bind
 }

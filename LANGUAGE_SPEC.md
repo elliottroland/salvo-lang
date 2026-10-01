@@ -7649,6 +7649,21 @@ between endpoints and delivers what arrives into the scheduler.
     (`is Str surname`) into a consequence of the rule.
   * Enforced at declaration sites in the parser (`ident_type` /
     `ident_value`); module paths in `resolve`.
+* [name-camel] **Two value names that would be spelled alike in camel case
+  are an error, on every backend** (user decision 2026-10-01, ABI.md D6): the
+  Kotlin backend writes camel case [kt-camel], and a project's validity must
+  not depend on its target, so the rule is the language's. The mapping is
+  `salvo_core::case::camel`: an `_` before a lowercase ASCII letter is
+  dropped and the letter uppercased (`read_to_str` → `readToStr`); a name not
+  starting with a lowercase letter, the part from the first `__`, and an `_`
+  before a digit, an uppercase letter or the end are kept — so the only
+  clashes are spellings like `foo_bar` beside `fooBar`.
+  * Checked per Kotlin scope (`case::module_clashes`, from `check_module`): a
+    module's top-level fns; a struct's fields; an effect's members; a
+    handler's constructor parameters with its state, and its members; and
+    each fn with its parameters and the names its body binds (`let`, `for`,
+    `is`/`when` bindings, lambda parameters). The error names both spellings.
+  * To be loosened if it proves painful (the user's call when deciding).
 * [name-resolve] Every name written in a *type position* must resolve to a
   declaration visible under [mod-visibility]; an unresolved name is an
   error naming it, with import suggestions [diag-import-suggest]

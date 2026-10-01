@@ -235,6 +235,20 @@ Conventions:
 
 ## Structs and variables
 
+* [kt-camel] [name-camel] **Every Salvo value name is written in camel case**
+  (user decision 2026-10-01, ABI.md D6): fns, effect and handler members,
+  parameters, struct fields, locals and bindings — `read_to_str` is
+  `readToStr`, `data_type` is `dataType` — so generated Kotlin reads as
+  Kotlin and host code written against it does too. One function does it,
+  `kt_ident` over `salvo_core::case::camel` (the mapping the checker's clash
+  rule uses), which is why a name the emitter writes in several places agrees
+  with itself. Not mapped: type names (already capitalized), names the
+  emitter synthesizes (`random_int` for a `Random<Int>` effect parameter,
+  `__p`, `__Iter_…`), overload suffixes after `__` (`readTo__2`), and the
+  `TODO("implement E.member")` messages, which quote Salvo. Rust keeps snake
+  case. Hand-written host code follows: std's `platform/*.kt` override
+  `rawReadLine`, not `raw_read_line`.
+
 * [struct-decl] Structs emit as `data class` with `val` fields (`var`
   under `Mut`, defaults as `= expr`, optional nullable defaults `= null`).
 * [kt-struct-empty] A **fieldless** struct emits a plain `class`, not a
@@ -842,7 +856,7 @@ nothing but the monitor.
   | `List<T>`, `Map<K, V>`, `Set<T>` | `List<T>`, `Map<K, V>`, `Set<T>` — insertion-ordered (`LinkedHashMap`/`LinkedHashSet`) |
   | `T?` | `T?` [kt-union-nullable] |
   | a union of *n* ≥ 2 runtime arms | `salvo.UnionN<A, …>`, arms `UN_k(value)` in runtime-arm order, tested `is UN_k<*, …>` [kt-union-wrappers] [union-arm-identity]; nullable when it has a `None` arm |
-  | `struct S { f: T }` | `data class S(val f: T)` with the Salvo field names (snake case); a dot-name `A.B` is `A.B`, nested in an `object` [kt-nested-dot-name]; a keyword is back-quoted |
+  | `struct S { f: T }` | `data class S(val f: T)` with the field names in camel case [kt-camel]; a dot-name `A.B` is `A.B`, nested in an `object` [kt-nested-dot-name]; a keyword is back-quoted |
   | `Checked<T>` | `salvo.core.checked.Checked(value)` |
   | `Reply<T>` parameter | `salvo.SalvoReply`; `.hosted()` answers the host reply whose `send(v)` may run on any thread, exactly once [platform-reply] |
   | `InStream` / `OutStream` | `salvo.stream.InStream(handle: Long)`; the table is `SalvoStreams.registerIn/registerOut`, `inStream/outStream`, `takeIn/takeOut`, over `SalvoIn`/`SalvoOut`, whose failures are `SalvoFaultException` [stream-table] |

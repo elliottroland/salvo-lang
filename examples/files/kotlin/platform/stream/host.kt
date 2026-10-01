@@ -39,7 +39,7 @@ private fun decode(stream: SalvoIn, bytes: ByteArray): String? =
 // below is safe to run concurrently with every other. The state is the
 // runtime's table, which locks per stream (each entry is its own monitor).
 class HostRawStreams : RawStreams {
-    override fun raw_read_line(handle: Long): String? {
+    override fun rawReadLine(handle: Long): String? {
         val stream = SalvoStreams.inStream(handle)
         synchronized(stream) {
             val bytes = try {
@@ -51,7 +51,7 @@ class HostRawStreams : RawStreams {
         }
     }
 
-    override fun raw_read_all(handle: Long): Union2<String, Kind> {
+    override fun rawReadAll(handle: Long): Union2<String, Kind> {
         val stream = SalvoStreams.inStream(handle)
         synchronized(stream) {
             val bytes = try {
@@ -64,15 +64,15 @@ class HostRawStreams : RawStreams {
         }
     }
 
-    override fun raw_read_bytes(handle: Long, max: Int): Union2<SalvoBytes, Kind> {
+    override fun rawReadBytes(handle: Long, max: Int): Union2<SalvoBytes, Kind> {
         val out = SalvoBytes()
-        return when (val filled = raw_read_to_bytes(handle, out, max)) {
+        return when (val filled = rawReadToBytes(handle, out, max)) {
             is U2_2 -> U2_2(filled.value)
             else -> U2_1(out)
         }
     }
 
-    override fun raw_read_to_bytes(handle: Long, buf: SalvoBytes, max: Int): Union2<Int, Kind> {
+    override fun rawReadToBytes(handle: Long, buf: SalvoBytes, max: Int): Union2<Int, Kind> {
         val stream = SalvoStreams.inStream(handle)
         synchronized(stream) {
             val got = try {
@@ -85,8 +85,8 @@ class HostRawStreams : RawStreams {
         }
     }
 
-    override fun raw_read_to_str(handle: Long, buf: StringBuilder): Union2<Long, Kind> {
-        return when (val all = raw_read_all(handle)) {
+    override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Kind> {
+        return when (val all = rawReadAll(handle)) {
             is U2_2 -> U2_2(all.value)
             is U2_1 -> {
                 val text = all.value
@@ -96,18 +96,18 @@ class HostRawStreams : RawStreams {
         }
     }
 
-    override fun raw_read_line_to_str(handle: Long, buf: StringBuilder): Boolean {
-        val line = raw_read_line(handle) ?: return false
+    override fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean {
+        val line = rawReadLine(handle) ?: return false
         buf.append(line)
         return true
     }
 
-    override fun raw_read_position(handle: Long): Long {
+    override fun rawReadPosition(handle: Long): Long {
         val stream = SalvoStreams.inStream(handle)
         synchronized(stream) { return stream.position }
     }
 
-    override fun raw_close_read(handle: Long): Union2<Unit, Kind> {
+    override fun rawCloseRead(handle: Long): Union2<Unit, Kind> {
         val stream = SalvoStreams.takeIn(handle)
         synchronized(stream) {
             stream.closeInput()
@@ -116,22 +116,22 @@ class HostRawStreams : RawStreams {
         }
     }
 
-    override fun raw_write(handle: Long, text: String): Long {
+    override fun rawWrite(handle: Long, text: String): Long {
         val stream = SalvoStreams.outStream(handle)
         synchronized(stream) { return stream.writeData(text.toByteArray(StandardCharsets.UTF_8)) }
     }
 
-    override fun raw_write_bytes(handle: Long, data: SalvoBytes): Long {
+    override fun rawWriteBytes(handle: Long, data: SalvoBytes): Long {
         val stream = SalvoStreams.outStream(handle)
         synchronized(stream) { return stream.writeData(data.toByteArray()) }
     }
 
-    override fun raw_write_position(handle: Long): Long {
+    override fun rawWritePosition(handle: Long): Long {
         val stream = SalvoStreams.outStream(handle)
         synchronized(stream) { return stream.position }
     }
 
-    override fun raw_flush(handle: Long): Union2<Unit, Kind> {
+    override fun rawFlush(handle: Long): Union2<Unit, Kind> {
         val stream = SalvoStreams.outStream(handle)
         synchronized(stream) {
             val failed = stream.flushData() ?: return U2_1(Unit)
@@ -145,7 +145,7 @@ class HostRawStreams : RawStreams {
      * on a failure, the stream is released before answering, so the caller has
      * nothing left to close.
      */
-    override fun raw_receive(handle: Long, reply: SalvoReply) {
+    override fun rawReceive(handle: Long, reply: SalvoReply) {
         val host = reply.hosted()
         val stream = SalvoStreams.inStream(handle)
         val reader = Thread {
@@ -173,10 +173,10 @@ class HostRawStreams : RawStreams {
     }
 
     /** [stream-from-bytes] A readable stream over [data], registered in the process's table. */
-    override fun raw_from_bytes(data: SalvoBytes): Long =
+    override fun rawFromBytes(data: SalvoBytes): Long =
         SalvoStreams.registerIn("<bytes>", java.io.ByteArrayInputStream(data.toByteArray()), 0)
 
-    override fun raw_close_write(handle: Long): Union2<Unit, Kind> {
+    override fun rawCloseWrite(handle: Long): Union2<Unit, Kind> {
         val stream = SalvoStreams.takeOut(handle)
         synchronized(stream) {
             val failed = stream.closeOutput() ?: return U2_1(Unit)

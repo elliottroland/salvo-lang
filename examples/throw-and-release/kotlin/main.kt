@@ -21,7 +21,7 @@ object __Codec_FileHandle : salvo.WireCodec<FileHandle> {
     override fun dec(inp: salvo.WireIn): FileHandle = FileHandle(salvo.StrCodec.dec(inp))
 }
 
-fun open_file(console: Console, name: String): FileHandle {
+fun openFile(console: Console, name: String): FileHandle {
     println(console, "1. open $name")
     return FileHandle(name = name)
 }
@@ -31,19 +31,19 @@ fun close__4(console: Console, handle: FileHandle) {
     (handle).let {}
 }
 
-fun read_size(console: Console, name: String, want: Int): Int {
-    val there_is = name.length
-    val handle = open_file(console, name)
-    if (want > there_is) {
+fun readSize(console: Console, name: String, want: Int): Int {
+    val thereIs = name.length
+    val handle = openFile(console, name)
+    if (want > thereIs) {
         println(console, "1. asked for more than there is")
         close__4(console, handle)
-        return there_is
+        return thereIs
     }
     close__4(console, handle)
     return want
 }
 
-fun parse_port(text: String): Int {
+fun parsePort(text: String): Int {
     val n = text.toIntOrNull()
     if (n == null) {
         throw ThrowSignal("not a number: $text", "Str")
@@ -54,20 +54,20 @@ fun parse_port(text: String): Int {
     return n
 }
 
-fun port_of(config: String): Int {
-    val port = parse_port(config)
+fun portOf(config: String): Int {
+    val port = parsePort(config)
     return port * 1
 }
 
-fun port_from_file(console: Console, name: String, text: String): Int {
-    val handle = open_file(console, name)
+fun portFromFile(console: Console, name: String, text: String): Int {
+    val handle = openFile(console, name)
     val from = handle.name
     close__4(console, handle)
     println(console, "2. reading a port out of $from")
-    return parse_port(text)
+    return parsePort(text)
 }
 
-fun strict_port(text: String): Int {
+fun strictPort(text: String): Int {
     if (text.length == 0) {
         throw ThrowSignal("empty", "Str")
     }
@@ -81,7 +81,7 @@ fun strict_port(text: String): Int {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun report(console: Console, label: String, config: String) {
     val outcome = try {
-        U2_1<Int, String>(port_of(config))
+        U2_1<Int, String>(portOf(config))
     } catch (__signal: ThrowSignal) {
         U2_2<Int, String>(__signal.payload as String)
     }
@@ -98,14 +98,14 @@ fun report(console: Console, label: String, config: String) {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
     val console: Console = StdOutConsole()
-    val small = read_size(console, "notes.txt", 3)
+    val small = readSize(console, "notes.txt", 3)
     println(console, "1. read $small")
-    val clamped = read_size(console, "notes.txt", 99)
+    val clamped = readSize(console, "notes.txt", 99)
     println(console, "1. read $clamped")
     report(console, "good", "8080")
     report(console, "bad", "http")
     val guarded = try {
-        U2_1<Int, String>(port_from_file(console, "ports.txt", "-1"))
+        U2_1<Int, String>(portFromFile(console, "ports.txt", "-1"))
     } catch (__signal: ThrowSignal) {
         U2_2<Int, String>(__signal.payload as String)
     }
@@ -118,7 +118,7 @@ fun main() {
         }
     }
     val mixed = try {
-        U2_1<Int, Union2<String, Int>>(strict_port(""))
+        U2_1<Int, Union2<String, Int>>(strictPort(""))
     } catch (__signal: ThrowSignal) {
         when (__signal.tag) {
             "Str" -> U2_2<Int, Union2<String, Int>>(U2_1<String, Int>(__signal.payload as String))
@@ -144,7 +144,7 @@ fun main() {
     }
     val outer = try {
         val inner = try {
-            U2_1<Int, String>(parse_port("nope"))
+            U2_1<Int, String>(parsePort("nope"))
         } catch (__signal: ThrowSignal) {
             U2_2<Int, String>(__signal.payload as String)
         }
@@ -155,7 +155,7 @@ fun main() {
             }
             is U2_2<*, *> -> {
                 println(console, "3. inner caught: ${(inner.value as String)}")
-                parse_port("also nope")
+                parsePort("also nope")
             }
         })
     } catch (__signal: ThrowSignal) {

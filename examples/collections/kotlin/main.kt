@@ -33,11 +33,11 @@ object __Codec_Note : salvo.WireCodec<Note> {
     override fun dec(inp: salvo.WireIn): Note = Note(salvo.StrCodec.dec(inp))
 }
 
-fun by_len(a: String, b: String): Int {
+fun byLen(a: String, b: String): Int {
     return (a.length).compareTo(b.length)
 }
 
-fun count_unique(xs: List<Int>): Int {
+fun countUnique(xs: List<Int>): Int {
     return xs.size
 }
 
@@ -83,8 +83,8 @@ fun main() {
     println(console, "4. equal $same, ordered $before")
     val n1 = Note(text = "same")
     val n2 = Note(text = "same")
-    val notes_equal = eq__8(n1, n2)
-    println(console, "4. plain struct equality $notes_equal")
+    val notesEqual = eq__8(n1, n2)
+    println(console, "4. plain struct equality $notesEqual")
     val squares = MutableList<Int>(4, { i -> i * i })
     println(console, "5. generated ${squares.joinToString(", ", "[", "]")}")
     val deduped = linkedSetOf<Int>().also { __s -> __s.addAll(primes) }
@@ -99,24 +99,24 @@ fun main() {
     println(console, "6. after add, first is ${first(growing)}")
     val ordered = sort(listOf<Int>(40, 10, 30, 20), { __i0, __i1 -> (__i0).compareTo(__i1) })
     println(console, "6. sorted ${ordered.joinToString(", ", "[", "]")}")
-    var __is1 = binary_search(ordered, 30, { __i0, __i1 -> (__i0).compareTo(__i1) })
+    var __is1 = binarySearch(ordered, 30, { __i0, __i1 -> (__i0).compareTo(__i1) })
     if (__is1 != null) {
         val at = __is1 as Int
         println(console, "6. found 30 at $at")
     }
-    val live: MutableList<Int> = mut_sort(listOf<Int>(10, 30), { __i0, __i1 -> (__i0).compareTo(__i1) })
-    add_sorted(live, 20, { __i0, __i1 -> (__i0).compareTo(__i1) })
-    add_sorted(live, 5, { __i0, __i1 -> (__i0).compareTo(__i1) })
+    val live: MutableList<Int> = mutSort(listOf<Int>(10, 30), { __i0, __i1 -> (__i0).compareTo(__i1) })
+    addSorted(live, 20, { __i0, __i1 -> (__i0).compareTo(__i1) })
+    addSorted(live, 5, { __i0, __i1 -> (__i0).compareTo(__i1) })
     println(console, "6. still sorted ${live.joinToString(", ", "[", "]")}")
-    val bylen = sort(listOf<String>("alpha", "be", "z"), ::by_len)
+    val bylen = sort(listOf<String>("alpha", "be", "z"), ::byLen)
     println(console, "6. by length ${bylen.joinToString(", ", "[", "]")}")
-    var __is2 = binary_search(bylen, "hi", ::by_len)
+    var __is2 = binarySearch(bylen, "hi", ::byLen)
     if (__is2 != null) {
-        val at_len = __is2 as Int
-        println(console, "6. a two-letter word at $at_len")
+        val atLen = __is2 as Int
+        println(console, "6. a two-letter word at $atLen")
     }
     val unique = deduped.toMutableList()
-    println(console, "6. distinct ${unique.joinToString(", ", "[", "]")} of ${count_unique(unique)}")
+    println(console, "6. distinct ${unique.joinToString(", ", "[", "]")} of ${countUnique(unique)}")
     var __loop1_pass = iter__5(vowels)
     while (true) {
         val __loop1_step = next__11(__loop1_pass)

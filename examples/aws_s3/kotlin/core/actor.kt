@@ -70,14 +70,14 @@ object __Codec_Exit : salvo.WireCodec<Exit> {
 }
 
 data class Idle(
-    val parked_gates: Int,
-    val parked_tokens: Int,
+    val parkedGates: Int,
+    val parkedTokens: Int,
 )
 
 object __Codec_Idle : salvo.WireCodec<Idle> {
     override fun enc(v: Idle, out: salvo.WireOut) {
-        salvo.IntCodec.enc(v.parked_gates, out)
-        salvo.IntCodec.enc(v.parked_tokens, out)
+        salvo.IntCodec.enc(v.parkedGates, out)
+        salvo.IntCodec.enc(v.parkedTokens, out)
     }
     override fun dec(inp: salvo.WireIn): Idle = Idle(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
 }

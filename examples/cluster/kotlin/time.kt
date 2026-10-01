@@ -66,19 +66,19 @@ fun hours(n: Long): Duration {
     return Duration(nanos = n * 3600000000000L)
 }
 
-fun to_nanos(d: Duration): Long {
+fun toNanos(d: Duration): Long {
     return d.nanos
 }
 
-fun to_micros(d: Duration): Long {
+fun toMicros(d: Duration): Long {
     return d.nanos / 1000L
 }
 
-fun to_millis(d: Duration): Long {
+fun toMillis(d: Duration): Long {
     return d.nanos / 1000000L
 }
 
-fun to_seconds(d: Duration): Long {
+fun toSeconds(d: Duration): Long {
     return d.nanos / 1000000000L
 }
 
@@ -101,10 +101,10 @@ fun abs(d: Duration): Duration {
     return d
 }
 
-fun to_str__6(d: Duration): String {
+fun toStr__6(d: Duration): String {
     if (d.nanos < 0) {
         val positive = Duration(nanos = 0L - d.nanos)
-        return "-${to_str__6(positive)}"
+        return "-${toStr__6(positive)}"
     }
     if (d.nanos == (0).toLong()) {
         return "0s"
@@ -121,27 +121,27 @@ fun to_str__6(d: Duration): String {
     return "${d.nanos}ns"
 }
 
-fun epoch_nano(n: Long): Instant {
+fun epochNano(n: Long): Instant {
     return Instant(nanos = n)
 }
 
-fun epoch_milli(n: Long): Instant {
+fun epochMilli(n: Long): Instant {
     return Instant(nanos = n * 1000000L)
 }
 
-fun epoch_second(n: Long): Instant {
+fun epochSecond(n: Long): Instant {
     return Instant(nanos = n * 1000000000L)
 }
 
-fun to_epoch_nano(at: Instant): Long {
+fun toEpochNano(at: Instant): Long {
     return at.nanos
 }
 
-fun to_epoch_milli(at: Instant): Long {
+fun toEpochMilli(at: Instant): Long {
     return at.nanos / 1000000L
 }
 
-fun to_epoch_second(at: Instant): Long {
+fun toEpochSecond(at: Instant): Long {
     return at.nanos / 1000000000L
 }
 
@@ -180,17 +180,17 @@ class __Mon_Ticker(private val inner: Ticker) : Ticker {
 
 interface Clock {
     fun now(): Instant
-    fun to_instant(at: Tick): Instant
-    fun to_tick(at: Instant): Tick
+    fun toInstant(at: Tick): Instant
+    fun toTick(at: Instant): Tick
 }
 
 class __Mon_Clock(private val inner: Clock) : Clock {
     override fun now(): Instant =
         synchronized(inner) { inner.now() }
-    override fun to_instant(at: Tick): Instant =
-        synchronized(inner) { inner.to_instant(at) }
-    override fun to_tick(at: Instant): Tick =
-        synchronized(inner) { inner.to_tick(at) }
+    override fun toInstant(at: Tick): Instant =
+        synchronized(inner) { inner.toInstant(at) }
+    override fun toTick(at: Instant): Tick =
+        synchronized(inner) { inner.toTick(at) }
 }
 
 fun elapsed(ticker: Ticker, since: Tick): Duration {
@@ -205,19 +205,19 @@ class DefaultTicker : Ticker {
 }
 
 class DefaultClock : Clock {
-    private var base_tick: Long = salvo.SalvoTime.monoNanos()
-    private var base_epoch: Long = salvo.SalvoTime.epochNanos()
+    private var baseTick: Long = salvo.SalvoTime.monoNanos()
+    private var baseEpoch: Long = salvo.SalvoTime.epochNanos()
 
     override fun now(): Instant {
         return Instant(nanos = salvo.SalvoTime.epochNanos())
     }
 
-    override fun to_instant(at: Tick): Instant {
-        return Instant(nanos = base_epoch + (at.nanos - base_tick))
+    override fun toInstant(at: Tick): Instant {
+        return Instant(nanos = baseEpoch + (at.nanos - baseTick))
     }
 
-    override fun to_tick(at: Instant): Tick {
-        return Tick(nanos = base_tick + (at.nanos - base_epoch))
+    override fun toTick(at: Instant): Tick {
+        return Tick(nanos = baseTick + (at.nanos - baseEpoch))
     }
 }
 
@@ -374,7 +374,7 @@ class ManualTime : Timer, TimerCtl {
     override fun advance(by: Duration) {
         val target = now + by.nanos
         while (true) {
-            var __is1 = earliest_due(deadlines, target)
+            var __is1 = earliestDue(deadlines, target)
             if (!(__is1 != null)) break
             val at = __is1 as Int
             val deadline = (deadlines.getOrNull(at) ?: throw AssertionError("salvo: value is absent at time:480:33"))
@@ -447,15 +447,15 @@ class __Actor_ManualTime(private val handler: ManualTime) : salvo.SalvoActor {
     }
 }
 
-fun earliest_due(deadlines: List<Long>, target: Long): Int? {
+fun earliestDue(deadlines: List<Long>, target: Long): Int? {
     var best = -1
-    var best_at = 0L
+    var bestAt = 0L
     var i = 0
     while (i < deadlines.size) {
         val at = (deadlines.getOrNull(i) ?: throw AssertionError("salvo: value is absent at time:504:23"))
-        if (at <= target && (best < 0 || at < best_at)) {
+        if (at <= target && (best < 0 || at < bestAt)) {
             best = i
-            best_at = at
+            bestAt = at
         }
         i = i + 1
     }

@@ -2354,6 +2354,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn check_module(&mut self, module: &'p Module) {
+        // [name-camel] Names the Kotlin backend would spell alike are an
+        // error on every backend (user decision 2026-10-01, ABI.md D6).
+        for (span, msg) in crate::case::module_clashes(module) {
+            self.error(span, msg);
+        }
         // [fn-rename] Module-level renames are in force for the whole module,
         // in every file of it — order-independent, like every other
         // module-level declaration. They are validated once here (a duplicate

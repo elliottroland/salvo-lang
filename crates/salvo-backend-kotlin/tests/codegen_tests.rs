@@ -543,11 +543,11 @@ fn qualifiers_lower_to_predicates_and_mangled_overloads() {
     // call to it and the unqualified call to the base name.
     assert!(main
         .content
-        .contains("fun full_name__Surname(person: Person): String"));
+        .contains("fun fullName__Surname(person: Person): String"));
     assert!(main
         .content
-        .contains("println(console, full_name__Surname(person))"));
-    assert!(main.content.contains("println(console, full_name(person))"));
+        .contains("println(console, fullName__Surname(person))"));
+    assert!(main.content.contains("println(console, fullName(person))"));
     // Field overrides cast + assert at the access site.
     assert!(main.content.contains("(person.surname as String)"));
     // `while x is T` lowers with a per-iteration binding.
@@ -2074,14 +2074,14 @@ fn effects_resolve_through_checker_tables() {
     assert!(main
         .content
         .contains("draw(random_int, random_string, console)"));
-    assert!(main.content.contains("lucky_number(random_int)"));
+    assert!(main.content.contains("luckyNumber(random_int)"));
     // Expected-type disambiguation picks the right handler per call.
     assert!(main
         .content
-        .contains("val n: Int = random_int.next_random()"));
+        .contains("val n: Int = random_int.nextRandom()"));
     assert!(main
         .content
-        .contains("val s: String = random_string.next_random()"));
+        .contains("val s: String = random_string.nextRandom()"));
 }
 
 /// Full verification of the effects demo under kotlinc (skipped when
@@ -3595,14 +3595,14 @@ fn a_mixed_identity_fill_pairs_both_slots() {
         .clone();
     assert!(
         kt.contains(&format!(
-            "salvo.SalvoHashSet<Point>(::by_x, ::{})",
+            "salvo.SalvoHashSet<Point>(::byX, ::{})",
             mangled_name(&kt, "fun eq__", "(a: Point, b: Point)")
         )),
         "the written hash pairs with the generated eq: {kt}"
     );
     assert!(
         kt.contains(&format!(
-            "salvo.SalvoHashMap<Point, Int>(::by_x, ::{})",
+            "salvo.SalvoHashMap<Point, Int>(::byX, ::{})",
             mangled_name(&kt, "fun eq__", "(a: Point, b: Point)")
         )),
         "and for a map too: {kt}"
@@ -3722,7 +3722,7 @@ fn a_host_slot_in_a_mixed_pair_becomes_its_lowering() {
         .content
         .clone();
     assert!(
-        kt.contains("SalvoHashSet<Int>({ __i0 -> (__i0).hashCode().toLong() }, ::all_same)"),
+        kt.contains("SalvoHashSet<Int>({ __i0 -> (__i0).hashCode().toLong() }, ::allSame)"),
         "the host's hash is its lowering as a lambda: {kt}"
     );
 }
@@ -5163,8 +5163,8 @@ fn main() [use] -> None {
         .unwrap();
     assert!(main
         .content
-        .contains("import salvo.geometry.area as rect_area"));
-    assert!(main.content.contains("rect_area(3, 4)"));
+        .contains("import salvo.geometry.area as rectArea"));
+    assert!(main.content.contains("rectArea(3, 4)"));
 }
 
 // [kt-imports] [kt-qual-mangling] An aliased import of a fn with a
@@ -7536,10 +7536,10 @@ fn union_coercion_in_array_tuple_lambda() {
     for needle in [
         // [col-literal] `[...]` builds a List now, so the coercion wrappers
         // appear inside `listOf` rather than `arrayOf`.
-        "listOf<Union2<Int, String>>(U2_1<Int, String>(tag_ok(1)), \
-         U2_2<Int, String>(tag_err(\"a\")))",
-        "Pair(\"t\", U2_1<Int, String>(tag_ok(2)))",
-        "U2_1<Int, String>(tag_ok(3))",
+        "listOf<Union2<Int, String>>(U2_1<Int, String>(tagOk(1)), \
+         U2_2<Int, String>(tagErr(\"a\")))",
+        "Pair(\"t\", U2_1<Int, String>(tagOk(2)))",
+        "U2_1<Int, String>(tagOk(3))",
     ] {
         assert!(
             main.content.contains(needle),
@@ -8267,7 +8267,7 @@ fn fn_type_effects_thread_into_lambdas() {
     // *type* carries the per-effect parameter too.
     assert!(
         main.content
-            .contains("run_it(logger: Logger, f: (Logger, String) -> String"),
+            .contains("runIt(logger: Logger, f: (Logger, String) -> String"),
         "expected the per-effect signature and fn type:\n{}",
         main.content
     );
@@ -8280,7 +8280,7 @@ fn fn_type_effects_thread_into_lambdas() {
     // Named fns: the effectful one passes as a reference, the pure one is
     // adapted to drop the threaded effect.
     assert!(
-        main.content.contains("run_it(logger, ::shout,"),
+        main.content.contains("runIt(logger, ::shout,"),
         "expected the effectful named fn as a reference:\n{}",
         main.content
     );
@@ -8650,7 +8650,7 @@ fn a_platform_handler_emits_no_class_and_a_host_constructor() {
         .expect("main.kt should be generated");
     let src = &main.content;
     assert!(
-        src.contains("interface RawClock {") && src.contains("fun raw_now(): Int"),
+        src.contains("interface RawClock {") && src.contains("fun rawNow(): Int"),
         "expected the generated interface, got:\n{src}"
     );
     assert!(
@@ -8683,7 +8683,7 @@ fn platform_generate_renders_a_host_handler_skeleton() {
         "package salvo.platform.main",
         "import salvo.main.*",
         "class HostRawClock(private val offset: Int) : RawClock {",
-        "override fun raw_now(): Int {",
+        "override fun rawNow(): Int {",
         "TODO(\"implement RawClock.raw_now\")",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
@@ -10862,7 +10862,7 @@ fn a_payload_cast_gets_the_suppression() {
     // A generic payload is an *unchecked* cast ...
     assert!(
         main.contains(
-            "@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\")\nfun<It, T> count_all"
+            "@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\")\nfun<It, T> countAll"
         ),
         "expected the suppression on the generic-element combinator in:\n{main}"
     );
@@ -10872,7 +10872,7 @@ fn a_payload_cast_gets_the_suppression() {
     // is the author's to silence.
     assert!(
         main.contains(
-            "@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\")\nfun<It> sum_ints"
+            "@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\")\nfun<It> sumInts"
         ),
         "a concrete payload cast is annotated too in:\n{main}"
     );
@@ -12321,7 +12321,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
         "the platform handler's class is the host's:\n{host}"
     );
     let stream_host = file("stream/host.kt");
-    for expected in ["interface RawStreams {", "fun raw_close_read(handle: Long)", "class DefaultStreams("] {
+    for expected in ["interface RawStreams {", "fun rawCloseRead(handle: Long)", "class DefaultStreams("] {
         assert!(stream_host.contains(expected), "expected `{expected}` in:\n{stream_host}");
     }
     // The `use` site constructs the shipped host class through its package.

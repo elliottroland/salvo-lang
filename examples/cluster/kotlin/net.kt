@@ -26,7 +26,7 @@ object __Codec_NodeEndpoint : salvo.WireCodec<NodeEndpoint> {
     override fun dec(inp: salvo.WireIn): NodeEndpoint = NodeEndpoint(salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun to_str__2(e: NodeEndpoint): String {
+fun toStr__2(e: NodeEndpoint): String {
     return "${e.host}:${e.port}"
 }
 
@@ -55,30 +55,30 @@ object __Codec_WireFailed : salvo.WireCodec<WireFailed> {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun to_str__3(e: Union2<Unreachable, WireFailed>): String {
+fun toStr__3(e: Union2<Unreachable, WireFailed>): String {
     when (e) {
         is U2_1<*, *> -> {
-            return "unreachable: ${to_str__2((e.value as Unreachable).to)}"
+            return "unreachable: ${toStr__2((e.value as Unreachable).to)}"
         }
         is U2_2<*, *> -> {
-            return "wire failed to ${to_str__2((e.value as WireFailed).to)}: ${(e.value as WireFailed).reason}"
+            return "wire failed to ${toStr__2((e.value as WireFailed).to)}: ${(e.value as WireFailed).reason}"
         }
     }
 }
 
 interface Inbound {
-    fun receive_frame(from: NodeEndpoint, frame: salvo.SalvoBytes)
+    fun receiveFrame(from: NodeEndpoint, frame: salvo.SalvoBytes)
 }
 
 class __Stub_Inbound(private val addr: Int) : Inbound {
-    override fun receive_frame(from: NodeEndpoint, frame: salvo.SalvoBytes) {
+    override fun receiveFrame(from: NodeEndpoint, frame: salvo.SalvoBytes) {
         salvo.SalvoSched.sendWire(addr, __Msg_Inbound.ReceiveFrame(from, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
     }
 }
 
 class __Mon_Inbound(private val inner: Inbound) : Inbound {
-    override fun receive_frame(from: NodeEndpoint, frame: salvo.SalvoBytes) =
-        synchronized(inner) { inner.receive_frame(from, frame) }
+    override fun receiveFrame(from: NodeEndpoint, frame: salvo.SalvoBytes) =
+        synchronized(inner) { inner.receiveFrame(from, frame) }
 }
 
 sealed class __Msg_Inbound {
@@ -104,7 +104,7 @@ interface Transport {
     fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>>
     fun unlisten(at: NodeEndpoint)
     fun deliver(to: NodeEndpoint, frame: salvo.SalvoBytes): Union2<Unit, Union2<Unreachable, WireFailed>>
-    fun local_endpoint(): NodeEndpoint
+    fun localEndpoint(): NodeEndpoint
 }
 
 class __Mon_Transport(private val inner: Transport) : Transport {
@@ -114,8 +114,8 @@ class __Mon_Transport(private val inner: Transport) : Transport {
         synchronized(inner) { inner.unlisten(at) }
     override fun deliver(to: NodeEndpoint, frame: salvo.SalvoBytes): Union2<Unit, Union2<Unreachable, WireFailed>> =
         synchronized(inner) { inner.deliver(to, frame) }
-    override fun local_endpoint(): NodeEndpoint =
-        synchronized(inner) { inner.local_endpoint() }
+    override fun localEndpoint(): NodeEndpoint =
+        synchronized(inner) { inner.localEndpoint() }
 }
 
 data class NodeId(
@@ -130,18 +130,18 @@ object __Codec_NodeId : salvo.WireCodec<NodeId> {
 }
 
 interface Outbound {
-    fun send_frame(to: NodeEndpoint, frame: salvo.SalvoBytes)
+    fun sendFrame(to: NodeEndpoint, frame: salvo.SalvoBytes)
 }
 
 class __Stub_Outbound(private val addr: Int) : Outbound {
-    override fun send_frame(to: NodeEndpoint, frame: salvo.SalvoBytes) {
+    override fun sendFrame(to: NodeEndpoint, frame: salvo.SalvoBytes) {
         salvo.SalvoSched.sendWire(addr, __Msg_Outbound.SendFrame(to, frame), __PROTO_Outbound, __Codec___Msg_Outbound)
     }
 }
 
 class __Mon_Outbound(private val inner: Outbound) : Outbound {
-    override fun send_frame(to: NodeEndpoint, frame: salvo.SalvoBytes) =
-        synchronized(inner) { inner.send_frame(to, frame) }
+    override fun sendFrame(to: NodeEndpoint, frame: salvo.SalvoBytes) =
+        synchronized(inner) { inner.sendFrame(to, frame) }
 }
 
 sealed class __Msg_Outbound {
@@ -168,7 +168,7 @@ class Sending(private val __dep_Transport: Transport) : Outbound {
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Sending> = mutableMapOf()
 
-    override fun send_frame(to: NodeEndpoint, frame: salvo.SalvoBytes) {
+    override fun sendFrame(to: NodeEndpoint, frame: salvo.SalvoBytes) {
         val _sent = __dep_Transport.deliver(to, frame)
     }
 }
@@ -185,7 +185,7 @@ class __Actor_Sending(private val handler: Sending) : salvo.SalvoActor {
 
     private fun __dispatch(m: __Msg_Outbound) {
         when (m) {
-            is __Msg_Outbound.SendFrame -> handler.send_frame(m.to, m.frame)
+            is __Msg_Outbound.SendFrame -> handler.sendFrame(m.to, m.frame)
         }
     }
 
@@ -194,7 +194,7 @@ class __Actor_Sending(private val handler: Sending) : salvo.SalvoActor {
         // A reply whose continuation is gone: nothing to run.
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
-            is __Cont_Sending.SendFrame -> handler.send_frame(c.to, value as salvo.SalvoBytes)
+            is __Cont_Sending.SendFrame -> handler.sendFrame(c.to, value as salvo.SalvoBytes)
         }
     }
 
@@ -221,7 +221,7 @@ class Receiving : Inbound {
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Receiving> = mutableMapOf()
 
-    override fun receive_frame(from: NodeEndpoint, frame: salvo.SalvoBytes) {
+    override fun receiveFrame(from: NodeEndpoint, frame: salvo.SalvoBytes) {
         val _delivered = salvo.SalvoSched.deliverFrame((frame).toByteArray())
     }
 }
@@ -238,7 +238,7 @@ class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
 
     private fun __dispatch(m: __Msg_Inbound) {
         when (m) {
-            is __Msg_Inbound.ReceiveFrame -> handler.receive_frame(m.from, m.frame)
+            is __Msg_Inbound.ReceiveFrame -> handler.receiveFrame(m.from, m.frame)
         }
     }
 
@@ -247,7 +247,7 @@ class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
         // A reply whose continuation is gone: nothing to run.
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
-            is __Cont_Receiving.ReceiveFrame -> handler.receive_frame(c.from, value as salvo.SalvoBytes)
+            is __Cont_Receiving.ReceiveFrame -> handler.receiveFrame(c.from, value as salvo.SalvoBytes)
         }
     }
 
@@ -401,14 +401,14 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
     internal val __parked: MutableMap<Long, __Cont_StaticNodeGroup> = mutableMapOf()
 
     override fun members(out: salvo.SalvoReply) {
-        val all_known: MutableList<Node> = mutableListOf<Node>()
+        val allKnown: MutableList<Node> = mutableListOf<Node>()
         for (id in known.keys.toMutableList()) {
             val n = known[id]
             if (!(n == null)) {
-                all_known.add(n)
+                allKnown.add(n)
             }
         }
-        salvo.SalvoSched.replyWire(out, all_known, salvo.ListCodec(__Codec_Node))
+        salvo.SalvoSched.replyWire(out, allKnown, salvo.ListCodec(__Codec_Node))
     }
 
     override fun subscribe(w: Int) {
@@ -444,7 +444,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
     }
 
     fun init() {
-        val me = __dep_Transport.local_endpoint()
+        val me = __dep_Transport.localEndpoint()
         val _connected = connect(__dep_Transport, me)
         salvo.SalvoSched.setGroup(name, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
         salvo.SalvoSched.watchPeers(__addr!!, { __n, __ep, __t -> __Priv_StaticNodeGroup.Hello(NodeId(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint)!!, __t) }, { __n -> __Priv_StaticNodeGroup.Gone(NodeId(__n)) }, { __ps -> __Priv_StaticNodeGroup.Introduced(__ps.mapNotNull { salvo.salvoDecode(salvo.SalvoBytes(it), __Codec_NodeEndpoint) }) })
@@ -542,14 +542,14 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
     internal val __parked: MutableMap<Long, __Cont_GossipNodeGroup> = mutableMapOf()
 
     override fun members(out: salvo.SalvoReply) {
-        val all_known: MutableList<Node> = mutableListOf<Node>()
+        val allKnown: MutableList<Node> = mutableListOf<Node>()
         for (id in known.keys.toMutableList()) {
             val n = known[id]
             if (!(n == null)) {
-                all_known.add(n)
+                allKnown.add(n)
             }
         }
-        salvo.SalvoSched.replyWire(out, all_known, salvo.ListCodec(__Codec_Node))
+        salvo.SalvoSched.replyWire(out, allKnown, salvo.ListCodec(__Codec_Node))
     }
 
     override fun subscribe(w: Int) {
@@ -573,7 +573,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
             salvo.SalvoSched.introduce((id).id, (listOf<NodeEndpoint>(at)).map { salvo.salvoEncode(it, __Codec_NodeEndpoint).toByteArray() })
         }
         salvo.SalvoSched.introduce((node).id, (others).map { salvo.salvoEncode(it, __Codec_NodeEndpoint).toByteArray() })
-        dialed.add(to_str__2(at))
+        dialed.add(toStr__2(at))
         val n = Node(id = node, at = at)
         known.put(node, n)
         for (w in watchers) {
@@ -598,7 +598,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
     }
 
     fun init() {
-        val me = __dep_Transport.local_endpoint()
+        val me = __dep_Transport.localEndpoint()
         val _connected = connect(__dep_Transport, me)
         salvo.SalvoSched.setGroup(name, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
         salvo.SalvoSched.watchPeers(__addr!!, { __n, __ep, __t -> __Priv_GossipNodeGroup.Hello(NodeId(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint)!!, __t) }, { __n -> __Priv_GossipNodeGroup.Gone(NodeId(__n)) }, { __ps -> __Priv_GossipNodeGroup.Introduced(__ps.mapNotNull { salvo.salvoDecode(salvo.SalvoBytes(it), __Codec_NodeEndpoint) }) })
@@ -686,10 +686,10 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
 }
 
 fun dial(transport: Transport, dialed: MutableSet<String>, e: NodeEndpoint) {
-    if (eq(e, transport.local_endpoint()) || dialed.contains(to_str__2(e))) {
+    if (eq(e, transport.localEndpoint()) || dialed.contains(toStr__2(e))) {
         return
     }
-    dialed.add(to_str__2(e))
+    dialed.add(toStr__2(e))
     val _sent = transport.deliver(e, salvo.SalvoBytes(salvo.SalvoSched.helloFrame()))
 }
 
@@ -810,13 +810,13 @@ object __Codec___Msg_ActorGroupWatcher : salvo.WireCodec<__Msg_ActorGroupWatcher
 /** [protocol-hash] The canonical hash of `ActorGroupWatcher`. */
 const val __PROTO_ActorGroupWatcher: String = "9fa424e5858bb3bd"
 
-fun actor_group(nodes: Int, protocol: () -> Protocol): Int {
+fun actorGroup(nodes: Int, protocol: () -> Protocol): Int {
     val proto = protocol()
     val name = proto.name
-    return actor_group__2(name, nodes, protocol)
+    return actorGroup__2(name, nodes, protocol)
 }
 
-fun actor_group__2(name: String, nodes: Int, protocol: () -> Protocol): Int {
+fun actorGroup__2(name: String, nodes: Int, protocol: () -> Protocol): Int {
     val (group, watcher) = run { val __h = ActorGrouping(name, protocol()); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.pool(1), __h.__mailboxCapacity, __Actor_ActorGrouping(__h), __Actor_ActorGrouping.__DECODE); salvo.SalvoSched.send(__a, __Priv_ActorGrouping.Init); Pair(__a, __a) }
     salvo.SalvoSched.sendWire(nodes, __Msg_NodeGroup.Subscribe(watcher), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
     return group
@@ -892,7 +892,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
         if ((theirs == null) || !((theirs) == (proto.hash))) {
             return
         }
-        if (contains_node(peers, node)) {
+        if (containsNode(peers, node)) {
             return
         }
         peers.add(node)
@@ -900,7 +900,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
     }
 
     fun merged(from: NodeId, found: List<Int>) {
-        if (!contains_node(peers, from)) {
+        if (!containsNode(peers, from)) {
             val theirs = salvo.SalvoSched.peerProtocol((from).id, proto.name)
             if ((theirs == null) || !((theirs) == (proto.hash))) {
                 return
@@ -1034,7 +1034,7 @@ fun admit(list: MutableList<Int>, a: Int): Boolean {
     return true
 }
 
-fun contains_node(list: List<NodeId>, n: NodeId): Boolean {
+fun containsNode(list: List<NodeId>, n: NodeId): Boolean {
     for (x in list) {
         if (eq__2(x, n)) {
             return true
@@ -1044,18 +1044,18 @@ fun contains_node(list: List<NodeId>, n: NodeId): Boolean {
 }
 
 fun withdraw(list: MutableList<Int>, a: Int): Boolean {
-    var mut_index: Int? = null
+    var mutIndex: Int? = null
     var i = 0
     for (x in list) {
         if ((salvo.SalvoSched.addrIdentity(x) == salvo.SalvoSched.addrIdentity(a))) {
-            mut_index = i
+            mutIndex = i
         }
         i = i + 1
     }
-    if (mut_index == null) {
+    if (mutIndex == null) {
         return false
     }
-    val _removed = (list).let { __l -> (mut_index).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
+    val _removed = (list).let { __l -> (mutIndex).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
     return true
 }
 
@@ -1096,15 +1096,15 @@ class __Mon_Pick(private val inner: Pick) : Pick {
         synchronized(inner) { inner.choose(view) }
 }
 
-fun route_to(pick: Pick, group: Int): Int {
-    return route_keyed(pick, group, null)
+fun routeTo(pick: Pick, group: Int): Int {
+    return routeKeyed(pick, group, null)
 }
 
-fun route_to__2(pick: Pick, group: Int, key: Long): Int {
-    return route_keyed(pick, group, key)
+fun routeTo__2(pick: Pick, group: Int, key: Long): Int {
+    return routeKeyed(pick, group, key)
 }
 
-fun route_keyed(pick: Pick, group: Int, key: Long?): Int {
+fun routeKeyed(pick: Pick, group: Int, key: Long?): Int {
     while (true) {
         val members = salvo.SalvoSched.viewMembers(group)
         val actors: MutableList<ActorView> = mutableListOf<ActorView>()
@@ -1117,10 +1117,10 @@ fun route_keyed(pick: Pick, group: Int, key: Long?): Int {
         }
         salvo.SalvoSched.parkBriefly()
     }
-    return route_keyed(pick, group, key)
+    return routeKeyed(pick, group, key)
 }
 
-class LeastLoaded(private val prefer_local: Boolean) : Pick {
+class LeastLoaded(private val preferLocal: Boolean) : Pick {
 
     override fun choose(view: ActorGroupView): Int? {
         var best: ActorView? = null
@@ -1130,10 +1130,10 @@ class LeastLoaded(private val prefer_local: Boolean) : Pick {
             } else {
                 val b: ActorView = best
                 val take = when {
-                    prefer_local && a.local && !b.local -> {
+                    preferLocal && a.local && !b.local -> {
                         true
                     }
-                    prefer_local && !a.local && b.local -> {
+                    preferLocal && !a.local && b.local -> {
                         false
                     }
                     else -> {
@@ -1305,7 +1305,7 @@ class MemNetwork : MemNet {
     }
 
     override fun route(from: NodeEndpoint, to: NodeEndpoint, out: salvo.SalvoReply) {
-        if (dead.contains(to) || cuts.contains(cut_key(from, to))) {
+        if (dead.contains(to) || cuts.contains(cutKey(from, to))) {
             salvo.SalvoSched.replyWire(out, null, salvo.OptCodec(salvo.AddrCodec))
             return
         }
@@ -1319,13 +1319,13 @@ class MemNetwork : MemNet {
     }
 
     override fun partition(a: NodeEndpoint, b: NodeEndpoint) {
-        cuts.add(cut_key(a, b))
-        cuts.add(cut_key(b, a))
+        cuts.add(cutKey(a, b))
+        cuts.add(cutKey(b, a))
     }
 
     override fun heal(a: NodeEndpoint, b: NodeEndpoint) {
-        cuts.remove(cut_key(a, b))
-        cuts.remove(cut_key(b, a))
+        cuts.remove(cutKey(a, b))
+        cuts.remove(cutKey(b, a))
     }
 
     override fun kill(node: NodeEndpoint) {
@@ -1430,13 +1430,13 @@ class MemTransport(private val me: NodeEndpoint, private val net: Int) : Transpo
         return U2_1<Unit, Union2<Unreachable, WireFailed>>(ok(Unit))
     }
 
-    override fun local_endpoint(): NodeEndpoint {
+    override fun localEndpoint(): NodeEndpoint {
         return me
     }
 }
 
-fun cut_key(a: NodeEndpoint, b: NodeEndpoint): String {
-    return "${to_str__2(a)}>${to_str__2(b)}"
+fun cutKey(a: NodeEndpoint, b: NodeEndpoint): String {
+    return "${toStr__2(a)}>${toStr__2(b)}"
 }
 
 fun cmp(a: NodeEndpoint, b: NodeEndpoint): Int {

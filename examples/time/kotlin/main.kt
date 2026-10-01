@@ -9,9 +9,9 @@ import salvo.time.*
 fun verdict(started: Tick, at: Tick, budget: Duration): String {
     val took = between__2(started, at)
     if (cmp__2(took, budget) > 0) {
-        return "late by ${to_str__6(minus(took, budget))}"
+        return "late by ${toStr__6(minus(took, budget))}"
     }
-    return "in time, ${to_str__6(minus(budget, took))} to spare"
+    return "in time, ${toStr__6(minus(budget, took))} to spare"
 }
 
 fun overdue(ticker: Ticker, started: Tick, budget: Duration): Boolean {
@@ -197,7 +197,7 @@ class Napping(private val __dep_Timer: Timer, private val __dep_Ticker: Ticker) 
     }
 
     override fun woke(started: Tick, out: salvo.SalvoReply, f: Fired) {
-        salvo.SalvoSched.replyWire(out, "napped ${to_str__6(elapsed(__dep_Ticker, started))}", salvo.StrCodec)
+        salvo.SalvoSched.replyWire(out, "napped ${toStr__6(elapsed(__dep_Ticker, started))}", salvo.StrCodec)
     }
 }
 
@@ -252,12 +252,12 @@ fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Session", salvo.main.__PROTO_Session), Pair("Sleeper", salvo.main.__PROTO_Sleeper), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl)))
     val console: Console = StdOutConsole()
     val budget = millis(1500L)
-    println(console, "budget ${to_str__6(budget)}, doubled ${to_str__6(times(budget, 2L))}, in millis ${to_millis(budget)}")
-    val stamp = epoch_milli(1700000000000L)
-    println(console, "stamp ${to_epoch_second(stamp)}s, a minute later ${to_epoch_second(plus__2(stamp, minutes(1L)))}s")
+    println(console, "budget ${toStr__6(budget)}, doubled ${toStr__6(times(budget, 2L))}, in millis ${toMillis(budget)}")
+    val stamp = epochMilli(1700000000000L)
+    println(console, "stamp ${toEpochSecond(stamp)}s, a minute later ${toEpochSecond(plus__2(stamp, minutes(1L)))}s")
     val clock: Clock = __Mon_Clock(DefaultClock())
     val ticker: Ticker = DefaultTicker()
-    println(console, "wall clock is set: ${to_epoch_second(clock.now()) > 1600000000}")
+    println(console, "wall clock is set: ${toEpochSecond(clock.now()) > 1600000000}")
     val ticker2: Ticker = __Mon_Ticker(SteppingTicker(millis(500L)))
     val started = ticker2.tick()
     println(console, "overdue after one more read: ${overdue(ticker2, started, budget)}")
