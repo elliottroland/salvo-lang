@@ -34,11 +34,11 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
         val host = reply.hosted()
         scope.launch {
             val answer: Union2<CreateQueueOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
-                Union2.U1(fromSdkCreateQueueOutput(client.createQueue(toSdkCreateQueueInput(input))))
+                CreateQueue.ok(fromSdkCreateQueueOutput(client.createQueue(toSdkCreateQueueInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U1(salvoFailure(e))))
+                CreateQueue.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U2(salvoAwsError(e))))
+                CreateQueue.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -48,11 +48,11 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
         val host = reply.hosted()
         scope.launch {
             val answer: Union2<GetQueueUrlOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
-                Union2.U1(fromSdkGetQueueUrlOutput(client.getQueueUrl(toSdkGetQueueUrlInput(input))))
+                GetQueueUrl.ok(fromSdkGetQueueUrlOutput(client.getQueueUrl(toSdkGetQueueUrlInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U1(salvoFailure(e))))
+                GetQueueUrl.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U2(salvoAwsError(e))))
+                GetQueueUrl.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -62,11 +62,11 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
         val host = reply.hosted()
         scope.launch {
             val answer: Union2<SendMessageOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
-                Union2.U1(fromSdkSendMessageOutput(client.sendMessage(toSdkSendMessageInput(input))))
+                SendMessage.ok(fromSdkSendMessageOutput(client.sendMessage(toSdkSendMessageInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U1(salvoFailure(e))))
+                SendMessage.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U2(salvoAwsError(e))))
+                SendMessage.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -76,11 +76,11 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
         val host = reply.hosted()
         scope.launch {
             val answer: Union2<ReceiveMessageOutput, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
-                Union2.U1(fromSdkReceiveMessageOutput(client.receiveMessage(toSdkReceiveMessageInput(input))))
+                ReceiveMessage.ok(fromSdkReceiveMessageOutput(client.receiveMessage(toSdkReceiveMessageInput(input))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U1(salvoFailure(e))))
+                ReceiveMessage.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U2(salvoAwsError(e))))
+                ReceiveMessage.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -91,11 +91,11 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
         scope.launch {
             val answer: Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 client.deleteMessage(toSdkDeleteMessageInput(input))
-                Union2.U1(Unit)
+                DeleteMessage.ok(Unit)
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U1(salvoFailure(e))))
+                DeleteMessage.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U2(salvoAwsError(e))))
+                DeleteMessage.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }
@@ -106,11 +106,11 @@ class HostSqs(private val config: AwsConfig) : SqsPlatform {
         scope.launch {
             val answer: Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, AwsError>>> = try {
                 client.deleteQueue(toSdkDeleteQueueInput(input))
-                Union2.U1(Unit)
+                DeleteQueue.ok(Unit)
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U1(salvoFailure(e))))
+                DeleteQueue.err(salvo.core.checked.Checked(SqsFailures.sqsError(salvoFailure(e))))
             } catch (e: Exception) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U2(salvoAwsError(e))))
+                DeleteQueue.err(salvo.core.checked.Checked(SqsFailures.awsError(salvoAwsError(e))))
             }
             host.send(answer)
         }

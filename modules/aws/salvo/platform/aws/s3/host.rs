@@ -127,7 +127,7 @@ impl crate::aws_s3::S3PlatformSync for HostS3 {
                 Some(n) if n >= 0 => n,
                 _ => {
                     drop(body);
-                    let failed: Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>> = Union2::U2(Checked { value: Union2::U2(AwsError { code: "MissingContentLength".to_string(), message: "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes".to_string() }) });
+                    let failed: Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>> = PutObject::err(Checked { value: S3Failure::aws_error(AwsError { code: "MissingContentLength".to_string(), message: "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes".to_string() }) });
                     reply.send(failed);
                     return;
                 }
@@ -135,12 +135,12 @@ impl crate::aws_s3::S3PlatformSync for HostS3 {
             let (upload, problem) = salvo_upload(body, length);
             let call = call.set_body(Some(aws_sdk_s3::primitives::ByteStream::from_body_1_x(upload)));
             let answer: Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>> = match call.send().await {
-                Ok(out) => { let _ = &out; Union2::U1(from_sdk_put_object_output(&out)) }
-                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
+                Ok(out) => { let _ = &out; PutObject::ok(from_sdk_put_object_output(&out)) }
+                Err(e) => PutObject::err(salvo_failure(e, |_, _| {})),
             };
             let problem = problem.lock().unwrap().take();
             let answer: Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>> = match problem {
-                Some(message) => Union2::U2(Checked { value: Union2::U2(AwsError { code: "StreamFailed".to_string(), message }) }),
+                Some(message) => PutObject::err(Checked { value: S3Failure::aws_error(AwsError { code: "StreamFailed".to_string(), message }) }),
                 None => answer,
             };
             reply.send(answer);
@@ -175,8 +175,8 @@ impl crate::aws_s3::S3PlatformSync for HostS3 {
             .set_checksum_mode(input.checksum_mode.as_ref().map(|x| aws_sdk_s3::types::ChecksumMode::from(x.as_str())));
         self.rt.spawn(async move {
             let answer: Union2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>> = match call.send().await {
-                Ok(out) => Union2::U1(from_sdk_get_object_output(out, &rt)),
-                Err(e) => Union2::U2(salvo_failure(e, |err, out| {
+                Ok(out) => GetObject::ok(from_sdk_get_object_output(out, &rt)),
+                Err(e) => GetObject::err(salvo_failure(e, |err, out| {
                 if let aws_sdk_s3::operation::get_object::GetObjectError::InvalidObjectState(x) = err {
                     out.storage_class = x.storage_class().map(|x| x.as_str().to_string());
                     out.access_tier = x.access_tier().map(|x| x.as_str().to_string());
@@ -299,9 +299,9 @@ where
                 access_tier: None,
             };
             extra(err, &mut out);
-            Union2::U1(out)
+            S3Failure::s3_error(out)
         }
-        other => Union2::U2(AwsError {
+        other => S3Failure::aws_error(AwsError {
             code: match other {
                 aws_sdk_s3::error::SdkError::TimeoutError(_) => "TimeoutError",
                 aws_sdk_s3::error::SdkError::DispatchFailure(_) => "DispatchFailure",

@@ -227,6 +227,50 @@ final class Generator {
         return String.join("_", CaseUtilsKt.splitOnWordBoundaries(name)).toLowerCase();
     }
 
+    /**
+     * [platform-factory] A factory name as the compiler derives it
+     * (`salvo_core::abi::snake`): `_` before every uppercase letter but the
+     * first, lowercased — `SqsError` → `sqs_error`.
+     */
+    static String factorySnake(String name) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (Character.isUpperCase(c)) {
+                if (i > 0 && out.charAt(out.length() - 1) != '_') out.append('_');
+                out.append(Character.toLowerCase(c));
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
+    }
+
+    /** [platform-factory] The factory object of a member (`salvo_core::abi::upper_camel`). */
+    static String upperCamel(String snake) {
+        StringBuilder out = new StringBuilder();
+        for (String part : snake.split("_")) {
+            if (part.isEmpty()) continue;
+            out.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
+        }
+        return out.toString();
+    }
+
+    /** [platform-factory] An operation's factory object: `GetQueueUrl`. */
+    private String opObject(OperationShape op) {
+        return upperCamel(effectOp(op));
+    }
+
+    /** [platform-factory] The Kotlin factory of the failure union's arm for `struct`. */
+    private String ktFailure(String struct) {
+        return errorUnion() + "s." + ktIdent(factorySnake(struct));
+    }
+
+    /** [platform-factory] The Rust factory of the failure union's arm for `struct`. */
+    private String rsFailure(String struct) {
+        return errorUnion() + "::" + rsIdent(factorySnake(struct));
+    }
+
     private static String pascal(String name) {
         return CaseUtilsKt.toPascalCase(name);
     }
@@ -979,7 +1023,8 @@ final class Generator {
         });
         out.append(";\n");
         out.append("        self.rt.spawn(async move {\n");
-        String failWith = "Union2::U2(Checked { value: Union2::U2(AwsError { code: ";
+        String obj = opObject(op);
+        String failWith = obj + "::err(Checked { value: " + rsFailure("AwsError") + "(AwsError { code: ";
         if (inStream != null) {
             // No length, no request: the body is released unread (user
             // decision 2026-09-30 — never buffer to find it out).
@@ -997,13 +1042,13 @@ final class Generator {
         }
         out.append("            let answer: ").append(answerType).append(" = match call.send().await {\n");
         if (outStream != null) {
-            out.append("                Ok(out) => Union2::U1(from_sdk_").append(snake(structs.get(output(op).get().getId())))
+            out.append("                Ok(out) => ").append(obj).append("::ok(from_sdk_").append(snake(structs.get(output(op).get().getId())))
                     .append("(out, &rt)),\n");
         } else {
             String ok = output(op).map(s -> "from_sdk_" + snake(structs.get(s.getId())) + "(&out)").orElse("()");
-            out.append("                Ok(out) => { let _ = &out; Union2::U1(").append(ok).append(") }\n");
+            out.append("                Ok(out) => { let _ = &out; ").append(obj).append("::ok(").append(ok).append(") }\n");
         }
-        out.append("                Err(e) => Union2::U2(salvo_failure(e, ").append(rustExtra(op)).append(")),\n");
+        out.append("                Err(e) => ").append(obj).append("::err(salvo_failure(e, ").append(rustExtra(op)).append(")),\n");
         out.append("            };\n");
         if (inStream != null) {
             // A body that failed, or did not match its length, is the answer
@@ -1105,8 +1150,8 @@ final class Generator {
                 .append("                status: ctx.raw().status().as_u16() as i32,\n")
                 .append("                request_id,\n");
         for (String f : extraErrorMembers().keySet()) out.append("                ").append(rsIdent(f)).append(": None,\n");
-        out.append("            };\n            extra(err, &mut out);\n            Union2::U1(out)\n        }\n")
-                .append("        other => Union2::U2(AwsError {\n")
+        out.append("            };\n            extra(err, &mut out);\n            ").append(rsFailure(es)).append("(out)\n        }\n")
+                .append("        other => ").append(rsFailure("AwsError")).append("(AwsError {\n")
                 .append("            code: match other {\n")
                 .append("                ").append(crate).append("::error::SdkError::TimeoutError(_) => \"TimeoutError\",\n")
                 .append("                ").append(crate).append("::error::SdkError::DispatchFailure(_) => \"DispatchFailure\",\n")
@@ -1476,6 +1521,7 @@ final class Generator {
         String okType = output(op).map(o -> structs.get(o.getId())).orElse("Unit");
         String errType = "Union2<" + errorStruct() + ", AwsError>";
         String answerType = "Union2<" + okType + ", salvo.core.checked.Checked<" + errType + ">>";
+        String obj = opObject(op);
         out.append("        scope.launch {\n");
         String request = input(op).map(in -> "toSdk" + structs.get(in.getId()) + "(input"
                 + (inStream != null ? ", upload.asByteStream(length)" : "") + ")").orElse("");
@@ -1485,7 +1531,8 @@ final class Generator {
             out.append("            if (length == null || length < 0) {\n")
                     .append("                body.closeInput()\n")
                     .append("                val failed: ").append(answerType)
-                    .append(" = Union2.U2(salvo.core.checked.Checked(Union2.U2(AwsError(code = \"MissingContentLength\", message = \"")
+                    .append(" = ").append(obj).append(".err(salvo.core.checked.Checked(").append(ktFailure("AwsError"))
+                    .append("(AwsError(code = \"MissingContentLength\", message = \"")
                     .append(missingLengthText(op)).append("\"))))\n")
                     .append("                host.send(failed)\n")
                     .append("                return@launch\n            }\n");
@@ -1503,7 +1550,7 @@ final class Generator {
                     .append("                    val handle = salvoRegisterBody(\"").append(bodySource(op))
                     .append("\", response.").append(ktMember(outStream)).append(", closed)\n")
                     .append("                    sent = true\n")
-                    .append("                    val ok: ").append(answerType).append(" = Union2.U1(fromSdk")
+                    .append("                    val ok: ").append(answerType).append(" = ").append(obj).append(".ok(fromSdk")
                     .append(structs.get(output(op).get().getId())).append("(response, handle))\n")
                     .append("                    host.send(ok)\n")
                     .append("                    closed.await()\n                }\n")
@@ -1511,17 +1558,19 @@ final class Generator {
         } else {
             out.append("            val answer: ").append(answerType).append(" = try {\n");
             if (output(op).isPresent()) {
-                out.append("                Union2.U1(fromSdk").append(structs.get(output(op).get().getId())).append('(')
+                out.append("                ").append(obj).append(".ok(fromSdk").append(structs.get(output(op).get().getId())).append('(')
                         .append(call).append("))\n");
             } else {
-                out.append("                ").append(call).append("\n                Union2.U1(Unit)\n");
+                out.append("                ").append(call).append("\n                ").append(obj).append(".ok(Unit)\n");
             }
         }
         out.append("            } catch (e: aws.smithy.kotlin.runtime.ServiceException) {\n")
-                .append("                Union2.U2(salvo.core.checked.Checked(Union2.U1(").append(kotlinExtra(op, "salvoFailure(e)"))
+                .append("                ").append(obj).append(".err(salvo.core.checked.Checked(").append(ktFailure(errorStruct()))
+                .append("(").append(kotlinExtra(op, "salvoFailure(e)"))
                 .append(")))\n");
         out.append("            } catch (e: Exception) {\n")
-                .append("                Union2.U2(salvo.core.checked.Checked(Union2.U2(salvoAwsError(e))))\n            }\n");
+                .append("                ").append(obj).append(".err(salvo.core.checked.Checked(").append(ktFailure("AwsError"))
+                .append("(salvoAwsError(e))))\n            }\n");
         if (outStream != null) {
             out.append("            if (!sent && answer != null) host.send(answer)\n        }\n    }\n");
         } else if (inStream != null) {
@@ -1530,7 +1579,8 @@ final class Generator {
             out.append("            val problem = upload.finish()\n")
                     .append("            body.closeInput()\n")
                     .append("            val result: ").append(answerType).append(" = problem?.let {\n")
-                    .append("                Union2.U2(salvo.core.checked.Checked(Union2.U2(AwsError(code = \"StreamFailed\", message = it))))\n")
+                    .append("                ").append(obj).append(".err(salvo.core.checked.Checked(").append(ktFailure("AwsError"))
+                    .append("(AwsError(code = \"StreamFailed\", message = it))))\n")
                     .append("            } ?: answer\n")
                     .append("            host.send(result)\n        }\n    }\n");
         } else {

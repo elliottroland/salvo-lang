@@ -74,8 +74,8 @@ impl crate::aws_sqs::SqsPlatformSync for HostSqs {
             .set_tags(input.tags.as_ref().map(|x| x.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::HashMap<_, _>>()));
         self.rt.spawn(async move {
             let answer: Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>> = match call.send().await {
-                Ok(out) => { let _ = &out; Union2::U1(from_sdk_create_queue_output(&out)) }
-                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
+                Ok(out) => { let _ = &out; CreateQueue::ok(from_sdk_create_queue_output(&out)) }
+                Err(e) => CreateQueue::err(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
@@ -89,8 +89,8 @@ impl crate::aws_sqs::SqsPlatformSync for HostSqs {
             .set_queue_owner_aws_account_id(input.queue_owner_aws_account_id.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
             let answer: Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>> = match call.send().await {
-                Ok(out) => { let _ = &out; Union2::U1(from_sdk_get_queue_url_output(&out)) }
-                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
+                Ok(out) => { let _ = &out; GetQueueUrl::ok(from_sdk_get_queue_url_output(&out)) }
+                Err(e) => GetQueueUrl::err(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
@@ -109,8 +109,8 @@ impl crate::aws_sqs::SqsPlatformSync for HostSqs {
             .set_message_group_id(input.message_group_id.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
             let answer: Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>> = match call.send().await {
-                Ok(out) => { let _ = &out; Union2::U1(from_sdk_send_message_output(&out)) }
-                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
+                Ok(out) => { let _ = &out; SendMessage::ok(from_sdk_send_message_output(&out)) }
+                Err(e) => SendMessage::err(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
@@ -130,8 +130,8 @@ impl crate::aws_sqs::SqsPlatformSync for HostSqs {
             .set_receive_request_attempt_id(input.receive_request_attempt_id.as_ref().map(|x| x.clone()));
         self.rt.spawn(async move {
             let answer: Union2<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>> = match call.send().await {
-                Ok(out) => { let _ = &out; Union2::U1(from_sdk_receive_message_output(&out)) }
-                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
+                Ok(out) => { let _ = &out; ReceiveMessage::ok(from_sdk_receive_message_output(&out)) }
+                Err(e) => ReceiveMessage::err(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
@@ -145,8 +145,8 @@ impl crate::aws_sqs::SqsPlatformSync for HostSqs {
             .set_receipt_handle(Some((&input.receipt_handle).clone()));
         self.rt.spawn(async move {
             let answer: Union2<(), Checked<Union2<SqsError, AwsError>>> = match call.send().await {
-                Ok(out) => { let _ = &out; Union2::U1(()) }
-                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
+                Ok(out) => { let _ = &out; DeleteMessage::ok(()) }
+                Err(e) => DeleteMessage::err(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
@@ -159,8 +159,8 @@ impl crate::aws_sqs::SqsPlatformSync for HostSqs {
             .set_queue_url(Some((&input.queue_url).clone()));
         self.rt.spawn(async move {
             let answer: Union2<(), Checked<Union2<SqsError, AwsError>>> = match call.send().await {
-                Ok(out) => { let _ = &out; Union2::U1(()) }
-                Err(e) => Union2::U2(salvo_failure(e, |_, _| {})),
+                Ok(out) => { let _ = &out; DeleteQueue::ok(()) }
+                Err(e) => DeleteQueue::err(salvo_failure(e, |_, _| {})),
             };
             reply.send(answer);
         });
@@ -300,9 +300,9 @@ where
                 request_id,
             };
             extra(err, &mut out);
-            Union2::U1(out)
+            SqsFailure::sqs_error(out)
         }
-        other => Union2::U2(AwsError {
+        other => SqsFailure::aws_error(AwsError {
             code: match other {
                 aws_sdk_sqs::error::SdkError::TimeoutError(_) => "TimeoutError",
                 aws_sdk_sqs::error::SdkError::DispatchFailure(_) => "DispatchFailure",

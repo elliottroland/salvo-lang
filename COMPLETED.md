@@ -135,6 +135,14 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The aws glue builds its answers with factories (2026-10-01; ABI.md step
+11).** The generator now writes `CreateQueue.ok(…)` and
+`CreateQueue.err(Checked(SqsFailures.sqsError(…)))` (Rust `CreateQueue::ok`,
+`SqsFailure::sqs_error`) instead of counting arms; it mirrors the compiler's
+naming (`factorySnake`, `upperCamel`) so the names agree. Reads of unions
+(`when` over a credentials union) stay positional, since factories only build.
+Both SDK compiles pass. **1663 tests.**
+
 **Factories at the platform boundary (2026-10-01; ABI.md step 8c).** D5
 built: the checker plans, for every named union any module's platform
 signatures reach and for each platform fn's or platform-handled member's

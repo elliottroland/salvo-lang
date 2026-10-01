@@ -40,22 +40,22 @@ class HostS3(private val config: AwsConfig) : S3Platform {
         scope.launch {
             if (length == null || length < 0) {
                 body.closeInput()
-                val failed: Union2<PutObjectOutput, salvo.core.checked.Checked<Union2<S3Error, AwsError>>> = Union2.U2(salvo.core.checked.Checked(Union2.U2(AwsError(code = "MissingContentLength", message = "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"))))
+                val failed: Union2<PutObjectOutput, salvo.core.checked.Checked<Union2<S3Error, AwsError>>> = PutObject.err(salvo.core.checked.Checked(S3Failures.awsError(AwsError(code = "MissingContentLength", message = "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"))))
                 host.send(failed)
                 return@launch
             }
             val upload = SalvoUpload(body, length)
             val answer: Union2<PutObjectOutput, salvo.core.checked.Checked<Union2<S3Error, AwsError>>> = try {
-                Union2.U1(fromSdkPutObjectOutput(client.putObject(toSdkPutObjectInput(input, upload.asByteStream(length)))))
+                PutObject.ok(fromSdkPutObjectOutput(client.putObject(toSdkPutObjectInput(input, upload.asByteStream(length)))))
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U1(salvoFailure(e))))
+                PutObject.err(salvo.core.checked.Checked(S3Failures.s3Error(salvoFailure(e))))
             } catch (e: Exception) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U2(salvoAwsError(e))))
+                PutObject.err(salvo.core.checked.Checked(S3Failures.awsError(salvoAwsError(e))))
             }
             val problem = upload.finish()
             body.closeInput()
             val result: Union2<PutObjectOutput, salvo.core.checked.Checked<Union2<S3Error, AwsError>>> = problem?.let {
-                Union2.U2(salvo.core.checked.Checked(Union2.U2(AwsError(code = "StreamFailed", message = it))))
+                PutObject.err(salvo.core.checked.Checked(S3Failures.awsError(AwsError(code = "StreamFailed", message = it))))
             } ?: answer
             host.send(result)
         }
@@ -70,15 +70,15 @@ class HostS3(private val config: AwsConfig) : S3Platform {
                     val closed = kotlinx.coroutines.CompletableDeferred<Unit>()
                     val handle = salvoRegisterBody("S3 GetObject body", response.body, closed)
                     sent = true
-                    val ok: Union2<GetObjectOutput, salvo.core.checked.Checked<Union2<S3Error, AwsError>>> = Union2.U1(fromSdkGetObjectOutput(response, handle))
+                    val ok: Union2<GetObjectOutput, salvo.core.checked.Checked<Union2<S3Error, AwsError>>> = GetObject.ok(fromSdkGetObjectOutput(response, handle))
                     host.send(ok)
                     closed.await()
                 }
                 null
             } catch (e: aws.smithy.kotlin.runtime.ServiceException) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U1((salvoFailure(e)).let { if (e is aws.sdk.kotlin.services.s3.model.InvalidObjectState) it.copy(storageClass = e.storageClass?.let { it.value }, accessTier = e.accessTier?.let { it.value }) else it })))
+                GetObject.err(salvo.core.checked.Checked(S3Failures.s3Error((salvoFailure(e)).let { if (e is aws.sdk.kotlin.services.s3.model.InvalidObjectState) it.copy(storageClass = e.storageClass?.let { it.value }, accessTier = e.accessTier?.let { it.value }) else it })))
             } catch (e: Exception) {
-                Union2.U2(salvo.core.checked.Checked(Union2.U2(salvoAwsError(e))))
+                GetObject.err(salvo.core.checked.Checked(S3Failures.awsError(salvoAwsError(e))))
             }
             if (!sent && answer != null) host.send(answer)
         }

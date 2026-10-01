@@ -468,9 +468,12 @@ go in any order.
      onto them is step 11.
 9. ✅ **Implementation skeletons** (done in 5b).
 10. **Port std's host files** onto the generated interfaces.
-11. **Port the aws generator** onto the generated interface files and their
-    factories (it writes implementation files again since 5b). Its drift test
-    keeps checking against both SDKs.
+11. ✅ **Port the aws generator** onto the generated interface files and their
+    factories (2026-10-01): the glue builds every answer as
+    `GetQueueUrl.ok(…)` / `GetQueueUrl.err(Checked(SqsFailures.sqsError(…)))`
+    (Rust `GetQueueUrl::err(… SqsFailure::sqs_error(…))`); it reads unions
+    positionally still, which the factories do not cover. Its drift test keeps
+    checking against both SDKs.
 12. **ABI stamps and the dependency check** (D9).
 13. ✅ **Remove templates** (done in 5b).
 14. **Docs**: LANGUAGE_SPEC rules ([platform-abi] rewritten, new rules for the
