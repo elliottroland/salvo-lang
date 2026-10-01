@@ -81,15 +81,15 @@ fun strictPort(text: String): Int {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun report(console: Console, label: String, config: String) {
     val outcome = try {
-        U2_1<Int, String>(portOf(config))
+        Union2.U1<Int, String>(portOf(config))
     } catch (__signal: ThrowSignal) {
-        U2_2<Int, String>(__signal.payload as String)
+        Union2.U2<Int, String>(__signal.payload as String)
     }
     when (outcome) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             println(console, "3. $label: port ${(outcome.value as Int)}")
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             println(console, "3. $label: rejected — ${(outcome.value as String)}")
         }
     }
@@ -105,38 +105,38 @@ fun main() {
     report(console, "good", "8080")
     report(console, "bad", "http")
     val guarded = try {
-        U2_1<Int, String>(portFromFile(console, "ports.txt", "-1"))
+        Union2.U1<Int, String>(portFromFile(console, "ports.txt", "-1"))
     } catch (__signal: ThrowSignal) {
-        U2_2<Int, String>(__signal.payload as String)
+        Union2.U2<Int, String>(__signal.payload as String)
     }
     when (guarded) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             println(console, "3. guarded: ${(guarded.value as Int)}")
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             println(console, "3. guarded: rejected — ${(guarded.value as String)}")
         }
     }
     val mixed = try {
-        U2_1<Int, Union2<String, Int>>(strictPort(""))
+        Union2.U1<Int, Union2<String, Int>>(strictPort(""))
     } catch (__signal: ThrowSignal) {
         when (__signal.tag) {
-            "Str" -> U2_2<Int, Union2<String, Int>>(U2_1<String, Int>(__signal.payload as String))
-            "Int" -> U2_2<Int, Union2<String, Int>>(U2_2<String, Int>(__signal.payload as Int))
+            "Str" -> Union2.U2<Int, Union2<String, Int>>(Union2.U1<String, Int>(__signal.payload as String))
+            "Int" -> Union2.U2<Int, Union2<String, Int>>(Union2.U2<String, Int>(__signal.payload as Int))
             else -> throw __signal
         }
     }
     when (mixed) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             println(console, "3. mixed: ${(mixed.value as Int)}")
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             val why: Union2<String, Int> = (mixed.value as Union2<String, Int>)
             when (why) {
-                is U2_1<*, *> -> {
+                is Union2.U1<*, *> -> {
                     println(console, "3. mixed: message ${(why.value as String)}")
                 }
-                is U2_2<*, *> -> {
+                is Union2.U2<*, *> -> {
                     println(console, "3. mixed: length ${(why.value as Int)}")
                 }
             }
@@ -144,28 +144,28 @@ fun main() {
     }
     val outer = try {
         val inner = try {
-            U2_1<Int, String>(parsePort("nope"))
+            Union2.U1<Int, String>(parsePort("nope"))
         } catch (__signal: ThrowSignal) {
-            U2_2<Int, String>(__signal.payload as String)
+            Union2.U2<Int, String>(__signal.payload as String)
         }
-        U2_1<Int, String>(when (inner) {
-            is U2_1<*, *> -> {
+        Union2.U1<Int, String>(when (inner) {
+            is Union2.U1<*, *> -> {
                 val got: Int = (inner.value as Int)
                 got
             }
-            is U2_2<*, *> -> {
+            is Union2.U2<*, *> -> {
                 println(console, "3. inner caught: ${(inner.value as String)}")
                 parsePort("also nope")
             }
         })
     } catch (__signal: ThrowSignal) {
-        U2_2<Int, String>(__signal.payload as String)
+        Union2.U2<Int, String>(__signal.payload as String)
     }
     when (outer) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             println(console, "3. outer: ${(outer.value as Int)}")
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             println(console, "3. outer caught: ${(outer.value as String)}")
         }
     }

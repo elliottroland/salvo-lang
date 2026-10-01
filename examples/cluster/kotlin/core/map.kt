@@ -37,10 +37,10 @@ class __Codec_MapKeyYield<K>(private val __c_K: salvo.WireCodec<K>) : salvo.Wire
 fun<K> next__9(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
-        return U2_2<K, Finished>(finished())
+        return Union2.U2<K, Finished>(finished())
     }
     p.at = p.at + 1
-    return U2_1<K, Finished>(emitted(key))
+    return Union2.U1<K, Finished>(emitted(key))
 }
 
 fun<K, V> NonEmpty_qualifies(map: Map<K, V>): Boolean {

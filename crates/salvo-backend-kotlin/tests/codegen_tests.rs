@@ -335,26 +335,37 @@ fn unions_emit_sealed_wrappers() {
         .expect("unions.kt should be generated");
     assert!(unions.content.contains("sealed interface Union2"));
     assert!(unions.content.contains("sealed interface Union3"));
+    // [kt-union-wrappers] The arms nest in the interface: `Union2.U1`, as
+    // Rust's `Union2::U1` (user decision 2026-10-01, ABI.md D5).
+    assert!(
+        unions.content.contains(
+            "sealed interface Union2<out T1, out T2> {\n    val value: Any?\n    \
+             data class U1<out T1, out T2>(override val value: T1) : Union2<T1, T2>\n"
+        ),
+        "{}",
+        unions.content
+    );
+    assert!(!unions.content.contains("U2_1"), "{}", unions.content);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
     // Wrap at return boundaries, positional arm identity (the constructor
     // call is wrapped into the union arm).
-    assert!(main.content.contains("return U2_1<Int, String>(ok(input))"));
+    assert!(main.content.contains("return Union2.U1<Int, String>(ok(input))"));
     assert!(main
         .content
-        .contains("return U2_2<Int, String>(err(\"negative age\"))"));
+        .contains("return Union2.U2<Int, String>(err(\"negative age\"))"));
     // Qualifier-tagged wrap picks the right arm of the 3-union.
     assert!(main
         .content
-        .contains("U3_1<String, String, Boolean>(ok(\"yes\"))"));
+        .contains("Union3.U1<String, String, Boolean>(ok(\"yes\"))"));
     // Precise `is Err Str` tests a single arm; `is Ok` another.
-    assert!(main.content.contains("precise is U3_2<*, *, *>"));
-    assert!(main.content.contains("precise is U3_1<*, *, *>"));
+    assert!(main.content.contains("precise is Union3.U2<*, *, *>"));
+    assert!(main.content.contains("precise is Union3.U1<*, *, *>"));
     // `when` lowers to a sealed when with unwrapped uses.
     assert!(main.content.contains("when (result) {"));
-    assert!(main.content.contains("is U2_1<*, *> ->"));
+    assert!(main.content.contains("is Union2.U1<*, *> ->"));
     assert!(main.content.contains("(result.value as Int)"));
 }
 
@@ -657,7 +668,7 @@ fn a_pass_lowers_to_a_guarded_while_loop() {
         "expected the driving loop in:\n{src}"
     );
     assert!(
-        src.contains("!is U2_1<Int, Finished>"),
+        src.contains("!is Union2.U1<Int, Finished>"),
         "expected the arm spelled with real type arguments in:\n{src}"
     );
     assert!(
@@ -778,8 +789,8 @@ fn a_flattened_qualifier_wraps_the_inner_union_first() {
         .iter()
         .find(|f| f.rel_path == std::path::Path::new("main.kt"))
         .expect("main.kt");
-    for (arm, what) in [("U2_2", "err"), ("U2_1", "ok")] {
-        let needle = format!("U2_1<Union2<String, String>, Finished>({arm}<String, String>(");
+    for (arm, what) in [("Union2.U2", "err"), ("Union2.U1", "ok")] {
+        let needle = format!("Union2.U1<Union2<String, String>, Finished>({arm}<String, String>(");
         assert!(
             main.content.contains(&needle),
             "expected the inner {what} arm to be wrapped before the outer one in:\n{}",
@@ -5433,13 +5444,13 @@ export fn main() [use] -> None {
     // Positional arm identity: Ok -> first arm, Err -> second arm.
     assert!(
         main.content
-            .contains("describe(U2_1<String, String>(ok(\"x\")))"),
+            .contains("describe(Union2.U1<String, String>(ok(\"x\")))"),
         "content: {}",
         main.content
     );
     assert!(
         main.content
-            .contains("describe(U2_2<String, String>(err(\"y\")))"),
+            .contains("describe(Union2.U2<String, String>(err(\"y\")))"),
         "content: {}",
         main.content
     );
@@ -5955,7 +5966,7 @@ fn field_subject_is_lowers_to_union_test() {
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
     assert!(
-        main.content.contains("h.result is U2_1<*, *>"),
+        main.content.contains("h.result is Union2.U1<*, *>"),
         "expected union test on the field in:\n{}",
         main.content
     );
@@ -7454,7 +7465,7 @@ fn tuples_past_three_emit_a_generated_class() {
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
     assert!(
-        main.content.contains("SalvoTuple5(1, \"two\", true, 4, \"five\")"),
+        main.content.contains("Tuple5(1, \"two\", true, 4, \"five\")"),
         "expected a generated tuple literal in:\n{}",
         main.content
     );
@@ -7464,7 +7475,7 @@ fn tuples_past_three_emit_a_generated_class() {
         main.content
     );
     assert!(
-        main.content.contains("SalvoTuple5<Int, String, Boolean, Int, String>"),
+        main.content.contains("Tuple5<Int, String, Boolean, Int, String>"),
         "expected the generated type in the annotation in:\n{}",
         main.content
     );
@@ -7473,7 +7484,7 @@ fn tuples_past_three_emit_a_generated_class() {
         .find(|f| f.rel_path.ends_with("tuples.kt"))
         .expect("tuples.kt is emitted for a program that names a big tuple");
     assert!(
-        tuples.content.contains("data class SalvoTuple5<")
+        tuples.content.contains("data class Tuple5<")
             && tuples.content.contains(") : SalvoTuple {")
             && tuples.content.contains("val v3: T4"),
         "the generated tuple class is wrong:\n{}",
@@ -7536,10 +7547,10 @@ fn union_coercion_in_array_tuple_lambda() {
     for needle in [
         // [col-literal] `[...]` builds a List now, so the coercion wrappers
         // appear inside `listOf` rather than `arrayOf`.
-        "listOf<Union2<Int, String>>(U2_1<Int, String>(tagOk(1)), \
-         U2_2<Int, String>(tagErr(\"a\")))",
-        "Pair(\"t\", U2_1<Int, String>(tagOk(2)))",
-        "U2_1<Int, String>(tagOk(3))",
+        "listOf<Union2<Int, String>>(Union2.U1<Int, String>(tagOk(1)), \
+         Union2.U2<Int, String>(tagErr(\"a\")))",
+        "Pair(\"t\", Union2.U1<Int, String>(tagOk(2)))",
+        "Union2.U1<Int, String>(tagOk(3))",
     ] {
         assert!(
             main.content.contains(needle),

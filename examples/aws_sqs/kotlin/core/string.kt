@@ -20,10 +20,10 @@ data class StrYield(
 fun next__12(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
-        return U2_2<Char, Finished>(finished())
+        return Union2.U2<Char, Finished>(finished())
     }
     p.at = p.at + 1
-    return U2_1<Char, Finished>(emitted(chr))
+    return Union2.U1<Char, Finished>(emitted(chr))
 }
 
 data class Span(

@@ -47,10 +47,10 @@ class HostTcpTransport(private val bind: NodeEndpoint) : Transport {
     private val listening = ConcurrentHashMap<NodeEndpoint, AtomicReference<Int?>>()
 
     private fun unreachable(to: NodeEndpoint): Union2<Unit, Union2<Unreachable, WireFailed>> =
-        U2_2(U2_1(Unreachable(to)))
+        Union2.U2(Union2.U1(Unreachable(to)))
 
     private fun wireFailed(to: NodeEndpoint, reason: String): Union2<Unit, Union2<Unreachable, WireFailed>> =
-        U2_2(U2_2(WireFailed(to, reason)))
+        Union2.U2(Union2.U2(WireFailed(to, reason)))
 
     private fun writeFrame(out: DataOutputStream, bytes: ByteArray) {
         out.writeInt(bytes.size)
@@ -102,7 +102,7 @@ class HostTcpTransport(private val bind: NodeEndpoint) : Transport {
         if (existing != null) {
             // A second `listen` replaces the sink; the acceptor keeps going.
             existing.set(sink)
-            return U2_1(Unit)
+            return Union2.U1(Unit)
         }
         val server = try {
             ServerSocket(at.port, 50, java.net.InetAddress.getByName(at.host))
@@ -128,7 +128,7 @@ class HostTcpTransport(private val bind: NodeEndpoint) : Transport {
                 try { server.close() } catch (e: Exception) {}
             }
         }.apply { isDaemon = true }.start()
-        return U2_1(Unit)
+        return Union2.U1(Unit)
     }
 
     override fun unlisten(at: NodeEndpoint) {
@@ -164,7 +164,7 @@ class HostTcpTransport(private val bind: NodeEndpoint) : Transport {
         }
         return try {
             synchronized(peer) { writeFrame(peer.out, frame.toByteArray()) }
-            U2_1(Unit)
+            Union2.U1(Unit)
         } catch (e: Exception) {
             // A failed connection is dropped; the next `deliver` reconnects.
             peers.remove(to, peer)

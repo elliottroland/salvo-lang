@@ -19,7 +19,7 @@ import salvo.stream.*
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun describe(e: Union2<S3Error, AwsError>): String {
-    if (e is U2_2<*, *>) {
+    if (e is Union2.U2<*, *>) {
         return "${(e.value as AwsError).code}: ${(e.value as AwsError).message}"
     }
     if (((e.value as S3Error).code == "NoSuchKey")) {
@@ -32,10 +32,10 @@ fun describe(e: Union2<S3Error, AwsError>): String {
 fun sizeOf(fs: Fs, streams: Streams, path: String): Long? {
     val info = fs.metadata(path)
     when (info) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             return (info.value as FileInfo).size
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             ignore((info.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
             return null
         }
@@ -45,7 +45,7 @@ fun sizeOf(fs: Fs, streams: Streams, path: String): Long? {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun upload(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String, key: String, path: String, length: Long?) {
     val opened = fs.openRead(path)
-    if (opened is U2_2<*, *>) {
+    if (opened is Union2.U2<*, *>) {
         println(console, "open $path: ${toStr(detach((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         return
     }
@@ -56,10 +56,10 @@ fun upload(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String, k
         salvo.SalvoSched.awaitReply(__wid) as Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>
     }
     when (put) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             println(console, "put $key: etag ${((put.value as PutObjectOutput).eTag ?: "?")}")
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             println(console, "put $key: ${describe(detach((put.value as Checked<Union2<S3Error, AwsError>>)))}")
         }
     }
@@ -73,7 +73,7 @@ fun download(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String,
         s3.getObject(GetObjectInput(bucket = bucket, key = key), r)
         salvo.SalvoSched.awaitReply(__wid) as Union2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>
     }
-    if (got is U2_2<*, *>) {
+    if (got is Union2.U2<*, *>) {
         println(console, "get $key: ${describe(detach((got.value as Checked<Union2<S3Error, AwsError>>)))}")
         return
     }
@@ -82,10 +82,10 @@ fun download(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String,
     val contentLength = __destructured1.contentLength
     println(console, "get $key: ${(contentLength ?: -1L)} bytes")
     val target = fs.openWrite(path)
-    if (target is U2_2<*, *>) {
+    if (target is Union2.U2<*, *>) {
         println(console, "open $path: ${toStr(detach((target.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         val closed = streams.close(body)
-        if (closed is U2_2<*, *>) {
+        if (closed is Union2.U2<*, *>) {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
         return
@@ -97,10 +97,10 @@ fun download(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String,
         salvo.SalvoSched.awaitReply(__wid) as Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>
     }
     when (copied) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             println(console, "piped ${(copied.value as Long)} bytes into $path")
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             println(console, "pipe: ${toStr__4(detach((copied.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
         }
     }
@@ -112,11 +112,11 @@ fun roundTrip(s3: S3, fs: Fs, console: Console, streams: Streams, key: String) {
     download(s3, fs, console, streams, "notes", key, "back.txt")
     val back = readToStr(fs, streams, "back.txt")
     when (back) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             println(console, "back.txt: ${(back.value as String).length} bytes")
             console.print((back.value as String))
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             println(console, "back.txt: ${toStr(detach((back.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
@@ -134,28 +134,28 @@ class MemS3(private val __dep_Streams: Streams) : S3 {
         val buf = salvo.SalvoBytes.joined()
         val filled = fillFrom(__dep_Streams, body, buf)
         val closed = __dep_Streams.close(body)
-        if (closed is U2_2<*, *>) {
+        if (closed is Union2.U2<*, *>) {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
-        if (filled is U2_2<*, *>) {
-            salvo.SalvoSched.replyWire(reply, U2_2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(U2_2<S3Error, AwsError>(AwsError(code = "StreamFailed", message = "${toStr__4(detach((filled.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
+        if (filled is Union2.U2<*, *>) {
+            salvo.SalvoSched.replyWire(reply, Union2.U2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(Union2.U2<S3Error, AwsError>(AwsError(code = "StreamFailed", message = "${toStr__4(detach((filled.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
             return
         }
         val data: salvo.SalvoBytes = buf
         val tag = "\"${data.size}\""
         objects.put("$bucket/$key", data)
-        salvo.SalvoSched.replyWire(reply, U2_1<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(PutObjectOutput(eTag = tag))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
+        salvo.SalvoSched.replyWire(reply, Union2.U1<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(PutObjectOutput(eTag = tag))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
     }
 
     override fun getObject(input: GetObjectInput, reply: salvo.SalvoReply) {
         val found = objects["${input.bucket}/${input.key}"]
         if (found == null) {
-            reply.send(U2_2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(U2_1<S3Error, AwsError>(S3Error(code = "NoSuchKey", message = "The specified key does not exist.", status = 404))))))
+            reply.send(Union2.U2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(Union2.U1<S3Error, AwsError>(S3Error(code = "NoSuchKey", message = "The specified key does not exist.", status = 404))))))
             return
         }
         val data: salvo.SalvoBytes = salvo.SalvoBytes(found)
         val length = (data.size).toLong()
-        reply.send(U2_1<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(GetObjectOutput(body = __dep_Streams.fromBytes(data), contentLength = length))))
+        reply.send(Union2.U1<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(GetObjectOutput(body = __dep_Streams.fromBytes(data), contentLength = length))))
     }
 }
 
@@ -167,7 +167,7 @@ fun main() {
     val fs: Fs = __Mon_Fs(__h)
     val streams: Streams = __Mon_Streams(__h)
     val written = writeStr(fs, streams, "notes.txt", "hello from Salvo\nsecond line\n")
-    if (written is U2_2<*, *>) {
+    if (written is Union2.U2<*, *>) {
         println(console, "write: ${toStr(detach((written.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         return
     }

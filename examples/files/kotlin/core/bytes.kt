@@ -19,8 +19,8 @@ data class BytesYield(
 fun next__2(p: BytesYield): Union2<UByte, Finished> {
     val b = p.data.getOrNull(p.at)
     if (b == null) {
-        return U2_2<UByte, Finished>(finished())
+        return Union2.U2<UByte, Finished>(finished())
     }
     p.at = p.at + 1
-    return U2_1<UByte, Finished>(emitted(b))
+    return Union2.U1<UByte, Finished>(emitted(b))
 }

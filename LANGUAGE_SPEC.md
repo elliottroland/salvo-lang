@@ -2585,7 +2585,7 @@ Conventions:
     * Rust: `while let Union2::U1(mut n) = next(&mut __loop1_pass) {`. A
       `while let` re-evaluates its condition per turn, so `Finished` needs
       no arm of its own.
-    * Kotlin: `while (true)` plus `if (step !is U2_1<…>) { break }`, since
+    * Kotlin: `while (true)` plus `if (step !is Union2.U1<…>) { break }`, since
       Kotlin has no pattern-matching loop condition. The arm is spelled with
       its *real* type arguments when `next` is non-generic, which keeps the
       element read free of an unchecked cast (star projection leaves `value`

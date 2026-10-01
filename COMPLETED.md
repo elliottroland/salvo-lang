@@ -135,6 +135,21 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Kotlin union arms as `UnionN.Uk`, tuples as `TupleN` (2026-10-01, user
+decisions; ABI.md step 5).** A union arm is now nested in its sealed interface,
+`Union2.U1(x)` — Rust's `Union2::U1` — instead of a top-level `U2_1(x)`
+([kt-union-wrappers], ABI.md D5), and the generated tuple classes past
+`Triple` are `TupleN` instead of `SalvoTupleN` ([kt-tuple-class], D10;
+`Pair`/`Triple` kept, and the `SalvoTuple` marker interface the comparison
+runtime uses keeps its name). Each nested arm keeps the union's full parameter
+list (`data class U1<out T1, out T2>(…) : Union2<T1, T2>`), so the change is a
+rename at every site the emitter spells an arm — wrapping, re-wrapping, `is`
+tests, the codec, the iterator driver's step — with no change to what Kotlin
+infers; std's hand-written `platform/*.kt` (55 arms) follow. All 136 Kotlin
+programs compile and run unchanged; the 14 examples' `kotlin/` trees
+regenerated. Tests: the unions test asserts the nested shape and the absence
+of `U2_1`; expected strings updated in seven codegen tests.
+
 **Kotlin in camel case (2026-10-01, user decision; ABI.md step 4).** All
 generated Kotlin now names Salvo values the Kotlin way ([kt-camel], ABI.md D6):
 `kt_ident` maps through `salvo_core::case::camel` (an `_` before a lowercase

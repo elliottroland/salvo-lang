@@ -45,7 +45,7 @@ object __Codec_Region : salvo.WireCodec<Region> {
 }
 
 data class AwsConfig(
-    val credentials: Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain> = U3_3<ProfileCredentials, EnvironmentCredentials, DefaultChain>(DefaultChain()),
+    val credentials: Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain> = Union3.U3<ProfileCredentials, EnvironmentCredentials, DefaultChain>(DefaultChain()),
     val region: Region,
     val endpoint: String? = null,
 )
@@ -74,14 +74,14 @@ object __Codec_AwsError : salvo.WireCodec<AwsError> {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun profileOf(c: Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain>): ProfileCredentials? {
-    if (c is U3_1<*, *, *>) {
+    if (c is Union3.U1<*, *, *>) {
         return (c.value as ProfileCredentials)
     }
     return null
 }
 
 fun usesEnvironment(c: Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain>): Boolean {
-    return c is U3_2<*, *, *>
+    return c is Union3.U2<*, *, *>
 }
 
 fun toStr__7(value: ProfileCredentials): String {

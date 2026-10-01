@@ -18,8 +18,8 @@ import java.nio.charset.StandardCharsets
 private typealias Kind = Union2<InvalidUtf8, StreamFailed>
 
 private fun kind(source: String, fault: SalvoFault): Kind = when (fault) {
-    is SalvoFault.Utf8 -> U2_1(InvalidUtf8(source))
-    is SalvoFault.Failed -> U2_2(StreamFailed(source, fault.message))
+    is SalvoFault.Utf8 -> Union2.U1(InvalidUtf8(source))
+    is SalvoFault.Failed -> Union2.U2(StreamFailed(source, fault.message))
 }
 
 /** Strict UTF-8, recording `InvalidUtf8` against the stream; null on failure. */
@@ -57,18 +57,18 @@ class HostRawStreams : RawStreams {
             val bytes = try {
                 stream.readAllBytes()
             } catch (e: SalvoFaultException) {
-                return U2_2(kind(stream.source, e.fault))
+                return Union2.U2(kind(stream.source, e.fault))
             }
-            val text = decode(stream, bytes) ?: return U2_2(kind(stream.source, SalvoFault.Utf8))
-            return U2_1(text)
+            val text = decode(stream, bytes) ?: return Union2.U2(kind(stream.source, SalvoFault.Utf8))
+            return Union2.U1(text)
         }
     }
 
     override fun rawReadBytes(handle: Long, max: Int): Union2<SalvoBytes, Kind> {
         val out = SalvoBytes()
         return when (val filled = rawReadToBytes(handle, out, max)) {
-            is U2_2 -> U2_2(filled.value)
-            else -> U2_1(out)
+            is Union2.U2 -> Union2.U2(filled.value)
+            else -> Union2.U1(out)
         }
     }
 
@@ -78,20 +78,20 @@ class HostRawStreams : RawStreams {
             val got = try {
                 stream.readUpTo(max)
             } catch (e: SalvoFaultException) {
-                return U2_2(kind(stream.source, e.fault))
+                return Union2.U2(kind(stream.source, e.fault))
             }
             buf.appendArray(got, got.size)
-            return U2_1(got.size)
+            return Union2.U1(got.size)
         }
     }
 
     override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Kind> {
         return when (val all = rawReadAll(handle)) {
-            is U2_2 -> U2_2(all.value)
-            is U2_1 -> {
+            is Union2.U2 -> Union2.U2(all.value)
+            is Union2.U1 -> {
                 val text = all.value
                 buf.append(text)
-                U2_1(text.toByteArray(StandardCharsets.UTF_8).size.toLong())
+                Union2.U1(text.toByteArray(StandardCharsets.UTF_8).size.toLong())
             }
         }
     }
@@ -111,8 +111,8 @@ class HostRawStreams : RawStreams {
         val stream = SalvoStreams.takeIn(handle)
         synchronized(stream) {
             stream.closeInput()
-            val failed = stream.failed ?: return U2_1(Unit)
-            return U2_2(kind(stream.source, failed))
+            val failed = stream.failed ?: return Union2.U1(Unit)
+            return Union2.U2(kind(stream.source, failed))
         }
     }
 
@@ -134,8 +134,8 @@ class HostRawStreams : RawStreams {
     override fun rawFlush(handle: Long): Union2<Unit, Kind> {
         val stream = SalvoStreams.outStream(handle)
         synchronized(stream) {
-            val failed = stream.flushData() ?: return U2_1(Unit)
-            return U2_2(kind(stream.source, failed))
+            val failed = stream.flushData() ?: return Union2.U1(Unit)
+            return Union2.U2(kind(stream.source, failed))
         }
     }
 
@@ -153,17 +153,17 @@ class HostRawStreams : RawStreams {
                 try {
                     val got = stream.readUpTo(65536)
                     if (got.isNotEmpty()) {
-                        U3_1(SalvoBytes(got))
+                        Union3.U1(SalvoBytes(got))
                     } else {
                         // Released here, as the contract says: out of the
                         // table *and* closed — a JVM stream is not closed by
                         // being dropped, as a Rust one is.
                         SalvoStreams.takeIn(handle).closeInput()
-                        U3_2(End())
+                        Union3.U2(End())
                     }
                 } catch (e: SalvoFaultException) {
                     SalvoStreams.takeIn(handle).closeInput()
-                    U3_3(kind(stream.source, e.fault))
+                    Union3.U3(kind(stream.source, e.fault))
                 }
             }
             host.send(answer)
@@ -179,8 +179,8 @@ class HostRawStreams : RawStreams {
     override fun rawCloseWrite(handle: Long): Union2<Unit, Kind> {
         val stream = SalvoStreams.takeOut(handle)
         synchronized(stream) {
-            val failed = stream.closeOutput() ?: return U2_1(Unit)
-            return U2_2(kind(stream.source, failed))
+            val failed = stream.closeOutput() ?: return Union2.U1(Unit)
+            return Union2.U2(kind(stream.source, failed))
         }
     }
 }

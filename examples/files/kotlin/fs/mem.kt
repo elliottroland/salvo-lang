@@ -51,17 +51,17 @@ class MemFs : Fs, Streams {
     override fun openRead(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val content = files[path]
         if (content == null) {
-            return U2_2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(U7_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
+            return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
         }
         val handle = salvo.SalvoSched.freshHandle()
         reads.put(handle, MemRead(source = path, data = salvo.SalvoBytes(content), at = 0, failed = false))
-        return U2_1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
+        return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
 
     override fun openReadAt(path: String, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val content = files[path]
         if (content == null) {
-            return U2_2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(U7_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
+            return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
         }
         var at = (offset).toInt()
         if (at < 0) {
@@ -73,14 +73,14 @@ class MemFs : Fs, Streams {
         }
         val handle = salvo.SalvoSched.freshHandle()
         reads.put(handle, MemRead(source = path, data = salvo.SalvoBytes(content), at = at, failed = false))
-        return U2_1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
+        return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
 
     override fun openWrite(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val handle = salvo.SalvoSched.freshHandle()
         val empty = salvo.SalvoBytes.joined()
         writes.put(handle, MemWrite(path = path, buffer = empty))
-        return U2_1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
+        return Union2.U1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
     }
 
     override fun openAppend(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
@@ -92,7 +92,7 @@ class MemFs : Fs, Streams {
         }
         val handle = salvo.SalvoSched.freshHandle()
         writes.put(handle, MemWrite(path = path, buffer = start))
-        return U2_1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
+        return Union2.U1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
     }
 
     override fun exists(path: String): Boolean {
@@ -106,19 +106,19 @@ class MemFs : Fs, Streams {
         val content = files[path]
         if (content == null) {
             if (fsHasChildren(files, path)) {
-                return U2_1<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(FileInfo(size = 0L, isDir = true)))
+                return Union2.U1<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(FileInfo(size = 0L, isDir = true)))
             }
-            return U2_2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(U7_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
+            return Union2.U2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
         }
-        return U2_1<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(FileInfo(size = (content.size).toLong(), isDir = false)))
+        return Union2.U1<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(FileInfo(size = (content.size).toLong(), isDir = false)))
     }
 
     override fun listDir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         if (files.containsKey(path)) {
-            return U2_2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(U7_4<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotADirectory(path = path)))))
+            return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U4<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotADirectory(path = path)))))
         }
         if (!fsHasChildren(files, path)) {
-            return U2_2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(U7_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
+            return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
         }
         val names: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
         val prefix = "$path/"
@@ -137,33 +137,33 @@ class MemFs : Fs, Streams {
             }
         }
         val sorted: List<String> = sort(names.toMutableList(), { __i0, __i1 -> salvo.__salvoCompare(__i0, __i1) })
-        return U2_1<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(sorted))
+        return Union2.U1<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(sorted))
     }
 
     override fun createDirs(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        return U2_1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
+        return Union2.U1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
     }
 
     override fun delete(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         if (files.containsKey(path)) {
             files.remove(path)
-            return U2_1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
+            return Union2.U1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
         }
         if (fsHasChildren(files, path)) {
-            return U2_2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(U7_6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(IoError(path = path, message = "directory not empty")))))
+            return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(IoError(path = path, message = "directory not empty")))))
         }
-        return U2_2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(U7_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
+        return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
     }
 
     override fun renamePath(from: String, to: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val content = files[from]
         if (content == null) {
-            return U2_2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(U7_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = from)))))
+            return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = from)))))
         }
         val bytes: salvo.SalvoBytes = salvo.SalvoBytes(content)
         files.remove(from)
         files.put(to, bytes)
-        return U2_1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
+        return Union2.U1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
     }
 
     override fun readLine(s: InStream): String? {
@@ -181,23 +181,23 @@ class MemFs : Fs, Streams {
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val got = memReadBytes(reads, s.handle, max)
-        if (got is U2_2<*, *>) {
-            return U2_2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+        if (got is Union2.U2<*, *>) {
+            return Union2.U2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
         val data: salvo.SalvoBytes = (got.value as salvo.SalvoBytes)
         buf.append(data)
-        return U2_1<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(data.size))
+        return Union2.U1<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(data.size))
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val got = memReadAll(reads, s.handle)
-        if (got is U2_2<*, *>) {
-            return U2_2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+        if (got is Union2.U2<*, *>) {
+            return Union2.U2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
         val text: String = (got.value as String)
         buf.append(text)
-        return U2_1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(text.toByteArray(Charsets.UTF_8).size.toLong()))
+        return Union2.U1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(text.toByteArray(Charsets.UTF_8).size.toLong()))
     }
 
     override fun readLineTo(s: InStream, buf: StringBuilder): Boolean {
@@ -224,19 +224,19 @@ class MemFs : Fs, Streams {
         reads.remove(s.handle)
         (s).let {}
         if (failed) {
-            return U2_2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(U2_1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
+            return Union2.U2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
         }
-        return U2_1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
+        return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun receive(s: InStream, reply: salvo.SalvoReply) {
         val got = memReadBytes(reads, s.handle, 65536)
-        if (got is U2_2<*, *>) {
+        if (got is Union2.U2<*, *>) {
             val open = memReadState(reads, s.handle)
             reads.remove(s.handle)
             (s).let {}
-            reply.send(U3_3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(U2_2<InvalidUtf8, StreamFailed>(StreamFailed(source = open.source, message = "read failed"))))))
+            reply.send(Union3.U3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U2<InvalidUtf8, StreamFailed>(StreamFailed(source = open.source, message = "read failed"))))))
             ignore((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
             return
         }
@@ -244,10 +244,10 @@ class MemFs : Fs, Streams {
         if (data.size == 0) {
             reads.remove(s.handle)
             (s).let {}
-            reply.send(U3_2<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(End()))
+            reply.send(Union3.U2<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(End()))
             return
         }
-        reply.send(U3_1<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Packet(bytes = data, stream = s))))
+        reply.send(Union3.U1<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Packet(bytes = data, stream = s))))
     }
 
     override fun fromBytes(data: salvo.SalvoBytes): InStream {
@@ -275,7 +275,7 @@ class MemFs : Fs, Streams {
     override fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val open = memWriteState(writes, s.handle)
         files.put(open.path, salvo.SalvoBytes(open.buffer))
-        return U2_1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
+        return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
     }
 
     override fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
@@ -283,7 +283,7 @@ class MemFs : Fs, Streams {
         files.put(open.path, salvo.SalvoBytes(open.buffer))
         writes.remove(s.handle)
         (s).let {}
-        return U2_1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
+        return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
     }
 }
 
@@ -364,7 +364,7 @@ fun memReadAll(reads: MutableMap<Long, MemRead>, handle: Long): Union2<String, C
     val open = memReadState(reads, handle)
     val source: String = open.source
     if (open.failed) {
-        return U2_2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(U2_1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
+        return Union2.U2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
     }
     val bytes: salvo.SalvoBytes = salvo.SalvoBytes(open.data)
     val end = bytes.size
@@ -372,17 +372,17 @@ fun memReadAll(reads: MutableMap<Long, MemRead>, handle: Long): Union2<String, C
     val text = rest.asString()
     if (text == null) {
         reads.put(handle, MemRead(source = source, data = bytes, at = end, failed = true))
-        return U2_2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(U2_1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
+        return Union2.U2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
     }
     reads.put(handle, MemRead(source = source, data = bytes, at = end, failed = false))
-    return U2_1<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(text))
+    return Union2.U1<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(text))
 }
 
 fun memReadBytes(reads: MutableMap<Long, MemRead>, handle: Long, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     val open = memReadState(reads, handle)
     val source: String = open.source
     if (open.failed) {
-        return U2_2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(U2_1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
+        return Union2.U2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
     }
     val bytes: salvo.SalvoBytes = salvo.SalvoBytes(open.data)
     var stop = open.at + max
@@ -395,5 +395,5 @@ fun memReadBytes(reads: MutableMap<Long, MemRead>, handle: Long, max: Int): Unio
     }
     val taken = (bytes.slice(open.at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:420:17"))
     reads.put(handle, MemRead(source = source, data = bytes, at = stop, failed = false))
-    return U2_1<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(taken))
+    return Union2.U1<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(taken))
 }

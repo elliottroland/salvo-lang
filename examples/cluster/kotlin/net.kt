@@ -57,10 +57,10 @@ object __Codec_WireFailed : salvo.WireCodec<WireFailed> {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun toStr__3(e: Union2<Unreachable, WireFailed>): String {
     when (e) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             return "unreachable: ${toStr__2((e.value as Unreachable).to)}"
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             return "wire failed to ${toStr__2((e.value as WireFailed).to)}: ${(e.value as WireFailed).reason}"
         }
     }
@@ -1409,7 +1409,7 @@ class MemTransport(private val me: NodeEndpoint, private val net: Int) : Transpo
 
     override fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>> {
         salvo.SalvoSched.sendWire(net, __Msg_MemNet.Attach(at, sink), __PROTO_MemNet, __Codec___Msg_MemNet)
-        return U2_1<Unit, Union2<Unreachable, WireFailed>>(ok(Unit))
+        return Union2.U1<Unit, Union2<Unreachable, WireFailed>>(ok(Unit))
     }
 
     override fun unlisten(at: NodeEndpoint) {
@@ -1424,10 +1424,10 @@ class MemTransport(private val me: NodeEndpoint, private val net: Int) : Transpo
             salvo.SalvoSched.awaitReply(__wid) as Int?
         }
         if (sink == null) {
-            return U2_2<Unit, Union2<Unreachable, WireFailed>>(U2_1<Unreachable, WireFailed>(err(Unreachable(to = to))))
+            return Union2.U2<Unit, Union2<Unreachable, WireFailed>>(Union2.U1<Unreachable, WireFailed>(err(Unreachable(to = to))))
         }
         salvo.SalvoSched.sendWire(sink, __Msg_Inbound.ReceiveFrame(me, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
-        return U2_1<Unit, Union2<Unreachable, WireFailed>>(ok(Unit))
+        return Union2.U1<Unit, Union2<Unreachable, WireFailed>>(ok(Unit))
     }
 
     override fun localEndpoint(): NodeEndpoint {

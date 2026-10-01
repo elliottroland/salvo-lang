@@ -134,10 +134,10 @@ data class ListYield<T>(
 fun<T> next__3(p: ListYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
-        return U2_2<T, Finished>(finished())
+        return Union2.U2<T, Finished>(finished())
     }
     p.at = p.at + 1
-    return U2_1<T, Finished>(emitted(elem))
+    return Union2.U1<T, Finished>(emitted(elem))
 }
 
 data class __Iter_reversed_List<T>(
@@ -152,10 +152,10 @@ fun<T> reversed(list: List<T>): __Iter_reversed_List<T> {
 fun<T> next__4(__p: __Iter_reversed_List<T>): Union2<T, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
-        return U2_2<T, Finished>(finished())
+        return Union2.U2<T, Finished>(finished())
     }
     __p.at = __p.at - 1
-    return U2_1<T, Finished>(emitted(elem))
+    return Union2.U1<T, Finished>(emitted(elem))
 }
 
 data class __Iter_indices_List<T>(
@@ -169,11 +169,11 @@ fun<T> indices(list: List<T>): __Iter_indices_List<T> {
 
 fun<T> next__5(__p: __Iter_indices_List<T>): Union2<Int, Finished> {
     if (__p.at >= __p.list.size) {
-        return U2_2<Int, Finished>(finished())
+        return Union2.U2<Int, Finished>(finished())
     }
     val index = __p.at
     __p.at = __p.at + 1
-    return U2_1<Int, Finished>(emitted(index))
+    return Union2.U1<Int, Finished>(emitted(index))
 }
 
 data class __Iter_rev_indices_List<T>(
@@ -187,11 +187,11 @@ fun<T> revIndices(list: List<T>): __Iter_rev_indices_List<T> {
 
 fun<T> next__6(__p: __Iter_rev_indices_List<T>): Union2<Int, Finished> {
     if (__p.at < 0) {
-        return U2_2<Int, Finished>(finished())
+        return Union2.U2<Int, Finished>(finished())
     }
     val index = __p.at
     __p.at = __p.at - 1
-    return U2_1<Int, Finished>(emitted(index))
+    return Union2.U1<Int, Finished>(emitted(index))
 }
 
 data class Enumerated<T>(
@@ -211,11 +211,11 @@ fun<T> enumerate(list: List<T>): __Iter_enumerate_List<T> {
 fun<T> next__7(__p: __Iter_enumerate_List<T>): Union2<Enumerated<T>, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
-        return U2_2<Enumerated<T>, Finished>(finished())
+        return Union2.U2<Enumerated<T>, Finished>(finished())
     }
     val index = __p.at
     __p.at = __p.at + 1
-    return U2_1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
+    return Union2.U1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
 }
 
 data class __Iter_enumerate_rev_List<T>(
@@ -230,11 +230,11 @@ fun<T> enumerateRev(list: List<T>): __Iter_enumerate_rev_List<T> {
 fun<T> next__8(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
-        return U2_2<Enumerated<T>, Finished>(finished())
+        return Union2.U2<Enumerated<T>, Finished>(finished())
     }
     val index = __p.at
     __p.at = __p.at - 1
-    return U2_1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
+    return Union2.U1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
 }
 
 fun<T> sort(list: List<T>, cmp: (T, T) -> Int): List<T> {
@@ -291,10 +291,10 @@ class __Codec_MapKeyYield<K>(private val __c_K: salvo.WireCodec<K>) : salvo.Wire
 fun<K> next__9(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
-        return U2_2<K, Finished>(finished())
+        return Union2.U2<K, Finished>(finished())
     }
     p.at = p.at + 1
-    return U2_1<K, Finished>(emitted(key))
+    return Union2.U1<K, Finished>(emitted(key))
 }
 
 fun<K, V> NonEmpty_qualifies(map: Map<K, V>): Boolean {
@@ -342,10 +342,10 @@ class __Codec_SetYield<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCod
 fun<T> next__11(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
-        return U2_2<T, Finished>(finished())
+        return Union2.U2<T, Finished>(finished())
     }
     p.at = p.at + 1
-    return U2_1<T, Finished>(emitted(elem))
+    return Union2.U1<T, Finished>(emitted(elem))
 }
 
 fun<T> NonEmpty_qualifies(set: Set<T>): Boolean {
@@ -414,10 +414,10 @@ data class StrYield(
 fun next__12(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
-        return U2_2<Char, Finished>(finished())
+        return Union2.U2<Char, Finished>(finished())
     }
     p.at = p.at + 1
-    return U2_1<Char, Finished>(emitted(chr))
+    return Union2.U1<Char, Finished>(emitted(chr))
 }
 
 data class Span(
@@ -486,11 +486,11 @@ fun iter__9(r: Upto): __Iter_iter_Upto {
 
 fun next__15(__p: __Iter_iter_Upto): Union2<Int, Finished> {
     if (__p.at >= __p.end) {
-        return U2_2<Int, Finished>(finished())
+        return Union2.U2<Int, Finished>(finished())
     }
     val v = __p.at
     __p.at = __p.at + 1
-    return U2_1<Int, Finished>(emitted(v))
+    return Union2.U1<Int, Finished>(emitted(v))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
@@ -543,7 +543,7 @@ __loop3
     var __loop5_pass = iter__9(upto(0, 0))
     while (true) {
         val __loop5_step = next__15(__loop5_pass)
-        if (__loop5_step !is U2_1<Int, Finished>) { break }
+        if (__loop5_step !is Union2.U1<Int, Finished>) { break }
         val x = __loop5_step.value
         __loop4_ran = true
         println(console, "unreachable")
@@ -571,22 +571,22 @@ var __loop7_ran = false
 while (n < 3) {
 __loop7_ran = true
 if (n == 2) {
-    __loop7 = U2_2<String, Int>(ok(n))
+    __loop7 = Union2.U2<String, Int>(ok(n))
     break
 }
 n++
-__loop7 = U2_1<String, Int>(err("not yet"))
+__loop7 = Union2.U1<String, Int>(err("not yet"))
 }
 if (!__loop7_ran) {
-__loop7 = U2_1<String, Int>(err("empty"))
+__loop7 = Union2.U1<String, Int>(err("empty"))
 }
 __loop7!!
-}.let { when (it) { is U2_1<*, *> -> U2_2<Int, String>(it.value as String); is U2_2<*, *> -> U2_1<Int, String>(it.value as Int); } }
+}.let { when (it) { is Union2.U1<*, *> -> Union2.U2<Int, String>(it.value as String); is Union2.U2<*, *> -> Union2.U1<Int, String>(it.value as Int); } }
     when (verdict) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             println(console, "ok: ${(verdict.value as Int)}")
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             println(console, "err: ${(verdict.value as String)}")
         }
     }
@@ -598,20 +598,20 @@ package salvo
 
 sealed interface Union2<out T1, out T2> {
     val value: Any?
+    data class U1<out T1, out T2>(override val value: T1) : Union2<T1, T2>
+    data class U2<out T1, out T2>(override val value: T2) : Union2<T1, T2>
 }
-data class U2_1<out T1, out T2>(override val value: T1) : Union2<T1, T2>
-data class U2_2<out T1, out T2>(override val value: T2) : Union2<T1, T2>
 
 class Union2Codec<T1, T2>(private val c1: WireCodec<T1>, private val c2: WireCodec<T2>) : WireCodec<Union2<T1, T2>> {
     override fun enc(v: Union2<T1, T2>, out: WireOut) {
         when (v) {
-            is U2_1 -> { out.u8(0); c1.enc(v.value, out) }
-            is U2_2 -> { out.u8(1); c2.enc(v.value, out) }
+            is Union2.U1 -> { out.u8(0); c1.enc(v.value, out) }
+            is Union2.U2 -> { out.u8(1); c2.enc(v.value, out) }
         }
     }
     override fun dec(inp: WireIn): Union2<T1, T2> = when (inp.u8()) {
-            0 -> U2_1(c1.dec(inp))
-            1 -> U2_2(c2.dec(inp))
+            0 -> Union2.U1(c1.dec(inp))
+            1 -> Union2.U2(c2.dec(inp))
             else -> throw WireError()
         }
 }

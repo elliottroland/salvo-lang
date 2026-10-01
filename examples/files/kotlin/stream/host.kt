@@ -63,14 +63,14 @@ class __Mon_RawStreams(private val inner: RawStreams) : RawStreams {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun hostReceived(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>) {
     when (got) {
-        is U3_1<*, *, *> -> {
-            reply.send(U3_1<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Packet(bytes = (got.value as salvo.SalvoBytes), stream = InStream(handle = handle)))))
+        is Union3.U1<*, *, *> -> {
+            reply.send(Union3.U1<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Packet(bytes = (got.value as salvo.SalvoBytes), stream = InStream(handle = handle)))))
         }
-        is U3_2<*, *, *> -> {
-            reply.send(U3_2<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as End)))
+        is Union3.U2<*, *, *> -> {
+            reply.send(Union3.U2<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as End)))
         }
-        is U3_3<*, *, *> -> {
-            reply.send(U3_3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((got.value as Union2<InvalidUtf8, StreamFailed>)))))
+        is Union3.U3<*, *, *> -> {
+            reply.send(Union3.U3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((got.value as Union2<InvalidUtf8, StreamFailed>)))))
         }
     }
 }
@@ -85,11 +85,11 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
     override fun readAll(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawReadAll(s.handle)
         when (r) {
-            is U2_1<*, *> -> {
-                return U2_1<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as String)))
+            is Union2.U1<*, *> -> {
+                return Union2.U1<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as String)))
             }
-            is U2_2<*, *> -> {
-                return U2_2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
+            is Union2.U2<*, *> -> {
+                return Union2.U2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
             }
         }
     }
@@ -98,11 +98,11 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
     override fun readBytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawReadBytes(s.handle, max)
         when (r) {
-            is U2_1<*, *> -> {
-                return U2_1<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as salvo.SalvoBytes)))
+            is Union2.U1<*, *> -> {
+                return Union2.U1<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as salvo.SalvoBytes)))
             }
-            is U2_2<*, *> -> {
-                return U2_2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
+            is Union2.U2<*, *> -> {
+                return Union2.U2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
             }
         }
     }
@@ -111,11 +111,11 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
     override fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawReadToBytes(s.handle, buf, max)
         when (r) {
-            is U2_1<*, *> -> {
-                return U2_1<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as Int)))
+            is Union2.U1<*, *> -> {
+                return Union2.U1<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as Int)))
             }
-            is U2_2<*, *> -> {
-                return U2_2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
+            is Union2.U2<*, *> -> {
+                return Union2.U2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
             }
         }
     }
@@ -124,11 +124,11 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
     override fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawReadToStr(s.handle, buf)
         when (r) {
-            is U2_1<*, *> -> {
-                return U2_1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as Long)))
+            is Union2.U1<*, *> -> {
+                return Union2.U1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok((r.value as Long)))
             }
-            is U2_2<*, *> -> {
-                return U2_2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
+            is Union2.U2<*, *> -> {
+                return Union2.U2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
             }
         }
     }
@@ -146,11 +146,11 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
         val r = __dep_RawStreams.rawCloseRead(s.handle)
         (s).let {}
         when (r) {
-            is U2_1<*, *> -> {
-                return U2_1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
+            is Union2.U1<*, *> -> {
+                return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
             }
-            is U2_2<*, *> -> {
-                return U2_2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
+            is Union2.U2<*, *> -> {
+                return Union2.U2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
             }
         }
     }
@@ -185,11 +185,11 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
     override fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawFlush(s.handle)
         when (r) {
-            is U2_1<*, *> -> {
-                return U2_1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
+            is Union2.U1<*, *> -> {
+                return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
             }
-            is U2_2<*, *> -> {
-                return U2_2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
+            is Union2.U2<*, *> -> {
+                return Union2.U2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
             }
         }
     }
@@ -199,11 +199,11 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
         val r = __dep_RawStreams.rawCloseWrite(s.handle)
         (s).let {}
         when (r) {
-            is U2_1<*, *> -> {
-                return U2_1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
+            is Union2.U1<*, *> -> {
+                return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
             }
-            is U2_2<*, *> -> {
-                return U2_2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
+            is Union2.U2<*, *> -> {
+                return Union2.U2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>((r.value as Union2<InvalidUtf8, StreamFailed>))))
             }
         }
     }

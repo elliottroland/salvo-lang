@@ -431,8 +431,7 @@ go in any order.
 2. ✅ **Remove platform effects** (2026-10-01).
 3. ✅ **`platform fn`** (2026-10-01, [platform-fn]).
 4. ✅ **Kotlin camel case** (2026-10-01, [name-camel] [kt-camel]).
-5. **Kotlin union arms as `UnionN.Uk`, and `TupleN` for `SalvoTupleN`** (D5,
-   D10, *independent*). Another sweep of the Kotlin goldens.
+5. ✅ **Kotlin union arms as `UnionN.Uk`, and `TupleN`** (2026-10-01).
 6. **The host project and ABI files** (D2, D3): generate and write them into
    each root on every build, and switch the build to consume them.
 7. **Types in the host tree** (D4): move the definitions, and re-export them

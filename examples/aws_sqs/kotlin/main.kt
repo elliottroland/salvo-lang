@@ -16,7 +16,7 @@ import salvo.core.string.*
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun describe(e: Union2<SqsError, AwsError>): String {
-    if (e is U2_2<*, *>) {
+    if (e is Union2.U2<*, *>) {
         return "${(e.value as AwsError).code}: ${(e.value as AwsError).message}"
     }
     if (((e.value as SqsError).code == "QueueDoesNotExist")) {
@@ -33,7 +33,7 @@ fun roundTrip(sqs: Sqs, console: Console, name: String) {
         sqs.createQueue(CreateQueueInput(queueName = name), r)
         salvo.SalvoSched.awaitReply(__wid) as Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>
     }
-    if (created is U2_2<*, *>) {
+    if (created is Union2.U2<*, *>) {
         println(console, "create_queue: ${describe(detach((created.value as Checked<Union2<SqsError, AwsError>>)))}")
         return
     }
@@ -46,10 +46,10 @@ fun roundTrip(sqs: Sqs, console: Console, name: String) {
         salvo.SalvoSched.awaitReply(__wid) as Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>
     }
     when (sent) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             println(console, "sent ${((sent.value as SendMessageOutput).messageId ?: "?")}")
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             println(console, "send_message: ${describe(detach((sent.value as Checked<Union2<SqsError, AwsError>>)))}")
         }
     }
@@ -60,14 +60,14 @@ fun roundTrip(sqs: Sqs, console: Console, name: String) {
         salvo.SalvoSched.awaitReply(__wid) as Union2<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>
     }
     when (got) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             val messages: List<Message> = ((got.value as ReceiveMessageOutput).messages ?: listOf<Message>())
             println(console, "received ${messages.size} message(s)")
             for (m in messages) {
                 println(console, "  ${(m.body ?: "")}")
             }
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             println(console, "receive_message: ${describe(detach((got.value as Checked<Union2<SqsError, AwsError>>)))}")
         }
     }
@@ -78,10 +78,10 @@ fun roundTrip(sqs: Sqs, console: Console, name: String) {
         salvo.SalvoSched.awaitReply(__wid) as Union2<Unit, Checked<Union2<SqsError, AwsError>>>
     }
     when (gone) {
-        is U2_1<*, *> -> {
+        is Union2.U1<*, *> -> {
             println(console, "deleted")
         }
-        is U2_2<*, *> -> {
+        is Union2.U2<*, *> -> {
             println(console, "delete_queue: ${describe(detach((gone.value as Checked<Union2<SqsError, AwsError>>)))}")
         }
     }
@@ -99,22 +99,22 @@ class MemSqs : Sqs {
         if (!queues.containsKey(url)) {
             queues.put(url, listOf<String>())
         }
-        salvo.SalvoSched.replyWire(reply, U2_1<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>(ok(CreateQueueOutput(queueUrl = url))), salvo.Union2Codec(__Codec_CreateQueueOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
+        salvo.SalvoSched.replyWire(reply, Union2.U1<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>(ok(CreateQueueOutput(queueUrl = url))), salvo.Union2Codec(__Codec_CreateQueueOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 
     override fun getQueueUrl(input: GetQueueUrlInput, reply: salvo.SalvoReply) {
         val url = "mem://${input.queueName}"
         if (!queues.containsKey(url)) {
-            salvo.SalvoSched.replyWire(reply, U2_2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(U2_1<SqsError, AwsError>(noQueue(url))))), salvo.Union2Codec(__Codec_GetQueueUrlOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
+            salvo.SalvoSched.replyWire(reply, Union2.U2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(Union2.U1<SqsError, AwsError>(noQueue(url))))), salvo.Union2Codec(__Codec_GetQueueUrlOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
             return
         }
-        salvo.SalvoSched.replyWire(reply, U2_1<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>(ok(GetQueueUrlOutput(queueUrl = url))), salvo.Union2Codec(__Codec_GetQueueUrlOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
+        salvo.SalvoSched.replyWire(reply, Union2.U1<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>(ok(GetQueueUrlOutput(queueUrl = url))), salvo.Union2Codec(__Codec_GetQueueUrlOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 
     override fun sendMessage(input: SendMessageInput, reply: salvo.SalvoReply) {
         val held = queues[input.queueUrl]
         if (held == null) {
-            salvo.SalvoSched.replyWire(reply, U2_2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(U2_1<SqsError, AwsError>(noQueue(input.queueUrl))))), salvo.Union2Codec(__Codec_SendMessageOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
+            salvo.SalvoSched.replyWire(reply, Union2.U2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(Union2.U1<SqsError, AwsError>(noQueue(input.queueUrl))))), salvo.Union2Codec(__Codec_SendMessageOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
             return
         }
         val grown = mutableListOf<String>()
@@ -125,13 +125,13 @@ class MemSqs : Sqs {
         grown.add(input.messageBody)
         val stored: List<String> = grown
         queues.put(input.queueUrl, stored)
-        salvo.SalvoSched.replyWire(reply, U2_1<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>(ok(SendMessageOutput(messageId = id))), salvo.Union2Codec(__Codec_SendMessageOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
+        salvo.SalvoSched.replyWire(reply, Union2.U1<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>(ok(SendMessageOutput(messageId = id))), salvo.Union2Codec(__Codec_SendMessageOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 
     override fun receiveMessage(input: ReceiveMessageInput, reply: salvo.SalvoReply) {
         val held = queues[input.queueUrl]
         if (held == null) {
-            reply.send(U2_2<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(U2_1<SqsError, AwsError>(noQueue(input.queueUrl))))))
+            reply.send(Union2.U2<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(Union2.U1<SqsError, AwsError>(noQueue(input.queueUrl))))))
             return
         }
         val out = mutableListOf<Message>()
@@ -141,20 +141,20 @@ class MemSqs : Sqs {
             out.add(Message(messageId = "m$i", receiptHandle = "m$i", body = b))
         }
         val messages: List<Message> = out
-        reply.send(U2_1<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>(ok(ReceiveMessageOutput(messages = messages))))
+        reply.send(Union2.U1<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>(ok(ReceiveMessageOutput(messages = messages))))
     }
 
     override fun deleteMessage(input: DeleteMessageInput, reply: salvo.SalvoReply) {
-        salvo.SalvoSched.replyWire(reply, U2_1<Unit, Checked<Union2<SqsError, AwsError>>>(ok(Unit)), salvo.Union2Codec(salvo.UnitCodec, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
+        salvo.SalvoSched.replyWire(reply, Union2.U1<Unit, Checked<Union2<SqsError, AwsError>>>(ok(Unit)), salvo.Union2Codec(salvo.UnitCodec, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 
     override fun deleteQueue(input: DeleteQueueInput, reply: salvo.SalvoReply) {
         if (!queues.containsKey(input.queueUrl)) {
-            salvo.SalvoSched.replyWire(reply, U2_2<Unit, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(U2_1<SqsError, AwsError>(noQueue(input.queueUrl))))), salvo.Union2Codec(salvo.UnitCodec, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
+            salvo.SalvoSched.replyWire(reply, Union2.U2<Unit, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(Union2.U1<SqsError, AwsError>(noQueue(input.queueUrl))))), salvo.Union2Codec(salvo.UnitCodec, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
             return
         }
         queues.remove(input.queueUrl)
-        salvo.SalvoSched.replyWire(reply, U2_1<Unit, Checked<Union2<SqsError, AwsError>>>(ok(Unit)), salvo.Union2Codec(salvo.UnitCodec, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
+        salvo.SalvoSched.replyWire(reply, Union2.U1<Unit, Checked<Union2<SqsError, AwsError>>>(ok(Unit)), salvo.Union2Codec(salvo.UnitCodec, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 }
 
@@ -181,10 +181,10 @@ fun main() {
             salvo.SalvoSched.awaitReply(__wid) as Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>
         }
         when (missing) {
-            is U2_1<*, *> -> {
+            is Union2.U1<*, *> -> {
                 println(console, "unexpected: ${((missing.value as GetQueueUrlOutput).queueUrl ?: "?")}")
             }
-            is U2_2<*, *> -> {
+            is Union2.U2<*, *> -> {
                 println(console, "get_queue_url: ${describe(detach((missing.value as Checked<Union2<SqsError, AwsError>>)))}")
             }
         }

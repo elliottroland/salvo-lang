@@ -120,7 +120,7 @@ fun main() {
     var __loop1_pass = iter__5(vowels)
     while (true) {
         val __loop1_step = next__11(__loop1_pass)
-        if (__loop1_step !is U2_1<*, *>) { break }
+        if (__loop1_step !is Union2.U1<*, *>) { break }
         val v = __loop1_step.value as String
         console.print(v)
     }
@@ -128,7 +128,7 @@ fun main() {
     var __loop2_pass = iter__4(ages)
     while (true) {
         val __loop2_step = next__9(__loop2_pass)
-        if (__loop2_step !is U2_1<*, *>) { break }
+        if (__loop2_step !is Union2.U1<*, *>) { break }
         val name = __loop2_step.value as String
         val age = ages[name]
         if (age != null) {

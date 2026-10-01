@@ -171,7 +171,8 @@ Conventions:
   `x!` → `!!`.
 * [type-tuple] [kt-tuple-class] Tuples of size 2/3 map to `Pair`/`Triple` —
   Kotlin's own, so a tuple keeps interoperating with the standard library — and
-  every larger arity maps to a **generated data class**, `SalvoTupleN`,
+  every larger arity maps to a **generated data class**, `TupleN` (named
+  `SalvoTupleN` until 2026-10-01, ABI.md D10),
   declared once per program in `tuples.kt` beside the union wrappers
   (2026-09-18; they used to be a codegen error).
   * A `data class` is what makes it a tuple rather than an object: structural
@@ -307,13 +308,17 @@ Conventions:
 
 * [kt-union-wrappers] Wrapper unions emit as generated sealed hierarchies
   in `unions.kt`: `sealed interface UnionN<out T1..TN> { val value: Any? }`
-  with `data class UN_i(override val value: Ti)` per arm, generated for
-  every size the program uses.
+  with the arms **nested** in it, `data class Ui<out T1..TN>(override val
+  value: Ti) : UnionN<T1..TN>`, generated for every size the program uses.
+  An arm is named `UnionN.Ui` — `Union2.U1(x)` — as Rust's is `Union2::U1`
+  (user decision 2026-10-01, ABI.md D5; until then arms were top-level
+  `UN_i`). Each arm keeps the union's full parameter list, so a site that
+  spelled the arguments out still does.
 * [union-arm-identity] Arm indices from the checker map 1:1 onto the
-  `UN_i` wrapper variants (positional over the runtime union's non-`None`
+  `UnionN.Ui` wrapper variants (positional over the runtime union's non-`None`
   arms, qualifiers erased; literals collapse [type-literal]).
-  * Wrap at boundaries: `U2_1<Int, String>(expr)`; re-wrap between union
-    reprs via a `let { when (it) { is U3_2<*,*,*> -> U2_1<...>(...) } }`
+  * Wrap at boundaries: `Union2.U1<Int, String>(expr)`; re-wrap between union
+    reprs via a `let { when (it) { is Union3.U2<*,*,*> -> Union2.U1<...>(...) } }`
     chain (unmatched source arms are unreachable at runtime).
   * Narrowed place reads unwrap in place — `(x.value as Int)` for a
     variable, `(h.result.value as Int)` for a field [flow-place]. The cast
@@ -321,7 +326,7 @@ Conventions:
     `elif` exclusion (no Kotlin smart cast), and `value` is typed `Any?`
     on the sealed interface. `is` tests, `is` bindings and `when`
     subjects read the storage, so they never see this unwrap.
-  * `is` lowering: single arm → `x is U3_2<*, *, *>` (star projections
+  * `is` lowering: single arm → `x is Union3.U2<*, *, *>` (star projections
     required — kotlinc rejects bare generic classes in `is`), multi-arm →
     `||` chain, all arms / `is None` → null tests. Interpolating a
     still-union value appends `.value`.
@@ -363,7 +368,7 @@ Conventions:
   `toString`, which prints `Person(name=ann)` and so would disagree with
   Rust.
 * [kt-suppress-cast] A union payload read through a **star-projected** arm
-  (`is U2_1<*, *>` leaves `value` at `Any?`) casts back to the arm's type;
+  (`is Union2.U1<*, *>` leaves `value` at `Any?`) casts back to the arm's type;
   when that target is a *generic parameter* (erased at run time) or a
   *parameterized type* (whose arguments are), kotlinc reports an unchecked
   cast — in code the author cannot edit. And where the target *is* concrete,
@@ -692,7 +697,7 @@ nothing but the monitor.
 * [kt-iter-pass] Iteration is **passes all the way down** [iter-protocol]:
   no `Sequence`, no `iterator { … }` builder, no runtime support class. A pass is
   a data class, `next` is a function, and a `for` over one is
-  `while (true) { val step = next(p); if (step !is U2_1<…>) break; … }` — the
+  `while (true) { val step = next(p); if (step !is Union2.U1<…>) break; … }` — the
   guard-and-cast shape Kotlin needs because it has no pattern-matching loop
   condition.
   * [iter-fn] An `iter fn` is desugared before emission into that same shape, so
@@ -855,7 +860,7 @@ nothing but the monitor.
   | a literal, a union of one base's literals | its base (`"A" \| "B" \| Other Str` is a `String`) [type-literal] |
   | `List<T>`, `Map<K, V>`, `Set<T>` | `List<T>`, `Map<K, V>`, `Set<T>` — insertion-ordered (`LinkedHashMap`/`LinkedHashSet`) |
   | `T?` | `T?` [kt-union-nullable] |
-  | a union of *n* ≥ 2 runtime arms | `salvo.UnionN<A, …>`, arms `UN_k(value)` in runtime-arm order, tested `is UN_k<*, …>` [kt-union-wrappers] [union-arm-identity]; nullable when it has a `None` arm |
+  | a union of *n* ≥ 2 runtime arms | `salvo.UnionN<A, …>`, arms `UnionN.Uk(value)` in runtime-arm order, tested `is UnionN.Uk<*, …>` [kt-union-wrappers] [union-arm-identity]; nullable when it has a `None` arm |
   | `struct S { f: T }` | `data class S(val f: T)` with the field names in camel case [kt-camel]; a dot-name `A.B` is `A.B`, nested in an `object` [kt-nested-dot-name]; a keyword is back-quoted |
   | `Checked<T>` | `salvo.core.checked.Checked(value)` |
   | `Reply<T>` parameter | `salvo.SalvoReply`; `.hosted()` answers the host reply whose `send(v)` may run on any thread, exactly once [platform-reply] |
@@ -1228,7 +1233,7 @@ nothing but the monitor.
     classes, dispatching to `__dispatch<Effect>` (a single-face handler keeps the
     bare `__dispatch`), and `spawn` answers `Pair(__a, __a)` / `Triple(…)` — one
     scheduler id under each protocol's type. More than three faces is the
-    generated `SalvoTupleN` [kt-tuple-class], like any other tuple that arity.
+    generated `TupleN` [kt-tuple-class], like any other tuple that arity.
     * A multi-face `use` binds one instance under every face: **one**
       construction hoisted into a `val`, and a monitor per face over it
       [kt-handle] (pushing the constructor call per face would build one

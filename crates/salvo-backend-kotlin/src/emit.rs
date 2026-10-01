@@ -554,17 +554,21 @@ fn generate_unions_file(sizes: &BTreeSet<usize>, wire: bool) -> String {
     for &n in sizes {
         let params: Vec<String> = (1..=n).map(|i| format!("out T{i}")).collect();
         let args: Vec<String> = (1..=n).map(|i| format!("T{i}")).collect();
+        // [kt-union-wrappers] The arms nest in the sealed interface
+        // (`Union2.U1`), as Rust's are variants of its enum (`Union2::U1`),
+        // each over the union's full parameter list.
         out.push_str(&format!(
-            "\nsealed interface Union{n}<{}> {{\n    val value: Any?\n}}\n",
+            "\nsealed interface Union{n}<{}> {{\n    val value: Any?\n",
             params.join(", ")
         ));
         for i in 1..=n {
             out.push_str(&format!(
-                "data class U{n}_{i}<{}>(override val value: T{i}) : Union{n}<{}>\n",
+                "    data class U{i}<{}>(override val value: T{i}) : Union{n}<{}>\n",
                 params.join(", "),
                 args.join(", ")
             ));
         }
+        out.push_str("}\n");
         // [wire-format] [kt-wire] The union's codec: one tag byte holding
         // the arm's declared index, then the arm — the Rust `impl __Wire for
         // UnionN`, as a class over the arms' codecs.
@@ -576,11 +580,11 @@ fn generate_unions_file(sizes: &BTreeSet<usize>, wire: bool) -> String {
             let mut dec = String::new();
             for i in 1..=n {
                 enc.push_str(&format!(
-                    "            is U{n}_{i} -> {{ out.u8({}); c{i}.enc(v.value, out) }}\n",
+                    "            is Union{n}.U{i} -> {{ out.u8({}); c{i}.enc(v.value, out) }}\n",
                     i - 1
                 ));
                 dec.push_str(&format!(
-                    "            {} -> U{n}_{i}(c{i}.dec(inp))\n",
+                    "            {} -> Union{n}.U{i}(c{i}.dec(inp))\n",
                     i - 1
                 ));
             }
@@ -626,7 +630,7 @@ fn generate_tuples_file(sizes: &BTreeSet<usize>) -> String {
             .collect();
         let parts: Vec<String> = (0..n).map(tuple_field).collect();
         out.push_str(&format!(
-            "\ndata class SalvoTuple{n}<{}>(\n    {},\n) : SalvoTuple {{\n    \
+            "\ndata class Tuple{n}<{}>(\n    {},\n) : SalvoTuple {{\n    \
              override val __parts: List<Any?> get() = listOf({})\n}}\n",
             params.join(", "),
             fields.join(",\n    "),
@@ -1097,7 +1101,7 @@ impl<'p> Emitter<'p> {
                 .unwrap_or_else(|| "Any?".to_string());
             let stars = vec!["*"; driver.arms].join(", ");
             self.note_payload_cast();
-            let arm = format!("U{}_{}<{stars}>", driver.arms, driver.emitted_arm + 1);
+            let arm = format!("Union{}.U{}<{stars}>", driver.arms, driver.emitted_arm + 1);
             let bind = if matches!(pattern, Pattern::Ident(id) if id.name == "_") {
                 String::new()
             } else {
@@ -1179,7 +1183,7 @@ impl<'p> Emitter<'p> {
         };
         // A *non-generic* `next` lets the arm be spelled with its real type
         // arguments, which is what keeps the element read cast-free: an
-        // `is U2_1<*, *>` smart-cast leaves `value` at `Any?`, and casting
+        // `is Union2.U1<*, *>` smart-cast leaves `value` at `Any?`, and casting
         // back would warn ("unchecked cast") in code the user cannot edit.
         // A generic `next` has type arguments this loop does not know — there
         // is no call node to read them from — so it falls back to stars.
@@ -1225,7 +1229,7 @@ impl<'p> Emitter<'p> {
         let (arm, read) = match arm_args {
             Some(args) => (
                 format!(
-                    "U{}_{}<{}>",
+                    "Union{}.U{}<{}>",
                     driver.arms,
                     driver.emitted_arm + 1,
                     args.join(", ")
@@ -1239,7 +1243,7 @@ impl<'p> Emitter<'p> {
                 let stars = vec!["*"; driver.arms].join(", ");
                 self.note_payload_cast();
                 (
-                    format!("U{}_{}<{stars}>", driver.arms, driver.emitted_arm + 1),
+                    format!("Union{}.U{}<{stars}>", driver.arms, driver.emitted_arm + 1),
                     format!("{step}.value as {elem}"),
                 )
             }
@@ -1394,7 +1398,7 @@ impl<'p> Emitter<'p> {
         }
         // [kt-tuple-class] …and so do the generated tuple classes. A file that
         // names a tuple past `Triple` and *nothing else* from the root package
-        // had no import for `SalvoTuple4` and up, so it did not compile — the
+        // had no import for `Tuple4` and up, so it did not compile — the
         // same shape as the throw signal above, and hidden for as long as it
         // was because the case that exercised it also built a keyed container,
         // which imports the root package for its runtime (found 2026-09-26).
@@ -5559,7 +5563,7 @@ impl<'p> Emitter<'p> {
                     let stars = vec!["*"; test.size].join(", ");
                     test.arms
                         .iter()
-                        .map(|a| format!("is U{}_{}<{stars}>", test.size, a + 1))
+                        .map(|a| format!("is Union{}.U{}<{stars}>", test.size, a + 1))
                         .collect::<Vec<_>>()
                         .join(", ")
                 }
@@ -5968,7 +5972,7 @@ impl<'p> Emitter<'p> {
 
     /// The Kotlin component name of a tuple position [kt-tuple-component]:
     /// `Pair`/`Triple` expose `first`/`second`/`third`, and a generated
-    /// `SalvoTupleN` [kt-tuple-class] declares **those same three names**
+    /// `TupleN` [kt-tuple-class] declares **those same three names**
     /// followed by `v3`, `v4`, … — so one rule serves every arity and the
     /// index alone decides the spelling. (An index past 2 can only ever be a
     /// generated tuple's: a `Pair` with a `.3` does not type check.)
@@ -5984,7 +5988,7 @@ impl<'p> Emitter<'p> {
     /// [kt-tuple-class] The Kotlin type of a tuple, given its rendered
     /// elements: `Pair`/`Triple` for two and three — Kotlin's own, so tuples
     /// keep interoperating with the standard library — and a **generated**
-    /// `SalvoTupleN` past them, since Kotlin has no larger tuple type. The
+    /// `TupleN` past them, since Kotlin has no larger tuple type. The
     /// arity is recorded so `tuples.kt` declares the class the way
     /// `unions.kt` declares a union wrapper.
     fn tuple_type(&mut self, elems: &[String]) -> String {
@@ -5996,7 +6000,7 @@ impl<'p> Emitter<'p> {
                 // The generated class orders through `__salvoCompare`, whose
                 // file also declares the marker interface it implements.
                 self.needs_compare = true;
-                format!("SalvoTuple{n}<{}>", elems.join(", "))
+                format!("Tuple{n}<{}>", elems.join(", "))
             }
         }
     }
@@ -6096,7 +6100,7 @@ impl<'p> Emitter<'p> {
                         self.emit_ty(&a)
                     })
                     .collect();
-                format!("U{n}_{}<{}>({code})", arm + 1, args.join(", "))
+                format!("Union{n}.U{}<{}>({code})", arm + 1, args.join(", "))
             }
             Coercion::Rewrap { from, to } => self.emit_rewrap(code, &from, &to),
         }
@@ -6150,14 +6154,14 @@ impl<'p> Emitter<'p> {
                         Some(j) => {
                             let cast = self.emit_ty(fa);
                             branches.push_str(&format!(
-                                "is U{n}_{}<{stars}> -> U{m}_{}<{to_args}>(it.value as {cast}); ",
+                                "is Union{n}.U{}<{stars}> -> Union{m}.U{}<{to_args}>(it.value as {cast}); ",
                                 i + 1,
                                 j + 1
                             ));
                         }
                         None => {
                             branches.push_str(&format!(
-                                "is U{n}_{}<{stars}> -> throw IllegalStateException(\"unreachable union arm\"); ",
+                                "is Union{n}.U{}<{stars}> -> throw IllegalStateException(\"unreachable union arm\"); ",
                                 i + 1
                             ));
                         }
@@ -6205,7 +6209,7 @@ impl<'p> Emitter<'p> {
         let parts: Vec<String> = test
             .arms
             .iter()
-            .map(|i| format!("{subj} is U{}_{}<{stars}>", test.size, i + 1))
+            .map(|i| format!("{subj} is Union{}.U{}<{stars}>", test.size, i + 1))
             .collect();
         if parts.len() == 1 {
             parts.into_iter().next().unwrap()
@@ -6226,7 +6230,7 @@ impl<'p> Emitter<'p> {
         let mut parts: Vec<String> = Vec::new();
         for arm in &test.arms {
             let (is_arm, value) = if wrapped {
-                (format!("{subj} is U{}_{}<{stars}>", test.size, arm + 1), format!("{subj}.value"))
+                (format!("{subj} is Union{}.U{}<{stars}>", test.size, arm + 1), format!("{subj}.value"))
             } else if test.nullable {
                 (format!("{subj} != null"), subj.to_string())
             } else {
@@ -6573,7 +6577,7 @@ impl<'p> Emitter<'p> {
             }
             Expr::TupleIndex { base, index, .. } => {
                 // [kt-tuple-component] `Pair`/`Triple` and the generated
-                // `SalvoTupleN` name their elements alike.
+                // `TupleN` name their elements alike.
                 let code = self.emit_expr(base);
                 format!("{code}.{}", Self::tuple_component(*index))
             }
@@ -6684,14 +6688,14 @@ impl<'p> Emitter<'p> {
             Expr::Tuple { elems, .. } => {
                 let items: Vec<String> = elems.iter().map(|e| self.emit_expr(e)).collect();
                 // [kt-tuple-class] `Pair`/`Triple` for two and three, a
-                // generated `SalvoTupleN` past them.
+                // generated `TupleN` past them.
                 match items.len() {
                     2 => format!("Pair({})", items.join(", ")),
                     3 => format!("Triple({})", items.join(", ")),
                     n => {
                         self.tuple_sizes.insert(n);
                         self.needs_compare = true;
-                        format!("SalvoTuple{n}({})", items.join(", "))
+                        format!("Tuple{n}({})", items.join(", "))
                     }
                 }
             }
@@ -7357,7 +7361,7 @@ impl<'p> Emitter<'p> {
     }
 
     /// Wraps a value into arm `arm` of a wrapper union
-    /// [union-arm-identity]: `U2_1<Int, String>(value)`.
+    /// [union-arm-identity]: `Union2.U1<Int, String>(value)`.
     fn wrap_union_value(&mut self, target: &Ty, arm: usize, code: String) -> String {
         let value_arms = target.value_arms();
         let n = value_arms.len();
@@ -7372,7 +7376,7 @@ impl<'p> Emitter<'p> {
                 self.emit_ty(&a)
             })
             .collect();
-        format!("U{n}_{}<{}>({code})", arm + 1, args.join(", "))
+        format!("Union{n}.U{}<{}>({code})", arm + 1, args.join(", "))
     }
 
     /// The statements of a Kotlin lambda block body: the trailing
@@ -8950,8 +8954,8 @@ impl<'p> Emitter<'p> {
                     // branches ("cannot infer type for type parameter 'T'").
                     out.push(format!(
                         "fun({ann}): Union2<{elem}, Finished> {{ return \
-                         if (__p.__advance({hs})) U2_1<{elem}, Finished>(__p.__current()) \
-                         else U2_2<{elem}, Finished>(finished()) }}"
+                         if (__p.__advance({hs})) Union2.U1<{elem}, Finished>(__p.__current()) \
+                         else Union2.U2<{elem}, Finished>(finished()) }}"
                     ));
                 }
             }

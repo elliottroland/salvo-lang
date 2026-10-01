@@ -33,19 +33,19 @@ fun next__10(__p: __Iter_range_Int_Int_Int): Union2<Int, Finished> {
     val next = __p.i
     return when {
         __p.step == 0 -> {
-            U2_1<Finished, Int>(finished())
+            Union2.U1<Finished, Int>(finished())
         }
         __p.step > 0 && __p.i >= __p.end -> {
-            U2_1<Finished, Int>(finished())
+            Union2.U1<Finished, Int>(finished())
         }
         __p.step < 0 && __p.i <= __p.end -> {
-            U2_1<Finished, Int>(finished())
+            Union2.U1<Finished, Int>(finished())
         }
         else -> {
             __p.i = __p.i + __p.step
-            U2_2<Finished, Int>(emitted(next))
+            Union2.U2<Finished, Int>(emitted(next))
         }
-    }.let { when (it) { is U2_1<*, *> -> U2_2<Int, Finished>(it.value as Finished); is U2_2<*, *> -> U2_1<Int, Finished>(it.value as Int); } }
+    }.let { when (it) { is Union2.U1<*, *> -> Union2.U2<Int, Finished>(it.value as Finished); is Union2.U2<*, *> -> Union2.U1<Int, Finished>(it.value as Int); } }
 }
 
 fun range__2(start: Int, end: Int): __Iter_range_Int_Int_Int {

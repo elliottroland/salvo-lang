@@ -27,10 +27,10 @@ class __Codec_SetYield<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCod
 fun<T> next__11(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
-        return U2_2<T, Finished>(finished())
+        return Union2.U2<T, Finished>(finished())
     }
     p.at = p.at + 1
-    return U2_1<T, Finished>(emitted(elem))
+    return Union2.U1<T, Finished>(emitted(elem))
 }
 
 fun<T> NonEmpty_qualifies(set: Set<T>): Boolean {

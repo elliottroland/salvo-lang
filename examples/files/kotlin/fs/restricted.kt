@@ -53,7 +53,7 @@ fun fsResolve(root: String, path: String): String? {
 }
 
 fun fsEscaped(path: String): Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
-    return checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(U7_5<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(PathEscapes(path = path)))
+    return checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U5<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(PathEscapes(path = path)))
 }
 
 class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private val __dep_Streams: Streams) : Fs {
@@ -61,7 +61,7 @@ class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private v
     override fun openRead(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fsResolve(root, path)
         if (real == null) {
-            return U2_2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
+            return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
         }
         return __dep_Fs.openRead(real)
     }
@@ -69,7 +69,7 @@ class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private v
     override fun openReadAt(path: String, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fsResolve(root, path)
         if (real == null) {
-            return U2_2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
+            return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
         }
         return __dep_Fs.openReadAt(real, offset)
     }
@@ -77,7 +77,7 @@ class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private v
     override fun openWrite(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fsResolve(root, path)
         if (real == null) {
-            return U2_2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
+            return Union2.U2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
         }
         return __dep_Fs.openWrite(real)
     }
@@ -85,7 +85,7 @@ class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private v
     override fun openAppend(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fsResolve(root, path)
         if (real == null) {
-            return U2_2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
+            return Union2.U2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
         }
         return __dep_Fs.openAppend(real)
     }
@@ -101,7 +101,7 @@ class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private v
     override fun metadata(path: String): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fsResolve(root, path)
         if (real == null) {
-            return U2_2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
+            return Union2.U2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
         }
         return __dep_Fs.metadata(real)
     }
@@ -109,7 +109,7 @@ class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private v
     override fun listDir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fsResolve(root, path)
         if (real == null) {
-            return U2_2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
+            return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
         }
         return __dep_Fs.listDir(real)
     }
@@ -117,7 +117,7 @@ class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private v
     override fun createDirs(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fsResolve(root, path)
         if (real == null) {
-            return U2_2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
+            return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
         }
         return __dep_Fs.createDirs(real)
     }
@@ -125,7 +125,7 @@ class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private v
     override fun delete(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fsResolve(root, path)
         if (real == null) {
-            return U2_2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
+            return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(path)))
         }
         return __dep_Fs.delete(real)
     }
@@ -133,11 +133,11 @@ class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private v
     override fun renamePath(from: String, to: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val realFrom = fsResolve(root, from)
         if (realFrom == null) {
-            return U2_2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(from)))
+            return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(from)))
         }
         val realTo = fsResolve(root, to)
         if (realTo == null) {
-            return U2_2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(to)))
+            return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsEscaped(to)))
         }
         return __dep_Fs.renamePath(realFrom, realTo)
     }

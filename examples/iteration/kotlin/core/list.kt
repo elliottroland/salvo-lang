@@ -60,10 +60,10 @@ data class ListYield<T>(
 fun<T> next__3(p: ListYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
-        return U2_2<T, Finished>(finished())
+        return Union2.U2<T, Finished>(finished())
     }
     p.at = p.at + 1
-    return U2_1<T, Finished>(emitted(elem))
+    return Union2.U1<T, Finished>(emitted(elem))
 }
 
 data class __Iter_reversed_List<T>(
@@ -78,10 +78,10 @@ fun<T> reversed(list: List<T>): __Iter_reversed_List<T> {
 fun<T> next__4(__p: __Iter_reversed_List<T>): Union2<T, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
-        return U2_2<T, Finished>(finished())
+        return Union2.U2<T, Finished>(finished())
     }
     __p.at = __p.at - 1
-    return U2_1<T, Finished>(emitted(elem))
+    return Union2.U1<T, Finished>(emitted(elem))
 }
 
 data class __Iter_indices_List<T>(
@@ -95,11 +95,11 @@ fun<T> indices(list: List<T>): __Iter_indices_List<T> {
 
 fun<T> next__5(__p: __Iter_indices_List<T>): Union2<Int, Finished> {
     if (__p.at >= __p.list.size) {
-        return U2_2<Int, Finished>(finished())
+        return Union2.U2<Int, Finished>(finished())
     }
     val index = __p.at
     __p.at = __p.at + 1
-    return U2_1<Int, Finished>(emitted(index))
+    return Union2.U1<Int, Finished>(emitted(index))
 }
 
 data class __Iter_rev_indices_List<T>(
@@ -113,11 +113,11 @@ fun<T> revIndices(list: List<T>): __Iter_rev_indices_List<T> {
 
 fun<T> next__6(__p: __Iter_rev_indices_List<T>): Union2<Int, Finished> {
     if (__p.at < 0) {
-        return U2_2<Int, Finished>(finished())
+        return Union2.U2<Int, Finished>(finished())
     }
     val index = __p.at
     __p.at = __p.at - 1
-    return U2_1<Int, Finished>(emitted(index))
+    return Union2.U1<Int, Finished>(emitted(index))
 }
 
 data class Enumerated<T>(
@@ -137,11 +137,11 @@ fun<T> enumerate(list: List<T>): __Iter_enumerate_List<T> {
 fun<T> next__7(__p: __Iter_enumerate_List<T>): Union2<Enumerated<T>, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
-        return U2_2<Enumerated<T>, Finished>(finished())
+        return Union2.U2<Enumerated<T>, Finished>(finished())
     }
     val index = __p.at
     __p.at = __p.at + 1
-    return U2_1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
+    return Union2.U1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
 }
 
 data class __Iter_enumerate_rev_List<T>(
@@ -156,11 +156,11 @@ fun<T> enumerateRev(list: List<T>): __Iter_enumerate_rev_List<T> {
 fun<T> next__8(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
-        return U2_2<Enumerated<T>, Finished>(finished())
+        return Union2.U2<Enumerated<T>, Finished>(finished())
     }
     val index = __p.at
     __p.at = __p.at - 1
-    return U2_1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
+    return Union2.U1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
 }
 
 fun<T> sort(list: List<T>, cmp: (T, T) -> Int): List<T> {

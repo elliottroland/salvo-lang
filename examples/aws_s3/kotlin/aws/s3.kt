@@ -276,19 +276,19 @@ class FakeS3(private val __dep_Streams: Streams) : S3, S3Calls {
         recorded.add("put_object")
         val unsized = input.contentLength == null
         val closed = close__4(__dep_Streams, input)
-        if (closed is U2_2<*, *>) {
+        if (closed is Union2.U2<*, *>) {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
         if (unsized) {
-            salvo.SalvoSched.replyWire(reply, U2_2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(U2_2<S3Error, AwsError>(AwsError(code = "MissingContentLength", message = "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
+            salvo.SalvoSched.replyWire(reply, Union2.U2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(Union2.U2<S3Error, AwsError>(AwsError(code = "MissingContentLength", message = "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
             return
         }
-        salvo.SalvoSched.replyWire(reply, U2_1<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(PutObjectOutput())), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
+        salvo.SalvoSched.replyWire(reply, Union2.U1<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(PutObjectOutput())), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
     }
 
     override fun getObject(input: GetObjectInput, reply: salvo.SalvoReply) {
         recorded.add("get_object")
-        reply.send(U2_1<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(GetObjectOutput(body = __dep_Streams.fromBytes(salvo.SalvoBytes.of(arrayOf<UByte>()))))))
+        reply.send(Union2.U1<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(GetObjectOutput(body = __dep_Streams.fromBytes(salvo.SalvoBytes.of(arrayOf<UByte>()))))))
     }
 
     override fun calls(): List<String> {
