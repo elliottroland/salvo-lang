@@ -444,8 +444,8 @@ Generated ABI and interface files beside hand-written implementation files.
 Done so far: platform effects removed, `platform fn`, Kotlin camel case,
 nested Kotlin union arms, templates removed, the host project with its
 declaration files, platform handlers behind host interfaces and adapters,
-checks of what the host hands back, factories, and the aws glue on them. The design, its decisions (D1–D10) and the remaining build
-sequence (the D10 leftovers and ABI stamps) live in [ABI.md](ABI.md).
+checks of what the host hands back, factories, the aws glue on them, and ABI stamps. The design, its decisions (D1–D10) and the remaining build
+sequence (the D10 leftovers and the docs) live in [ABI.md](ABI.md).
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 

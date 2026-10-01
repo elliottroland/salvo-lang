@@ -31,11 +31,29 @@ pub fn platform_closure_all(program: &Program, symbols: &Symbols<'_>) -> BTreeSe
 }
 
 fn closure(program: &Program, symbols: &Symbols<'_>, all: bool) -> BTreeSet<String> {
-    let mut walk = Walk { symbols, seen: BTreeSet::new(), queue: Vec::new() };
-    for unit in program.units() {
+    closure_where(program, symbols, &|unit: &crate::program::Unit<'_>| {
         // The project's own modules — std's too when the tree being built is
         // std (its files shadow the embedded copy [std-shadow]).
-        if !all && ((unit.file.is_std && !unit.file.is_shadow) || unit.file.dependency.is_some()) {
+        all || !((unit.file.is_std && !unit.file.is_shadow) || unit.file.dependency.is_some())
+    })
+}
+
+/// Whether a unit belongs to `owner`: the project (`None`) or a dependency.
+fn owned_by(unit: &crate::program::Unit<'_>, owner: Option<&str>) -> bool {
+    match owner {
+        None => !((unit.file.is_std && !unit.file.is_shadow) || unit.file.dependency.is_some()),
+        Some(dep) => unit.file.dependency.as_deref() == Some(dep),
+    }
+}
+
+fn closure_where(
+    program: &Program,
+    symbols: &Symbols<'_>,
+    include: &dyn Fn(&crate::program::Unit<'_>) -> bool,
+) -> BTreeSet<String> {
+    let mut walk = Walk { symbols, seen: BTreeSet::new(), queue: Vec::new() };
+    for unit in program.units() {
+        if !include(&unit) {
             continue;
         }
         for item in &unit.ast.items {
@@ -276,4 +294,95 @@ pub fn upper_camel(name: &str) -> String {
             }
         })
         .collect()
+}
+
+/// [platform-stamp] The ABI revision: what the generated files of a platform
+/// root may rely on about this compiler's emission. Bumped by hand when a
+/// change to the generated declarations, interfaces, adapters or factories
+/// would break implementation files written against the old ones (ABI.md D9).
+pub const ABI_REVISION: u32 = 1;
+
+/// [platform-stamp] The stamp every generated file of a platform root carries
+/// (ABI.md D9 (b)): `salvo-abi <revision> <signature hash>`, the hash over the
+/// owner's platform signatures and everything they reach, in a canonical
+/// rendering (source spacing and positions do not count). `owner` is the
+/// project (`None`) or a dependency by name. `None` when the owner declares
+/// nothing platform.
+pub fn abi_stamp(program: &Program, symbols: &Symbols<'_>, owner: Option<&str>) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    for unit in program.units() {
+        if !owned_by(&unit, owner) {
+            continue;
+        }
+        let text = &unit.file.content;
+        for item in &unit.ast.items {
+            match item {
+                Item::Handler(h) if h.platform => {
+                    let params: Vec<String> = h.params.iter().map(|p| format!("{}: {}", p.name.name, p.ty)).collect();
+                    let of: Vec<String> = h.of.iter().map(|t| t.to_string()).collect();
+                    parts.push(format!(
+                        "{}platform handler {}({}) of {}",
+                        if h.threadsafe { "threadsafe " } else { "" },
+                        h.name.name,
+                        params.join(", "),
+                        of.join(", ")
+                    ));
+                }
+                Item::Fn(f) if f.platform => parts.push(format!("platform {}", canonical_fn(f, text))),
+                _ => {}
+            }
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let reached = closure_where(program, symbols, &|u| owned_by(u, owner));
+    for name in &reached {
+        if let Some(st) = symbols.structs.get(name.as_str()) {
+            let fields: Vec<String> = st.fields.iter().map(|f| format!("{}: {}", f.name.name, f.ty)).collect();
+            let generics: Vec<&str> = st.generics.iter().map(|g| g.name.as_str()).collect();
+            parts.push(format!("struct {name}<{}> {{ {} }}", generics.join(", "), fields.join(", ")));
+        } else if let Some(t) = symbols.type_aliases.get(name.as_str()) {
+            if let Some(alias) = &t.alias {
+                parts.push(format!("type {name} = {alias}"));
+            }
+        } else if let Some(e) = symbols.effects.get(name.as_str()) {
+            let text = program
+                .units()
+                .find(|u| u.ast.items.iter().any(|i| matches!(i, Item::Effect(x) if std::ptr::eq(x, *e))))
+                .map(|u| u.file.content.as_str())
+                .unwrap_or("");
+            let members: Vec<String> = e.fns.iter().map(|f| canonical_fn(f, text)).collect();
+            parts.push(format!(
+                "{}effect {name} {{ {} }}",
+                if e.is_actor { "actor " } else { "" },
+                members.join("; ")
+            ));
+        }
+    }
+    parts.sort();
+    Some(format!("salvo-abi {ABI_REVISION} {}", crate::wire::protocol_hash(&parts.join("\n"))))
+}
+
+/// A signature in a canonical rendering: types through their `Display`, the
+/// deduction clause as written with its spacing collapsed.
+fn canonical_fn(f: &FnDecl, text: &str) -> String {
+    let params: Vec<String> = f.params.iter().map(|p| format!("{}: {}", p.name.name, p.ty)).collect();
+    let ret = f.return_type.as_ref().map(|r| format!(" -> {r}")).unwrap_or_default();
+    let deductions: Vec<String> = f
+        .deductions
+        .iter()
+        .flatten()
+        .map(|d| {
+            let (a, b) = (d.span.start as usize, d.span.end as usize);
+            text.get(a..b).unwrap_or("").split_whitespace().collect::<Vec<_>>().join(" ")
+        })
+        .collect();
+    format!(
+        "{}fn {}({}){ret} => {}",
+        if f.is_send { "send " } else { "" },
+        f.name.name,
+        params.join(", "),
+        deductions.join(", ")
+    )
 }

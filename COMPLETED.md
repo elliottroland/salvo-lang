@@ -135,6 +135,20 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**ABI stamps and the dependency check (2026-10-01; ABI.md step 12).** D9 (b)
+built: `abi::abi_stamp` hashes an owner's platform signatures and what they
+reach in a canonical rendering, and every generated file of a host project
+carries `salvo-abi <ABI_REVISION> <hash>`. After emitting, `compile`, `run`
+and `test` compare the stamps of every dependency whose implementation files
+the build compiles, and refuse a missing host project, another revision or
+changed signatures, naming `salvo platform generate` in the dependency's
+directory. What fell out: the check has to know which dependencies the build
+actually reached, or a program using only a dependency's fakes would demand
+its host project — the emitted file list, matched against the dependency's
+companions, says so without a second analysis. The run test with a
+platform-handled dependency now generates its host project first. New test
+`a_dependencys_host_project_is_checked_before_its_code`. **1664 tests.**
+
 **The aws glue builds its answers with factories (2026-10-01; ABI.md step
 11).** The generator now writes `CreateQueue.ok(…)` and
 `CreateQueue.err(Checked(SqsFailures.sqsError(…)))` (Rust `CreateQueue::ok`,
@@ -19448,7 +19462,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1663; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1664; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -20124,6 +20138,9 @@ cache, with per-test timings.
   host-sent reply failing with the declaration named), and 2 checker tests
   (`salvo-core/tests/platform_tests.rs`: a constructive qualifier from another
   module refused, the walk warning)
+  + the stamp test (`tests/platform_tests.rs` [platform-stamp]: a dependency's
+  host project missing, stale against its signatures, and of another ABI
+  revision, each refused by name; unreached, not checked)
   + 2 host-project tests (`tests/platform_tests.rs` [platform-abi]: a small
   project's Kotlin and Rust roots compile alone with kotlinc and rustc, only
   the reached declarations written, `analyze` writing nothing, a stale

@@ -1206,3 +1206,79 @@ fn main() [use] {
     }
     stamp.verified();
 }
+
+/// [platform-stamp] A dependency checks in its host project, stamped with the
+/// ABI revision and a hash of its platform signatures (ABI.md D9 (b)); a build
+/// that compiles the dependency's implementation files compares the stamps
+/// first and names what to do: no host project, signatures changed since it
+/// was generated, or another ABI revision. A build that does not reach the
+/// dependency's platform code does not look.
+#[test]
+fn a_dependencys_host_project_is_checked_before_its_code() {
+    let dir = work_dir("stamps");
+    let lib = dir.join("salvo_modules/lib");
+    fs::create_dir_all(lib.join("salvo/lib")).unwrap();
+    fs::create_dir_all(lib.join("salvo/platform/lib")).unwrap();
+    fs::write(
+        lib.join("salvo.toml"),
+        "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nplatform = \"salvo/platform\"\n",
+    )
+    .unwrap();
+    fs::write(
+        lib.join("salvo/lib.sv"),
+        "export effect Greet {\n    fn greet() -> Str\n}\n\nexport handler Plain() of Greet {\n    \
+         fn greet() -> Str { return \"plain\" }\n}\n",
+    )
+    .unwrap();
+    fs::write(lib.join("salvo/lib/host.sv"), "import lib\n\nexport platform handler HostGreet of Greet\n").unwrap();
+    fs::write(
+        lib.join("salvo/platform/lib/host.rs"),
+        "use crate::lib::*;\npub struct HostGreet;\nimpl HostGreet { pub fn new() -> Self { HostGreet } }\n\
+         impl crate::lib::GreetPlatform for HostGreet { fn greet(&mut self) -> String { \"host\".into() } }\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.join("salvo")).unwrap();
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\n\
+         modules = \"salvo_modules\"\n\n[dependencies]\nlib = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let compile = || {
+        let out = salvo_in(&dir, &["compile", "--target", "out"]);
+        (out.status.success(), String::from_utf8_lossy(&out.stderr).to_string())
+    };
+    // Not reached: nothing is checked.
+    fs::write(dir.join("salvo/main.sv"), "import lib\n\nfn main() [use] {\n    use StdOutConsole()\n    use Plain()\n    println(greet())\n}\n").unwrap();
+    let (ok, stderr) = compile();
+    assert!(ok, "{stderr}");
+    // Reached, with no host project.
+    fs::write(
+        dir.join("salvo/main.sv"),
+        "import lib\nimport lib.host\n\nfn main() [use] {\n    use StdOutConsole()\n    use HostGreet()\n    println(greet())\n}\n",
+    )
+    .unwrap();
+    let (ok, stderr) = compile();
+    assert!(!ok && stderr.contains("dependency `lib` has platform code but no generated host project"), "{stderr}");
+    assert!(stderr.contains("salvo platform generate --backend rust") && stderr.contains("[platform-stamp]"), "{stderr}");
+    // Generated: accepted.
+    let out = salvo_in(&lib, &["platform", "generate", "--backend", "rust"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let (ok, stderr) = compile();
+    assert!(ok, "{stderr}");
+    // The signatures changed and nobody regenerated.
+    let host_sv = "import lib\n\nexport platform handler HostGreet of Greet\n";
+    fs::write(lib.join("salvo/lib/host.sv"), format!("{host_sv}\nexport platform fn shout(s: Str) [] -> Str => s\n")).unwrap();
+    let (ok, stderr) = compile();
+    assert!(!ok && stderr.contains("generated from platform signatures that have changed since"), "{stderr}");
+    // Another compiler's ABI revision.
+    fs::write(lib.join("salvo/lib/host.sv"), host_sv).unwrap();
+    let out = salvo_in(&lib, &["platform", "generate", "--backend", "rust"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let stamped = lib.join("salvo/platform/lib.sv.rs");
+    let text = fs::read_to_string(&stamped).unwrap();
+    assert!(text.contains("// salvo-abi 1 "), "{text}");
+    fs::write(&stamped, text.replace("// salvo-abi 1 ", "// salvo-abi 0 ")).unwrap();
+    let (ok, stderr) = compile();
+    assert!(!ok && stderr.contains("was generated for ABI 0, and this compiler's is 1"), "{stderr}");
+}

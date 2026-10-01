@@ -139,9 +139,12 @@ impl Backend for KotlinBackend {
         if files.is_empty() {
             return Ok(Vec::new());
         }
+        // [platform-stamp] What a consumer compares before building this root.
+        let symbols = salvo_core::Symbols::collect(program);
+        let stamp = salvo_core::abi::abi_stamp(program, &symbols, None).unwrap_or_default();
         let mut out: Vec<(PathBuf, String)> = files
             .into_iter()
-            .map(|f| (f.rel_path, format!("{ABI_HEADER}\n{}", f.content)))
+            .map(|f| (f.rel_path, format!("{ABI_HEADER}\n// {stamp}\n{}", f.content)))
             .collect();
         let mut deps = String::new();
         for coord in &host.kotlin_artifacts {
@@ -156,7 +159,7 @@ impl Backend for KotlinBackend {
         out.push((
             PathBuf::from(GRADLE_BUILD),
             format!(
-                "{ABI_GRADLE_HEADER}\n\
+                "{ABI_GRADLE_HEADER}\n// {stamp}\n\
                  plugins {{ kotlin(\"jvm\") version \"{KOTLIN_VERSION}\" }}\n\n\
                  repositories {{ mavenCentral() }}\n\n\
                  // Implementation files (`<m>.kt`) and the generated declarations\n\
@@ -178,7 +181,7 @@ impl Backend for KotlinBackend {
         ));
         out.push((
             PathBuf::from(GRADLE_SETTINGS),
-            format!("{ABI_GRADLE_HEADER}\n\nrootProject.name = \"salvo-platform\"\n"),
+            format!("{ABI_GRADLE_HEADER}\n// {stamp}\n\nrootProject.name = \"salvo-platform\"\n"),
         ));
         Ok(out)
     }

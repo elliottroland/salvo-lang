@@ -8180,6 +8180,22 @@ replaced the working document TESTING.md).
   * Emitted in the build for every module's platform signatures (std's and
     dependencies' implementation files call them too), and in the host
     project.
+* [platform-stamp] **A host project is stamped, and a dependency's is checked**
+  (user decision 2026-10-01, ABI.md D9 (b)). Every generated file of a
+  platform root carries `salvo-abi <revision> <hash>` in its header: the
+  compiler's ABI revision (`abi::ABI_REVISION`, bumped by hand when a change
+  would break implementation files written against the old generated code)
+  and an FNV-1a hash of the owner's platform signatures and everything they
+  reach, rendered canonically (types through `Display`, deduction clauses
+  with their spacing collapsed), so moving code or reformatting it does not
+  count.
+  * A dependency checks in its own host project. A build that compiles a
+    dependency's implementation files compares the stamps of the
+    dependency's `*.sv.<ext>` files with what it computes, after emitting and
+    before the host compiler runs, and refuses a mismatch naming the cause —
+    no host project, another ABI revision, or signatures changed since it was
+    generated — and `salvo platform generate` in that directory as the fix.
+    A build that does not reach the dependency's platform code does not look.
 * [threadsafe-platform] `threadsafe platform handler H of E` states the host
   class's **thread-safety contract** (user decision 2026-09-26, closing the
   2026-09-20 "assumed thread-safe" stance): the instance may be entered

@@ -673,6 +673,7 @@ fn build(
     for msg in &emitted.warnings {
         eprintln!("{msg}");
     }
+    check_dependency_stamps(backend, &program, project, &emitted.files)?;
     let mut written = emitted.files;
     // [platform-host-deps] What the host build needs to know about the
     // declared libraries — a `Cargo.toml` for Rust — beside the sources.
@@ -937,7 +938,8 @@ fn test_one(
         assembled.main_module.as_ref(),
         inputs.project.as_ref(),
         &host,
-    ) {
+    )
+    {
         return code;
     }
     let selected = salvo_test::select(&assembled.tests, filter);
@@ -1014,6 +1016,7 @@ fn test_one(
             &target,
             color,
             &host,
+            inputs.project.as_ref(),
         ) {
             Ok(pass) => pass,
             Err(code) => return code,
@@ -1102,6 +1105,7 @@ fn run_test_pass(
     target: &Path,
     color: salvo_test::Color,
     host: &salvo_core::HostDeps,
+    project: Option<&salvo_core::Project>,
 ) -> Result<TestPass, ExitCode> {
     let source = salvo_test::harness_source(tests);
     let (ast, diagnostics) = salvo_syntax::parse_module_deferred(&source);
@@ -1146,6 +1150,7 @@ fn run_test_pass(
     for msg in &emitted.warnings {
         eprintln!("{msg}");
     }
+    check_dependency_stamps(backend, program, project, &emitted.files)?;
     // [platform-host-deps] The harness is a program like any other.
     let mut files = emitted.files;
     match backend.write_host_manifest(target, harness_module, host) {
@@ -1245,6 +1250,103 @@ fn platform_generate(
         }
     }
     ExitCode::SUCCESS
+}
+
+/// [platform-stamp] A dependency checks in its own host project (ABI.md D9), and
+/// its implementation files were written against it. Before building them,
+/// its stamps are compared with what this compiler computes for its platform
+/// signatures: a different ABI revision, a changed signature, or no generated
+/// files at all is reported naming the dependency and the command that fixes
+/// it — rather than as a host compile error inside code the consumer did not
+/// write.
+fn check_dependency_stamps(
+    backend: &dyn salvo_backend::Backend,
+    program: &Program,
+    project: Option<&salvo_core::Project>,
+    emitted: &[PathBuf],
+) -> Result<(), ExitCode> {
+    let Some(project) = project else { return Ok(()) };
+    let Ok(deps) = project.dependencies() else { return Ok(()) };
+    let symbols = salvo_core::Symbols::collect(program);
+    let ext = backend.file_extension();
+    for dep in deps {
+        // Only a dependency whose implementation files this build compiles.
+        let reached = program.companions.iter().any(|c| {
+            c.platform
+                && emitted.contains(&c.rel_path)
+                && program
+                    .units()
+                    .any(|u| u.file.module == c.module && u.file.dependency.as_deref() == Some(dep.name.as_str()))
+        });
+        if !reached {
+            continue;
+        }
+        let Some(expected) = salvo_core::abi::abi_stamp(program, &symbols, Some(&dep.name)) else {
+            continue;
+        };
+        let Some(root) = dep.project.platform_root(backend.name()) else { continue };
+        let regenerate = format!(
+            "run `salvo platform generate --backend {}` in `{}` and check in what it writes",
+            backend.name(),
+            dep.project.dir.display()
+        );
+        let mut found: Option<(PathBuf, String)> = None;
+        let mut any = false;
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().to_string();
+                if path.is_dir() {
+                    if !name.starts_with('.') && name != "target" {
+                        stack.push(path);
+                    }
+                    continue;
+                }
+                if !name.ends_with(&format!(".sv.{ext}")) {
+                    continue;
+                }
+                any = true;
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                let stamp = text
+                    .lines()
+                    .take(6)
+                    .find_map(|l| l.strip_prefix("// salvo-abi ").map(|r| format!("salvo-abi {r}")))
+                    .unwrap_or_default();
+                if stamp != expected && found.is_none() {
+                    found = Some((path, stamp));
+                }
+            }
+        }
+        let missing = !any;
+        if missing {
+            eprintln!(
+                "error: dependency `{}` has platform code but no generated host project under `{}`: \
+                 {regenerate} [platform-stamp]",
+                dep.name,
+                root.display()
+            );
+            return Err(ExitCode::FAILURE);
+        }
+        if let Some((path, stamp)) = found {
+            let parse = |s: &str| s.split_whitespace().nth(1).map(str::to_string);
+            let why = match (parse(&stamp), parse(&expected)) {
+                (None, _) => "carries no ABI stamp".to_string(),
+                (Some(had), Some(now)) if had != now => {
+                    format!("was generated for ABI {had}, and this compiler's is {now}")
+                }
+                _ => "was generated from platform signatures that have changed since".to_string(),
+            };
+            eprintln!(
+                "error: dependency `{}`'s host project {why} (`{}`): {regenerate} [platform-stamp]",
+                dep.name,
+                path.display()
+            );
+            return Err(ExitCode::FAILURE);
+        }
+    }
+    Ok(())
 }
 
 /// [platform-abi] Rewrites the generated files of this backend's platform root

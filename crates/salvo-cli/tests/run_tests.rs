@@ -1052,7 +1052,10 @@ fn a_dependency_brings_its_host_libraries_only_when_reached() {
     assert!(out.status.success(), "the unreached crate must not be fetched: {stderr}");
     assert_eq!(String::from_utf8_lossy(&out.stdout), "plain\n");
 
-    // Reaching the host module brings the crate: the manifest is written.
+    // Reaching the host module brings the crate: the manifest is written. The
+    // dependency checks in its host project first [platform-stamp].
+    let out = salvo_in(&lib, &["platform", "generate", "--backend", "rust"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     fs::write(dir.join("salvo/main.sv"), "import lib\nimport lib.host\n\nfn main() [use] {\n    \
          use StdOutConsole()\n    use HostGreet()\n    println(greet())\n}\n").unwrap();
     let out = salvo_in(&dir, &["compile", "--target", "out"]);

@@ -474,7 +474,8 @@ go in any order.
     (Rust `GetQueueUrl::err(… SqsFailure::sqs_error(…))`); it reads unions
     positionally still, which the factories do not cover. Its drift test keeps
     checking against both SDKs.
-12. **ABI stamps and the dependency check** (D9).
+12. ✅ **ABI stamps and the dependency check** (D9; 2026-10-01,
+    [platform-stamp]).
 13. ✅ **Remove templates** (done in 5b).
 14. **Docs**: LANGUAGE_SPEC rules ([platform-abi] rewritten, new rules for the
     file kinds), both backend specs' host-ABI tables, `docs/language/Backends.md`,
