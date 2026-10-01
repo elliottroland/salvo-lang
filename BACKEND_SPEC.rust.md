@@ -1566,6 +1566,16 @@ facts worth knowing") and keeps the history ("One shape for effects").
   | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
 
+* [rs-platform-check] [platform-check] A check renders as statements over a
+  reference (`let __c = &__r;`), panicking with `"salvo: … [platform-check]"`
+  and the value's `{:?}`: closed literals as `matches!(v.as_str(), "a" | "b")`
+  (or `*v` for numbers and `Bool`), a state qualifier as a call of its
+  `qualifies` by crate path (`*v` for a Copy subject), elements through
+  `.iter()`, a nullable value through `if let Some(..)`, a union arm through
+  `if let crate::unions::UnionN::Uk(a) = v`. A reply is passed as
+  `reply.checked(Arc::new(|any: &dyn Any| …))`, downcasting to the payload's
+  Rust type; `SalvoReply`'s `check` runs in `send` and in
+  `SalvoHostReply::send`.
 * [rs-platform-handler] [platform-handler] Beside an effect `E` some reachable
   platform handler implements, `E`'s module emits the host-facing traits —
   `EPlatform: Send` (`&mut self`) when a serialized handler needs it,

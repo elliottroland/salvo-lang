@@ -882,6 +882,14 @@ nothing but the monitor.
   Verified by kotlinc over a root alone
   (`the_host_project_compiles_on_its_own`) and by Gradle's `compileKotlin` on
   aws's root against the SDK.
+* [kt-platform-check] [platform-check] A check renders as statements over
+  locals (`val __r = impl.m(…)`, then each field, element and arm bound to its
+  own `val`, so smart casts hold), throwing `IllegalStateException("salvo: …
+  [platform-check]")`. A union arm is tested `is salvo.UnionN.Uk<*, …>` and its
+  value cast to the arm's type under `@Suppress("UNCHECKED_CAST")`; a state
+  qualifier calls `salvo.<module>.Q_qualifies(v)`. A reply is passed as
+  `reply.checked { __any -> … }`; `SalvoReply.check` runs in `send` and in
+  `SalvoHostReply.send`.
 * [kt-platform-handler] [platform-handler] Beside an effect `E` some reachable
   platform handler implements, `E`'s module emits `interface EPlatform` (E's
   members) and `open class __Platform_E(private val impl: EPlatform) : E`,

@@ -8130,6 +8130,34 @@ replaced the working document TESTING.md).
     are host code, which performs no Salvo effect — put an ordinary Salvo
     handler in between, `handler DefaultFs [RawFs] of Fs`); not generic (the
     host writes one concrete class).
+* [platform-check] **What crosses from host to Salvo is checked** (user
+  decisions 2026-10-01, ABI.md D7, D10 C3): a platform fn's wrapper checks
+  its result; a platform-handled effect's adapter checks each member's
+  result and, through the reply it hands the host (`reply.checked(…)`), the
+  value the host sends on a `Reply<T>` — on the sending thread, before
+  delivery. A failed check **panics** (Rust) or **throws**
+  `IllegalStateException` (Kotlin), naming the declaration and the value.
+  * What is checked is what the Salvo type promises and the host type cannot
+    say, over the runtime shape [union-arm-identity]: a **closed** literal
+    arm (`"gold" | "silver"`; an open one, `| Other Str`, admits any value of
+    its base); a **state** qualifier, by running its `qualifies`; and these
+    inside lists, sets, arrays, maps, struct fields, tuple elements,
+    nullable values and union arms. A **provenance** qualifier is trusted
+    (`Ok`, `Err`, `Other` are provenance); a **constructive** one (no
+    `qualifies`) is trusted when declared in the platform declaration's
+    module — for a handler, the effect's — and refused otherwise. A
+    `qualifies` that needs effects or slot values cannot run at the
+    boundary and is refused, and so is a recursive type with fields to check.
+  * A check that walks a collection **warns** on the declaration, naming the
+    cost (D10 C3).
+  * The plan is the checker's (`Checked::boundary_checks`,
+    `salvo_core::abi::BoundaryCheck`), so both backends check the same
+    thing; a host project's adapters carry no checks (it only type-checks
+    the implementation files).
+  * Not yet: refusing identity-keyed collections and checking a Kotlin
+    sorted collection's comparator (D10 C2), copying a Kotlin map or set that
+    is not insertion-ordered (C1), refusing a platform fn's borrowed result
+    (C5).
 * [threadsafe-platform] `threadsafe platform handler H of E` states the host
   class's **thread-safety contract** (user decision 2026-09-26, closing the
   2026-09-20 "assumed thread-safe" stance): the instance may be entered

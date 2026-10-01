@@ -130,6 +130,14 @@ fn abi_modules_or_project(program: &Program, module: &ModulePath) -> bool {
         .any(|u| u.file.module == *module && (!u.file.is_std || u.file.is_shadow) && u.file.dependency.is_none())
 }
 
+/// [platform-check] The payload type of a `Reply<T>` parameter.
+fn reply_payload(ty: &Type) -> Option<&Type> {
+    match ty {
+        Type::Named { base, .. } if base.name.name == "Reply" && base.args.len() == 1 => base.args.first(),
+        _ => None,
+    }
+}
+
 /// [platform-abi] The host-facing trait of an effect's platform handlers:
 /// `EPlatform` (`&mut self`), or `EPlatformSync` (`&self`) for `threadsafe`.
 fn platform_trait_name(effect: &str, threadsafe: bool) -> String {
@@ -3209,17 +3217,42 @@ impl<'p> Emitter<'p> {
                 continue;
             }
             let member = self.member_name(e, i);
-            let mut args: Vec<String> = f
-                .params
-                .iter()
-                .filter(|p| !p.implicit)
-                .map(|p| rs_ident(&p.name.name))
-                .collect();
+            // [platform-check] Outside a host project, the adapter checks what
+            // the host hands back (D7).
+            let checking = self.abi_keep.is_none();
+            let mut args: Vec<String> = Vec::new();
+            for p in f.params.iter().filter(|p| !p.implicit) {
+                let pname = rs_ident(&p.name.name);
+                let plan = checking
+                    .then(|| self.checked.boundary_checks.get(&(self.file_idx, p.name.span)).cloned())
+                    .flatten();
+                match (plan, reply_payload(&p.ty)) {
+                    (Some(plan), Some(payload)) => {
+                        let ty = self.emit_type(payload);
+                        let what = format!("what the host sent on `{name}.{}`", f.name.name);
+                        let body = self.render_boundary_check(&plan, "__c", &what, 4);
+                        args.push(format!(
+                            "{pname}.checked(std::sync::Arc::new(|__any: &dyn std::any::Any| {{\n            \
+                             if let Some(__c) = __any.downcast_ref::<{ty}>() {{\n{body}            }}\n        }}))"
+                        ));
+                    }
+                    _ => args.push(pname),
+                }
+            }
             args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
-            sigs.push((
-                format!("fn {member}(&RECV{params}){ret}"),
-                format!("self.0.{member}({})", args.join(", ")),
-            ));
+            let call = format!("self.0.{member}({})", args.join(", "));
+            let result_plan = checking
+                .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).cloned())
+                .flatten();
+            let body = match result_plan {
+                Some(plan) => {
+                    let what = format!("`{name}.{}`'s result", f.name.name);
+                    let checks = self.render_boundary_check(&plan, "__c", &what, 3);
+                    format!("let __r = {call};\n        {{\n            let __c = &__r;\n{checks}        }}\n        __r")
+                }
+                None => call,
+            };
+            sigs.push((format!("fn {member}(&RECV{params}){ret}"), body));
         }
         let adapter = platform_adapter_name(name);
         let mut out = format!(
@@ -3676,13 +3709,134 @@ impl<'p> Emitter<'p> {
         let module = self.program.files[self.file_idx].module.clone();
         self.platform_hosts.insert(module.clone());
         let args: Vec<String> = f.params.iter().map(|p| rs_ident(&p.name.name)).collect();
-        format!(
-            "{}crate::{}::{}({})\n",
-            "    ".repeat(indent),
-            host_mod_name(&module),
-            rs_ident(&f.name.name),
-            args.join(", ")
-        )
+        let call = format!("crate::{}::{}({})", host_mod_name(&module), rs_ident(&f.name.name), args.join(", "));
+        let pad = "    ".repeat(indent);
+        // [platform-check] The wrapper checks the result (D7).
+        let plan = self
+            .abi_keep
+            .is_none()
+            .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).cloned())
+            .flatten();
+        match plan {
+            Some(plan) => {
+                let what = format!("`platform fn {}`'s result", f.name.name);
+                let checks = self.render_boundary_check(&plan, "__c", &what, indent + 1);
+                format!("{pad}let __r = {call};\n{pad}{{\n{pad}    let __c = &__r;\n{checks}{pad}}}\n{pad}__r\n")
+            }
+            None => format!("{pad}{call}\n"),
+        }
+    }
+
+    /// [platform-check] [rs-platform-check] Rust statements checking the value behind the
+    /// reference `v` against `plan`, at `indent`, panicking with a message
+    /// naming `what` on a failure (D7). Each value checked is a reference.
+    fn render_boundary_check(
+        &mut self,
+        plan: &salvo_core::abi::BoundaryCheck,
+        v: &str,
+        what: &str,
+        indent: usize,
+    ) -> String {
+        use salvo_core::abi::BoundaryCheck as C;
+        let pad = "    ".repeat(indent);
+        let what_fmt = what.replace('{', "{{").replace('}', "}}");
+        let d = indent;
+        match plan {
+            C::OneOf(lits) => {
+                let pats: Vec<String> = lits.iter().map(rs_literal).collect();
+                let subject = if lits.iter().any(|l| matches!(l, salvo_syntax::ast::TypeLit::Str(_))) {
+                    format!("{v}.as_str()")
+                } else {
+                    format!("*{v}")
+                };
+                let listed = pats.join(", ").replace('{', "{{").replace('}', "}}").replace('"', "\\\"");
+                format!(
+                    "{pad}if !matches!({subject}, {}) {{\n{pad}    panic!(\"salvo: {what_fmt} was {{:?}}, which is not one of {listed} [platform-check]\", {v});\n{pad}}}\n",
+                    pats.join(" | ")
+                )
+            }
+            C::Qualifies { quals, ty, inner } => {
+                let copy = Self::is_copy_ty(ty);
+                let arg = if copy { format!("*{v}") } else { v.to_string() };
+                let mut out = String::new();
+                for (q, m) in quals {
+                    let decl = self.symbols.qualifiers.get(q.as_str()).and_then(|ds| {
+                        ds.iter().copied().find(|d| self.symbols.qualifier_module(d) == Some(m))
+                    });
+                    let Some(decl) = decl else {
+                        self.error(format!("internal: qualifier `{q}` of module `{m}` not found [platform-check]"));
+                        continue;
+                    };
+                    let fname = self.qualifier_member_name(decl, "qualifies");
+                    let prefix = self
+                        .program
+                        .units()
+                        .enumerate()
+                        .find(|(_, u)| u.file.module == *m)
+                        .and_then(|(i, _)| self.module_paths.get(&i).cloned())
+                        .unwrap_or_default();
+                    out.push_str(&format!(
+                        "{pad}if !{prefix}{fname}({arg}) {{\n{pad}    panic!(\"salvo: {what_fmt} was {{:?}}, which is not `{q}` [platform-check]\", {v});\n{pad}}}\n"
+                    ));
+                }
+                if let Some(inner) = inner {
+                    out.push_str(&self.render_boundary_check(inner, v, what, indent));
+                }
+                out
+            }
+            C::Elems(inner) => {
+                let e = format!("__e{d}");
+                let body = self.render_boundary_check(inner, &e, what, indent + 1);
+                format!("{pad}for {e} in {v}.iter() {{\n{body}{pad}}}\n")
+            }
+            C::Entries(k, val) => {
+                let (kn, vn) = (format!("__k{d}"), format!("__v{d}"));
+                let mut body = String::new();
+                if let Some(k) = k {
+                    body.push_str(&self.render_boundary_check(k, &kn, what, indent + 1));
+                }
+                if let Some(val) = val {
+                    body.push_str(&self.render_boundary_check(val, &vn, what, indent + 1));
+                }
+                format!("{pad}for ({kn}, {vn}) in {v}.iter() {{\n{body}{pad}}}\n")
+            }
+            C::Nullable(inner) => {
+                let n = format!("__n{d}");
+                let body = self.render_boundary_check(inner, &n, what, indent + 1);
+                format!("{pad}if let Some({n}) = {v} {{\n{body}{pad}}}\n")
+            }
+            C::Union { arity, arms } => {
+                self.union_sizes.insert(*arity);
+                let mut out = String::new();
+                for (i, _, inner) in arms {
+                    let a = format!("__a{d}_{i}");
+                    let body = self.render_boundary_check(inner, &a, what, indent + 1);
+                    out.push_str(&format!(
+                        "{pad}if let crate::unions::Union{arity}::U{}({a}) = {v} {{\n{body}{pad}}}\n",
+                        i + 1
+                    ));
+                }
+                out
+            }
+            C::Struct { fields, .. } => {
+                let mut out = String::new();
+                for (field, inner) in fields {
+                    let f = format!("__f{d}_{}", field);
+                    out.push_str(&format!("{pad}let {f} = &{v}.{};\n", rs_ident(field)));
+                    out.push_str(&self.render_boundary_check(inner, &f, what, indent));
+                }
+                out
+            }
+            C::Tuple { elems, .. } => {
+                let mut out = String::new();
+                for (i, inner) in elems {
+                    let t = format!("__t{d}_{i}");
+                    out.push_str(&format!("{pad}let {t} = &{v}.{i};\n"));
+                    out.push_str(&self.render_boundary_check(inner, &t, what, indent));
+                }
+                out
+            }
+        }
     }
 
     /// [platform-fn] The skeleton of a platform fn's implementation: the

@@ -459,7 +459,11 @@ go in any order.
      (Rust also `EPlatformSync` for `threadsafe`) and `__Platform_E` beside
      the effect, `__Platform_H` per handler; std's host files and the aws
      generator ported (this was step 10's and part of 11's work).
-   - 8b. Validation in the adapters and wrappers (D7, D10), host replies.
+   - 8b. ✅ Validation in the adapters and wrappers (D7, D10 C3), host replies
+     (2026-10-01, [platform-check]). Left: D10 C1 (Kotlin copies of maps and
+     sets that are not insertion-ordered), C2 (refusing identity-keyed
+     collections, checking a Kotlin sorted collection's comparator), C5
+     (refusing a platform fn's borrowed result).
    - 8c. Factories (D5), and the aws generator onto them.
 9. ✅ **Implementation skeletons** (done in 5b).
 10. **Port std's host files** onto the generated interfaces.

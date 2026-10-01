@@ -804,6 +804,11 @@ pub struct Checked {
     /// see the concrete type. A fn absent here either has no such return or
     /// could not be resolved (an error at its return).
     pub iter_returns: HashMap<FnKey, Ty>,
+    /// [platform-check] What crosses from host to Salvo and needs checking
+    /// (ABI.md D7): keyed by a platform fn's name span (its result), an
+    /// effect member's name span (its result, for a platform-handled effect),
+    /// or a `Reply<T>` parameter's name span (the value the host sends).
+    pub boundary_checks: HashMap<Key, crate::abi::BoundaryCheck>,
     /// [iter-type] Every written `iter T` **pattern** that was filled from a
     /// value — a `let` annotation, a fn's return type — keyed by the span of
     /// the written type, with the concrete type it stands for. What the
@@ -1329,6 +1334,7 @@ fn check_once<'p>(
             parking_handlers,
         );
         checker.check_module(ast);
+        checker.check_platform_boundary(ast);
     }
     check_intrinsic_is_std_only(program, &mut out);
     // [actor-deadlock-cycle] The static deadlock baseline, over the whole
@@ -2336,6 +2342,247 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             self.check_fn_item(item_idx, f);
+        }
+    }
+
+    /// [platform-check] Plans the checks of every value this module's platform
+    /// surface receives from the host: a platform fn's result, and for an
+    /// effect some platform handler implements, each member's result and
+    /// each `Reply<T>` parameter's `T`. Refuses what cannot be checked or
+    /// trusted, and warns where a check walks a collection (D10 C3).
+    fn check_platform_boundary(&mut self, module: &'p Module) {
+        let platform_handled = |name: &str, symbols: &Symbols<'p>| {
+            symbols.handlers.values().any(|h| {
+                h.platform
+                    && matches!(h.of.first(), Some(ast::Type::Named { base, .. }) if base.name.name == name)
+            })
+        };
+        for item in &module.items {
+            match item {
+                Item::Fn(f) if f.platform => {
+                    if let Some(rt) = &f.return_type {
+                        let ty = self.lower_type(rt);
+                        let what = format!("`platform fn {}`'s result", f.name.name);
+                        self.plan_boundary(&ty, &what, f.name.span, f.name.span);
+                    }
+                }
+                Item::Effect(e) if platform_handled(&e.name.name, self.symbols) => {
+                    for f in &e.fns {
+                        if let Some(rt) = &f.return_type {
+                            let ty = self.lower_type(rt);
+                            let what = format!("`{}.{}`'s result", e.name.name, f.name.name);
+                            self.plan_boundary(&ty, &what, f.name.span, f.name.span);
+                        }
+                        for p in &f.params {
+                            let ty = self.lower_type(&p.ty);
+                            if let Ty::Named { name, args } = ty.strip_quals() {
+                                if name == "Reply" && args.len() == 1 {
+                                    let what = format!(
+                                        "what the host sends on `{}.{}`'s `{}`",
+                                        e.name.name, f.name.name, p.name.name
+                                    );
+                                    let inner = args[0].clone();
+                                    self.plan_boundary(&inner, &what, p.name.span, p.name.span);
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// [platform-check] Plans one crossing, records it under `key`, and warns
+    /// at `span` when it walks a collection.
+    fn plan_boundary(&mut self, ty: &Ty, what: &str, key: Span, span: Span) {
+        let mut visiting = Vec::new();
+        let Some(plan) = self.boundary_plan(ty, what, span, &mut visiting) else {
+            return;
+        };
+        if plan.walks() {
+            self.warn(
+                span,
+                format!(
+                    "{what} is checked element by element when the host returns it, a cost that \
+                     grows with its size ({ty}) [platform-check]"
+                ),
+            );
+        }
+        self.out.boundary_checks.insert((self.file_idx, key), plan);
+    }
+
+    /// [platform-check] The check a value of `ty` needs when the host hands it
+    /// to Salvo, over the runtime shape: `None` when the host type already
+    /// says everything.
+    fn boundary_plan(
+        &mut self,
+        ty: &Ty,
+        what: &str,
+        span: Span,
+        visiting: &mut Vec<(String, bool)>,
+    ) -> Option<crate::abi::BoundaryCheck> {
+        use crate::abi::BoundaryCheck as C;
+        match ty {
+            Ty::Qualified { quals, base } => {
+                let mut checked = Vec::new();
+                for q in quals {
+                    if q.effect || q.name == "Mut" {
+                        continue;
+                    }
+                    let Some(decl) = self.qualifier_for(q.name.as_str(), Some(base)) else {
+                        continue;
+                    };
+                    if decl.subject == QualSubject::Provenance {
+                        continue; // [platform-check] trusted (D7)
+                    }
+                    let qualifies = decl.fns.iter().find(|f| f.name.name == "qualifies");
+                    match qualifies {
+                        Some(f) if f.effects.as_ref().is_some_and(|e| !e.is_empty())
+                            || !decl.value_slots.is_empty()
+                            || !decl.fn_slots.is_empty() =>
+                        {
+                            self.error(
+                                span,
+                                format!(
+                                    "{what} claims `{}`, whose `qualifies` needs effects or slot values \
+                                     the boundary does not have, so the claim cannot be checked when the \
+                                     host returns it [platform-check]",
+                                    q.name
+                                ),
+                            );
+                        }
+                        Some(_) => match self.symbols.qualifier_module(decl) {
+                            Some(m) => checked.push((q.name.clone(), m.clone())),
+                            None => {}
+                        },
+                        None if self.own_qualifiers.contains(&q.name) => {} // trusted (D7)
+                        None => self.error(
+                            span,
+                            format!(
+                                "{what} claims `{}`, a constructive qualifier declared in another \
+                                 module: nothing proves it of a value the host returns — declare the \
+                                 platform declaration in that module, or drop the claim [platform-check]",
+                                q.name
+                            ),
+                        ),
+                    }
+                }
+                let inner = self.boundary_plan(base, what, span, visiting);
+                if checked.is_empty() {
+                    inner
+                } else {
+                    Some(C::Qualifies {
+                        quals: checked,
+                        ty: crate::literal::collapse_ty(base),
+                        inner: inner.map(Box::new),
+                    })
+                }
+            }
+            Ty::Union(arms) => {
+                let values: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
+                let has_none = values.len() < arms.len();
+                let groups = crate::literal::runtime_groups(&values);
+                let mut plans = Vec::new();
+                let mut runtime_tys = Vec::new();
+                for group in &groups {
+                    // The runtime arm's type: the joiner's, or the literals' base.
+                    let rt = group
+                        .iter()
+                        .find(|i| !matches!(values[**i], Ty::Lit(_)))
+                        .map(|i| crate::literal::collapse_ty(values[*i]))
+                        .unwrap_or_else(|| crate::literal::collapse_ty(values[group[0]]));
+                    runtime_tys.push(rt);
+                    let lits: Vec<salvo_syntax::ast::TypeLit> = group
+                        .iter()
+                        .filter_map(|i| match values[*i] {
+                            Ty::Lit(l) => Some(l.clone()),
+                            _ => None,
+                        })
+                        .collect();
+                    let joiner = group.iter().find(|i| !matches!(values[**i], Ty::Lit(_)));
+                    let plan = match joiner {
+                        // An open arm (`"A" | Other Str`): anything of the base
+                        // is admitted, so only its own claims are checked.
+                        Some(j) => {
+                            let arm = values[*j].clone();
+                            self.boundary_plan(&arm, what, span, visiting)
+                        }
+                        None if !lits.is_empty() => Some(C::OneOf(lits)),
+                        None => None,
+                    };
+                    plans.push(plan);
+                }
+                let inner = if groups.len() == 1 {
+                    plans.pop().flatten()
+                } else {
+                    let arity = groups.len();
+                    let arms: Vec<(usize, Ty, C)> = plans
+                        .into_iter()
+                        .enumerate()
+                        .filter_map(|(i, p)| p.map(|p| (i, runtime_tys[i].clone(), p)))
+                        .collect();
+                    (!arms.is_empty()).then_some(C::Union { arity, arms })
+                };
+                match inner {
+                    Some(c) if has_none => Some(C::Nullable(Box::new(c))),
+                    other => other,
+                }
+            }
+            Ty::Lit(l) => Some(C::OneOf(vec![l.clone()])),
+            Ty::Tuple(elems) => {
+                let arity = elems.len();
+                let mut out = Vec::new();
+                for (i, e) in elems.iter().enumerate() {
+                    if let Some(c) = self.boundary_plan(e, what, span, visiting) {
+                        out.push((i, c));
+                    }
+                }
+                (!out.is_empty()).then_some(C::Tuple { arity, elems: out })
+            }
+            Ty::Array(e) => self.boundary_plan(e, what, span, visiting).map(|c| C::Elems(Box::new(c))),
+            Ty::Named { name, args } => match name.as_str() {
+                "List" | "Set" | "SortedSet" if args.len() == 1 => {
+                    let elem = args[0].clone();
+                    self.boundary_plan(&elem, what, span, visiting).map(|c| C::Elems(Box::new(c)))
+                }
+                "Map" | "SortedMap" if args.len() >= 2 => {
+                    let (k, v) = (args[0].clone(), args[1].clone());
+                    let kc = self.boundary_plan(&k, what, span, visiting);
+                    let vc = self.boundary_plan(&v, what, span, visiting);
+                    (kc.is_some() || vc.is_some()).then(|| C::Entries(kc.map(Box::new), vc.map(Box::new)))
+                }
+                _ => {
+                    let decl: &'p StructDecl = self.scope.structs.get(name.as_str()).copied()?;
+                    if let Some(seen) = visiting.iter_mut().find(|(n, _)| n == name) {
+                        // Only a field that itself needs a check makes this a
+                        // problem (reported below); a plain recursive struct
+                        // passes through.
+                        seen.1 = true;
+                        return None;
+                    }
+                    visiting.push((name.clone(), false));
+                    let mut fields = Vec::new();
+                    for field in &decl.fields {
+                        let Some(fty) = self.declared_field_ty(ty, &field.name.name) else { continue };
+                        if let Some(c) = self.boundary_plan(&fty, what, span, visiting) {
+                            fields.push((field.name.name.clone(), c));
+                        }
+                    }
+                    let recursed = visiting.pop().is_some_and(|(_, r)| r);
+                    if recursed && !fields.is_empty() {
+                        self.error(
+                            span,
+                            format!(
+                                "{what} contains `{name}`, a recursive type with fields the boundary \
+                                 must check, which is not supported yet [platform-check]"
+                            ),
+                        );
+                    }
+                    (!fields.is_empty()).then(|| C::Struct { name: name.clone(), fields })
+                }
+            },
+            _ => None,
         }
     }
 

@@ -2787,7 +2787,23 @@ class SalvoReply internal constructor(internal val target: SalvoTarget, internal
      */
     internal var tracked: Boolean = true
 
-    fun send(value: Any?) = SalvoSched.sendReply(this, value)
+    /**
+     * [platform-check] What a platform adapter checks of the value the host
+     * sends (ABI.md D7): run by [send] and [SalvoHostReply.send], on the
+     * sender's thread, before anything is delivered — a failure throws there.
+     */
+    internal var check: ((Any?) -> Unit)? = null
+
+    /** [platform-check] This token, checking what is sent on it. */
+    fun checked(f: (Any?) -> Unit): SalvoReply {
+        check = f
+        return this
+    }
+
+    fun send(value: Any?) {
+        check?.invoke(value)
+        SalvoSched.sendReply(this, value)
+    }
 
     /**
      * [platform-reply] Hands the token to **host code** that will complete it
@@ -2816,6 +2832,7 @@ class SalvoHostReply internal constructor(private val reply: SalvoReply) {
      * refused — it would answer one question twice.
      */
     fun send(value: Any?) {
+        reply.check?.invoke(value)
         check(sent.compareAndSet(false, true)) { "salvo: a host reply was sent twice [platform-reply]" }
         SalvoSched.sendHostReply(reply, value)
     }

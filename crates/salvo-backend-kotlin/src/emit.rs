@@ -371,6 +371,14 @@ fn emit_program_mode(
     }
 }
 
+/// [platform-check] The payload type of a `Reply<T>` parameter.
+fn reply_payload(ty: &Type) -> Option<&Type> {
+    match ty {
+        Type::Named { base, .. } if base.name.name == "Reply" && base.args.len() == 1 => base.args.first(),
+        _ => None,
+    }
+}
+
 /// [platform-abi] The host-facing interface of an effect's platform handlers.
 fn platform_interface_name(effect: &str) -> String {
     format!("{effect}Platform")
@@ -1932,12 +1940,30 @@ impl<'p> Emitter<'p> {
             let params = self.emit_member_param_list_with_implicits(f);
             let ret = self.emit_return_type(f.return_type.as_ref());
             let member = self.member_name(e, i);
-            let mut args: Vec<String> = f
-                .params
-                .iter()
-                .filter(|p| !p.implicit)
-                .map(|p| kt_ident(&p.name.name))
-                .collect();
+            // [platform-check] Outside a host project, the adapter checks what
+            // the host hands back (D7): a host project's adapter only has to
+            // type-check the implementation, and its checks would pull in the
+            // qualifiers' code.
+            let checking = self.abi_keep.is_none();
+            let mut args: Vec<String> = Vec::new();
+            for p in f.params.iter().filter(|p| !p.implicit) {
+                let name = kt_ident(&p.name.name);
+                let plan = checking
+                    .then(|| self.checked.boundary_checks.get(&(self.file_idx, p.name.span)).cloned())
+                    .flatten();
+                match (plan, reply_payload(&p.ty)) {
+                    (Some(plan), Some(payload)) => {
+                        let ty = self.emit_type(payload);
+                        let what = format!("what the host sent on `{}.{}`", e.name.name, f.name.name);
+                        let body = self.render_boundary_check(&plan, "__c", &what, 3);
+                        args.push(format!(
+                            "{name}.checked {{ __any ->\n            \
+                             @Suppress(\"UNCHECKED_CAST\") val __c = __any as {ty}\n{body}        }}"
+                        ));
+                    }
+                    _ => args.push(name),
+                }
+            }
             args.extend(self.implicits_of(f).iter().map(|imp| kt_ident(&imp.name)));
             let type_args = if f.generics.is_empty() {
                 String::new()
@@ -1945,10 +1971,23 @@ impl<'p> Emitter<'p> {
                 generics.clone()
             };
             decl.push_str(&format!("    fun{generics} {member}({params}){ret}\n"));
-            adapter.push_str(&format!(
-                "    override fun{generics} {member}({params}){ret} = impl.{member}{type_args}({})\n",
-                args.join(", ")
-            ));
+            let result_plan = checking
+                .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).cloned())
+                .flatten();
+            let call = format!("impl.{member}{type_args}({})", args.join(", "));
+            match result_plan {
+                Some(plan) => {
+                    let what = format!("`{}.{}`'s result", e.name.name, f.name.name);
+                    let body = self.render_boundary_check(&plan, "__r", &what, 2);
+                    adapter.push_str(&format!(
+                        "    override fun{generics} {member}({params}){ret} {{\n        \
+                         val __r = {call}\n{body}        return __r\n    }}\n"
+                    ));
+                }
+                None => adapter.push_str(&format!(
+                    "    override fun{generics} {member}({params}){ret} = {call}\n"
+                )),
+            }
             self.generics = member_saved;
         }
         decl.push_str("}\n");
@@ -2269,13 +2308,125 @@ impl<'p> Emitter<'p> {
         let module = self.program.files[self.file_idx].module.clone();
         self.platform_hosts.insert(module.clone());
         let args: Vec<String> = f.params.iter().map(|p| kt_ident(&p.name.name)).collect();
-        format!(
-            "{}return {}.{}({})\n",
-            "    ".repeat(indent),
-            host_package(&module),
-            kt_ident(&f.name.name),
-            args.join(", ")
-        )
+        let call = format!("{}.{}({})", host_package(&module), kt_ident(&f.name.name), args.join(", "));
+        let pad = "    ".repeat(indent);
+        // [platform-check] The wrapper checks the result (D7).
+        let plan = self
+            .abi_keep
+            .is_none()
+            .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).cloned())
+            .flatten();
+        match plan {
+            Some(plan) => {
+                let what = format!("`platform fn {}`'s result", f.name.name);
+                let body = self.render_boundary_check(&plan, "__r", &what, indent);
+                format!("{pad}val __r = {call}\n{body}{pad}return __r\n")
+            }
+            None => format!("{pad}return {call}\n"),
+        }
+    }
+
+    /// [platform-check] [kt-platform-check] Kotlin statements checking the value in local `v`
+    /// against `plan`, at `indent`, throwing `IllegalStateException` naming
+    /// `what` on a failure — the way Kotlin meets a Java value that broke its
+    /// nullability (D7). Every value checked is bound to a local first, so
+    /// smart casts hold.
+    fn render_boundary_check(
+        &mut self,
+        plan: &salvo_core::abi::BoundaryCheck,
+        v: &str,
+        what: &str,
+        indent: usize,
+    ) -> String {
+        use salvo_core::abi::BoundaryCheck as C;
+        let pad = "    ".repeat(indent);
+        let fail = |msg: String| {
+            format!(
+                "throw IllegalStateException(\"salvo: {} [platform-check]\")",
+                escape_string(&format!("{what} {msg}")).replace("\\${__", "${__")
+            )
+        };
+        let d = indent;
+        match plan {
+            C::OneOf(lits) => {
+                let cond: Vec<String> = lits.iter().map(|l| format!("{v} != {}", kt_literal(l))).collect();
+                let listed: Vec<String> = lits.iter().map(|l| kt_literal(l).replace("\\$", "$")).collect();
+                format!(
+                    "{pad}if ({}) {}\n",
+                    cond.join(" && "),
+                    fail(format!("was ${{{v}}}, which is not one of {}", listed.join(", ")))
+                )
+            }
+            C::Qualifies { quals, inner, .. } => {
+                let mut out = String::new();
+                for (q, m) in quals {
+                    out.push_str(&format!(
+                        "{pad}if (!{}.{q}_qualifies({v})) {}\n",
+                        kotlin_package(m),
+                        fail(format!("was ${{{v}}}, which is not `{q}`"))
+                    ));
+                }
+                if let Some(inner) = inner {
+                    out.push_str(&self.render_boundary_check(inner, v, what, indent));
+                }
+                out
+            }
+            C::Elems(inner) => {
+                let e = format!("__e{d}");
+                let body = self.render_boundary_check(inner, &e, what, indent + 1);
+                format!("{pad}for ({e} in {v}) {{\n{body}{pad}}}\n")
+            }
+            C::Entries(k, val) => {
+                let (kn, vn) = (format!("__k{d}"), format!("__v{d}"));
+                let mut body = String::new();
+                if let Some(k) = k {
+                    body.push_str(&self.render_boundary_check(k, &kn, what, indent + 1));
+                }
+                if let Some(val) = val {
+                    body.push_str(&self.render_boundary_check(val, &vn, what, indent + 1));
+                }
+                format!("{pad}for (({kn}, {vn}) in {v}) {{\n{body}{pad}}}\n")
+            }
+            C::Nullable(inner) => {
+                let body = self.render_boundary_check(inner, v, what, indent + 1);
+                format!("{pad}if ({v} != null) {{\n{body}{pad}}}\n")
+            }
+            C::Union { arity, arms } => {
+                self.union_sizes.insert(*arity);
+                let stars = vec!["*"; *arity].join(", ");
+                let mut out = format!("{pad}when ({v}) {{\n");
+                for (i, ty, inner) in arms {
+                    let a = format!("__a{d}_{i}");
+                    let kt = self.emit_ty(ty);
+                    let body = self.render_boundary_check(inner, &a, what, indent + 2);
+                    out.push_str(&format!(
+                        "{pad}    is salvo.Union{arity}.U{}<{stars}> -> {{\n{pad}        \
+                         @Suppress(\"UNCHECKED_CAST\") val {a} = {v}.value as {kt}\n{body}{pad}    }}\n",
+                        i + 1
+                    ));
+                }
+                out.push_str(&format!("{pad}    else -> {{}}\n{pad}}}\n"));
+                out
+            }
+            C::Struct { fields, .. } => {
+                let mut out = String::new();
+                for (field, inner) in fields {
+                    let f = format!("__f{d}_{}", kt_ident(field).trim_matches('`'));
+                    out.push_str(&format!("{pad}val {f} = {v}.{}\n", kt_ident(field)));
+                    out.push_str(&self.render_boundary_check(inner, &f, what, indent));
+                }
+                out
+            }
+            C::Tuple { elems, .. } => {
+                let mut out = String::new();
+                for (i, inner) in elems {
+                    let t = format!("__t{d}_{i}");
+                    out.push_str(&format!("{pad}val {t} = {v}.{}\n", tuple_field(*i)));
+                    out.push_str(&self.render_boundary_check(inner, &t, what, indent));
+                }
+                out
+            }
+        }
     }
 
     /// [platform-fn] The skeleton of a platform fn's implementation: the

@@ -2404,7 +2404,14 @@ pub struct SalvoReply {
     /// what an `Idle` payload reports is work *user code* has not answered,
     /// not registrations the scheduler will answer on its own.
     tracked: bool,
+    /// [platform-check] What a platform adapter checks of the value the host
+    /// sends (ABI.md D7): run by `send` and `SalvoHostReply::send`, on the
+    /// sender's thread, before anything is delivered — a failure panics there.
+    check: Option<SalvoReplyCheck>,
 }
+
+/// [platform-check] A check on the value sent on a reply.
+pub type SalvoReplyCheck = Arc<dyn Fn(&dyn Any) + Send + Sync>;
 
 enum Target {
     Proc(usize),
@@ -3018,6 +3025,7 @@ pub fn salvo_mint_task(pool: usize, body: TaskBody, decode: ReplyDecoder) -> Sal
         target: Target::Task(pool, Arc::new(Mutex::new(Some(body))), decode),
         slot,
         tracked: true,
+        check: None,
     }
 }
 
@@ -3111,6 +3119,7 @@ pub fn salvo_mint(addr: usize) -> (SalvoReply, u64) {
             target: Target::Proc(addr),
             slot,
             tracked: true,
+            check: None,
         },
         slot,
     )
@@ -3135,6 +3144,7 @@ pub fn salvo_mint_gated(addr: usize) -> (SalvoReply, u64) {
             target: Target::Proc(addr),
             slot,
             tracked: true,
+            check: None,
         },
         slot,
     )
@@ -3291,6 +3301,7 @@ pub fn salvo_waiter() -> (SalvoReply, usize) {
             target: Target::Waiter(wid),
             slot,
             tracked: true,
+            check: None,
         },
         wid,
     )
@@ -3410,10 +3421,20 @@ impl SalvoReply {
     /// Sends the reply, consuming the token. Enqueue only — user code
     /// never runs inside a `send`.
     pub fn send(self, value: SalvoMsg) {
+        if let Some(check) = &self.check {
+            let any: &dyn Any = &*value;
+            check(any);
+        }
         let (lock, cv) = state();
         let mut s = lock.lock().unwrap();
         deliver_reply(&mut s, self, value);
         cv.notify_all();
+    }
+
+    /// [platform-check] This token, checking what is sent on it.
+    pub fn checked(mut self, check: SalvoReplyCheck) -> Self {
+        self.check = Some(check);
+        self
     }
 
     /// [platform-reply] Hands the token to **host code** that will complete
@@ -3448,6 +3469,9 @@ impl SalvoHostReply {
     /// value is the Salvo type the reply was declared with (`Reply<Int>` takes
     /// an `i32`).
     pub fn send<T: Any + Send>(mut self, value: T) {
+        if let Some(check) = self.reply.as_ref().and_then(|r| r.check.clone()) {
+            check(&value);
+        }
         let reply = self.reply.take().expect("a host reply holds its token until sent");
         if let Target::Remote { .. } = reply.target {
             // Remote tokens need the typed wire path; not reachable from a
@@ -4173,6 +4197,7 @@ pub fn salvo_reply_import(node: u64, kind: u8, id: u64, slot: u64, bits: u64) ->
         target,
         slot,
         tracked: false,
+        check: None,
     }
 }
 

@@ -57,6 +57,9 @@ pub struct Symbols<'p> {
     /// [qual-overload] Overload sets: one name may be declared over several
     /// subject types, and a backend picks by the subject in hand.
     pub qualifiers: HashMap<&'p str, Vec<&'p QualifierDecl>>,
+    /// [platform-check] The module each qualifier is declared in, by
+    /// declaration: a boundary check calls its `qualifies` by full path.
+    pub qualifier_modules: Vec<(&'p QualifierDecl, &'p ModulePath)>,
     pub type_aliases: HashMap<&'p str, &'p TypeDecl>,
     /// `intrinsic type` declarations (mapped natively by each backend)
     /// [backend-intrinsic].
@@ -73,6 +76,11 @@ pub struct Symbols<'p> {
 }
 
 impl<'p> Symbols<'p> {
+    /// [platform-check] The module declaring `decl`.
+    pub fn qualifier_module(&self, decl: &QualifierDecl) -> Option<&'p ModulePath> {
+        self.qualifier_modules.iter().find(|(q, _)| std::ptr::eq(*q, decl)).map(|(_, m)| *m)
+    }
+
     /// Collects symbols from every module of the program.
     pub fn collect(program: &'p Program) -> Self {
         let mut symbols = Symbols::default();
@@ -108,6 +116,7 @@ impl<'p> Symbols<'p> {
                     }
                     Item::Qualifier(q) => {
                         symbols.qualifiers.entry(&q.name.name).or_default().push(q);
+                        symbols.qualifier_modules.push((q, &unit.file.module));
                     }
                     // An `intrinsic type` is the compiler's; anything else
                     // is an alias, since a bodiless non-intrinsic `type` is

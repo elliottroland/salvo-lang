@@ -1053,3 +1053,135 @@ fn the_checked_in_host_projects_are_current_and_compile() {
         }
     }
 }
+
+/// [platform-check] The adapters and wrappers check what the host hands
+/// back (ABI.md D7, D10 C3): a closed literal union, a literal field of a
+/// struct inside a list (element by element, which warns), a state qualifier
+/// (`NonEmpty`, by running its `qualifies`), a literal arm of a positional
+/// union, and a `Reply<T>` the host completes from its own thread. Good values
+/// pass on both backends; a bad one fails where it crosses — Rust panics,
+/// Kotlin throws — naming the declaration and the value.
+#[test]
+fn the_boundary_checks_what_the_host_returns() {
+    let Some(stamp) = e2e_stamp("the_boundary_checks_what_the_host_returns", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    const PROGRAM: &str = "\
+struct Item {
+    tier: \"gold\" | \"silver\",
+    tags: List<\"a\" | \"b\">
+}
+
+platform fn tier(n: Int) [] -> \"gold\" | \"silver\" | None
+
+platform fn items(n: Int) [] -> List<Item>
+
+platform fn names(n: Int) [] -> NonEmpty List<Str>
+
+effect Lookup {
+    fn find(key: Str) [] -> Int | \"missing\" => key
+    fn parity(n: Int, done: Reply<\"even\" | \"odd\">) [] -> None => !n, !done
+}
+
+threadsafe platform handler HostLookup() of Lookup
+
+fn show(t: \"gold\" | \"silver\" | None) -> Str {
+    when t {
+        is None { return \"none\" }
+        is \"gold\" { return \"gold\" }
+        is \"silver\" { return \"silver\" }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use HostLookup()
+    println(\"${show(tier(1))} ${show(tier(2))}\")
+    println(\"${items(1).size()} ${names(1)}\")
+    let found = find(\"x\")
+    when found {
+        is Int { println(\"int\") }
+        is \"missing\" { println(\"missing\") }
+    }
+    let p = waitfor done: Reply<\"even\" | \"odd\"> { parity(PARITY, done) }
+    println(\"${p}\")
+    println(show(tier(TIER)))
+}
+";
+    let hosts = [
+        (
+            "rust",
+            "rustc",
+            "rs",
+            vec![
+                ("todo!(\"implement tier\")", "match n { 1 => Some(\"gold\".to_string()), 2 => None, _ => Some(\"bronze\".to_string()) }"),
+                ("todo!(\"implement items\")", "vec![Item { tier: \"gold\".to_string(), tags: vec![\"a\".to_string(), \"b\".to_string()] }]"),
+                ("todo!(\"implement names\")", "if n > 0 { vec![\"x\".to_string()] } else { vec![] }"),
+                ("todo!(\"implement Lookup.find\")", "Union2::U2(\"missing\".to_string())"),
+                (
+                    "todo!(\"implement Lookup.parity\")",
+                    "let done = done.hosted();\n        std::thread::spawn(move || {\n            \
+                     let v = if n < 0 { \"neither\" } else if n % 2 == 0 { \"even\" } else { \"odd\" };\n            \
+                     done.send(v.to_string())\n        });",
+                ),
+            ],
+        ),
+        (
+            "kotlin",
+            "kotlinc",
+            "kt",
+            vec![
+                ("TODO(\"implement tier\")", "return when (n) { 1 -> \"gold\"; 2 -> null; else -> \"bronze\" }"),
+                ("TODO(\"implement items\")", "return listOf(Item(tier = \"gold\", tags = listOf(\"a\", \"b\")))"),
+                ("TODO(\"implement names\")", "return if (n > 0) listOf(\"x\") else listOf()"),
+                ("TODO(\"implement Lookup.find\")", "return Union2.U2(\"missing\")"),
+                (
+                    "TODO(\"implement Lookup.parity\")",
+                    "val host = done.hosted()\n        Thread {\n            \
+                     val v = if (n < 0) \"neither\" else if (n % 2 == 0) \"even\" else \"odd\"\n            \
+                     try { host.send(v) } catch (e: IllegalStateException) { System.err.println(e.message); System.exit(3) }\n        }.start()",
+                ),
+            ],
+        ),
+    ];
+    for (backend, tool, ext, edits) in hosts {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("boundary_{backend}"));
+        project(&dir);
+        let program = |parity: &str, tier: &str| PROGRAM.replace("PARITY", parity).replace("TIER", tier);
+        fs::write(dir.join("main.sv"), program("3", "1")).unwrap();
+        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend]);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let host = dir.join("platform").join(format!("main.{ext}"));
+        let mut src = fs::read_to_string(&host).unwrap();
+        for (a, b) in &edits {
+            assert!(src.contains(a), "{backend}: `{a}` not in the skeleton:\n{src}");
+            src = src.replace(a, b);
+        }
+        fs::write(&host, src).unwrap();
+
+        let out = salvo_in(&dir, &["run", "--backend", backend]);
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "gold none\n1 [x]\nmissing\nodd\ngold\n", "{backend}: {stderr}");
+        assert!(
+            stderr.contains("`platform fn items`'s result is checked element by element"),
+            "{backend}: the walk is not warned about: {stderr}"
+        );
+
+        for (parity, tier, says) in [
+            ("3", "3", "`platform fn tier`'s result was"),
+            ("-1", "1", "what the host sent on `Lookup.parity` was"),
+        ] {
+            fs::write(dir.join("main.sv"), program(parity, tier)).unwrap();
+            let out = salvo_in(&dir, &["run", "--backend", backend]);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(!out.status.success(), "{backend}: a bad value passed: {stderr}");
+            assert!(stderr.contains(says) && stderr.contains("[platform-check]"), "{backend}: {stderr}");
+        }
+    }
+    stamp.verified();
+}

@@ -443,9 +443,10 @@ platform roots; (5) DynamoDB.
 Generated ABI and interface files beside hand-written implementation files.
 Done so far: platform effects removed, `platform fn`, Kotlin camel case,
 nested Kotlin union arms, templates removed, the host project with its
-declaration files, and platform handlers behind host interfaces and adapters. The design, its decisions (D1–D10) and the remaining build
-sequence (interface files with adapters, wrappers and factories, std's and the
-aws glue's ports, ABI stamps) live in [ABI.md](ABI.md).
+declaration files, platform handlers behind host interfaces and adapters,
+and checks of what the host hands back. The design, its decisions (D1–D10) and the remaining build
+sequence (factories and the aws generator on them, the D10 leftovers, ABI
+stamps) live in [ABI.md](ABI.md).
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
@@ -935,10 +936,14 @@ several are "revisit only if a customer appears".
   first. Likely a small fix in the arg-fits rule; needs its own test on both
   backends because the Rust borrow of a union arm is what `proj` renders.
 
-- ~~**A one-off fresh-run failure of `kotlinc_compiles_and_runs_every_case`**~~ —
-  diagnosed and closed 2026-09-29 (COMPLETED.md): the `net-node-groups` case
-  slept a fixed 500ms for three gossiping nodes to converge, which a fully
-  loaded fresh run does not always give it; it now polls, bounded.
+- **`net-node-groups` still flakes under heavy load** (reopened 2026-10-01).
+  The 2026-09-29 fix (COMPLETED.md) replaced a fixed 500ms sleep with a poll
+  bounded at five seconds; at load averages of 120–245 it failed three of
+  six runs on 2026-10-01 (`mesh: x sees 0, y sees 0, z sees 0`, and once
+  `x sees 1, y sees 0, z sees 1`), and passed the others. The case uses no
+  platform code, so the boundary checks landed that day are not involved. Either
+  the bound is still too short under that load or convergence stalls; the
+  next step is logging when the poll gives up.
 
 - **Lock-free scope-local bindings** (2026-09-28, the one item left of the
   lock-free pass the one-shape decision deferred; the stateless half landed

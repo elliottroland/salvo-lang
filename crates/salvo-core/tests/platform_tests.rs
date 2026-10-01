@@ -16,6 +16,11 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n";
 
 fn check_errors(src: &str) -> Vec<FileDiagnostic> {
+    check_files(&[("main.sv", src)])
+}
+
+/// [platform-check] Several user modules beside the prelude.
+fn check_files(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -23,12 +28,9 @@ fn check_errors(src: &str) -> Vec<FileDiagnostic> {
         STD_PRELUDE.to_string(),
         true,
     );
-    sources.add(
-        "main.sv",
-        SourceSet::classify(Path::new("main.sv")).unwrap(),
-        src.to_string(),
-        false,
-    );
+    for (name, src) in files {
+        sources.add(*name, SourceSet::classify(Path::new(name)).unwrap(), src.to_string(), false);
+    }
     let mut modules = Vec::with_capacity(sources.files.len());
     for file in &sources.files {
         let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
@@ -287,5 +289,39 @@ fn a_generic_platform_handler_is_rejected() {
         errs.iter()
             .any(|m| m.contains("`platform handler HostStore` may not be generic")),
         "got {errs:?}"
+    );
+}
+
+// ===== [platform-check] what crosses from host to Salvo =====
+
+/// [platform-check] A constructive qualifier — no `qualifies`, so nothing can
+/// prove it of a host value — is trusted when the platform declaration sits in
+/// its module, as its constructors are, and refused from another (ABI.md D7).
+#[test]
+fn a_constructive_qualifier_from_another_module_is_refused_at_the_boundary() {
+    let lib = "export qualifier Clean of Str\n";
+    let own = "qualifier Clean of Str\n\nplatform fn scrub(s: Str) [] -> Clean Str => s\n";
+    let msgs = |files: &[(&str, &str)]| -> Vec<String> {
+        check_files(files).iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect()
+    };
+    assert!(msgs(&[("main.sv", own)]).is_empty(), "{:?}", msgs(&[("main.sv", own)]));
+    let main = "import lib.Clean\n\nplatform fn scrub(s: Str) [] -> Clean Str => s\n";
+    let errs = msgs(&[("lib.sv", lib), ("main.sv", main)]);
+    assert!(
+        errs.iter().any(|m| m.contains("`Clean`, a constructive qualifier declared in another module")
+            && m.contains("[platform-check]")),
+        "{errs:?}"
+    );
+}
+
+/// [platform-check] A check that walks a collection warns on the declaration
+/// (D10 C3); one that does not, does not.
+#[test]
+fn a_walking_check_warns_on_the_declaration() {
+    let diags = check_errors("platform fn tiers() [] -> List<\"a\" | \"b\">\nplatform fn tier() [] -> \"a\" | \"b\"\n");
+    let warnings: Vec<&str> = diags.iter().filter(|d| !d.is_error()).map(|d| d.message.as_str()).collect();
+    assert!(
+        warnings.len() == 1 && warnings[0].contains("`platform fn tiers`'s result is checked element by element"),
+        "{diags:?}"
     );
 }

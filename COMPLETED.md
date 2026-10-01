@@ -135,6 +135,24 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Checks at the platform boundary (2026-10-01; ABI.md step 8b).** D7 and D10
+C3 built: the checker plans, per platform fn result, platform-handled effect
+member result and `Reply<T>` parameter, what a host value must be checked for
+(`abi::BoundaryCheck`: closed literals, state qualifiers by `qualifies`,
+elements, entries, fields, tuple elements, nullable values, union arms),
+refuses constructive qualifiers from another module, `qualifies` needing
+effects or slots, and recursive types needing checks, and warns where a check
+walks a collection. Both backends render the same plan into the fn wrapper and
+the adapter; a reply is wrapped with a new `SalvoReply.checked`, whose check
+runs in `send` and `SalvoHostReply.send` on the sender's thread. A host
+project's adapters carry no checks, since they would pull in qualifier code
+the closure does not reach. Nothing in std or aws triggers a check today
+(their literal unions are open, their qualifiers provenance), so the new CLI
+test `the_boundary_checks_what_the_host_returns` covers each node on both
+backends, with failures for a result and a host-sent reply. Left (ABI.md):
+D10 C1, C2 and C5. Found and recorded: `net-node-groups` flaked again under
+load despite the bounded poll. **1663 tests.**
+
 **Platform handlers behind a host interface and an adapter (2026-10-01; ABI.md
 step 8a).** Under D7 and D8, the host no longer implements the program's own
 effect interface. Beside an effect some platform handler implements, the
@@ -19405,7 +19423,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1660; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1663; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -20076,6 +20094,11 @@ cache, with per-test timings.
   location asserted on stderr. Either half alone would be a bug — an abort
   rejects a legal program, and silence leaves the diagnostic visible only in
   `salvo analyze`).
+  + the boundary-check test (`tests/platform_tests.rs` [platform-check]: each
+  check on both backends passing good values; a bad result and a bad
+  host-sent reply failing with the declaration named), and 2 checker tests
+  (`salvo-core/tests/platform_tests.rs`: a constructive qualifier from another
+  module refused, the walk warning)
   + 2 host-project tests (`tests/platform_tests.rs` [platform-abi]: a small
   project's Kotlin and Rust roots compile alone with kotlinc and rustc, only
   the reached declarations written, `analyze` writing nothing, a stale

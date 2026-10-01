@@ -136,3 +136,53 @@ impl Walk<'_, '_> {
         }
     }
 }
+
+/// [platform-abi] [platform-check] What an adapter or a platform fn's wrapper
+/// checks of one value crossing from host to Salvo (user decisions
+/// 2026-10-01, ABI.md D7, D10 C3): exactly what the Salvo type promises and
+/// the host type cannot say. Computed by the checker over the *runtime*
+/// shape ([union-arm-identity]: a base's literals are one arm), so both
+/// backends render the same plan; a value that needs no check has no plan.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BoundaryCheck {
+    /// A closed literal arm: the value is one of these.
+    OneOf(Vec<salvo_syntax::ast::TypeLit>),
+    /// State qualifiers, each checked by running its `qualifies`: the
+    /// qualifier's name and declaring module, then the check of the value
+    /// under them, if any.
+    /// `ty` is the value's runtime type, for a backend that must cast to it.
+    Qualifies {
+        quals: Vec<(String, crate::source::ModulePath)>,
+        ty: crate::types::Ty,
+        inner: Option<Box<BoundaryCheck>>,
+    },
+    /// Every element of a `List`, `Set` or array.
+    Elems(Box<BoundaryCheck>),
+    /// Every entry of a `Map`: keys, values.
+    Entries(Option<Box<BoundaryCheck>>, Option<Box<BoundaryCheck>>),
+    /// A value that may be `None`: the check applies otherwise.
+    Nullable(Box<BoundaryCheck>),
+    /// A runtime union of `arity` value arms: the check of each arm that has
+    /// one, with the arm's runtime type.
+    Union { arity: usize, arms: Vec<(usize, crate::types::Ty, BoundaryCheck)> },
+    /// A struct's fields that need checking.
+    Struct { name: String, fields: Vec<(String, BoundaryCheck)> },
+    /// A tuple's elements that need checking, by position.
+    Tuple { arity: usize, elems: Vec<(usize, BoundaryCheck)> },
+}
+
+impl BoundaryCheck {
+    /// Whether the check walks a collection, whose cost grows with what the
+    /// host returned — what the declaration's warning names (D10 C3).
+    pub fn walks(&self) -> bool {
+        match self {
+            BoundaryCheck::Elems(_) | BoundaryCheck::Entries(..) => true,
+            BoundaryCheck::OneOf(_) => false,
+            BoundaryCheck::Qualifies { inner, .. } => inner.as_ref().is_some_and(|c| c.walks()),
+            BoundaryCheck::Nullable(c) => c.walks(),
+            BoundaryCheck::Union { arms, .. } => arms.iter().any(|(_, _, c)| c.walks()),
+            BoundaryCheck::Struct { fields, .. } => fields.iter().any(|(_, c)| c.walks()),
+            BoundaryCheck::Tuple { elems, .. } => elems.iter().any(|(_, c)| c.walks()),
+        }
+    }
+}

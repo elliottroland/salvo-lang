@@ -220,6 +220,17 @@ pub fn runtime_arm(union: &Ty, arm: usize) -> Option<usize> {
     lay.to_runtime.get(arm).copied()
 }
 
+/// [platform-check] The declared value arms (indices into `value_arms`) that
+/// make up each runtime value arm, in runtime order.
+pub fn runtime_groups(value_arms: &[&Ty]) -> Vec<Vec<usize>> {
+    let lay = layout(value_arms);
+    let mut out = vec![Vec::new(); lay.runtime.len()];
+    for (declared, runtime) in lay.to_runtime.iter().enumerate() {
+        out[*runtime].push(declared);
+    }
+    out
+}
+
 /// How many value arms the runtime union has (1 when it is not a union).
 pub fn runtime_size(union: &Ty) -> usize {
     layout(&union.value_arms()).runtime.len()
