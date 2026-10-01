@@ -59,7 +59,7 @@ fun main() {
     tally.put("fig", 3)
     tally.put("pear", 99)
     println(console, "2. insertion order kept ${tally.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
-    val ranked: java.util.SortedSet<String> = java.util.TreeSet<String>(java.util.Comparator { __a, __b -> salvo.__salvoCompare(__a, __b) }).also { __s -> __s.addAll(listOf("pear", "apple", "fig")) }
+    val ranked: java.util.SortedSet<String> = java.util.TreeSet<String>(salvo.SalvoCanonicalOrder).also { __s -> __s.addAll(listOf("pear", "apple", "fig")) }
     println(console, "2. key order ${ranked.joinToString(", ", "{", "}")}")
     val smallest = ranked.firstOrNull()
     if (smallest != null) {

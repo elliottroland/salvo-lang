@@ -518,13 +518,18 @@ export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport,
 
 }
 
-// Says HELLO to an endpoint once; the runtime's handshake does the rest.
+// Says HELLO to an endpoint once; the runtime's handshake does the rest. A
+// HELLO the transport could not deliver — the peer's node not on the wire yet —
+// is forgotten, so the next introduction of that endpoint dials it again.
 fn dial(dialed: Mut Set<Str>, e: NodeEndpoint) [Transport] -> None => dialed: Mut, !e {
     if eq(e, local_endpoint()) || contains(dialed, to_str(e)) {
         return
     }
     add(dialed, to_str(e))
-    let _sent = deliver(e, hello_frame())
+    let sent = deliver(copy(e), hello_frame())
+    if sent is Err {
+        let _forgot = remove(dialed, to_str(e))
+    }
 }
 
 // ---------------------------------------------------------- actor group ----

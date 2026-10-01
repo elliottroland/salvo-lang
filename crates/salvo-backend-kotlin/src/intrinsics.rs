@@ -51,9 +51,11 @@ pub fn fn_call(
         Some((h, e)) => format!("salvo.SalvoHashMap<{k}, {v}>({h}, {e})"),
         None => format!("linkedMapOf<{k}, {v}>()"),
     };
-    let cmp_body = || match ordering {
-        Some(target) => format!("{target}(__a, __b)"),
-        None => "salvo.__salvoCompare(__a, __b)".to_string(),
+    // [platform-check] The canonical ordering is one object, so a sorted
+    // collection can be recognized as sorted the program's way.
+    let comparator = || match ordering {
+        Some(target) => format!("java.util.Comparator {{ __a, __b -> {target}(__a, __b) }}"),
+        None => "salvo.SalvoCanonicalOrder".to_string(),
     };
     Some(match (name, recv) {
         // core.basic -----------------------------------------------------
@@ -402,11 +404,10 @@ pub fn fn_call(
         // `Str` by code point (`String.compareTo` is UTF-16 code-unit order),
         // so natural ordering would disagree with Rust [backend-parity].
         ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) => format!(
-            "java.util.TreeSet<{}>(java.util.Comparator {{ __a, __b -> \
-             {} }}).also {{ __s -> \
+            "java.util.TreeSet<{}>({}).also {{ __s -> \
              __s.addAll(listOf({})) }}",
             elem(),
-            cmp_body(),
+            comparator(),
             args.join(", ")
         ),
         ("add", Some("SortedSet")) => format!("{}.add({})", a(0), a(1)),
@@ -422,12 +423,11 @@ pub fn fn_call(
         }
 
         ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) => format!(
-            "java.util.TreeMap<{}, {}>(java.util.Comparator {{ __a, __b -> \
-             {} }}).also {{ __m -> \
+            "java.util.TreeMap<{}, {}>({}).also {{ __m -> \
              __m.putAll(listOf({})) }}",
             type_args.first().map(String::as_str).unwrap_or("Any"),
             type_args.get(1).map(String::as_str).unwrap_or("Any"),
-            cmp_body(),
+            comparator(),
             args.join(", ")
         ),
         ("get", Some("SortedMap")) => format!("{}[{}]", a(0), a(1)),

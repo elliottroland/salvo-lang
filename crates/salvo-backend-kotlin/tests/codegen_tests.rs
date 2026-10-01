@@ -9258,7 +9258,7 @@ fn main() [use, spawn] {
     let sy = waitfor out: Reply<List<Node>> { gy.members(out) }
     let sz = waitfor out: Reply<List<Node>> { gz.members(out) }
     let tries = 0
-    while (size(sx) < 2 || size(sy) < 2 || size(sz) < 2) && tries < 50 {
+    while (size(sx) < 2 || size(sy) < 2 || size(sz) < 2) && tries < 100 {
         let _t4 = waitfor f: Reply<Fired> { timer.after(millis(100), f) }
         sx = waitfor out: Reply<List<Node>> { gx.members(out) }
         sy = waitfor out: Reply<List<Node>> { gy.members(out) }
@@ -9271,7 +9271,11 @@ fn main() [use, spawn] {
 fn boot_node(at: NodeEndpoint, seeds: List<NodeEndpoint>, net: Addr<MemNet>) [spawn] -> Addr<NodeGroup> => !at, !seeds, !net {
     let p = pool_at(new_node(), 1)
     let booter = spawn Booting(copy(at), seeds, copy(net), true) with MemTransport(at, net) on p
-    return waitfor done: Reply<Addr<NodeGroup>> { booter.boot(done) }
+    let group = waitfor done: Reply<Addr<NodeGroup>> { booter.boot(done) }
+    // A group's `init` connects its node; `members` is answered after it, so
+    // the next node's seeds are on the wire before it dials them.
+    let _started = waitfor out: Reply<List<Node>> { group.members(out) }
+    return group
 }
 
 actor effect Counter { send fn bump(n: Int) => !n }

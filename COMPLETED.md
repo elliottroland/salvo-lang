@@ -135,6 +135,30 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Sets and maps at the boundary, and a steadier `net-node-groups` (2026-10-01;
+ABI.md D10 C1, C2).** The checker refuses a result keyed by a Salvo-defined
+identity, written or filled by name from a hand-written `hash`/`eq`/`cmp`
+(`keyed_canonically`; an intrinsic or `by auto` identity is canonical), and
+plans a `Shape` node for every set or map. Kotlin's canonical ordering became
+one object, `salvo.SalvoCanonicalOrder`, which the sorted lowering now uses
+too, so a returned sorted collection can be asked whether it is sorted the
+program's way; a top-level set or map is copied into shape when it is not,
+one nested in another value is refused naming `linkedSetOf` /
+`salvo.salvoSortedSetOf`, and a reply's check now answers the value to
+deliver. Rust drops the `Shape` nodes (its types promise the shape) and gains
+`FromIterator` for the four collections. What fell out: Kotlin's `Set` and
+`MutableSet` overloads erase to one JVM signature (`@JvmName`); a `by auto`
+hash is the host's structural one, so `Set<Person>` crosses. The
+`net-node-groups` flake had a cause: a gossip node dialled its seed before the
+seed's group had connected its node, the HELLO was lost, and nothing dialled
+again. std's `dial` now forgets an undelivered HELLO so a later introduction
+retries it, and the test waits for each node's group to start before booting
+the next (and polls up to ten seconds); 56 parallel runs under a load
+average of 92 all converged. New tests
+`sets_and_maps_from_the_host_keep_salvos_order` and
+`a_collection_keyed_by_a_salvo_identity_is_refused_at_the_boundary`. **1667
+tests.**
+
 **A platform fn may not return a borrow (2026-10-01; ABI.md D10 C5).** The
 checker refuses a `proj` anywhere in a platform fn's result type; a
 platform-handled member's was already refused when emitted. Checker test
@@ -19467,7 +19491,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1665; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1667; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -20144,6 +20168,10 @@ cache, with per-test timings.
   (`salvo-core/tests/platform_tests.rs`: a constructive qualifier from another
   module refused, the walk warning) and a third (a platform fn returning a
   borrow refused)
+  + 2 collection tests (`tests/platform_tests.rs` [platform-check]: sets and
+  maps from the host kept in Salvo's order on both backends, a nested Kotlin
+  `HashSet` refused; identity-keyed results refused, canonical and `by auto`
+  ones accepted)
   + the stamp test (`tests/platform_tests.rs` [platform-stamp]: a dependency's
   host project missing, stale against its signatures, and of another ABI
   revision, each refused by name; unreached, not checked)

@@ -723,7 +723,10 @@ fun dial(transport: Transport, dialed: MutableSet<String>, e: NodeEndpoint) {
         return
     }
     dialed.add(toStr__2(e))
-    val _sent = transport.deliver(e, salvo.SalvoBytes(salvo.SalvoSched.helloFrame()))
+    val sent = transport.deliver(e, salvo.SalvoBytes(salvo.SalvoSched.helloFrame()))
+    if (sent is Union2.U2<*, *>) {
+        val _forgot = dialed.remove(toStr__2(e))
+    }
 }
 
 data class Protocol(

@@ -1556,7 +1556,9 @@ facts worth knowing") and keeps the history ("One shape for effects").
   | `Str`, `Bytes` | `String`, `Vec<u8>` (`Mut` erases) |
   | a literal, a union of one base's literals | its base (`"A" \| "B" \| Other Str` is a `String`) [type-literal] |
   | `List<T>` | `Vec<T>` |
-  | `Map<K, V>`, `Set<T>` | `crate::collections::SalvoMap` / `SalvoSet` — insertion-ordered; build one with `SalvoMap::from_entries::<HostHash, HostEq, _>(entries)` [rs-collections] |
+  | `Map<K, V>`, `Set<T>` | `crate::collections::SalvoMap` / `SalvoSet` — insertion-ordered; build one with `.collect()` or `SalvoMap::from_entries::<HostHash, HostEq, _>(entries)` [rs-collections] [platform-check] |
+  | `SortedSet<T>`, `SortedMap<K, V>` (canonical ordering) | `SalvoSortedSet` / `SalvoSortedMap`; build one with `.collect()` (under `HostOrd`, which is Salvo's order for every type that may cross) [platform-check] |
+  | a union, to build | its factories: `FsError::not_found(…)`, `ReadToStr::ok(…)` [platform-factory] |
   | `T?` | `Option<T>` [rs-option] |
   | a union of *n* ≥ 2 runtime arms | `crate::unions::UnionN<A, …>` with variants `U1`…`Un` in runtime-arm order [union-arm-identity]; `Some(…)` around it when it has a `None` arm |
   | `struct S { f: T }` | `pub struct S { pub f: T }`, built with a literal of every field; a dot-name `A.B` is `AB`; a field that is a Rust keyword is `r#f` |
@@ -1573,6 +1575,11 @@ facts worth knowing") and keeps the history ("One shape for effects").
   signature's union gets `pub struct ReadToStr;` with an `impl`. Two named
   unions over the same instantiation with a shared arm name collide in rustc
   rather than silently.
+* [rs-platform-check] [platform-check] **Collections** (D10 C1, C2): Rust's
+  types promise insertion order and the ordering, so a plan's `Shape` nodes
+  are dropped (`BoundaryCheck::without_shapes`); `FromIterator` on
+  `SalvoSet`, `SalvoMap`, `SalvoSortedSet` and `SalvoSortedMap` builds each
+  under the canonical identity, the only one a host may return.
 * [rs-platform-check] [platform-check] A check renders as statements over a
   reference (`let __c = &__r;`), panicking with `"salvo: … [platform-check]"`
   and the value's `{:?}`: closed literals as `matches!(v.as_str(), "a" | "b")`

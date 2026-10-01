@@ -3225,7 +3225,7 @@ impl<'p> Emitter<'p> {
             for p in f.params.iter().filter(|p| !p.implicit) {
                 let pname = rs_ident(&p.name.name);
                 let plan = checking
-                    .then(|| self.checked.boundary_checks.get(&(self.file_idx, p.name.span)).cloned())
+                    .then(|| self.checked.boundary_checks.get(&(self.file_idx, p.name.span)).and_then(|c| c.without_shapes()))
                     .flatten();
                 match (plan, reply_payload(&p.ty)) {
                     (Some(plan), Some(payload)) => {
@@ -3243,7 +3243,7 @@ impl<'p> Emitter<'p> {
             args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
             let call = format!("self.0.{member}({})", args.join(", "));
             let result_plan = checking
-                .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).cloned())
+                .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).and_then(|c| c.without_shapes()))
                 .flatten();
             let body = match result_plan {
                 Some(plan) => {
@@ -3716,7 +3716,7 @@ impl<'p> Emitter<'p> {
         let plan = self
             .abi_keep
             .is_none()
-            .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).cloned())
+            .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).and_then(|c| c.without_shapes()))
             .flatten();
         match plan {
             Some(plan) => {
@@ -3837,6 +3837,11 @@ impl<'p> Emitter<'p> {
                 }
                 out
             }
+            // Rust's collection types promise the shape themselves.
+            C::Shape { inner, .. } => match inner {
+                Some(inner) => self.render_boundary_check(inner, v, what, indent),
+                None => String::new(),
+            },
         }
     }
 

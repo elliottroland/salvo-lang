@@ -426,7 +426,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
 - **The aws generator's template output.** It writes implementation files
   instead, so this cannot be removed before that port is done.
 
-## Build sequence (draft)
+## Build sequence (complete 2026-10-01)
 
 To be reordered once the decisions are made. Steps marked *independent* can
 go in any order.
@@ -453,21 +453,20 @@ go in any order.
    platform signatures, declarations only. Under D4 nothing moves and nothing
    is re-exported: the output keeps its own definitions. std's and aws's
    implementation files compile against the host projects alone.
-8. **Interface files** (D7, D8): handler interfaces and adapters, fn wrappers
+8. ✅ **Interface files** (D7, D8): handler interfaces and adapters, fn wrappers
    with validation, validating host replies, factory functions (D5).
    - 8a. ✅ Host-facing interfaces and adapters (2026-10-01): `EPlatform`
      (Rust also `EPlatformSync` for `threadsafe`) and `__Platform_E` beside
      the effect, `__Platform_H` per handler; std's host files and the aws
      generator ported (this was step 10's and part of 11's work).
    - 8b. ✅ Validation in the adapters and wrappers (D7, D10 C3), host replies
-     (2026-10-01, [platform-check]). Left: D10 C1 (Kotlin copies of maps and
-     sets that are not insertion-ordered) and C2 (refusing identity-keyed
-     collections, checking a Kotlin sorted collection's comparator). C5, a
-     platform fn's borrowed result refused, landed 2026-10-01.
+     (2026-10-01, [platform-check]); D10 C5 (a platform fn's borrowed result
+     refused), C1 and C2 (sets and maps in Salvo's order, identity-keyed ones
+     refused) the same day.
    - 8c. ✅ Factories (D5; 2026-10-01, [platform-factory]). The aws generator
      onto them is step 11.
 9. ✅ **Implementation skeletons** (done in 5b).
-10. **Port std's host files** onto the generated interfaces.
+10. ✅ **Port std's host files** onto the generated interfaces (done in 8a).
 11. ✅ **Port the aws generator** onto the generated interface files and their
     factories (2026-10-01): the glue builds every answer as
     `GetQueueUrl.ok(…)` / `GetQueueUrl.err(Checked(SqsFailures.sqsError(…)))`
@@ -477,7 +476,7 @@ go in any order.
 12. ✅ **ABI stamps and the dependency check** (D9; 2026-10-01,
     [platform-stamp]).
 13. ✅ **Remove templates** (done in 5b).
-14. **Docs**: LANGUAGE_SPEC rules ([platform-abi] rewritten, new rules for the
+14. ✅ **Docs** (with each step, 2026-10-01): LANGUAGE_SPEC rules ([platform-abi] rewritten, new rules for the
     file kinds), both backend specs' host-ABI tables, `docs/language/Backends.md`,
     README, vscode README.
 

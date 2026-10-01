@@ -2493,6 +2493,39 @@ impl<'p, 'r> Checker<'p, 'r> {
         );
     }
 
+    /// [platform-check] Whether every identity a keyed collection type names —
+    /// written (`SortedSet<Str>(by_len)`) or filled by name (`Set<Person>`
+    /// takes Person's `hash`) — is canonical: an intrinsic, the host's own
+    /// operation, or one `by auto` stamped, which lowers to the same
+    /// structural comparison [cmp-auto].
+    fn keyed_canonically(&mut self, name: &str, args: &[Ty]) -> bool {
+        let type_args: Vec<Ty> = args.iter().filter(|a| !matches!(a, Ty::FnName(_))).cloned().collect();
+        let written: Vec<FnId> = args
+            .iter()
+            .filter_map(|a| match a {
+                Ty::FnName(id) => Some(id.clone()),
+                _ => None,
+            })
+            .collect();
+        let Some(subject) = type_args.first().cloned() else { return true };
+        let slots = self.type_fn_slots(name);
+        for (at, slot) in slots.iter().enumerate() {
+            let key = match written.get(at) {
+                Some(id) => self.out.carried_identities.get(&(id.clone(), subject.clone())).copied(),
+                None => {
+                    let Some(want) = self.type_slot_ty(name, &type_args, at) else { continue };
+                    self.resolve_implicit_fn_at(&slot.name, None, &want).ok().map(|(k, _)| k)
+                }
+            };
+            let Some(decl) = key.and_then(|k| self.fn_decl_by_key(k)) else { continue };
+            let auto = decl.stamped.as_ref().is_some_and(|st| st.compfn == "auto" || st.from == "auto");
+            if !decl.intrinsic && !auto {
+                return false;
+            }
+        }
+        true
+    }
+
     /// [platform-check] Plans one crossing, records it under `key`, and warns
     /// at `span` when it walks a collection.
     fn plan_boundary(&mut self, ty: &Ty, what: &str, key: Span, span: Span) {
@@ -2641,16 +2674,43 @@ impl<'p, 'r> Checker<'p, 'r> {
                 (!out.is_empty()).then_some(C::Tuple { arity, elems: out })
             }
             Ty::Array(e) => self.boundary_plan(e, what, span, visiting).map(|c| C::Elems(Box::new(c))),
+            Ty::Named { name, args } if matches!(name.as_str(), "Set" | "SortedSet" | "Map" | "SortedMap")
+                && !self.keyed_canonically(name, args) =>
+            {
+                // [platform-check] D10 C2: the host cannot build a container
+                // keyed by a Salvo identity — its own types carry no slot for
+                // the functions — so it is refused rather than trusted.
+                self.error(
+                    span,
+                    format!(
+                        "{what} is `{ty}`, a collection keyed by a Salvo-defined identity, which host \
+                         code cannot build: key it by the canonical identity, or return a `List` \
+                         [platform-check]"
+                    ),
+                );
+                None
+            }
             Ty::Named { name, args } => match name.as_str() {
-                "List" | "Set" | "SortedSet" if args.len() == 1 => {
+                "List" if args.len() == 1 => {
                     let elem = args[0].clone();
                     self.boundary_plan(&elem, what, span, visiting).map(|c| C::Elems(Box::new(c)))
+                }
+                // [platform-check] D10 C1/C2: a set or map also has a shape the
+                // host type cannot promise on Kotlin — insertion order, or the
+                // canonical ordering for a sorted one.
+                "Set" | "SortedSet" if args.len() == 1 => {
+                    let elem = args[0].clone();
+                    let inner = self.boundary_plan(&elem, what, span, visiting).map(|c| Box::new(C::Elems(Box::new(c))));
+                    let kind = if name == "Set" { crate::abi::Shape::Set } else { crate::abi::Shape::SortedSet };
+                    Some(C::Shape { kind, inner })
                 }
                 "Map" | "SortedMap" if args.len() >= 2 => {
                     let (k, v) = (args[0].clone(), args[1].clone());
                     let kc = self.boundary_plan(&k, what, span, visiting);
                     let vc = self.boundary_plan(&v, what, span, visiting);
-                    (kc.is_some() || vc.is_some()).then(|| C::Entries(kc.map(Box::new), vc.map(Box::new)))
+                    let inner = (kc.is_some() || vc.is_some()).then(|| Box::new(C::Entries(kc.map(Box::new), vc.map(Box::new))));
+                    let kind = if name == "Map" { crate::abi::Shape::Map } else { crate::abi::Shape::SortedMap };
+                    Some(C::Shape { kind, inner })
                 }
                 _ => {
                     let decl: &'p StructDecl = self.scope.structs.get(name.as_str()).copied()?;

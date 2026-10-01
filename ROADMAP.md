@@ -439,13 +439,10 @@ template-writing `platform generate` and ascription by a place (2026-09-30) —
 all of which the templates' removal (2026-10-01) has since undone except the
 platform roots; (5) DynamoDB.
 
-**Next, before DynamoDB: the platform ABI (user direction 2026-10-01).**
-Generated ABI and interface files beside hand-written implementation files.
-Done so far: platform effects removed, `platform fn`, Kotlin camel case,
-nested Kotlin union arms, templates removed, the host project with its
-declaration files, platform handlers behind host interfaces and adapters,
-checks of what the host hands back, factories, the aws glue on them, and ABI stamps. The design, its decisions (D1–D10) and the remaining build
-sequence (the D10 leftovers and the docs) live in [ABI.md](ABI.md).
+✅ **The platform ABI** (user direction 2026-10-01; complete the same day,
+COMPLETED.md): generated host projects, interfaces, adapters, boundary
+checks, factories and stamps beside hand-written implementation files. The
+design and its decisions (D1–D10) are in [ABI.md](ABI.md). **Next: DynamoDB.**
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
@@ -934,15 +931,6 @@ several are "revisit only if a customer appears".
   way it does on a struct. Workaround: bind the element to a typed local
   first. Likely a small fix in the arg-fits rule; needs its own test on both
   backends because the Rust borrow of a union arm is what `proj` renders.
-
-- **`net-node-groups` still flakes under heavy load** (reopened 2026-10-01).
-  The 2026-09-29 fix (COMPLETED.md) replaced a fixed 500ms sleep with a poll
-  bounded at five seconds; at load averages of 120–245 it failed three of
-  six runs on 2026-10-01 (`mesh: x sees 0, y sees 0, z sees 0`, and once
-  `x sees 1, y sees 0, z sees 1`), and passed the others. The case uses no
-  platform code, so the boundary checks landed that day are not involved. Either
-  the bound is still too short under that load or convergence stalls; the
-  next step is logging when the poll gives up.
 
 - **Lock-free scope-local bindings** (2026-09-28, the one item left of the
   lock-free pass the one-shape decision deferred; the stateless half landed

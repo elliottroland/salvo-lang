@@ -858,7 +858,9 @@ nothing but the monitor.
   | `Int` `Long` `Float` `Double` `Bool` `Char` `Byte` | `Int` `Long` `Float` `Double` `Boolean` `Char` `Byte` |
   | `Str`, `Bytes` | `String`, `salvo.SalvoBytes` |
   | a literal, a union of one base's literals | its base (`"A" \| "B" \| Other Str` is a `String`) [type-literal] |
-  | `List<T>`, `Map<K, V>`, `Set<T>` | `List<T>`, `Map<K, V>`, `Set<T>` — insertion-ordered (`LinkedHashMap`/`LinkedHashSet`) |
+  | `List<T>`, `Map<K, V>`, `Set<T>` | `List<T>`, `Map<K, V>`, `Set<T>` — insertion-ordered (`LinkedHashMap`/`LinkedHashSet`); a returned one that is not is copied at the top of a result and refused inside one [platform-check] |
+  | `SortedSet<T>`, `SortedMap<K, V>` (canonical ordering) | `java.util.SortedSet` / `SortedMap` whose `comparator()` is `salvo.SalvoCanonicalOrder`; build one with `salvo.salvoSortedSetOf(…)` / `salvoSortedMapOf(…)` [platform-check] |
+  | a union, to build | its factories: `FsErrors.notFound(…)`, `ReadToStr.ok(…)` [platform-factory] |
   | `T?` | `T?` [kt-union-nullable] |
   | a union of *n* ≥ 2 runtime arms | `salvo.UnionN<A, …>`, arms `UnionN.Uk(value)` in runtime-arm order, tested `is UnionN.Uk<*, …>` [kt-union-wrappers] [union-arm-identity]; nullable when it has a `None` arm |
   | `struct S { f: T }` | `data class S(val f: T)` with the field names in camel case [kt-camel]; a dot-name `A.B` is `A.B`, nested in an `object` [kt-nested-dot-name]; a keyword is back-quoted |
@@ -882,6 +884,15 @@ nothing but the monitor.
   Verified by kotlinc over a root alone
   (`the_host_project_compiles_on_its_own`) and by Gradle's `compileKotlin` on
   aws's root against the SDK.
+* [kt-platform-check] [platform-check] **Collections** (D10 C1, C2). The
+  canonical ordering is one object, `salvo.SalvoCanonicalOrder` (runtime
+  `compare.kt`), which every sorted collection under it is built with — the
+  `sorted_set_of`/`sorted_map_of` lowering included — so "sorted the program's
+  way" is `comparator() === SalvoCanonicalOrder`. A set or map at the top of a
+  result or a reply payload is normalized, `__salvoInsertionOrdered(…)` /
+  `__salvoCanonicalSorted(…)` copying only when needed (`@JvmName` keeps the
+  `Mutable…` overloads apart); one inside another value is refused, naming the
+  constructor. A reply's check answers the value to deliver.
 * [kt-platform-factory] [platform-factory] `object FsErrors { fun notFound(value:
   NotFound): Union7<…> = salvo.Union7.U1(value) … }` beside the named union's
   module code (Kotlin emits no alias, so the object is the union's only

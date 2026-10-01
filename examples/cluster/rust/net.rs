@@ -1200,7 +1200,10 @@ pub fn dial(transport: &crate::net::Transport, dialed: &mut SalvoSet<String>, e:
         return;
     }
     dialed.insert(to_str__2(&e));
-    let mut _sent = transport.deliver(&e, crate::scheduler::salvo_hello_frame());
+    let mut sent = transport.deliver(&(e.clone()), crate::scheduler::salvo_hello_frame());
+    if matches!(sent, Union2::U2(_)) {
+        let mut _forgot = dialed.remove(&to_str__2(&e));
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

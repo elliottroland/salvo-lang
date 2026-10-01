@@ -7,6 +7,13 @@ can become one Salvo module over a small set of private intrinsics, what the
 language and compiler would need for that, and in what order to do it.
 Nothing here is decided. The items marked **DECISION** are the user's call.
 
+**User guidance (2026-10-01):** module-private declarations in the runtime
+module may behave differently from Salvo elsewhere. The runtime is what all
+Salvo code runs on, `main` included, so it is expected to contain exceptions
+such as starting threads explicitly and handling locks. A privilege that is
+private to the runtime module therefore needs no language decision. Only
+what becomes visible outside it does.
+
 Sketches of Salvo code below show the intended shape. They have not been run
 through the checker.
 
@@ -27,14 +34,17 @@ through the checker.
   process-wide slot holding the scheduler. Each is 5–40 lines per backend. With
   the host-facing shims (`SalvoReply`, `SalvoHostReply`, the external-source
   counter), I estimate 300–400 host lines per backend remain, down from
-  2,000–2,700. The host stream table (about 200 lines) is not scheduling at
-  all and should move to its own runtime file either way.
+  2,000–2,700. The host stream table (about 200 lines) is not scheduling,
+  but most of it is not host-specific either: its logic can move to Salvo
+  too, leaving only the raw I/O calls in the host (§3.4).
 - The language can already express most of the logic. The gaps are a linear
   lock guard (the natural Salvo form of Rust's `MutexGuard`), moving a value
   out of a field of a list element, a payload type that hides its real type,
-  an O(1) queue, and one real design question: how code that declares no
-  effects (`send(reply, v) []`, host threads, the `Addr` codec) reaches a
-  `Runtime` *effect* (§6, G4).
+  an O(1) queue, and how code that declares no effects (`send(reply, v) []`,
+  host threads, the `Addr` codec) reaches the runtime (§6, G4). Under the
+  user guidance all of these are privileges of the runtime module, so none
+  needs a language decision while it stays private. A run-time-initialised
+  module constant would be one way to spell the process-wide slot.
 - Two restructurings make the port smaller, and both could be done before
   it: move the group protocol (handshake, gossip introductions, published
   names, member sharing — frames 4–9) out of the scheduler into `std/net.sv`,
@@ -114,6 +124,15 @@ on the ROADMAP whether or not the port happens.
    limit.
 6. **The route stub busy-waits.** When a pick answers `None`, the stub calls
    `parkBriefly` (a 1 ms sleep) and asks again.
+7. **Pools and their threads are never released.** Neither the language nor
+   the runtime has a way to retire a pool, so every worker thread lives until
+   the process ends. This matters most for `thread()`: each dedicated actor
+   gets a thread of its own, and when the actor dies the thread stays parked
+   on the condition variable forever. A program that keeps creating
+   dedicated actors and losing them leaks one thread each time. The fix is a
+   cooperative stop (§4, "Why threads need no stop or handle"): retire a
+   pool once nothing can be placed on it any more, for example once a
+   `Dedicated` pool's only actor is dead and its task queue is empty.
 
 ## 3. What moves, what stays
 
@@ -146,7 +165,8 @@ on the ROADMAP whether or not the port happens.
   generated decoders.
 - The `Addr`/`Reply` codecs in `wire.rs`/`wire.kt`, which call into the
   runtime for identity.
-- The host stream table, moved to its own file (`streams.rs`/`streams.kt`).
+- The raw I/O underneath the host stream table: the host stream objects and
+  the read, write, flush and close calls on them (§3.4).
 - `key_hash` (FNV-1a), unless Salvo gains `Long` xor and wrapping multiply.
   It is 10 lines and gains nothing from moving.
 
@@ -163,6 +183,51 @@ across-machines section from the runtime before any port, and it is the part
 whose builders (`HelloOf`, `GoneOf`, `IntroOf`, `NamedOf`, `MembersOf`) cost
 the most plumbing. Whether the handshake belongs to the scheduler or to
 `net` is a structural choice the user should confirm (D5 in §10).
+
+### 3.4 The host stream table
+
+The first draft of this document kept the table in the host. That was
+wrong: it is not scheduling, but most of it is not host-specific either.
+Today it is `SalvoIn`/`SalvoOut` and `SalvoStreams` in the scheduler files
+(about 185 lines in Kotlin, 235 in Rust), plus the `RawStreams`
+implementations in `std/platform/stream/host.{kt,rs}` (about 190 lines
+each), which do the same work twice.
+
+What needs the host:
+
+- the host stream objects (`InputStream`/`OutputStream`, `Read`/`Write`),
+  the raw read, write, flush and close calls on them, and turning their
+  exceptions into fault text;
+- registration from host code: `HostRawFs` opening a file and the aws S3
+  glue handing over a response body pass in a host object and get a handle
+  back. That entry point stays a host-facing shim, like `SalvoReply`;
+- `raw_receive`'s background read, which reads on a host thread and answers
+  through a hosted reply [platform-reply].
+
+What can be Salvo:
+
+- the table itself, handle to entry, with the trap for a handle another
+  provider minted [stream-provider];
+- the read-ahead buffer, line splitting on `\n` and `\r\n`, and the position
+  counted in bytes handed to the reader rather than bytes read ahead;
+- failure recording: once a read fails, later reads report the end and the
+  close reports why, and the same for writes at flush and close;
+- strict UTF-8 decoding, which `str_of_bytes` already provides.
+
+`HostRawStreams` would then be an ordinary Salvo handler over a few host
+leaf operations (§4.1 discusses whether those are intrinsics or platform
+fns).
+
+The table needs the same two privileges as the scheduler: a process-wide
+slot and locking. Each entry needs its own lock, as today, so a slow read of
+one stream never blocks another; that is one `Lock<S>` per entry. The user
+guidance grants those privileges to the runtime module only, so the table
+lives there. It already shares the handle counter (`freshHandle`) with the
+scheduler. `stream.host` reaches it through the lowering of its own
+intrinsics, the same bridge §5.1 describes for `core.actor`, `time` and
+`net`. The alternative, granting the privileges to std's host-facing modules
+(`stream.host`, `fs.host`) as well, widens the exception beyond what the
+user granted.
 
 ## 4. The private primitives
 
@@ -203,6 +268,22 @@ Notes on the choices:
   `guarded<R>(f: once () -> R) -> Ok R | Faulted Str` replaces both. Either
   way the fault boundary stays private. A public way to catch a fault would
   contradict "death is a faulted activation" [actor-watch].
+- **Why threads need no stop or handle.** Nothing in today's semantics stops
+  or waits for a runtime thread. Pool workers and the timer thread loop
+  forever, and the program ends when `main` returns. On Kotlin that works
+  only because the threads are daemon threads, so creating daemon threads is
+  part of `start_thread`'s contract. On Rust the process exits when `main`
+  returns and takes its threads with it. Nobody waits for a thread to
+  finish, because completion is observed through replies. Neither host can
+  safely stop a thread from outside: Kotlin's `Thread.stop` is gone, and
+  Rust never had one. The only safe stop is cooperative: set a flag in
+  `Sched`, call `signal_all`, and the worker loop sees the flag and returns
+  from its body, which ends the thread. That needs scheduler state, not a
+  handle, and it is how retiring a pool would work (§2.3 item 7). A handle
+  would be needed only to wait for a thread to exit or to name threads in
+  diagnostics, and the deadlock report names actors, not threads. If the JVM
+  program-end question (ROADMAP §4b, item 7) is settled with an explicit
+  `exitProcess` after `main`, it needs no handle either.
 - **A private `Queue` needs no decision.** A public `Deque` in std would
   (D3). Salvo's `List` lowers to `Vec`/`ArrayList`, and `remove_first` is
   `Vec::remove(0)` (O(n), `runtime/seq.rs`), which is wrong for a mailbox.
@@ -335,8 +416,11 @@ already has.
 
 ### 5.4 The rules the runtime module must keep
 
-The runtime implements the actor surface, so it cannot use it. Inside
-`std/runtime.sv`:
+The runtime module is privileged (see the user guidance at the top): its
+private declarations may start threads, hold locks, read a process-wide
+slot and catch faults, none of which Salvo code elsewhere can do. The
+restrictions below run the other way. The runtime implements the actor
+surface, so it cannot use it. Inside `std/runtime.sv`:
 
 - no `spawn`, `send fn`, `replyto`, `waitfor`, actor effects, `Timer`, or
   any std function that uses them;
@@ -371,32 +455,59 @@ Each gap says whether it is engineering inside std (no decision) or a
   forces the runtime to `discard` messages explicitly when an actor dies,
   which states the existing behaviour (messages to the dead are dropped)
   instead of hiding it.
-- **G4. How code that declares no effects reaches a `Runtime` effect.
-  DECISION.** The request was for a `Runtime` effect. An effect is the
-  natural Salvo seam, and it is what would let a deterministic test runtime
-  (single thread, virtual time; the "scheduler-owned virtual time" upgrade
-  recorded in ROADMAP) be bound in place of the threaded one. The problem is
-  that effects are not data [effect-not-data], and the operations that need
-  the runtime are declared without effects: `send(reply, v) []`, `Addr`
-  equality and codecs, host threads completing replies, the timer thread.
-  Options:
-  - (a) **A std-only process binding**: `Runtime` is bound once at program
-    start, and any std function may perform it without declaring it. That is
-    a new kind of binding and works against Locality, though only inside std.
+- **G4. How code that declares no effects reaches the runtime.** The request
+  was for a `Runtime` effect. An effect is the natural Salvo seam, and it is
+  what would let a deterministic test runtime (single thread, virtual time;
+  the "scheduler-owned virtual time" upgrade recorded in ROADMAP) be bound in
+  place of the threaded one. The problem is that effects are not data
+  [effect-not-data], and the operations that need the runtime are declared
+  without effects: `send(reply, v) []`, `Addr` equality and codecs, host
+  threads completing replies, the timer thread. Options:
+  - (a) **A process binding for `Runtime`**: bound once at program start, and
+    performed by the runtime's functions without being declared. Under the
+    user guidance this is a runtime-module privilege, not a language change,
+    as long as only the runtime module performs it.
   - (b) **Data, not an effect**: the module's functions take the
-    `Lock<Sched>` from `sched()`. No language change. A test runtime then
-    comes from configuration inside `Sched` (for example a virtual-clock
-    field) rather than from binding another handler.
+    `Lock<Sched>` from the `sched()` intrinsic. A test runtime then comes
+    from configuration inside `Sched` (for example a virtual-clock field)
+    rather than from binding another handler.
   - (c) **Thread it through `[spawn]`**: the existing capability would carry
     the runtime handle. That covers spawns but not sends, replies or host
     threads, so it does not work alone.
+  - (d) **A module-level constant initialised at run time**: (b) with a
+    declaration instead of an intrinsic, if module-level constants are added
+    (the user is considering them for a math module). Constants come in two
+    kinds, and only the second helps here:
+    - *Pure* constants (literals, arithmetic, immutable struct and list
+      literals) are what a math module needs. The runtime would use them for
+      `MAIN_POOL`, the frame kind numbers and the report strings. Tidier,
+      but they remove nothing from §4.
+    - *Run-time-initialised* constants, evaluated once on first read:
+      `const SCHED: Lock<Sched> = lock_of(init())`. The scheduler needs this
+      kind, because `init()` draws a random node id and creates the main
+      pool, so its state is not a compile-time value. It replaces the
+      `sched()` intrinsic. Rust lowers it as `static LazyLock<…>` (the type
+      must be `Sync`, which a lock is); Kotlin as a top-level `val`, which is
+      already initialised lazily when its file class loads.
 
-  Recommendation: write the module functions first under (b). A handler
+    A run-time-initialised constant of a type like `Lock<S>` is a global
+    mutable variable whose mutability `Mut` cannot see, which is the hidden
+    state Locality rules out. Outside the runtime module the language should
+    offer pure constants only, or limit the other kind to types std marks
+    safe to share across threads. Inside the runtime module, under the user
+    guidance, it is simply one of the module's privileges. Constants do not
+    replace the lock, guard, wait and signal primitives (those are about
+    blocking, not storage), the thread-local (each thread needs its own
+    copy), the fault boundary, erasure or threads.
+
+  Recommendation: start with (b), or with (d) if module-level constants land
+  first, so the port does not wait on anything. A handler
   `Scheduler(l: Lock<Sched>) of Runtime` would have exactly the same bodies,
   and by the [effect-handle] predicate it binds bare, with no monitor lock,
   because it has no state field, no fn-typed parameter and no `replyto`. So
-  (a) can be added later without rewriting anything, and only when a second
-  runtime implementation is actually wanted.
+  (a) can be added later without rewriting anything, once a second runtime
+  implementation is wanted, and the guidance means it no longer needs a
+  language decision then either.
 - **G5. The fault boundary**: private (`activate`, `run_guarded`, §4). No
   decision as long as it stays private.
 - **G6. Bootstrapping rules** (§5.4): engineering. Enforced by a test.
@@ -506,11 +617,16 @@ Each step keeps both backends passing the full suite.
 
 ## 10. Decisions for the user
 
-- **D1 (G4).** Does `Runtime` start as an effect with a std-only process
-  binding, or as data (`sched()`) with the effect added later?
-  Recommendation: data first; the bodies are the same either way.
-- **D2 (G2).** If a move-out operation is needed, is it private to the
-  runtime or public std API?
+- **D1 (G4).** The runtime as data (`sched()`, or a run-time-initialised
+  module constant if constants are added) now, and the `Runtime` effect later?
+  Recommendation: yes; the bodies are the same either way, and under the user
+  guidance the effect's process binding is a runtime-module privilege rather
+  than a language change. Separately, for module-level constants in general:
+  pure constants everywhere, and run-time-initialised ones only inside the
+  runtime module (or for types std marks safe to share)?
+- **D2 (G2).** Settled by the user guidance while the move-out operation
+  stays private to the runtime. A decision only if it is wanted as public
+  std API.
 - **D3 (G8).** A private queue, or a public `Deque` in std?
 - **D4 (G9).** Change the frame format to the canonical encoding?
 - **D5 (§3.3).** Move the group protocol (frames 4–9 and their state) out of
@@ -519,4 +635,5 @@ Each step keeps both backends passing the full suite.
   benchmarks.
 - **D7 (§2.3).** Which of the survey findings go on the ROADMAP now: waiter
   and actor table growth, forged-identity growth, the weaker Rust capability
-  bits, the reentrance difference, the route-stub busy wait.
+  bits, the reentrance difference, the route-stub busy wait, and pools and
+  dedicated threads never being released.

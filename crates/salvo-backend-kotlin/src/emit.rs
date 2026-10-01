@@ -1956,10 +1956,11 @@ impl<'p> Emitter<'p> {
                     (Some(plan), Some(payload)) => {
                         let ty = self.emit_type(payload);
                         let what = format!("what the host sent on `{}.{}`", e.name.name, f.name.name);
-                        let body = self.render_boundary_check(&plan, "__c", &what, 3);
+                        let (value, rest) = self.normalized(&plan, "__c");
+                        let body = rest.map(|p| self.render_boundary_check(&p, "__c", &what, 3)).unwrap_or_default();
                         args.push(format!(
                             "{name}.checked {{ __any ->\n            \
-                             @Suppress(\"UNCHECKED_CAST\") val __c = __any as {ty}\n{body}        }}"
+                             @Suppress(\"UNCHECKED_CAST\") val __c = __any as {ty}\n{body}            {value}\n        }}"
                         ));
                     }
                     _ => args.push(name),
@@ -1979,7 +1980,8 @@ impl<'p> Emitter<'p> {
             match result_plan {
                 Some(plan) => {
                     let what = format!("`{}.{}`'s result", e.name.name, f.name.name);
-                    let body = self.render_boundary_check(&plan, "__r", &what, 2);
+                    let (call, rest) = self.normalized(&plan, &call);
+                    let body = rest.map(|p| self.render_boundary_check(&p, "__r", &what, 2)).unwrap_or_default();
                     adapter.push_str(&format!(
                         "    override fun{generics} {member}({params}){ret} {{\n        \
                          val __r = {call}\n{body}        return __r\n    }}\n"
@@ -2320,10 +2322,33 @@ impl<'p> Emitter<'p> {
         match plan {
             Some(plan) => {
                 let what = format!("`platform fn {}`'s result", f.name.name);
-                let body = self.render_boundary_check(&plan, "__r", &what, indent);
+                let (call, rest) = self.normalized(&plan, &call);
+                let body = rest.map(|p| self.render_boundary_check(&p, "__r", &what, indent)).unwrap_or_default();
                 format!("{pad}val __r = {call}\n{body}{pad}return __r\n")
             }
             None => format!("{pad}return {call}\n"),
+        }
+    }
+
+    /// [platform-check] [kt-platform-check] A set or map the host hands back at
+    /// the top of a crossing is *normalized* rather than checked (D10 C1, C2):
+    /// `expr` wrapped in the runtime's copy-if-needed, and the rest of the plan.
+    fn normalized(
+        &mut self,
+        plan: &salvo_core::abi::BoundaryCheck,
+        expr: &str,
+    ) -> (String, Option<salvo_core::abi::BoundaryCheck>) {
+        use salvo_core::abi::{BoundaryCheck as C, Shape};
+        match plan {
+            C::Shape { kind, inner } => {
+                self.needs_compare = true;
+                let helper = match kind {
+                    Shape::Set | Shape::Map => "salvo.__salvoInsertionOrdered",
+                    Shape::SortedSet | Shape::SortedMap => "salvo.__salvoCanonicalSorted",
+                };
+                (format!("{helper}({expr})"), inner.as_deref().cloned())
+            }
+            other => (expr.to_string(), Some(other.clone())),
         }
     }
 
@@ -2425,6 +2450,35 @@ impl<'p> Emitter<'p> {
                     let t = format!("__t{d}_{i}");
                     out.push_str(&format!("{pad}val {t} = {v}.{}\n", tuple_field(*i)));
                     out.push_str(&self.render_boundary_check(inner, &t, what, indent));
+                }
+                out
+            }
+            // [platform-check] Inside another value a set or map cannot be
+            // replaced, so a wrong shape is refused, naming how to build it.
+            C::Shape { kind, inner } => {
+                use salvo_core::abi::Shape;
+                self.needs_compare = true;
+                let (cond, how) = match kind {
+                    Shape::Set => (
+                        format!("{v}.size > 1 && {v} !is java.util.LinkedHashSet<*>"),
+                        "is a set that keeps no insertion order: build it with `linkedSetOf(…)`",
+                    ),
+                    Shape::Map => (
+                        format!("{v}.size > 1 && {v} !is java.util.LinkedHashMap<*, *>"),
+                        "is a map that keeps no insertion order: build it with `linkedMapOf(…)`",
+                    ),
+                    Shape::SortedSet => (
+                        format!("{v}.comparator() !== salvo.SalvoCanonicalOrder"),
+                        "is not sorted by Salvo's ordering: build it with `salvo.salvoSortedSetOf(…)`",
+                    ),
+                    Shape::SortedMap => (
+                        format!("{v}.comparator() !== salvo.SalvoCanonicalOrder"),
+                        "is not sorted by Salvo's ordering: build it with `salvo.salvoSortedMapOf(…)`",
+                    ),
+                };
+                let mut out = format!("{pad}if ({cond}) {}\n", fail(how.to_string()));
+                if let Some(inner) = inner {
+                    out.push_str(&self.render_boundary_check(inner, v, what, indent));
                 }
                 out
             }
