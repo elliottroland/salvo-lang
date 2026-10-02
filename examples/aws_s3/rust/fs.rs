@@ -324,36 +324,36 @@ impl Fs {
 pub fn open_lines(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &String) -> Union2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
-        return Union2::<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(opened.u2().clone());
+        return Union2::<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2((match opened { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
-    return Union2::<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(lines(opened.u1().clone())));
+    return Union2::<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(lines((match opened { Union2::U1(__v) => __v, _ => unreachable!() }))));
 }
 
 pub fn open_chunks(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &String, size: i32) -> Union2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
-        return Union2::<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(opened.u2().clone());
+        return Union2::<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2((match opened { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
-    return Union2::<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(chunks(opened.u1().clone(), size)));
+    return Union2::<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(chunks((match opened { Union2::U1(__v) => __v, _ => unreachable!() }), size)));
 }
 
 pub fn read_to_str(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &String) -> Union2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
-        return Union2::<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(opened.u2().clone());
+        return Union2::<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2((match opened { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
     let mut s: InStream = opened.u1().clone();
     let mut content = streams.read_all(&s);
     if matches!(content, Union2::U2(_)) {
         let mut closed = streams.close(s);
         if matches!(closed, Union2::U2(_)) {
-            ignore(closed.u2().clone());
+            ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
-        return Union2::<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error(content.u2().clone())));
+        return Union2::<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error((match content { Union2::U2(__v) => __v, _ => unreachable!() }))));
     }
     let mut closed = streams.close(s);
     if matches!(closed, Union2::U2(_)) {
-        return Union2::<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error(closed.u2().clone())));
+        return Union2::<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error((match closed { Union2::U2(__v) => __v, _ => unreachable!() }))));
     }
     return Union2::<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(content.u1().clone()));
 }
@@ -361,16 +361,16 @@ pub fn read_to_str(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &
 pub fn read_lines(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &String) -> Union2<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
-        return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(opened.u2().clone());
+        return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2((match opened { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
-    let mut p = lines(opened.u1().clone());
+    let mut p = lines((match opened { Union2::U1(__v) => __v, _ => unreachable!() }));
     let mut out: Vec<String> = vec![];
     while let Union2::U1(mut line) = next__15(streams, &mut p) {
         out.push(line);
     }
     let mut closed = close__2(streams, p);
     if matches!(closed, Union2::U2(_)) {
-        return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error(closed.u2().clone())));
+        return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error((match closed { Union2::U2(__v) => __v, _ => unreachable!() }))));
     }
     let mut done: Vec<String> = out;
     return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(done));
@@ -379,13 +379,13 @@ pub fn read_lines(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &S
 pub fn write_str(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &String, content: &String) -> Union2<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     let mut opened = fs.open_write(path);
     if matches!(opened, Union2::U2(_)) {
-        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(opened.u2().clone());
+        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2((match opened { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
     let mut s: OutStream = opened.u1().clone();
     let mut written = streams.write(&s, content);
     let mut closed = streams.close__2(s);
     if matches!(closed, Union2::U2(_)) {
-        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error(closed.u2().clone())));
+        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error((match closed { Union2::U2(__v) => __v, _ => unreachable!() }))));
     }
     return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(written));
 }
@@ -393,7 +393,7 @@ pub fn write_str(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &St
 pub fn read_to_bytes(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &String) -> Union2<Vec<u8>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
-        return Union2::<Vec<u8>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(opened.u2().clone());
+        return Union2::<Vec<u8>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2((match opened { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
     let mut s: InStream = opened.u1().clone();
     let mut buf = Vec::<u8>::new();
@@ -401,13 +401,13 @@ pub fn read_to_bytes(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path:
     if matches!(filling, Union2::U2(_)) {
         let mut closed = streams.close(s);
         if matches!(closed, Union2::U2(_)) {
-            ignore(closed.u2().clone());
+            ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
-        return Union2::<Vec<u8>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error(filling.u2().clone())));
+        return Union2::<Vec<u8>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error((match filling { Union2::U2(__v) => __v, _ => unreachable!() }))));
     }
     let mut closed = streams.close(s);
     if matches!(closed, Union2::U2(_)) {
-        return Union2::<Vec<u8>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error(closed.u2().clone())));
+        return Union2::<Vec<u8>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error((match closed { Union2::U2(__v) => __v, _ => unreachable!() }))));
     }
     let mut done: Vec<u8> = buf;
     return Union2::<Vec<u8>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(done));
@@ -416,13 +416,13 @@ pub fn read_to_bytes(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path:
 pub fn write_bytes_to(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &String, data: &Vec<u8>) -> Union2<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     let mut opened = fs.open_write(path);
     if matches!(opened, Union2::U2(_)) {
-        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(opened.u2().clone());
+        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2((match opened { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
     let mut s: OutStream = opened.u1().clone();
     let mut written = streams.write_bytes(&s, data);
     let mut closed = streams.close__2(s);
     if matches!(closed, Union2::U2(_)) {
-        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error(closed.u2().clone())));
+        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error((match closed { Union2::U2(__v) => __v, _ => unreachable!() }))));
     }
     return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(written));
 }
@@ -430,16 +430,16 @@ pub fn write_bytes_to(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path
 pub fn copy_file(fs: &crate::fs::Fs, streams: &crate::stream::Streams, from: &String, to: &String) -> Union2<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     let mut opened = fs.open_read(from);
     if matches!(opened, Union2::U2(_)) {
-        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(opened.u2().clone());
+        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2((match opened { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
     let mut s: InStream = opened.u1().clone();
     let mut created = fs.open_write(to);
     if matches!(created, Union2::U2(_)) {
         let mut closed = streams.close(s);
         if matches!(closed, Union2::U2(_)) {
-            ignore(closed.u2().clone());
+            ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
-        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(created.u2().clone());
+        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2((match created { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
     let mut w: OutStream = created.u1().clone();
     let mut moved = copy_stream(streams, &s, &w);
@@ -447,21 +447,21 @@ pub fn copy_file(fs: &crate::fs::Fs, streams: &crate::stream::Streams, from: &St
     let mut shut_s = streams.close(s);
     if matches!(moved, Union2::U2(_)) {
         if matches!(shut_w, Union2::U2(_)) {
-            ignore(shut_w.u2().clone());
+            ignore((match shut_w { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         if matches!(shut_s, Union2::U2(_)) {
-            ignore(shut_s.u2().clone());
+            ignore((match shut_s { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
-        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error(moved.u2().clone())));
+        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error((match moved { Union2::U2(__v) => __v, _ => unreachable!() }))));
     }
     if matches!(shut_w, Union2::U2(_)) {
         if matches!(shut_s, Union2::U2(_)) {
-            ignore(shut_s.u2().clone());
+            ignore((match shut_s { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
-        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error(shut_w.u2().clone())));
+        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error((match shut_w { Union2::U2(__v) => __v, _ => unreachable!() }))));
     }
     if matches!(shut_s, Union2::U2(_)) {
-        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error(shut_s.u2().clone())));
+        return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error((match shut_s { Union2::U2(__v) => __v, _ => unreachable!() }))));
     }
     return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(*moved.u1()));
 }

@@ -7669,7 +7669,15 @@ between endpoints and delivers what arrives into the scheduler.
   Deque<Dyn>` mailbox), pools of worker threads that park when idle, send
   with back-pressure (a sender parks on a full mailbox, woken by the next
   dequeue), activations in the fault boundary, and death (the mailbox
-  dropped, later sends the no-op). Host types: `Dyn` (an erased value),
+  dropped, later sends the no-op); since the second slice, answers — a
+  linear `Token` aimed at an actor's continuation (optionally **gated**, so
+  only the awaited answer is delivered), at a waiting frame, or at a task
+  whose body travels in the token — the `waitfor` bridge (`waiter`,
+  `await_answer`) serving its own pool while it waits, `main`'s pool 0 with
+  no thread of its own, and the thread-local `here` (pool, actor) a wait
+  reads to know what it must not serve. A runtime platform fn's kept
+  callback may carry state of its own: the [iter-mut-param] callback rule
+  does not apply to it, since an actor body is exactly that. Host types: `Dyn` (an erased value),
   `Body` (an activation, `activate(b, msg) -> Ran`), `Slot<T>` (a cell a
   linear value is taken from and put back into through `Mut`).
 * [mod-use] **A module-level `use H()` binds an effect for every function of

@@ -212,7 +212,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
     fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         let mut got = mem_read_bytes(&mut self.reads, s.handle, max);
         if matches!(got, Union2::U2(_)) {
-            return Union2::<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(got.u2().clone());
+            return Union2::<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         let mut data: Vec<u8> = got.u1().clone();
         buf.extend_from_slice(&data[..]);
@@ -222,7 +222,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
     fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         let mut got = mem_read_all(&mut self.reads, s.handle);
         if matches!(got, Union2::U2(_)) {
-            return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(got.u2().clone());
+            return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         let mut text: String = got.u1().clone();
         buf.push_str(&text[..]);
@@ -265,7 +265,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
             self.reads.remove(&s.handle);
             drop(s);
             (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3(err(checked(Union2::<InvalidUtf8, StreamFailed>::U2(StreamFailed { source: open.source.clone(), message: "read failed".to_string() }))))));
-            ignore(got.u2().clone());
+            ignore((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
             return;
         }
         let mut data: Vec<u8> = got.u1().clone();

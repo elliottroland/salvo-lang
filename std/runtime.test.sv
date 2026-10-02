@@ -55,7 +55,7 @@ test "the scheduler runs an actor's messages in order on its pool" {
     let waker = copy(me)
     let pool = new_pool_of(2)
     let next = 0
-    let body = body_of(msg -> {
+    let body = body_of((kind, slot, msg) -> {
         let n: Int = unerase(msg)
         if n == 99 {
             unpark(copy(waker))
@@ -84,12 +84,12 @@ test "an actor that faults dies and later sends are dropped" {
     let me = this_parker()
     let waker = copy(me)
     let pool = new_pool_of(1)
-    let fragile = spawn_body(copy(pool), 2, body_of(msg -> {
+    let fragile = spawn_body(copy(pool), 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
         let xs: List<Int> = []
         let _boom = get(xs, 0)!
     }))
-    let sturdy = spawn_body(pool, 2, body_of(msg -> {
+    let sturdy = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
         unpark(copy(waker))
     }))
@@ -99,4 +99,114 @@ test "an actor that faults dies and later sends are dropped" {
     send_dyn(sturdy, erase(4))
     park(me)
     expect(true, "the pool kept working after a death")
+}
+
+// [actor-replyto] [actor-waitfor] Request and response: the message carries
+// a token, the actor answers it, and the waiting frame gets the answer.
+test "an actor answers a token, and a waiting frame receives it" {
+    let pool = new_pool_of(1)
+    let sum = 0
+    let counter = spawn_body(pool, 4, body_of((kind, slot, msg) -> {
+        let t: Token = unerase(msg)
+        sum = sum + 10
+        answer(t, erase(copy(sum)))
+    }))
+    let w = waiter()
+    let {token, wid} = w
+    send_dyn(copy(counter), erase(token))
+    let first: Int = unerase(await_answer(wid))
+    let w2 = waiter()
+    let {token: t2, wid: wid2} = w2
+    send_dyn(counter, erase(t2))
+    let second: Int = unerase(await_answer(wid2))
+    expect_eq(first, 10)
+    expect_eq(second, 20)
+}
+
+// [main-pool] [waitfor-pump] An actor on `main`'s pool has no thread of its
+// own: it runs while `main` waits, on `main`'s thread.
+test "an actor on the main pool runs while main waits" {
+    let echo = spawn_body(main_pool(), 2, body_of((kind, slot, msg) -> {
+        let t: Token = unerase(msg)
+        answer(t, erase(here_pool() * 100 + 7))
+    }))
+    let w = waiter()
+    let {token, wid} = w
+    send_dyn(echo, erase(token))
+    let got: Int = unerase(await_answer(wid))
+    expect_eq(got, 7)
+}
+
+// [task-mint] A task's answer schedules its body on the pool it was minted
+// for — here `main`'s, served by the wait. The answer carries the token the
+// task answers in turn.
+linear struct Req { n: Int, out: Token }
+
+fn finish_req(r: Req) [] -> None => !r {
+    let {n, out} = r
+    answer(out, erase(n * 2))
+}
+
+test "a task runs when its token is answered" {
+    let w = waiter()
+    let {token, wid} = w
+    let task = mint_task_on(main_pool(), body_of((kind, slot, value) -> {
+        let r: Req = unerase(value)
+        finish_req(r)
+    }))
+    answer(task, erase(Req { n: 5, out: token }))
+    let got: Int = unerase(await_answer(wid))
+    expect_eq(got, 10)
+}
+
+// [actor-replyto] The gate: while a gated continuation is outstanding, the
+// actor serves only the awaited answer — a message that arrived first waits.
+linear struct GateMsg { code: Int, me: Int, peer: Int, out: Token? }
+
+fn gate_msg(code: Int, me: Int, peer: Int) [] -> GateMsg => !code, !me, !peer {
+    return GateMsg { code: code, me: me, peer: peer, out: None }
+}
+
+fn drop_gate_msg(m: GateMsg) [] -> None => !m {
+    let {code, me, peer, out} = m
+    if out is Token t {
+        answer(t, erase(""))
+    }
+}
+
+test "a gated actor serves its awaited answer before older messages" {
+    let pool = new_pool_of(2)
+    let slow = spawn_body(copy(pool), 2, body_of((kind, slot, msg) -> {
+        let t: Token = unerase(msg)
+        park_nanos(this_parker(), 50000000)
+        answer(t, erase(1))
+    }))
+    let log: Mut List<Str> = mut_list_of()
+    let gated = spawn_body(pool, 4, body_of((kind, slot, msg) -> {
+        if kind == 1 {
+            let _n: Int = unerase(msg)
+            add(log, "reply")
+        } else {
+            let m: GateMsg = unerase(msg)
+            if m.code == 0 {
+                send_dyn(copy(m.peer), erase(mint(copy(m.me), true)))
+                drop_gate_msg(m)
+            } elif m.code == 1 {
+                add(log, "late")
+                drop_gate_msg(m)
+            } else {
+                let {code, me, peer, out} = m
+                if out is Token t {
+                    answer(t, erase(to_str(log)))
+                }
+            }
+        }
+    }))
+    send_dyn(copy(gated), erase(gate_msg(0, copy(gated), copy(slow))))
+    send_dyn(copy(gated), erase(gate_msg(1, copy(gated), copy(slow))))
+    let w = waiter()
+    let {token, wid} = w
+    send_dyn(copy(gated), erase(GateMsg { code: 2, me: copy(gated), peer: copy(slow), out: token }))
+    let order: Str = unerase(await_answer(wid))
+    expect_eq(order, "[reply, late]")
 }

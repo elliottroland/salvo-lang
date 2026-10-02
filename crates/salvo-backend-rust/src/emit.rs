@@ -3125,6 +3125,10 @@ impl<'p> Emitter<'p> {
                         opaque |= o;
                         uncloneable |= u;
                     }
+                } else if let Some(alias) = self.symbols.type_aliases.get(name).and_then(|d| d.alias.as_ref()) {
+                    let (o, u) = self.host_field_limits(alias, depth + 1);
+                    opaque |= o;
+                    uncloneable |= u;
                 }
                 for a in &base.args {
                     let (o, u) = self.host_field_limits(a, depth + 1);
@@ -3140,6 +3144,7 @@ impl<'p> Emitter<'p> {
                 })
             }
             Type::QualifiedGroup { base, .. } => self.host_field_limits(base, depth + 1),
+            Type::Nullable { inner, .. } | Type::Array { elem: inner, .. } => self.host_field_limits(inner, depth + 1),
             _ => (false, false),
         }
     }
@@ -8979,6 +8984,18 @@ impl<'p> Emitter<'p> {
                 let code = self.emit_struct_lit(Some(annot), fields, *span);
                 self.apply_coercion(*span, code)
             }
+            // [rs-linear-move] Destructuring a narrowed linear local takes
+            // it apart by move: the narrowed read would clone a borrow.
+            (Expr::Ident(id), _)
+                if matches!(pattern, Pattern::Struct { .. })
+                    && self.ty_of(id.span).is_some_and(|t| match t.strip_quals() {
+                        Ty::Named { name, .. } => self.symbols.structs.get(name.as_str()).is_some_and(|s| s.linear),
+                        _ => false,
+                    })
+                    && self.linear_move_unwrap(id).is_some() =>
+            {
+                self.linear_move_unwrap(id).unwrap()
+            }
             _ => self.emit_bound_value(value, stmt_span),
         };
         match pattern {
@@ -10978,10 +10995,21 @@ impl<'p> Emitter<'p> {
             return None;
         }
         let n = self.narrowing_of(id.span)?;
-        if n.arm.is_some() || n.copy || !n.optional {
+        if n.copy {
             return None;
         }
         let storage = self.binding_place(&id.name);
+        // [rs-linear-move] A narrowed union *arm* moves out with a `match`
+        // over the storage, as a plain optional moves with `unwrap`.
+        if let Some(arm) = n.arm {
+            let size = self.repr_of(id.span)?.value_arms().len();
+            let pat = format!("Union{size}::U{}(__v)", arm + 1);
+            let pat = if n.optional { format!("Some({pat})") } else { pat };
+            return Some(format!("(match {storage} {{ {pat} => __v, _ => unreachable!() }})"));
+        }
+        if !n.optional {
+            return None;
+        }
         Some(format!("{storage}.unwrap()"))
     }
 

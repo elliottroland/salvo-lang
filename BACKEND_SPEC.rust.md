@@ -1584,7 +1584,9 @@ facts worth knowing") and keeps the history ("One shape for effects").
   fields.
 * [rs-linear-move] A binding taking a linear payload out of one **arm of a
   union** held in a local (`while r is Full f`) moves it with a `match`, as
-  the plain-optional shape moves with `unwrap` (2026-10-02).
+  the plain-optional shape moves with `unwrap` (2026-10-02); so does a
+  narrowed linear arm handed on (`linear_move_unwrap`), and destructuring a
+  narrowed linear struct (`let {a, b} = x`) — which closes ROADMAP 0c item 7.
 * [rs-platform-type] [platform-type] The declaring module re-exports the
   host's struct — `pub use crate::platform_<m>::Name;` — so every mention is
   the ordinary path, beside a static assertion of the kind's contract

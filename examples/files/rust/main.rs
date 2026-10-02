@@ -100,7 +100,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("wrote {} bytes", *wrote.u1())));
         }
         Union2::U2(_) => {
-            println(console, &(format!("write failed: {}", kind_name(&(detach(wrote.u2().clone()))))));
+            println(console, &(format!("write failed: {}", kind_name(&(detach((match wrote { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut text = read_to_str(fs, streams, &("notes.txt".to_string()));
@@ -109,23 +109,23 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("read back {} bytes", (text.u1().len() as i64))));
         }
         Union2::U2(_) => {
-            println(console, &(format!("read failed: {}", kind_name(&(detach(text.u2().clone()))))));
+            println(console, &(format!("read failed: {}", kind_name(&(detach((match text { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut opened = fs.open_read(&("notes.txt".to_string()));
     match opened {
         Union2::U1(_) => {
-            let mut p = lines(opened.u1().clone());
+            let mut p = lines((match opened { Union2::U1(__v) => __v, _ => unreachable!() }));
             while let Union2::U1(mut line) = next__15(streams, &mut p) {
                 println(console, &(format!("line: {}", line)));
             }
             let mut closed = close__2(streams, p);
             if matches!(closed, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name__2(&(detach(closed.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach((match closed { Union2::U2(__v) => __v, _ => unreachable!() })))))));
             }
         }
         Union2::U2(_) => {
-            println(console, &(format!("open failed: {}", kind_name(&(detach(opened.u2().clone()))))));
+            println(console, &(format!("open failed: {}", kind_name(&(detach((match opened { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut out = fs.open_append(&("notes.txt".to_string()));
@@ -137,7 +137,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("appended {} bytes at offset {}", n, at)));
             let mut shut = streams.close__2(w);
             if matches!(shut, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name__2(&(detach(shut.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach((match shut { Union2::U2(__v) => __v, _ => unreachable!() })))))));
             }
             let mut resumed = fs.open_read_at(&("notes.txt".to_string()), at);
             match resumed {
@@ -154,16 +154,16 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
                     }
                     let mut done = streams.close(s);
                     if matches!(done, Union2::U2(_)) {
-                        println(console, &(format!("close failed: {}", kind_name__2(&(detach(done.u2().clone()))))));
+                        println(console, &(format!("close failed: {}", kind_name__2(&(detach((match done { Union2::U2(__v) => __v, _ => unreachable!() })))))));
                     }
                 }
                 Union2::U2(_) => {
-                    println(console, &(format!("reopen failed: {}", kind_name(&(detach(resumed.u2().clone()))))));
+                    println(console, &(format!("reopen failed: {}", kind_name(&(detach((match resumed { Union2::U2(__v) => __v, _ => unreachable!() })))))));
                 }
             }
         }
         Union2::U2(_) => {
-            println(console, &(format!("append failed: {}", kind_name(&(detach(out.u2().clone()))))));
+            println(console, &(format!("append failed: {}", kind_name(&(detach((match out { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut bin = fs.open_write(&("raw.bin".to_string()));
@@ -176,11 +176,11 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("wrote {} raw bytes and {} encoded", n, m)));
             let mut shut = streams.close__2(w);
             if matches!(shut, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name__2(&(detach(shut.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach((match shut { Union2::U2(__v) => __v, _ => unreachable!() })))))));
             }
         }
         Union2::U2(_) => {
-            println(console, &(format!("raw open failed: {}", kind_name(&(detach(bin.u2().clone()))))));
+            println(console, &(format!("raw open failed: {}", kind_name(&(detach((match bin { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut raw = fs.open_read(&("raw.bin".to_string()));
@@ -193,7 +193,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
                     println(console, &(format!("first three: {} = {}", format!("[{}]", head.u1().clone().iter().map(|__b| __b.to_string()).collect::<Vec<String>>().join(", ")), head.u1().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
                 }
                 Union2::U2(_) => {
-                    println(console, &(format!("byte read failed: {}", kind_name__2(&(detach(head.u2().clone()))))));
+                    println(console, &(format!("byte read failed: {}", kind_name__2(&(detach((match head { Union2::U2(__v) => __v, _ => unreachable!() })))))));
                 }
             }
             let mut tail = streams.read_all(&s);
@@ -202,16 +202,16 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
                     println(console, &(format!("the rest, as text: {}", tail.u1().clone())));
                 }
                 Union2::U2(_) => {
-                    println(console, &(format!("decode failed: {}", kind_name__2(&(detach(tail.u2().clone()))))));
+                    println(console, &(format!("decode failed: {}", kind_name__2(&(detach((match tail { Union2::U2(__v) => __v, _ => unreachable!() })))))));
                 }
             }
             let mut done = streams.close(s);
             if matches!(done, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name__2(&(detach(done.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach((match done { Union2::U2(__v) => __v, _ => unreachable!() })))))));
             }
         }
         Union2::U2(_) => {
-            println(console, &(format!("raw read failed: {}", kind_name(&(detach(raw.u2().clone()))))));
+            println(console, &(format!("raw read failed: {}", kind_name(&(detach((match raw { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut split = fs.open_read_at(&("raw.bin".to_string()), 5i64);
@@ -224,7 +224,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
                     println(console, &(format!("unexpected: {} decoded", broken.u1().clone())));
                 }
                 Union2::U2(_) => {
-                    println(console, &(format!("mid-character: {}", kind_name__2(&(detach(broken.u2().clone()))))));
+                    println(console, &(format!("mid-character: {}", kind_name__2(&(detach((match broken { Union2::U2(__v) => __v, _ => unreachable!() })))))));
                 }
             }
             let mut done = streams.close(s);
@@ -233,12 +233,12 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
                     println(console, &("unexpected: the failure was not recorded".to_string()));
                 }
                 Union2::U2(_) => {
-                    println(console, &(format!("and again at close: {}", kind_name__2(&(detach(done.u2().clone()))))));
+                    println(console, &(format!("and again at close: {}", kind_name__2(&(detach((match done { Union2::U2(__v) => __v, _ => unreachable!() })))))));
                 }
             }
         }
         Union2::U2(_) => {
-            println(console, &(format!("split open failed: {}", kind_name(&(detach(split.u2().clone()))))));
+            println(console, &(format!("split open failed: {}", kind_name(&(detach((match split { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut held = fs.open_read(&("raw.bin".to_string()));
@@ -263,7 +263,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
                         }
                     }
                     Union2::U2(_) => {
-                        println(console, &(format!("fill failed: {}", kind_name__2(&(detach(got.u2().clone()))))));
+                        println(console, &(format!("fill failed: {}", kind_name__2(&(detach((match got { Union2::U2(__v) => __v, _ => unreachable!() })))))));
                         reading = false;
                     }
                 }
@@ -271,11 +271,11 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("filled {} bytes in {} reads, one buffer", moved, steps)));
             let mut done = streams.close(s);
             if matches!(done, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name__2(&(detach(done.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach((match done { Union2::U2(__v) => __v, _ => unreachable!() })))))));
             }
         }
         Union2::U2(_) => {
-            println(console, &(format!("fill open failed: {}", kind_name(&(detach(held.u2().clone()))))));
+            println(console, &(format!("fill open failed: {}", kind_name(&(detach((match held { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut lined = fs.open_read(&("notes.txt".to_string()));
@@ -298,11 +298,11 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("longest line: {} characters", longest)));
             let mut done = streams.close(s);
             if matches!(done, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name__2(&(detach(done.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach((match done { Union2::U2(__v) => __v, _ => unreachable!() })))))));
             }
         }
         Union2::U2(_) => {
-            println(console, &(format!("lines open failed: {}", kind_name(&(detach(lined.u2().clone()))))));
+            println(console, &(format!("lines open failed: {}", kind_name(&(detach((match lined { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut ch = open_chunks(fs, streams, &("raw.bin".to_string()), 4);
@@ -316,11 +316,11 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("chunks saw {} bytes", seen)));
             let mut done = close__3(streams, p);
             if matches!(done, Union2::U2(_)) {
-                println(console, &(format!("close failed: {}", kind_name__2(&(detach(done.u2().clone()))))));
+                println(console, &(format!("close failed: {}", kind_name__2(&(detach((match done { Union2::U2(__v) => __v, _ => unreachable!() })))))));
             }
         }
         Union2::U2(_) => {
-            println(console, &(format!("chunks failed: {}", kind_name(&(detach(ch.u2().clone()))))));
+            println(console, &(format!("chunks failed: {}", kind_name(&(detach((match ch { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut copied = copy_file(fs, streams, &("notes.txt".to_string()), &("notes-copy.txt".to_string()));
@@ -329,7 +329,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("copied {} bytes", *copied.u1())));
         }
         Union2::U2(_) => {
-            println(console, &(format!("copy failed: {}", kind_name(&(detach(copied.u2().clone()))))));
+            println(console, &(format!("copy failed: {}", kind_name(&(detach((match copied { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut whole = read_to_bytes(fs, streams, &("raw.bin".to_string()));
@@ -338,7 +338,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("raw.bin is {} bytes: {}", (whole.u1().len() as i32), whole.u1().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
         }
         Union2::U2(_) => {
-            println(console, &(format!("byte read failed: {}", kind_name(&(detach(whole.u2().clone()))))));
+            println(console, &(format!("byte read failed: {}", kind_name(&(detach((match whole { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut failures: Vec<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = vec![];
@@ -348,7 +348,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("unexpected: {}", missing.u1().clone())));
         }
         Union2::U2(_) => {
-            failures.push(detach(missing.u2().clone()));
+            failures.push(detach((match missing { Union2::U2(__v) => __v, _ => unreachable!() })));
         }
     }
     let mut not_a_dir = fs.list_dir(&("notes.txt".to_string()));
@@ -357,7 +357,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("unexpected: {}", format!("[{}]", not_a_dir.u1().clone().iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
         }
         Union2::U2(_) => {
-            failures.push(detach(not_a_dir.u2().clone()));
+            failures.push(detach((match not_a_dir { Union2::U2(__v) => __v, _ => unreachable!() })));
         }
     }
     println(console, &(format!("failures: {}", (failures.len() as i32))));
@@ -367,7 +367,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
     for mut name in vec!["notes.txt".to_string(), "notes-copy.txt".to_string(), "raw.bin".to_string()] {
         let mut gone = fs.delete(&name);
         if matches!(gone, Union2::U2(_)) {
-            println(console, &(format!("delete failed: {}", kind_name(&(detach(gone.u2().clone()))))));
+            println(console, &(format!("delete failed: {}", kind_name(&(detach((match gone { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     println(console, &("cleaned up".to_string()));
@@ -380,7 +380,7 @@ pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console,
             println(console, &(format!("through `..`: wrote {} bytes", *inside.u1())));
         }
         Union2::U2(_) => {
-            println(console, &(format!("through `..`: {}", kind_name(&(detach(inside.u2().clone()))))));
+            println(console, &(format!("through `..`: {}", kind_name(&(detach((match inside { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut up = read_to_str(fs, streams, &("../secret.txt".to_string()));
@@ -389,7 +389,7 @@ pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console,
             println(console, &("unexpected: read outside the sandbox".to_string()));
         }
         Union2::U2(_) => {
-            println(console, &(format!("climbing out: {}", kind_name(&(detach(up.u2().clone()))))));
+            println(console, &(format!("climbing out: {}", kind_name(&(detach((match up { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut absolute = read_to_str(fs, streams, &("/etc/hosts".to_string()));
@@ -398,14 +398,14 @@ pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console,
             println(console, &("unexpected: an absolute path resolved".to_string()));
         }
         Union2::U2(_) => {
-            println(console, &(format!("absolute path: {}", kind_name(&(detach(absolute.u2().clone()))))));
+            println(console, &(format!("absolute path: {}", kind_name(&(detach((match absolute { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut probe = "probe.txt".to_string();
     println(console, &(format!("probe still there: {}", fs.exists(&probe))));
     let mut gone = fs.delete(&probe);
     if matches!(gone, Union2::U2(_)) {
-        println(console, &(format!("delete failed: {}", kind_name(&(detach(gone.u2().clone()))))));
+        println(console, &(format!("delete failed: {}", kind_name(&(detach((match gone { Union2::U2(__v) => __v, _ => unreachable!() })))))));
     }
 }
 
@@ -419,7 +419,7 @@ pub fn main() {
     let mut root = "tmp/files-example".to_string();
     let mut made = fs.create_dirs(&root);
     if matches!(made, Union2::U2(_)) {
-        println(&console, &(format!("cannot create the working directory: {}", kind_name(&(detach(made.u2().clone()))))));
+        println(&console, &(format!("cannot create the working directory: {}", kind_name(&(detach((match made { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         return;
     }
     println(&console, &("-- the real filesystem, scoped to one directory --".to_string()));
@@ -430,7 +430,7 @@ pub fn main() {
     }
     let mut gone = fs.delete(&root);
     if matches!(gone, Union2::U2(_)) {
-        println(&console, &(format!("cleanup failed: {}", kind_name(&(detach(gone.u2().clone()))))));
+        println(&console, &(format!("cleanup failed: {}", kind_name(&(detach((match gone { Union2::U2(__v) => __v, _ => unreachable!() })))))));
     }
     println(&console, &("-- the same code, with no disk at all --".to_string()));
     if true {

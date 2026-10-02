@@ -445,7 +445,7 @@ impl crate::aws_s3::__Stateful_S3 for FakeS3 {
         let mut r#unsized = input.content_length.is_none();
         let mut closed = close__4(&self.__dep_Streams, input);
         if matches!(closed, Union2::U2(_)) {
-            ignore(closed.u2().clone());
+            ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         if r#unsized {
             crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U2(AwsError { code: "MissingContentLength".to_string(), message: "S3 PutObject streams its body, so the input needs content_length: the body's length in bytes".to_string() })))));

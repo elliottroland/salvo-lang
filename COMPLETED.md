@@ -135,6 +135,27 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The local scheduler core in Salvo, second part (2026-10-02; RUNTIME.md
+§11.5 slice 11d).** Answers and waits: a linear `Token` aimed at an actor's
+parked continuation (gated or not), at a waiting frame, or at a task whose
+body travels in the token; mailboxes of `Delivered | Answered` entries with a
+parallel deque of slots the gate reads; the `waitfor` bridge (`waiter`,
+`await_answer`) serving its own pool except the waiting actor; `main`'s pool
+0, which has no thread and runs while `main` waits; and a thread-local
+`here` (`here_pool`, `here_actor`, `set_here`). Four new std tests on both
+backends: request/response, an actor on the main pool, a task, and the gate
+(an awaited answer served before an older message). What fell out: three
+more Rust moves of linear values that cloned — a narrowed union arm handed
+on, destructuring a narrowed linear struct (both now `match`/move, closing
+ROADMAP 0c item 7), and host-field derives through type aliases and `T?`;
+the checker's stored-callback rule [iter-mut-param] refused an actor body
+mutating its own captured state, now exempt for the runtime's kept callbacks;
+and two checker shapes the code works around rather than fixes — an
+`if x is A a … elif x is B b … else` chain does not narrow the final `else`
+(written as `if … else` on the last arm), and a field of a projected union
+element is not reachable after an `is` test (the gate reads a parallel deque
+of slots instead). **1679 tests** (four more std tests).
+
 **The local scheduler core in Salvo, first part (2026-10-02; RUNTIME.md
 §11.5 slice 11d).** In `std/runtime.sv`, beside the hosts' schedulers: a
 `Scheduler` monitor bound at module level holding the actor table (`linear

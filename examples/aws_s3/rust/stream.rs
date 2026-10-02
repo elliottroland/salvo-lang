@@ -279,7 +279,7 @@ pub fn pipe(streams: &crate::stream::Streams, from: InStream, to: OutStream, don
 pub fn pipe_step(mut streams: crate::stream::Streams, to: OutStream, done: crate::scheduler::SalvoReply, moved: i64, got: Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) {
     match got {
         Union3::U1(_) => {
-            let __destructured2 = got.u1().clone();
+            let __destructured2 = (match got { Union3::U1(__v) => __v, _ => unreachable!() });
             let mut bytes = __destructured2.bytes;
             let mut stream = __destructured2.stream;
             let mut written = streams.write_bytes(&to, &bytes);
@@ -292,7 +292,7 @@ pub fn pipe_step(mut streams: crate::stream::Streams, to: OutStream, done: crate
                     crate::scheduler::salvo_reply_wire::<Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>>(done, Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(moved)));
                 }
                 Union2::U2(_) => {
-                    crate::scheduler::salvo_reply_wire::<Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>>(done, Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(closed.u2().clone()));
+                    crate::scheduler::salvo_reply_wire::<Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>>(done, Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match closed { Union2::U2(__v) => __v, _ => unreachable!() })));
                 }
             }
         }
@@ -302,10 +302,10 @@ pub fn pipe_step(mut streams: crate::stream::Streams, to: OutStream, done: crate
                 Union2::U1(_) => {
                 }
                 Union2::U2(_) => {
-                    ignore(closed.u2().clone());
+                    ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
                 }
             }
-            crate::scheduler::salvo_reply_wire::<Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>>(done, Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(got.u3().clone()));
+            crate::scheduler::salvo_reply_wire::<Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>>(done, Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union3::U3(__v) => __v, _ => unreachable!() })));
         }
     }
 }
@@ -348,7 +348,7 @@ pub fn chunks(s: InStream, size: i32) -> Chunks {
 pub fn next__16(streams: &crate::stream::Streams, p: &mut Chunks) -> Union2<Vec<u8>, Finished> {
     let mut got = streams.read_bytes(&p.s, p.size);
     if matches!(got, Union2::U2(_)) {
-        ignore(got.u2().clone());
+        ignore((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
         return Union2::<Vec<u8>, Finished>::U2(finished());
     }
     let mut data: Vec<u8> = got.u1().clone();
@@ -372,7 +372,7 @@ pub fn fill_from(streams: &crate::stream::Streams, s: &InStream, buf: &mut Vec<u
     while reading {
         let mut got = streams.read_to(s, buf, stream_chunk_size());
         if matches!(got, Union2::U2(_)) {
-            return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(got.u2().clone());
+            return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         let mut n: i32 = *got.u1();
         total = total + ((n) as i64);
@@ -391,7 +391,7 @@ pub fn copy_stream(streams: &crate::stream::Streams, s: &InStream, w: &OutStream
         buf.clear();
         let mut got = streams.read_to(s, &mut buf, stream_chunk_size());
         if matches!(got, Union2::U2(_)) {
-            return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(got.u2().clone());
+            return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         let mut n: i32 = *got.u1();
         if n == 0 {

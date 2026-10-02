@@ -74,15 +74,15 @@ pub fn drop_dyn(d: Dyn) {
 
 // [runtime-sched] `linear platform type Body`: what an activation runs.
 pub struct Body {
-    f: Box<dyn FnMut(Dyn) + Send>,
+    f: Box<dyn FnMut(i32, i64, Dyn) + Send>,
 }
 
-pub fn body_of(f: Box<dyn FnMut(Dyn) + Send + 'static>) -> Body {
+pub fn body_of(f: Box<dyn FnMut(i32, i64, Dyn) + Send + 'static>) -> Body {
     Body { f }
 }
 
-pub fn activate(mut b: Body, msg: Dyn) -> crate::runtime::Ran {
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (b.f)(msg)));
+pub fn activate(mut b: Body, kind: i32, slot: i64, msg: Dyn) -> crate::runtime::Ran {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (b.f)(kind, slot, msg)));
     let fault = outcome.err().map(|p| {
         p.downcast_ref::<&str>()
             .map(|m| (*m).to_string())
@@ -105,6 +105,10 @@ pub fn slot_of<T: Send + 'static>(v: T) -> Slot<T> {
     Slot { v: Some(v) }
 }
 
+pub fn slot_empty<T: Send + 'static>() -> Slot<T> {
+    Slot { v: None }
+}
+
 pub fn slot_take<T: Send + 'static>(s: &mut Slot<T>) -> Option<T> {
     s.v.take()
 }
@@ -113,8 +117,26 @@ pub fn slot_put<T: Send + 'static>(s: &mut Slot<T>, v: T) {
     s.v = Some(v);
 }
 
-pub fn drop_slot(s: Slot<Body>) {
+pub fn drop_slot<T: Send + 'static>(s: Slot<T>) {
     drop(s);
+}
+
+// [runtime-sched] Where this thread is: its pool and the actor whose
+// activation it is inside (-1 for none). Main's thread starts on pool 0.
+thread_local! {
+    static HERE: std::cell::Cell<(i32, i32)> = const { std::cell::Cell::new((0, -1)) };
+}
+
+pub fn here_pool() -> i32 {
+    HERE.with(|h| h.get().0)
+}
+
+pub fn here_actor() -> i32 {
+    HERE.with(|h| h.get().1)
+}
+
+pub fn set_here(pool: i32, actor: i32) {
+    HERE.with(|h| h.set((pool, actor)));
 }
 
 // `threadsafe platform handler HostRuntime` [runtime-host]: stateless, so

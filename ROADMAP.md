@@ -142,14 +142,29 @@ a correct program from building. std works around the first by naming.
    closure typed `()` (E0308), Kotlin a bare `return` from a lambda (refused).
    Refused by the host compilers, so not silent. `std/runtime.test.sv` uses
    `if`/`else` instead.
-7. **A `when` arm passing a linear union arm onward clones it on Rust**
-   (`is Full { drop_full(r) }` emits `r.u3().clone()`, E0308 when the arm is
-   not `Clone`). The `is` binding form moves (`if r is Full f`).
-5. **A generic fn calling a generic platform fn does not compile on Rust**:
-   the platform fn bounds its `T` `Send + 'static` [platform-generic] and a
-   generic Salvo fn bounds its own `T: Clone` only. Either every generic fn
-   gains `Send + 'static` (a Salvo type always satisfies both, as the keyed
-   containers' fns already rely on) or a fn reaching a platform fn does.
+7. ✅ Closed 2026-10-02: a narrowed linear union arm handed on clones on Rust
+   (now moved, [rs-linear-move]).
+
+### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
+
+The user's aim is that a new backend implements as little host code as
+possible (RUNTIME.md §11). Some of the runtime's platform declarations are
+stand-ins for language features Salvo lacks rather than things only a host
+can do; each is a candidate to become Salvo. Kept as they are for now (user
+decision 2026-10-02), to be revisited once the port lands. First candidates:
+
+1. **`Slot<T>`** — a cell a linear value is taken from and put back into
+   through `Mut`. Stands in for moving a linear value out of a field (gap G2):
+   a core `take(place: Mut T?) -> T?` leaving `None` behind, or the checker
+   accepting `let b = a.body` followed by `a.body = None` before the
+   projection ends.
+2. **`Body`** — an activation's owned, mutable, sendable fn value (E10).
+   After the cutover a real actor's body is generated dispatch, so this should
+   become what the emitter produces rather than hand-written host code; a
+   general owned sendable fn type for programs is a separate decision.
+
+Genuinely the host's, for contrast: `Dyn`'s erasure and downcast, `Parker`,
+`start_thread`, `guarded`, `secure_bits`, the clock.
 
 ### 1 — ✅ The std reorganisation (complete 2026-09-26)
 

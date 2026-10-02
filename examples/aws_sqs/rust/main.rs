@@ -76,7 +76,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
         *crate::scheduler::salvo_wait(__wid).downcast::<Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>>().expect("the awaited answer")
     };
     if matches!(created, Union2::U2(_)) {
-        println(console, &(format!("create_queue: {}", describe(&(detach(created.u2().clone()))))));
+        println(console, &(format!("create_queue: {}", describe(&(detach((match created { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         return;
     }
     let mut url = if created.u1().clone().queue_url.is_some() { created.u1().clone().queue_url.as_ref().unwrap().clone() } else { "?".to_string() };
@@ -92,7 +92,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
             println(console, &(format!("sent {}", if sent.u1().clone().message_id.is_some() { sent.u1().clone().message_id.as_ref().unwrap().clone() } else { "?".to_string() })));
         }
         Union2::U2(_) => {
-            println(console, &(format!("send_message: {}", describe(&(detach(sent.u2().clone()))))));
+            println(console, &(format!("send_message: {}", describe(&(detach((match sent { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut got = {
@@ -110,7 +110,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
             }
         }
         Union2::U2(_) => {
-            println(console, &(format!("receive_message: {}", describe(&(detach(got.u2().clone()))))));
+            println(console, &(format!("receive_message: {}", describe(&(detach((match got { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
     let mut gone = {
@@ -124,7 +124,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
             println(console, &("deleted".to_string()));
         }
         Union2::U2(_) => {
-            println(console, &(format!("delete_queue: {}", describe(&(detach(gone.u2().clone()))))));
+            println(console, &(format!("delete_queue: {}", describe(&(detach((match gone { Union2::U2(__v) => __v, _ => unreachable!() })))))));
         }
     }
 }
@@ -237,7 +237,7 @@ pub fn main() {
                 println(&console, &(format!("unexpected: {}", if missing.u1().clone().queue_url.is_some() { missing.u1().clone().queue_url.as_ref().unwrap().clone() } else { "?".to_string() })));
             }
             Union2::U2(_) => {
-                println(&console, &(format!("get_queue_url: {}", describe(&(detach(missing.u2().clone()))))));
+                println(&console, &(format!("get_queue_url: {}", describe(&(detach((match missing { Union2::U2(__v) => __v, _ => unreachable!() })))))));
             }
         }
     }

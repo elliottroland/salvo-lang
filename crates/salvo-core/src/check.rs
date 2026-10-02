@@ -1341,6 +1341,11 @@ fn check_once<'p>(
             mut_fields,
             parking_handlers,
         );
+        checker.runtime_files = program
+            .files
+            .iter()
+            .map(|f| f.is_std && f.module.0.first().is_some_and(|m| m == crate::resolve::STD_INTERNAL))
+            .collect();
         checker.check_module(ast);
         checker.check_platform_boundary(ast);
     }
@@ -1774,6 +1779,8 @@ struct Checker<'p, 'r> {
     /// [mod-use] The effects the module's own `use H()` lines bind: in scope
     /// in every function of the module, never declared by one.
     module_avails: Vec<EffectAvail>,
+    /// [runtime-kept-fn] Per file: whether it belongs to std's runtime.
+    runtime_files: Vec<bool>,
     /// [effect-handler-deps] The effect implemented by the handler whose
     /// members are being checked, so a member calling *its own* effect can be
     /// told what is actually wrong: self-dispatch is not a feature yet, and
@@ -2173,6 +2180,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             effect_env: Vec::new(),
             handler_deps: Vec::new(),
             module_avails: Vec::new(),
+            runtime_files: Vec::new(),
             handler_ofs: Vec::new(),
             own_handler: None,
             handler_spawns: false,
@@ -27113,7 +27121,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // The trigger is the *deduction*, not the callee's shape: R5 removed the
         // producer factory, so "held past the call" is exactly "moved into the
         // callee" — which is what a composed combinator's `-> []` says.
-        if self.inferred.is_some() {
+        // [runtime-kept-fn] Except a runtime platform fn's kept callback: an
+        // actor body *is* a callback with state of its own, called once per
+        // activation, and the Rust lowering moves the captures in — so the
+        // state is the body's, not shared with the caller.
+        let runtime_kept = decl.platform && best_key.is_some_and(|k| self.runtime_files.get(k.file).copied().unwrap_or(false));
+        if self.inferred.is_some() && !runtime_kept {
             let facts: Option<Vec<crate::deduce::ParamDeduction>> =
                 self.effective_contract(best_key, decl);
             for (i, arg) in args.iter().enumerate() {

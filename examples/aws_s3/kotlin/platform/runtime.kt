@@ -59,13 +59,13 @@ fun <T> unerase(d: Dyn): T = d.v as T
 fun dropDyn(d: Dyn) {}
 
 // [runtime-sched] `linear platform type Body`: what an activation runs.
-class Body(val f: (Dyn) -> Unit)
+class Body(val f: (Int, Long, Dyn) -> Unit)
 
-fun bodyOf(f: (Dyn) -> Unit): Body = Body(f)
+fun bodyOf(f: (Int, Long, Dyn) -> Unit): Body = Body(f)
 
-fun activate(b: Body, msg: Dyn): salvo.runtime.Ran =
+fun activate(b: Body, kind: Int, slot: Long, msg: Dyn): salvo.runtime.Ran =
     try {
-        b.f(msg)
+        b.f(kind, slot, msg)
         salvo.runtime.Ran(b, null)
     } catch (t: Throwable) {
         salvo.runtime.Ran(b, t.message ?: t.javaClass.simpleName)
@@ -78,6 +78,8 @@ class Slot<T>(var v: T?)
 
 fun <T> slotOf(v: T): Slot<T> = Slot(v)
 
+fun <T> slotEmpty(): Slot<T> = Slot(null)
+
 fun <T> slotTake(s: Slot<T>): T? {
     val out = s.v
     s.v = null
@@ -88,7 +90,19 @@ fun <T> slotPut(s: Slot<T>, v: T) {
     s.v = v
 }
 
-fun dropSlot(s: Slot<Body>) {}
+fun <T> dropSlot(s: Slot<T>) {}
+
+// [runtime-sched] Where this thread is: its pool and the actor whose
+// activation it is inside (-1 for none). Main's thread starts on pool 0.
+private val here = ThreadLocal.withInitial { intArrayOf(0, -1) }
+
+fun herePool(): Int = here.get()[0]
+
+fun hereActor(): Int = here.get()[1]
+
+fun setHere(pool: Int, actor: Int) {
+    here.set(intArrayOf(pool, actor))
+}
 
 // `threadsafe platform handler HostRuntime` [runtime-host]: stateless but for
 // the `SecureRandom`, which is itself thread-safe.
