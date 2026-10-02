@@ -10,18 +10,6 @@ private val __moduleUse0: RuntimeHost by lazy {
     runtime_host
 }
 
-// [mod-use] The module's `use` #1, bound on first use.
-private val __moduleUse1: DeadlineTable by lazy {
-    val deadline_table: DeadlineTable = __Mon_DeadlineTable(Deadlines())
-    deadline_table
-}
-
-// [mod-use] The module's `use` #2, bound on first use.
-private val __moduleUse2: Wheel by lazy {
-    val wheel: Wheel = __Stub_Wheel(run { val __h = Wheeling(); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Wheeling(__h), __Actor_Wheeling.__DECODE); __a })
-    wheel
-}
-
 fun thisParkerPlatform(): salvo.platform.runtime.Parker {
     return salvo.platform.runtime.thisParker()
 }

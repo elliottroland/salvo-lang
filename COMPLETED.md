@@ -135,6 +135,16 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The runtime as a core and its services (user decision 2026-10-02;
+RUNTIME.md §5.4).** Prompted by the user's question of how a wheel written as
+an actor fits a scheduler written in Salvo: it is a client of the scheduler,
+not part of it, so the dependency is one-way — but only by convention while
+both lived in `std/runtime.sv`, whose rules said the module could not use
+actors at all. The wheel moved to `std/runtime/timers.sv` (`runtime.timers`),
+the core exports what it needs (`Parker` and its fns, `now_nanos`), and the
+checker refuses the core importing a service [runtime-layers]. New test
+`the_runtime_core_does_not_import_its_services`. **1678 tests.**
+
 **Deadlines in Salvo (2026-10-02; RUNTIME.md §11.5 slice 11a).** The first
 piece of a host scheduler written once: `std/runtime.sv` keeps deadlines in a
 `Deadlines` monitor and serves them with a wheel — an actor on a dedicated
@@ -19690,7 +19700,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1677; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1678; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

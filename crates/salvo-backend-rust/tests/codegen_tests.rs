@@ -13834,7 +13834,7 @@ fn a_deadline_lowers_to_the_runtime_modules_wheel() {
     let find = |name: &str| files.iter().find(|f| f.rel_path.to_string_lossy() == name).map(|f| f.content.clone());
     let time = find("time.rs").expect("time.rs");
     assert!(time.contains("after_nanos("), "expected the deadline call in:\n{time}");
-    let runtime = find("runtime.rs").expect("runtime.rs");
+    let runtime = find("runtime/timers.rs").expect("runtime/timers.rs");
     assert!(runtime.contains("fn __module_use_1() -> &'static"), "{runtime}");
     let scheduler = find("scheduler.rs").expect("scheduler.rs");
     assert!(!scheduler.contains("salvo_after") && !scheduler.contains("timers"), "the host scheduler keeps no timers");

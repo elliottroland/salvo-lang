@@ -236,3 +236,16 @@ fn a_module_level_use_is_the_runtime_module_s_alone() {
     let errs = diags(&[("main.sv", program)]);
     assert!(errs.iter().any(|m| m.contains("[mod-use]")), "{errs:?}");
 }
+
+/// [runtime-layers] The runtime's core may not import one of its services,
+/// which are built on it; a service imports the core freely.
+#[test]
+fn the_runtime_core_does_not_import_its_services() {
+    let service = "import runtime\n\nexport fn later() [] -> Int {\n    return now() + 1\n}\n";
+    let core_ok = "export fn now() [] -> Int {\n    return 1\n}\n";
+    let errs = diags_with_std(&[("runtime.sv", core_ok), ("runtime/timers.sv", service)], &[]);
+    assert!(errs.is_empty(), "{errs:?}");
+    let core_bad = "import runtime.timers.later\n\nexport fn now() [] -> Int {\n    return 1\n}\n";
+    let errs = diags_with_std(&[("runtime.sv", core_bad), ("runtime/timers.sv", service)], &[]);
+    assert!(errs.iter().any(|m| m.contains("[runtime-layers]")), "{errs:?}");
+}

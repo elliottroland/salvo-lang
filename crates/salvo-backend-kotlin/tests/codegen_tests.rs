@@ -14682,7 +14682,7 @@ fn a_deadline_lowers_to_the_runtime_modules_wheel() {
     let find = |name: &str| files.iter().find(|f| f.rel_path.to_string_lossy() == name).map(|f| f.content.clone());
     let time = find("time.kt").expect("time.kt");
     assert!(time.contains("afterNanos("), "expected the deadline call in:\n{time}");
-    let runtime = find("runtime.kt").expect("runtime.kt");
+    let runtime = find("runtime/timers.kt").expect("runtime/timers.kt");
     assert!(runtime.contains("private val __moduleUse1"), "{runtime}");
     let scheduler = find("scheduler.kt").expect("scheduler.kt");
     assert!(!scheduler.contains("fun after(") && !scheduler.contains("timers"), "the host scheduler keeps no timers");

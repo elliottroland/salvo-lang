@@ -5593,7 +5593,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     continuation turning the reading into the `Fired` its caller is owed. Its
     mailbox bounds *registrations*, not deadlines.
   * **The deadlines are Salvo too** (2026-10-02, RUNTIME.md §11.5 slice
-    11a): `std/runtime.sv` keeps them in a `Deadlines` monitor and serves
+    11a): the service `runtime.timers` [runtime-layers] keeps them in a `Deadlines` monitor and serves
     them with **one wheel** — an actor on a dedicated thread, bound by the
     module's `use Wheeling() on thread()` [mod-use], whose one activation
     fires what is due and parks on its `Parker` [runtime-parker] until the
@@ -7636,6 +7636,14 @@ between endpoints and delivers what arrives into the scheduler.
   import, naming the rule. The path is the marker (`STD_INTERNAL` in
   `resolve.rs`): no syntax, and a program cannot declare a module of that
   path either, since std's own would collide with it.
+* [runtime-layers] **The runtime is a core and its services** (user decision
+  2026-10-02): `std/runtime.sv` (module `runtime`) implements the actor forms
+  and may not use them; the modules under `std/runtime/` (`runtime.timers`)
+  are services built on it, which may. The core importing a service is
+  refused at the import, which keeps the dependency one-way — the scheduler
+  never depends on something that depends on the scheduler. The core exports
+  what services need (`Parker` and its fns, `now_nanos`); module-level
+  `use` [mod-use] is allowed in both layers.
 * [mod-use] **A module-level `use H()` binds an effect for every function of
   its module**, without any of them declaring it (user decision 2026-10-02,
   RUNTIME.md E4): bound once, on first use, for the life of the process, and

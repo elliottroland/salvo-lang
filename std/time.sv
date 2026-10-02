@@ -36,7 +36,7 @@
 // both of them capabilities, because a function that secretly reads a clock
 // is a function whose answer depends on when you called it.
 
-import runtime.after_nanos
+import runtime.timers.after_nanos
 
 // A span of time, in nanoseconds, and the currency of every time API here:
 // `after` takes one, `between` answers one, and both timelines add one.

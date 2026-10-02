@@ -45,6 +45,8 @@ pub mod core_string;
 pub mod net;
 #[path = "runtime.rs"]
 pub mod runtime;
+#[path = "runtime/timers.rs"]
+pub mod runtime_timers;
 #[path = "time.rs"]
 pub mod time;
 #[path = "platform/net.rs"]
@@ -1778,7 +1780,7 @@ pub fn settle(timer: &usize) {
 }
 
 pub fn main() {
-    crate::scheduler::salvo_set_protocols(vec![("ActorGroup".to_string(), crate::net::__PROTO_ActorGroup.to_string()), ("ActorGroupWatcher".to_string(), crate::net::__PROTO_ActorGroupWatcher.to_string()), ("Boot".to_string(), crate::__PROTO_Boot.to_string()), ("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Gather".to_string(), crate::__PROTO_Gather.to_string()), ("Inbound".to_string(), crate::net::__PROTO_Inbound.to_string()), ("Inventory".to_string(), crate::__PROTO_Inventory.to_string()), ("Lookup".to_string(), crate::__PROTO_Lookup.to_string()), ("MemNet".to_string(), crate::net::__PROTO_MemNet.to_string()), ("NodeGroup".to_string(), crate::net::__PROTO_NodeGroup.to_string()), ("NodeGroupWatcher".to_string(), crate::net::__PROTO_NodeGroupWatcher.to_string()), ("Outbound".to_string(), crate::net::__PROTO_Outbound.to_string()), ("Race".to_string(), crate::__PROTO_Race.to_string()), ("Search".to_string(), crate::__PROTO_Search.to_string()), ("Sequencer".to_string(), crate::__PROTO_Sequencer.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string()), ("Wheel".to_string(), crate::runtime::__PROTO_Wheel.to_string())]);
+    crate::scheduler::salvo_set_protocols(vec![("ActorGroup".to_string(), crate::net::__PROTO_ActorGroup.to_string()), ("ActorGroupWatcher".to_string(), crate::net::__PROTO_ActorGroupWatcher.to_string()), ("Boot".to_string(), crate::__PROTO_Boot.to_string()), ("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Gather".to_string(), crate::__PROTO_Gather.to_string()), ("Inbound".to_string(), crate::net::__PROTO_Inbound.to_string()), ("Inventory".to_string(), crate::__PROTO_Inventory.to_string()), ("Lookup".to_string(), crate::__PROTO_Lookup.to_string()), ("MemNet".to_string(), crate::net::__PROTO_MemNet.to_string()), ("NodeGroup".to_string(), crate::net::__PROTO_NodeGroup.to_string()), ("NodeGroupWatcher".to_string(), crate::net::__PROTO_NodeGroupWatcher.to_string()), ("Outbound".to_string(), crate::net::__PROTO_Outbound.to_string()), ("Race".to_string(), crate::__PROTO_Race.to_string()), ("Search".to_string(), crate::__PROTO_Search.to_string()), ("Sequencer".to_string(), crate::__PROTO_Sequencer.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string()), ("Wheel".to_string(), crate::runtime_timers::__PROTO_Wheel.to_string())]);
     let console = crate::core_console::Console::shared(StdOutConsole::new());
     let mut a = NodeEndpoint { host: "a".to_string(), port: 1 };
     let mut b = NodeEndpoint { host: "b".to_string(), port: 1 };

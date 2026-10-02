@@ -1346,6 +1346,7 @@ fn check_once<'p>(
     }
     check_intrinsic_is_std_only(program, &mut out);
     check_module_uses(program, &mut out);
+    check_runtime_layers(program, &mut out);
     // [actor-deadlock-cycle] The static deadlock baseline, over the whole
     // program: a cycle of waiting actors is an error, a cycle of blocking
     // sends a warning. Last, because it reads what this round's checking
@@ -1386,6 +1387,35 @@ fn check_module_uses(program: &Program, out: &mut Checked) {
                  reaches without declaring it [mod-use]"
                     .to_string(),
             ));
+        }
+    }
+}
+
+/// [runtime-layers] The runtime's core (`std/runtime.sv`, module `runtime`)
+/// implements the actor forms, and its services (`runtime.*`, the deadline
+/// wheel) are actors built on it: the core importing a service would let the
+/// scheduler depend on something that depends on the scheduler. Refused at
+/// the import.
+fn check_runtime_layers(program: &Program, out: &mut Checked) {
+    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+        let core = file.is_std && file.module.0.len() == 1 && file.module.0[0] == crate::resolve::STD_INTERNAL;
+        if !core {
+            continue;
+        }
+        for item in &ast.items {
+            let Item::Import(import) = item else { continue };
+            let path: Vec<&str> = import.path.iter().map(|p| p.name.as_str()).collect();
+            if path.len() >= 2 && path[0] == crate::resolve::STD_INTERNAL && path[1].starts_with(|c: char| c.is_lowercase()) {
+                out.errors.push(crate::diag::FileDiagnostic::error(
+                    file_idx,
+                    import.span,
+                    format!(
+                        "the runtime's core may not import its service `{}`: services are \
+                         built on the core, which never calls them [runtime-layers]",
+                        path[..2].join(".")
+                    ),
+                ));
+            }
         }
     }
 }

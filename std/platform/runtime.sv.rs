@@ -12,24 +12,6 @@ fn __module_use_0() -> &'static crate::runtime::RuntimeHost {
     })
 }
 
-/// [mod-use] The module's `use` #1, bound on first use.
-fn __module_use_1() -> &'static crate::runtime::DeadlineTable {
-    static CELL: std::sync::OnceLock<crate::runtime::DeadlineTable> = std::sync::OnceLock::new();
-    CELL.get_or_init(|| {
-            let deadline_table = crate::runtime::DeadlineTable::locked(Deadlines::new());
-        deadline_table
-    })
-}
-
-/// [mod-use] The module's `use` #2, bound on first use.
-fn __module_use_2() -> &'static crate::runtime::Wheel {
-    static CELL: std::sync::OnceLock<crate::runtime::Wheel> = std::sync::OnceLock::new();
-    CELL.get_or_init(|| {
-            let mut wheel = crate::runtime::Wheel::shared(__Stub_Wheel::new(({ let __h = Wheeling::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, Box::new(__Actor_Wheeling::new(__h)), __DECODE_Wheeling); __a })));
-        wheel
-    })
-}
-
 /// [platform-type] The host's `Parker`.
 pub use crate::platform_runtime::Parker;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + Sync>() {} __contract::<Parker>(); };

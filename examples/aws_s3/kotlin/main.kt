@@ -161,7 +161,7 @@ class MemS3(private val __dep_Streams: Streams) : S3 {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
-    salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.__PROTO_Wheel)))
+    salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
     val console: Console = StdOutConsole()
     val __h = MemFs()
     val fs: Fs = __Mon_Fs(__h)

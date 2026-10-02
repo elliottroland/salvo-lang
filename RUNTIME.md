@@ -525,9 +525,17 @@ already has.
 
 The runtime module is privileged (see the user guidance at the top): its
 private declarations may start threads, hold locks, read a process-wide
-slot and catch faults, none of which Salvo code elsewhere can do. The
-restrictions below run the other way. The runtime implements the actor
-surface, so it cannot use it. Inside `std/runtime.sv`:
+slot and catch faults, none of which Salvo code elsewhere can do.
+
+**Two layers (user decision 2026-10-02, [runtime-layers]).** The *core*,
+`std/runtime.sv`, implements the actor surface, so it cannot use it. The
+*services*, modules under `std/runtime/` (today `runtime.timers`, the
+deadline wheel), are built on the core and may use actors like any std
+code. The dependency runs one way only: a service imports the core, and the
+core importing a service is refused by the checker. At start-up the core's
+state comes up without touching a service (services bind lazily, on first
+use), and no core code calls a service while holding the scheduler's lock.
+The restrictions below are the core's. Inside `std/runtime.sv`:
 
 - no `spawn`, `send fn`, `replyto`, `waitfor`, actor effects, `Timer`, or
   any std function that uses them;
@@ -1099,7 +1107,8 @@ keeps both backends passing the full suite.
 
 **The port:**
 
-11a. ✅ **Deadlines in Salvo**, built 2026-10-02: the wheel (§time-timer in
+11a. ✅ **Deadlines in Salvo**, built 2026-10-02 (moved into the service
+    module `runtime.timers` the same day, [runtime-layers]): the wheel (§time-timer in
     LANGUAGE_SPEC) — a `Deadlines` monitor and one actor on a dedicated
     thread parking on its `Parker`, both bound at module level — replaces
     both hosts' timer thread, `salvo_after`/`SalvoSched.after`, `FiredOf`
