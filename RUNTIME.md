@@ -1099,6 +1099,14 @@ keeps both backends passing the full suite.
 
 **The port:**
 
+11a. ✅ **Deadlines in Salvo**, built 2026-10-02: the wheel (§time-timer in
+    LANGUAGE_SPEC) — a `Deadlines` monitor and one actor on a dedicated
+    thread parking on its `Parker`, both bound at module level — replaces
+    both hosts' timer thread, `salvo_after`/`SalvoSched.after`, `FiredOf`
+    and the `fire_after` intrinsic. Timers benchmark after: Rust 71 ms,
+    Kotlin 118 ms (baseline 58 / 102, budget 87 / 153). A design point
+    that fell out: timers are a service *on* the scheduler, not part of
+    it — the scheduler port below needs no timer thread at all.
 11. **The scheduler in Salvo**: the local scheduler and routing together,
     `RuntimeHost` as the platform handler, actor bodies as E10 values moved
     in and out, payloads as `Dyn`, tasks as closures, waiting through

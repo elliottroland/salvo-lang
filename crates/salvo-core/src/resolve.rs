@@ -534,7 +534,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     // importing the effect is what brings the member into scope.
     //
     // [mod-export] Only *exported* declarations go in: suggesting
-    // `import time.fire_after` for a private name would be a help line that
+    // `import time.earliest_due` for a private name would be a help line that
     // cannot work. The private ones go in `private_in` instead, which is what
     // turns "no such name" into "not exported".
     let mut declared_in: HashMap<&str, Vec<(&ModulePath, &str)>> = HashMap::new();

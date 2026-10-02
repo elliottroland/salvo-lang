@@ -2780,12 +2780,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !module.uses.is_empty() {
             let saved_env = std::mem::take(&mut self.effect_env);
             let saved_can_use = std::mem::replace(&mut self.can_use, true);
+            // A module binding may spawn (`use H() on thread()`): the runtime
+            // starts its own service actors, which is its privilege.
+            let saved_can_spawn = std::mem::replace(&mut self.can_spawn, true);
             self.locals.push(HashMap::new());
             for u in &module.uses {
                 self.check_use(&u.handler, &[], u.span);
             }
             self.locals.pop();
             self.can_use = saved_can_use;
+            self.can_spawn = saved_can_spawn;
             self.module_avails = std::mem::replace(&mut self.effect_env, saved_env);
         }
         // [name-camel] Names the Kotlin backend would spell alike are an

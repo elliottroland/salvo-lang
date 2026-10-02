@@ -31,8 +31,12 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
+#[path = "runtime.rs"]
+pub mod runtime;
 #[path = "time.rs"]
 pub mod time;
+#[path = "platform/runtime.rs"]
+pub mod platform_runtime;
 
 use crate::core_actor::*;
 use crate::core_console::*;
@@ -496,7 +500,7 @@ fn __decode_msg_Napping(proto: &str, payload: &[u8]) -> Option<crate::scheduler:
 }
 
 pub fn main() {
-    crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Session".to_string(), crate::__PROTO_Session.to_string()), ("Sleeper".to_string(), crate::__PROTO_Sleeper.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string())]);
+    crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Session".to_string(), crate::__PROTO_Session.to_string()), ("Sleeper".to_string(), crate::__PROTO_Sleeper.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string()), ("Wheel".to_string(), crate::runtime::__PROTO_Wheel.to_string())]);
     let console = crate::core_console::Console::shared(StdOutConsole::new());
     let mut budget = millis(1500i64);
     println(&console, &(format!("budget {}, doubled {}, in millis {}", to_str__6(&budget), to_str__6(&times(&budget, 2i64)), to_millis(&budget))));

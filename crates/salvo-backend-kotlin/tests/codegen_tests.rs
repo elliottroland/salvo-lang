@@ -14673,22 +14673,19 @@ fn kotlinc_compiles_and_runs_the_coupling_postures() -> KotlinCase {
     )
 }
 
-/// [time-timer] [kt-time] What a deadline registration lowers to, mirroring the
-/// Rust backend: the scheduler call plus the `Fired` builder the site closes
-/// over — and the time runtime, which travels with the scheduler.
+/// [time-timer] [kt-time] A deadline is the runtime module's, mirroring the
+/// Rust backend: `after_nanos` from the default timer, the runtime module's
+/// lazily bound wheel, and no timer machinery in `SalvoSched`.
 #[test]
-fn a_deadline_lowers_to_a_scheduler_call_with_a_fired_builder() {
+fn a_deadline_lowers_to_the_runtime_modules_wheel() {
     let files = generate_files(&[("main.sv", TIME_TIMER)]);
-    let time = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "time.kt")
-        .expect("time.kt");
-    assert!(
-        time.content.contains("salvo.SalvoSched.after(")
-            && time.content.contains("{ __at -> Fired(Tick(__at)) }"),
-        "expected the deadline lowering in:\n{}",
-        time.content
-    );
+    let find = |name: &str| files.iter().find(|f| f.rel_path.to_string_lossy() == name).map(|f| f.content.clone());
+    let time = find("time.kt").expect("time.kt");
+    assert!(time.contains("afterNanos("), "expected the deadline call in:\n{time}");
+    let runtime = find("runtime.kt").expect("runtime.kt");
+    assert!(runtime.contains("private val __moduleUse1"), "{runtime}");
+    let scheduler = find("scheduler.kt").expect("scheduler.kt");
+    assert!(!scheduler.contains("fun after(") && !scheduler.contains("timers"), "the host scheduler keeps no timers");
     assert!(
         files
             .iter()

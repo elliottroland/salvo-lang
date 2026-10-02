@@ -405,8 +405,23 @@ impl<'s> Parser<'s> {
             // have one is the checker's call.
             if self.at(&TokenKind::KwUse) {
                 let start = self.bump().span;
-                if let Some(handler) = self.parse_expr() {
-                    let span = start.to(handler.span());
+                if let Some(mut handler) = self.parse_expr() {
+                    let mut span = start.to(handler.span());
+                    // `use H() on POOL`, the spawn sugar a `use` statement has.
+                    if self.at_word("on") && self.same_line() {
+                        self.bump();
+                        if let Some(pool) = self.parse_expr() {
+                            span = start.to(pool.span());
+                            let spawn_span = handler.span().to(pool.span());
+                            handler = Expr::Spawn {
+                                handler: Box::new(handler),
+                                with_items: Vec::new(),
+                                pool: Some(Box::new(pool)),
+                                join: None,
+                                span: spawn_span,
+                            };
+                        }
+                    }
                     uses.push(ModuleUse { handler, span });
                 } else {
                     self.recover_to_item_start();

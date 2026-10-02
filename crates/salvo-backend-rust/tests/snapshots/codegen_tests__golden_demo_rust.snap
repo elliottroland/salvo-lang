@@ -2536,10 +2536,6 @@ pub type ExitOf = fn(String) -> SalvoMsg;
 /// Salvo struct, so the registration site supplies the constructor.
 pub type IdleOf = fn(i32, i32) -> SalvoMsg;
 
-/// [time-timer] Builds the `Fired` payload from the monotonic reading the
-/// deadline came due at — `ExitOf`'s shape again, for the same reason.
-pub type FiredOf = fn(i64) -> SalvoMsg;
-
 struct WaiterState {
     value: Option<SalvoMsg>,
     /// [wire-format] How to decode a reply that arrives for this waiter over
@@ -2604,12 +2600,6 @@ struct Sched {
     /// for its payload. Taken as a whole when the scheduler settles — every
     /// registration is a one-shot.
     idle_hooks: Vec<(usize, SalvoReply, IdleOf)>,
-    /// [time-timer] Registered deadlines, each a monotonic reading with the
-    /// token to fulfil when it passes and the builder for the `Fired` payload.
-    /// Unordered: a Salvo program registers few deadlines at a time, and one
-    /// scan per wake is cheaper than keeping a heap ordered under a lock the
-    /// whole scheduler shares.
-    timers: Vec<(i64, SalvoReply, FiredOf)>,
     /// [threadsafe-platform] Outside sources of work the scheduler cannot
     /// see: a host thread that may send at any moment — a transport's
     /// socket reader, an OS event loop. Bumped by `salvo_external_begin` /
@@ -2658,10 +2648,6 @@ struct Sched {
     /// last mirrored it — what a `route(group)` stub reads on the sender's
     /// thread, without a hop to the replica.
     views: HashMap<usize, Vec<usize>>,
-    /// [time-timer] Whether the deadline thread is running. Started by the
-    /// first `salvo_after`, so a program that never sets a timer has no timer
-    /// thread — and one that does has exactly one, never a thread per timer.
-    timer_thread: bool,
     /// [addr-capability] The one entry every forged or stale identity imports
     /// as, made on first need. Shared, so a peer sending forged addrs cannot
     /// grow the actor table.
@@ -2689,7 +2675,6 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 parked_frames: 0,
                 main_waits: 0,
                 idle_hooks: Vec::new(),
-                timers: Vec::new(),
                 externals: 0,
                 node_id,
                 hosted_nodes: vec![node_id],
@@ -2702,7 +2687,6 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 peer_protocols: HashMap::new(),
                 protocols: Vec::new(),
                 views: HashMap::new(),
-                timer_thread: false,
                 dead_entry: None,
             }),
             Condvar::new(),
@@ -2787,14 +2771,12 @@ fn deliverable(p: &ActorState) -> Option<usize> {
 /// clause a thread that looked in that window would call a program stuck one
 /// instant before it proceeds.
 ///
-/// [time-timer] A pending deadline counts as work on its way: the timer thread
-/// will deliver it, so a program waiting for a fire is neither quiescent
-/// ([actor-on-idle]) nor deadlocked — it is waiting for time to pass, which is
-/// the one thing that happens without anybody running.
+/// [time-timer] A pending deadline needs no clause here: the runtime module's
+/// wheel is an activation that stays running while one is pending, so a
+/// program waiting for a fire is neither quiescent nor deadlocked.
 fn quiet(s: &Sched) -> bool {
     s.actors.iter().all(|p| deliverable(p).is_none())
         && s.pools.iter().all(|p| p.tasks.is_empty())
-        && s.timers.is_empty()
         && s.externals == 0
         && s.waiters
             .iter()
@@ -3161,18 +3143,6 @@ pub fn salvo_on_idle(pool: usize, notify: SalvoReply, idle: IdleOf) {
     cv.notify_all();
 }
 
-/// [time-timer] Registers a deadline: `done` is sent the `Fired` `fired`
-/// builds once at least `delay` nanoseconds have passed, carrying the
-/// monotonic reading it fired at.
-///
-/// One thread serves every deadline, started on the first registration and
-/// parked in `wait_timeout` until the earliest one comes due — so a thousand
-/// outstanding timers cost one thread and no polling, which is the constraint
-/// this design was chosen under (no thread-per-timer). A registration wakes
-/// it, since the new deadline may be earlier than the one it is sleeping on.
-///
-/// A delay of zero or less fires at the next look rather than immediately:
-/// the answer is always a *later* activation, never a call inside `after`.
 /// [threadsafe-platform] A host declares that a thread of its own may inject
 /// work — a listener is open. Pair with `salvo_external_end` when it closes.
 /// While any source is registered, neither the idle hook nor the deadlock
@@ -3199,61 +3169,6 @@ pub fn salvo_external_end() {
     let mut s = lock.lock().unwrap();
     s.externals = s.externals.saturating_sub(1);
     cv.notify_all();
-}
-
-pub fn salvo_after(delay: i64, done: SalvoReply, fired: FiredOf) {
-    let (lock, cv) = state();
-    let mut s = lock.lock().unwrap();
-    // The token is the scheduler's obligation now, exactly as with a watch or
-    // an idle hook [actor-on-idle]: it will be answered, so it is not work the
-    // program has forgotten.
-    let done = untrack(&mut s, done);
-    let deadline = crate::hosttime::salvo_mono_nanos().saturating_add(delay.max(0));
-    s.timers.push((deadline, done, fired));
-    if !s.timer_thread {
-        s.timer_thread = true;
-        std::thread::spawn(serve_timers);
-    }
-    cv.notify_all();
-}
-
-/// [time-timer] The deadline thread: delivers every timer whose deadline has
-/// passed, then sleeps until the earliest one left (or until something
-/// changes). It never exits — the program ends when `main` returns
-/// [actor-waitfor], and pending timers die with it.
-fn serve_timers() {
-    let (lock, cv) = state();
-    let mut s = lock.lock().unwrap();
-    loop {
-        let now = crate::hosttime::salvo_mono_nanos();
-        let due: Vec<usize> = s
-            .timers
-            .iter()
-            .enumerate()
-            .filter(|(_, (deadline, _, _))| *deadline <= now)
-            .map(|(i, _)| i)
-            .collect();
-        if !due.is_empty() {
-            // Back to front, so removing one does not shift the next.
-            for i in due.into_iter().rev() {
-                let (deadline, done, fired) = s.timers.remove(i);
-                let value = fired(deadline);
-                deliver_reply(&mut s, done, value);
-            }
-            cv.notify_all();
-            continue;
-        }
-        let sleep = s
-            .timers
-            .iter()
-            .map(|(deadline, _, _)| *deadline)
-            .min()
-            .map(|earliest| std::time::Duration::from_nanos((earliest - now).max(0) as u64));
-        s = match sleep {
-            Some(d) => cv.wait_timeout(s, d).unwrap().0,
-            None => cv.wait(s).unwrap(),
-        };
-    }
 }
 
 /// A waiter: the `waitfor` bridge. Answers the token to hand out and the

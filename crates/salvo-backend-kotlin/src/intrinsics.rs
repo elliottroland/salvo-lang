@@ -180,15 +180,6 @@ pub fn fn_call(
         // [stream-handle] One counter for every stream table in the process.
         ("fresh_handle", None) => "salvo.SalvoSched.freshHandle()".to_string(),
         ("epoch_nanos", None) => "salvo.SalvoTime.epochNanos()".to_string(),
-        // [time-timer] [kt-time] Registering a deadline, mirroring the Rust
-        // side: the scheduler takes the token plus a builder for the `Fired`
-        // payload [actor-watch], and the delay crosses as the `Duration`'s
-        // single `Long` field.
-        ("fire_after", Some("Duration")) => format!(
-            "salvo.SalvoSched.after(({}).nanos, {}) {{ __at -> Fired(Tick(__at)) }}",
-            a(0),
-            a(1)
-        ),
         // core.list ------------------------------------------------------
         // The element type is spelled out: `listOf()` with no arguments
         // leaves kotlinc with nothing to infer from

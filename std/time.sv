@@ -36,6 +36,8 @@
 // both of them capabilities, because a function that secretly reads a clock
 // is a function whose answer depends on when you called it.
 
+import runtime.after_nanos
+
 // A span of time, in nanoseconds, and the currency of every time API here:
 // `after` takes one, `between` answers one, and both timelines add one.
 //
@@ -372,7 +374,8 @@ export actor effect Timer {
 }
 
 // [time-timer] The machine's timer: one deadline structure and one thread for
-// the whole program, however many deadlines are outstanding.
+// the whole program, however many deadlines are outstanding — the runtime's
+// wheel (`runtime.after_nanos`), written in Salvo over a parker.
 //
 // Spawned like any actor — `spawn DefaultTimer() on pool(1)` — and the
 // mailbox bounds *registrations*, not deadlines: `after` hands the deadline to
@@ -382,19 +385,9 @@ export handler DefaultTimer() of Timer {
     mailbox { capacity: 64 }
 
     send fn after(wait: Duration, done: Reply<Fired>) => !wait, !done {
-        fire_after(wait, done)
+        after_nanos(wait.nanos, done)
     }
 }
-
-// [time-timer] Hands a deadline to the runtime: [done] is consumed when
-// [wait] has passed. [DefaultTimer]'s plumbing, and the one function here that
-// is not ordinary Salvo — a deadline needs the scheduler, which is the
-// backend's.
-//
-// Holding a `Reply<Fired>` is what it takes to call this, so it cannot
-// manufacture time out of nothing; the surface to program against is [Timer],
-// which a test can replace.
-intrinsic fn fire_after(wait: Duration, done: Reply<Fired>) [] -> None => wait, !done
 
 // ----------------------------------------------------------- manual time ----
 

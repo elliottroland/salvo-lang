@@ -15776,14 +15776,9 @@ impl<'p> Emitter<'p> {
             // one that never asks the time carries nothing.
             if matches!(
                 f.name.name.as_str(),
-                "monotonic_nanos" | "epoch_nanos" | "fire_after"
+                "monotonic_nanos" | "epoch_nanos"
             ) {
                 self.needs_time = true;
-            }
-            // [time-timer] A deadline is the scheduler's, and its reading comes
-            // from the time module — so registering one needs both files.
-            if f.name.name == "fire_after" {
-                self.needs_scheduler = true;
             }
             // [fn-variadic] How the variadic tail arrived, which decides the
             // shape the constructor lowering wants. A lone `...spread`

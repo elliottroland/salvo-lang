@@ -31,7 +31,7 @@ It applies to the whole declaration and not its parts: an exported struct export
 
 One module is private to the standard library as a whole: `runtime`, the scheduler every program runs on, which std's own modules import and a program cannot.
 
-Privacy is per *module*, which is per file. Splitting a file in two is therefore a visibility decision: what the halves share has to be exported. The standard library is written this way, which is what it is for — `fire_after` and `earliest_due` in `time`, the `mem_*` helpers in the in-memory filesystem, are reachable from their own file and nowhere else.
+Privacy is per *module*, which is per file. Splitting a file in two is therefore a visibility decision: what the halves share has to be exported. The standard library is written this way, which is what it is for — `earliest_due` in `time`, the `mem_*` helpers in the in-memory filesystem, are reachable from their own file and nowhere else.
 
 The diagnostics are meant to send you to the right file. Using a private name says it is declared in module `m` and not exported, and names the fix; it is not offered as an import, since importing it could not work. An `import` of a private name is refused at the import line rather than silently importing nothing. And a name that is in scope but of the wrong *kind* — a qualifier where a type belongs — keeps its own diagnostic, because that is not a visibility problem.
 

@@ -5589,14 +5589,25 @@ the same day. **Not part of `core`**: the surface is imported, and one
     continuation that finds its work done — one no-op activation, the shape of
     a lost race.
   * `DefaultTimer` is an **ordinary Salvo handler** (`mailbox { capacity: 64
-    }`) over one `intrinsic fn fire_after(wait, done)`, which dissolved the
-    flagged "first intrinsic handler for an actor effect" case: no new emitter
-    capability was needed. Its mailbox bounds *registrations*, not deadlines.
-  * The runtime keeps **one deadline structure and one thread** for the whole
-    program, started by the first registration ([rs-time], [kt-time]) — no
-    thread per timer, no polling. A pending deadline counts as work on its
-    way, so it holds off both the quiescence hook [actor-on-idle] and the
-    deadlock report: a program waiting for a fire is waiting for time to pass.
+    }`) over `runtime.after_nanos(delay, done: Reply<Long>)`, a private
+    continuation turning the reading into the `Fired` its caller is owed. Its
+    mailbox bounds *registrations*, not deadlines.
+  * **The deadlines are Salvo too** (2026-10-02, RUNTIME.md §11.5 slice
+    11a): `std/runtime.sv` keeps them in a `Deadlines` monitor and serves
+    them with **one wheel** — an actor on a dedicated thread, bound by the
+    module's `use Wheeling() on thread()` [mod-use], whose one activation
+    fires what is due and parks on its `Parker` [runtime-parker] until the
+    earliest deadline left, returning when none is. No thread per timer, no
+    polling, and no timer machinery in either host scheduler. A pending
+    deadline counts as work on its way because the wheel's frame is
+    *running* while one is, which holds off both the quiescence hook
+    [actor-on-idle] and the deadlock report; with none pending the wheel has
+    no frame. A registration wakes the wheel by unparking it, and the park's
+    token closes the window between "what is earliest" and sleeping.
+  * One difference from the host timer it replaced: a token handed to
+    `after_nanos` stays tracked until it fires (the old runtime untracked it),
+    which is never visible, since `on_idle` cannot fire while a deadline is
+    pending.
 * [time-manual] **`handler ManualTime() of Timer, TimerCtl`** is the
   pure-Salvo fake — `MemFs`'s answer applied to time [effect-handler-multi].
   Virtual time starts at zero and moves only through
@@ -5618,10 +5629,6 @@ the same day. **Not part of `core`**: the surface is imported, and one
   * `advance` races the `after` registrations of the code under test, which is
     what `on_idle` is for: settle, then advance ([actor-on-idle], and the
     worked test in both backends' `time-manual` case).
-  * One name is exposed that a module system would hide: `fire_after`, the
-    default timer's plumbing. Calling it needs a `Reply<Fired>` in hand, so it
-    cannot manufacture time from nothing, but Salvo has no module-private
-    declarations — recorded in ROADMAP.
 * [time-coupling] **Time is data.** Where a value can be *passed*, std's posture
   is to pass it rather than to read it: a `Fired` carries the `at` it came due
   at, and a function that takes its times as parameters declares no effect,
@@ -7593,7 +7600,7 @@ between endpoints and delivers what arrives into the scheduler.
     grammar, which is the only thing that highlights anything (the language
     server has no semantic tokens).
   * std obeys the rule like anything else, which is what it was built for: its
-    internal helpers (`fire_after`, `earliest_due`, `mem_*`, `fs_resolve`,
+    internal helpers (`earliest_due`, `mem_*`, `fs_resolve`,
     `MemRead`/`MemWrite`) are now genuinely unreachable instead of merely
     undocumented.
 * [mod-import] `import path.Name` / `import path.Name as Alias`; aliasing
@@ -8500,8 +8507,8 @@ replaced the working document TESTING.md).
     source of work** [threadsafe-platform] until it is sent, so the waiter is
     neither idle nor deadlocked. `send(value)` on the host reply delivers
     (enqueue only; the continuation runs as a later activation, never inside
-    the call) and closes the source. The same mechanism `fire_after` uses
-    privately, made a host-facing surface.
+    the call) and closes the source. The same mechanism a host thread's
+    listener uses, made a host-facing surface.
   * **Exactly once.** A host reply dropped unsent is reported to the pool's
     fault sink on Rust (`Drop`) and the source is closed, so the waiter then
     reports its deadlock rather than hanging in silence; Kotlin cannot see a

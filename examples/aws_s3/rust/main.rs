@@ -45,10 +45,14 @@ pub mod core_string;
 pub mod fs;
 #[path = "fs/mem.rs"]
 pub mod fs_mem;
+#[path = "runtime.rs"]
+pub mod runtime;
 #[path = "stream.rs"]
 pub mod stream;
 #[path = "time.rs"]
 pub mod time;
+#[path = "platform/runtime.rs"]
+pub mod platform_runtime;
 
 use crate::aws::*;
 use crate::aws_s3::*;
@@ -219,7 +223,7 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
 }
 
 pub fn main() {
-    crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string())]);
+    crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string()), ("Wheel".to_string(), crate::runtime::__PROTO_Wheel.to_string())]);
     let console = crate::core_console::Console::shared(StdOutConsole::new());
     let __inst = std::sync::Arc::new(std::sync::Mutex::new(MemFs::new()));
     let fs2 = crate::fs::Fs::share_locked(__inst.clone());

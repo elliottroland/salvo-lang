@@ -8,6 +8,7 @@ use crate::core_map::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::runtime::*;
 use crate::seq::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -469,7 +470,7 @@ impl DefaultTimer {
 impl crate::time::__Stateless_Timer for DefaultTimer {
 
     fn after(&self, wait: Duration, done: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_after((wait).nanos, done, |__at| Box::new(Fired { at: Tick { nanos: __at } }));
+        after_nanos(wait.nanos, done);
     }
 }
 
@@ -659,7 +660,7 @@ impl crate::time::__Stateful_TimerCtl for ManualTime {
                 break;
             }
             let mut at = __is1.unwrap();
-            let mut deadline = *self.deadlines.get((at) as i64 as usize).expect("salvo: value is absent at time:480:33");
+            let mut deadline = *self.deadlines.get((at) as i64 as usize).expect("salvo: value is absent at time:473:33");
             self.deadlines.salvo_remove_at(at);
             self.now = deadline.clone();
             let mut __is2 = self.pending.salvo_remove_at(at);
@@ -752,7 +753,7 @@ pub fn earliest_due(deadlines: &Vec<i64>, target: i64) -> Option<i32> {
     let mut best_at = 0i64;
     let mut i = 0;
     while i < (deadlines.len() as i32) {
-        let mut at = *deadlines.get((i) as i64 as usize).expect("salvo: value is absent at time:504:23");
+        let mut at = *deadlines.get((i) as i64 as usize).expect("salvo: value is absent at time:497:23");
         if at <= target && (best < 0 || at < best_at) {
             best = i.clone();
             best_at = at.clone();

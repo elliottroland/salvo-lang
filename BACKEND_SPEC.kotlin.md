@@ -1176,15 +1176,10 @@ nothing but the monitor.
     module names sharing one output namespace) is recorded in ROADMAP.
   * **It travels with the scheduler** (`needs_time` implied by
     `needs_scheduler`), since the deadline thread reads the monotonic clock.
-* [kt-time] [time-timer] **Deadlines live in the scheduler**, mirroring the
-  Rust backend rather than reaching for `ScheduledThreadPoolExecutor`:
-  `SalvoSched.after` registers `(deadline, token, builder)` and one **daemon**
-  thread parks in `Condition.awaitNanos` until the earliest deadline. A daemon,
-  because pending timers die with the program [actor-waitfor] and must not hold
-  the JVM open. A pending deadline makes `idle()` false, exactly as on Rust, so
-  the two backends agree on when a program is quiescent and when it is stuck.
-  * The `Fired` builder is the site's (`{ __at -> Fired(Tick(__at)) }`), on the
-    `Exit`/`Idle` precedent.
+* [kt-time] [time-timer] **Deadlines are the runtime module's**, in Salvo
+  (2026-10-02): `SalvoSched` has no timer thread, and `HostRuntime.monoNanos`
+  reads `SalvoTime.monoNanos()`. The wheel's thread is a pool worker, a daemon
+  like every other, so pending deadlines still die with the program.
 * [kt-mixed] **The mixed lowering** [mixed-handler] (SH-1, built
   2026-09-19). The JVM half of [rs-mixed], simpler because references share:
 

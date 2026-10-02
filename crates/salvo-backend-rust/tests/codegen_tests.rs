@@ -13824,24 +13824,20 @@ fn rustc_compiles_and_runs_the_coupling_postures() {
     run_rust_files(&files, "time-coupling", TIME_COUPLING_OUTPUT);
 }
 
-/// [time-timer] [rs-time] What a deadline registration lowers to: the scheduler
-/// call plus the `Fired` builder the site closes over — `watch`/`on_idle`'s
-/// shape, since the runtime holds a number and cannot construct a Salvo struct.
+/// [time-timer] [rs-time] A deadline is the runtime module's, in Salvo: the
+/// default timer calls `runtime.after_nanos`, the runtime module carries the
+/// wheel and its `OnceLock`-bound host, and the host scheduler has no timer
+/// machinery left to call.
 #[test]
-fn a_deadline_lowers_to_a_scheduler_call_with_a_fired_builder() {
+fn a_deadline_lowers_to_the_runtime_modules_wheel() {
     let files = generate(&[("main.sv", TIME_TIMER)]);
-    let time = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "time.rs")
-        .expect("time.rs");
-    assert!(
-        time.content.contains("crate::scheduler::salvo_after(")
-            && time
-                .content
-                .contains("|__at| Box::new(Fired { at: Tick { nanos: __at } })"),
-        "expected the deadline lowering in:\n{}",
-        time.content
-    );
+    let find = |name: &str| files.iter().find(|f| f.rel_path.to_string_lossy() == name).map(|f| f.content.clone());
+    let time = find("time.rs").expect("time.rs");
+    assert!(time.contains("after_nanos("), "expected the deadline call in:\n{time}");
+    let runtime = find("runtime.rs").expect("runtime.rs");
+    assert!(runtime.contains("fn __module_use_1() -> &'static"), "{runtime}");
+    let scheduler = find("scheduler.rs").expect("scheduler.rs");
+    assert!(!scheduler.contains("salvo_after") && !scheduler.contains("timers"), "the host scheduler keeps no timers");
     // [time-types] [rs-time] And the clock readings come from the time runtime,
     // which travels with the scheduler.
     assert!(

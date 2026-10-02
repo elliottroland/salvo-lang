@@ -9,6 +9,7 @@ import salvo.core.map.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
+import salvo.runtime.*
 
 data class Duration(
     val nanos: Long,
@@ -283,7 +284,7 @@ class DefaultTimer : Timer {
     internal val __parked: MutableMap<Long, __Cont_DefaultTimer> = mutableMapOf()
 
     override fun after(wait: Duration, done: salvo.SalvoReply) {
-        salvo.SalvoSched.after((wait).nanos, done) { __at -> Fired(Tick(__at)) }
+        afterNanos(wait.nanos, done)
     }
 }
 
@@ -390,7 +391,7 @@ class ManualTime : Timer, TimerCtl {
             var __is1 = earliestDue(deadlines, target)
             if (!(__is1 != null)) break
             val at = __is1 as Int
-            val deadline = (deadlines.getOrNull(at) ?: throw AssertionError("salvo: value is absent at time:480:33"))
+            val deadline = (deadlines.getOrNull(at) ?: throw AssertionError("salvo: value is absent at time:473:33"))
             (deadlines).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
             now = deadline
             var __is2 = (pending).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
@@ -465,7 +466,7 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
     var bestAt = 0L
     var i = 0
     while (i < deadlines.size) {
-        val at = (deadlines.getOrNull(i) ?: throw AssertionError("salvo: value is absent at time:504:23"))
+        val at = (deadlines.getOrNull(i) ?: throw AssertionError("salvo: value is absent at time:497:23"))
         if (at <= target && (best < 0 || at < bestAt)) {
             best = i
             bestAt = at

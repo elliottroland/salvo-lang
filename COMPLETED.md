@@ -135,6 +135,26 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Deadlines in Salvo (2026-10-02; RUNTIME.md §11.5 slice 11a).** The first
+piece of a host scheduler written once: `std/runtime.sv` keeps deadlines in a
+`Deadlines` monitor and serves them with a wheel — an actor on a dedicated
+thread, both bound by module-level `use` (`use Wheeling() on thread()`, the
+spawn sugar now allowed there) — whose one activation fires what is due and
+parks on its `Parker` until the earliest deadline left, returning when none
+is. `DefaultTimer.after` calls `runtime.after_nanos`; the host timer thread,
+`salvo_after`/`SalvoSched.after`, `FiredOf` and the `fire_after` intrinsic
+are gone from both backends, and `RuntimeHost` gained `mono_nanos`. What fell
+out: **timers are a service on the scheduler, not part of it** — a pending
+deadline counts as work because the wheel's frame is running, so `quiet()`
+lost its timers clause; `runtime` and `time` import each other (`Fired` and
+`Tick` one way, `after_nanos` the other); a first draft that minted a
+`replyto` in `DefaultTimer` made `use DefaultTimer()` illegal (a std surface
+change) and was replaced by answering `Reply<Fired>` from the runtime
+directly; and a lambda that moves a captured `Long` into `send` is `once`,
+so `drain` needs `copy(now)`. Timers benchmark after: Rust 71 ms, Kotlin 118
+ms (baseline 58 / 102, within the 1.5× budget). Scheduler sizes: Kotlin
+1,556 lines, Rust 2,075. **1677 tests.**
+
 **Module-level `use` in the runtime module, and `RuntimeHost` (user decision
 2026-10-02; RUNTIME.md §11.5 step 10, E4).** `Module.uses` holds top-level
 `use H()` lines; the checker refuses one outside std's `runtime`

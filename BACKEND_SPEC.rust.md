@@ -1889,17 +1889,9 @@ facts worth knowing") and keeps the history ("One shape for effects").
     `needs_scheduler`, because the deadline thread reads the monotonic clock
     and a `Fired` has to sit on the timeline `tick()` reports. Both runtime
     tests mount it beside `scheduler.rs` for the same reason.
-* [rs-time] [time-timer] **Deadlines live in the scheduler**: `salvo_after`
-  registers `(deadline, token, builder)` and **one** thread — started by the
-  first registration, never one per timer — parks in `Condvar::wait_timeout`
-  until the earliest deadline, delivering every due token and re-sleeping. The
-  registration hands the token to the scheduler (`untrack`, as `watch` and
-  `on_idle` do), and a pending deadline makes `idle()` false, which is what
-  keeps a program waiting for a fire from being reported as a deadlock.
-  * The `Fired` builder is the site's, on `ExitOf`/`IdleOf`'s precedent: the
-    runtime holds an `i64` and cannot construct a Salvo struct, so
-    `fire_after`'s lowering closes over
-    `|__at| Box::new(Fired { at: Tick { nanos: __at } })`.
+* [rs-time] [time-timer] **Deadlines are the runtime module's**, in Salvo
+  (2026-10-02): the scheduler has no timer thread, and `HostRuntime.mono_nanos`
+  reads `crate::hosttime::salvo_mono_nanos()`, the timeline `tick()` reports.
 * [rs-mailbox] A handler's `__mailbox_capacity` field is **`pub`** (since
   2026-09-18): the spawn site need not be in the same module, and std's own
   `DefaultTimer` is spawned from user code — a private field made that a raw
