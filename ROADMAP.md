@@ -54,6 +54,17 @@ targets and the output they print, three of them consuming the first dependency
 
 ## The sequence
 
+### 0 — The runtime in Salvo (decided 2026-10-01/02, in progress)
+
+The scheduler, routing and the host stream table are written once in Salvo
+over a small `RuntimeHost` platform handler, instead of twice by hand
+(`scheduler.kt` 1,994 lines, `scheduler.rs` 2,720). **[RUNTIME.md](RUNTIME.md)
+is the working document**: the survey, every decision (D1–D11, platform types
+in §12, the language expansions E1–E10 in §11.2), and the order of work in
+**§11.5**, which is this item's sequence — take the next step there. Done so
+far: step 1 (the benchmark baseline). When the sequence completes, RUNTIME.md
+shrinks to what is still open, as ABI.md does.
+
 ### 1 — ✅ The std reorganisation (complete 2026-09-26)
 
 One theme: std's shape. Step (a) landed with the sitting that scheduled the rest,
@@ -884,14 +895,6 @@ several are "revisit only if a customer appears".
   `*.sv.*`, so the host project is exactly the build's compilation. No
   closure to compute or keep in step with the emitter, at the cost of every
   function body in the root and a much larger checked-in diff per change.
-
-- **How much of the scheduler runtime could be Salvo** (user, 2026-10-01).
-  `scheduler.kt` and `scheduler.rs` are about 2000 lines each, hand-written
-  twice, and every host project that reaches `Reply` or a spawn carries one.
-  Evaluate which parts (mailboxes, the deadlock graph, the fault sink, the
-  timer queue) could be written once in Salvo over a small intrinsic core
-  (threads, atomics, parking), and what that costs in speed — which would
-  shrink both the runtime and what the ABI has to expose.
 
 - **Full Salvo expressions in splice holes** (user decision 2026-09-30:
   revisit if splices prove themselves at the small scale). Today a hole

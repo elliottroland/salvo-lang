@@ -135,6 +135,34 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The runtime in Salvo: the plan, and the benchmark baseline (user
+decisions 2026-10-01/02; RUNTIME.md).** The user asked how much of the two
+hand-written schedulers could be one Salvo module. The survey (RUNTIME.md §2)
+found about 90% is bookkeeping that can be Salvo, and six defects in today's
+runtimes, all now scheduled in the work (D7): waiter and actor tables that
+never shrink, a dead entry minted per forged identity, weaker capability bits
+on Rust, a lock reentrance difference, a route stub that polls, and pools
+whose threads are never released. Decided across the sitting: the runtime
+module's private declarations may behave differently from Salvo elsewhere
+(threads, locks, catching faults); as little as possible is intrinsic,
+because each intrinsic is something a new backend must implement, so the
+host part is a `RuntimeHost` platform handler; **platform types** join the
+ABI as opaque handles in three kinds (plain, `threadsafe`, `linear` — only
+the linear kind may be `canbe Mut`), with generic platform types and fns and
+fn values at the boundary (RUNTIME.md §12); waiting is a `Parker` platform
+type rather than `wait until` in monitors; the scheduler is reached through a
+**module-level `use`, allowed in the runtime module only**; actor bodies keep
+today's move-out model as an owned mutable fn value, since the closure-per-
+message design needs a per-actor `Arc<Mutex>` on Rust (§11.6); a std `Deque`,
+an intrinsic beside `List`; **pure module constants only** (D1); frames as
+canonical-encoded values (D4); the group protocol moves to `net.sv` (D5); a
+virtual runtime for tests, chosen by the test kind (actor tests, `proptest`
+with the seed as an input), the harness writing one program per mode (D11).
+Built with it: the benchmark baseline the port must stay within 1.5× of (D6)
+— `bench/scheduler/` (ping-pong 10⁶, fan-out 1,000 actors × 100, a chain of
+10⁵ tasks, 10⁴ timers) and `tools/bench-scheduler.sh`, with the medians in
+RUNTIME.md §11.5. The ROADMAP's "Recorded" entry became sequence item 0.
+
 **Sets and maps at the boundary, and a steadier `net-node-groups` (2026-10-01;
 ABI.md D10 C1, C2).** The checker refuses a result keyed by a Salvo-defined
 identity, written or filled by name from a hand-written `hash`/`eq`/`cmp`
