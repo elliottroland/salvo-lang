@@ -9,7 +9,8 @@
 //!   linear>` makes `List<Reply<Str>>` a linear type and `List<Int>` a plain
 //!   one, with no use-site spelling anywhere.
 //! * **LC-2** the surface: take-by-move answering `T?`, the displacing
-//!   `replace`, `drain` as the terminal, `get` still closed (it aliases).
+//!   `replace`, `drain` as the terminal, and `get` answering a projection
+//!   that cannot be given away (opened 2026-10-02, user decision).
 //! * **LC-3** which containers: `List` and `Map` *values* yes; `Set`,
 //!   `SortedSet` and map **keys** refused, because dedup is dropping.
 //! * **LC-4** handler state: a process owns its obligations, and an
@@ -32,7 +33,8 @@ export intrinsic type List<T canbe linear> canbe Mut
 export intrinsic fn mut_list_of<T canbe linear>(...elems: T[]) [] -> Mut List<T>
 export intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem
 export intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list
-export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
+export intrinsic fn get<T canbe linear>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
+export intrinsic fn copy<T>(value: T) [] -> T => value
 export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut
 export intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
 =>[each] !x => !list, each
@@ -222,26 +224,69 @@ fn go() [] -> None {
     );
 }
 
-/// [linear-container] `get` stays closed to obligations: it answers a
-/// **borrow**, so allowing it would let one value be discharged twice. The
-/// refusal is the instantiation ban [linear-generics], unchanged by LC-2.
+/// [linear-container] [proj-linear] `get` answers a **projection** of a
+/// linear element (user decision 2026-10-02): it may be read without taking
+/// on the obligation, and the element still owes inside its container.
 #[test]
-fn get_is_still_refused_for_obligations() {
+fn get_answers_a_projection_of_an_obligation() {
     let errs = diagnostics(
+        "\
+fn go() [] -> Int {
+    let queue: Mut List<Token> = mut_list_of()
+    add(queue, mint(1))
+    let peek = get(queue, 0)
+    let id = if peek is None { 0 } else { peek.id }
+    drain(queue, spend)
+    return id
+}
+",
+    );
+    assert!(errs.is_empty(), "reading a projection owes nothing: {errs:?}");
+}
+
+/// [proj-linear] A projection of an obligation cannot be given away or
+/// duplicated — so no obligation is discharged twice through one — and the
+/// container still owes its elements.
+#[test]
+fn a_projection_of_an_obligation_cannot_be_consumed_or_copied() {
+    let consumed = diagnostics(
         "\
 fn go() [] -> None {
     let queue: Mut List<Token> = mut_list_of()
     add(queue, mint(1))
     let peek = get(queue, 0)
+    if !(peek is None) {
+        spend(peek)
+    }
     drain(queue, spend)
 }
 ",
     );
-    assert!(
-        errs.iter().any(|m| m.contains("cannot instantiate generic parameter")
-            && m.contains("`get`")),
-        "`get` must refuse a linear element: {errs:?}"
+    assert!(consumed.iter().any(|m| m.contains("cannot be given away")), "{consumed:?}");
+    let copied = diagnostics(
+        "\
+fn go() [] -> None {
+    let queue: Mut List<Token> = mut_list_of()
+    add(queue, mint(1))
+    let peek = get(queue, 0)
+    if !(peek is None) {
+        spend(copy(peek))
+    }
+    drain(queue, spend)
+}
+",
     );
+    assert!(!copied.is_empty(), "copying an obligation must be refused: {copied:?}");
+    let leaked = diagnostics(
+        "\
+fn go() [] -> None {
+    let queue: Mut List<Token> = mut_list_of()
+    add(queue, mint(1))
+    let _peek = get(queue, 0)
+}
+",
+    );
+    assert!(leaked.iter().any(|m| m.contains("drain")), "the container still owes: {leaked:?}");
 }
 
 /// [linear-container] A map's values may be obligations: `put` is closed to

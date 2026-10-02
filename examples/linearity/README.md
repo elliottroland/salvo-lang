@@ -47,8 +47,8 @@ discharges an obligation has to be.
 `List` does), so `Mut Deque<Ticket>` is *itself* linear: it owes, and its terminal is `drain`,
 which consumes the queue and hands every element to a callback that consumes
 one. Obligations leave one at a time with `remove_first`, which answers
-`Ticket?` — a **move**, which is why `get` stays closed here: a borrow would
-let two paths discharge one ticket. Forget the `drain` and the leak names
+`Ticket?` — a **move**; `get` would answer a borrow, which can be read but
+not redeemed, since a borrowed value cannot be given away. Forget the `drain` and the leak names
 `drain` rather than `redeem`, because it is the queue that owes. One shape to
 know about: a `drain` callback is a *pure* position, so the discharger that
 prints goes in a `while remove_first(queue) is Ticket next` loop instead —

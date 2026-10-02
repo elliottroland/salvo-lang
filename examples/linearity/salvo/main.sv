@@ -129,9 +129,9 @@ fn a_queue_of_tickets() [Console] -> None {
     println("6. queued ${size(queue)}")
 
     // Out one at a time. `remove_first` *moves* the element out and answers
-    // `Ticket?`, so nothing is aliased and the `None` arm owes nothing —
-    // which is why `get` stays closed to obligations: it would hand out a
-    // borrow, and two paths could discharge one ticket.
+    // `Ticket?`, so the `None` arm owes nothing. `get` would answer only a
+    // borrow — readable, but it cannot be redeemed, since a borrowed value
+    // cannot be given away.
     let first = remove_first(queue)
     when first {
         is Ticket { redeem(first) }

@@ -44,13 +44,13 @@ export intrinsic fn remove_at<T canbe linear>(d: Mut Deque<T>, index: Int) [] ->
 => d: Mut, index
 
 // The element at [index] from the front, borrowed, or `None` past the end.
-export intrinsic fn get<T>(d: Deque<T>, index: Int) [] -> (proj(d) T)? => d, index
+export intrinsic fn get<T canbe linear>(d: Deque<T>, index: Int) [] -> (proj(d) T)? => d, index
 
 // The front element, borrowed, or `None` when empty.
-export intrinsic fn first<T>(d: Deque<T>) [] -> proj(d) T? => d
+export intrinsic fn first<T canbe linear>(d: Deque<T>) [] -> proj(d) T? => d
 
 // The back element, borrowed, or `None` when empty.
-export intrinsic fn last<T>(d: Deque<T>) [] -> proj(d) T? => d
+export intrinsic fn last<T canbe linear>(d: Deque<T>) [] -> proj(d) T? => d
 
 // The number of elements.
 export intrinsic fn size<T canbe linear>(d: Deque<T>) [] -> Int => d

@@ -46,7 +46,7 @@ export intrinsic fn mut_list_by<T>(size: Int, init: (Int) -> T) [] -> Mut List<T
 => size, init
 
 // Possibly gets the element at the given index if the list is long enough
-export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
+export intrinsic fn get<T canbe linear>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
 
 // [qual-depend] [col-idx] The claim that an `Int` is a **valid index of one
 // particular list**: `0 <= index < size(list)`, bound to that list's
@@ -82,7 +82,7 @@ export qualifier NotEq(i: Int) of Int with Idx {
 // element itself — no `None` arm, nothing to `!`. Ranked above the optional
 // [get] by its qualifier [fn-overload-rank], exactly as `first` over a
 // `NonEmpty` list is [col-of-nonempty].
-export fn get<T>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T
+export fn get<T canbe linear>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T
 => list, index {
     // `index + 0` re-derives a plain `Int`: delegating with the claim still
     // attached re-picks this overload and recurses — the same trap
@@ -119,7 +119,7 @@ export params Locate<C, L, T> {
 // [col-locate] The canonical `at` for a list, which is `get` under the
 // group's name — the way `cmp`/`eq` have canonical implementations for the
 // intrinsic types [cmp-groups]. A position for a list is its index.
-export fn at<T>(list: List<Mut T>, index: Int) [] -> proj(list) Mut T?
+export fn at<T canbe linear>(list: List<Mut T>, index: Int) [] -> proj(list) Mut T?
 => list, index {
     return get(list, index)
 }
@@ -212,7 +212,7 @@ export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -
 export intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
 =>[each] !x => !list, each
 
-export intrinsic fn first<T>(list: List<T>) [] -> proj(list) T? => list
+export intrinsic fn first<T canbe linear>(list: List<T>) [] -> proj(list) T? => list
 
 // [col-nonempty] The claim that a list has at least one element, and the
 // reason the qualifier machinery is worth having over a container: with it,
@@ -255,7 +255,7 @@ export qualifier NonEmpty<T> of List<T> {
 // It delegates to `get`, not to `first`: `first@core.list(list)` would pick
 // *this* overload again — the scope selector names the module, and within it
 // a `NonEmpty` argument still ranks this one first — and recurse forever.
-export fn first<T>(list: NonEmpty List<T>) [] -> proj(list) T => list {
+export fn first<T canbe linear>(list: NonEmpty List<T>) [] -> proj(list) T => list {
     return get(list, 0)!
 }
 

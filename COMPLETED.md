@@ -135,6 +135,21 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Projections of linear elements (user decision 2026-10-02; RUNTIME.md
+§11.5 slice 11c).** A spike of the runtime's actor table — a monitor holding
+`Mut List<Mut Actor>` of `linear struct Actor canbe Mut` records with a
+`Mut Deque` of linear entries — checked in every respect but one: `get`/`at`/
+`first` refused linear elements, by the rule "they answer a borrow, and an
+alias would let one obligation be discharged twice". The user's call: a
+projection of a linear value carries no obligation, and consuming a
+projection is a type error — which the checker already enforced ("a borrowed
+value cannot be given away"), and `copy` already refuses linear values. So
+`get`, `at`, `first` and the deque's `get`/`first`/`last` are now `T canbe
+linear` [proj-linear]; arrays stay as they were. The test that pinned the old
+refusal became two pinning the new rule (a read owes nothing; a projection
+cannot be consumed or copied, and its container still owes). The spiked table
+runs identically on both backends. **1679 tests.**
+
 **Kept fn values for the runtime: `start_thread` and `guarded` (2026-10-02;
 RUNTIME.md §11.5 slice 11b).** A platform fn of the runtime's modules that
 consumes a fn-typed parameter takes it owned [runtime-kept-fn]: on Rust a
@@ -19711,7 +19726,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1678; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1679; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

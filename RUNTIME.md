@@ -1119,6 +1119,12 @@ keeps both backends passing the full suite.
 11b. ✅ **Kept fn values in the runtime**, built 2026-10-02
     [runtime-kept-fn]: `start_thread` and `guarded` in the core, implemented
     in both hosts, tested in `std/runtime.test.sv`.
+11c. ✅ **Projections of linear elements** (user decision 2026-10-02)
+    [proj-linear]: the actor-table spike's one gap, closed. Spiked shape
+    that works on both backends: a monitor holding `Mut List<Mut Actor>`
+    with `linear struct Actor canbe Mut { …, queue: Mut Deque<…> }`, an
+    element reached by `get(actors, i)!` after a bounds check (the
+    optional-handle shape is a pre-existing [rs-loc] limit on Rust).
 11. **The scheduler in Salvo**: the local scheduler and routing together,
     `RuntimeHost` as the platform handler, actor bodies as E10 values moved
     in and out, payloads as `Dyn`, tasks as closures, waiting through

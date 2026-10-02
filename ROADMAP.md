@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1678 tests green; std's own Salvo tests run inside one of them.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1679 tests green; std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -68,8 +68,8 @@ stream table in its own runtime file), 4 (the group protocol in `net.sv`)
 (`Deque`) 7 (platform types, fn values at the boundary) 7b (generic platform
 types and fns) 8 (`Parker`), 9
 (monitor re-entry traps on Kotlin) and the first half of 10 (module-level
-`use` in the runtime module, `RuntimeHost`) 11a (deadlines in Salvo) and 11b
-(`start_thread`, `guarded`). When the sequence completes, RUNTIME.md
+`use` in the runtime module, `RuntimeHost`) 11a (deadlines in Salvo), 11b
+(`start_thread`, `guarded`) and 11c (projections of linear elements). When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
 ### 0b — Three slow tests (recorded 2026-10-02, to investigate)

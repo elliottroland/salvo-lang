@@ -7420,9 +7420,16 @@ between endpoints and delivers what arrives into the scheduler.
     * **out, one at a time**: `remove_first(list) -> T?`,
       `remove_at(list, i) -> T?`, `remove(map, k) -> V?`. The `T?` shape is
       the whole absence story: the `None` arm owes nothing, so the emptiness
-      check *is* the union narrow [linear-union-arm]. `get`/`first` stay
-      closed — they answer a borrow, and an alias would let one obligation be
-      discharged twice.
+      check *is* the union narrow [linear-union-arm].
+    * [proj-linear] **reading in place**: `get`, `at`, `first` (and a deque's
+      `get`/`first`/`last`) accept linear elements and answer a projection
+      (user decision 2026-10-02; closed until then). A projection may be read
+      and, through `Mut`, mutated, but it carries no obligation and cannot
+      take one on: giving it to a consuming parameter is the existing "a
+      borrowed value cannot be given away" error, and `copy` refuses a linear
+      value. So no obligation is discharged twice through one, and the
+      element still owes inside its container. What the runtime's actor
+      table needs (RUNTIME.md §11.5).
       * The **binding takes the obligation out**: `remove_at(pending, i) is
         Reply<Fired> token` moves the payload rather than copying it, recorded
         by the checker at the binding and honoured by the emitters
@@ -7503,9 +7510,9 @@ between endpoints and delivers what arrives into the scheduler.
     (whose declaration is honestly
     `intrinsic fn discard<T canbe linear>(value: T) -> None`) and — since
     2026-09-16 — the take-by-move and terminal surface (`remove_first`,
-    `remove_at`, `drain`; `remove`, `replace`, `drain` on a map), while
-    `get`/`first` stay out (they answer an alias of an element), `put` stays
-    out (it drops what it overwrites) and `copy` refuses with a dedicated
+    `remove_at`, `drain`; `remove`, `replace`, `drain` on a map) and, since
+    2026-10-02, the borrowing reads (`get`, `at`, `first` [proj-linear]),
+    while `put` stays out (it drops what it overwrites) and `copy` refuses with a dedicated
     message (duplicating an obligation is meaningless). Since
     [linear-container] the opt-ins are permissions to **store** as well: the
     container carries the obligation, and its terminal is where it dies;
