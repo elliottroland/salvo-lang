@@ -24,6 +24,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "List",
                     span: 581..585,

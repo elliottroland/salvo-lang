@@ -1072,8 +1072,13 @@ keeps both backends passing the full suite.
    after step 7, since they build on plain platform types. Built with the three examples that use a `Mut List` as a FIFO
    (`actors`, `cluster`, `linearity`) rewritten onto it, and **`Dyn`** with
    `erase`/`unerase`.
-7. **E2** (effect-free fn values in platform signatures) and **E5**
-   (platform types, including linear ones).
+7. ✅ **E2** (effect-free fn values in platform signatures) and **E5**
+   (platform types, including linear ones), built 2026-10-02 [platform-type]
+   [platform-fn-value]. Fn values are lent for the call; a callback the host
+   keeps and runs on another thread (`start_thread`) is not open to
+   programs, since a fn value is not sendable, and becomes the runtime
+   module's privilege in step 11. Fixed on the way: an effect member taking
+   a fn value never compiled on Rust (its trait was not object-safe).
 8. **E3, the `Parker`** platform type.
 9. **Monitor reentrance agrees on both backends** (§2.3 item 4). Kotlin's
    `__Mon_E` refuses a re-entry through the handle with a trap naming it,

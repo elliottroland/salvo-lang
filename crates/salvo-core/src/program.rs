@@ -121,7 +121,9 @@ impl<'p> Symbols<'p> {
                     // An `intrinsic type` is the compiler's; anything else
                     // is an alias, since a bodiless non-intrinsic `type` is
                     // a parse error [decl-body].
-                    Item::Type(t) if t.intrinsic => {
+                    // [platform-type] A platform type is opaque the same way:
+                    // a name with no Salvo representation.
+                    Item::Type(t) if t.intrinsic || t.platform => {
                         symbols.intrinsic_types.insert(&t.name.name, t);
                     }
                     Item::Type(t) => {

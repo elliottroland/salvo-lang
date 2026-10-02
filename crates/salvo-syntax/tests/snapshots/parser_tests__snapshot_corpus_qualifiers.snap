@@ -438,6 +438,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Result",
                     span: 237..243,

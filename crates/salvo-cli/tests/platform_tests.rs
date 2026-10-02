@@ -306,6 +306,293 @@ fn main() [use] {
     __stamp.verified();
 }
 
+/// [platform-type] Platform types end to end on both backends, declared in
+/// a module of their own: `generate` writes a class/struct per type with the
+/// contract its kind promises, a copy of a plain handle shares the host
+/// object, a linear `canbe Mut` one is mutated through a `Mut` parameter and
+/// consumed by its closer, and a handle travels to an actor. On Rust a host
+/// type breaking the contract (not `Clone`) is rustc's error at the
+/// declaration's assertion, and a handle in an `encode` is the checker's.
+#[test]
+fn platform_types_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("platform_types_run_on_both_backends", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    const HOST_SV: &str = r#"// A counter living in the host.
+export platform type Tally
+export threadsafe platform type Shared
+export linear platform type Cursor canbe Mut
+
+export platform fn new_tally(start: Int) [] -> Tally => start
+export platform fn bump(t: Tally) [] -> Int => t
+export platform fn new_shared() [] -> Shared
+export platform fn label(s: Shared) [] -> Str => s
+export platform fn open_cursor(n: Int) [] -> Mut Cursor => n
+export platform fn step(c: Mut Cursor) [] -> Int => c: Mut
+export platform fn close(c: Cursor) [] -> None => !c
+
+"#;
+    const MAIN_SV: &str = r#"import host
+
+actor effect Holder {
+    send fn hold(t: Tally, done: Reply<Int>) => !t, !done
+}
+
+handler Holding() of Holder {
+    mailbox { capacity: 4 }
+    send fn hold(t: Tally, done: Reply<Int>) {
+        done.send(bump(t))
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let t = new_tally(10)
+    let u = copy(t)
+    println("${bump(t)} ${bump(u)}")
+    println(label(new_shared()))
+    let c = open_cursor(3)
+    println("${step(c)} ${step(c)}")
+    close(c)
+    let h = spawn Holding() on pool(1)
+    let got = waitfor done: Reply<Int> { h.hold(t, done) }
+    println("held ${got}")
+}
+"#;
+    const HOST_RS: &str = r#"use crate::*;
+use std::sync::{Arc, Mutex};
+
+#[derive(Clone)]
+pub struct Tally {
+    n: Arc<Mutex<i32>>,
+}
+
+#[derive(Clone)]
+pub struct Shared {}
+
+pub struct Cursor {
+    at: i32,
+}
+
+pub fn new_tally(start: i32) -> Tally {
+    Tally { n: Arc::new(Mutex::new(start)) }
+}
+
+pub fn bump(t: &Tally) -> i32 {
+    let mut n = t.n.lock().unwrap();
+    *n += 1;
+    *n
+}
+
+pub fn new_shared() -> Shared {
+    Shared {}
+}
+
+pub fn label(_s: &Shared) -> String {
+    "shared".to_string()
+}
+
+pub fn open_cursor(n: i32) -> Cursor {
+    Cursor { at: n }
+}
+
+pub fn step(c: &mut Cursor) -> i32 {
+    c.at += 1;
+    c.at
+}
+
+pub fn close(c: Cursor) {
+    let _ = c;
+}
+"#;
+    const HOST_KT: &str = r#"package salvo.platform.host
+
+import salvo.host.*
+
+class Tally(var n: Int)
+class Shared
+class Cursor(var at: Int)
+
+fun newTally(start: Int): Tally = Tally(start)
+fun bump(t: Tally): Int = synchronized(t) { t.n += 1; t.n }
+fun newShared(): Shared = Shared()
+fun label(s: Shared): String = "shared"
+fun openCursor(n: Int): Cursor = Cursor(n)
+fun step(c: Cursor): Int { c.at += 1; return c.at }
+fun close(c: Cursor) {}
+"#;
+    for (backend, tool, ext, skeleton_line, implementation) in [
+        ("kotlin", "kotlinc", "kt", "class Cursor {", HOST_KT),
+        ("rust", "rustc", "rs", "#[derive(Clone)]\npub struct Tally {", HOST_RS),
+    ] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("ptype_{backend}"));
+        project(&dir);
+        fs::write(dir.join("host.sv"), HOST_SV).unwrap();
+        fs::write(dir.join("main.sv"), MAIN_SV).unwrap();
+        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
+        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
+        let path = dir.join("platform").join(format!("host.{ext}"));
+        let skeleton = fs::read_to_string(&path).unwrap();
+        assert!(skeleton.contains(skeleton_line), "{backend} skeleton:\n{skeleton}");
+        fs::write(&path, implementation).unwrap();
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "11 12\nshared\n4 5\nheld 13\n", "{backend}: {stderr}");
+        if backend == "rust" {
+            fs::write(&path, implementation.replacen("#[derive(Clone)]\npub struct Tally", "pub struct Tally", 1)).unwrap();
+            let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(!out.status.success() && stderr.contains("__contract"), "{stderr}");
+        }
+    }
+    // [noremote] A host handle has no wire form.
+    let dir = work_dir("ptype_wire");
+    project(&dir);
+    fs::write(dir.join("host.sv"), HOST_SV).unwrap();
+    fs::write(dir.join("main.sv"), "import host\nimport net\n\nfn main() [] {\n    let _b = encode(new_tally(1))\n}\n").unwrap();
+    let out = salvo_in(&dir, &["analyze", "--src", "."]);
+    let all = String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
+    assert!(all.contains("`Tally` is declared `noremote`"), "{all}");
+    __stamp.verified();
+}
+
+/// [platform-fn-value] Function values at the boundary, on both backends: a
+/// platform fn taking an effect-free callback (a plain one, called twice,
+/// and a `once` one, consumed), one catching a fault the callback raises,
+/// and a platform handler member taking a callback — which on Rust is
+/// `&mut dyn FnMut`, since an effect trait is used as `dyn`. The skeletons
+/// give the host its own closure types.
+#[test]
+fn function_values_cross_the_platform_boundary() {
+    let Some(__stamp) = e2e_stamp("function_values_cross_the_platform_boundary", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    const HOST_SV: &str = r#"export platform fn call(body: once () -> Str) [] -> Str => !body
+export platform fn twice(f: (n: Int) -> Int, x: Int) [] -> Int => f, x
+export platform fn run_guarded(body: once () -> None) [] -> Str? => !body
+
+export effect Apply {
+    fn apply(f: (n: Int) -> Int, x: Int) -> Int => f, x
+}
+
+export platform handler HostApply() of Apply
+"#;
+    const MAIN_SV: &str = r#"import host
+
+fn main() [use] {
+    use StdOutConsole()
+    let k = 5
+    println("${twice(n -> n + k, 1)}")
+    let label = "late"
+    println(call(() -> "${label} ran"))
+    let why = run_guarded(() -> {
+        let xs: List<Int> = []
+        let _x = get(xs, 3)!
+    })
+    println("faulted: ${!(why is None)}")
+    println("${run_guarded(() -> {}) is None}")
+    use HostApply()
+    println("${apply(n -> n * k, 2)}")
+}
+"#;
+    const HOST_RS: &str = r#"// Host implementation of the platform declarations of Salvo module `host`.
+//
+// Generated once by `salvo platform generate`; the compiler never writes
+// this file again — it is yours. Nothing here is checked by Salvo: rustc
+// checks it, against the traits the backend generates from the
+// `platform handler` declarations.
+
+use crate::host::*;
+
+pub fn call(body: impl FnOnce() -> String) -> String {
+    body()
+}
+
+pub fn twice(f: &mut impl FnMut(i32) -> i32, x: i32) -> i32 {
+    let y = f(x);
+    f(y)
+}
+
+pub fn run_guarded(body: impl FnOnce()) -> Option<String> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        Ok(()) => None,
+        Err(e) => Some(e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_else(|| "fault".into())),
+    }
+}
+
+// `platform handler HostApply` — the compiler SERIALIZES this instance: every
+// member runs under one lock on both backends, so the receivers are
+// `&mut self` and plain fields are fine; the struct must be `Send`.
+// If the host synchronizes internally, declare it `threadsafe platform
+// handler` in Salvo to say so [threadsafe-platform].
+pub struct HostApply {
+}
+
+impl HostApply {
+    pub fn new() -> Self {
+        Self { }
+    }
+}
+
+impl crate::host::ApplyPlatform for HostApply {
+    fn apply(&mut self, f: &mut dyn FnMut(i32) -> i32, x: i32) -> i32 {
+        f(x)
+    }
+}
+"#;
+    const HOST_KT: &str = r#"// Host implementation of the platform declarations of Salvo module `host`.
+//
+// Generated once by `salvo platform generate`; the compiler never writes
+// this file again — it is yours. Nothing here is checked by Salvo: the
+// Kotlin compiler checks it, against the interfaces the backend generates
+// from the `platform handler` declarations.
+package salvo.platform.host
+
+import salvo.host.*
+
+fun call(body: () -> String): String = body()
+fun twice(f: (Int) -> Int, x: Int): Int = f(f(x))
+fun runGuarded(body: () -> Unit): String? = try { body(); null } catch (t: Throwable) { t.message ?: "fault" }
+
+class HostApply : ApplyPlatform {
+    override fun apply(f: (Int) -> Int, x: Int): Int {
+        return f(x)
+    }
+}
+"#;
+    for (backend, tool, ext, sigs, implementation) in [
+        ("kotlin", "kotlinc", "kt", ["fun call(body: () -> String): String", "override fun apply(f: (Int) -> Int, x: Int): Int"], HOST_KT),
+        ("rust", "rustc", "rs", ["pub fn call(body: impl FnOnce() -> String) -> String", "fn apply(&mut self, f: &mut dyn FnMut(i32) -> i32, x: i32) -> i32"], HOST_RS),
+    ] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("pfn_{backend}"));
+        project(&dir);
+        fs::write(dir.join("host.sv"), HOST_SV).unwrap();
+        fs::write(dir.join("main.sv"), MAIN_SV).unwrap();
+        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
+        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
+        let path = dir.join("platform").join(format!("host.{ext}"));
+        let skeleton = fs::read_to_string(&path).unwrap();
+        for sig in sigs {
+            assert!(skeleton.contains(sig), "{backend} skeleton lacks `{sig}`:\n{skeleton}");
+        }
+        fs::write(&path, implementation).unwrap();
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "11\nlate ran\nfaulted: true\ntrue\n10\n", "{backend}: {stderr}");
+    }
+    __stamp.verified();
+}
+
 /// [platform-tree] The tree mirrors the sources, per module: the implementation
 /// of a handler declared in `telemetry.sv` is `platform/telemetry.<ext>`, and
 /// a `use` of it from another module (`bin/tool.sv`, chosen with `--main`)

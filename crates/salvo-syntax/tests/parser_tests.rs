@@ -951,21 +951,20 @@ fn an_else_in_the_subject_form_names_the_other_form() {
     );
 }
 
-/// [platform-handler] [platform-fn] `platform` takes `handler` or `fn`, and
-/// nothing else — a `platform effect` included, since platform effects were
-/// removed (2026-10-01). The diagnostic names both forms rather than
-/// reporting a bare "expected item".
+/// [platform-handler] [platform-fn] [platform-type] `platform` takes
+/// `handler`, `fn` or `type`, and nothing else — a `platform effect`
+/// included, since platform effects were removed (2026-10-01). The
+/// diagnostic names the forms rather than reporting a bare "expected item".
 #[test]
 fn platform_on_a_non_handler_is_an_error_naming_the_form() {
     for source in [
-        "platform type Handle\n",
         "platform effect Telemetry {\n    fn emit(s: Str) [] -> None => s\n}\n",
     ] {
         let (_module, diagnostics) = salvo_syntax::parse_module(source);
         assert!(
             diagnostics.iter().any(|d| d.is_error()
                 && d.message
-                    .contains("expected `handler` or `fn` after `platform`")
+                    .contains("expected `handler`, `fn` or `type` after `platform`")
                 && d.message.contains("`platform handler`")),
             "expected a platform-form error for {source:?}, got {:?}",
             diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
@@ -1051,7 +1050,7 @@ fn threadsafe_on_a_non_handler_is_an_error_naming_the_form() {
     let (_, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         diagnostics.iter().any(|d| d.is_error()
-            && d.message.contains("expected `handler` after `threadsafe platform`")
+            && d.message.contains("expected `handler` or `type` after `threadsafe platform`")
             && d.message.contains("[threadsafe-platform]")),
         "expected the misplaced-`threadsafe` error, got: {:?}",
         diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
@@ -3018,3 +3017,27 @@ fn literal_types_parse() {
     assert!(errs.iter().any(|e| e.contains("a float cannot be a literal type")), "{errs:?}");
 }
 
+/// [platform-type] The three kinds parse into one declaration with flags: a
+/// plain, a `threadsafe` and a `linear` platform type, each `noremote`, and
+/// an alias is refused.
+#[test]
+fn platform_types_parse_in_three_kinds() {
+    let source = "export platform type Client\nthreadsafe platform type Parker\n\
+                  export linear platform type Cursor canbe Mut\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let flags: Vec<_> = module
+        .items
+        .iter()
+        .map(|item| match item {
+            salvo_syntax::ast::Item::Type(t) => (t.platform, t.threadsafe, t.linear, t.noremote, t.exported),
+            _ => panic!("expected a type item"),
+        })
+        .collect();
+    assert_eq!(
+        flags,
+        vec![(true, false, false, true, true), (true, true, false, true, false), (true, false, true, true, true)]
+    );
+    let (_, diagnostics) = salvo_syntax::parse_module("platform type Client = Int\n");
+    assert!(diagnostics.iter().any(|d| d.is_error() && d.message.contains("cannot be an alias")), "{diagnostics:?}");
+}

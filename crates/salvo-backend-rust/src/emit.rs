@@ -722,7 +722,16 @@ pub fn platform_skeletons(
                 _ => None,
             })
             .collect();
-        if handlers.is_empty() && platform_fns.is_empty() {
+        let platform_types: Vec<&salvo_syntax::ast::TypeDecl> = unit
+            .ast
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Type(t) if t.platform => Some(t),
+                _ => None,
+            })
+            .collect();
+        if handlers.is_empty() && platform_fns.is_empty() && platform_types.is_empty() {
             continue;
         }
         let module = &unit.file.module;
@@ -739,6 +748,10 @@ pub fn platform_skeletons(
         // The modules whose items the host file has to see beyond its own
         // (an effect declared elsewhere — std's, typically).
         let mut impl_paths: BTreeSet<String> = BTreeSet::new();
+        // [platform-type] One struct per platform type, named after it.
+        for t in &platform_types {
+            body.push_str(&emitter.platform_type_skeleton(t));
+        }
         // [platform-fn] One function per platform fn, with the real name.
         for f in &platform_fns {
             body.push_str(&emitter.platform_fn_skeleton(f));
@@ -2767,7 +2780,8 @@ impl<'p> Emitter<'p> {
             // [platform-abi] Declarations only, and only the reached ones.
             if let Some(keep) = &self.abi_keep {
                 let platform = matches!(item, Item::Handler(h) if h.platform)
-                    || matches!(item, Item::Fn(f) if f.platform);
+                    || matches!(item, Item::Fn(f) if f.platform)
+                    || matches!(item, Item::Type(t) if t.platform);
                 if !platform && !abi_item_name(item).is_some_and(|n| keep.contains(n)) {
                     continue;
                 }
@@ -2787,6 +2801,7 @@ impl<'p> Emitter<'p> {
                     body.push_str(&self.emit_fn(f))
                 }
                 Item::Qualifier(q) => body.push_str(&self.emit_qualifier(q)),
+                Item::Type(t) if t.platform => body.push_str(&self.emit_platform_type(t)),
                 _ => {}
             }
             body.push_str(&self.emit_item_factories(item));
@@ -3865,6 +3880,47 @@ impl<'p> Emitter<'p> {
     /// [platform-fn] The skeleton of a platform fn's implementation: the
     /// wrapper's own signature — so the two cannot disagree — under the real
     /// name, with a stub body.
+    /// [platform-type] [rs-platform-type] A platform type is the host's struct
+    /// of the same name, re-exported here so every mention is the ordinary
+    /// path, with a static assertion of the contract its kind promises — so a
+    /// host type that is not `Send` (or `Clone`, or `Sync`) is the host
+    /// compiler's error at this line rather than somewhere in generated code.
+    fn emit_platform_type(&mut self, t: &salvo_syntax::ast::TypeDecl) -> String {
+        let module = self.program.files[self.file_idx].module.clone();
+        self.platform_hosts.insert(module.clone());
+        let name = rs_ident(&t.name.name);
+        let mut bounds = vec!["Send", "'static"];
+        if !t.linear {
+            bounds.push("Clone");
+        }
+        if t.threadsafe {
+            bounds.push("Sync");
+        }
+        format!(
+            "\n/// [platform-type] The host's `{name}`.\npub use crate::{}::{name};\n\
+             const _: fn() = || {{ fn __contract<T: {}>() {{}} __contract::<{name}>(); }};\n",
+            host_mod_name(&module),
+            bounds.join(" + ")
+        )
+    }
+
+    /// [platform-type] The host's struct for a platform type, in the
+    /// implementation skeleton: what the contract needs and nothing more.
+    fn platform_type_skeleton(&mut self, t: &salvo_syntax::ast::TypeDecl) -> String {
+        let name = rs_ident(&t.name.name);
+        let (derive, what) = if t.linear {
+            ("", "owned by one holder at a time; must be `Send`")
+        } else if t.threadsafe {
+            ("#[derive(Clone)]\n", "copied as a handle and used from several threads at once: `Clone` (cheaply — an `Arc` inside), `Send` and `Sync`")
+        } else {
+            ("#[derive(Clone)]\n", "copied as a handle: `Clone` (cheaply — an `Arc` inside) and `Send`")
+        };
+        format!(
+            "\n// `platform type {}`: {what} [platform-type].\n{derive}pub struct {name} {{\n}}\n",
+            t.name.name
+        )
+    }
+
     fn platform_fn_skeleton(&mut self, f: &FnDecl) -> String {
         let wrapper = self.emit_fn(f);
         let Some(open) = wrapper.find(" {\n") else {
@@ -4006,11 +4062,14 @@ impl<'p> Emitter<'p> {
             }
             let mode = self.member_param_mode(member, p);
             out.push_str(", ");
-            out.push_str(&format!(
-                "{}: {}",
-                rs_ident(&p.name.name),
-                self.param_type(&p.ty, p.variadic, mode)
-            ));
+            let mut ty = self.param_type(&p.ty, p.variadic, mode);
+            // [rs-effects] [fn-contract] An effect trait is used as `dyn`, so a
+            // fn-valued parameter dispatches dynamically: `&mut dyn FnMut`,
+            // which every `&mut impl FnMut` a caller passes coerces to —
+            // `impl` in argument position would make the trait not object-safe
+            // (as for implicits, `emit_member_implicits`).
+            ty = member_fn_param_ty(&p.ty, ty);
+            out.push_str(&format!("{}: {ty}", rs_ident(&p.name.name)));
         }
         out
     }
@@ -5820,11 +5879,14 @@ impl<'p> Emitter<'p> {
             } else {
                 ""
             };
-            params.push(format!(
-                "{mut_kw}{}: {}",
-                rs_ident(&p.name.name),
-                self.param_type(&p.ty, p.variadic, mode)
-            ));
+            let mut ty = self.param_type(&p.ty, p.variadic, mode);
+            // [rs-effects] A handler member implements a `dyn` trait member,
+            // so a fn-valued parameter is `&mut dyn FnMut` as the trait's is
+            // (`emit_member_param_list`).
+            if matches!(style, FnStyle::HandlerMember(_)) {
+                ty = member_fn_param_ty(&p.ty, ty);
+            }
+            params.push(format!("{mut_kw}{}: {ty}", rs_ident(&p.name.name)));
         }
         // [implicit-param] Implicit parameters are ordinary trailing
         // parameters of fn type, rendered like any other fn value
@@ -6850,6 +6912,11 @@ impl<'p> Emitter<'p> {
         // reference for rustc to trip over instead of reporting the gap
         // here. (`Addr`, `Reply` and `Pool` are exactly this until the
         // actor structs land.)
+        // [platform-type] The host's own type, re-exported where it is
+        // declared: the name passes through like a struct's.
+        if self.symbols.intrinsic_types.get(name).is_some_and(|t| t.platform) {
+            return format!("{}{args}", rs_ident(name));
+        }
         if self.symbols.intrinsic_types.contains_key(name) {
             self.error(format!(
                 "the `{name}` type is not supported by the rust backend yet"
@@ -15102,7 +15169,15 @@ impl<'p> Emitter<'p> {
                 (None, None) => self.default_param_mode(&param.ty, param.variadic),
             };
             self.pending_lambda_move = producer;
-            out.push(self.emit_arg(arg, mode, Some(&param.ty)));
+            let code = self.emit_arg(arg, mode, Some(&param.ty));
+            // [rs-effects] A `once` fn value given to an effect member is
+            // boxed, as the member's `dyn`-compatible signature takes it.
+            let code = if member.is_some() && is_once_fn_type(&param.ty) {
+                format!("Box::new({code})")
+            } else {
+                code
+            };
+            out.push(code);
             self.pending_lambda_move = false;
         }
         if variadic_at.is_some() {
@@ -18742,4 +18817,31 @@ fn rs_literal(lit: &salvo_syntax::ast::TypeLit) -> String {
 /// [platform-never] Whether a written return type is `Never`.
 fn return_is_never(ty: Option<&Type>) -> bool {
     matches!(ty, Some(Type::Named { base, .. }) if base.name.name == "Never")
+}
+
+/// [once-fn] Whether a written type is `once (…) -> R`.
+fn is_once_fn_type(ty: &Type) -> bool {
+    matches!(ty, Type::QualifiedGroup { qualifiers, base, .. }
+        if qualifiers.iter().any(|q| q.name.name == "once") && matches!(base.as_ref(), Type::Fn { .. }))
+}
+
+/// [rs-effects] [fn-contract] An effect member's fn-valued parameter as the
+/// member's `dyn`-compatible signature spells it, given its ordinary
+/// rendering: an effect trait is used as `dyn`, and `impl Trait` in argument
+/// position would make it not object-safe — so a fn value is `&mut dyn
+/// FnMut(…)` (every `&mut impl FnMut` a caller passes coerces to it) and a
+/// `once` one `Box<dyn FnOnce(…) + '_>` (boxed at the call). Implicits take
+/// the same route in `emit_member_implicits`.
+fn member_fn_param_ty(ty: &Type, rendered: String) -> String {
+    if matches!(ty, Type::Fn { .. }) {
+        if let Some(rest) = rendered.strip_prefix("&mut impl ") {
+            return format!("&mut dyn {rest}");
+        }
+    }
+    if is_once_fn_type(ty) {
+        if let Some(rest) = rendered.strip_prefix("impl ") {
+            return format!("Box<dyn {rest} + '_>");
+        }
+    }
+    rendered
 }

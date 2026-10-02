@@ -337,3 +337,35 @@ fn a_platform_fn_returning_a_borrow_is_refused() {
         .collect();
     assert!(errs.iter().any(|m| m.contains("`platform fn peek` returns a borrow")), "{errs:?}");
 }
+
+/// [platform-type] An opaque host handle in three kinds: a program uses one
+/// through platform fns, copies a plain one, mutates a linear `canbe Mut` one
+/// through a `Mut` parameter — and what the kinds forbid is refused at the
+/// declaration.
+#[test]
+fn platform_types_are_opaque_handles_in_three_kinds() {
+    let errors = |src: &str| -> Vec<String> {
+        check_errors(src).iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect()
+    };
+    let ok = "platform type Client\nthreadsafe platform type Parker\nlinear platform type Cursor canbe Mut\n\n\
+              platform fn connect() [] -> Client\nplatform fn ping(c: Client) [] -> Int => c\n\
+              platform fn open() [] -> Mut Cursor\nplatform fn step(c: Mut Cursor) [] -> Int => c: Mut\n\
+              platform fn close(c: Cursor) [] -> None => !c\n\n\
+              fn use_them() [] -> Int {\n    let c = connect()\n    let d = c\n    let k = open()\n    let n = step(k)\n    close(k)\n    return ping(d) + n\n}\n";
+    let errs = errors(ok);
+    assert!(errs.is_empty(), "{errs:?}");
+
+    let refused = [
+        ("platform type Box<T>\n", "may not be generic yet"),
+        ("platform type Client canbe Mut\n", "only when it is `linear`"),
+        ("threadsafe platform type Client canbe Mut\n", "only when it is `linear`"),
+        ("platform type Client : Hashed<self> by auto\n", "cannot take an obligation clause"),
+    ];
+    for (src, want) in refused {
+        let errs = errors(src);
+        assert!(errs.iter().any(|m| m.contains(want)), "{src}: wanted `{want}` in {errs:?}");
+    }
+    // A linear handle cannot be copied, and is owed: forgetting one leaks.
+    let errs = errors("linear platform type Cursor\nplatform fn open() [] -> Cursor\nplatform fn close(c: Cursor) [] -> None => !c\n\nfn f() [] -> None {\n    let k = open()\n}\n");
+    assert!(errs.iter().any(|m| m.contains("still owns a linear value")), "{errs:?}");
+}

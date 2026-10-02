@@ -13,6 +13,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Byte",
                     span: 22..26,
@@ -34,6 +36,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Int",
                     span: 49..52,
@@ -55,6 +59,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Long",
                     span: 75..79,
@@ -76,6 +82,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Float",
                     span: 102..107,
@@ -97,6 +105,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Double",
                     span: 130..136,
@@ -118,6 +128,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Char",
                     span: 159..163,
@@ -139,6 +151,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Bool",
                     span: 186..190,
@@ -160,6 +174,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Any",
                     span: 213..216,
@@ -181,6 +197,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Never",
                     span: 239..244,
@@ -202,6 +220,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Number",
                     span: 258..264,

@@ -6912,6 +6912,46 @@ fn rustc_runs_the_most_specific_overload() {
     run_rust_files(&files, "overload-specificity", "concrete\ngeneric\n");
 }
 
+/// [rs-effects] [fn-contract] An effect member taking a fn value, plain or
+/// `once`: the trait is used as `dyn`, so the member takes `&mut dyn FnMut`
+/// and `Box<dyn FnOnce>` (boxed at the call) rather than `impl` — which made
+/// the trait not object-safe and every such program a rustc error until
+/// 2026-10-02. Called directly and through a fn's `[Apply]`.
+const EFFECT_FN_PARAMS: &str = r#"
+effect Apply {
+    fn apply(f: (n: Int) -> Int, x: Int) -> Int => f, x
+    fn once_apply(f: once () -> Int) -> Int => !f
+}
+
+handler Applying() of Apply {
+    fn apply(f: (n: Int) -> Int, x: Int) -> Int => f, x {
+        let y = f(x)
+        return f(y)
+    }
+
+    fn once_apply(f: once () -> Int) -> Int => !f {
+        return f()
+    }
+}
+
+fn through(x: Int) [Apply] -> Int {
+    return apply(n -> n + 1, x) + once_apply(() -> x * 10)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Applying()
+    let k = 3
+    println("${apply(n -> n * k, 2)} ${once_apply(() -> k + 1)} ${through(5)}")
+}
+"#;
+
+#[test]
+fn rustc_runs_effect_members_taking_fn_values() {
+    let files = generate(&[("main.sv", EFFECT_FN_PARAMS)]);
+    run_rust_files(&files, "effect-fn-params", "18 4 57\n");
+}
+
 // ===== [str-drop-mut] [rs-mut-str] `Mut Str` is a `String` =====
 
 /// The same source and the same expected stdout as the Kotlin backend's

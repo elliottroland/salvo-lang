@@ -738,6 +738,25 @@ impl<'s> Parser<'s> {
                 self.bump();
                 self.parse_struct(true).map(Item::Struct)
             }
+            // [platform-type] `linear platform type HostIn`: a host handle with
+            // an obligation.
+            TokenKind::KwLinear if matches!(self.peek_at(1).kind, TokenKind::KwPlatform) => {
+                self.bump();
+                self.bump();
+                if !self.at(&TokenKind::KwType) {
+                    let found = self.kind().describe();
+                    let span = self.peek().span;
+                    self.error(
+                        format!(
+                            "`linear platform` declares a linear host handle, so `type` must \
+                             follow: `linear platform type HostIn` (found {found}) [platform-type]"
+                        ),
+                        span,
+                    );
+                    return None;
+                }
+                self.parse_platform_type(false, true)
+            }
             // [linear-group] `linear intrinsic type Reply<T>` — a linear
             // **opaque** type, the same modifier on the other declaration
             // form that can carry an obligation (user decision 2026-09-15).
@@ -798,15 +817,15 @@ impl<'s> Parser<'s> {
                 self.bump();
                 self.bump();
                 match self.kind() {
-                    TokenKind::KwHandler => self.parse_platform_rest(true),
+                    TokenKind::KwHandler | TokenKind::KwType => self.parse_platform_rest(true),
                     other => {
                         let found = other.describe();
                         self.error(
                             format!(
-                                "expected `handler` after `threadsafe platform`, found \
-                                 {found}: the thread-safety contract is a claim about a \
-                                 host class, so it belongs on a `platform handler` \
-                                 [threadsafe-platform]"
+                                "expected `handler` or `type` after `threadsafe platform`, \
+                                 found {found}: the thread-safety contract is a claim about a \
+                                 host class, so it belongs on a `platform handler` or a \
+                                 `platform type` [threadsafe-platform]"
                             ),
                             span,
                         );
@@ -1034,6 +1053,8 @@ impl<'s> Parser<'s> {
             // [noremote] Set by `parse_declaration`, which peels the word.
             noremote: false,
             comptime: false,
+            platform: false,
+            threadsafe: false,
             docs,
             intrinsic,
             linear,
@@ -2072,20 +2093,44 @@ impl<'s> Parser<'s> {
             TokenKind::KwHandler => self
                 .parse_handler_flavored(false, true, threadsafe)
                 .map(Item::Handler),
+            // [platform-type] `platform type Client`: an opaque host handle.
+            TokenKind::KwType => self.parse_platform_type(threadsafe, false),
             other => {
                 let span = self.peek().span;
                 let found = other.describe();
                 self.error(
                     format!(
-                        "expected `handler` or `fn` after `platform`, found {found}: a \
+                        "expected `handler`, `fn` or `type` after `platform`, found {found}: a \
                          platform declaration is a host implementation of a Salvo effect \
-                         (`platform handler`) or of one function (`platform fn`)"
+                         (`platform handler`), of one function (`platform fn`), or a host \
+                         object's handle (`platform type`)"
                     ),
                     span,
                 );
                 None
             }
         }
+    }
+
+    /// [platform-type] `platform type Name<T>` (after `platform`, and after
+    /// `threadsafe` or `linear` where written): the ordinary type grammar, then
+    /// the flags. An alias is refused — a platform type *is* its host class.
+    fn parse_platform_type(&mut self, threadsafe: bool, linear: bool) -> Option<Item> {
+        let mut t = self.parse_type_decl_linear(false, linear)?;
+        t.platform = true;
+        t.threadsafe = threadsafe;
+        t.noremote = true;
+        if t.alias.is_some() {
+            self.error(
+                format!(
+                    "`platform type {}` cannot be an alias: a platform type is an opaque \
+                     handle to the host class of the same name [platform-type]",
+                    t.name.name
+                ),
+                t.name.span,
+            );
+        }
+        Some(Item::Type(t))
     }
 
     /// `handler`, `intrinsic handler` [backend-intrinsic] and

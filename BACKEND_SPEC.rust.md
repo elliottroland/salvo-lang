@@ -1571,6 +1571,19 @@ facts worth knowing") and keeps the history ("One shape for effects").
   | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
 
+* [rs-platform-type] [platform-type] The declaring module re-exports the
+  host's struct — `pub use crate::platform_<m>::Name;` — so every mention is
+  the ordinary path, beside a static assertion of the kind's contract
+  (`const _: fn() = || { fn __contract<T: Send + 'static + Clone>() {} … }`,
+  `+ Sync` for `threadsafe`, no `Clone` for `linear`), which makes a host
+  type breaking it rustc's error at that line. The skeleton is `pub struct
+  Name {}` with `#[derive(Clone)]` for the copyable kinds.
+* [rs-effects] [fn-contract] An effect member's fn-valued parameter is
+  `&mut dyn FnMut(…)`, and a `once` one `Box<dyn FnOnce(…) + '_>` boxed at
+  the call (`member_fn_param_ty`): effect traits are used as `dyn`, and an
+  `impl` parameter made the trait not object-safe — every effect with a
+  fn-valued member was a rustc error until 2026-10-02. A top-level fn keeps
+  `impl FnMut`/`impl FnOnce` and monomorphises.
 * [rs-platform-never] [platform-never] `Never` is `()` everywhere in Rust
   output except a platform signature's result: a `platform fn`, its wrapper
   and skeleton, and an `EPlatform`/`EPlatformSync` member are `-> !`

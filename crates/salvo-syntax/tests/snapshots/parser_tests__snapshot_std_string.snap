@@ -26,6 +26,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Str",
                     span: 782..785,

@@ -135,6 +135,31 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Platform types and fn values at the boundary (user decisions 2026-10-02;
+RUNTIME.md §11.5 step 7, §12, E2/E5).** `platform type Name` — plain,
+`threadsafe`, or `linear` (the only kind that may be `canbe Mut`) — is an
+opaque handle to the host's class or struct of the same name [platform-type]:
+parsed into `TypeDecl` with `platform`/`threadsafe` flags and `noremote` set,
+registered with the opaque types, checked at the declaration (no generics,
+slots or obligations yet). Rust re-exports the host struct from the
+declaring module with a static assertion of the kind's contract (a host type
+that is not `Clone` fails at that line); Kotlin names the host class by its
+full path; both skeletons write the type. Fn values were already accepted at
+a platform fn [platform-fn-value]; what was missing was a platform handler
+member taking one, and that turned out to be a general Rust defect: **every
+effect member with a fn-valued parameter failed to compile on Rust** since
+effects became `dyn` traits, because the member rendered `impl FnMut`. It
+is now `&mut dyn FnMut`, and a `once` one `Box<dyn FnOnce + '_>` boxed at
+the call. What was decided by finding it: a fn value is lent for the call
+(it is not sendable), so the host-kept thread body the runtime needs is a
+runtime-module privilege for step 11, not a language feature. Found and
+recorded: `f(f(x))` is E0499 on Rust (ROADMAP 0c item 4). New tests
+`platform_types_are_opaque_handles_in_three_kinds`,
+`platform_types_parse_in_three_kinds`, `platform_types_run_on_both_backends`,
+`function_values_cross_the_platform_boundary`, and
+`rustc_runs_effect_members_taking_fn_values` with its Kotlin case.
+**1675 tests.**
+
 **`Deque` (user decision 2026-10-02; RUNTIME.md §11.5 step 6, D3).** std's
 double-ended queue, `core.deque`, as an intrinsic beside `List` [col-deque]:
 the surface the user approved (both-ends add and remove, `get`/`first`/
@@ -19597,7 +19622,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1670; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1675; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

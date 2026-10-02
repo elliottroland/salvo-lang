@@ -817,7 +817,16 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
                 _ => None,
             })
             .collect();
-        if handlers.is_empty() && platform_fns.is_empty() {
+        let platform_types: Vec<&salvo_syntax::ast::TypeDecl> = unit
+            .ast
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Type(t) if t.platform => Some(t),
+                _ => None,
+            })
+            .collect();
+        if handlers.is_empty() && platform_fns.is_empty() && platform_types.is_empty() {
             continue;
         }
         let module = &unit.file.module;
@@ -825,6 +834,10 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
             Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
 
         let mut body = String::new();
+        // [platform-type] One class per platform type, named after it.
+        for t in &platform_types {
+            body.push_str(&emitter.platform_type_skeleton(t));
+        }
         // [platform-fn] One function per platform fn, with the real name.
         for f in &platform_fns {
             body.push_str(&emitter.platform_fn_skeleton(f));
@@ -2313,6 +2326,36 @@ impl<'p> Emitter<'p> {
     /// [platform-fn] The body of a platform fn's wrapper: a call of the
     /// implementation, `salvo.platform.<module>.<name>(args)`, which records
     /// that the module's implementation file is needed.
+    /// [platform-type] The module declaring platform type `name`, which is
+    /// recorded as needing its implementation file.
+    fn platform_type_module(&mut self, name: &str) -> Option<ModulePath> {
+        let module = self.program.units().find_map(|u| {
+            u.ast
+                .items
+                .iter()
+                .any(|i| matches!(i, Item::Type(t) if t.platform && t.name.name == name))
+                .then(|| u.file.module.clone())
+        })?;
+        self.platform_hosts.insert(module.clone());
+        Some(module)
+    }
+
+    /// [platform-type] The host's class for a platform type, in the
+    /// implementation skeleton.
+    fn platform_type_skeleton(&mut self, t: &salvo_syntax::ast::TypeDecl) -> String {
+        let what = if t.linear {
+            "owned by one holder at a time"
+        } else if t.threadsafe {
+            "copied as a handle (a copy shares this object) and used from several threads at once, so it must synchronize itself"
+        } else {
+            "copied as a handle: a copy shares this object"
+        };
+        format!(
+            "\n// `platform type {}`: {what} [platform-type].\nclass {} {{\n}}\n",
+            t.name.name, t.name.name
+        )
+    }
+
     fn platform_fn_body(&mut self, f: &FnDecl, indent: usize) -> String {
         let module = self.program.files[self.file_idx].module.clone();
         self.platform_hosts.insert(module.clone());
@@ -4268,6 +4311,14 @@ impl<'p> Emitter<'p> {
         // dangling reference instead of reporting the gap here. (`Addr`,
         // `Reply` and `Pool` are exactly this until the actor classes
         // land.)
+        // [platform-type] [kt-platform-type] The host's class, named by its
+        // full path: the implementation file's package is the module's
+        // `salvo.platform.…`, and nothing is re-exported.
+        if self.symbols.intrinsic_types.get(name).is_some_and(|t| t.platform) {
+            if let Some(module) = self.platform_type_module(name) {
+                return format!("{}.{name}{args}", host_package(&module));
+            }
+        }
         if self.symbols.intrinsic_types.contains_key(name) {
             self.error(format!(
                 "the `{name}` type is not supported by the kotlin backend yet"
@@ -9100,6 +9151,9 @@ impl<'p> Emitter<'p> {
                 // index — an `Int` — so copying one is the reference itself;
                 // nothing reachable through it is the holder's to mutate.
                 "Addr" | "Pool" => true,
+                // [platform-type] A copy of a platform handle shares the host
+                // object by definition: the reference itself.
+                _ if self.symbols.intrinsic_types.get(name.as_str()).is_some_and(|t| t.platform) => true,
                 // A non-`Mut` list is read-only [type-canbe-mut].
                 "List" => args.iter().all(|a| self.ty_immutable(a, visiting)),
                 _ => {

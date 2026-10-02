@@ -410,6 +410,13 @@ Questions:
   upwards. Keep these, or name every arity alike (`Tuple2`…), the way unions
   are `UnionN`? The first is what Kotlin code expects for the common sizes.
 
+### D11. Platform types and fn values — decided 2026-10-02
+
+Opaque `platform type`s in three kinds, and effect-free fn values lent for
+the call, as RUNTIME.md §12 sets out; the rules are LANGUAGE_SPEC.md's
+[platform-type] and [platform-fn-value]. Generic platform types are still
+to come (RUNTIME.md E1).
+
 ## What goes away
 
 Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):

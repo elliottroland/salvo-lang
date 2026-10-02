@@ -3264,6 +3264,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [linear-group] The opaque form of the legal-death
                     // rule, checked where the modifier is written.
                     self.check_linear_opaque(t);
+                    if t.platform {
+                        self.check_platform_type(t);
+                    }
                     // [group-obligation] [obligation-by] A `type` declaration's
                     // clause, checked as a struct's is.
                     self.check_obligation_list(&t.name, &t.generics, &t.obligations, t.obligations.len());
@@ -4203,6 +4206,55 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///
     /// The effect is an ordinary Salvo one and only this *handler* is the
     /// host's, so it registers with `use` like any other [platform-tree].
+    /// [platform-type] What a platform type may declare: no type parameters
+    /// yet (generic platform types are a later step, RUNTIME.md E1), no
+    /// slots, no obligations (it has no fields to stamp over, and its
+    /// comparisons are platform fns), and `canbe Mut` only when linear — with
+    /// copies sharing one host object, a `Mut` permission on a copyable
+    /// handle would not mean what it means for a struct.
+    fn check_platform_type(&mut self, t: &'p ast::TypeDecl) {
+        let name = &t.name.name;
+        if !t.generics.is_empty() {
+            self.error(
+                t.name.span,
+                format!("`platform type {name}` may not be generic yet: the host writes one concrete class [platform-type]"),
+            );
+        }
+        if !t.fn_slots.is_empty() {
+            self.error(t.name.span, format!("`platform type {name}` declares no slots [platform-type]"));
+        }
+        if let Some(o) = t.obligations.first() {
+            self.error(
+                o.group.span,
+                format!(
+                    "`platform type {name}` cannot take an obligation clause: it has no fields to \
+                     stamp over, and its comparisons are `platform fn`s [platform-type]"
+                ),
+            );
+        }
+        if t.threadsafe && t.linear {
+            self.error(
+                t.name.span,
+                format!(
+                    "`platform type {name}` cannot be both `threadsafe` and `linear`: a linear \
+                     value has one owner, so there is no sharing to make safe [platform-type]"
+                ),
+            );
+        }
+        for q in &t.auto_qualifiers {
+            if q.name.name == "Mut" && !t.linear {
+                self.error(
+                    q.span,
+                    format!(
+                        "`platform type {name}` may be `canbe Mut` only when it is `linear`: a \
+                         copy shares the host object, so `Mut` could not mean exclusive access \
+                         [platform-type]"
+                    ),
+                );
+            }
+        }
+    }
+
     fn check_platform_handler(&mut self, h: &'p ast::HandlerDecl) {
         if !h.platform {
             return;

@@ -4460,6 +4460,7 @@ fn kotlinc_compiles_and_runs_placeholder_loops() -> KotlinCase {
 }
 
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_effect_members_taking_fn_values,
     kotlinc_compiles_and_runs_comptime,
     kotlinc_compiles_and_runs_placeholder_loops,
     kotlinc_compiles_and_runs_a_held_identity,
@@ -14694,4 +14695,38 @@ fn a_deadline_lowers_to_a_scheduler_call_with_a_fired_builder() {
             .any(|f| f.rel_path.to_string_lossy() == "hosttime.kt"),
         "expected hosttime.kt to be emitted"
     );
+}
+
+/// [fn-contract] The Rust backend's `rustc_runs_effect_members_taking_fn_values`,
+/// with the same output.
+fn kotlinc_compiles_and_runs_effect_members_taking_fn_values() -> KotlinCase {
+    const SRC: &str = r#"
+effect Apply {
+    fn apply(f: (n: Int) -> Int, x: Int) -> Int => f, x
+    fn once_apply(f: once () -> Int) -> Int => !f
+}
+
+handler Applying() of Apply {
+    fn apply(f: (n: Int) -> Int, x: Int) -> Int => f, x {
+        let y = f(x)
+        return f(y)
+    }
+
+    fn once_apply(f: once () -> Int) -> Int => !f {
+        return f()
+    }
+}
+
+fn through(x: Int) [Apply] -> Int {
+    return apply(n -> n + 1, x) + once_apply(() -> x * 10)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Applying()
+    let k = 3
+    println("${apply(n -> n * k, 2)} ${once_apply(() -> k + 1)} ${through(5)}")
+}
+"#;
+    kotlin_case(generate_files(&[("main.sv", SRC)]), "effect-fn-params", "18 4 57\n")
 }

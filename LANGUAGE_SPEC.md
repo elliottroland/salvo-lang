@@ -8173,6 +8173,44 @@ replaced the working document TESTING.md).
     are host code, which performs no Salvo effect — put an ordinary Salvo
     handler in between, `handler DefaultFs [RawFs] of Fs`); not generic (the
     host writes one concrete class).
+* [platform-type] **`platform type Name` is an opaque handle to a host
+  object** (user decision 2026-10-02, RUNTIME.md §12): Salvo sees a name and
+  modifiers, never contents; the host implements a class (Kotlin) or struct
+  (Rust) of the **same name** in the declaring module's implementation file
+  [platform-tree], and `salvo platform generate` writes its skeleton.
+  Operations are `platform fn`s and platform handler members taking or
+  answering it, reached with dot notation like any fn; there is no member
+  syntax on the type.
+  * **Three kinds**, because copying has to mean one thing: *plain* — a copy
+    shares the host object (Rust: `Clone`, expected cheap, an `Arc` inside);
+    **`threadsafe platform type`** — the same, usable from several threads
+    at once (Rust adds `Sync`); **`linear platform type`** — exactly-once,
+    never copied, owed until a platform fn consuming it (`=> !c`), and the
+    only kind that may be `canbe Mut`, so a `Mut Cursor` parameter is
+    `&mut Cursor` on Rust. `canbe Mut` on a copyable one is refused (a copy
+    shares the object, so `Mut` could not mean exclusive access), as is
+    `threadsafe linear`.
+  * **Always `noremote`** [noremote] — a host object has no wire form — and
+    sendable [actor-sendable] (Rust: `Send + 'static`), so a handle may sit
+    in actor state or travel in a local message.
+  * **Refused for now**: type parameters (generic platform types are
+    RUNTIME.md E1, a later step), slots, an obligation clause (`by auto` has
+    no fields; comparisons are platform fns), an alias.
+  * Nothing to check at the boundary [platform-check]: the value is opaque.
+  * Lowering: [rs-platform-type], [kt-platform-type].
+* [platform-fn-value] **Function values cross the platform boundary,
+  effect-free and lent for the call** (2026-10-02, RUNTIME.md E2): a platform
+  fn or platform handler member may take `(A) -> R` or `once (A) -> R`; the
+  host receives its own closure type (Kotlin `(A) -> R`; Rust `impl FnMut` /
+  `impl FnOnce` for a fn, `&mut dyn FnMut` / `Box<dyn FnOnce + '_>` for an
+  effect member, whose trait is `dyn`). The callback declares no effects (a
+  fn type with effects is refused there as elsewhere), and it is **lent for
+  the call**: Rust's types forbid keeping it, and on Kotlin keeping it past
+  the call is a breach of the host contract, as aliasing a collection is
+  (ABI.md D10 C4). A callback the host keeps and runs on a thread of its own
+  is not available to programs — a fn value is not sendable
+  [actor-sendable] — and is the runtime module's privilege when the
+  scheduler needs it (RUNTIME.md §11.5 step 11).
 * [platform-never] **A platform fn or platform handler member answering
   `Never` cannot return** (2026-10-02, RUNTIME.md §11.2 E6): the host's
   signature says so in its own type system — Kotlin's `Nothing`, Rust's `!`

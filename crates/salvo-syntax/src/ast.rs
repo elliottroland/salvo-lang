@@ -225,6 +225,14 @@ pub struct TypeDecl {
     /// [comptime-fields] `comptime type Type = Struct | Union | …`: an alias
     /// over compile-time structs, itself compile-time only.
     pub comptime: bool,
+    /// [platform-type] `platform type Client`: an opaque handle to a host
+    /// object, implemented by a class or struct of the same name in the
+    /// module's platform implementation file. Never an alias; always
+    /// `noremote` (a host object has no wire form).
+    pub platform: bool,
+    /// [platform-type] `threadsafe platform type Parker`: the handle may be
+    /// used from several threads at once (Rust adds `Sync`).
+    pub threadsafe: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// [linear-container] Per-parameter `canbe` opt-ins, exactly as a

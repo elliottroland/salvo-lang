@@ -34,6 +34,8 @@ Module {
                 linear: false,
                 noremote: false,
                 comptime: false,
+                platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "Bytes",
                     span: 1151..1156,

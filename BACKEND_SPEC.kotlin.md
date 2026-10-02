@@ -774,6 +774,11 @@ nothing but the monitor.
   build used to copy into `lib/kotlin`. Both files start with `GRADLE_HEADER`;
   with no artifacts, ones this backend wrote are removed, hand-written ones
   left alone. The script uses no API newer than Gradle 7.
+* [kt-platform-type] [platform-type] A platform type renders as the host's
+  class by its full path, `salvo.platform.<module>.Name` — nothing is
+  re-exported — and a copy is the reference itself (`ty_immutable` answers
+  true: the handle shares the object by definition). The skeleton is `class
+  Name {}` with a comment stating the kind's contract.
 * [kt-platform-host] [platform-tree] [cli-platform] The host file for module
   `M` is `platform/<M>.kt`, and its Kotlin package is
   **`salvo.platform.<M>`** — not `salvo.<M>`. Kotlin names a file's facade
