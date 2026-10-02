@@ -7601,6 +7601,16 @@ between endpoints and delivers what arrives into the scheduler.
   * `ModulePath::matches_suffix` / `text_matches_suffix` in `salvo-core` are
     the one predicate; the selector sites in the checker and the comptime
     expansion read it.
+* [mod-std-internal] **`runtime` is std's own module** (2026-10-02; user
+  decisions of 2026-10-01, RUNTIME.md §11.2 E8): `std/runtime.sv`, and any
+  module under `std/runtime/`, may be imported by std's files and by no
+  others — whole or by name, whatever it exports. The scheduler every
+  program runs on is written there (RUNTIME.md), and its private
+  declarations are where the language allows the exceptions a runtime
+  needs (user guidance 2026-10-01). A program importing it is refused at the
+  import, naming the rule. The path is the marker (`STD_INTERNAL` in
+  `resolve.rs`): no syntax, and a program cannot declare a module of that
+  path either, since std's own would collide with it.
 * [mod-import-module] `import time` imports a whole **module** — every name
   in it (user decision 2026-09-18, with `core.time` moved out to module
   `time`: a std surface that is not implicitly visible needs one line to
@@ -8146,6 +8156,13 @@ replaced the working document TESTING.md).
     are host code, which performs no Salvo effect — put an ordinary Salvo
     handler in between, `handler DefaultFs [RawFs] of Fs`); not generic (the
     host writes one concrete class).
+* [platform-never] **A platform fn or platform handler member answering
+  `Never` cannot return** (2026-10-02, RUNTIME.md §11.2 E6): the host's
+  signature says so in its own type system — Kotlin's `Nothing`, Rust's `!`
+  (the program's own effect trait keeps `()` and the adapter forwards the
+  host's `!`) — so a host body that returns is the host compiler's error,
+  never a silent fall-through after a call the checker treated as diverging
+  [backend-never-wrong]. What the runtime's `exit_with` needs.
 * [platform-check] **What crosses from host to Salvo is checked** (user
   decisions 2026-10-01, ABI.md D7, D10 C3): a platform fn's wrapper checks
   its result; a platform-handled effect's adapter checks each member's

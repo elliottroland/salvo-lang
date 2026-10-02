@@ -919,6 +919,20 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         // Explicit imports.
         for item in &ast.items {
             let Item::Import(import) = item else { continue };
+            // [mod-std-internal] The runtime module is std's own: a program
+            // cannot import it, whole or by name.
+            if !file.is_std && import.path.first().is_some_and(|seg| seg.name == STD_INTERNAL) {
+                ctx.errors.push(FileDiagnostic::error(
+                    file_idx,
+                    import.span,
+                    format!(
+                        "`{STD_INTERNAL}` is the standard library's own module: the runtime \
+                         every program runs on, reachable only from std itself \
+                         [mod-std-internal]"
+                    ),
+                ));
+                continue;
+            }
             resolve_import(&mut scope, &by_module, import, file_idx, &file.module, &mut ctx);
         }
         // [name-dot] Dot-name rules, checked against everything visible
@@ -947,6 +961,10 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
 }
 
 /// Per-file state threaded through scope building [mod-collision].
+/// [mod-std-internal] The first path segment of std's internal modules
+/// (`std/runtime.sv` and anything under `std/runtime/`).
+pub const STD_INTERNAL: &str = "runtime";
+
 struct AddCtx<'e, 'p> {
     file_idx: usize,
     provenance: &'e mut HashMap<(NameKind, &'p str, Option<String>), (Level, &'p ModulePath)>,

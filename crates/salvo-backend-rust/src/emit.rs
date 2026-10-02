@@ -3205,6 +3205,9 @@ impl<'p> Emitter<'p> {
             return String::new();
         }
         let mut sigs: Vec<(String, String)> = Vec::new();
+        // The same members as the program's own trait spells them, for the
+        // adapter's impl: `Never` is `()` there and `!` on the host side.
+        let mut own_sigs: Vec<String> = Vec::new();
         for (i, f) in e.fns.iter().enumerate() {
             if !f.generics.is_empty() {
                 continue; // refused by `emit_effect`
@@ -3216,6 +3219,12 @@ impl<'p> Emitter<'p> {
             );
             let mut ret = self.emit_return_type(f.return_type.as_ref());
             let lt = self.member_lend_lifetime(f, &mut params, &mut ret);
+            // [platform-never] The host's member answering `Never` is `-> !`.
+            let host_ret = if return_is_never(f.return_type.as_ref()) {
+                " -> !".to_string()
+            } else {
+                ret.clone()
+            };
             if !lt.is_empty() || f.return_type.as_ref().is_some_and(fn_type_lends_mut) {
                 self.error(format!(
                     "`{name}.{}` returns a borrow, which a platform handler cannot \
@@ -3260,7 +3269,8 @@ impl<'p> Emitter<'p> {
                 }
                 None => call,
             };
-            sigs.push((format!("fn {member}(&RECV{params}){ret}"), body));
+            sigs.push((format!("fn {member}(&RECV{params}){host_ret}"), body));
+            own_sigs.push(format!("fn {member}(&RECV{params}){ret}"));
         }
         let adapter = platform_adapter_name(name);
         let mut out = format!(
@@ -3286,7 +3296,7 @@ impl<'p> Emitter<'p> {
             out.push_str(&format!(
                 "}}\n\nimpl<T: {host_trait}> {own_trait} for {adapter}<T> {{\n"
             ));
-            for (sig, call) in &sigs {
+            for ((_, call), sig) in sigs.iter().zip(&own_sigs) {
                 out.push_str(&format!("    {} {{\n        {call}\n    }}\n", sig.replace("&RECV", recv)));
             }
             out.push_str("}\n");
@@ -3968,7 +3978,12 @@ impl<'p> Emitter<'p> {
                 self.emit_member_param_list(f),
                 self.emit_member_implicits(f)
             );
-            let ret = self.emit_return_type(f.return_type.as_ref());
+            // [platform-never] As the host trait spells it.
+            let ret = if return_is_never(f.return_type.as_ref()) {
+                " -> !".to_string()
+            } else {
+                self.emit_return_type(f.return_type.as_ref())
+            };
             out.push_str(&salvo_core::reply_contract_comment(f));
             out.push_str(&format!(
                 "    fn {}({receiver}{params}){ret} {{\n        \
@@ -6187,6 +6202,14 @@ impl<'p> Emitter<'p> {
             }
             None => ret,
         };
+        // [platform-never] A platform fn answering `Never` is `-> !` on the
+        // host side, so a host function that returns is a compile error
+        // there rather than a silent fall-through here.
+        let ret = if f.platform && return_is_never(f.return_type.as_ref()) {
+            " -> !".to_string()
+        } else {
+            ret
+        };
 
         let pad = "    ".repeat(indent);
         let name = if is_main {
@@ -6495,6 +6518,7 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_return_type(&mut self, ty: Option<&Type>) -> String {
+        // (see `return_is_never` for the platform boundary's `-> !`)
         match ty {
             None => String::new(),
             Some(Type::Named { base, .. }) if base.name.name == "None" => String::new(),
@@ -18700,3 +18724,7 @@ fn rs_literal(lit: &salvo_syntax::ast::TypeLit) -> String {
     }
 }
 
+/// [platform-never] Whether a written return type is `Never`.
+fn return_is_never(ty: Option<&Type>) -> bool {
+    matches!(ty, Some(Type::Named { base, .. }) if base.name.name == "Never")
+}

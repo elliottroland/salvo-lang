@@ -1571,6 +1571,11 @@ facts worth knowing") and keeps the history ("One shape for effects").
   | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
 
+* [rs-platform-never] [platform-never] `Never` is `()` everywhere in Rust
+  output except a platform signature's result: a `platform fn`, its wrapper
+  and skeleton, and an `EPlatform`/`EPlatformSync` member are `-> !`
+  (`return_is_never` in `emit.rs`). The adapter's impl of the effect's own
+  trait keeps `-> ()` and forwards the host's `!`, which coerces.
 * [rs-platform-factory] [platform-factory] A named union gets `pub type FsError =
   Union7<…>;` (Rust otherwise spells union aliases out) and `impl FsError {
   pub fn not_found(value: NotFound) -> Self { crate::unions::Union7::U1(value)

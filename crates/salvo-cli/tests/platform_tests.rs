@@ -233,6 +233,79 @@ fn generate_then_run_works_for_a_platform_handler() {
     __stamp.verified();
 }
 
+/// [platform-never] A platform fn and a platform handler member answering
+/// `Never` are `-> !` / `: Nothing` on the host side, so a host body that
+/// returns is the host compiler's error, not a silent fall-through: the
+/// skeletons say so, and a host that exits is the program's end on both
+/// backends.
+#[test]
+fn a_platform_member_answering_never_cannot_return() {
+    let Some(__stamp) = e2e_stamp("a_platform_member_answering_never_cannot_return", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    const SRC: &str = r#"
+effect Stop {
+    fn halt(why: Str) [] -> Never => why
+}
+
+platform handler HostStop() of Stop
+
+platform fn bail(why: Str) [] -> Never => why
+
+fn main() [use] {
+    use StdOutConsole()
+    use HostStop()
+    println("before")
+    if size("x") > 5 {
+        halt("never")
+    }
+    bail("stop")
+}
+"#;
+    for (backend, tool, ext, sigs, impl_) in [
+        (
+            "kotlin",
+            "kotlinc",
+            "kt",
+            ["fun bail(why: String): Nothing {", "override fun halt(why: String): Nothing {"],
+            "package salvo.platform.main\n\nimport salvo.main.*\n\n\
+             fun bail(why: String): Nothing { System.err.println(why); kotlin.system.exitProcess(3) }\n\n\
+             class HostStop : StopPlatform {\n    override fun halt(why: String): Nothing = kotlin.system.exitProcess(4)\n}\n",
+        ),
+        (
+            "rust",
+            "rustc",
+            "rs",
+            ["pub fn bail(why: &String) -> ! {", "fn halt(&mut self, why: &String) -> ! {"],
+            "use crate::*;\n\npub fn bail(why: &String) -> ! { eprintln!(\"{why}\"); std::process::exit(3) }\n\n\
+             pub struct HostStop;\nimpl HostStop { pub fn new() -> Self { HostStop } }\n\
+             impl crate::StopPlatform for HostStop {\n    fn halt(&mut self, _why: &String) -> ! { std::process::exit(4) }\n}\n",
+        ),
+    ] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("never_{backend}"));
+        project(&dir);
+        fs::write(dir.join("main.sv"), SRC).unwrap();
+        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
+        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
+        let host = dir.join("platform").join(format!("main.{ext}"));
+        let skeleton = fs::read_to_string(&host).unwrap();
+        for sig in sigs {
+            assert!(skeleton.contains(sig), "{backend} skeleton lacks `{sig}`:\n{skeleton}");
+        }
+        fs::write(&host, impl_).unwrap();
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(3), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "before\n", "{backend}: {stderr}");
+        assert!(stderr.contains("stop"), "{backend}: {stderr}");
+    }
+    __stamp.verified();
+}
+
 /// [platform-tree] The tree mirrors the sources, per module: the implementation
 /// of a handler declared in `telemetry.sv` is `platform/telemetry.<ext>`, and
 /// a `use` of it from another module (`bin/tool.sv`, chosen with `--main`)

@@ -135,6 +135,19 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**std's own module, and platform `Never` (2026-10-02; RUNTIME.md §11.5
+step 5, E8 and E6).** `std/runtime.sv` is the module the scheduler will be
+written in; std's files may import it and a program may not, refused at the
+import [mod-std-internal] — the path is the marker, no syntax. A platform fn
+or platform handler member answering `Never` is now `-> !` in Rust's host
+signatures and skeletons [platform-never] (Kotlin already said `Nothing`).
+What fell out: before this, a Rust host could *return* from a member Salvo
+treated as diverging and the program fell through — a silent hole, found by
+running one, now a host compile error. The adapter keeps `-> ()` on the
+effect's own trait and forwards the host's `!`. New tests
+`the_runtime_module_is_std_s_own` and
+`a_platform_member_answering_never_cannot_return`. **1670 tests.**
+
 **The group protocol in `net.sv` (2026-10-02; RUNTIME.md §11.5 step 4, D5).**
 The node-group handshake, introductions, departures and actor-group member
 sharing moved out of both schedulers into Salvo. The runtime now carries one
@@ -19566,7 +19579,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1668; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1670; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
