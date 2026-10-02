@@ -2118,10 +2118,19 @@ impl<'p> Emitter<'p> {
                 .map(|p| kt_ident(&p.name.name))
                 .collect();
             args.extend(self.implicits_of(f).iter().map(|imp| kt_ident(&imp.name)));
+            // [monitor-handler] [kt-monitor-reentry] A JVM monitor is
+            // reentrant where Rust's `Mutex` is not: entering this handle
+            // again on a thread already inside it would deadlock on Rust, so
+            // here it traps, naming why, rather than quietly succeeding on one
+            // backend only [backend-parity]. A member calling a sibling
+            // directly never comes back through the handle.
             out.push_str(&format!(
-                "    override fun{member_generics} {member}({params}){ret} =\n        \
-                 synchronized(inner) {{ inner.{member}({}) }}\n",
-                args.join(", ")
+                "    override fun{member_generics} {member}({params}){ret} {{\n        \
+                 check(!Thread.holdsLock(inner)) {{ \"salvo: a handler's lock was entered again \
+                 through its own handle, which on Rust would deadlock [monitor-handler]\" }}\n        \
+                 {ret_kw}synchronized(inner) {{ inner.{member}({}) }}\n    }}\n",
+                args.join(", "),
+                ret_kw = if ret.is_empty() { "" } else { "return " }
             ));
             self.generics = member_saved;
         }

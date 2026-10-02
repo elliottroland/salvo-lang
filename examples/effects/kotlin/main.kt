@@ -8,8 +8,10 @@ interface Clock {
 }
 
 class __Mon_Clock(private val inner: Clock) : Clock {
-    override fun now(): Int =
-        synchronized(inner) { inner.now() }
+    override fun now(): Int {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.now() }
+    }
 }
 
 class TickingClock : Clock {
@@ -35,8 +37,10 @@ interface Logger {
 }
 
 class __Mon_Logger(private val inner: Logger) : Logger {
-    override fun log(message: String) =
+    override fun log(message: String) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.log(message) }
+    }
 }
 
 class PlainLogger(private val __dep_Console: Console) : Logger {
@@ -95,8 +99,10 @@ interface Audit {
 }
 
 class __Mon_Audit(private val inner: Audit) : Audit {
-    override fun record(what: String) =
+    override fun record(what: String) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.record(what) }
+    }
 }
 
 interface Metrics {
@@ -104,8 +110,10 @@ interface Metrics {
 }
 
 class __Mon_Metrics(private val inner: Metrics) : Metrics {
-    override fun record(what: String) =
+    override fun record(what: String) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.record(what) }
+    }
 }
 
 class ConsoleAudit(private val __dep_Console: Console) : Audit {
@@ -136,8 +144,10 @@ interface Setting<T> {
 }
 
 class __Mon_Setting<T>(private val inner: Setting<T>) : Setting<T> {
-    override fun setting(copy: (T) -> T): T =
-        synchronized(inner) { inner.setting(copy) }
+    override fun setting(copy: (T) -> T): T {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.setting(copy) }
+    }
 }
 
 class Fixed<T>(private val value: T) : Setting<T> {

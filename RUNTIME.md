@@ -1085,7 +1085,8 @@ keeps both backends passing the full suite.
    step 11.
 8. ✅ **E3, the `Parker`** platform type, built 2026-10-02 in
    `std/runtime.sv` [runtime-parker], with `std/runtime.test.sv`.
-9. **Monitor reentrance agrees on both backends** (§2.3 item 4). Kotlin's
+9. ✅ **Monitor reentrance agrees on both backends** (§2.3 item 4), built
+   2026-10-02 [kt-monitor-reentry]. Kotlin's
    `__Mon_E` refuses a re-entry through the handle with a trap naming it,
    as Rust's `Mutex` would deadlock; a member calling a sibling member
    directly is unaffected. Before the port, because the scheduler becomes a

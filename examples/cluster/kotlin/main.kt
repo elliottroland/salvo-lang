@@ -25,8 +25,10 @@ class __Stub_Sequencer(private val addr: Int) : Sequencer {
 }
 
 class __Mon_Sequencer(private val inner: Sequencer) : Sequencer {
-    override fun next(out: salvo.SalvoReply) =
+    override fun next(out: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.next(out) }
+    }
 }
 
 sealed class __Msg_Sequencer {
@@ -59,8 +61,10 @@ class __Stub_Inventory(private val addr: Int) : Inventory {
 }
 
 class __Mon_Inventory(private val inner: Inventory) : Inventory {
-    override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) =
+    override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.reserve(sku, qty, out) }
+    }
 }
 
 sealed class __Msg_Inventory {
@@ -93,8 +97,10 @@ class __Stub_Search(private val addr: Int) : Search {
 }
 
 class __Mon_Search(private val inner: Search) : Search {
-    override fun query(word: String, out: salvo.SalvoReply) =
+    override fun query(word: String, out: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.query(word, out) }
+    }
 }
 
 sealed class __Msg_Search {
@@ -127,8 +133,10 @@ class __Stub_Lookup(private val addr: Int) : Lookup {
 }
 
 class __Mon_Lookup(private val inner: Lookup) : Lookup {
-    override fun lookup(key: String, out: salvo.SalvoReply) =
+    override fun lookup(key: String, out: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.lookup(key, out) }
+    }
 }
 
 sealed class __Msg_Lookup {
@@ -516,8 +524,10 @@ class __Stub_Gather(private val addr: Int) : Gather {
 }
 
 class __Mon_Gather(private val inner: Gather) : Gather {
-    override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) =
+    override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.scatter(word, members, out) }
+    }
 }
 
 sealed class __Msg_Gather {
@@ -702,8 +712,10 @@ class __Stub_Race(private val addr: Int) : Race {
 }
 
 class __Mon_Race(private val inner: Race) : Race {
-    override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) =
+    override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.race(key, members, out) }
+    }
 }
 
 sealed class __Msg_Race {
@@ -904,10 +916,14 @@ class __Stub_Boot(private val addr: Int) : Boot {
 }
 
 class __Mon_Boot(private val inner: Boot) : Boot {
-    override fun boot(done: salvo.SalvoReply) =
+    override fun boot(done: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.boot(done) }
-    override fun stop(done: salvo.SalvoReply) =
+    }
+    override fun stop(done: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.stop(done) }
+    }
 }
 
 sealed class __Msg_Boot {

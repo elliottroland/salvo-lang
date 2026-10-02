@@ -24,10 +24,14 @@ class __Stub_Counter(private val addr: Int) : Counter {
 }
 
 class __Mon_Counter(private val inner: Counter) : Counter {
-    override fun bump(n: Int) =
+    override fun bump(n: Int) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.bump(n) }
-    override fun total(out: salvo.SalvoReply) =
+    }
+    override fun total(out: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.total(out) }
+    }
 }
 
 sealed class __Msg_Counter {
@@ -129,10 +133,14 @@ class __Stub_Ledger(private val addr: Int) : Ledger {
 }
 
 class __Mon_Ledger(private val inner: Ledger) : Ledger {
-    override fun report(label: String, out: salvo.SalvoReply) =
+    override fun report(label: String, out: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.report(label, out) }
-    override fun reported(label: String, out: salvo.SalvoReply, total: Int) =
+    }
+    override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.reported(label, out, total) }
+    }
 }
 
 sealed class __Msg_Ledger {
@@ -237,12 +245,18 @@ class __Stub_Desk(private val addr: Int) : Desk {
 }
 
 class __Mon_Desk(private val inner: Desk) : Desk {
-    override fun ticket(out: salvo.SalvoReply) =
+    override fun ticket(out: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.ticket(out) }
-    override fun serve(name: String) =
+    }
+    override fun serve(name: String) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.serve(name) }
-    override fun closeUp(reason: String) =
+    }
+    override fun closeUp(reason: String) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.closeUp(reason) }
+    }
 }
 
 sealed class __Msg_Desk {
@@ -360,8 +374,10 @@ class __Stub_Fragile(private val addr: Int) : Fragile {
 }
 
 class __Mon_Fragile(private val inner: Fragile) : Fragile {
-    override fun crash() =
+    override fun crash() {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.crash() }
+    }
 }
 
 sealed class __Msg_Fragile {

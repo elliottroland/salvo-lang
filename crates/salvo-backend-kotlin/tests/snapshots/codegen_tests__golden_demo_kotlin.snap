@@ -38,8 +38,10 @@ interface Console {
 }
 
 class __Mon_Console(private val inner: Console) : Console {
-    override fun print(message: String) =
+    override fun print(message: String) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.print(message) }
+    }
 }
 
 class StdOutConsole : Console {

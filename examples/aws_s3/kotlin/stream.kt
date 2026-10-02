@@ -102,38 +102,70 @@ interface Streams {
 }
 
 class __Mon_Streams(private val inner: Streams) : Streams {
-    override fun readLine(s: InStream): String? =
-        synchronized(inner) { inner.readLine(s) }
-    override fun readAll(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>> =
-        synchronized(inner) { inner.readAll(s) }
-    override fun readBytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> =
-        synchronized(inner) { inner.readBytes(s, max) }
-    override fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> =
-        synchronized(inner) { inner.readTo(s, buf, max) }
-    override fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> =
-        synchronized(inner) { inner.readTo__2(s, buf) }
-    override fun readLineTo(s: InStream, buf: StringBuilder): Boolean =
-        synchronized(inner) { inner.readLineTo(s, buf) }
-    override fun position(s: InStream): Long =
-        synchronized(inner) { inner.position(s) }
-    override fun close(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> =
-        synchronized(inner) { inner.close(s) }
-    override fun write(s: OutStream, text: String): Long =
-        synchronized(inner) { inner.write(s, text) }
-    override fun writeLine(s: OutStream, text: String): Long =
-        synchronized(inner) { inner.writeLine(s, text) }
-    override fun writeBytes(s: OutStream, data: salvo.SalvoBytes): Long =
-        synchronized(inner) { inner.writeBytes(s, data) }
-    override fun position__2(s: OutStream): Long =
-        synchronized(inner) { inner.position__2(s) }
-    override fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> =
-        synchronized(inner) { inner.flush(s) }
-    override fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> =
-        synchronized(inner) { inner.close__2(s) }
-    override fun receive(s: InStream, reply: salvo.SalvoReply) =
+    override fun readLine(s: InStream): String? {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.readLine(s) }
+    }
+    override fun readAll(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.readAll(s) }
+    }
+    override fun readBytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.readBytes(s, max) }
+    }
+    override fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.readTo(s, buf, max) }
+    }
+    override fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.readTo__2(s, buf) }
+    }
+    override fun readLineTo(s: InStream, buf: StringBuilder): Boolean {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.readLineTo(s, buf) }
+    }
+    override fun position(s: InStream): Long {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.position(s) }
+    }
+    override fun close(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.close(s) }
+    }
+    override fun write(s: OutStream, text: String): Long {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.write(s, text) }
+    }
+    override fun writeLine(s: OutStream, text: String): Long {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.writeLine(s, text) }
+    }
+    override fun writeBytes(s: OutStream, data: salvo.SalvoBytes): Long {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.writeBytes(s, data) }
+    }
+    override fun position__2(s: OutStream): Long {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.position__2(s) }
+    }
+    override fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.flush(s) }
+    }
+    override fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.close__2(s) }
+    }
+    override fun receive(s: InStream, reply: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.receive(s, reply) }
-    override fun fromBytes(data: salvo.SalvoBytes): InStream =
-        synchronized(inner) { inner.fromBytes(data) }
+    }
+    override fun fromBytes(data: salvo.SalvoBytes): InStream {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.fromBytes(data) }
+    }
 }
 
 fun pipe(streams: Streams, from: InStream, to: OutStream, done: salvo.SalvoReply) {

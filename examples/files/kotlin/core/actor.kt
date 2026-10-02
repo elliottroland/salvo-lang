@@ -35,8 +35,10 @@ class __Stub_Faults(private val addr: Int) : Faults {
 }
 
 class __Mon_Faults(private val inner: Faults) : Faults {
-    override fun faulted(fault: Fault) =
+    override fun faulted(fault: Fault) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.faulted(fault) }
+    }
 }
 
 sealed class __Msg_Faults {

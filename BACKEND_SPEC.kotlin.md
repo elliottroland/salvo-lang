@@ -774,6 +774,13 @@ nothing but the monitor.
   build used to copy into `lib/kotlin`. Both files start with `GRADLE_HEADER`;
   with no artifacts, ones this backend wrote are removed, hand-written ones
   left alone. The script uses no API newer than Gradle 7.
+* [kt-monitor-reentry] [monitor-handler] Every `__Mon_E` member checks
+  `Thread.holdsLock(inner)` before `synchronized(inner)` and traps when the
+  thread is already inside: a JVM monitor is reentrant and Rust's `Mutex` is
+  not, so a re-entry through the handle would deadlock on Rust and pass here
+  (2026-10-02, RUNTIME.md §2.3 item 4). The availability rule keeps programs
+  from reaching it; the check is what makes a mistake fail the same way on
+  both backends, which matters once the scheduler is a monitor (step 11).
 * [kt-platform-type] [platform-type] A platform type renders as the host's
   class by its full path, `salvo.platform.<module>.Name` — nothing is
   re-exported — and a copy is the reference itself (`ty_immutable` answers

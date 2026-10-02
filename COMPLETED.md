@@ -135,6 +135,14 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Monitor re-entry traps on Kotlin (2026-10-02; RUNTIME.md §11.5 step 9).**
+Each `__Mon_E` member now checks `Thread.holdsLock(inner)` and traps before
+entering a monitor the thread already holds [kt-monitor-reentry]: the same
+program deadlocks on Rust, so this closes the one way the reentrant JVM
+monitor could make a mistake pass on Kotlin only. No program in the
+repository reaches it (the availability rule prevents it); the golden
+snapshots change by the check. **1676 tests.**
+
 **`Parker` (2026-10-02; RUNTIME.md §11.5 step 8, E3).** The runtime module's
 first declarations: `threadsafe platform type Parker` and four platform fns
 [runtime-parker], implemented by hand in `std/platform/runtime.{rs,kt}` over

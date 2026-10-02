@@ -28,36 +28,66 @@ interface RawStreams {
 }
 
 class __Mon_RawStreams(private val inner: RawStreams) : RawStreams {
-    override fun rawReadLine(handle: Long): String? =
-        synchronized(inner) { inner.rawReadLine(handle) }
-    override fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.rawReadAll(handle) }
-    override fun rawReadBytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.rawReadBytes(handle, max) }
-    override fun rawReadToBytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.rawReadToBytes(handle, buf, max) }
-    override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.rawReadToStr(handle, buf) }
-    override fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean =
-        synchronized(inner) { inner.rawReadLineToStr(handle, buf) }
-    override fun rawReadPosition(handle: Long): Long =
-        synchronized(inner) { inner.rawReadPosition(handle) }
-    override fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.rawCloseRead(handle) }
-    override fun rawWrite(handle: Long, text: String): Long =
-        synchronized(inner) { inner.rawWrite(handle, text) }
-    override fun rawWriteBytes(handle: Long, data: salvo.SalvoBytes): Long =
-        synchronized(inner) { inner.rawWriteBytes(handle, data) }
-    override fun rawWritePosition(handle: Long): Long =
-        synchronized(inner) { inner.rawWritePosition(handle) }
-    override fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.rawFlush(handle) }
-    override fun rawCloseWrite(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> =
-        synchronized(inner) { inner.rawCloseWrite(handle) }
-    override fun rawReceive(handle: Long, reply: salvo.SalvoReply) =
+    override fun rawReadLine(handle: Long): String? {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawReadLine(handle) }
+    }
+    override fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawReadAll(handle) }
+    }
+    override fun rawReadBytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawReadBytes(handle, max) }
+    }
+    override fun rawReadToBytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawReadToBytes(handle, buf, max) }
+    }
+    override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawReadToStr(handle, buf) }
+    }
+    override fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawReadLineToStr(handle, buf) }
+    }
+    override fun rawReadPosition(handle: Long): Long {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawReadPosition(handle) }
+    }
+    override fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawCloseRead(handle) }
+    }
+    override fun rawWrite(handle: Long, text: String): Long {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawWrite(handle, text) }
+    }
+    override fun rawWriteBytes(handle: Long, data: salvo.SalvoBytes): Long {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawWriteBytes(handle, data) }
+    }
+    override fun rawWritePosition(handle: Long): Long {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawWritePosition(handle) }
+    }
+    override fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawFlush(handle) }
+    }
+    override fun rawCloseWrite(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawCloseWrite(handle) }
+    }
+    override fun rawReceive(handle: Long, reply: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.rawReceive(handle, reply) }
-    override fun rawFromBytes(data: salvo.SalvoBytes): Long =
-        synchronized(inner) { inner.rawFromBytes(data) }
+    }
+    override fun rawFromBytes(data: salvo.SalvoBytes): Long {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawFromBytes(data) }
+    }
 }
 
 // The interface a `platform handler` of `RawStreams` implements [platform-abi].

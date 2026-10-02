@@ -22,26 +22,46 @@ interface RawFs {
 }
 
 class __Mon_RawFs(private val inner: RawFs) : RawFs {
-    override fun rawOpenRead(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> =
-        synchronized(inner) { inner.rawOpenRead(path) }
-    override fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> =
-        synchronized(inner) { inner.rawOpenReadAt(path, offset) }
-    override fun rawOpenWrite(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> =
-        synchronized(inner) { inner.rawOpenWrite(path) }
-    override fun rawOpenAppend(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> =
-        synchronized(inner) { inner.rawOpenAppend(path) }
-    override fun rawExists(path: String): Boolean =
-        synchronized(inner) { inner.rawExists(path) }
-    override fun rawMetadata(path: String): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> =
-        synchronized(inner) { inner.rawMetadata(path) }
-    override fun rawListDir(path: String): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> =
-        synchronized(inner) { inner.rawListDir(path) }
-    override fun rawCreateDirs(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> =
-        synchronized(inner) { inner.rawCreateDirs(path) }
-    override fun rawDelete(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> =
-        synchronized(inner) { inner.rawDelete(path) }
-    override fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> =
-        synchronized(inner) { inner.rawRenamePath(from, to) }
+    override fun rawOpenRead(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawOpenRead(path) }
+    }
+    override fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawOpenReadAt(path, offset) }
+    }
+    override fun rawOpenWrite(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawOpenWrite(path) }
+    }
+    override fun rawOpenAppend(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawOpenAppend(path) }
+    }
+    override fun rawExists(path: String): Boolean {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawExists(path) }
+    }
+    override fun rawMetadata(path: String): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawMetadata(path) }
+    }
+    override fun rawListDir(path: String): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawListDir(path) }
+    }
+    override fun rawCreateDirs(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawCreateDirs(path) }
+    }
+    override fun rawDelete(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawDelete(path) }
+    }
+    override fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.rawRenamePath(from, to) }
+    }
 }
 
 // The interface a `platform handler` of `RawFs` implements [platform-abi].

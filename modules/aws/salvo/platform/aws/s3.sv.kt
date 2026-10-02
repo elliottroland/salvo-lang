@@ -246,10 +246,14 @@ interface S3 {
 }
 
 class __Mon_S3(private val inner: S3) : S3 {
-    override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) =
+    override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.putObject(input, reply) }
-    override fun getObject(input: GetObjectInput, reply: salvo.SalvoReply) =
+    }
+    override fun getObject(input: GetObjectInput, reply: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.getObject(input, reply) }
+    }
 }
 
 // The interface a `platform handler` of `S3` implements [platform-abi].

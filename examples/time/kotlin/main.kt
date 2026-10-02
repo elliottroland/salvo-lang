@@ -42,10 +42,14 @@ class __Stub_Session(private val addr: Int) : Session {
 }
 
 class __Mon_Session(private val inner: Session) : Session {
-    override fun open(started: Tick, budget: Duration, out: salvo.SalvoReply) =
+    override fun open(started: Tick, budget: Duration, out: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.open(started, budget, out) }
-    override fun expire(started: Tick, budget: Duration, out: salvo.SalvoReply, f: Fired) =
+    }
+    override fun expire(started: Tick, budget: Duration, out: salvo.SalvoReply, f: Fired) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.expire(started, budget, out, f) }
+    }
 }
 
 sealed class __Msg_Session {
@@ -159,10 +163,14 @@ class __Stub_Sleeper(private val addr: Int) : Sleeper {
 }
 
 class __Mon_Sleeper(private val inner: Sleeper) : Sleeper {
-    override fun nap(wait: Duration, out: salvo.SalvoReply) =
+    override fun nap(wait: Duration, out: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.nap(wait, out) }
-    override fun woke(started: Tick, out: salvo.SalvoReply, f: Fired) =
+    }
+    override fun woke(started: Tick, out: salvo.SalvoReply, f: Fired) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.woke(started, out, f) }
+    }
 }
 
 sealed class __Msg_Sleeper {

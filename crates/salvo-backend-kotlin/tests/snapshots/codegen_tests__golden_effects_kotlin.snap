@@ -38,8 +38,10 @@ interface Console {
 }
 
 class __Mon_Console(private val inner: Console) : Console {
-    override fun print(message: String) =
+    override fun print(message: String) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.print(message) }
+    }
 }
 
 class StdOutConsole : Console {
@@ -445,8 +447,10 @@ interface Random<T> {
 }
 
 class __Mon_Random<T>(private val inner: Random<T>) : Random<T> {
-    override fun nextRandom(): T =
-        synchronized(inner) { inner.nextRandom() }
+    override fun nextRandom(): T {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.nextRandom() }
+    }
 }
 
 class CyclicRandom<T>(private val values: List<T>, private val copy: (T) -> T) : Random<T> {

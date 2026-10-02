@@ -66,7 +66,8 @@ far: steps 1 (the benchmark baseline), 2 (forged identities), 3 (the
 stream table in its own runtime file), 4 (the group protocol in `net.sv`)
 5 (`std/runtime.sv` as std's own module; platform `Never`) and 6
 (`Deque`) 7 (platform types, fn values at the boundary) 7b (generic platform
-types and fns) and 8 (`Parker`). When the sequence completes, RUNTIME.md
+types and fns) 8 (`Parker`) and 9
+(monitor re-entry traps on Kotlin). When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
 ### 0b — Three slow tests (recorded 2026-10-02, to investigate)

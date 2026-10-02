@@ -173,8 +173,10 @@ interface Ticker {
 }
 
 class __Mon_Ticker(private val inner: Ticker) : Ticker {
-    override fun tick(): Tick =
-        synchronized(inner) { inner.tick() }
+    override fun tick(): Tick {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.tick() }
+    }
 }
 
 interface Clock {
@@ -184,12 +186,18 @@ interface Clock {
 }
 
 class __Mon_Clock(private val inner: Clock) : Clock {
-    override fun now(): Instant =
-        synchronized(inner) { inner.now() }
-    override fun toInstant(at: Tick): Instant =
-        synchronized(inner) { inner.toInstant(at) }
-    override fun toTick(at: Instant): Tick =
-        synchronized(inner) { inner.toTick(at) }
+    override fun now(): Instant {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.now() }
+    }
+    override fun toInstant(at: Tick): Instant {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.toInstant(at) }
+    }
+    override fun toTick(at: Instant): Tick {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        return synchronized(inner) { inner.toTick(at) }
+    }
 }
 
 fun elapsed(ticker: Ticker, since: Tick): Duration {
@@ -242,8 +250,10 @@ class __Stub_Timer(private val addr: Int) : Timer {
 }
 
 class __Mon_Timer(private val inner: Timer) : Timer {
-    override fun after(wait: Duration, done: salvo.SalvoReply) =
+    override fun after(wait: Duration, done: salvo.SalvoReply) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.after(wait, done) }
+    }
 }
 
 sealed class __Msg_Timer {
@@ -329,8 +339,10 @@ class __Stub_TimerCtl(private val addr: Int) : TimerCtl {
 }
 
 class __Mon_TimerCtl(private val inner: TimerCtl) : TimerCtl {
-    override fun advance(by: Duration) =
+    override fun advance(by: Duration) {
+        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         synchronized(inner) { inner.advance(by) }
+    }
 }
 
 sealed class __Msg_TimerCtl {
