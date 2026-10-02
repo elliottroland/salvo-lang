@@ -1042,3 +1042,39 @@ fn main() {
         "",
     );
 }
+
+/// [addr-capability] Every forged identity of this node imports as the same
+/// dead entry, so forging addrs cannot grow the actor table; a genuine one
+/// still imports as the actor itself.
+#[test]
+fn forged_identities_share_one_dead_entry() {
+    run_scheduler_program(
+        "forged-identities-share-one-dead-entry",
+        r#"
+struct Quiet;
+impl SalvoActor for Quiet {
+    fn handle(&mut self, _ctx: &SalvoCtx, _msg: SalvoMsg) {}
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn main() {
+    let real = salvo_spawn(SALVO_MAIN_POOL, 4, Box::new(Quiet), None);
+    let me = salvo_addr_identity(real);
+    let forged: Vec<usize> = (1u64..=100)
+        .map(|n| salvo_import_addr(RemoteRef { node: me.node, actor: me.actor, bits: me.bits ^ n }))
+        .collect();
+    let stray = salvo_import_addr(RemoteRef { node: me.node, actor: 9999, bits: 7 });
+    let one = forged.iter().all(|&i| i == forged[0]) && stray == forged[0];
+    println!("one dead entry: {one}");
+    println!("genuine is itself: {}", salvo_import_addr(me) == real);
+    // A send to the dead entry is the silent no-op.
+    salvo_send(forged[0], Box::new("hello"));
+    let again = salvo_import_addr(RemoteRef { node: me.node, actor: 1234, bits: 1 });
+    println!("table grew by: {}", again - real);
+}
+"#,
+        "one dead entry: true\ngenuine is itself: true\ntable grew by: 1\n",
+        true,
+        "",
+    );
+}

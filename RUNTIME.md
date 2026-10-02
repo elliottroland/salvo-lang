@@ -1036,7 +1036,8 @@ keeps both backends passing the full suite.
 
    Ping-pong is the noisiest (Rust 311–478 ms, Kotlin 299–464 ms across the
    five runs), so a comparison should use medians of five.
-2. **Forged identities stop growing the actor table** (§2.3 item 2). First
+2. ✅ **Forged identities stop growing the actor table** (built
+   2026-10-02) (§2.3 item 2). First
    because a remote peer can trigger it: `importAddr` answers one shared
    dead entry per process instead of minting a new one per failed identity.
    A few lines in each runtime, and worth not waiting for the port.

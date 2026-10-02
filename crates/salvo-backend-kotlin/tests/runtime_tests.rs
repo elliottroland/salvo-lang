@@ -689,6 +689,33 @@ fun main() {
             expect_success: true,
             stderr_contains: "",
         },
+        // [addr-capability] Every forged identity of this node imports as the
+        // same dead entry, so forging addrs cannot grow the actor table; a
+        // genuine one still imports as the actor itself.
+        SchedulerCase {
+            tag: "forged-identities-share-one-dead-entry",
+            driver: r#"
+class Quiet : SalvoActor {
+    override fun handle(ctx: SalvoCtx, msg: Any?) {}
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val real = SalvoSched.spawn(SalvoSched.MAIN_POOL, 4, Quiet())
+    val me = SalvoSched.addrIdentity(real)
+    val forged = (1L..100L).map { SalvoSched.importAddr(SalvoRemoteRef(me.node, me.actor, me.bits xor it)) }
+    val stray = SalvoSched.importAddr(SalvoRemoteRef(me.node, 9999L, 7L))
+    println("one dead entry: ${forged.toSet().size == 1 && stray == forged[0]}")
+    println("genuine is itself: ${SalvoSched.importAddr(me) == real}")
+    // A send to the dead entry is the silent no-op.
+    SalvoSched.send(forged[0], "hello")
+    println("table grew by: ${SalvoSched.importAddr(SalvoRemoteRef(me.node, 1234L, 1L)) - real}")
+}
+"#,
+            expected_stdout: "one dead entry: true\ngenuine is itself: true\ntable grew by: 1\n",
+            expect_success: true,
+            stderr_contains: "",
+        },
     ];
 
     let kotlinc = salvo_testkit::kotlinc(env!("CARGO_TARGET_TMPDIR"));

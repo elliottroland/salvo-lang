@@ -135,6 +135,15 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Forged identities share one dead entry (2026-10-02; RUNTIME.md §11.5
+step 2).** `importAddr` answered a fresh dead entry for every identity of
+this node that failed the bits check, so a peer sending forged addrs could
+grow the actor table without bound. Both runtimes now make that entry once
+and answer it for every forged or stale identity (`Sched.dead_entry` /
+`deadIndex`); a send to it stays the silent no-op. New runtime tests
+`forged_identities_share_one_dead_entry` (Rust) and the
+`forged-identities-share-one-dead-entry` case (Kotlin). **1668 tests.**
+
 **The runtime in Salvo: the plan, and the benchmark baseline (user
 decisions 2026-10-01/02; RUNTIME.md).** The user asked how much of the two
 hand-written schedulers could be one Salvo module. The survey (RUNTIME.md §2)
@@ -19519,7 +19528,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1667; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1668; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

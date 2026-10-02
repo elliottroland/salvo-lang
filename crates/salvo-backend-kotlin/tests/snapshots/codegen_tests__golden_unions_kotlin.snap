@@ -2140,11 +2140,20 @@ object SalvoSched {
         return idx
     }
 
+    /**
+     * [addr-capability] The one entry every forged or stale identity imports
+     * as, made on first need. Shared, so a peer sending forged addrs cannot
+     * grow the actor table.
+     */
+    private var deadIndex: Int? = null
+
     private fun deadEntry(): Int {
+        deadIndex?.let { return it }
         val a = SalvoActorState(0, 0, null, nodeId, 0, null, null)
         a.dead = true
         a.exitReason = "unknown identity"
         actors.add(a)
+        deadIndex = actors.size - 1
         return actors.size - 1
     }
 

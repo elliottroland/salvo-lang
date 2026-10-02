@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1658 tests green.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1668 tests green.
 
 ## The sequence
 
@@ -62,7 +62,7 @@ over a small `RuntimeHost` platform handler, instead of twice by hand
 is the working document**: the survey, every decision (D1–D11, platform types
 in §12, the language expansions E1–E10 in §11.2), and the order of work in
 **§11.5**, which is this item's sequence — take the next step there. Done so
-far: step 1 (the benchmark baseline). When the sequence completes, RUNTIME.md
+far: steps 1 (the benchmark baseline) and 2 (forged identities). When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
 ### 1 — ✅ The std reorganisation (complete 2026-09-26)

@@ -2738,6 +2738,10 @@ struct Sched {
     /// first `salvo_after`, so a program that never sets a timer has no timer
     /// thread — and one that does has exactly one, never a thread per timer.
     timer_thread: bool,
+    /// [addr-capability] The one entry every forged or stale identity imports
+    /// as, made on first need. Shared, so a peer sending forged addrs cannot
+    /// grow the actor table.
+    dead_entry: Option<usize>,
 }
 
 fn state() -> &'static (Mutex<Sched>, Condvar) {
@@ -2777,6 +2781,7 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 peer_names: HashMap::new(),
                 views: HashMap::new(),
                 timer_thread: false,
+                dead_entry: None,
             }),
             Condvar::new(),
         )
@@ -3941,8 +3946,13 @@ pub fn salvo_import_addr(r: RemoteRef) -> usize {
     idx
 }
 
-/// An entry that is dead from birth: what a forged identity imports as.
+/// [addr-capability] The entry that is dead from birth, which every forged
+/// identity imports as: made once, then shared, so the table grows by one
+/// entry however many forged identities arrive.
 fn dead_entry(s: &mut Sched) -> usize {
+    if let Some(idx) = s.dead_entry {
+        return idx;
+    }
     s.actors.push(ActorState {
         node: s.node_id,
         bits: 0,
@@ -3962,7 +3972,9 @@ fn dead_entry(s: &mut Sched) -> usize {
         owed: 0,
         body: None,
     });
-    s.actors.len() - 1
+    let idx = s.actors.len() - 1;
+    s.dead_entry = Some(idx);
+    idx
 }
 
 /// [addr-routable] Whether an index is a proxy of an actor elsewhere.
