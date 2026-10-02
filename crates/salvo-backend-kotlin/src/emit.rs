@@ -1037,6 +1037,9 @@ struct Emitter<'p> {
     /// *checker* effect type (`ty`), with the Kotlin rendering kept for
     /// AST-side fallbacks and diagnostics [effect-disambiguation].
     effect_env: Vec<EffectEntry>,
+    /// [mod-use] The module's own `use H()` bindings, as entries every fn of
+    /// the module starts from.
+    module_entries: Vec<EffectEntry>,
     /// Names that are reassigned (or `++`-incremented) in the current
     /// function; these become `var`.
     mutated: HashSet<String>,
@@ -1140,6 +1143,7 @@ impl<'p> Emitter<'p> {
                     mint_machines: Vec::new(),
             expr_indent: 0,
             effect_env: Vec::new(),
+            module_entries: Vec::new(),
             mutated: HashSet::new(),
             generics: HashSet::new(),
             ctor_implicits: HashSet::new(),
@@ -1424,7 +1428,7 @@ impl<'p> Emitter<'p> {
     // ================= module =================
 
     fn emit_module(&mut self, module: &'p Module) -> String {
-        let mut body = String::new();
+        let mut body = self.emit_module_uses(module);
         for item in &module.items {
             // [platform-abi] Declarations only, and only the reached ones.
             if let Some(keep) = &self.abi_keep {
@@ -3618,7 +3622,7 @@ impl<'p> Emitter<'p> {
             return String::new();
         };
         let saved_generics = self.enter_generics(&f.generics);
-        let saved_env = std::mem::take(&mut self.effect_env);
+        let saved_env = std::mem::replace(&mut self.effect_env, self.module_entries.clone());
         let saved_mutated = std::mem::take(&mut self.mutated);
         collect_mutated(body, &mut self.mutated);
         // Effect parameters and `use` variables must not collide with the
@@ -5784,6 +5788,33 @@ impl<'p> Emitter<'p> {
                 rendered,
                 expr: var.clone(),
             });
+        }
+        out
+    }
+
+    /// [mod-use] [kt-mod-use] A module-level `use H()` is a top-level
+    /// `private val … by lazy { … }`: built on first use, once (the default
+    /// `lazy` is synchronized), and every fn of the module starts with it as
+    /// the effect's entry.
+    fn emit_module_uses(&mut self, module: &'p Module) -> String {
+        let mut out = String::new();
+        for (i, u) in module.uses.iter().enumerate() {
+            let saved_env = std::mem::take(&mut self.effect_env);
+            let stmts = self.emit_use(&u.handler, &[], u.span, 1);
+            let bound = std::mem::replace(&mut self.effect_env, saved_env);
+            if bound.len() != 1 {
+                self.error("a module-level `use` binds one effect: a handler of several \
+                            faces is not supported there yet [mod-use]");
+                continue;
+            }
+            let entry = bound.into_iter().next().unwrap();
+            let name = format!("__moduleUse{i}");
+            out.push_str(&format!(
+                "\n// [mod-use] The module's `use` #{i}, bound on first use.\n\
+                 private val {name}: {} by lazy {{\n{stmts}    {}\n}}\n",
+                entry.rendered, entry.expr
+            ));
+            self.module_entries.push(EffectEntry { ty: entry.ty, rendered: entry.rendered, expr: name });
         }
         out
     }

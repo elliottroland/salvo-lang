@@ -220,3 +220,19 @@ fn the_runtime_module_is_std_s_own() {
     let errs = diags_with_std(&[("runtime.sv", RUNTIME), ("timing.sv", from_std)], &[]);
     assert!(errs.is_empty(), "std may import its own module: {errs:?}");
 }
+
+/// [mod-use] A module-level `use` binds for every function of the module
+/// without being declared — in the runtime module only; anywhere else it is
+/// refused, naming why.
+#[test]
+fn a_module_level_use_is_the_runtime_module_s_alone() {
+    let runtime = "effect Ticks {\n    fn tick() -> Int\n}\n\nhandler Ticking() of Ticks {\n    fn tick() -> Int {\n        return 1\n    }\n}\n\n\
+                   use Ticking()\n\nexport fn twice() [] -> Int {\n    return tick() + tick()\n}\n";
+    let errs = diags_with_std(&[("runtime.sv", runtime)], &[]);
+    assert!(errs.is_empty(), "the runtime module may bind at module level: {errs:?}");
+
+    let program = "effect Ticks {\n    fn tick() -> Int\n}\n\nhandler Ticking() of Ticks {\n    fn tick() -> Int {\n        return 1\n    }\n}\n\n\
+                   use Ticking()\n\nfn twice() [] -> Int {\n    return tick()\n}\n";
+    let errs = diags(&[("main.sv", program)]);
+    assert!(errs.iter().any(|m| m.contains("[mod-use]")), "{errs:?}");
+}

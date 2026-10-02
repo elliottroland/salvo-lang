@@ -1315,6 +1315,9 @@ struct Emitter<'p> {
     errors: Vec<String>,
     union_sizes: BTreeSet<usize>,
     effect_env: Vec<EffectEntry>,
+    /// [mod-use] The module's own `use H()` bindings, as entries every fn of
+    /// the module starts from (an accessor call each).
+    module_entries: Vec<EffectEntry>,
     /// How each name in the current fn is bound [rs-borrows].
     bindings: HashMap<String, BindKind>,
     /// [rs-elem-mut] The container root and captured index of each
@@ -2266,6 +2269,7 @@ impl<'p> Emitter<'p> {
             needs_wire: false,
             ret_is_unit: false,
             effect_env: Vec::new(),
+            module_entries: Vec::new(),
             bindings: HashMap::new(),
             elem_places: HashMap::new(),
             handle_seq: 0,
@@ -2775,7 +2779,7 @@ impl<'p> Emitter<'p> {
     // ================= module =================
 
     fn emit_module(&mut self, module: &Module) -> String {
-        let mut body = String::new();
+        let mut body = self.emit_module_uses(module);
         for item in &module.items {
             // [platform-abi] Declarations only, and only the reached ones.
             if let Some(keep) = &self.abi_keep {
@@ -5570,7 +5574,7 @@ impl<'p> Emitter<'p> {
             && self.key_of_fn(f).is_some_and(|k| self.owns_callbacks(k));
         let saved_in_iterator = std::mem::replace(&mut self.in_iterator_fn, stores_callback);
         let saved_generics = self.enter_generics(&f.generics);
-        let saved_env = std::mem::take(&mut self.effect_env);
+        let saved_env = std::mem::replace(&mut self.effect_env, self.module_entries.clone());
         let saved_bindings = std::mem::take(&mut self.bindings);
         // [spawn-inherit] The handle-bundle places are this fn's own: a
         // sibling's bundle field is not in scope here.
@@ -9869,6 +9873,48 @@ impl<'p> Emitter<'p> {
             self.bindings.insert(face_var, BindKind::Owned);
         }
         let _ = var;
+        out
+    }
+
+    /// [mod-use] [rs-mod-use] A module-level `use H()` is a process-wide
+    /// handle, built on first use: an accessor `fn __module_use_N() ->
+    /// &'static E` over a `OnceLock`, whose initializer is the statement a
+    /// `use` would emit. Every fn of the module starts with the accessor as
+    /// the effect's entry, so a call threads `__module_use_N()` where a
+    /// declared effect would thread its parameter. A handle is `Sync` (an
+    /// `Arc` of a `Send + Sync` trait object, or of a `Mutex`), as a static
+    /// needs.
+    fn emit_module_uses(&mut self, module: &Module) -> String {
+        let mut out = String::new();
+        for (i, u) in module.uses.iter().enumerate() {
+            let saved_env = std::mem::take(&mut self.effect_env);
+            let saved_bindings = self.bindings.clone();
+            let stmts = self.emit_use(&u.handler, &[], u.span, 3);
+            let bound = std::mem::replace(&mut self.effect_env, saved_env);
+            self.bindings = saved_bindings;
+            if bound.len() != 1 {
+                self.error("a module-level `use` binds one effect: a handler of several \
+                            faces is not supported there yet [mod-use]");
+                continue;
+            }
+            let entry = bound.into_iter().next().unwrap();
+            let ty = self.handle_ctor_for(entry.ty.as_ref(), &entry.key);
+            let acc = format!("__module_use_{i}");
+            out.push_str(&format!(
+                "\n/// [mod-use] The module's `use` #{i}, bound on first use.\n\
+                 fn {acc}() -> &'static {ty} {{\n    \
+                 static CELL: std::sync::OnceLock<{ty}> = std::sync::OnceLock::new();\n    \
+                 CELL.get_or_init(|| {{\n{stmts}        {}\n    }})\n}}\n",
+                entry.var
+            ));
+            self.module_entries.push(EffectEntry {
+                ty: entry.ty,
+                key: entry.key,
+                var: format!("{acc}()"),
+                is_local: false,
+                handle_var: Some(format!("{acc}()")),
+            });
+        }
         out
     }
 

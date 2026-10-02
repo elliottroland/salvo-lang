@@ -35,3 +35,33 @@ pub fn park_nanos(p: &Parker, nanos: i64) {
 pub fn unpark(p: &Parker) {
     p.thread.unpark();
 }
+
+// `threadsafe platform handler HostRuntime` [runtime-host]: stateless, so
+// sharing it across every thread needs no synchronization.
+pub struct HostRuntime;
+
+impl HostRuntime {
+    pub fn new() -> Self {
+        HostRuntime
+    }
+}
+
+impl crate::runtime::RuntimeHostPlatformSync for HostRuntime {
+    // [addr-capability] OS entropy: `/dev/urandom` where there is one, and
+    // the standard library's per-process random hasher keys otherwise.
+    fn secure_bits(&self) -> i64 {
+        use std::io::Read;
+        let mut b = [0u8; 8];
+        if std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).is_ok() {
+            return i64::from_ne_bytes(b);
+        }
+        use std::hash::{BuildHasher, Hasher};
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u64(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0));
+        h.finish() as i64
+    }
+
+    fn report(&self, line: &String) {
+        eprintln!("{line}");
+    }
+}

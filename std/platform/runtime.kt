@@ -30,3 +30,16 @@ fun parkNanos(p: Parker, nanos: Long) {
 fun unpark(p: Parker) {
     LockSupport.unpark(p.thread)
 }
+
+// `threadsafe platform handler HostRuntime` [runtime-host]: stateless but for
+// the `SecureRandom`, which is itself thread-safe.
+class HostRuntime : salvo.runtime.RuntimeHostPlatform {
+    private val random = java.security.SecureRandom()
+
+    // [addr-capability] OS entropy, through the platform's secure source.
+    override fun secureBits(): Long = random.nextLong()
+
+    override fun report(line: String) {
+        System.err.println(line)
+    }
+}

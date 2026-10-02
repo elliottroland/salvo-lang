@@ -25,6 +25,18 @@ pub struct Module {
     /// above a declaration (that run is the declaration's).
     pub docs: Vec<String>,
     pub items: Vec<Item>,
+    /// [mod-use] Module-level `use H()` bindings: bound once, on first use,
+    /// for the life of the process, and visible to every function of the
+    /// module without being declared. Allowed in std's runtime module only
+    /// (user decision 2026-10-02, RUNTIME.md E4); empty everywhere else.
+    pub uses: Vec<ModuleUse>,
+}
+
+/// [mod-use] One module-level `use`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModuleUse {
+    pub handler: Expr,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, PartialEq)]

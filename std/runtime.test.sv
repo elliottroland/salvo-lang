@@ -21,3 +21,9 @@ test "an unpark token is used up by one park" {
     park_nanos(p, 1000000)
     expect(true, "the second park timed out")
 }
+
+test "the module's own binding answers without being declared" {
+    let a = fresh_bits()
+    let b = fresh_bits()
+    expect(!(a == b), "two draws differ")
+}

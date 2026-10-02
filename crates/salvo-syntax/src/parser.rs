@@ -398,8 +398,21 @@ impl<'s> Parser<'s> {
         // file's first token, which is still where the parser stands.
         let docs = self.module_docs();
         let mut items = Vec::new();
+        let mut uses = Vec::new();
         while !self.at_eof() {
             let before = self.pos;
+            // [mod-use] A module-level `use H()`; whether this module may
+            // have one is the checker's call.
+            if self.at(&TokenKind::KwUse) {
+                let start = self.bump().span;
+                if let Some(handler) = self.parse_expr() {
+                    let span = start.to(handler.span());
+                    uses.push(ModuleUse { handler, span });
+                } else {
+                    self.recover_to_item_start();
+                }
+                continue;
+            }
             match self.parse_item() {
                 Some(item) => items.push(item),
                 None => self.recover_to_item_start(),
@@ -409,7 +422,7 @@ impl<'s> Parser<'s> {
                 self.bump();
             }
         }
-        Module { docs, items }
+        Module { docs, items, uses }
     }
 
     /// Skips tokens until something that can plausibly start a top-level item.

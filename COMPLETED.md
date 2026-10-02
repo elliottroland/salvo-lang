@@ -135,6 +135,20 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Module-level `use` in the runtime module, and `RuntimeHost` (user decision
+2026-10-02; RUNTIME.md §11.5 step 10, E4).** `Module.uses` holds top-level
+`use H()` lines; the checker refuses one outside std's `runtime`
+[mod-use], checks the rest as a `use` in an empty body, and starts every
+function of the module with the bound effects outermost in its environment
+without recording them in `fn_effects`, so no caller is asked for them. Rust
+lowers each to an accessor over a `OnceLock` [rs-mod-use], Kotlin to a
+`private val … by lazy` [kt-mod-use]. The runtime module now binds
+`use HostRuntime()`, the first `RuntimeHost` members (`secure_bits` from OS
+entropy, `report`) are implemented in `std/platform/runtime.{rs,kt}`
+[runtime-host], and a runtime fn calls them undeclared (`std/runtime.test.sv`).
+Every module's AST snapshot gains `uses: []`. New test
+`a_module_level_use_is_the_runtime_module_s_alone`. **1677 tests.**
+
 **Monitor re-entry traps on Kotlin (2026-10-02; RUNTIME.md §11.5 step 9).**
 Each `__Mon_E` member now checks `Thread.holdsLock(inner)` and traps before
 entering a monitor the thread already holds [kt-monitor-reentry]: the same
@@ -19656,7 +19670,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1676; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1677; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

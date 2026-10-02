@@ -35,3 +35,26 @@ platform fn park_nanos(p: Parker, nanos: Long) [] -> None => p, nanos
 
 // [runtime-parker] Wakes [p]'s thread, or makes its next park return at once.
 platform fn unpark(p: Parker) [] -> None => p
+
+// ===== the host [runtime-host] =====
+//
+// What only the host can do, behind one interface the backends implement in
+// std's platform root (RUNTIME.md §11.3): a new backend writes this handler
+// and the scheduler above it is Salvo. Filled in as the port needs it.
+effect RuntimeHost {
+    // [addr-capability] A fresh value an outsider cannot guess: OS entropy.
+    fn secure_bits() -> Long
+    // A line on standard error, for the runtime's named reports.
+    fn report(line: Str) -> None => line
+}
+
+threadsafe platform handler HostRuntime() of RuntimeHost
+
+// [mod-use] The runtime's host, bound once for the process: every function
+// here reaches it without declaring it.
+use HostRuntime()
+
+// [addr-capability] The bits an addr's identity carries.
+fn fresh_bits() [] -> Long {
+    return secure_bits()
+}

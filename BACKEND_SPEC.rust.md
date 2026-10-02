@@ -1571,6 +1571,11 @@ facts worth knowing") and keeps the history ("One shape for effects").
   | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
 
+* [rs-mod-use] [mod-use] A module-level `use` emits `fn __module_use_N() ->
+  &'static E` with a `static CELL: OnceLock<E>` whose initializer is what
+  the `use` statement would emit; every fn of the module starts its effect
+  environment with the accessor call as the entry, so a call threads
+  `__module_use_N()` where a declared effect threads its parameter.
 * [rs-platform-type] [platform-type] The declaring module re-exports the
   host's struct — `pub use crate::platform_<m>::Name;` — so every mention is
   the ordinary path, beside a static assertion of the kind's contract

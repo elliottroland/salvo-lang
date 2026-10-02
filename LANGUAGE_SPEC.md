@@ -7629,6 +7629,26 @@ between endpoints and delivers what arrives into the scheduler.
   import, naming the rule. The path is the marker (`STD_INTERNAL` in
   `resolve.rs`): no syntax, and a program cannot declare a module of that
   path either, since std's own would collide with it.
+* [mod-use] **A module-level `use H()` binds an effect for every function of
+  its module**, without any of them declaring it (user decision 2026-10-02,
+  RUNTIME.md E4): bound once, on first use, for the life of the process, and
+  outermost — a function's own declaration of the same effect shadows it. It
+  is how code declared `[]` (`send(reply, v)`, an addr's codec, a host
+  thread) reaches the one scheduler. **The runtime module's alone**
+  [mod-std-internal]: anywhere else it is refused, since it would be state
+  every function reaches without declaring it — hidden state by another
+  name. Widening it is a separate decision.
+  * Checked as a `use` in a body with nothing in scope (no locals, no
+    effects), so its construction depends on nothing the module's functions
+    could see; one face per binding for now.
+  * Lowering: [rs-mod-use] (an accessor over a `OnceLock`) and [kt-mod-use]
+    (a `private val … by lazy`).
+* [runtime-host] **`RuntimeHost` is what only the host can do**, one effect
+  with a `threadsafe platform handler HostRuntime` per backend in std's
+  platform root, bound by the runtime module's `use HostRuntime()`
+  [mod-use] (RUNTIME.md §11.3). Members so far: `secure_bits` (OS entropy:
+  `/dev/urandom` on Rust, `SecureRandom` on Kotlin [addr-capability]) and
+  `report`. Filled in as the port needs it.
 * [runtime-parker] **`runtime.Parker` is one thread's park/unpark token**
   (user decision 2026-10-02, RUNTIME.md E3), a `threadsafe platform type`
   with `this_parker()`, `park(p)`, `park_nanos(p, n)` and `unpark(p)`,

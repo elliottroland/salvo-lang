@@ -1345,6 +1345,7 @@ fn check_once<'p>(
         checker.check_platform_boundary(ast);
     }
     check_intrinsic_is_std_only(program, &mut out);
+    check_module_uses(program, &mut out);
     // [actor-deadlock-cycle] The static deadlock baseline, over the whole
     // program: a cycle of waiting actors is an error, a cycle of blocking
     // sends a warning. Last, because it reads what this round's checking
@@ -1367,6 +1368,28 @@ fn check_once<'p>(
 /// [backend-intrinsic], so an intrinsic the compiler does not know has no
 /// lowering anywhere. The error names the one interop path customer code
 /// does have.
+/// [mod-use] A module-level `use` is the runtime module's privilege (user
+/// decision 2026-10-02, RUNTIME.md E4): anywhere else it would be hidden
+/// state by another name.
+fn check_module_uses(program: &Program, out: &mut Checked) {
+    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+        let runtime = file.is_std && file.module.0.first().is_some_and(|m| m == crate::resolve::STD_INTERNAL);
+        if runtime {
+            continue;
+        }
+        for u in &ast.uses {
+            out.errors.push(crate::diag::FileDiagnostic::error(
+                file_idx,
+                u.span,
+                "a `use` belongs in a function body: a module-level binding is the runtime \
+                 module's alone, since anywhere else it would be state every function \
+                 reaches without declaring it [mod-use]"
+                    .to_string(),
+            ));
+        }
+    }
+}
+
 fn check_intrinsic_is_std_only(program: &Program, out: &mut Checked) {
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         if file.is_std {
@@ -1718,6 +1741,9 @@ struct Checker<'p, 'r> {
     /// elsewhere. A member may use them exactly as if it had declared them,
     /// which it may not ([effect-member-no-effects]).
     handler_deps: Vec<EffectAvail>,
+    /// [mod-use] The effects the module's own `use H()` lines bind: in scope
+    /// in every function of the module, never declared by one.
+    module_avails: Vec<EffectAvail>,
     /// [effect-handler-deps] The effect implemented by the handler whose
     /// members are being checked, so a member calling *its own* effect can be
     /// told what is actually wrong: self-dispatch is not a feature yet, and
@@ -2116,6 +2142,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             own_qualifiers: HashSet::new(),
             effect_env: Vec::new(),
             handler_deps: Vec::new(),
+            module_avails: Vec::new(),
             handler_ofs: Vec::new(),
             own_handler: None,
             handler_spawns: false,
@@ -2747,6 +2774,20 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn check_module(&mut self, module: &'p Module) {
+        // [mod-use] The module's own bindings, checked as a `use` in a body
+        // with nothing else in scope (no locals, no effects), so what they
+        // construct can depend on nothing the module's functions could see.
+        if !module.uses.is_empty() {
+            let saved_env = std::mem::take(&mut self.effect_env);
+            let saved_can_use = std::mem::replace(&mut self.can_use, true);
+            self.locals.push(HashMap::new());
+            for u in &module.uses {
+                self.check_use(&u.handler, &[], u.span);
+            }
+            self.locals.pop();
+            self.can_use = saved_can_use;
+            self.module_avails = std::mem::replace(&mut self.effect_env, saved_env);
+        }
         // [name-camel] Names the Kotlin backend would spell alike are an
         // error on every backend (user decision 2026-10-01, ABI.md D6).
         for (span, msg) in crate::case::module_clashes(module) {
@@ -7247,7 +7288,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.generics = saved_generics;
             return;
         };
-        let saved_env = std::mem::replace(&mut self.effect_env, fn_effects);
+        // [mod-use] The module's bindings sit outermost, so a function's own
+        // declaration of the same effect shadows them.
+        let mut env = self.module_avails.clone();
+        env.extend(fn_effects);
+        let saved_env = std::mem::replace(&mut self.effect_env, env);
         let saved_can_use = std::mem::replace(&mut self.can_use, can_use);
         let saved_can_spawn = std::mem::replace(&mut self.can_spawn, can_spawn);
         // [implicit-forward] What this body can forward to the calls it makes.

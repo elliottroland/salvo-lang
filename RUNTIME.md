@@ -1091,7 +1091,9 @@ keeps both backends passing the full suite.
    as Rust's `Mutex` would deadlock; a member calling a sibling member
    directly is unaffected. Before the port, because the scheduler becomes a
    monitor there, and reentrance is the mistake most likely to differ.
-10. **E4** (module-level `use`, runtime module only), **E7** (`Addr`,
+10. ✅ (part) **E4** (module-level `use`, runtime module only) built
+    2026-10-02 [mod-use], with the first `RuntimeHost` members
+    [runtime-host]; still to do in this step, **E7** (`Addr`,
     `Reply`, `Pool` as Salvo types) and **E10** (owned, mutable fn values,
     emitter-generated only).
 

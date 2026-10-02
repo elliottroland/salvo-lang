@@ -781,6 +781,9 @@ nothing but the monitor.
   (2026-10-02, RUNTIME.md §2.3 item 4). The availability rule keeps programs
   from reaching it; the check is what makes a mistake fail the same way on
   both backends, which matters once the scheduler is a monitor (step 11).
+* [kt-mod-use] [mod-use] A module-level `use` is `private val
+  __moduleUseN: E by lazy { … }` (the default `lazy` is synchronized), the
+  entry every fn of the module starts from.
 * [kt-platform-type] [platform-type] A platform type renders as the host's
   class by its full path, `salvo.platform.<module>.Name` — nothing is
   re-exported — and a copy is the reference itself (`ty_immutable` answers
