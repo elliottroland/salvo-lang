@@ -193,11 +193,11 @@ pub fn main() {
     let mut w = window(&roster);
     w.at = 1;
     println(&console, &(format!("1. window at {}: {}", w.at, peek(&w).expect("salvo: value is absent at main:206:38").name.clone())));
-    let mut pass = iter__3(&roster);
+    let mut pass = iter__4(&roster);
     let mut standing = filter::<ListYield<'_, Fighter>, &Fighter>(&mut pass, &mut (|f: &&Fighter| {
     let f = *f; 
     f.hp > 10
-}), &mut |__i0| next__3(__i0));
+}), &mut |__i0| next__5(__i0));
     println(&console, &(format!("1. {} of {} still standing", (standing.len() as i32), (roster.len() as i32))));
     let mut bench: Vec<Fighter> = vec![Fighter { name: "Cy".to_string(), hp: 12, energy: 2 }];
     bench.push(Fighter { name: "Dee".to_string(), hp: 6, energy: 7 });

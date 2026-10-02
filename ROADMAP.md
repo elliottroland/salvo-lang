@@ -64,7 +64,8 @@ in §12, the language expansions E1–E10 in §11.2), and the order of work in
 **§11.5**, which is this item's sequence — take the next step there. Done so
 far: steps 1 (the benchmark baseline), 2 (forged identities), 3 (the
 stream table in its own runtime file), 4 (the group protocol in `net.sv`)
-and 5 (`std/runtime.sv` as std's own module; platform `Never`). When the sequence completes, RUNTIME.md
+5 (`std/runtime.sv` as std's own module; platform `Never`) and 6
+(`Deque`). When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
 ### 0b — Three slow tests (recorded 2026-10-02, to investigate)

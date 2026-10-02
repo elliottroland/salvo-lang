@@ -143,6 +143,23 @@ let unique = to_list({3, 1, 3})    // a Distinct List<Int>
 
 Elements have to be orderable for a `Sorted List` claim, on the same terms a `SortedSet` key does — so `Sorted List<Double>` is refused where it is written.
 
+## Deques
+
+A `Deque<T>` is a queue with two ends: adding or removing at either end costs the same small amount however long it is, where a `List`'s `remove_first` shifts every element after it. It is the collection for a mailbox, a work queue or requests waiting to be answered.
+
+```
+let jobs: Mut Deque<Str> = mut_deque_of("b")
+add_last(jobs, "c")
+add_first(jobs, "a")
+let next = remove_first(jobs)      // "a", as a Str?
+let back = remove_last(jobs)       // "c"
+println("${jobs}")                 // [b]
+```
+
+`get(d, i)` and `remove_at(d, i)` count from the front and answer `None` out of range, as a list's do, and `for x in d` and `reversed(d)` walk it front to back and back to front. `to_list` and `to_deque` convert. Like a list it may hold linear values — a `Mut Deque<Reply<Str>>` owes, and `drain` is how it ends.
+
+A deque has no literal (`[…]` is a list) and no `==`, hash or ordering: it is a queue to work through, not a value to compare or use as a key. It also has no wire form yet, so a message that would carry one to another node is refused.
+
 ## Arrays
 
 An array (`T[]`) is a fixed-size sequence, and it exists mostly for the *variadic* boundary: `...elems: T[]` is what a variadic parameter receives. Arrays have no literal syntax — `[1, 2]` builds a list — so they are constructed by function:

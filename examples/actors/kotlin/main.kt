@@ -2,6 +2,7 @@ package salvo.main
 
 import salvo.core.actor.*
 import salvo.core.console.*
+import salvo.core.deque.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.set.*
@@ -270,17 +271,17 @@ object __Codec___Msg_Desk : salvo.WireCodec<__Msg_Desk> {
 const val __PROTO_Desk: String = "cb180ef2d1bfd753"
 
 class Desking(private val room: Int) : Desk {
-    private var waiting: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
+    private var waiting: kotlin.collections.ArrayDeque<salvo.SalvoReply> = kotlin.collections.ArrayDeque<salvo.SalvoReply>(listOf<salvo.SalvoReply>())
     internal val __mailboxCapacity: Int = room
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Desking> = mutableMapOf()
 
     override fun ticket(out: salvo.SalvoReply) {
-        waiting.add(out)
+        waiting.addLast(out)
     }
 
     override fun serve(name: String) {
-        val next = (waiting).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
+        val next = waiting.removeFirstOrNull()
         when {
             next != null -> {
                 salvo.SalvoSched.replyWire(next, "served $name", salvo.StrCodec)
@@ -293,7 +294,7 @@ class Desking(private val room: Int) : Desk {
 
     override fun closeUp(reason: String) {
         (waiting).toList().forEach({ r -> salvo.SalvoSched.replyWire(r, "closed: $reason", salvo.StrCodec) })
-        waiting = mutableListOf<salvo.SalvoReply>()
+        waiting = kotlin.collections.ArrayDeque<salvo.SalvoReply>(listOf<salvo.SalvoReply>())
     }
 }
 

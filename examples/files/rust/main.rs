@@ -116,7 +116,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
     match opened {
         Union2::U1(_) => {
             let mut p = lines(opened.u1().clone());
-            while let Union2::U1(mut line) = next__13(streams, &mut p) {
+            while let Union2::U1(mut line) = next__15(streams, &mut p) {
                 println(console, &(format!("line: {}", line)));
             }
             let mut closed = close__2(streams, p);
@@ -310,7 +310,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
         Union2::U1(_) => {
             let mut p = ch.u1().clone();
             let mut seen = 0;
-            while let Union2::U1(mut chunk) = next__14(streams, &mut p) {
+            while let Union2::U1(mut chunk) = next__16(streams, &mut p) {
                 seen = seen + (chunk.len() as i32);
             }
             println(console, &(format!("chunks saw {} bytes", seen)));

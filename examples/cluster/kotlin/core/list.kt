@@ -4,6 +4,7 @@ import salvo.*
 import salvo.core.array.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
+import salvo.core.deque.*
 import salvo.core.iterator.*
 import salvo.core.map.*
 import salvo.core.set.*
@@ -49,7 +50,7 @@ fun<T> first(list: List<T>): T {
     return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:259:12"))
 }
 
-fun<T> iter__3(list: List<T>): ListYield<T> {
+fun<T> iter__4(list: List<T>): ListYield<T> {
     return ListYield(items = list, at = 0)
 }
 
@@ -58,7 +59,7 @@ data class ListYield<T>(
     var at: Int,
 )
 
-fun<T> next__3(p: ListYield<T>): Union2<T, Finished> {
+fun<T> next__5(p: ListYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return Union2.U2<T, Finished>(finished())
@@ -72,11 +73,11 @@ data class __Iter_reversed_List<T>(
     var at: Int,
 )
 
-fun<T> reversed(list: List<T>): __Iter_reversed_List<T> {
+fun<T> reversed__2(list: List<T>): __Iter_reversed_List<T> {
     return __Iter_reversed_List(list = list, at = list.size - 1)
 }
 
-fun<T> next__4(__p: __Iter_reversed_List<T>): Union2<T, Finished> {
+fun<T> next__6(__p: __Iter_reversed_List<T>): Union2<T, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
         return Union2.U2<T, Finished>(finished())
@@ -94,7 +95,7 @@ fun<T> indices(list: List<T>): __Iter_indices_List<T> {
     return __Iter_indices_List(list = list, at = 0)
 }
 
-fun<T> next__5(__p: __Iter_indices_List<T>): Union2<Int, Finished> {
+fun<T> next__7(__p: __Iter_indices_List<T>): Union2<Int, Finished> {
     if (__p.at >= __p.list.size) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -112,7 +113,7 @@ fun<T> revIndices(list: List<T>): __Iter_rev_indices_List<T> {
     return __Iter_rev_indices_List(list = list, at = list.size - 1)
 }
 
-fun<T> next__6(__p: __Iter_rev_indices_List<T>): Union2<Int, Finished> {
+fun<T> next__8(__p: __Iter_rev_indices_List<T>): Union2<Int, Finished> {
     if (__p.at < 0) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -135,7 +136,7 @@ fun<T> enumerate(list: List<T>): __Iter_enumerate_List<T> {
     return __Iter_enumerate_List(list = list, at = 0)
 }
 
-fun<T> next__7(__p: __Iter_enumerate_List<T>): Union2<Enumerated<T>, Finished> {
+fun<T> next__9(__p: __Iter_enumerate_List<T>): Union2<Enumerated<T>, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
         return Union2.U2<Enumerated<T>, Finished>(finished())
@@ -154,7 +155,7 @@ fun<T> enumerateRev(list: List<T>): __Iter_enumerate_rev_List<T> {
     return __Iter_enumerate_rev_List(list = list, at = list.size - 1)
 }
 
-fun<T> next__8(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finished> {
+fun<T> next__10(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
         return Union2.U2<Enumerated<T>, Finished>(finished())

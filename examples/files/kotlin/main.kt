@@ -67,7 +67,7 @@ fun workflow(fs: Fs, console: Console, streams: Streams) {
         is Union2.U1<*, *> -> {
             val p = lines((opened.value as InStream))
             while (true) {
-                val __loop1_step = next__13(streams, p)
+                val __loop1_step = next__15(streams, p)
                 if (__loop1_step !is Union2.U1<String, Finished>) { break }
                 val line = __loop1_step.value
                 println(console, "line: $line")
@@ -264,7 +264,7 @@ fun workflow(fs: Fs, console: Console, streams: Streams) {
             val p = (ch.value as Chunks)
             var seen = 0
             while (true) {
-                val __loop2_step = next__14(streams, p)
+                val __loop2_step = next__16(streams, p)
                 if (__loop2_step !is Union2.U1<salvo.SalvoBytes, Finished>) { break }
                 val chunk = __loop2_step.value
                 seen = seen + chunk.size

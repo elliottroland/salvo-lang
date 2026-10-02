@@ -364,7 +364,7 @@ pub fn read_lines(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &S
     }
     let mut p = lines(opened.u1().clone());
     let mut out: Vec<String> = vec![];
-    while let Union2::U1(mut line) = next__13(streams, &mut p) {
+    while let Union2::U1(mut line) = next__15(streams, &mut p) {
         out.push(line);
     }
     let mut closed = close__2(streams, p);

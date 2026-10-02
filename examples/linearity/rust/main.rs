@@ -17,6 +17,8 @@ pub mod wire;
 pub mod core_checked;
 #[path = "core/console.rs"]
 pub mod core_console;
+#[path = "core/deque.rs"]
+pub mod core_deque;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]
@@ -31,13 +33,13 @@ pub mod core_sorted;
 pub mod core_string;
 
 use crate::core_console::*;
+use crate::core_deque::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
-use crate::seq::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ticket {
@@ -106,11 +108,11 @@ pub fn scrap(ticket: Ticket) {
 }
 
 pub fn a_queue_of_tickets(console: &crate::core_console::Console) {
-    let mut queue: Vec<Ticket> = vec![];
-    queue.push(issue(console, 5, "2B".to_string()));
-    queue.push(issue(console, 6, "2C".to_string()));
+    let mut queue: std::collections::VecDeque<Ticket> = std::collections::VecDeque::<Ticket>::new();
+    queue.push_back(issue(console, 5, "2B".to_string()));
+    queue.push_back(issue(console, 6, "2C".to_string()));
     println(console, &(format!("6. queued {}", (queue.len() as i32))));
-    let mut first = queue.salvo_remove_first();
+    let mut first = queue.pop_front();
     match first {
         Some(_) => {
             redeem(console, first.unwrap());
@@ -119,7 +121,7 @@ pub fn a_queue_of_tickets(console: &crate::core_console::Console) {
         }
     }
     loop {
-        let mut __is1 = queue.salvo_remove_first();
+        let mut __is1 = queue.pop_front();
         if !(__is1.is_some()) {
             break;
         }

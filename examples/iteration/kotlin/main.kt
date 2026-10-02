@@ -46,7 +46,7 @@ fun countdown(from: Int): Countdown {
     return Countdown(at = from)
 }
 
-fun next__15(p: Countdown): Union2<Int, Finished> {
+fun next__17(p: Countdown): Union2<Int, Finished> {
     if (p.at <= 0) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -67,7 +67,7 @@ fun skip(p: Countdown): Union2<Int, Finished> {
 fun take(console: Console, p: Countdown, count: Int) {
     var seen = 0
     while (true) {
-        val __loop1_step = next__15(p)
+        val __loop1_step = next__17(p)
         if (__loop1_step !is Union2.U1<Int, Finished>) { break }
         val n = __loop1_step.value
         println(console, "2. got $n")
@@ -95,7 +95,7 @@ fun halving(start: Int): __Iter_halving_Int {
     return __Iter_halving_Int(start = start, at = start)
 }
 
-fun next__16(__p: __Iter_halving_Int): Union2<Int, Finished> {
+fun next__18(__p: __Iter_halving_Int): Union2<Int, Finished> {
     if (__p.at <= 0) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -124,11 +124,11 @@ data class __Iter_iter_Bag(
     var at: Int,
 )
 
-fun iter__9(bag: Bag): __Iter_iter_Bag {
+fun iter__10(bag: Bag): __Iter_iter_Bag {
     return __Iter_iter_Bag(items = bag.items, at = 0)
 }
 
-fun next__17(__p: __Iter_iter_Bag): Union2<Int, Finished> {
+fun next__19(__p: __Iter_iter_Bag): Union2<Int, Finished> {
     val e = __p.items.getOrNull(__p.at)
     if (e == null) {
         return Union2.U2<Int, Finished>(finished())
@@ -158,7 +158,7 @@ fun fibs(count: Int): __Iter_fibs_Int {
     return __Iter_fibs_Int(count = count, a = 0, b = 1, made = 0)
 }
 
-fun next__18(console: Console, __p: __Iter_fibs_Int): Union2<Int, Finished> {
+fun next__20(console: Console, __p: __Iter_fibs_Int): Union2<Int, Finished> {
     if (__p.made >= __p.count) {
         println(console, "3. finished")
         return Union2.U2<Int, Finished>(finished())
@@ -188,7 +188,7 @@ fun naturals(from: Int): __Iter_naturals_Int {
     return __Iter_naturals_Int(from = from, at = from)
 }
 
-fun next__19(__p: __Iter_naturals_Int): Union2<Int, Finished> {
+fun next__21(__p: __Iter_naturals_Int): Union2<Int, Finished> {
     val now = __p.at
     __p.at = __p.at + 1
     return Union2.U1<Int, Finished>(emitted(now))
@@ -237,7 +237,7 @@ fun main() {
     describeContainer(console, xs)
     val p = countdown(5)
     take(console, p, 2)
-    println(console, "2. rest sums to ${sumOf(p, ::next__15)}")
+    println(console, "2. rest sums to ${sumOf(p, ::next__17)}")
     val q = countdown(6)
     while (true) {
         val __loop5_step = skip(q)
@@ -247,33 +247,33 @@ fun main() {
     }
     var __loop6_pass = halving(20)
     while (true) {
-        val __loop6_step = next__16(__loop6_pass)
+        val __loop6_step = next__18(__loop6_pass)
         if (__loop6_step !is Union2.U1<Int, Finished>) { break }
         val n = __loop6_step.value
         println(console, "2b. halving $n")
     }
     val hp = halving(20)
-    println(console, "2b. summed from a held iterator: ${sumOf(hp, ::next__16)}")
-    println(console, "2b. first from a pattern-typed fn: ${first__2(halvingFromTen(), ::next__16)}")
+    println(console, "2b. summed from a held iterator: ${sumOf(hp, ::next__18)}")
+    println(console, "2b. first from a pattern-typed fn: ${first__2(halvingFromTen(), ::next__18)}")
     val bag = Bag(items = listOf<Int>(7, 8))
-    var __loop7_pass = iter__9(bag)
+    var __loop7_pass = iter__10(bag)
     while (true) {
-        val __loop7_step = next__17(__loop7_pass)
+        val __loop7_step = next__19(__loop7_pass)
         if (__loop7_step !is Union2.U1<Int, Finished>) { break }
         val n = __loop7_step.value
         println(console, "2c. bag $n")
     }
-    println(console, "2c. total of a bag ${total(bag, ::iter__9, ::next__17)}, of a list ${total(xs, ::iter__3, ::next__3)}")
+    println(console, "2c. total of a bag ${total(bag, ::iter__10, ::next__19)}, of a list ${total(xs, ::iter__4, ::next__5)}")
     var __loop8_pass = fibs(6)
     while (true) {
-        val __loop8_step = next__18(console, __loop8_pass)
+        val __loop8_step = next__20(console, __loop8_pass)
         if (__loop8_step !is Union2.U1<Int, Finished>) { break }
         val n = __loop8_step.value
         println(console, "3. fib $n")
     }
     var __loop9_pass = naturals(10)
     while (true) {
-        val __loop9_step = next__19(__loop9_pass)
+        val __loop9_step = next__21(__loop9_pass)
         if (__loop9_step !is Union2.U1<Int, Finished>) { break }
         val n = __loop9_step.value
         if (n > 12) {
@@ -286,18 +286,18 @@ fun main() {
     val total = xs.fold(0, { acc, n -> acc + n })
     println(console, "5. list: ${doubled.size} doubled, ${odd.size} odd, total $total")
     val words = listOf<String>("ann", "bo", "carol")
-    val lengths = map(iter__3(words), { w -> w.length }, ::next__3)
-    println(console, "5. lengths: ${reduce(iter__3(lengths), 0, { acc, n -> acc + n }, ::next__3)}")
+    val lengths = map(iter__4(words), { w -> w.length }, ::next__5)
+    println(console, "5. lengths: ${reduce(iter__4(lengths), 0, { acc, n -> acc + n }, ::next__5)}")
     val word = "iteration"
-    val vowels = filter(iter__8(word), { c -> c == 'i' || c == 'o' }, ::next__12)
+    val vowels = filter(iter__9(word), { c -> c == 'i' || c == 'o' }, ::next__14)
     println(console, "5. vowels: ${vowels.size}")
-    println(console, "5. halving total ${reduce(halving(20), 0, { acc, n -> acc + n }, ::next__16)}")
-    val collected = mapTo(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__15)
+    println(console, "5. halving total ${reduce(halving(20), 0, { acc, n -> acc + n }, ::next__18)}")
+    val collected = mapTo(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__17)
     println(console, "6. collected ${collected.size}")
     val evens = StringBuilder()
     var __loop10_pass = range(0, 10, 2)
     while (true) {
-        val __loop10_step = next__10(__loop10_pass)
+        val __loop10_step = next__12(__loop10_pass)
         if (__loop10_step !is Union2.U1<Int, Finished>) { break }
         val i = __loop10_step.value
         evens.append("$i ")

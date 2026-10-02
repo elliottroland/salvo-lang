@@ -29,7 +29,7 @@ fun range(start: Int, end: Int, step: Int): __Iter_range_Int_Int_Int {
     return __Iter_range_Int_Int_Int(start = start, end = end, step = step, i = start)
 }
 
-fun next__10(__p: __Iter_range_Int_Int_Int): Union2<Int, Finished> {
+fun next__12(__p: __Iter_range_Int_Int_Int): Union2<Int, Finished> {
     val next = __p.i
     return when {
         __p.step == 0 -> {

@@ -103,6 +103,11 @@ Conventions:
     type is 'UByteArray', but 'List<T>' was expected`). That is why the byte
     payload is a type of its own [kt-bytes] rather than a rendering of a
     list (user decision 2026-09-15).
+* [kt-deque] [col-deque] `Deque<T>` and `Mut Deque<T>` are both
+  `kotlin.collections.ArrayDeque<T>` — one class, as for `Bytes` — so a
+  `copy` of either is `ArrayDeque(d)` [kt-copy]; the surface is
+  `addFirst`/`addLast`, `removeFirstOrNull`/`removeLastOrNull`, a bounds-
+  checked `removeAt`, `getOrNull`/`firstOrNull`/`lastOrNull`.
 * [kt-bytes] [bytes-type] **`Bytes` and `Mut Bytes` both map to
   `salvo.SalvoBytes`**, a class shipped with the program
   (`runtime/bytes.kt`, emitted as `bytes.kt` whenever the program names the

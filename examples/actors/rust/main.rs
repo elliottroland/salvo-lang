@@ -19,6 +19,8 @@ pub mod core_actor;
 pub mod core_checked;
 #[path = "core/console.rs"]
 pub mod core_console;
+#[path = "core/deque.rs"]
+pub mod core_deque;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]
@@ -34,13 +36,13 @@ pub mod core_string;
 
 use crate::core_actor::*;
 use crate::core_console::*;
+use crate::core_deque::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
-use crate::seq::*;
 
 pub trait __Stateless_Counter: Send + Sync {
     fn bump(&self, n: i32);
@@ -552,7 +554,7 @@ pub const __PROTO_Desk: &str = "cb180ef2d1bfd753";
 
 pub struct Desking {
     room: i32,
-    waiting: Vec<crate::scheduler::SalvoReply>,
+    waiting: std::collections::VecDeque<crate::scheduler::SalvoReply>,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Desking>,
@@ -562,7 +564,7 @@ impl Desking {
     pub fn new(room: i32) -> Self {
         Self {
             room,
-            waiting: vec![],
+            waiting: std::collections::VecDeque::<crate::scheduler::SalvoReply>::new(),
             __mailbox_capacity: room,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -573,11 +575,11 @@ impl Desking {
 impl crate::__Stateful_Desk for Desking {
 
     fn ticket(&mut self, out: crate::scheduler::SalvoReply) {
-        self.waiting.push(out);
+        self.waiting.push_back(out);
     }
 
     fn serve(&mut self, name: String) {
-        let mut next = self.waiting.salvo_remove_first();
+        let mut next = self.waiting.pop_front();
         match next {
             Some(_) => {
                 crate::scheduler::salvo_reply_wire::<String>(next.unwrap(), format!("served {}", name));
@@ -590,7 +592,7 @@ impl crate::__Stateful_Desk for Desking {
 
     fn close_up(&mut self, reason: String) {
         std::mem::take(&mut self.waiting).into_iter().for_each(|r| crate::scheduler::salvo_reply_wire::<String>(r, format!("closed: {}", reason)));
-        self.waiting = vec![];
+        self.waiting = std::collections::VecDeque::<crate::scheduler::SalvoReply>::new();
     }
 }
 

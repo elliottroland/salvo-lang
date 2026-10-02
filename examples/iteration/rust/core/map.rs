@@ -16,7 +16,7 @@ pub fn get__2<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V
     return map.get(&key).unwrap();
 }
 
-pub fn iter__4<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
+pub fn iter__5<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
     return MapKeyYield { items: map.keys().cloned().collect::<Vec<_>>(), at: 0 };
 }
 
@@ -39,7 +39,7 @@ impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyYie
     }
 }
 
-pub fn next__9<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
+pub fn next__11<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     let mut key = p.items.get((p.at) as i64 as usize).cloned();
     if key.is_none() {
         return Union2::<K, Finished>::U2(finished());

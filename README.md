@@ -145,7 +145,7 @@ fn main() [use] {
   for binary data: a buffer you read, `Mut Bytes` to build one, `to_hex` and a
   strict UTF-8 bridge — not a `List<Byte>`, so an octet costs an octet.
 - **Collections**: `List`, `Set`, `Map` and their sorted counterparts, each
-  with a literal — `[1, 2, 3]`, `{"a", "b"}`, `{"k": "v"}`, and `Mut` in
+  with a literal, and a `Deque` for queues — `[1, 2, 3]`, `{"a", "b"}`, `{"k": "v"}`, and `Mut` in
   front for a mutable one. `Set` and `Map` iterate in **insertion order on
   every backend**, so a program's output does not depend on the target it
   was compiled for. Comparison is a **capability**, not a built-in: `a == b` is

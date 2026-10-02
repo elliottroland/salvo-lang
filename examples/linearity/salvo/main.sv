@@ -111,8 +111,8 @@ fn generic_handoff() [Console] -> None {
 
 // ===== 6. a container of obligations =====
 //
-// `List` opts its element type in (`intrinsic type List<T canbe linear>`), so
-// `Mut List<Ticket>` is itself a linear type: it owes, and its **terminal** is
+// `Deque` opts its element type in (`intrinsic type Deque<T canbe linear>`,
+// as `List` does), so `Mut Deque<Ticket>` is itself a linear type: it owes, and its **terminal** is
 // `drain`. Nothing at the use site says any of that — the element's
 // declaration is the only place linearity is spelled.
 //
@@ -123,9 +123,9 @@ fn scrap(ticket: Ticket) [] -> None => !ticket {
 }
 
 fn a_queue_of_tickets() [Console] -> None {
-    let queue: Mut List<Ticket> = mut_list_of()
-    add(queue, issue(5, "2B"))
-    add(queue, issue(6, "2C"))
+    let queue: Mut Deque<Ticket> = mut_deque_of()
+    add_last(queue, issue(5, "2B"))
+    add_last(queue, issue(6, "2C"))
     println("6. queued ${size(queue)}")
 
     // Out one at a time. `remove_first` *moves* the element out and answers

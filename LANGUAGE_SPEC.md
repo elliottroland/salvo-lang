@@ -839,7 +839,24 @@ Conventions:
   Str` is total. The `Bytes` sibling waits on same-name-different-subject
   value slots (a second `SpanOf` over `Span` would be a duplicate
   [qual-overload]; recorded in ROADMAP.md).
-* [col-insertion-order] `Set<T>` and `Map<K, V>` **iterate in insertion
+* [col-deque] **`Deque<T canbe linear> canbe Mut` is std's double-ended
+  queue** (user decision 2026-10-02, RUNTIME.md D3), `core.deque`: O(1) at
+  both ends. Surface: `deque_of`/`mut_deque_of` (both shapes) and
+  `deque_by`/`mut_deque_by` [col-by]; `add_first`, `add_last`,
+  `remove_first`, `remove_last` and `remove_at` (O(n)) moving elements in and
+  out [linear-container]; `get`, `first`, `last` answering borrows;
+  `size`, `drain`, `to_str`, `to_list`/`to_deque` [col-convert], `iter` over
+  a `DequeYield` pass and `reversed`. Out-of-range is `None` [col-bounds].
+  * **Not included, by decision**: a literal (`[…]` stays a `List`),
+    `NonEmpty`/`Sorted` claims, `eq`/`hash`/`cmp` (not a key), and — for now
+    — a wire form: declared `noremote` [noremote], since neither runtime has
+    a codec, so a crossing is refused by the checker rather than by the host
+    compiler.
+  * Lowering: `VecDeque<T>` ([rs-deque]) and `kotlin.collections.ArrayDeque`
+    ([kt-deque]), one host type for `Deque` and `Mut Deque` on both. A
+    `copy` on Kotlin is always a new deque, since a plain `Deque` may be an
+    object someone else holds as `Mut`.
+
   order, on every backend** (user decision 2026-09-12) — with
   `LinkedHashMap`'s exact semantics: writing a key that is already present
   keeps its original position, and removing one is O(1) and leaves the order

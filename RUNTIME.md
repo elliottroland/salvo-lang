@@ -1067,8 +1067,9 @@ keeps both backends passing the full suite.
    platform signatures answer `-> !` for `Never` [platform-never], which
    closed a silent hole — a Rust host returning from one used to fall
    through.
-6. **E1** (generic platform types and fns, §12 P5), **`Deque`** (D3) as an
-   intrinsic beside `List` (§12.3), with the three examples that use a `Mut List` as a FIFO
+6. ✅ **`Deque`** (D3) as an intrinsic beside `List` (§12.3), built
+   2026-10-02 [col-deque]; the generic platform types (E1) and `Dyn` move
+   after step 7, since they build on plain platform types. Built with the three examples that use a `Mut List` as a FIFO
    (`actors`, `cluster`, `linearity`) rewritten onto it, and **`Dyn`** with
    `erase`/`unerase`.
 7. **E2** (effect-free fn values in platform signatures) and **E5**

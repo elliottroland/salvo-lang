@@ -43,8 +43,8 @@ call is refused. `<T canbe linear>` is the opt-in, and the consuming callback
 is `once` — it may be called at most once, which is what a callback that
 discharges an obligation has to be.
 
-**6 — a container of obligations.** `List` opts its element type in, so
-`Mut List<Ticket>` is *itself* linear: it owes, and its terminal is `drain`,
+**6 — a container of obligations.** `Deque` opts its element type in (as
+`List` does), so `Mut Deque<Ticket>` is *itself* linear: it owes, and its terminal is `drain`,
 which consumes the queue and hands every element to a callback that consumes
 one. Obligations leave one at a time with `remove_first`, which answers
 `Ticket?` — a **move**, which is why `get` stays closed here: a borrow would

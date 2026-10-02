@@ -54,7 +54,7 @@ message — fan it out — is a handler `of any Search` you write: `Scattering`
 asks the replica for the members and hands the query to `Gathering`, an actor
 that mints one continuation per member (`replyto partial()`), sums the
 answers, and discharges the caller's reply once. The reply token waits in a
-`Mut List<Reply<Int>>` in the actor's state: a linear value in state lives in
+`Mut Deque<Reply<Int>>` in the actor's state: a linear value in state lives in
 a container, and `remove_first` moves it out.
 
 **4 — hedge.** The same shape with two members racing: `Racing` sends both,

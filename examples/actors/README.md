@@ -52,7 +52,7 @@ supplies it — `use counter` passes an addr here, and a construction
 its `Counter` is another actor or a local handler.
 
 **4 — a queue of obligations.** A `Reply<Str>` is linear, so
-`Mut List<Reply<Str>>` is linear too: the queue owes, and `drain` is its
+`Mut Deque<Reply<Str>>` is linear too (a deque: first in, first answered): the queue owes, and `drain` is its
 terminal. `Desking` is what an actor that cannot answer yet looks like —
 `ticket` parks a token, `serve` takes one out with `remove_first` (a move, and
 the `None` arm owes nothing), and `close_up` answers everyone still waiting.

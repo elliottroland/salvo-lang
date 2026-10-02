@@ -1,6 +1,7 @@
 package salvo.main
 
 import salvo.core.console.*
+import salvo.core.deque.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.set.*
@@ -69,11 +70,11 @@ fun scrap(ticket: Ticket) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun aQueueOfTickets(console: Console) {
-    val queue: MutableList<Ticket> = mutableListOf<Ticket>()
-    queue.add(issue(console, 5, "2B"))
-    queue.add(issue(console, 6, "2C"))
+    val queue: kotlin.collections.ArrayDeque<Ticket> = kotlin.collections.ArrayDeque<Ticket>(listOf<Ticket>())
+    queue.addLast(issue(console, 5, "2B"))
+    queue.addLast(issue(console, 6, "2C"))
     println(console, "6. queued ${queue.size}")
-    val first = (queue).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
+    val first = queue.removeFirstOrNull()
     when {
         first != null -> {
             redeem(console, first)
@@ -82,7 +83,7 @@ fun aQueueOfTickets(console: Console) {
         }
     }
     while (true) {
-        var __is1 = (queue).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
+        var __is1 = queue.removeFirstOrNull()
         if (!(__is1 != null)) break
         val next = __is1 as Ticket
         redeem(console, next)

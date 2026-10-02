@@ -500,6 +500,43 @@ pub fn fn_call(
                    .unwrap_or_else(|| \"a trap with no message\".to_string())) }} }}",
             a(0)
         ),
+        // [col-deque] The deque surface over `VecDeque`. Indices are `i32`, so
+        // a negative one becomes a huge `usize` and reads as out of range, as
+        // a list's does [col-bounds].
+        ("deque_of" | "mut_deque_of", _) if spread_any => format!(
+            "std::collections::VecDeque::from({})",
+            owned_vec()
+        ),
+        // The element type is spelled when the call has one, so an empty
+        // deque used where nothing else fixes it still infers.
+        ("deque_of" | "mut_deque_of", _) => match type_args.first() {
+            Some(t) if args.is_empty() => format!("std::collections::VecDeque::<{t}>::new()"),
+            _ => format!("std::collections::VecDeque::from(vec![{}])", args.join(", ")),
+        },
+        ("deque_by", Some("Int")) | ("mut_deque_by", Some("Int")) => format!(
+            "(0..({})).map({}).collect::<std::collections::VecDeque<_>>()",
+            a(0),
+            a(1)
+        ),
+        ("add_last", Some("Deque")) => format!("{}.push_back({})", a(0), a(1)),
+        ("add_first", Some("Deque")) => format!("{}.push_front({})", a(0), a(1)),
+        ("remove_first", Some("Deque")) => format!("{}.pop_front()", a(0)),
+        ("remove_last", Some("Deque")) => format!("{}.pop_back()", a(0)),
+        ("remove_at", Some("Deque")) => format!("{}.remove({})", a(0), index(1)),
+        ("get", Some("Deque")) => format!("{}.get({})", a(0), index(1)),
+        ("first", Some("Deque")) => format!("{}.front()", a(0)),
+        ("last", Some("Deque")) => format!("{}.back()", a(0)),
+        ("size", Some("Deque")) => format!("({}.len() as i32)", a(0)),
+        ("drain", Some("Deque")) => format!("{}.into_iter().for_each({})", a(0), a(1)),
+        ("to_str", Some("Deque")) => format!(
+            "format!(\"[{{}}]\", {}.iter().map(|__e| __e.to_string())\
+             .collect::<Vec<_>>().join(\", \"))",
+            a(0)
+        ),
+        ("to_list", Some("Deque")) => format!("{}.iter().cloned().collect::<Vec<_>>()", a(0)),
+        ("to_deque", Some("List")) => {
+            format!("{}.iter().cloned().collect::<std::collections::VecDeque<_>>()", a(0))
+        }
         // [col-by] The generated constructors: the callback is called once
         // per index, in order. `(0..n)` yields `i32`, which is what the
         // callback's parameter is [rs-fn-param-convention].
@@ -831,6 +868,9 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         // Only reachable in dead positions.
         "Never" => "()",
         "List" => "Vec",
+        // [col-deque] Both ends O(1); `Deque` and `Mut Deque` are one type,
+        // mutability living in the binding as for `Vec` [type-canbe-mut].
+        "Deque" => "std::collections::VecDeque",
         // [col-insertion-order] Not `HashSet`/`HashMap`: those have no
         // iteration order to speak of (unspecified, and randomly seeded per
         // process), while Salvo's collections iterate in insertion order on

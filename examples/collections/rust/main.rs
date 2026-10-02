@@ -158,13 +158,13 @@ pub fn main() {
     }
     let mut unique = deduped.iter().cloned().collect::<Vec<_>>();
     println(&console, &(format!("6. distinct {} of {}", format!("[{}]", unique.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")), count_unique(&unique))));
-    let mut __loop1_pass = iter__5(&vowels);
-    while let Union2::U1(mut v) = next__11(&mut __loop1_pass) {
+    let mut __loop1_pass = iter__6(&vowels);
+    while let Union2::U1(mut v) = next__13(&mut __loop1_pass) {
         console.print(&v);
     }
     println(&console, &("".to_string()));
-    let mut __loop2_pass = iter__4(&ages);
-    while let Union2::U1(mut name) = next__9(&mut __loop2_pass) {
+    let mut __loop2_pass = iter__5(&ages);
+    while let Union2::U1(mut name) = next__11(&mut __loop2_pass) {
         let mut age = ages.get(&name);
         if age.is_some() {
             println(&console, &(format!("7. {} is {}", name, *age.unwrap())));

@@ -201,6 +201,38 @@ pub fn fn_call(
         // element one starts with a `T`, so these match on the *name*: the
         // receiver type no longer identifies them.
         ("list_of", _) => format!("listOf<{}>({})", elem(), args.join(", ")),
+        // [col-deque] The deque surface over `kotlin.collections.ArrayDeque`.
+        ("deque_of" | "mut_deque_of", _) => format!(
+            "kotlin.collections.ArrayDeque<{}>(listOf<{}>({}))",
+            elem(),
+            elem(),
+            args.join(", ")
+        ),
+        ("deque_by", Some("Int")) | ("mut_deque_by", Some("Int")) => format!(
+            "kotlin.collections.ArrayDeque<{}>(List<{}>({}, {}))",
+            elem(),
+            elem(),
+            a(0),
+            a(1)
+        ),
+        ("add_last", Some("Deque")) => format!("{}.addLast({})", a(0), a(1)),
+        ("add_first", Some("Deque")) => format!("{}.addFirst({})", a(0), a(1)),
+        ("remove_first", Some("Deque")) => format!("{}.removeFirstOrNull()", a(0)),
+        ("remove_last", Some("Deque")) => format!("{}.removeLastOrNull()", a(0)),
+        ("remove_at", Some("Deque")) => format!(
+            "({}).let {{ __l -> ({}).let {{ __i -> \
+             if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null }} }}",
+            a(0),
+            a(1)
+        ),
+        ("get", Some("Deque")) => format!("{}.getOrNull({})", a(0), a(1)),
+        ("first", Some("Deque")) => format!("{}.firstOrNull()", a(0)),
+        ("last", Some("Deque")) => format!("{}.lastOrNull()", a(0)),
+        ("size", Some("Deque")) => format!("{}.size", a(0)),
+        ("drain", Some("Deque")) => format!("({}).toList().forEach({})", a(0), a(1)),
+        ("to_str", Some("Deque")) => format!("{}.joinToString(\", \", \"[\", \"]\")", a(0)),
+        ("to_list", Some("Deque")) => format!("{}.toMutableList()", a(0)),
+        ("to_deque", Some("List")) => format!("kotlin.collections.ArrayDeque({})", a(0)),
         ("mut_list_of", _) => {
             format!("mutableListOf<{}>({})", elem(), args.join(", "))
         }
@@ -625,6 +657,9 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "Any" => "Any",
         "Never" => "Nothing",
         "List" => "List",
+        // [col-deque] One class for `Deque` and `Mut Deque`, as `SalvoBytes`
+        // is for `Bytes` [type-canbe-mut].
+        "Deque" => "kotlin.collections.ArrayDeque",
         // [col-insertion-order] The immutable views of the ordered
         // implementations the constructors build: a `LinkedHashSet` *is* a
         // `Set` and a `LinkedHashMap` *is* a `Map`, so the declared type

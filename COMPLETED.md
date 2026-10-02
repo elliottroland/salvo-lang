@@ -135,6 +135,24 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`Deque` (user decision 2026-10-02; RUNTIME.md §11.5 step 6, D3).** std's
+double-ended queue, `core.deque`, as an intrinsic beside `List` [col-deque]:
+the surface the user approved (both-ends add and remove, `get`/`first`/
+`last`, `remove_at`, `drain`, iteration and `reversed`, `deque_by`,
+`to_list`/`to_deque`; no literal, no `eq`/`hash`), lowered to `VecDeque` and
+Kotlin's `ArrayDeque`. Linear elements work through the opaque-type
+`canbe linear` path with no checker change. The `actors`, `cluster` and
+`linearity` examples now queue their obligations in a `Mut Deque` (output
+unchanged). What fell out: the deque is declared `noremote` because neither
+runtime has a codec for it — without that, `encode(deque)` checked and then
+failed in rustc; an empty `deque_of()` on Rust needed its element type
+spelled from the call's type arguments; and the new `iter`/`next` overloads
+shifted the mangled-name indices five tests spell literally (the same
+renumbering earlier collections caused). The generic platform types and
+`Dyn`, planned in the same step, move after step 7 (they build on plain
+platform types). New std tests `std/core/deque.test.sv` (seven, both
+backends). **1670 tests.**
+
 **std's own module, and platform `Never` (2026-10-02; RUNTIME.md §11.5
 step 5, E8 and E6).** `std/runtime.sv` is the module the scheduler will be
 written in; std's files may import it and a program may not, refused at the

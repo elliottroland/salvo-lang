@@ -1,5 +1,6 @@
 use crate::core_array::*;
 use crate::core_bytes::*;
+use crate::core_deque::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
@@ -36,7 +37,7 @@ pub fn range(start: i32, end: i32, step: i32) -> __Iter_range_Int_Int_Int {
     return __Iter_range_Int_Int_Int { start: start, end: end, step: step, i: start };
 }
 
-pub fn next__10(__p: &mut __Iter_range_Int_Int_Int) -> Union2<i32, Finished> {
+pub fn next__12(__p: &mut __Iter_range_Int_Int_Int) -> Union2<i32, Finished> {
     let mut next = __p.i;
     return (match if __p.step == 0 {
         Union2::<Finished, i32>::U1(finished())

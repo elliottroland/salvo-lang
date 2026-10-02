@@ -15675,12 +15675,27 @@ impl<'p> Emitter<'p> {
             // takes the intrinsic's locator form.
             let mut_lend = self.lend_loc_mode
                 && self.mut_forward_sites.contains(&(self.file_idx, span));
+            // [call-type-args] The resolved element type, for a constructor
+            // whose arguments cannot tell rustc (an empty `deque_of()`).
+            let type_args: Vec<String> = if matches!(f.name.name.as_str(), "deque_of" | "mut_deque_of") {
+                self.checked
+                    .call_type_args
+                    .get(&(self.file_idx, span))
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|t| ty_is_concrete(t))
+                    .map(|t| self.rust_ty(t))
+                    .collect()
+            } else {
+                Vec::new()
+            };
             if let Some(code) =
                 crate::intrinsics::fn_call(
                     &f.name.name,
                     recv,
                     &arg_code,
-                    &[],
+                    &type_args,
                     spread,
                     ordering.as_deref(),
                     keyed_values.as_deref(),

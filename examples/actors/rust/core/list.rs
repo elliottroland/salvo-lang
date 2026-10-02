@@ -1,5 +1,6 @@
 use crate::collections::*;
 use crate::core_checked::*;
+use crate::core_deque::*;
 use crate::core_iterator::*;
 use crate::core_map::*;
 use crate::core_set::*;
@@ -52,7 +53,7 @@ pub fn first<T: Clone>(list: &Vec<T>) -> &T {
     return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:259:12");
 }
 
-pub fn iter__3<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
+pub fn iter__4<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
     return ListYield { items: list, at: 0 };
 }
 
@@ -62,7 +63,7 @@ pub struct ListYield<'s, T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__3<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
+pub fn next__5<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize);
     if elem.is_none() {
         return Union2::U2(finished());
@@ -77,11 +78,11 @@ pub struct __Iter_reversed_List<'s, T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn reversed<T: Clone>(list: &Vec<T>) -> __Iter_reversed_List<'_, T> {
+pub fn reversed__2<T: Clone>(list: &Vec<T>) -> __Iter_reversed_List<'_, T> {
     return __Iter_reversed_List { list: list, at: (list.len() as i32) - 1 };
 }
 
-pub fn next__4<'s, T: Clone>(__p: &mut __Iter_reversed_List<'s, T>) -> Union2<&'s T, Finished> {
+pub fn next__6<'s, T: Clone>(__p: &mut __Iter_reversed_List<'s, T>) -> Union2<&'s T, Finished> {
     let mut elem = __p.list.get((__p.at) as i64 as usize);
     if elem.is_none() {
         return Union2::U2(finished());
@@ -100,7 +101,7 @@ pub fn indices<T: Clone>(list: &Vec<T>) -> __Iter_indices_List<'_, T> {
     return __Iter_indices_List { list: list, at: 0 };
 }
 
-pub fn next__5<T: Clone>(__p: &mut __Iter_indices_List<'_, T>) -> Union2<i32, Finished> {
+pub fn next__7<T: Clone>(__p: &mut __Iter_indices_List<'_, T>) -> Union2<i32, Finished> {
     if __p.at >= (__p.list.len() as i32) {
         return Union2::<i32, Finished>::U2(finished());
     }
@@ -119,7 +120,7 @@ pub fn rev_indices<T: Clone>(list: &Vec<T>) -> __Iter_rev_indices_List<'_, T> {
     return __Iter_rev_indices_List { list: list, at: (list.len() as i32) - 1 };
 }
 
-pub fn next__6<T: Clone>(__p: &mut __Iter_rev_indices_List<'_, T>) -> Union2<i32, Finished> {
+pub fn next__8<T: Clone>(__p: &mut __Iter_rev_indices_List<'_, T>) -> Union2<i32, Finished> {
     if __p.at < 0 {
         return Union2::<i32, Finished>::U2(finished());
     }
@@ -144,7 +145,7 @@ pub fn enumerate<T: Clone>(list: &Vec<T>) -> __Iter_enumerate_List<'_, T> {
     return __Iter_enumerate_List { list: list, at: 0 };
 }
 
-pub fn next__7<'a, T: Clone>(__p: &mut __Iter_enumerate_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
+pub fn next__9<'a, T: Clone>(__p: &mut __Iter_enumerate_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
     let mut elem = __p.list.get((__p.at) as i64 as usize);
     if elem.is_none() {
         return Union2::<Enumerated<'_, T>, Finished>::U2(finished());
@@ -164,7 +165,7 @@ pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> __Iter_enumerate_rev_List<'_, T
     return __Iter_enumerate_rev_List { list: list, at: (list.len() as i32) - 1 };
 }
 
-pub fn next__8<'a, T: Clone>(__p: &mut __Iter_enumerate_rev_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
+pub fn next__10<'a, T: Clone>(__p: &mut __Iter_enumerate_rev_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
     let mut elem = __p.list.get((__p.at) as i64 as usize);
     if elem.is_none() {
         return Union2::<Enumerated<'_, T>, Finished>::U2(finished());

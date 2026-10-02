@@ -3,13 +3,14 @@ package salvo.core.string
 import salvo.*
 import salvo.core.array.*
 import salvo.core.bytes.*
+import salvo.core.deque.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 
-fun iter__8(str: String): StrYield {
+fun iter__9(str: String): StrYield {
     return StrYield(text = str, at = 0)
 }
 
@@ -18,7 +19,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__12(p: StrYield): Union2<Char, Finished> {
+fun next__14(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return Union2.U2<Char, Finished>(finished())

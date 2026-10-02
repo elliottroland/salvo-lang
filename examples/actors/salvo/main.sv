@@ -85,8 +85,8 @@ handler Bookkeeping() [Counter] of Ledger {
 
 // ===== 4. a queue of obligations =====
 //
-// A `Reply<T>` is linear, and a `Mut List<Reply<Str>>` is therefore linear
-// too: the queue owes, and `drain` is what ends it. This is the shape a real
+// A `Reply<T>` is linear, and a `Mut Deque<Reply<Str>>` is therefore linear
+// too — a deque, since requests are answered in arrival order: the queue owes, and `drain` is what ends it. This is the shape a real
 // actor uses to hold requests it cannot answer yet.
 actor effect Desk {
     send fn ticket(out: Reply<Str>) => !out
@@ -100,10 +100,10 @@ actor effect Desk {
 handler Desking(room: Int) of Desk {
     mailbox { capacity: room }
 
-    waiting: Mut List<Reply<Str>> = mut_list_of()
+    waiting: Mut Deque<Reply<Str>> = mut_deque_of()
 
     send fn ticket(out: Reply<Str>) {
-        add(waiting, out)
+        add_last(waiting, out)
     }
 
     // One obligation leaves the queue. `remove_first` *moves* it out and
@@ -122,7 +122,7 @@ handler Desking(room: Int) of Desk {
     // in it — the actor owns those obligations until it ends.
     send fn close_up(reason: Str) {
         drain(waiting, r -> send(r, "closed: ${reason}"))
-        waiting = mut_list_of()
+        waiting = mut_deque_of()
     }
 }
 

@@ -1714,6 +1714,12 @@ facts worth knowing") and keeps the history ("One shape for effects").
     into user output, where a warning is noise the user cannot fix.
   * The test's list of modules is what makes it complete rather than a
     sample, so a new runtime module belongs there the moment it exists.
+* [rs-deque] [col-deque] `Deque<T>` and `Mut Deque<T>` are
+  `std::collections::VecDeque<T>`; the surface is `push_back`/`push_front`,
+  `pop_front`/`pop_back`, `remove`, `get`/`front`/`back`, `len() as i32`.
+  An empty `deque_of()` spells its element type from the call's resolved type
+  argument (`VecDeque::<T>::new()`), since rustc cannot infer it from an
+  unconstrained temporary.
 * [rs-collections] The insertion-ordered `Set`/`Map` [col-insertion-order]
   are such a module: `runtime/collections.rs` defines `SalvoSet`/`SalvoMap`,
   because Rust's standard library has no ordered hash container (`HashMap`

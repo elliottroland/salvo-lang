@@ -6063,10 +6063,10 @@ fn a_mutable_use_of_a_narrowed_place_borrows_the_storage() {
     let src = &main.content;
     for needle in [
         // The optional, and the `state` slot inside the generated pass.
-        "next__3(p.as_mut().unwrap())",
-        "next__3(__p.inner.as_mut().unwrap())",
+        "next__5(p.as_mut().unwrap())",
+        "next__5(__p.inner.as_mut().unwrap())",
         // The union arm.
-        "next__3(q.u1_mut())",
+        "next__5(q.u1_mut())",
         // The assignment base.
         "r.as_mut().unwrap().at = 2",
     ] {
@@ -7619,9 +7619,10 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
     // again when `reversed`/`enumerate` (then `indices`) brought more (the
     // refinement-types sequence, step 0, 2026-09-23), and again when
     // `indices`/`rev_indices` and `enumerate`/`enumerate_rev` became separate
-    // `iter fn`s (the iterator redesign, 2026-09-27).
+    // `iter fn`s (the iterator redesign, 2026-09-27), and again when
+    // `core.deque` brought its pass and `reversed` (2026-10-02).
     assert!(
-        main.contains("next__17(&console, &mut __loop"),
+        main.contains("next__19(&console, &mut __loop"),
         "expected the handler threaded into the drive:\n{main}"
     );
 }
@@ -15053,7 +15054,7 @@ fn a_loops_temporary_subject_is_hoisted() {
         main.content
     );
     assert!(
-        main.content.contains("let mut __loop1_pass = iter__3(&__t1);"),
+        main.content.contains("let mut __loop1_pass = iter__4(&__t1);"),
         "…and the pass must borrow the local:\n{}",
         main.content
     );
@@ -15221,7 +15222,7 @@ fn a_qualified_argument_still_binds_an_implicits_type_variable() {
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     // Both calls fill `?next` from `core.list`, not from the sibling `Sib`.
     assert_eq!(
-        main.content.matches("next__3(").count(),
+        main.content.matches("next__5(").count(),
         2,
         "both calls must drive the list's `next`:\n{}",
         main.content

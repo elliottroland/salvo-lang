@@ -231,7 +231,7 @@ fun readLines(fs: Fs, streams: Streams, path: String): Union2<List<String>, Chec
     val p = lines((opened.value as InStream))
     val out: MutableList<String> = mutableListOf<String>()
     while (true) {
-        val __loop1_step = next__13(streams, p)
+        val __loop1_step = next__15(streams, p)
         if (__loop1_step !is Union2.U1<String, Finished>) { break }
         val line = __loop1_step.value
         out.add(line)

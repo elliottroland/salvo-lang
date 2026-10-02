@@ -8983,6 +8983,13 @@ impl<'p> Emitter<'p> {
             Ty::Named { name, .. } if name == "Bytes" => {
                 return Some(format!("salvo.SalvoBytes({code})"));
             }
+            // [col-deque] One class serves `Deque` and `Mut Deque`, so even a
+            // plain deque may be an object someone else mutates: copy it.
+            Ty::Named { name, args: targs } if name == "Deque" => {
+                if targs.iter().all(|t| self.ty_immutable(t, &mut Vec::new())) {
+                    return Some(format!("kotlin.collections.ArrayDeque({code})"));
+                }
+            }
             Ty::Named { name, args: targs } if has_mut && name == "List" => {
                 if targs.iter().all(|t| self.ty_immutable(t, &mut Vec::new())) {
                     return Some(format!("{code}.toMutableList()"));

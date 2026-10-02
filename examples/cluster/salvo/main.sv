@@ -115,11 +115,11 @@ actor effect Gather {
 // `examples/actors/` explains.
 handler Gathering() of Gather {
     mailbox { capacity: 16 }
-    pending: Mut List<Reply<Int>> = mut_list_of()
+    pending: Mut Deque<Reply<Int>> = mut_deque_of()
     left: Int = 0
     total: Int = 0
     send fn scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>) => !word, !members, !out {
-        add(pending, out)
+        add_last(pending, out)
         left = size(members)
         total = 0
         for m in members {
@@ -157,9 +157,9 @@ actor effect Race {
 
 handler Racing() of Race {
     mailbox { capacity: 16 }
-    pending: Mut List<Reply<Str>> = mut_list_of()
+    pending: Mut Deque<Reply<Str>> = mut_deque_of()
     send fn race(key: Str, members: List<Addr<Lookup>>, out: Reply<Str>) => !key, !members, !out {
-        add(pending, out)
+        add_last(pending, out)
         for m in members {
             m.lookup(copy(key), replyto first())
         }

@@ -16,7 +16,7 @@ fun<K, V> get__2(map: Map<K, V>, key: K): V {
     return map[key]!!
 }
 
-fun<K, V> iter__4(map: Map<K, V>): MapKeyYield<K> {
+fun<K, V> iter__5(map: Map<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }
 
@@ -33,7 +33,7 @@ class __Codec_MapKeyYield<K>(private val __c_K: salvo.WireCodec<K>) : salvo.Wire
     override fun dec(inp: salvo.WireIn): MapKeyYield<K> = MapKeyYield(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<K> next__9(p: MapKeyYield<K>): Union2<K, Finished> {
+fun<K> next__11(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
         return Union2.U2<K, Finished>(finished())

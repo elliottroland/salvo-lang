@@ -122,7 +122,7 @@ fun<T> first(list: List<T>): T {
     return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:259:12"))
 }
 
-fun<T> iter__3(list: List<T>): ListYield<T> {
+fun<T> iter__4(list: List<T>): ListYield<T> {
     return ListYield(items = list, at = 0)
 }
 
@@ -131,7 +131,7 @@ data class ListYield<T>(
     var at: Int,
 )
 
-fun<T> next__3(p: ListYield<T>): Union2<T, Finished> {
+fun<T> next__5(p: ListYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return Union2.U2<T, Finished>(finished())
@@ -145,11 +145,11 @@ data class __Iter_reversed_List<T>(
     var at: Int,
 )
 
-fun<T> reversed(list: List<T>): __Iter_reversed_List<T> {
+fun<T> reversed__2(list: List<T>): __Iter_reversed_List<T> {
     return __Iter_reversed_List(list = list, at = list.size - 1)
 }
 
-fun<T> next__4(__p: __Iter_reversed_List<T>): Union2<T, Finished> {
+fun<T> next__6(__p: __Iter_reversed_List<T>): Union2<T, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
         return Union2.U2<T, Finished>(finished())
@@ -167,7 +167,7 @@ fun<T> indices(list: List<T>): __Iter_indices_List<T> {
     return __Iter_indices_List(list = list, at = 0)
 }
 
-fun<T> next__5(__p: __Iter_indices_List<T>): Union2<Int, Finished> {
+fun<T> next__7(__p: __Iter_indices_List<T>): Union2<Int, Finished> {
     if (__p.at >= __p.list.size) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -185,7 +185,7 @@ fun<T> revIndices(list: List<T>): __Iter_rev_indices_List<T> {
     return __Iter_rev_indices_List(list = list, at = list.size - 1)
 }
 
-fun<T> next__6(__p: __Iter_rev_indices_List<T>): Union2<Int, Finished> {
+fun<T> next__8(__p: __Iter_rev_indices_List<T>): Union2<Int, Finished> {
     if (__p.at < 0) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -208,7 +208,7 @@ fun<T> enumerate(list: List<T>): __Iter_enumerate_List<T> {
     return __Iter_enumerate_List(list = list, at = 0)
 }
 
-fun<T> next__7(__p: __Iter_enumerate_List<T>): Union2<Enumerated<T>, Finished> {
+fun<T> next__9(__p: __Iter_enumerate_List<T>): Union2<Enumerated<T>, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
         return Union2.U2<Enumerated<T>, Finished>(finished())
@@ -227,7 +227,7 @@ fun<T> enumerateRev(list: List<T>): __Iter_enumerate_rev_List<T> {
     return __Iter_enumerate_rev_List(list = list, at = list.size - 1)
 }
 
-fun<T> next__8(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finished> {
+fun<T> next__10(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finished> {
     val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
         return Union2.U2<Enumerated<T>, Finished>(finished())
@@ -271,7 +271,7 @@ fun<K, V> get__2(map: Map<K, V>, key: K): V {
     return map[key]!!
 }
 
-fun<K, V> iter__4(map: Map<K, V>): MapKeyYield<K> {
+fun<K, V> iter__5(map: Map<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }
 
@@ -288,7 +288,7 @@ class __Codec_MapKeyYield<K>(private val __c_K: salvo.WireCodec<K>) : salvo.Wire
     override fun dec(inp: salvo.WireIn): MapKeyYield<K> = MapKeyYield(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<K> next__9(p: MapKeyYield<K>): Union2<K, Finished> {
+fun<K> next__11(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
         return Union2.U2<K, Finished>(finished())
@@ -311,7 +311,7 @@ import salvo.core.map.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
-fun<T> iter__5(set: Set<T>): SetYield<T> {
+fun<T> iter__6(set: Set<T>): SetYield<T> {
     return SetYield(items = set.toMutableList(), at = 0)
 }
 
@@ -328,7 +328,7 @@ class __Codec_SetYield<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCod
     override fun dec(inp: salvo.WireIn): SetYield<T> = SetYield(salvo.ListCodec(__c_T).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<T> next__11(p: SetYield<T>): Union2<T, Finished> {
+fun<T> next__13(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return Union2.U2<T, Finished>(finished())
@@ -349,11 +349,11 @@ import salvo.core.map.*
 import salvo.core.set.*
 import salvo.core.string.*
 
-fun<T> iter__6(set: java.util.SortedSet<T>): SetYield<T> {
+fun<T> iter__7(set: java.util.SortedSet<T>): SetYield<T> {
     return SetYield(items = set.toMutableList(), at = 0)
 }
 
-fun<K, V> iter__7(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
+fun<K, V> iter__8(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }
 
@@ -391,7 +391,7 @@ import salvo.core.map.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 
-fun iter__8(str: String): StrYield {
+fun iter__9(str: String): StrYield {
     return StrYield(text = str, at = 0)
 }
 
@@ -400,7 +400,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__12(p: StrYield): Union2<Char, Finished> {
+fun next__14(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return Union2.U2<Char, Finished>(finished())
