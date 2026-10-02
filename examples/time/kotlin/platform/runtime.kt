@@ -48,6 +48,48 @@ fun guarded(body: () -> Unit): String? =
         t.message ?: t.javaClass.simpleName
     }
 
+// [runtime-sched] `linear platform type Dyn`: an erased value.
+class Dyn(val v: Any?)
+
+fun <T> erase(v: T): Dyn = Dyn(v)
+
+@Suppress("UNCHECKED_CAST")
+fun <T> unerase(d: Dyn): T = d.v as T
+
+fun dropDyn(d: Dyn) {}
+
+// [runtime-sched] `linear platform type Body`: what an activation runs.
+class Body(val f: (Dyn) -> Unit)
+
+fun bodyOf(f: (Dyn) -> Unit): Body = Body(f)
+
+fun activate(b: Body, msg: Dyn): salvo.runtime.Ran =
+    try {
+        b.f(msg)
+        salvo.runtime.Ran(b, null)
+    } catch (t: Throwable) {
+        salvo.runtime.Ran(b, t.message ?: t.javaClass.simpleName)
+    }
+
+fun dropBody(b: Body) {}
+
+// [runtime-sched] `linear platform type Slot<T>`: a cell of at most one value.
+class Slot<T>(var v: T?)
+
+fun <T> slotOf(v: T): Slot<T> = Slot(v)
+
+fun <T> slotTake(s: Slot<T>): T? {
+    val out = s.v
+    s.v = null
+    return out
+}
+
+fun <T> slotPut(s: Slot<T>, v: T) {
+    s.v = v
+}
+
+fun dropSlot(s: Slot<Body>) {}
+
 // `threadsafe platform handler HostRuntime` [runtime-host]: stateless but for
 // the `SecureRandom`, which is itself thread-safe.
 class HostRuntime : salvo.runtime.RuntimeHostPlatform {

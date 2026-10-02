@@ -55,6 +55,68 @@ pub fn guarded(body: Box<dyn FnOnce() + Send + 'static>) -> Option<String> {
     }
 }
 
+// [runtime-sched] `linear platform type Dyn`: an erased value.
+pub struct Dyn {
+    v: Box<dyn std::any::Any + Send>,
+}
+
+pub fn erase<T: Send + 'static>(v: T) -> Dyn {
+    Dyn { v: Box::new(v) }
+}
+
+pub fn unerase<T: Send + 'static>(d: Dyn) -> T {
+    *d.v.downcast::<T>().expect("salvo: an erased value read back as another type [runtime-sched]")
+}
+
+pub fn drop_dyn(d: Dyn) {
+    drop(d);
+}
+
+// [runtime-sched] `linear platform type Body`: what an activation runs.
+pub struct Body {
+    f: Box<dyn FnMut(Dyn) + Send>,
+}
+
+pub fn body_of(f: Box<dyn FnMut(Dyn) + Send + 'static>) -> Body {
+    Body { f }
+}
+
+pub fn activate(mut b: Body, msg: Dyn) -> crate::runtime::Ran {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (b.f)(msg)));
+    let fault = outcome.err().map(|p| {
+        p.downcast_ref::<&str>()
+            .map(|m| (*m).to_string())
+            .or_else(|| p.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "fault".to_string())
+    });
+    crate::runtime::Ran { body: b, fault }
+}
+
+pub fn drop_body(b: Body) {
+    drop(b);
+}
+
+// [runtime-sched] `linear platform type Slot<T>`: a cell of at most one value.
+pub struct Slot<T: Send + 'static> {
+    v: Option<T>,
+}
+
+pub fn slot_of<T: Send + 'static>(v: T) -> Slot<T> {
+    Slot { v: Some(v) }
+}
+
+pub fn slot_take<T: Send + 'static>(s: &mut Slot<T>) -> Option<T> {
+    s.v.take()
+}
+
+pub fn slot_put<T: Send + 'static>(s: &mut Slot<T>, v: T) {
+    s.v = Some(v);
+}
+
+pub fn drop_slot(s: Slot<Body>) {
+    drop(s);
+}
+
 // `threadsafe platform handler HostRuntime` [runtime-host]: stateless, so
 // sharing it across every thread needs no synchronization.
 pub struct HostRuntime;

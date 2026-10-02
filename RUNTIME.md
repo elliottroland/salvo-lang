@@ -1125,6 +1125,12 @@ keeps both backends passing the full suite.
     with `linear struct Actor canbe Mut { …, queue: Mut Deque<…> }`, an
     element reached by `get(actors, i)!` after a bounds check (the
     optional-handle shape is a pre-existing [rs-loc] limit on Rust).
+11d. ✅ (part) **The local scheduler core**, 2026-10-02 [runtime-sched]:
+    actor table, pools and parked workers, send with back-pressure,
+    activations, death — beside the hosts' schedulers, tested in
+    `std/runtime.test.sv` on both backends. Next: waiters (`waitfor`),
+    tasks, the gate and replies, watches, the fault sink, `on_idle`, the
+    deadlock report; then the cutover and routing.
 11. **The scheduler in Salvo**: the local scheduler and routing together,
     `RuntimeHost` as the platform handler, actor bodies as E10 values moved
     in and out, payloads as `Dyn`, tasks as closures, waiting through

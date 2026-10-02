@@ -7661,6 +7661,17 @@ between endpoints and delivers what arrives into the scheduler.
   the argument becomes a `move` closure, so a capture that is not `Send`, or
   is used after the call, is rustc's refusal — the runtime is std's, and that
   is the check of last resort there; Kotlin needs nothing.
+* [runtime-sched] **The scheduler, in Salvo, in progress** (RUNTIME.md §11.5
+  step 11): built in the core beside the backends' own and driven by
+  `std/runtime.test.sv` until it covers theirs, then the emitters switch.
+  So far: the `Scheduler` monitor (an actor table of `linear struct
+  ActorRec canbe Mut` records, each with a `Slot<Body>` and a `Mut
+  Deque<Dyn>` mailbox), pools of worker threads that park when idle, send
+  with back-pressure (a sender parks on a full mailbox, woken by the next
+  dequeue), activations in the fault boundary, and death (the mailbox
+  dropped, later sends the no-op). Host types: `Dyn` (an erased value),
+  `Body` (an activation, `activate(b, msg) -> Ran`), `Slot<T>` (a cell a
+  linear value is taken from and put back into through `Mut`).
 * [mod-use] **A module-level `use H()` binds an effect for every function of
   its module**, without any of them declaring it (user decision 2026-10-02,
   RUNTIME.md E4): bound once, on first use, for the life of the process, and

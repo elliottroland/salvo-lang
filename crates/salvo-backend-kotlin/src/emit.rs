@@ -2342,6 +2342,31 @@ impl<'p> Emitter<'p> {
     /// [platform-type] The module declaring platform type `name`, which is
     /// recorded as needing its implementation file.
     fn platform_type_module(&mut self, name: &str) -> Option<ModulePath> {
+        // The declaring module as this file sees it: its own first, then an
+        // import of it, then any (names are unique among what is visible).
+        let own = self.program.files[self.file_idx].module.clone();
+        let declares = |m: &ModulePath| {
+            self.program.units().any(|u| {
+                u.file.module == *m
+                    && u.ast.items.iter().any(|i| matches!(i, Item::Type(t) if t.platform && t.name.name == name))
+            })
+        };
+        let imported = self.program.modules[self.file_idx].items.iter().find_map(|i| match i {
+            Item::Import(imp) => {
+                let path: Vec<String> = imp.path.iter().map(|p| p.name.clone()).collect();
+                let m = if path.last().is_some_and(|l| l == name) {
+                    ModulePath(path[..path.len() - 1].to_vec())
+                } else {
+                    ModulePath(path)
+                };
+                declares(&m).then_some(m)
+            }
+            _ => None,
+        });
+        if let Some(m) = (declares(&own).then_some(own)).or(imported) {
+            self.platform_hosts.insert(m.clone());
+            return Some(m);
+        }
         let module = self.program.units().find_map(|u| {
             u.ast
                 .items

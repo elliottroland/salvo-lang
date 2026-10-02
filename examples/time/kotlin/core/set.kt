@@ -1,6 +1,7 @@
 package salvo.core.set
 
 import salvo.*
+import salvo.core.deque.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*

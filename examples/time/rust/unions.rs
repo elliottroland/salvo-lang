@@ -67,3 +67,91 @@ where
         }
     }
 }
+
+impl<T1: crate::wire::__Wire, T2: crate::wire::__Wire, T3: crate::wire::__Wire> crate::wire::__Wire for Union3<T1, T2, T3> {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            Union3::U1(v) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(v, out);
+            }
+            Union3::U2(v) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(v, out);
+            }
+            Union3::U3(v) => {
+                out.push(2);
+                crate::wire::__Wire::__enc(v, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(Union3::U1(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(Union3::U2(crate::wire::__Wire::__dec(r)?)),
+            2 => Some(Union3::U3(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Union3<T1, T2, T3> {
+    U1(T1),
+    U2(T2),
+    U3(T3),
+}
+
+impl<T1, T2, T3> Union3<T1, T2, T3> {
+    pub fn u1(&self) -> &T1 {
+        match self {
+            Union3::U1(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u1_mut(&mut self) -> &mut T1 {
+        match self {
+            Union3::U1(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u2(&self) -> &T2 {
+        match self {
+            Union3::U2(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u2_mut(&mut self) -> &mut T2 {
+        match self {
+            Union3::U2(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u3(&self) -> &T3 {
+        match self {
+            Union3::U3(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u3_mut(&mut self) -> &mut T3 {
+        match self {
+            Union3::U3(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+}
+
+impl<T1, T2, T3> std::fmt::Display for Union3<T1, T2, T3>
+where
+    T1: std::fmt::Display,
+    T2: std::fmt::Display,
+    T3: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Union3::U1(v) => write!(f, "{}", v),
+            Union3::U2(v) => write!(f, "{}", v),
+            Union3::U3(v) => write!(f, "{}", v),
+        }
+    }
+}

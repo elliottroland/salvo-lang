@@ -2934,12 +2934,24 @@ impl<'p> Emitter<'p> {
         // representation a generated pass has always used for a stored
         // callback [iter-fn]. `dyn Fn` has no `Debug`, so a struct
         // with one gets a hand-written `Debug` instead of the derive.
-        let fn_fields: Vec<String> = s
+        let mut fn_fields: Vec<String> = s
             .fields
             .iter()
             .filter(|f| matches!(f.ty, Type::Fn { .. }))
             .map(|f| rs_ident(&f.name.name))
             .collect();
+        // [rs-host-fields] A field holding a host object (a platform type) or
+        // a reply token has no `Debug`/`PartialEq` — and for a linear one,
+        // no `Clone` — so the struct derives what its fields support and
+        // prints those fields opaquely, as it does a fn field.
+        let mut no_clone = false;
+        for f in &s.fields {
+            let (opaque, uncloneable) = self.host_field_limits(&f.ty, 0);
+            if opaque && !fn_fields.contains(&rs_ident(&f.name.name)) {
+                fn_fields.push(rs_ident(&f.name.name));
+            }
+            no_clone |= uncloneable;
+        }
         // [col-equality] Every struct supports `==`, so `PartialEq` is derived
         // unless a fn-typed field makes equality meaningless (`Rc<dyn Fn>` has
         // none). A struct's own `cmp`/`eq`/`hash` are **Salvo functions** —
@@ -2969,6 +2981,8 @@ impl<'p> Emitter<'p> {
                 items.push("Ord");
             }
             format!("#[derive({})]", items.join(", "))
+        } else if no_clone {
+            String::new()
         } else {
             "#[derive(Clone)]".to_string()
         };
@@ -3086,6 +3100,50 @@ impl<'p> Emitter<'p> {
     /// as `<fn>`. Written rather than derived because `dyn Fn` has no
     /// `Debug` — and needed rather than dropped, since `{:?}` on a struct is
     /// how `${…}` interpolation renders one [rs-display].
+    /// [rs-host-fields] Whether a field type reaches a host value without
+    /// `Debug`/`PartialEq` (any platform type, a reply token), and whether it
+    /// reaches one without `Clone` (a linear platform type, a reply token) —
+    /// through type arguments and the fields of the structs it names.
+    fn host_field_limits(&self, ty: &Type, depth: usize) -> (bool, bool) {
+        if depth > 6 {
+            return (false, false);
+        }
+        match ty {
+            Type::Named { base, .. } => {
+                let name = base.name.name.as_str();
+                let mut opaque = false;
+                let mut uncloneable = false;
+                if name == "Reply" {
+                    opaque = true;
+                    uncloneable = true;
+                } else if let Some(t) = self.symbols.intrinsic_types.get(name).filter(|t| t.platform) {
+                    opaque = true;
+                    uncloneable = t.linear;
+                } else if let Some(st) = self.symbols.structs.get(name) {
+                    for f in &st.fields {
+                        let (o, u) = self.host_field_limits(&f.ty, depth + 1);
+                        opaque |= o;
+                        uncloneable |= u;
+                    }
+                }
+                for a in &base.args {
+                    let (o, u) = self.host_field_limits(a, depth + 1);
+                    opaque |= o;
+                    uncloneable |= u;
+                }
+                (opaque, uncloneable)
+            }
+            Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
+                arms.iter().fold((false, false), |(o, u), t| {
+                    let (o2, u2) = self.host_field_limits(t, depth + 1);
+                    (o || o2, u || u2)
+                })
+            }
+            Type::QualifiedGroup { base, .. } => self.host_field_limits(base, depth + 1),
+            _ => (false, false),
+        }
+    }
+
     fn emit_fn_field_debug(&mut self, s: &StructDecl, fn_fields: &[String]) -> String {
         let name = rs_ident(&s.name.name);
         let args = if s.generics.is_empty() {
@@ -10486,6 +10544,20 @@ impl<'p> Emitter<'p> {
                     let subj = self.place_storage(subject);
                     out.push_str(&format!(
                         "{pad}let mut {} = {subj}.unwrap();\n",
+                        rs_ident(&binding.name)
+                    ));
+                    continue;
+                }
+                // [rs-linear-move] …and out of one arm of a union held in a
+                // local: the subject is moved and the arm's payload taken,
+                // where the accessor path would clone a borrow of it.
+                if let Some(t) = self.is_test_of(is_span).filter(|t| linear && t.size >= 2 && t.arms.len() == 1) {
+                    let subj = self.place_storage(subject);
+                    let arm = format!("Union{}::U{}", t.size, t.arms[0] + 1);
+                    let (pat, wrap) = if t.nullable { (format!("Some({arm}(__v))"), "") } else { (format!("{arm}(__v)"), "") };
+                    let _ = wrap;
+                    out.push_str(&format!(
+                        "{pad}let mut {} = match {subj} {{ {pat} => __v, _ => unreachable!() }};\n",
                         rs_ident(&binding.name)
                     ));
                     continue;

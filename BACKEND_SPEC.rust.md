@@ -1576,6 +1576,15 @@ facts worth knowing") and keeps the history ("One shape for effects").
   the `use` statement would emit; every fn of the module starts its effect
   environment with the accessor call as the entry, so a call threads
   `__module_use_N()` where a declared effect threads its parameter.
+* [rs-host-fields] A struct whose fields reach a host value — any platform
+  type, or a `Reply` — derives what those support: no `Debug`/`PartialEq`
+  (a hand-written `Debug` prints such a field as `<fn>`, as for a fn field),
+  and no `Clone` at all when the value is linear (a linear platform type, a
+  reply token). `host_field_limits` walks type arguments and named structs'
+  fields.
+* [rs-linear-move] A binding taking a linear payload out of one **arm of a
+  union** held in a local (`while r is Full f`) moves it with a `match`, as
+  the plain-optional shape moves with `unwrap` (2026-10-02).
 * [rs-platform-type] [platform-type] The declaring module re-exports the
   host's struct — `pub use crate::platform_<m>::Name;` — so every mention is
   the ordinary path, beside a static assertion of the kind's contract

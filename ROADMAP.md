@@ -69,7 +69,8 @@ stream table in its own runtime file), 4 (the group protocol in `net.sv`)
 types and fns) 8 (`Parker`), 9
 (monitor re-entry traps on Kotlin) and the first half of 10 (module-level
 `use` in the runtime module, `RuntimeHost`) 11a (deadlines in Salvo), 11b
-(`start_thread`, `guarded`) and 11c (projections of linear elements). When the sequence completes, RUNTIME.md
+(`start_thread`, `guarded`), 11c (projections of linear elements) and the
+first part of 11d (the local scheduler core, beside the hosts'). When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
 ### 0b — Three slow tests (recorded 2026-10-02, to investigate)
@@ -136,6 +137,14 @@ a correct program from building. std works around the first by naming.
 4. **Calling a fn value with its own result as the argument is E0499 on
    Rust**: `f(f(x))` for `f: (n: Int) -> Int` borrows `*f` mutably twice. A
    `let y = f(x)` first works. The emitter should hoist the inner call.
+6. **A `return` inside a lambda in a function that may throw** (a test body)
+   is wrong on both backends: Rust returns `ControlFlow::Continue(())` from a
+   closure typed `()` (E0308), Kotlin a bare `return` from a lambda (refused).
+   Refused by the host compilers, so not silent. `std/runtime.test.sv` uses
+   `if`/`else` instead.
+7. **A `when` arm passing a linear union arm onward clones it on Rust**
+   (`is Full { drop_full(r) }` emits `r.u3().clone()`, E0308 when the arm is
+   not `Clone`). The `is` binding form moves (`if r is Full f`).
 5. **A generic fn calling a generic platform fn does not compile on Rust**:
    the platform fn bounds its `T` `Send + 'static` [platform-generic] and a
    generic Salvo fn bounds its own `T: Clone` only. Either every generic fn

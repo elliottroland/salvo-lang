@@ -135,6 +135,31 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The local scheduler core in Salvo, first part (2026-10-02; RUNTIME.md
+§11.5 slice 11d).** In `std/runtime.sv`, beside the hosts' schedulers: a
+`Scheduler` monitor bound at module level holding the actor table (`linear
+struct ActorRec canbe Mut` records reached by `get(actors, i)!`), pools whose
+worker threads (`start_thread`) park when idle and are unparked by an
+enqueue, send with back-pressure (a sender's parker recorded on a full
+mailbox, woken by the next dequeue), activations through `activate` in the
+fault boundary, and death. New host types `Dyn`, `Body` (built from a Salvo fn
+value with `body_of`), and `Slot<T>` — a cell a linear value is taken from and
+put back into through `Mut`, which is how a body leaves the table for an
+activation (a map could not hold one: Rust's `SalvoMap` needs `V: Clone`).
+Two Rust emitter gaps found and fixed: a struct with a host-value field
+derived `Clone`/`Debug`/`PartialEq` it cannot have [rs-host-fields], and an
+`is` binding out of a union arm cloned where it must move [rs-linear-move].
+Two recorded (ROADMAP 0c 6–7): `return` in a lambda inside a throwing fn,
+and a `when` arm passing a linear union arm onward. Also fixed: Kotlin named a
+platform type by the first module declaring that name anywhere (std's `Dyn`
+captured a test program's own), now the file's own module or its import; and a
+private runtime fn named `work` renumbered a user's `work` on Rust (renamed
+`serve_pool` — std's private names still share the mangling space). Tested in
+`std/runtime.test.sv` on both backends: fifty messages through a
+four-message mailbox arrive in order; a faulting actor dies, later sends to
+it are dropped, and its pool keeps working. **1679 tests** (two more std
+tests).
+
 **Projections of linear elements (user decision 2026-10-02; RUNTIME.md
 §11.5 slice 11c).** A spike of the runtime's actor table — a monitor holding
 `Mut List<Mut Actor>` of `linear struct Actor canbe Mut` records with a

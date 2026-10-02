@@ -19,6 +19,8 @@ pub mod core_actor;
 pub mod core_checked;
 #[path = "core/console.rs"]
 pub mod core_console;
+#[path = "core/deque.rs"]
+pub mod core_deque;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]

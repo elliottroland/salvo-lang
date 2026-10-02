@@ -7,6 +7,7 @@ import salvo.core.actor.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
 import salvo.core.console.*
+import salvo.core.deque.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.result.*
