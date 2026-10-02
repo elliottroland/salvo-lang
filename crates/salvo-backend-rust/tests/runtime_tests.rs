@@ -20,8 +20,15 @@ use std::process::Command;
 /// Every static runtime module, with the emitter accessor that ships it.
 /// A new one belongs here the moment it exists — the list is what makes
 /// this test complete rather than a sample.
-const RUNTIME_MODULES: &[&str] =
-    &["strings.rs", "seq.rs", "collections.rs", "scheduler.rs", "hosttime.rs", "wire.rs"];
+const RUNTIME_MODULES: &[&str] = &[
+    "strings.rs",
+    "seq.rs",
+    "collections.rs",
+    "scheduler.rs",
+    "hoststreams.rs",
+    "hosttime.rs",
+    "wire.rs",
+];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.
@@ -50,13 +57,16 @@ fn compile_runtime_module(file: &str) {
     // name each other (a remote send encodes; an addr's codec asks the
     // scheduler for its identity), so they are checked as one crate here,
     // mounted as the emitter mounts them.
-    let source = if file == "scheduler.rs" || file == "wire.rs" {
+    // [stream-table] …and the stream table draws its handles from the
+    // scheduler, so it is checked mounted beside it.
+    let source = if file == "scheduler.rs" || file == "wire.rs" || file == "hoststreams.rs" {
         let hosttime = runtime_source("hosttime.rs");
         let wire = runtime_source("wire.rs");
         let scheduler = runtime_source("scheduler.rs");
+        let hoststreams = runtime_source("hoststreams.rs");
         format!(
             "pub mod hosttime {{\n{hosttime}\n}}\npub mod wire {{\n{wire}\n}}\n\
-             pub mod scheduler {{\n{scheduler}\n}}\n"
+             pub mod scheduler {{\n{scheduler}\n}}\npub mod hoststreams {{\n{hoststreams}\n}}\n"
         )
     } else {
         source

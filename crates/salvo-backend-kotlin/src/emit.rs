@@ -304,6 +304,12 @@ fn emit_program_mode(
             rel_path: std::path::PathBuf::from("scheduler.kt"),
             content: generate_scheduler_file(),
         });
+        // [stream-table] The host stream table travels with the scheduler,
+        // whose handle counter it draws from [stream-handle].
+        files.push(EmittedFile {
+            rel_path: std::path::PathBuf::from("hoststreams.kt"),
+            content: include_str!("../runtime/hoststreams.kt").to_string(),
+        });
     }
     if needs_time {
         files.push(EmittedFile {

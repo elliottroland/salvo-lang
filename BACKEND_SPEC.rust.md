@@ -1564,7 +1564,7 @@ facts worth knowing") and keeps the history ("One shape for effects").
   | `struct S { f: T }` | `pub struct S { pub f: T }`, built with a literal of every field; a dot-name `A.B` is `AB`; a field that is a Rust keyword is `r#f` |
   | `Checked<T>` | `crate::core_checked::Checked { value: T }` |
   | `Reply<T>` parameter | `crate::scheduler::SalvoReply`; `.hosted()` answers the `SalvoHostReply` whose `send(v)` may run on any thread, exactly once [platform-reply] |
-  | `InStream` / `OutStream` | `crate::stream::InStream { handle: i64 }`; the table is `crate::scheduler::salvo_stream_register_in/out`, `salvo_stream_in/out`, `salvo_stream_take_in/out`, over `SalvoIn`/`SalvoOut` [stream-table] |
+  | `InStream` / `OutStream` | `crate::stream::InStream { handle: i64 }`; the table is `crate::hoststreams::salvo_stream_register_in/out`, `salvo_stream_in/out`, `salvo_stream_take_in/out`, over `SalvoIn`/`SalvoOut` [stream-table] |
   | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
 

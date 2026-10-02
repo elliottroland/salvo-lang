@@ -16,7 +16,7 @@ use std::process::Command;
 /// it is here now, which is what makes this test complete rather than a
 /// sample.)
 const RUNTIME_MODULES: &[&str] =
-    &["throwsignal.kt", "compare.kt", "bytes.kt", "scheduler.kt", "hosttime.kt", "wire.kt"];
+    &["throwsignal.kt", "compare.kt", "bytes.kt", "scheduler.kt", "hoststreams.kt", "hosttime.kt", "wire.kt"];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.
@@ -61,8 +61,9 @@ fn compile_runtime_module(file: &str) {
     // (the typed send encodes; the `Addr` codec asks the scheduler), and the
     // wire names `SalvoBytes`: the three travel with the scheduler.
     let mut sources = vec![src.clone()];
-    if file == "scheduler.kt" || file == "wire.kt" {
-        for companion in ["hosttime.kt", "bytes.kt", "scheduler.kt", "wire.kt"] {
+    // [stream-table] The stream table draws its handles from the scheduler.
+    if file == "scheduler.kt" || file == "wire.kt" || file == "hoststreams.kt" {
+        for companion in ["hosttime.kt", "bytes.kt", "scheduler.kt", "wire.kt", "hoststreams.kt"] {
             if companion == file {
                 continue;
             }

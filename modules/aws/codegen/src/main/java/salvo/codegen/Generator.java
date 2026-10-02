@@ -1007,7 +1007,7 @@ final class Generator {
             // now — the token was given up with the input — and streamed from
             // a blocking thread once the task runs. A handle another table
             // minted traps here [stream-provider].
-            out.append("        let body = crate::scheduler::salvo_stream_take_in(input.")
+            out.append("        let body = crate::hoststreams::salvo_stream_take_in(input.")
                     .append(rsIdent(salvoField(inStream))).append(".handle);\n");
             out.append("        let length = input.").append(rsIdent(salvoField(lengthOf(input(op).get()))))
                     .append(";\n");
@@ -1247,7 +1247,7 @@ final class Generator {
                 /// runtime — so each read blocks on the next chunk through [rt].
                 fn salvo_register_body(source: &str, body: %1$s, rt: &tokio::runtime::Handle) -> i64 {
                     let reader = SalvoBody { rt: rt.clone(), body, chunk: Vec::new(), at: 0 };
-                    crate::scheduler::salvo_stream_register_in(source.to_string(), Box::new(reader), 0)
+                    crate::hoststreams::salvo_stream_register_in(source.to_string(), Box::new(reader), 0)
                 }
 
                 /// A response body as `std::io::Read`.
@@ -1285,7 +1285,7 @@ final class Generator {
                 /// failure, recorded in the answer's slot and sent to the SDK as an error
                 /// frame. Not retryable: a stream is read once.
                 fn salvo_upload(
-                    body: std::sync::Arc<std::sync::Mutex<crate::scheduler::SalvoIn>>,
+                    body: std::sync::Arc<std::sync::Mutex<crate::hoststreams::SalvoIn>>,
                     length: i64,
                 ) -> (SalvoUpload, std::sync::Arc<std::sync::Mutex<Option<String>>>) {
                     let (tx, rx) = tokio::sync::mpsc::channel::<std::io::Result<bytes::Bytes>>(4);
@@ -1293,9 +1293,9 @@ final class Generator {
                     let record = problem.clone();
                     tokio::task::spawn_blocking(move || {
                         let mut stream = body.lock().unwrap();
-                        let fault = |source: &str, f: crate::scheduler::SalvoFault| match f {
-                            crate::scheduler::SalvoFault::Utf8 => format!("{source}: not valid UTF-8"),
-                            crate::scheduler::SalvoFault::Failed(m) => format!("{source}: {m}"),
+                        let fault = |source: &str, f: crate::hoststreams::SalvoFault| match f {
+                            crate::hoststreams::SalvoFault::Utf8 => format!("{source}: not valid UTF-8"),
+                            crate::hoststreams::SalvoFault::Failed(m) => format!("{source}: {m}"),
                         };
                         let mut left = length as u64;
                         let failed: Option<String> = loop {

@@ -4134,7 +4134,9 @@ Conventions:
     [RawStreams] of Streams`, which wraps failures in `Checked<StreamError>`
     and discharges the tokens in Salvo.
 * [stream-table] **One host stream table per process**, in each backend's
-  runtime (`scheduler.rs` / `scheduler.kt`, which every program carries):
+  runtime (`hoststreams.rs` / `hoststreams.kt`, shipped beside the scheduler
+  whose handle counter it draws from; named so it cannot collide with a
+  program's own `streams` module [backend-companion]):
   `salvo_stream_register_in/out` (Rust) and `SalvoStreams.registerIn/Out`
   (Kotlin) take a source description and an `io::Read`/`InputStream` (or the
   write side), answer a handle from [stream-handle], and `HostRawStreams`

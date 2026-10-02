@@ -8,7 +8,7 @@
 use crate::stream::*;
 use crate::unions::*;
 
-use crate::scheduler::{SalvoFault, SalvoIn};
+use crate::hoststreams::{SalvoFault, SalvoIn};
 
 /// `stream.StreamError`, as the generated union.
 type Kind = Union2<InvalidUtf8, StreamFailed>;
@@ -41,7 +41,7 @@ impl HostRawStreams {
 
 impl crate::stream_host::RawStreamsPlatformSync for HostRawStreams {
     fn raw_read_line(&self, handle: i64) -> Option<String> {
-        let slot = crate::scheduler::salvo_stream_in(handle);
+        let slot = crate::hoststreams::salvo_stream_in(handle);
         let mut stream = slot.lock().unwrap();
         match stream.read_line_bytes() {
             Ok(Some(bytes)) => decode(&mut stream, bytes).ok(),
@@ -50,7 +50,7 @@ impl crate::stream_host::RawStreamsPlatformSync for HostRawStreams {
     }
 
     fn raw_read_all(&self, handle: i64) -> Union2<String, Kind> {
-        let slot = crate::scheduler::salvo_stream_in(handle);
+        let slot = crate::hoststreams::salvo_stream_in(handle);
         let mut stream = slot.lock().unwrap();
         match stream.read_all_bytes() {
             Ok(bytes) => match decode(&mut stream, bytes) {
@@ -70,7 +70,7 @@ impl crate::stream_host::RawStreamsPlatformSync for HostRawStreams {
     }
 
     fn raw_read_to_bytes(&self, handle: i64, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Kind> {
-        let slot = crate::scheduler::salvo_stream_in(handle);
+        let slot = crate::hoststreams::salvo_stream_in(handle);
         let mut stream = slot.lock().unwrap();
         match stream.read_up_to(buf, max.max(0) as usize) {
             Ok(n) => Union2::U1(n as i32),
@@ -100,11 +100,11 @@ impl crate::stream_host::RawStreamsPlatformSync for HostRawStreams {
     }
 
     fn raw_read_position(&self, handle: i64) -> i64 {
-        crate::scheduler::salvo_stream_in(handle).lock().unwrap().position
+        crate::hoststreams::salvo_stream_in(handle).lock().unwrap().position
     }
 
     fn raw_close_read(&self, handle: i64) -> Union2<(), Kind> {
-        let slot = crate::scheduler::salvo_stream_take_in(handle);
+        let slot = crate::hoststreams::salvo_stream_take_in(handle);
         let stream = slot.lock().unwrap();
         match stream.failed.clone() {
             Some(f) => Union2::U2(kind(&stream.source, f)),
@@ -113,23 +113,23 @@ impl crate::stream_host::RawStreamsPlatformSync for HostRawStreams {
     }
 
     fn raw_write(&self, handle: i64, text: &String) -> i64 {
-        let slot = crate::scheduler::salvo_stream_out(handle);
+        let slot = crate::hoststreams::salvo_stream_out(handle);
         let mut stream = slot.lock().unwrap();
         stream.write_data(text.as_bytes())
     }
 
     fn raw_write_bytes(&self, handle: i64, data: &Vec<u8>) -> i64 {
-        let slot = crate::scheduler::salvo_stream_out(handle);
+        let slot = crate::hoststreams::salvo_stream_out(handle);
         let mut stream = slot.lock().unwrap();
         stream.write_data(data)
     }
 
     fn raw_write_position(&self, handle: i64) -> i64 {
-        crate::scheduler::salvo_stream_out(handle).lock().unwrap().position
+        crate::hoststreams::salvo_stream_out(handle).lock().unwrap().position
     }
 
     fn raw_flush(&self, handle: i64) -> Union2<(), Kind> {
-        let slot = crate::scheduler::salvo_stream_out(handle);
+        let slot = crate::hoststreams::salvo_stream_out(handle);
         let mut stream = slot.lock().unwrap();
         match stream.flush_data() {
             Ok(()) => Union2::U1(()),
@@ -143,7 +143,7 @@ impl crate::stream_host::RawStreamsPlatformSync for HostRawStreams {
     /// caller has nothing left to close.
     fn raw_receive(&self, handle: i64, reply: crate::scheduler::SalvoReply) {
         let reply = reply.hosted();
-        let slot = crate::scheduler::salvo_stream_in(handle);
+        let slot = crate::hoststreams::salvo_stream_in(handle);
         std::thread::spawn(move || {
             let mut buf = Vec::new();
             let got = {
@@ -156,11 +156,11 @@ impl crate::stream_host::RawStreamsPlatformSync for HostRawStreams {
             let answer: Union3<Vec<u8>, End, Kind> = match got {
                 Ok(()) if !buf.is_empty() => Union3::U1(buf),
                 Ok(()) => {
-                    crate::scheduler::salvo_stream_take_in(handle);
+                    crate::hoststreams::salvo_stream_take_in(handle);
                     Union3::U2(End {})
                 }
                 Err(k) => {
-                    crate::scheduler::salvo_stream_take_in(handle);
+                    crate::hoststreams::salvo_stream_take_in(handle);
                     Union3::U3(k)
                 }
             };
@@ -171,7 +171,7 @@ impl crate::stream_host::RawStreamsPlatformSync for HostRawStreams {
     /// [stream-from-bytes] A readable stream over `data`, registered in the
     /// process's table.
     fn raw_from_bytes(&self, data: Vec<u8>) -> i64 {
-        crate::scheduler::salvo_stream_register_in(
+        crate::hoststreams::salvo_stream_register_in(
             "<bytes>".to_string(),
             Box::new(std::io::Cursor::new(data)),
             0,
@@ -179,7 +179,7 @@ impl crate::stream_host::RawStreamsPlatformSync for HostRawStreams {
     }
 
     fn raw_close_write(&self, handle: i64) -> Union2<(), Kind> {
-        let slot = crate::scheduler::salvo_stream_take_out(handle);
+        let slot = crate::hoststreams::salvo_stream_take_out(handle);
         let mut stream = slot.lock().unwrap();
         match stream.flush_data() {
             Ok(()) => Union2::U1(()),

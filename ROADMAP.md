@@ -62,8 +62,39 @@ over a small `RuntimeHost` platform handler, instead of twice by hand
 is the working document**: the survey, every decision (D1–D11, platform types
 in §12, the language expansions E1–E10 in §11.2), and the order of work in
 **§11.5**, which is this item's sequence — take the next step there. Done so
-far: steps 1 (the benchmark baseline) and 2 (forged identities). When the sequence completes, RUNTIME.md
+far: steps 1 (the benchmark baseline), 2 (forged identities) and 3 (the
+stream table in its own runtime file). When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
+
+### 0b — Three slow tests (recorded 2026-10-02, to investigate)
+
+The user asked for these to be looked at together; they have been a problem
+for a while. Measured 2026-10-02 on an M1 Pro, at a load average of 125–290
+from outside the suite:
+
+1. **`kotlinc_compiles_and_runs_every_case`** (Kotlin `codegen_tests`).
+   Under `SALVO_E2E_FRESH=1 cargo nextest run` it hit nextest's 360 s
+   timeout (`slow-timeout` 30 s × 12, `.config/nextest.toml`) on both of
+   that day's commits; alone it passes in ~200 s. Warm, with every stamp
+   hitting, it still costs ~31 s, all of it building the `KOTLIN_CASES`
+   registry (each case runs parse + check + emit over std) before any stamp
+   is consulted.
+2. **`every_example_has_a_kotlin_case`** (same binary). Builds the whole
+   registry too, only to read each case's `tag`, so it pays the same ~31 s
+   in parallel with (1) for a check that needs no emission at all.
+3. **The `salvo-testkit` hygiene test** (`hygiene_tests.rs`), ~10–11 s warm
+   on every run.
+
+Together they are why a warm `cargo test` takes ~1m02 against the ~15 s
+budget in AGENTS.md. Leads, from the earlier records: the 2026-09-21 skip
+gate fixed (1) under `SALVO_SKIP_E2E` only; the stamp stays keyed on the
+generated sources (user decision 2026-09-25), so the cheap options are
+those that avoid building a case whose stamp would hit — caching the
+emission beside the verdict, emitting std once and sharing it across cases,
+or a registry of tags that (2) can read without building anything. For the
+fresh-run timeout: whether the batch kotlinc invocations scale with the
+machine's free cores, and whether the driver should be split so nextest can
+schedule its parts.
 
 ### 1 — ✅ The std reorganisation (complete 2026-09-26)
 
@@ -1034,17 +1065,7 @@ several are "revisit only if a customer appears".
   owned `(K, V)` and Kotlin cannot copy a generic `V`, so identity-sharing would
   alias mutable values. The answer is probably the snapshot shape the key iterator
   uses, over a `List<(K, V)>`.
-- **Test-suite speed** — the stamp key stays **keyed on the generated sources**
-  (user decision 2026-09-25): it cannot go stale, and that is worth more than the
-  seconds a cheaper key would save. If it ever bites, the options in order:
-  a source-keyed stamp plus an emitter-version token; caching the emission beside
-  the verdict; emitting `std` once per source and running many; shrinking the
-  registry. Measure first: how much of the Kotlin binary's ~15s is `std`
-  re-emission versus per-case work. (Measured 2026-09-30: a warm `cargo test`
-  right after a full one took 1m00 against the ~15s budget; the Kotlin
-  `codegen_tests` binary was 29s of it, `kotlinc_compiles_and_runs_every_case`
-  and `every_example_has_a_kotlin_case` ~25s each in parallel with every stamp
-  hitting — case building alone — and the hygiene test 11s.)
+- **Test-suite speed** — now sequence item 0b (2026-10-02).
 - **Locators through opaque anchors, branded tokens, and the bounds-check
   mitigation ladder** — the group-borrowing ladder's recorded refinements, with
   GhostCell declined on the record (a brand is a scope-bound *lifetime* and actor

@@ -135,6 +135,18 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The host stream table in its own runtime file (2026-10-02; RUNTIME.md
+§11.5 step 3).** `SalvoIn`/`SalvoOut` and the table moved out of
+`scheduler.rs`/`scheduler.kt` into `hoststreams.rs`/`hoststreams.kt`, emitted
+and mounted whenever the scheduler is (it draws from the scheduler's handle
+counter). Host code names `crate::hoststreams::…` on Rust (std's `fs` and
+`stream` hosts, aws's S3 glue and its generator); Kotlin is one package, so
+nothing there changed. What fell out: the first name, `streams.rs`, collided
+with a test program's own `streams` module and the emitter's duplicate-path
+check refused it [backend-companion], which is the `hosttime` lesson again —
+a runtime file needs a name no program would choose. Also recorded with this
+commit: ROADMAP item 0b, the three slow tests (user request). **1668 tests.**
+
 **Forged identities share one dead entry (2026-10-02; RUNTIME.md §11.5
 step 2).** `importAddr` answered a fresh dead entry for every identity of
 this node that failed the bits check, so a peer sending forged addrs could

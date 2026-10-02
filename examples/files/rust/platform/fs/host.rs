@@ -73,7 +73,7 @@ impl HostRawFs {
 impl crate::fs_host::RawFsPlatform for HostRawFs {
     fn raw_open_read(&mut self, path: &String) -> Union2<i64, Kind> {
         match std::fs::File::open(path) {
-            Ok(file) => Union2::U1(crate::scheduler::salvo_stream_register_in(
+            Ok(file) => Union2::U1(crate::hoststreams::salvo_stream_register_in(
                 path.clone(),
                 Box::new(BufReader::new(file)),
                 0,
@@ -89,7 +89,7 @@ impl crate::fs_host::RawFsPlatform for HostRawFs {
                 if let Err(e) = file.seek(std::io::SeekFrom::Start(offset.max(0) as u64)) {
                     return err_long(kind_of(path, &e));
                 }
-                Union2::U1(crate::scheduler::salvo_stream_register_in(
+                Union2::U1(crate::hoststreams::salvo_stream_register_in(
                     path.clone(),
                     Box::new(BufReader::new(file)),
                     offset.max(0),
@@ -101,7 +101,7 @@ impl crate::fs_host::RawFsPlatform for HostRawFs {
 
     fn raw_open_write(&mut self, path: &String) -> Union2<i64, Kind> {
         match std::fs::File::create(path) {
-            Ok(file) => Union2::U1(crate::scheduler::salvo_stream_register_out(
+            Ok(file) => Union2::U1(crate::hoststreams::salvo_stream_register_out(
                 path.clone(),
                 Box::new(BufWriter::new(file)),
                 0,
@@ -114,7 +114,7 @@ impl crate::fs_host::RawFsPlatform for HostRawFs {
         match std::fs::OpenOptions::new().append(true).create(true).open(path) {
             Ok(file) => {
                 let position = file.metadata().map(|m| m.len() as i64).unwrap_or(0);
-                Union2::U1(crate::scheduler::salvo_stream_register_out(
+                Union2::U1(crate::hoststreams::salvo_stream_register_out(
                     path.clone(),
                     Box::new(BufWriter::new(file)),
                     position,

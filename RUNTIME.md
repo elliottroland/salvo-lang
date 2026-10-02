@@ -1041,8 +1041,8 @@ keeps both backends passing the full suite.
    because a remote peer can trigger it: `importAddr` answers one shared
    dead entry per process instead of minting a new one per failed identity.
    A few lines in each runtime, and worth not waiting for the port.
-3. **Move the host stream table** out of the scheduler files into its own
-   runtime file. Preparation only.
+3. ✅ **Move the host stream table** out of the scheduler files into its own
+   runtime file (built 2026-10-02: `hoststreams.rs` / `hoststreams.kt`).
 4. **The group protocol moves to `net.sv`** (D5, §3.3). Frames 4–9 go to a
    control actor `net.sv` registers, `node_left(node)` marks a departed
    node's proxies dead, and the five group builders go. The scheduler keeps

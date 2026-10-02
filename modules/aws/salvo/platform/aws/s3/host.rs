@@ -72,7 +72,7 @@ impl crate::aws_s3::S3PlatformSync for HostS3 {
     fn put_object(&self, input: PutObjectInput, reply: crate::scheduler::SalvoReply) {
         let reply = reply.hosted();
         let client = self.client.clone();
-        let body = crate::scheduler::salvo_stream_take_in(input.body.handle);
+        let body = crate::hoststreams::salvo_stream_take_in(input.body.handle);
         let length = input.content_length;
         let call = client.put_object()
             .set_acl(input.acl.as_ref().map(|x| aws_sdk_s3::types::ObjectCannedAcl::from(x.as_str())))
@@ -341,7 +341,7 @@ fn salvo_date_time(at: &crate::time::Instant) -> aws_sdk_s3::primitives::DateTim
 /// runtime — so each read blocks on the next chunk through [rt].
 fn salvo_register_body(source: &str, body: aws_sdk_s3::primitives::ByteStream, rt: &tokio::runtime::Handle) -> i64 {
     let reader = SalvoBody { rt: rt.clone(), body, chunk: Vec::new(), at: 0 };
-    crate::scheduler::salvo_stream_register_in(source.to_string(), Box::new(reader), 0)
+    crate::hoststreams::salvo_stream_register_in(source.to_string(), Box::new(reader), 0)
 }
 
 /// A response body as `std::io::Read`.
@@ -379,7 +379,7 @@ impl std::io::Read for SalvoBody {
 /// failure, recorded in the answer's slot and sent to the SDK as an error
 /// frame. Not retryable: a stream is read once.
 fn salvo_upload(
-    body: std::sync::Arc<std::sync::Mutex<crate::scheduler::SalvoIn>>,
+    body: std::sync::Arc<std::sync::Mutex<crate::hoststreams::SalvoIn>>,
     length: i64,
 ) -> (SalvoUpload, std::sync::Arc<std::sync::Mutex<Option<String>>>) {
     let (tx, rx) = tokio::sync::mpsc::channel::<std::io::Result<bytes::Bytes>>(4);
@@ -387,9 +387,9 @@ fn salvo_upload(
     let record = problem.clone();
     tokio::task::spawn_blocking(move || {
         let mut stream = body.lock().unwrap();
-        let fault = |source: &str, f: crate::scheduler::SalvoFault| match f {
-            crate::scheduler::SalvoFault::Utf8 => format!("{source}: not valid UTF-8"),
-            crate::scheduler::SalvoFault::Failed(m) => format!("{source}: {m}"),
+        let fault = |source: &str, f: crate::hoststreams::SalvoFault| match f {
+            crate::hoststreams::SalvoFault::Utf8 => format!("{source}: not valid UTF-8"),
+            crate::hoststreams::SalvoFault::Failed(m) => format!("{source}: {m}"),
         };
         let mut left = length as u64;
         let failed: Option<String> = loop {

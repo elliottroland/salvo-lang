@@ -392,6 +392,12 @@ fn emit_program_mode(
             rel_path: std::path::PathBuf::from("scheduler.rs"),
             content: generate_scheduler_file(),
         });
+        // [stream-table] The host stream table travels with the scheduler,
+        // whose handle counter it draws from [stream-handle].
+        files.push(EmittedFile {
+            rel_path: std::path::PathBuf::from("hoststreams.rs"),
+            content: include_str!("../runtime/hoststreams.rs").to_string(),
+        });
     }
     if needs_time {
         files.push(EmittedFile {
@@ -547,6 +553,7 @@ fn emit_program_mode(
         }
         if needs_scheduler {
             mounts.push(("scheduler".to_string(), runtime("scheduler")));
+            mounts.push(("hoststreams".to_string(), runtime("hoststreams")));
         }
         if needs_time {
             mounts.push(("hosttime".to_string(), runtime("hosttime")));
