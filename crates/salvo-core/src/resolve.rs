@@ -921,7 +921,10 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
             let Item::Import(import) = item else { continue };
             // [mod-std-internal] The runtime module is std's own: a program
             // cannot import it, whole or by name.
-            if !file.is_std && import.path.first().is_some_and(|seg| seg.name == STD_INTERNAL) {
+            // The test harness (`salvo test`'s synthesized module) imports a
+            // test annex by path to run it, std's own included.
+            let harness = file.module.0.first().is_some_and(|m| m == "__salvo_test_main");
+            if !file.is_std && !harness && import.path.first().is_some_and(|seg| seg.name == STD_INTERNAL) {
                 ctx.errors.push(FileDiagnostic::error(
                     file_idx,
                     import.span,

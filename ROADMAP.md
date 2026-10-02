@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1676 tests green.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1676 tests green; std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -65,8 +65,8 @@ in §12, the language expansions E1–E10 in §11.2), and the order of work in
 far: steps 1 (the benchmark baseline), 2 (forged identities), 3 (the
 stream table in its own runtime file), 4 (the group protocol in `net.sv`)
 5 (`std/runtime.sv` as std's own module; platform `Never`) and 6
-(`Deque`) 7 (platform types, fn values at the boundary) and 7b (generic platform
-types and fns). When the sequence completes, RUNTIME.md
+(`Deque`) 7 (platform types, fn values at the boundary) 7b (generic platform
+types and fns) and 8 (`Parker`). When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
 ### 0b — Three slow tests (recorded 2026-10-02, to investigate)

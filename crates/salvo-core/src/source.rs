@@ -607,6 +607,19 @@ impl SourceSet {
         }
         self.files
             .retain(|f| !f.is_std || !shadowed.contains(&f.module));
+        // A shadowing module brings its own companions (a std tree on disk
+        // carries its platform files), which replace the embedded ones at the
+        // same output path: the embedded std was added first, so the last
+        // companion for a path is the one that stays.
+        let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        let mut kept: Vec<CompanionFile> = Vec::new();
+        for c in std::mem::take(&mut self.companions).into_iter().rev() {
+            if !shadowed.contains(&c.module) || seen.insert(c.rel_path.clone()) {
+                kept.push(c);
+            }
+        }
+        kept.reverse();
+        self.companions = kept;
         let mut notes = Vec::new();
         for file in &mut self.files {
             if !file.is_test && file.dependency.is_none() && shadowed.contains(&file.module) {

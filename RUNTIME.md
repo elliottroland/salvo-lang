@@ -1083,7 +1083,8 @@ keeps both backends passing the full suite.
    [platform-generic]; `Dyn` with `erase`/`unerase` is a few lines of host
    code over them (the test writes it), and lands in the runtime module with
    step 11.
-8. **E3, the `Parker`** platform type.
+8. ✅ **E3, the `Parker`** platform type, built 2026-10-02 in
+   `std/runtime.sv` [runtime-parker], with `std/runtime.test.sv`.
 9. **Monitor reentrance agrees on both backends** (§2.3 item 4). Kotlin's
    `__Mon_E` refuses a re-entry through the handle with a trap naming it,
    as Rust's `Mutex` would deadlock; a member calling a sibling member

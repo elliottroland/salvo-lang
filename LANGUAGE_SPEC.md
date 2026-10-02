@@ -7629,6 +7629,20 @@ between endpoints and delivers what arrives into the scheduler.
   import, naming the rule. The path is the marker (`STD_INTERNAL` in
   `resolve.rs`): no syntax, and a program cannot declare a module of that
   path either, since std's own would collide with it.
+* [runtime-parker] **`runtime.Parker` is one thread's park/unpark token**
+  (user decision 2026-10-02, RUNTIME.md E3), a `threadsafe platform type`
+  with `this_parker()`, `park(p)`, `park_nanos(p, n)` and `unpark(p)`,
+  implemented in std's platform root over `std::thread::park`/`unpark` and
+  `LockSupport`. An `unpark` before the `park` makes the next `park` return at
+  once — one token, not a count — which is what lets a scheduler record a
+  parker in its state and park outside its lock without losing a wakeup; a
+  park may also return spuriously, so a waiter loops. Parking on another
+  thread's parker traps. Private to the runtime module [mod-std-internal].
+  * Found building it: a std tree on disk that shadows the embedded one
+    ([std-shadow], `salvo test --src std`) brought its platform files *beside*
+    the embedded copies, and the duplicate was refused as a collision; the
+    shadowing copy now replaces the embedded one at the same output path.
+  * The test harness may import `runtime.test`, since it runs std's annexes.
 * [mod-import-module] `import time` imports a whole **module** — every name
   in it (user decision 2026-09-18, with `core.time` moved out to module
   `time`: a std surface that is not implicitly visible needs one line to

@@ -135,6 +135,18 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`Parker` (2026-10-02; RUNTIME.md §11.5 step 8, E3).** The runtime module's
+first declarations: `threadsafe platform type Parker` and four platform fns
+[runtime-parker], implemented by hand in `std/platform/runtime.{rs,kt}` over
+`std::thread::{park, park_timeout, Thread::unpark}` and `LockSupport`, and
+tested in `std/runtime.test.sv` (the token survives until one park; a timed
+park returns). What fell out: `salvo test --src std` — a std tree on disk
+shadowing the embedded one — kept both copies of a reached platform file
+and refused the second as a collision; `apply_std_shadow` now drops the
+embedded companion a shadowing module replaces (it had never been hit, as no
+std test reached a platform file before). And the test harness needed leave
+to import `runtime.test` under [mod-std-internal]. **1676 tests** (three more std tests, run inside `std_tests_pass`).
+
 **Generic platform types and fns (2026-10-02; RUNTIME.md E1).** A platform
 type or platform fn may have type parameters, opaque to the host
 [platform-generic]: Rust bounds them `Send + 'static` and never `Clone` (so a
