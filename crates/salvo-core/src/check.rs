@@ -2774,9 +2774,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // that performs no Salvo effect: no generics, no
                     // implicits, no effect list beyond `[]`.
                     if f.platform {
-                        let why = if !f.generics.is_empty() {
-                            Some("may not be generic: the host writes one concrete function")
-                        } else if f.params.iter().any(|p| p.implicit) {
+                        // [platform-generic] Type parameters are allowed
+                        // (RUNTIME.md E1): opaque to the host, which may only
+                        // store, move and hand one back.
+                        let why = if f.params.iter().any(|p| p.implicit) {
                             Some("may not take implicit parameters: the host has nothing to resolve them from")
                         } else if f.effects.as_ref().is_some_and(|e| !e.is_empty()) {
                             Some("may not declare effects: its body is host code, which performs no Salvo effect")
@@ -4214,12 +4215,6 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// handle would not mean what it means for a struct.
     fn check_platform_type(&mut self, t: &'p ast::TypeDecl) {
         let name = &t.name.name;
-        if !t.generics.is_empty() {
-            self.error(
-                t.name.span,
-                format!("`platform type {name}` may not be generic yet: the host writes one concrete class [platform-type]"),
-            );
-        }
         if !t.fn_slots.is_empty() {
             self.error(t.name.span, format!("`platform type {name}` declares no slots [platform-type]"));
         }

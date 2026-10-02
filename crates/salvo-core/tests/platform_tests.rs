@@ -356,7 +356,6 @@ fn platform_types_are_opaque_handles_in_three_kinds() {
     assert!(errs.is_empty(), "{errs:?}");
 
     let refused = [
-        ("platform type Box<T>\n", "may not be generic yet"),
         ("platform type Client canbe Mut\n", "only when it is `linear`"),
         ("threadsafe platform type Client canbe Mut\n", "only when it is `linear`"),
         ("platform type Client : Hashed<self> by auto\n", "cannot take an obligation clause"),

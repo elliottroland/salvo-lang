@@ -3889,6 +3889,12 @@ impl<'p> Emitter<'p> {
         let module = self.program.files[self.file_idx].module.clone();
         self.platform_hosts.insert(module.clone());
         let name = rs_ident(&t.name.name);
+        // [platform-generic] A generic one is asserted at a sample argument.
+        let sample = if t.generics.is_empty() {
+            name.clone()
+        } else {
+            format!("{name}<{}>", t.generics.iter().map(|_| "i32").collect::<Vec<_>>().join(", "))
+        };
         let mut bounds = vec!["Send", "'static"];
         if !t.linear {
             bounds.push("Clone");
@@ -3898,7 +3904,7 @@ impl<'p> Emitter<'p> {
         }
         format!(
             "\n/// [platform-type] The host's `{name}`.\npub use crate::{}::{name};\n\
-             const _: fn() = || {{ fn __contract<T: {}>() {{}} __contract::<{name}>(); }};\n",
+             const _: fn() = || {{ fn __contract<T: {}>() {{}} __contract::<{sample}>(); }};\n",
             host_mod_name(&module),
             bounds.join(" + ")
         )
@@ -3915,9 +3921,21 @@ impl<'p> Emitter<'p> {
         } else {
             ("#[derive(Clone)]\n", "copied as a handle: `Clone` (cheaply — an `Arc` inside) and `Send`")
         };
+        // [platform-generic] A type parameter is opaque: the host may store
+        // and move one, so the skeleton carries it as a phantom.
+        if t.generics.is_empty() {
+            return format!(
+                "\n// `platform type {}`: {what} [platform-type].\n{derive}pub struct {name} {{\n}}\n",
+                t.name.name
+            );
+        }
+        let ps: Vec<String> = t.generics.iter().map(|g| g.name.clone()).collect();
         format!(
-            "\n// `platform type {}`: {what} [platform-type].\n{derive}pub struct {name} {{\n}}\n",
-            t.name.name
+            "\n// `platform type {}`: {what}; its type parameters are opaque [platform-type].\n\
+             {derive}pub struct {name}<{}> {{\n    _of: std::marker::PhantomData<fn() -> ({},)>,\n}}\n",
+            t.name.name,
+            ps.iter().map(|p| format!("{p}: Send + 'static")).collect::<Vec<_>>().join(", "),
+            ps.join(", ")
         )
     }
 
@@ -5645,7 +5663,13 @@ impl<'p> Emitter<'p> {
                 // `Send + 'static` — the bounds the runtime's stores declare.
                 // A Salvo type always satisfies both; this only spells what the
                 // container needs at the one place it is needed.
-                if fn_key.is_some_and(|k| self.value_keyed_fns.contains(&k)) {
+                // [platform-generic] A platform fn's type parameter is opaque
+                // to the host, which may store, move and hand one back: the
+                // fixed bounds `Send + 'static` (which give `Any` for a
+                // downcast), never `Clone`, so a linear argument fits.
+                if f.platform {
+                    format!("{}: Send + 'static", g.name)
+                } else if fn_key.is_some_and(|k| self.value_keyed_fns.contains(&k)) {
                     format!("{}: Clone + Send + 'static", g.name)
                 } else {
                     format!("{}: Clone", g.name)

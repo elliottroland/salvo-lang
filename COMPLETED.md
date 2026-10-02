@@ -135,6 +135,20 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Generic platform types and fns (2026-10-02; RUNTIME.md E1).** A platform
+type or platform fn may have type parameters, opaque to the host
+[platform-generic]: Rust bounds them `Send + 'static` and never `Clone` (so a
+linear `T` fits), Kotlin plainly; the skeletons carry them (a Rust struct as a
+`PhantomData` of `fn() -> (T,)`, so its own bounds do not grow). What fell
+out: an erased payload (`Dyn`, `erase`, `unerase`) is ten lines of host code
+over this, with a linear value surviving the round trip on both backends;
+a reader answering `T` from a plain shared handle cannot be written without
+a copy, so by-value readers consume the handle; a generic Salvo fn calling a
+generic platform fn fails rustc (its `T` is only `Clone`), recorded as
+ROADMAP 0c item 5; the Kotlin skeleton's wrapper-name rewrite missed
+`fun<T> fooPlatform(` and is now position-independent. New test
+`generic_platform_types_and_fns_run_on_both_backends`. **1676 tests.**
+
 **Platform types and fn values at the boundary (user decisions 2026-10-02;
 RUNTIME.md §11.5 step 7, §12, E2/E5).** `platform type Name` — plain,
 `threadsafe`, or `linear` (the only kind that may be `canbe Mut`) — is an
@@ -19622,7 +19636,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1675; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1676; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

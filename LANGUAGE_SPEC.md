@@ -2202,8 +2202,9 @@ Conventions:
     2026-10-01, ABI.md); the wrapper is where boundary validation goes. A
     program reaching a platform fn whose implementation file is missing is a
     codegen error naming `salvo platform generate`.
-  * Not generic, no implicit parameters, no effects beyond `[]`: the host
-    writes one concrete function that performs no Salvo effect.
+  * No implicit parameters, no effects beyond `[]`: the host writes a
+    function that performs no Salvo effect. Type parameters are allowed and
+    opaque to the host [platform-generic].
   * **Two platform fns may not overload each other** (user decision
     2026-10-01, ABI.md D5): each gets its own namespace at the boundary. A
     platform fn may share its name with ordinary fns.
@@ -8193,9 +8194,21 @@ replaced the working document TESTING.md).
   * **Always `noremote`** [noremote] — a host object has no wire form — and
     sendable [actor-sendable] (Rust: `Send + 'static`), so a handle may sit
     in actor state or travel in a local message.
-  * **Refused for now**: type parameters (generic platform types are
-    RUNTIME.md E1, a later step), slots, an obligation clause (`by auto` has
-    no fields; comparisons are platform fns), an alias.
+  * **Refused**: slots, an obligation clause (`by auto` has no fields;
+    comparisons are platform fns), an alias.
+  * [platform-generic] **Type parameters are opaque to the host** (2026-10-02,
+    RUNTIME.md E1): `platform type Cell<T canbe linear>` and `platform fn
+    erase<T canbe linear>(v: T) -> Dyn`. The host may store a `T`, move it
+    and hand it back, nothing more: Rust bounds every parameter `Send +
+    'static` (which also gives `Any`, for a downcast) and never `Clone`, so a
+    linear argument fits; Kotlin takes a plain type parameter. Answering a
+    `T` from a *kept* plain handle would need a copy the host cannot make,
+    which is why a by-value reader takes the handle (`take(c: Cell<T>) => !c`).
+    A generic *Salvo* fn calling a generic platform fn needs its own `T` to
+    be `Send + 'static` on Rust, which a generic fn does not promise: rustc
+    refuses the program, recorded in ROADMAP 0c. Kotlin cannot check an
+    `unerase<T>` (its `T` is erased), so a mismatch surfaces where the value
+    is used — RUNTIME.md §12.4.
   * Nothing to check at the boundary [platform-check]: the value is opaque.
   * Lowering: [rs-platform-type], [kt-platform-type].
 * [platform-fn-value] **Function values cross the platform boundary,

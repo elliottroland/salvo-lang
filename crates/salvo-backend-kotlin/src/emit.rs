@@ -2350,8 +2350,13 @@ impl<'p> Emitter<'p> {
         } else {
             "copied as a handle: a copy shares this object"
         };
+        let params = if t.generics.is_empty() {
+            String::new()
+        } else {
+            format!("<{}>", t.generics.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", "))
+        };
         format!(
-            "\n// `platform type {}`: {what} [platform-type].\nclass {} {{\n}}\n",
+            "\n// `platform type {}`: {what} [platform-type].\nclass {}{params} {{\n}}\n",
             t.name.name, t.name.name
         )
     }
@@ -2542,9 +2547,11 @@ impl<'p> Emitter<'p> {
         let Some(open) = wrapper.find(" {\n") else {
             return String::new();
         };
+        // The wrapper's name is the real one plus `Platform`, wherever the
+        // generics put it (`fun<T> cellOfPlatform(`).
         let header = wrapper[..open].replacen(
-            &format!("{}{}", "fun ", kt_ident(&format!("{}_platform", f.name.name))),
-            &format!("{}{}", "fun ", kt_ident(&f.name.name)),
+            &format!("{}(", kt_ident(&format!("{}_platform", f.name.name))),
+            &format!("{}(", kt_ident(&f.name.name)),
             1,
         );
         format!("{header} {{\n{}}}\n", format!("    TODO(\"implement {}\")\n", f.name.name))

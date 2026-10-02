@@ -593,6 +593,116 @@ class HostApply : ApplyPlatform {
     __stamp.verified();
 }
 
+/// [platform-generic] Generic platform types and fns on both backends: the
+/// host stores, moves and hands back an opaque `T` (Rust bounds it `Send +
+/// 'static`, never `Clone`), which is enough to write an erased payload
+/// (`Dyn` with `erase`/`unerase`) — and a linear `T` travels through both.
+#[test]
+fn generic_platform_types_and_fns_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("generic_platform_types_and_fns_run_on_both_backends", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    const HOST_SV: &str = r#"export linear platform type Cell<T canbe linear>
+export linear platform type Dyn
+
+export platform fn cell_of<T canbe linear>(v: T) [] -> Cell<T> => !v
+export platform fn take<T canbe linear>(c: Cell<T>) [] -> T => !c
+export platform fn erase<T canbe linear>(v: T) [] -> Dyn => !v
+export platform fn unerase<T canbe linear>(d: Dyn) [] -> T => !d
+"#;
+    const MAIN_SV: &str = r#"import host
+
+struct Point { x: Int, y: Int }
+
+fn main() [use] {
+    use StdOutConsole()
+    let c = cell_of("hi")
+    println(take(c))
+    let d = erase(Point { x: 1, y: 2 })
+    let p: Point = unerase(d)
+    println("${p.x} ${p.y}")
+    let n: Int = unerase(erase(7))
+    println("${n}")
+    tickets()
+}
+
+linear struct Ticket { id: Int }
+
+fn redeem(t: Ticket) [Console] -> None => !t {
+    println("redeemed ${t.id}")
+    discard(t)
+}
+
+fn tickets() [Console] -> None {
+    let back: Ticket = take(cell_of(unerase<Ticket>(erase(Ticket { id: 9 }))))
+    redeem(back)
+}
+"#;
+    const HOST_RS: &str = r#"use crate::*;
+
+pub struct Cell<T: Send + 'static> {
+    v: T,
+}
+
+pub struct Dyn {
+    v: Box<dyn std::any::Any + Send>,
+}
+
+pub fn cell_of<T: Send + 'static>(v: T) -> Cell<T> {
+    Cell { v }
+}
+
+pub fn take<T: Send + 'static>(c: Cell<T>) -> T {
+    c.v
+}
+
+pub fn erase<T: Send + 'static>(v: T) -> Dyn {
+    Dyn { v: Box::new(v) }
+}
+
+pub fn unerase<T: Send + 'static>(d: Dyn) -> T {
+    *d.v.downcast::<T>().expect("salvo: an erased value read back as another type")
+}
+"#;
+    const HOST_KT: &str = r#"package salvo.platform.host
+
+import salvo.host.*
+
+class Cell<T>(val v: T)
+class Dyn(val v: Any?)
+
+fun <T> cellOf(v: T): Cell<T> = Cell(v)
+fun <T> take(c: Cell<T>): T = c.v
+fun <T> erase(v: T): Dyn = Dyn(v)
+@Suppress("UNCHECKED_CAST")
+fun <T> unerase(d: Dyn): T = d.v as T
+"#;
+    for (backend, tool, ext, sig, implementation) in [
+        ("kotlin", "kotlinc", "kt", "fun<T> unerase(d: salvo.platform.host.Dyn): T {", HOST_KT),
+        ("rust", "rustc", "rs", "pub fn unerase<T: Send + 'static>(d: Dyn) -> T {", HOST_RS),
+    ] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("pgen_{backend}"));
+        project(&dir);
+        fs::write(dir.join("host.sv"), HOST_SV).unwrap();
+        fs::write(dir.join("main.sv"), MAIN_SV).unwrap();
+        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
+        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
+        let path = dir.join("platform").join(format!("host.{ext}"));
+        let skeleton = fs::read_to_string(&path).unwrap();
+        assert!(skeleton.contains(sig), "{backend} skeleton:\n{skeleton}");
+        fs::write(&path, implementation).unwrap();
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "hi\n1 2\n7\nredeemed 9\n", "{backend}: {stderr}");
+    }
+    __stamp.verified();
+}
+
 /// [platform-tree] The tree mirrors the sources, per module: the implementation
 /// of a handler declared in `telemetry.sv` is `platform/telemetry.<ext>`, and
 /// a `use` of it from another module (`bin/tool.sv`, chosen with `--main`)

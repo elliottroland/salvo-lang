@@ -1079,6 +1079,10 @@ keeps both backends passing the full suite.
    programs, since a fn value is not sendable, and becomes the runtime
    module's privilege in step 11. Fixed on the way: an effect member taking
    a fn value never compiled on Rust (its trait was not object-safe).
+7b. ✅ **E1, generic platform types and fns**, built 2026-10-02
+   [platform-generic]; `Dyn` with `erase`/`unerase` is a few lines of host
+   code over them (the test writes it), and lands in the runtime module with
+   step 11.
 8. **E3, the `Parker`** platform type.
 9. **Monitor reentrance agrees on both backends** (§2.3 item 4). Kotlin's
    `__Mon_E` refuses a re-entry through the handle with a trap naming it,
