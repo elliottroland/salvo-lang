@@ -68,7 +68,8 @@ stream table in its own runtime file), 4 (the group protocol in `net.sv`)
 (`Deque`) 7 (platform types, fn values at the boundary) 7b (generic platform
 types and fns) 8 (`Parker`), 9
 (monitor re-entry traps on Kotlin) and the first half of 10 (module-level
-`use` in the runtime module, `RuntimeHost`) and 11a (deadlines in Salvo). When the sequence completes, RUNTIME.md
+`use` in the runtime module, `RuntimeHost`) 11a (deadlines in Salvo) and 11b
+(`start_thread`, `guarded`). When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
 ### 0b — Three slow tests (recorded 2026-10-02, to investigate)

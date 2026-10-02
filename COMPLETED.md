@@ -135,6 +135,17 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Kept fn values for the runtime: `start_thread` and `guarded` (2026-10-02;
+RUNTIME.md §11.5 slice 11b).** A platform fn of the runtime's modules that
+consumes a fn-typed parameter takes it owned [runtime-kept-fn]: on Rust a
+`Box<dyn FnOnce + Send + 'static>`, with the argument emitted as a boxed
+`move` closure (`keeps_fn_param`, `kept_fn_param_ty`); Kotlin unchanged. The
+core gains `start_thread` (a daemon thread) and `guarded` (the fault
+boundary), each a few host lines, tested by a thread waking the test's parker
+and a faulting body answered as its message. The primitives the scheduler's
+worker loop and activation need now all exist: parking, threads, the fault
+boundary, module-level state. **1678 tests** (two more std tests).
+
 **The runtime as a core and its services (user decision 2026-10-02;
 RUNTIME.md §5.4).** Prompted by the user's question of how a wheel written as
 an actor fits a scheduler written in Salvo: it is a client of the scheduler,

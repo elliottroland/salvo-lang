@@ -30,6 +30,14 @@ pub fn unpark_platform(p: &Parker) {
     crate::platform_runtime::unpark(p)
 }
 
+pub fn start_thread_platform(body: Box<dyn FnOnce() + Send + 'static>) {
+    crate::platform_runtime::start_thread(body)
+}
+
+pub fn guarded_platform(body: Box<dyn FnOnce() + Send + 'static>) -> Option<String> {
+    crate::platform_runtime::guarded(body)
+}
+
 pub trait __Stateless_RuntimeHost: Send + Sync {
     fn secure_bits(&self) -> i64;
     fn report(&self, line: &String);

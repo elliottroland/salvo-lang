@@ -2693,6 +2693,28 @@ impl<'p> Emitter<'p> {
     /// call, so its callbacks arrive owned and `'static`, shared internally
     /// through an `Rc`, rather than borrowed for the call. std stopped writing
     /// one when the lazy pair was removed (2026-09-10); a program still may.
+    /// [runtime-kept-fn] Whether `p` is a fn value the host keeps past the
+    /// call: a consumed (`=> !f`) fn-typed parameter of a platform fn of the
+    /// runtime's own modules — the runtime's privilege (RUNTIME.md §11.2,
+    /// E2's "host-kept thread body"); everywhere else a fn value is lent.
+    fn keeps_fn_param(&self, f: &FnDecl, p: &Param) -> bool {
+        if !f.platform || !(matches!(p.ty, Type::Fn { .. }) || is_once_fn_type(&p.ty)) {
+            return false;
+        }
+        let file = &self.program.files[self.file_of_fn(f)];
+        let runtime = file.is_std && file.module.0.first().is_some_and(|m| m == salvo_core::STD_INTERNAL);
+        runtime
+            && f.deductions.iter().flatten().any(|d| {
+                d.param_name().is_some_and(|n| n.name == p.name.name)
+                    && matches!(d.kind, salvo_syntax::ast::DeductionKind::Moved)
+            })
+    }
+
+    /// The file index declaring `f`.
+    fn file_of_fn(&self, f: &FnDecl) -> usize {
+        self.key_of_fn(f).map(|k| k.file).unwrap_or(self.file_idx)
+    }
+
     fn owns_callbacks(&self, key: salvo_core::FnKey) -> bool {
         let Some(decl) = self.fn_by_key(key) else {
             return false;
@@ -5913,6 +5935,11 @@ impl<'p> Emitter<'p> {
             // (`emit_member_param_list`).
             if matches!(style, FnStyle::HandlerMember(_)) {
                 ty = member_fn_param_ty(&p.ty, ty);
+            }
+            // [runtime-kept-fn] A fn value the runtime's host keeps (and may
+            // run on another thread) is owned, boxed and `Send + 'static`.
+            if self.keeps_fn_param(f, p) {
+                ty = kept_fn_param_ty(ty);
             }
             params.push(format!("{mut_kw}{}: {ty}", rs_ident(&p.name.name)));
         }
@@ -15238,8 +15265,15 @@ impl<'p> Emitter<'p> {
                 }
                 (None, None) => self.default_param_mode(&param.ty, param.variadic),
             };
-            self.pending_lambda_move = producer;
+            // [runtime-kept-fn] The host keeps this one: the closure owns its
+            // captures (`move`) and is boxed, as the signature takes it.
+            let kept = fn_key
+                .and_then(|k| self.fn_by_key(k))
+                .is_some_and(|decl| self.keeps_fn_param(decl, param));
+            self.pending_lambda_move = producer || kept;
+            let mode = if kept { ParamMode::Owned } else { mode };
             let code = self.emit_arg(arg, mode, Some(&param.ty));
+            let code = if kept { format!("Box::new({code})") } else { code };
             // [rs-effects] A `once` fn value given to an effect member is
             // boxed, as the member's `dyn`-compatible signature takes it.
             let code = if member.is_some() && is_once_fn_type(&param.ty) {
@@ -18909,4 +18943,14 @@ fn member_fn_param_ty(ty: &Type, rendered: String) -> String {
         }
     }
     rendered
+}
+
+/// [runtime-kept-fn] A kept fn value's type: `impl FnOnce(…)` /
+/// `&mut impl FnMut(…)` becomes `Box<dyn … + Send + 'static>`.
+fn kept_fn_param_ty(rendered: String) -> String {
+    let inner = rendered.strip_prefix("&mut ").unwrap_or(&rendered);
+    match inner.strip_prefix("impl ") {
+        Some(rest) => format!("Box<dyn {rest} + Send + 'static>"),
+        None => rendered,
+    }
 }

@@ -31,6 +31,23 @@ fun unpark(p: Parker) {
     LockSupport.unpark(p.thread)
 }
 
+// [runtime-kept-fn] A daemon thread, so it does not hold the JVM open after
+// `main` returns.
+fun startThread(body: () -> Unit) {
+    val t = Thread { body() }
+    t.isDaemon = true
+    t.start()
+}
+
+// [runtime-kept-fn] The fault boundary: a throw is answered as its message.
+fun guarded(body: () -> Unit): String? =
+    try {
+        body()
+        null
+    } catch (t: Throwable) {
+        t.message ?: t.javaClass.simpleName
+    }
+
 // `threadsafe platform handler HostRuntime` [runtime-host]: stateless but for
 // the `SecureRandom`, which is itself thread-safe.
 class HostRuntime : salvo.runtime.RuntimeHostPlatform {

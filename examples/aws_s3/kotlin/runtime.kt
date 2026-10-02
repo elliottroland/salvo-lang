@@ -24,6 +24,14 @@ fun unparkPlatform(p: salvo.platform.runtime.Parker) {
     return salvo.platform.runtime.unpark(p)
 }
 
+fun startThreadPlatform(body: () -> Unit) {
+    return salvo.platform.runtime.startThread(body)
+}
+
+fun guardedPlatform(body: () -> Unit): String? {
+    return salvo.platform.runtime.guarded(body)
+}
+
 interface RuntimeHost {
     fun secureBits(): Long
     fun report(line: String)

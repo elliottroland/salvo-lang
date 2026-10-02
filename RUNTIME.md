@@ -1116,6 +1116,9 @@ keeps both backends passing the full suite.
     Kotlin 118 ms (baseline 58 / 102, budget 87 / 153). A design point
     that fell out: timers are a service *on* the scheduler, not part of
     it — the scheduler port below needs no timer thread at all.
+11b. ✅ **Kept fn values in the runtime**, built 2026-10-02
+    [runtime-kept-fn]: `start_thread` and `guarded` in the core, implemented
+    in both hosts, tested in `std/runtime.test.sv`.
 11. **The scheduler in Salvo**: the local scheduler and routing together,
     `RuntimeHost` as the platform handler, actor bodies as E10 values moved
     in and out, payloads as `Dyn`, tasks as closures, waiting through

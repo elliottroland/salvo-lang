@@ -7644,6 +7644,16 @@ between endpoints and delivers what arrives into the scheduler.
   never depends on something that depends on the scheduler. The core exports
   what services need (`Parker` and its fns, `now_nanos`); module-level
   `use` [mod-use] is allowed in both layers.
+* [runtime-kept-fn] **The runtime's host may keep a fn value** (2026-10-02,
+  RUNTIME.md §11.2 E2): a platform fn of the runtime's modules whose clause
+  consumes a fn-typed parameter (`=> !body`) takes it owned, to keep or run
+  on another thread — `start_thread(body)` (a daemon thread) and
+  `guarded(body)` (the fault boundary, answering `None` or the fault's
+  message). Everywhere else a fn value is lent for the call
+  [platform-fn-value]. Rust takes `Box<dyn FnOnce(…) + Send + 'static>` and
+  the argument becomes a `move` closure, so a capture that is not `Send`, or
+  is used after the call, is rustc's refusal — the runtime is std's, and that
+  is the check of last resort there; Kotlin needs nothing.
 * [mod-use] **A module-level `use H()` binds an effect for every function of
   its module**, without any of them declaring it (user decision 2026-10-02,
   RUNTIME.md E4): bound once, on first use, for the life of the process, and

@@ -36,6 +36,25 @@ pub fn unpark(p: &Parker) {
     p.thread.unpark();
 }
 
+// [runtime-kept-fn] A daemon thread: Rust's threads do not hold the
+// process open, so the program ends when `main` returns.
+pub fn start_thread(body: Box<dyn FnOnce() + Send + 'static>) {
+    std::thread::spawn(body);
+}
+
+// [runtime-kept-fn] The fault boundary: a panic is answered as its message.
+pub fn guarded(body: Box<dyn FnOnce() + Send + 'static>) -> Option<String> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        Ok(()) => None,
+        Err(p) => Some(
+            p.downcast_ref::<&str>()
+                .map(|m| (*m).to_string())
+                .or_else(|| p.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "fault".to_string()),
+        ),
+    }
+}
+
 // `threadsafe platform handler HostRuntime` [runtime-host]: stateless, so
 // sharing it across every thread needs no synchronization.
 pub struct HostRuntime;

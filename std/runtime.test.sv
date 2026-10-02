@@ -27,3 +27,21 @@ test "the module's own binding answers without being declared" {
     let b = fresh_bits()
     expect(!(a == b), "two draws differ")
 }
+
+test "a thread the runtime starts runs its body" {
+    let me = this_parker()
+    let waker = copy(me)
+    start_thread(() -> { unpark(waker) })
+    park(me)
+    expect(true, "the thread woke the test")
+}
+
+test "a fault inside the boundary is answered, not raised" {
+    let ok = guarded(() -> {})
+    expect(ok is None, "a body that returns answers None")
+    let why = guarded(() -> {
+        let xs: List<Int> = []
+        let _x = get(xs, 3)!
+    })
+    expect(!(why is None), "a faulting body answers its fault")
+}

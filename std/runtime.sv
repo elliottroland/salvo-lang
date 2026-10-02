@@ -36,6 +36,18 @@ export platform fn park_nanos(p: Parker, nanos: Long) [] -> None => p, nanos
 // [runtime-parker] Wakes [p]'s thread, or makes its next park return at once.
 export platform fn unpark(p: Parker) [] -> None => p
 
+// [runtime-kept-fn] Runs [body] on a new **daemon** thread: the program
+// ends when `main` returns, whatever this thread is doing. The host keeps
+// the fn value and runs it elsewhere — the runtime's privilege, since a fn
+// value is otherwise only lent for a call [platform-fn-value]. Nothing waits
+// for the thread to finish; the scheduler stops one by state, not by handle.
+platform fn start_thread(body: once () -> None) [] -> None => !body
+
+// [runtime-kept-fn] Runs [body] inside a fault boundary: `None` when it
+// returned, or the host's account of the fault that ended it. What an
+// activation runs in, so a fault is the actor's death and not the thread's.
+platform fn guarded(body: once () -> None) [] -> Str? => !body
+
 // ===== the host [runtime-host] =====
 //
 // What only the host can do, behind one interface the backends implement in
