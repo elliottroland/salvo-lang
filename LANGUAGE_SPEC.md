@@ -5861,9 +5861,10 @@ between endpoints and delivers what arrives into the scheduler.
     and their fns, the pick kit — plus `route_to` and `key_hash`, exported
     because the generated `route` stubs call them from the program's module.
     The runtime's own bindings (`add_route`, `route_frames`, `deliver_frame`),
-    the handshake frames (`set_group`, `watch_peers`, `introduce`,
-    `hello_frame`, `leave_group`), the replica's (`publish_group`,
-    `share_members`) and the view mirror (`view_set`, `view_members`,
+    the control channel the group protocols travel on (`watch_control`,
+    `send_control`, `control_frame`, `node_left`, `local_protocols`,
+    `set_peer_protocols`), the handshake's own fns (`hello_frame`,
+    `handshake`, `introduce`, `leave_group`, `share_members`) and the view mirror (`view_set`, `view_members`,
     `park_briefly`) are **private to
     `net`** [mod-export]; each carries a comment saying what it does and where
     it sits.
@@ -5912,24 +5913,33 @@ between endpoints and delivers what arrives into the scheduler.
   own endpoint from `Transport.local_endpoint()`, so that is not a constructor
   parameter, and it **connects the node** as it starts when nothing has
   [net-connect].
-  * **The handshake is the runtime's**, common to every mechanism: a HELLO
-    frame (group name, the sender's endpoint, its **protocol table** — every
-    actor effect with a wire form and its hash, registered by `main`'s
-    prologue via `salvo_set_protocols`) sent through the transport directly
-    since no route exists yet; an ACK back with the same; the group name
-    compared on both sides so two deployments on one network refuse each
-    other by name; the route and the peer's table learnt; a LEAVE on
-    departure, which also kills every proxy of an actor on that node (sends
-    become the silent no-op, watches fire with `node left`). The group actor
-    hears about it as messages to three **private** send members of its own
-    [actor-private-send] — `hello(node, at, protocols)`, `gone(node)`,
-    `introduced(peers)` — registered from its `init` with
-    `watch_peers(self@NodeGroup)`; the emitters build the mechanism's own
-    private messages (until 2026-09-27 these were a `PeerEvents` face the
-    spawn answered as a second addr). `peer_protocol(node, name)` answers a
-    peer's hash for a protocol — what `actor_group<E>` compares.
-  * **Introductions are frames, not a protocol**: `introduce(node, peers)`
-    sends an INTRO frame that arrives as the private `introduced`. Gossip
+  * **The handshake is std's, written once in `net.sv`** (moved out of the
+    runtimes 2026-10-02, RUNTIME.md §3.3), common to every mechanism through
+    `handshake(group, from, data)`: a `Hello` (group name, the sender's
+    endpoint, its **protocol table** — every actor effect with a wire form
+    and its hash, registered by `main`'s prologue and read back with
+    `local_protocols()`) handed to the transport directly as a control
+    frame for whichever node receives it, since no route exists yet; an
+    `Ack` back with the same; the group name compared on both sides so two
+    deployments on one network refuse each other by name; the route and the
+    peer's table recorded (`add_route`, `set_peer_protocols`); a `Leaving`
+    on departure, whose `node_left` also kills every proxy of an actor on
+    that node (sends become the silent no-op, watches fire with `node
+    left`). The runtime only carries **control frames**: a channel and a
+    payload — here the canonical encoding of `Handshake = Hello | Ack |
+    Leaving | Intro` [wire-format] — handed to the actor listening on the
+    channel at that node as its **private** `control(from, data)` member
+    [actor-private-send], registered from its `init` with
+    `watch_control("", self@NodeGroup)`. (Until 2026-10-02 the runtime ran
+    the handshake and delivered `hello`/`gone`/`introduced` messages it
+    built; until 2026-09-27 those were a `PeerEvents` face.)
+    `peer_protocol(node, name)` answers a peer's hash for a protocol.
+  * **A subscriber hears every node already known** (2026-10-02): a
+    mechanism's `subscribe` first sends `joined` for each known node, then
+    reports arrivals and departures — which is how a replica opened after
+    the handshake learns of its peers.
+  * **Introductions are control messages, not a protocol**:
+    `introduce(node, peers)` sends an `Intro`. Gossip
     was first written with a `NodeLink` actor effect the group both served
     and sent to, and the deadlock graph warned of the `NodeLink → NodeLink`
     send cycle on every program importing `net` [actor-deadlock-cycle] — a
@@ -5973,20 +5983,24 @@ between endpoints and delivers what arrives into the scheduler.
     marker type per effect on the Rust side; recorded in ROADMAP.md.
 * [actor-group] **`ActorGroup<E>` is the routable set of `Addr<E>` a program
   spreads over its nodes**, a std actor effect: `join(member)`, `leave(member)`,
-  `members(reply)`, `subscribe(who: Addr<ActorGroupWatcher<E>>)`. The replica's
-  own `peer(node)` and `merged(from, found)` are private members it
-  publishes itself for in its `init` (`publish_group(name,
-  self@ActorGroup<E>)`) [handler-init]; until 2026-09-27 they were members of
-  the effect and a `start(me)` handed the replica its address.
+  `members(reply)`, `subscribe(who: Addr<ActorGroupWatcher<E>>)`. The replica
+  listens on its group's name with its private `control(from, data)` member,
+  registered in its `init` (`watch_control(name, self@ActorGroup<E>)`)
+  [handler-init]; until 2026-10-02 the runtime delivered private
+  `peer(node)`/`merged(from, found)` messages instead, and until 2026-09-27
+  those were members of the effect and a `start(me)` handed the replica its
+  address.
   `actor_group<E>(nodes) -> Addr<ActorGroup<E>>` (and `actor_group<E>(name,
   nodes)` for several groups of one protocol; renamed from `attach` 2026-09-27)
   spawns the std `ActorGrouping<E>` handler on the current node and
-  **publishes it by name**, so a replica opened under the same name on another
-  node finds it: the
-  runtime carries a NAMED frame per published name (sent in the handshake to
-  every new peer, and on `publish` to every known peer) and a MEMBERS frame
-  for the member exchange, both frames rather than actor sends so the group
-  never sends the protocol it serves [actor-deadlock-cycle]. Replicas merge
+  **listens by name**, so a replica opened under the same name on another
+  node finds it: on every `joined(node)` its node group reports, the replica
+  shares `(its hash of the protocol, its members)` with that node's replica
+  of the same name, as a control message rather than an actor send so the
+  group never sends the protocol it serves [actor-deadlock-cycle]; a replica
+  hearing from a new peer whose hash matches its own shares back, so the two
+  converge whichever opened first, and one whose hash differs is invisible
+  [protocol-hash]. Replicas merge
   their member sets, admit a remote member once, and withdraw every member
   hosted on a node that leaves. `join<E>(group, member)` is the ordinary
   send; `members` answers the union as seen locally.

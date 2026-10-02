@@ -1043,7 +1043,18 @@ keeps both backends passing the full suite.
    A few lines in each runtime, and worth not waiting for the port.
 3. ✅ **Move the host stream table** out of the scheduler files into its own
    runtime file (built 2026-10-02: `hoststreams.rs` / `hoststreams.kt`).
-4. **The group protocol moves to `net.sv`** (D5, §3.3). Frames 4–9 go to a
+4. ✅ **The group protocol moves to `net.sv`** (D5, §3.3), built
+   2026-10-02. The runtime carries one CONTROL frame kind (4: to, from,
+   channel, payload) to the actor listening on the channel; the handshake,
+   introductions, departures and member sharing are Salvo over the
+   canonical encoding; NAMED is gone (a replica shares on its node group's
+   `joined`, and a node group's `subscribe` now replays the nodes it already
+   knows). Left in the runtime until step 11: the route-stub views (read
+   synchronously on senders' threads) and the peer protocol store behind
+   the exported `peer_protocol`. The scheduler shrank from 1,994 to 1,640
+   lines (Kotlin) and 2,720 to 2,160 (Rust). Three Rust emitter defects
+   found on the way are ROADMAP item 0c.
+   The original plan for this step: Frames 4–9 go to a
    control actor `net.sv` registers, `node_left(node)` marks a departed
    node's proxies dead, and the five group builders go. The scheduler keeps
    frames 0–3.

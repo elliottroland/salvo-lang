@@ -15355,23 +15355,56 @@ impl<'p> Emitter<'p> {
                     // an addr is `Copy`, so a deref-by-clone normalises both.
                     return format!("crate::scheduler::salvo_credits(({a}).clone()).map(|c| c as i32)");
                 }
-                // [node-group] The handshake surface.
-                "set_group" if args.len() == 2 => {
+                // [node-group] [actor-group] The control channel: the
+                // protocols std's node and actor groups speak are std's own
+                // (`std/net.sv`), and the runtime only carries them.
+                "watch_control" if args.len() == 2 => {
                     self.needs_scheduler = true;
-                    self.needs_wire = true;
-                    let name = self.emit_read(args[0]);
-                    let at = self.emit_read(args[1]);
+                    let channel = self.emit_read(args[0]);
+                    let sink = self.emit_read(args[1]);
+                    // [actor-private-send] The payload arrives as the enclosing
+                    // handler's own private `control(from, data)` message.
+                    let Some(msg) = self.current_handler.clone().map(|h| private_enum_name(&h)) else {
+                        self.error("`watch_control` is called from a handler's `init`");
+                        return "todo!()".to_string();
+                    };
+                    let nid = self.node_id_ty();
                     return format!(
-                        "crate::scheduler::salvo_set_group(({name}).clone(), crate::wire::salvo_encode(&{at}))"
+                        "crate::scheduler::salvo_watch_control(({channel}).clone(), ({sink}).clone(), \
+                         |__n, __d| Box::new({msg}::Control({nid} {{ id: __n as i64 }}, __d)))"
                     );
                 }
-                "hello_frame" if args.is_empty() => {
+                "send_control" if args.len() == 3 => {
                     self.needs_scheduler = true;
-                    return "crate::scheduler::salvo_hello_frame()".to_string();
+                    let to = self.emit_read(args[0]);
+                    let channel = self.emit_read(args[1]);
+                    let payload = self.emit_read(args[2]);
+                    return format!(
+                        "crate::scheduler::salvo_send_control(({to}).id as u64, &{channel}, &{payload})"
+                    );
                 }
-                "leave_group" if args.is_empty() => {
+                "control_frame" if args.len() == 2 => {
                     self.needs_scheduler = true;
-                    return "crate::scheduler::salvo_leave_group()".to_string();
+                    let channel = self.emit_read(args[0]);
+                    let payload = self.emit_read(args[1]);
+                    return format!("crate::scheduler::salvo_control_frame(&{channel}, &{payload})");
+                }
+                "node_left" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let node = self.emit_read(args[0]);
+                    return format!("crate::scheduler::salvo_node_left(({node}).id as u64)");
+                }
+                "local_protocols" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "crate::scheduler::salvo_local_protocols()".to_string();
+                }
+                "set_peer_protocols" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    let node = self.emit_read(args[0]);
+                    let table = self.emit_read(args[1]);
+                    return format!(
+                        "crate::scheduler::salvo_set_peer_protocols(({node}).id as u64, ({table}).clone())"
+                    );
                 }
                 "peer_protocol" if args.len() == 2 => {
                     self.needs_scheduler = true;
@@ -15379,45 +15412,6 @@ impl<'p> Emitter<'p> {
                     let proto = self.emit_read(args[1]);
                     return format!(
                         "crate::scheduler::salvo_peer_protocol(({node}).id as u64, &{proto})"
-                    );
-                }
-                "watch_peers" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    self.needs_wire = true;
-                    let sink = self.emit_read(args[0]);
-                    // [actor-private-send] The events arrive as the enclosing
-                    // mechanism's own private messages (`hello`, `gone`,
-                    // `introduced`), so the enum is the handler's.
-                    let Some(msg) = self.current_handler.clone().map(|h| private_enum_name(&h)) else {
-                        self.error("`watch_peers` is called from a node group mechanism's `init`");
-                        return "todo!()".to_string();
-                    };
-                    let ep = self.rust_ty(&Ty::Named {
-                        name: "NodeEndpoint".to_string(),
-                        args: Vec::new(),
-                    });
-                    let nid = self.node_id_ty();
-                    // The three builders: the runtime holds numbers and bytes
-                    // and cannot construct a Salvo struct, so the registration
-                    // site supplies them [actor-watch].
-                    return format!(
-                        "crate::scheduler::salvo_watch_peers(({sink}).clone(), \
-                         |__n, __ep, __t| Box::new({msg}::Hello({nid} {{ id: __n as i64 }}, \
-                         crate::wire::salvo_decode::<{ep}>(__ep).expect(\"a peer's endpoint\"), \
-                         __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), \
-                         |__n| Box::new({msg}::Gone({nid} {{ id: __n as i64 }})), \
-                         |__ps| Box::new({msg}::Introduced(__ps.iter().filter_map(|__p| \
-                         crate::wire::salvo_decode::<{ep}>(__p)).collect())))"
-                    );
-                }
-                "introduce" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    self.needs_wire = true;
-                    let node = self.emit_read(args[0]);
-                    let peers = self.emit_read(args[1]);
-                    return format!(
-                        "crate::scheduler::salvo_introduce(({node}).id as u64, \
-                         &({peers}).iter().map(|__p| crate::wire::salvo_encode(__p)).collect::<Vec<_>>())"
                     );
                 }
                 // [protocol-hash] [actor-group] `protocol<E>()` written
@@ -15435,32 +15429,6 @@ impl<'p> Emitter<'p> {
                         return "todo!()".to_string();
                     };
                     return self.protocol_literal(&effect, "protocol");
-                }
-                "publish_group" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    let name = self.emit_read(args[0]);
-                    let me = self.emit_read(args[1]);
-                    // [actor-private-send] `peer`/`merged` are the replica's
-                    // private members: the enum is the handler's.
-                    let Some(msg) = self.current_handler.clone().map(|h| private_enum_name(&h)) else {
-                        self.error("`publish_group` is called from a replica's `init`");
-                        return "todo!()".to_string();
-                    };
-                    let nid = self.node_id_ty();
-                    return format!(
-                        "{{ let __me = ({me}).clone(); crate::scheduler::salvo_publish(({name}).clone(), __me, Some((__me, \
-                         |__n| Box::new({msg}::Peer({nid} {{ id: __n as i64 }})), \
-                         |__n, __ids| Box::new({msg}::Merged({nid} {{ id: __n as i64 }}, __ids.iter().map(|__r| crate::scheduler::salvo_import_addr(*__r)).collect()))))) }}"
-                    );
-                }
-                "share_members" if args.len() == 3 => {
-                    self.needs_scheduler = true;
-                    let name = self.emit_read(args[0]);
-                    let node = self.emit_read(args[1]);
-                    let members = self.emit_read(args[2]);
-                    return format!(
-                        "crate::scheduler::salvo_share_members(&{name}, ({node}).id as u64, &{members})"
-                    );
                 }
                 "pending" if args.len() == 1 => {
                     self.needs_scheduler = true;

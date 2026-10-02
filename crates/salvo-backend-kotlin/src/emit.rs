@@ -8703,62 +8703,62 @@ impl<'p> Emitter<'p> {
                     let a = self.emit_expr(args[0]);
                     return format!("salvo.SalvoSched.credits({a})");
                 }
-                // [node-group] The handshake surface.
-                "set_group" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    self.needs_wire = true;
-                    let name = self.emit_expr(args[0]);
-                    let at = self.emit_expr(args[1]);
-                    let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
-                    let codec = self.kotlin_codec_expr(&ep);
-                    return format!(
-                        "salvo.SalvoSched.setGroup({name}, salvo.salvoEncode({at}, {codec}).toByteArray())"
-                    );
-                }
-                "hello_frame" if args.is_empty() => {
+                // [node-group] [actor-group] The control channel: the
+                // protocols std's node and actor groups speak are std's own
+                // (`std/net.sv`), and the runtime only carries them.
+                "watch_control" if args.len() == 2 => {
                     self.needs_scheduler = true;
                     self.needs_bytes = true;
-                    return "salvo.SalvoBytes(salvo.SalvoSched.helloFrame())".to_string();
+                    let channel = self.emit_expr(args[0]);
+                    let sink = self.emit_expr(args[1]);
+                    // [actor-private-send] The handler's own private `control` message.
+                    let Some(msg) = self.current_handler.clone().map(|h| private_class_name(&h)) else {
+                        self.error("`watch_control` is called from a handler's `init`");
+                        return "TODO()".to_string();
+                    };
+                    let nid = self.node_id_ty();
+                    return format!(
+                        "salvo.SalvoSched.watchControl({channel}, {sink}) {{ __n, __d -> {msg}.Control({nid}(__n), salvo.SalvoBytes(__d)) }}"
+                    );
                 }
-                "leave_group" if args.is_empty() => {
+                "send_control" if args.len() == 3 => {
                     self.needs_scheduler = true;
-                    return "salvo.SalvoSched.leaveGroup()".to_string();
+                    let to = self.emit_expr(args[0]);
+                    let channel = self.emit_expr(args[1]);
+                    let payload = self.emit_expr(args[2]);
+                    return format!(
+                        "salvo.SalvoSched.sendControl(({to}).id, {channel}, ({payload}).toByteArray())"
+                    );
+                }
+                "control_frame" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    self.needs_bytes = true;
+                    let channel = self.emit_expr(args[0]);
+                    let payload = self.emit_expr(args[1]);
+                    return format!(
+                        "salvo.SalvoBytes(salvo.SalvoSched.controlFrame({channel}, ({payload}).toByteArray()))"
+                    );
+                }
+                "node_left" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let node = self.emit_expr(args[0]);
+                    return format!("salvo.SalvoSched.nodeLeft(({node}).id)");
+                }
+                "local_protocols" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "salvo.SalvoSched.localProtocols()".to_string();
+                }
+                "set_peer_protocols" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    let node = self.emit_expr(args[0]);
+                    let table = self.emit_expr(args[1]);
+                    return format!("salvo.SalvoSched.setPeerProtocols(({node}).id, {table})");
                 }
                 "peer_protocol" if args.len() == 2 => {
                     self.needs_scheduler = true;
                     let node = self.emit_expr(args[0]);
                     let proto = self.emit_expr(args[1]);
                     return format!("salvo.SalvoSched.peerProtocol(({node}).id, {proto})");
-                }
-                "watch_peers" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    self.needs_wire = true;
-                    let sink = self.emit_expr(args[0]);
-                    let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
-                    let codec = self.kotlin_codec_expr(&ep);
-                    // [actor-private-send] The mechanism's own private messages.
-                    let Some(msg) = self.current_handler.clone().map(|h| private_class_name(&h)) else {
-                        self.error("`watch_peers` is called from a node group mechanism's `init`");
-                        return "TODO()".to_string();
-                    };
-                    let nid = self.node_id_ty();
-                    return format!(
-                        "salvo.SalvoSched.watchPeers({sink}, {{ __n, __ep, __t -> \
-                         {msg}.Hello({nid}(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), {codec})!!, __t) }}, \
-                         {{ __n -> {msg}.Gone({nid}(__n)) }}, \
-                         {{ __ps -> {msg}.Introduced(__ps.mapNotNull {{ salvo.salvoDecode(salvo.SalvoBytes(it), {codec}) }}) }})"
-                    );
-                }
-                "introduce" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    self.needs_wire = true;
-                    let node = self.emit_expr(args[0]);
-                    let peers = self.emit_expr(args[1]);
-                    let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
-                    let codec = self.kotlin_codec_expr(&ep);
-                    return format!(
-                        "salvo.SalvoSched.introduce(({node}).id, ({peers}).map {{ salvo.salvoEncode(it, {codec}).toByteArray() }})"
-                    );
                 }
                 // [protocol-hash] [actor-group] `protocol<E>()` written
                 // directly: the literal for the written type argument. The
@@ -8775,29 +8775,6 @@ impl<'p> Emitter<'p> {
                         return "TODO()".to_string();
                     };
                     return self.protocol_literal(&effect, "protocol");
-                }
-                "publish_group" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    let name = self.emit_expr(args[0]);
-                    let me = self.emit_expr(args[1]);
-                    // [actor-private-send] `peer`/`merged` are the replica's own.
-                    let Some(msg) = self.current_handler.clone().map(|h| private_class_name(&h)) else {
-                        self.error("`publish_group` is called from a replica's `init`");
-                        return "TODO()".to_string();
-                    };
-                    let nid = self.node_id_ty();
-                    return format!(
-                        "run {{ val __me = {me}; salvo.SalvoSched.publish({name}, __me, __me, \
-                         {{ __n -> {msg}.Peer({nid}(__n)) }}, \
-                         {{ __n, __ids -> {msg}.Merged({nid}(__n), __ids.map {{ salvo.SalvoSched.importAddr(it) }}) }}) }}"
-                    );
-                }
-                "share_members" if args.len() == 3 => {
-                    self.needs_scheduler = true;
-                    let name = self.emit_expr(args[0]);
-                    let node = self.emit_expr(args[1]);
-                    let members = self.emit_expr(args[2]);
-                    return format!("salvo.SalvoSched.shareMembers({name}, ({node}).id, {members})");
                 }
                 "pending" if args.len() == 1 => {
                     self.needs_scheduler = true;

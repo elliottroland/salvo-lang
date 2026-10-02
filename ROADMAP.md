@@ -62,8 +62,9 @@ over a small `RuntimeHost` platform handler, instead of twice by hand
 is the working document**: the survey, every decision (D1–D11, platform types
 in §12, the language expansions E1–E10 in §11.2), and the order of work in
 **§11.5**, which is this item's sequence — take the next step there. Done so
-far: steps 1 (the benchmark baseline), 2 (forged identities) and 3 (the
-stream table in its own runtime file). When the sequence completes, RUNTIME.md
+far: steps 1 (the benchmark baseline), 2 (forged identities), 3 (the
+stream table in its own runtime file) and 4 (the group protocol in
+`net.sv`). When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
 ### 0b — Three slow tests (recorded 2026-10-02, to investigate)
@@ -95,6 +96,38 @@ or a registry of tags that (2) can read without building anything. For the
 fresh-run timeout: whether the batch kotlinc invocations scale with the
 machine's free cores, and whether the driver should be split so nextest can
 schedule its parts.
+
+### 0c — Three Rust emitter defects (found 2026-10-02, not fixed)
+
+Found while moving the group protocol into `std/net.sv` (RUNTIME.md §11.5
+step 4). Each is refused by rustc, so none is silently wrong, but each stops
+a correct program from building. std works around the first by naming.
+
+1. **A second `let` of one name in a fn, after a loop that declared it,
+   inherits the wrong move decision.** The later binding's narrowed reads
+   inside a loop lower to `n.unwrap()` (a move) instead of
+   `n.as_ref().unwrap()`, and rustc reports E0382. `net.sv`'s mechanisms
+   name their departed node `departed` to avoid it. Repro:
+   ```
+   struct Node { id: Int, label: Str }
+   fn take(n: Node) [Console] -> None => !n { println("took ${n.label}") }
+   fn f(m: Mut Map<Int, Node>, k: Int) [Console] -> None => m: Mut {
+       for id in keys(m) {
+           let n = get(m, id)
+           if !(n is None) { println("saw ${n.label}") }
+       }
+       let n = remove(m, k)
+       if n is None { return }
+       for i in [1, 2] { take(copy(n)) }
+   }
+   ```
+2. **A union argument to a `send fn` through an addr is not coerced.**
+   `b.go(A { x: 1 })` where `send fn go(v: A | B | None)` emits
+   `__Msg_Bin::Go(A { x: 1 })` without the union wrapper (E0308); binding the
+   value to an annotated `let` first works.
+3. **An effect named `Box` makes a handle variable `box`**, a reserved word
+   in Rust: `use Boxing()` of `effect Box` emits `let box = …`. The handle
+   name needs `r#` escaping (or a mangled name) like other identifiers.
 
 ### 1 — ✅ The std reorganisation (complete 2026-09-26)
 

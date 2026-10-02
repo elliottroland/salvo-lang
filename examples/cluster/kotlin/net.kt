@@ -426,6 +426,142 @@ object __Codec___Msg_NodeGroupWatcher : salvo.WireCodec<__Msg_NodeGroupWatcher> 
 /** [protocol-hash] The canonical hash of `NodeGroupWatcher`. */
 const val __PROTO_NodeGroupWatcher: String = "db3e0aa5831c2e44"
 
+data class Hello(
+    val group: String,
+    val at: NodeEndpoint,
+    val protocols: List<Pair<String, String>>,
+)
+
+object __Codec_Hello : salvo.WireCodec<Hello> {
+    override fun enc(v: Hello, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.group, out)
+        __Codec_NodeEndpoint.enc(v.at, out)
+        salvo.ListCodec(salvo.PairCodec(salvo.StrCodec, salvo.StrCodec)).enc(v.protocols, out)
+    }
+    override fun dec(inp: salvo.WireIn): Hello = Hello(salvo.StrCodec.dec(inp), __Codec_NodeEndpoint.dec(inp), salvo.ListCodec(salvo.PairCodec(salvo.StrCodec, salvo.StrCodec)).dec(inp))
+}
+
+data class Ack(
+    val group: String,
+    val at: NodeEndpoint,
+    val protocols: List<Pair<String, String>>,
+)
+
+object __Codec_Ack : salvo.WireCodec<Ack> {
+    override fun enc(v: Ack, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.group, out)
+        __Codec_NodeEndpoint.enc(v.at, out)
+        salvo.ListCodec(salvo.PairCodec(salvo.StrCodec, salvo.StrCodec)).enc(v.protocols, out)
+    }
+    override fun dec(inp: salvo.WireIn): Ack = Ack(salvo.StrCodec.dec(inp), __Codec_NodeEndpoint.dec(inp), salvo.ListCodec(salvo.PairCodec(salvo.StrCodec, salvo.StrCodec)).dec(inp))
+}
+
+class Leaving
+
+object __Codec_Leaving : salvo.WireCodec<Leaving> {
+    override fun enc(v: Leaving, out: salvo.WireOut) {
+    }
+    override fun dec(inp: salvo.WireIn): Leaving = Leaving()
+}
+
+data class Intro(
+    val peers: List<NodeEndpoint>,
+)
+
+object __Codec_Intro : salvo.WireCodec<Intro> {
+    override fun enc(v: Intro, out: salvo.WireOut) {
+        salvo.ListCodec(__Codec_NodeEndpoint).enc(v.peers, out)
+    }
+    override fun dec(inp: salvo.WireIn): Intro = Intro(salvo.ListCodec(__Codec_NodeEndpoint).dec(inp))
+}
+
+fun helloFrame(transport: Transport, group: String): salvo.SalvoBytes {
+    val hello: Union4<Hello, Ack, Leaving, Intro> = Union4.U1<Hello, Ack, Leaving, Intro>(Hello(group = group, at = transport.localEndpoint(), protocols = salvo.SalvoSched.localProtocols()))
+    return salvo.SalvoBytes(salvo.SalvoSched.controlFrame("", (salvo.salvoEncode(hello, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))).toByteArray()))
+}
+
+data class PeerHello(
+    val node: NodeId,
+    val at: NodeEndpoint,
+)
+
+object __Codec_PeerHello : salvo.WireCodec<PeerHello> {
+    override fun enc(v: PeerHello, out: salvo.WireOut) {
+        __Codec_NodeId.enc(v.node, out)
+        __Codec_NodeEndpoint.enc(v.at, out)
+    }
+    override fun dec(inp: salvo.WireIn): PeerHello = PeerHello(__Codec_NodeId.dec(inp), __Codec_NodeEndpoint.dec(inp))
+}
+
+data class PeerGone(
+    val node: NodeId,
+)
+
+object __Codec_PeerGone : salvo.WireCodec<PeerGone> {
+    override fun enc(v: PeerGone, out: salvo.WireOut) {
+        __Codec_NodeId.enc(v.node, out)
+    }
+    override fun dec(inp: salvo.WireIn): PeerGone = PeerGone(__Codec_NodeId.dec(inp))
+}
+
+data class PeerIntro(
+    val peers: List<NodeEndpoint>,
+)
+
+object __Codec_PeerIntro : salvo.WireCodec<PeerIntro> {
+    override fun enc(v: PeerIntro, out: salvo.WireOut) {
+        salvo.ListCodec(__Codec_NodeEndpoint).enc(v.peers, out)
+    }
+    override fun dec(inp: salvo.WireIn): PeerIntro = PeerIntro(salvo.ListCodec(__Codec_NodeEndpoint).dec(inp))
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.SalvoBytes): Union3<PeerHello, PeerGone, PeerIntro>? {
+    val msg = salvo.salvoDecode(data, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))
+    when (msg) {
+        is Union4.U1<*, *, *, *> -> {
+            if (!(((msg?.value as Hello).group) == (group))) {
+                return null
+            }
+            salvo.SalvoSched.addRoute((from).id, salvo.salvoEncode((msg?.value as Hello).at, __Codec_NodeEndpoint).toByteArray())
+            salvo.SalvoSched.setPeerProtocols((from).id, (msg?.value as Hello).protocols)
+            val ack: Union4<Hello, Ack, Leaving, Intro> = Union4.U2<Hello, Ack, Leaving, Intro>(Ack(group = group, at = transport.localEndpoint(), protocols = salvo.SalvoSched.localProtocols()))
+            salvo.SalvoSched.sendControl((from).id, "", (salvo.salvoEncode(ack, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))).toByteArray())
+            return Union3.U1<PeerHello, PeerGone, PeerIntro>(PeerHello(node = from, at = (msg?.value as Hello).at))
+        }
+        is Union4.U2<*, *, *, *> -> {
+            if (!(((msg?.value as Ack).group) == (group))) {
+                return null
+            }
+            salvo.SalvoSched.addRoute((from).id, salvo.salvoEncode((msg?.value as Ack).at, __Codec_NodeEndpoint).toByteArray())
+            salvo.SalvoSched.setPeerProtocols((from).id, (msg?.value as Ack).protocols)
+            return Union3.U1<PeerHello, PeerGone, PeerIntro>(PeerHello(node = from, at = (msg?.value as Ack).at))
+        }
+        is Union4.U3<*, *, *, *> -> {
+            salvo.SalvoSched.nodeLeft((from).id)
+            return Union3.U2<PeerHello, PeerGone, PeerIntro>(PeerGone(node = from))
+        }
+        is Union4.U4<*, *, *, *> -> {
+            return Union3.U3<PeerHello, PeerGone, PeerIntro>(PeerIntro(peers = (msg?.value as Intro).peers))
+        }
+        null -> {
+            return null
+        }
+    }
+}
+
+fun introduce(node: NodeId, peers: List<NodeEndpoint>) {
+    val intro: Union4<Hello, Ack, Leaving, Intro> = Union4.U4<Hello, Ack, Leaving, Intro>(Intro(peers = peers))
+    salvo.SalvoSched.sendControl((node).id, "", (salvo.salvoEncode(intro, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))).toByteArray())
+}
+
+fun leaveGroup(known: Map<NodeId, Node>) {
+    for (id in known.keys.toMutableList()) {
+        val leaving: Union4<Hello, Ack, Leaving, Intro> = Union4.U3<Hello, Ack, Leaving, Intro>(Leaving())
+        salvo.SalvoSched.sendControl((id).id, "", (salvo.salvoEncode(leaving, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))).toByteArray())
+    }
+}
+
 class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoint>, private val __dep_Transport: Transport) : NodeGroup {
     private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__2, ::eq__2).also { __m -> __m.putAll(listOf()) }
     private var watchers: MutableList<Int> = mutableListOf<Int>()
@@ -434,56 +570,60 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
     internal val __parked: MutableMap<Long, __Cont_StaticNodeGroup> = mutableMapOf()
 
     override fun members(out: salvo.SalvoReply) {
-        val allKnown: MutableList<Node> = mutableListOf<Node>()
-        for (id in known.keys.toMutableList()) {
-            val n = known[id]
-            if (!(n == null)) {
-                allKnown.add(n)
-            }
-        }
-        salvo.SalvoSched.replyWire(out, allKnown, salvo.ListCodec(__Codec_Node))
+        salvo.SalvoSched.replyWire(out, knownNodes(known), salvo.ListCodec(__Codec_Node))
     }
 
     override fun subscribe(w: Int) {
+        for (id in known.keys.toMutableList()) {
+            val n = known[id]
+            if (!(n == null)) {
+                salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
+            }
+        }
         watchers.add(w)
     }
 
     override fun leave() {
-        salvo.SalvoSched.leaveGroup()
+        leaveGroup(known)
     }
 
-    fun hello(node: NodeId, at: NodeEndpoint, protocols: List<Pair<String, String>>) {
-        if (known.containsKey(node)) {
-            return
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    fun control(from: NodeId, data: salvo.SalvoBytes) {
+        val event = handshake(__dep_Transport, name, from, data)
+        when (event) {
+            is Union3.U1<*, *, *> -> {
+                if (known.containsKey((event?.value as PeerHello).node)) {
+                    return
+                }
+                val n = Node(id = (event?.value as PeerHello).node, at = (event?.value as PeerHello).at)
+                known.put((event?.value as PeerHello).node, n)
+                for (w in watchers) {
+                    salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
+                }
+            }
+            is Union3.U2<*, *, *> -> {
+                val departed = known.remove((event?.value as PeerGone).node)
+                if (departed == null) {
+                    return
+                }
+                for (w in watchers) {
+                    salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(departed, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
+                }
+            }
+            is Union3.U3<*, *, *> -> {
+            }
+            null -> {
+            }
         }
-        val n = Node(id = node, at = at)
-        known.put(node, n)
-        for (w in watchers) {
-            salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
-        }
-    }
-
-    fun gone(node: NodeId) {
-        val n = known.remove(node)
-        if (n == null) {
-            return
-        }
-        for (w in watchers) {
-            salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(n, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
-        }
-    }
-
-    fun introduced(peers: List<NodeEndpoint>) {
     }
 
     fun init() {
         val me = __dep_Transport.localEndpoint()
         val _connected = connect(__dep_Transport, me)
-        salvo.SalvoSched.setGroup(name, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
-        salvo.SalvoSched.watchPeers(__addr!!, { __n, __ep, __t -> __Priv_StaticNodeGroup.Hello(NodeId(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint)!!, __t) }, { __n -> __Priv_StaticNodeGroup.Gone(NodeId(__n)) }, { __ps -> __Priv_StaticNodeGroup.Introduced(__ps.mapNotNull { salvo.salvoDecode(salvo.SalvoBytes(it), __Codec_NodeEndpoint) }) })
+        salvo.SalvoSched.watchControl("", __addr!!) { __n, __d -> __Priv_StaticNodeGroup.Control(NodeId(__n), salvo.SalvoBytes(__d)) }
         for (e in all) {
             if (!eq(e, me)) {
-                val _sent = __dep_Transport.deliver(e, salvo.SalvoBytes(salvo.SalvoSched.helloFrame()))
+                val _sent = __dep_Transport.deliver(e, helloFrame(__dep_Transport, name))
             }
         }
     }
@@ -492,16 +632,12 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
 sealed class __Cont_StaticNodeGroup {
     class Members() : __Cont_StaticNodeGroup()
     class Subscribe() : __Cont_StaticNodeGroup()
-    class Hello(val node: NodeId, val at: NodeEndpoint) : __Cont_StaticNodeGroup()
-    class Gone() : __Cont_StaticNodeGroup()
-    class Introduced() : __Cont_StaticNodeGroup()
+    class Control(val from: NodeId) : __Cont_StaticNodeGroup()
 }
 
 sealed class __Priv_StaticNodeGroup {
     object Init : __Priv_StaticNodeGroup()
-    class Hello(val node: NodeId, val at: NodeEndpoint, val protocols: List<Pair<String, String>>) : __Priv_StaticNodeGroup()
-    class Gone(val node: NodeId) : __Priv_StaticNodeGroup()
-    class Introduced(val peers: List<NodeEndpoint>) : __Priv_StaticNodeGroup()
+    class Control(val from: NodeId, val data: salvo.SalvoBytes) : __Priv_StaticNodeGroup()
 }
 
 class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.SalvoActor {
@@ -525,9 +661,7 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
     private fun __dispatchPriv(m: __Priv_StaticNodeGroup) {
         when (m) {
             is __Priv_StaticNodeGroup.Init -> handler.init()
-            is __Priv_StaticNodeGroup.Hello -> handler.hello(m.node, m.at, m.protocols)
-            is __Priv_StaticNodeGroup.Gone -> handler.gone(m.node)
-            is __Priv_StaticNodeGroup.Introduced -> handler.introduced(m.peers)
+            is __Priv_StaticNodeGroup.Control -> handler.control(m.from, m.data)
         }
     }
 
@@ -538,9 +672,7 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
         when (c) {
             is __Cont_StaticNodeGroup.Members -> handler.members(value as salvo.SalvoReply)
             is __Cont_StaticNodeGroup.Subscribe -> handler.subscribe(value as Int)
-            is __Cont_StaticNodeGroup.Hello -> handler.hello(c.node, c.at, value as List<Pair<String, String>>)
-            is __Cont_StaticNodeGroup.Gone -> handler.gone(value as NodeId)
-            is __Cont_StaticNodeGroup.Introduced -> handler.introduced(value as List<NodeEndpoint>)
+            is __Cont_StaticNodeGroup.Control -> handler.control(c.from, value as salvo.SalvoBytes)
         }
     }
 
@@ -549,9 +681,7 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
         return when (c) {
             is __Cont_StaticNodeGroup.Members -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
             is __Cont_StaticNodeGroup.Subscribe -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.AddrCodec) })(payload)
-            is __Cont_StaticNodeGroup.Hello -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.PairCodec(salvo.StrCodec, salvo.StrCodec))) })(payload)
-            is __Cont_StaticNodeGroup.Gone -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_NodeId) })(payload)
-            is __Cont_StaticNodeGroup.Introduced -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(__Codec_NodeEndpoint)) })(payload)
+            is __Cont_StaticNodeGroup.Control -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.BytesCodec) })(payload)
             else -> Pair(false, null)
         }
     }
@@ -566,6 +696,17 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
     }
 }
 
+fun knownNodes(known: Map<NodeId, Node>): List<Node> {
+    val allKnown: MutableList<Node> = mutableListOf<Node>()
+    for (id in known.keys.toMutableList()) {
+        val n = known[id]
+        if (!(n == null)) {
+            allKnown.add(n)
+        }
+    }
+    return allKnown
+}
+
 class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndpoint>, private val __dep_Transport: Transport) : NodeGroup {
     private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__2, ::eq__2).also { __m -> __m.putAll(listOf()) }
     private var dialed: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
@@ -575,68 +716,72 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
     internal val __parked: MutableMap<Long, __Cont_GossipNodeGroup> = mutableMapOf()
 
     override fun members(out: salvo.SalvoReply) {
-        val allKnown: MutableList<Node> = mutableListOf<Node>()
-        for (id in known.keys.toMutableList()) {
-            val n = known[id]
-            if (!(n == null)) {
-                allKnown.add(n)
-            }
-        }
-        salvo.SalvoSched.replyWire(out, allKnown, salvo.ListCodec(__Codec_Node))
+        salvo.SalvoSched.replyWire(out, knownNodes(known), salvo.ListCodec(__Codec_Node))
     }
 
     override fun subscribe(w: Int) {
+        for (id in known.keys.toMutableList()) {
+            val n = known[id]
+            if (!(n == null)) {
+                salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
+            }
+        }
         watchers.add(w)
     }
 
     override fun leave() {
-        salvo.SalvoSched.leaveGroup()
+        leaveGroup(known)
     }
 
-    fun hello(node: NodeId, at: NodeEndpoint, protocols: List<Pair<String, String>>) {
-        if (known.containsKey(node)) {
-            return
-        }
-        val others: MutableList<NodeEndpoint> = mutableListOf<NodeEndpoint>()
-        for (id in known.keys.toMutableList()) {
-            val n = known[id]
-            if (!(n == null)) {
-                others.add(n.at)
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    fun control(from: NodeId, data: salvo.SalvoBytes) {
+        val event = handshake(__dep_Transport, name, from, data)
+        when (event) {
+            is Union3.U1<*, *, *> -> {
+                if (known.containsKey((event?.value as PeerHello).node)) {
+                    return
+                }
+                val others: MutableList<NodeEndpoint> = mutableListOf<NodeEndpoint>()
+                for (id in known.keys.toMutableList()) {
+                    val n = known[id]
+                    if (!(n == null)) {
+                        others.add(n.at)
+                    }
+                    introduce(id, listOf<NodeEndpoint>((event?.value as PeerHello).at))
+                }
+                introduce((event?.value as PeerHello).node, others)
+                dialed.add(toStr__2((event?.value as PeerHello).at))
+                val n = Node(id = (event?.value as PeerHello).node, at = (event?.value as PeerHello).at)
+                known.put((event?.value as PeerHello).node, n)
+                for (w in watchers) {
+                    salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
+                }
             }
-            salvo.SalvoSched.introduce((id).id, (listOf<NodeEndpoint>(at)).map { salvo.salvoEncode(it, __Codec_NodeEndpoint).toByteArray() })
-        }
-        salvo.SalvoSched.introduce((node).id, (others).map { salvo.salvoEncode(it, __Codec_NodeEndpoint).toByteArray() })
-        dialed.add(toStr__2(at))
-        val n = Node(id = node, at = at)
-        known.put(node, n)
-        for (w in watchers) {
-            salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
-        }
-    }
-
-    fun gone(node: NodeId) {
-        val n = known.remove(node)
-        if (n == null) {
-            return
-        }
-        for (w in watchers) {
-            salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(n, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
-        }
-    }
-
-    fun introduced(peers: List<NodeEndpoint>) {
-        for (e in peers) {
-            dial(__dep_Transport, dialed, e)
+            is Union3.U2<*, *, *> -> {
+                val departed = known.remove((event?.value as PeerGone).node)
+                if (departed == null) {
+                    return
+                }
+                for (w in watchers) {
+                    salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(departed, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
+                }
+            }
+            is Union3.U3<*, *, *> -> {
+                for (e in (event?.value as PeerIntro).peers) {
+                    dial(__dep_Transport, dialed, name, e)
+                }
+            }
+            null -> {
+            }
         }
     }
 
     fun init() {
         val me = __dep_Transport.localEndpoint()
         val _connected = connect(__dep_Transport, me)
-        salvo.SalvoSched.setGroup(name, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
-        salvo.SalvoSched.watchPeers(__addr!!, { __n, __ep, __t -> __Priv_GossipNodeGroup.Hello(NodeId(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint)!!, __t) }, { __n -> __Priv_GossipNodeGroup.Gone(NodeId(__n)) }, { __ps -> __Priv_GossipNodeGroup.Introduced(__ps.mapNotNull { salvo.salvoDecode(salvo.SalvoBytes(it), __Codec_NodeEndpoint) }) })
+        salvo.SalvoSched.watchControl("", __addr!!) { __n, __d -> __Priv_GossipNodeGroup.Control(NodeId(__n), salvo.SalvoBytes(__d)) }
         for (e in seeds) {
-            dial(__dep_Transport, dialed, e)
+            dial(__dep_Transport, dialed, name, e)
         }
     }
 }
@@ -644,16 +789,12 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
 sealed class __Cont_GossipNodeGroup {
     class Members() : __Cont_GossipNodeGroup()
     class Subscribe() : __Cont_GossipNodeGroup()
-    class Hello(val node: NodeId, val at: NodeEndpoint) : __Cont_GossipNodeGroup()
-    class Gone() : __Cont_GossipNodeGroup()
-    class Introduced() : __Cont_GossipNodeGroup()
+    class Control(val from: NodeId) : __Cont_GossipNodeGroup()
 }
 
 sealed class __Priv_GossipNodeGroup {
     object Init : __Priv_GossipNodeGroup()
-    class Hello(val node: NodeId, val at: NodeEndpoint, val protocols: List<Pair<String, String>>) : __Priv_GossipNodeGroup()
-    class Gone(val node: NodeId) : __Priv_GossipNodeGroup()
-    class Introduced(val peers: List<NodeEndpoint>) : __Priv_GossipNodeGroup()
+    class Control(val from: NodeId, val data: salvo.SalvoBytes) : __Priv_GossipNodeGroup()
 }
 
 class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.SalvoActor {
@@ -677,9 +818,7 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
     private fun __dispatchPriv(m: __Priv_GossipNodeGroup) {
         when (m) {
             is __Priv_GossipNodeGroup.Init -> handler.init()
-            is __Priv_GossipNodeGroup.Hello -> handler.hello(m.node, m.at, m.protocols)
-            is __Priv_GossipNodeGroup.Gone -> handler.gone(m.node)
-            is __Priv_GossipNodeGroup.Introduced -> handler.introduced(m.peers)
+            is __Priv_GossipNodeGroup.Control -> handler.control(m.from, m.data)
         }
     }
 
@@ -690,9 +829,7 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
         when (c) {
             is __Cont_GossipNodeGroup.Members -> handler.members(value as salvo.SalvoReply)
             is __Cont_GossipNodeGroup.Subscribe -> handler.subscribe(value as Int)
-            is __Cont_GossipNodeGroup.Hello -> handler.hello(c.node, c.at, value as List<Pair<String, String>>)
-            is __Cont_GossipNodeGroup.Gone -> handler.gone(value as NodeId)
-            is __Cont_GossipNodeGroup.Introduced -> handler.introduced(value as List<NodeEndpoint>)
+            is __Cont_GossipNodeGroup.Control -> handler.control(c.from, value as salvo.SalvoBytes)
         }
     }
 
@@ -701,9 +838,7 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
         return when (c) {
             is __Cont_GossipNodeGroup.Members -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
             is __Cont_GossipNodeGroup.Subscribe -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.AddrCodec) })(payload)
-            is __Cont_GossipNodeGroup.Hello -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.PairCodec(salvo.StrCodec, salvo.StrCodec))) })(payload)
-            is __Cont_GossipNodeGroup.Gone -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_NodeId) })(payload)
-            is __Cont_GossipNodeGroup.Introduced -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(__Codec_NodeEndpoint)) })(payload)
+            is __Cont_GossipNodeGroup.Control -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.BytesCodec) })(payload)
             else -> Pair(false, null)
         }
     }
@@ -718,12 +853,12 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
     }
 }
 
-fun dial(transport: Transport, dialed: MutableSet<String>, e: NodeEndpoint) {
+fun dial(transport: Transport, dialed: MutableSet<String>, group: String, e: NodeEndpoint) {
     if (eq(e, transport.localEndpoint()) || dialed.contains(toStr__2(e))) {
         return
     }
     dialed.add(toStr__2(e))
-    val sent = transport.deliver(e, salvo.SalvoBytes(salvo.SalvoSched.helloFrame()))
+    val sent = transport.deliver(e, helloFrame(transport, group))
     if (sent is Union2.U2<*, *>) {
         val _forgot = dialed.remove(toStr__2(e))
     }
@@ -846,6 +981,10 @@ object __Codec___Msg_ActorGroupWatcher : salvo.WireCodec<__Msg_ActorGroupWatcher
 /** [protocol-hash] The canonical hash of `ActorGroupWatcher`. */
 const val __PROTO_ActorGroupWatcher: String = "9fa424e5858bb3bd"
 
+fun shareMembers(name: String, hash: String, node: NodeId, members: List<Int>) {
+    salvo.SalvoSched.sendControl((node).id, name, (salvo.salvoEncode(Pair(hash, members), salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec)))).toByteArray())
+}
+
 fun actorGroup(nodes: Int, protocol: () -> Protocol): Int {
     val proto = protocol()
     val name = proto.name
@@ -879,7 +1018,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
             salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Joined(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
         }
         for (p in peers) {
-            salvo.SalvoSched.shareMembers(name, (p).id, listOf<Int>(member))
+            shareMembers(name, proto.hash, p, listOf<Int>(member))
         }
     }
 
@@ -894,6 +1033,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
     }
 
     override fun joined(n: Node) {
+        shareMembers(name, proto.hash, n.id, all)
     }
 
     override fun left(n: Node, why: String) {
@@ -923,28 +1063,20 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
         watchers.add(w)
     }
 
-    fun peer(node: NodeId) {
-        val theirs = salvo.SalvoSched.peerProtocol((node).id, proto.name)
-        if ((theirs == null) || !((theirs) == (proto.hash))) {
+    fun control(from: NodeId, data: salvo.SalvoBytes) {
+        val got = salvo.salvoDecode(data, salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec)))
+        if (got == null) {
             return
         }
-        if (containsNode(peers, node)) {
+        if (!((got.first) == (proto.hash))) {
             return
         }
-        peers.add(node)
-        salvo.SalvoSched.shareMembers(name, (node).id, all.toMutableList())
-    }
-
-    fun merged(from: NodeId, found: List<Int>) {
         if (!containsNode(peers, from)) {
-            val theirs = salvo.SalvoSched.peerProtocol((from).id, proto.name)
-            if ((theirs == null) || !((theirs) == (proto.hash))) {
-                return
-            }
             peers.add(from)
+            shareMembers(name, proto.hash, from, all)
         }
         var changed = false
-        for (m in found) {
+        for (m in got.second) {
             if (admit(all, m)) {
                 changed = true
                 for (w in watchers) {
@@ -958,7 +1090,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
     }
 
     fun init() {
-        run { val __me = __addr!!; salvo.SalvoSched.publish(name, __me, __me, { __n -> __Priv_ActorGrouping.Peer(NodeId(__n)) }, { __n, __ids -> __Priv_ActorGrouping.Merged(NodeId(__n), __ids.map { salvo.SalvoSched.importAddr(it) }) }) }
+        salvo.SalvoSched.watchControl(name, __addr!!) { __n, __d -> __Priv_ActorGrouping.Control(NodeId(__n), salvo.SalvoBytes(__d)) }
     }
 }
 
@@ -969,14 +1101,12 @@ sealed class __Cont_ActorGrouping {
     class Left(val n: Node) : __Cont_ActorGrouping()
     class Members() : __Cont_ActorGrouping()
     class Subscribe() : __Cont_ActorGrouping()
-    class Peer() : __Cont_ActorGrouping()
-    class Merged(val from: NodeId) : __Cont_ActorGrouping()
+    class Control(val from: NodeId) : __Cont_ActorGrouping()
 }
 
 sealed class __Priv_ActorGrouping {
     object Init : __Priv_ActorGrouping()
-    class Peer(val node: NodeId) : __Priv_ActorGrouping()
-    class Merged(val from: NodeId, val found: List<Int>) : __Priv_ActorGrouping()
+    class Control(val from: NodeId, val data: salvo.SalvoBytes) : __Priv_ActorGrouping()
 }
 
 class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoActor {
@@ -1009,8 +1139,7 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
     private fun __dispatchPriv(m: __Priv_ActorGrouping) {
         when (m) {
             is __Priv_ActorGrouping.Init -> handler.init()
-            is __Priv_ActorGrouping.Peer -> handler.peer(m.node)
-            is __Priv_ActorGrouping.Merged -> handler.merged(m.from, m.found)
+            is __Priv_ActorGrouping.Control -> handler.control(m.from, m.data)
         }
     }
 
@@ -1025,8 +1154,7 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
             is __Cont_ActorGrouping.Subscribe -> handler.subscribe(value as Int)
             is __Cont_ActorGrouping.Joined -> handler.joined(value as Node)
             is __Cont_ActorGrouping.Left -> handler.left(c.n, value as String)
-            is __Cont_ActorGrouping.Peer -> handler.peer(value as NodeId)
-            is __Cont_ActorGrouping.Merged -> handler.merged(c.from, value as List<Int>)
+            is __Cont_ActorGrouping.Control -> handler.control(c.from, value as salvo.SalvoBytes)
         }
     }
 
@@ -1039,8 +1167,7 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
             is __Cont_ActorGrouping.Subscribe -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.AddrCodec) })(payload)
             is __Cont_ActorGrouping.Joined -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Node) })(payload)
             is __Cont_ActorGrouping.Left -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })(payload)
-            is __Cont_ActorGrouping.Peer -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_NodeId) })(payload)
-            is __Cont_ActorGrouping.Merged -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })(payload)
+            is __Cont_ActorGrouping.Control -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.BytesCodec) })(payload)
             else -> Pair(false, null)
         }
     }

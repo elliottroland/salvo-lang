@@ -819,9 +819,10 @@ nothing but the monitor.
   are both rebuilt over the copy, since `kotlin_fn_name` matches declarations
   by address between them (an alias import of a mangled overload
   [kt-qual-mangling] lost its suffix when they disagreed). Runtime:
-  `published`/`peerNames`, frames NAMED (8) and MEMBERS (9),
-  `publish(name, addr, sink, named, members)`, `shareMembers(name, to,
-  members)`, `pending(addr)` — byte-identical frames to Rust's. Intrinsics
+  `pending(addr)`; and, since 2026-10-02, the CONTROL frame std's group
+  protocols travel as — `controls`, `watchControl(channel, sink, build)`,
+  `sendControl`, `controlFrame`, `nodeLeft`, `localProtocols`,
+  `setPeerProtocols`/`peerProtocol` — byte-identical to Rust's. Intrinsics
   lowered as in Rust; `eq(Addr, Addr)` is `==` on the `Int` handle;
   `protocol<E>()` is `Protocol("E", <prefix>__PROTO_E)`, and as the fill of
   an implicit `?protocol` the lambda `{ Protocol("E", …) }` for the resolved

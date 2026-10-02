@@ -135,29 +135,12 @@ pub struct RemoteRef {
 /// actor does not serve or a malformed payload.
 pub type MsgDecoder = fn(&str, &[u8]) -> Option<SalvoMsg>;
 
-/// [node-group] Builds the `PeerEvents` messages the runtime sends a group
-/// actor: `hello(node, endpoint bytes, protocol table)` for a peer that
-/// completed the handshake, `gone(node)` for one that left. Generated code
-/// supplies both at `watch_peers`, since the runtime cannot construct a Salvo
-/// struct [actor-watch].
-pub type HelloOf = fn(u64, &[u8], &[(String, String)]) -> SalvoMsg;
-pub type GoneOf = fn(u64) -> SalvoMsg;
-/// [node-group] Builds `PeerEvents.introduced` from the encoded endpoints an
-/// INTRO frame carries.
-pub type IntroOf = fn(&[Vec<u8>]) -> SalvoMsg;
-/// [actor-group] Builds the message a publisher receives when a peer node
-/// publishes the same name: given the peer node.
-pub type NamedOf = fn(u64) -> SalvoMsg;
-/// [actor-group] Builds the message a publisher receives when a peer's
-/// replica shares members: the peer node and the identities (which the
-/// builder imports into addrs).
-pub type MembersOf = fn(u64, &[RemoteRef]) -> SalvoMsg;
-
-struct GroupState {
-    name: String,
-    endpoint: Vec<u8>,
-    sink: Option<(usize, HelloOf, GoneOf, IntroOf)>,
-}
+/// [node-group] [actor-group] Builds the message a control frame's payload
+/// arrives as: the sink's own private `control(from, data)` member, given the
+/// sending node and the payload bytes, which the sink decodes itself. The
+/// runtime cannot construct a Salvo value, so the registration site supplies
+/// the constructor [actor-watch]; it only wraps, so it may run under the lock.
+pub type ControlOf = fn(u64, Vec<u8>) -> SalvoMsg;
 
 /// [wire-format] Decodes one reply payload of a known type: what a waiter or
 /// an exported task is registered with, since only the minting site knows
@@ -328,23 +311,17 @@ struct Sched {
     /// wire yet, delivered when one arrives — a `NodeGroup` may learn a node
     /// after an addr of it.
     parked_frames_out: Vec<(u64, u64, Vec<u8>)>,
-    /// [node-group] Per hosted node: the group name it joined (compared at
-    /// the handshake), its own encoded endpoint (carried in its HELLO), and
-    /// the actor its peer events go to — with the builders for the two
-    /// messages, since the runtime cannot construct a Salvo value.
-    groups: HashMap<u64, GroupState>,
-    /// [protocol-hash] Every peer's protocol table, by node: what
-    /// `attach<E>` (step ⑤) compares before joining a group of `E`.
+    /// [node-group] [actor-group] Where control frames go: per hosted node
+    /// and channel, the actor and the builder of its `control` message. A node
+    /// group's mechanism listens on the channel `""`, an actor group's
+    /// replica on its group's name; the protocols themselves are std's.
+    controls: HashMap<(u64, String), (usize, ControlOf)>,
+    /// [protocol-hash] Every peer's protocol table, by node, as the node
+    /// group's handshake recorded it (`salvo_set_peer_protocols`).
     peer_protocols: HashMap<u64, HashMap<String, String>>,
     /// [protocol-hash] This program's own table, registered by generated
     /// code at start-up: every actor effect with a wire form and its hash.
     protocols: Vec<(String, String)>,
-    /// [actor-group] What each hosted node publishes by name: the identity
-    /// and, when a local actor wants to hear of peers publishing the same
-    /// name, the sink and the builder for its message.
-    published: HashMap<u64, HashMap<String, (RemoteRef, Option<(usize, NamedOf, MembersOf)>)>>,
-    /// [actor-group] What peers have published: (node, name) → identity.
-    peer_names: HashMap<(u64, String), RemoteRef>,
     /// [route-stub] Per local group replica: its member set as the replica
     /// last mirrored it — what a `route(group)` stub reads on the sender's
     /// thread, without a hop to the replica.
@@ -389,11 +366,9 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 wires: HashMap::new(),
                 exported_tasks: HashMap::new(),
                 parked_frames_out: Vec::new(),
-                groups: HashMap::new(),
+                controls: HashMap::new(),
                 peer_protocols: HashMap::new(),
                 protocols: Vec::new(),
-                published: HashMap::new(),
-                peer_names: HashMap::new(),
                 views: HashMap::new(),
                 timer_thread: false,
                 dead_entry: None,
@@ -1406,24 +1381,13 @@ fn report_fault(s: &mut Sched, pool: usize, reason: String) {
 //   2 GRANT to.node u64, from.node u64, actor u64, bits u64, n u32
 //           (from the host of `actor` to a sender holding a proxy of it)
 //   3 OPEN  to.node u64, actor u64, bits u64, from.node u64
-//   4 HELLO to.node u64 (0: unknown yet), from.node u64, group name (u32 len +
-//           UTF-8), from endpoint (u32 len + encoded NodeEndpoint), protocol
-//           table (u32 count, then per entry: name u32+UTF-8, hash 16 ascii)
-//           — the handshake [node-group]; a HELLO is sent through the
-//           transport directly, since no route exists yet
-//   5 ACK   the same fields; the answer to a HELLO, routed
-//   6 LEAVE to.node u64, from.node u64
-//   7 INTRO to.node u64, from.node u64, endpoints (u32 count, then each as a
-//           u32-length-prefixed encoded NodeEndpoint) — gossip's introductions,
-//           arriving as `PeerEvents.introduced`
-//   8 NAMED to.node u64, from.node u64, name (u32 len + UTF-8), identity
-//           (node u64, actor u64, bits u64) — "I publish this actor under this
-//           name" [actor-group]; sent to every peer at publish and to every
-//           new peer after its handshake, and delivered to the local publisher
-//           of the same name as the message its `publish` registered
-//   9 MEMBERS to.node u64, from.node u64, name, identities (u32 count, then
-//           24 bytes each) — a group replica sharing its members with the
-//           replica of the same name on a peer node
+//   4 CONTROL to.node u64 (0: whichever node receives it), from.node u64,
+//           channel (u32 len + UTF-8), payload — a message of a protocol std
+//           owns, handed to the actor listening on the channel at that node
+//           (`salvo_watch_control`): the node group's handshake, departures
+//           and introductions on channel "" [node-group], an actor group's
+//           member sharing on its name [actor-group]. Their payloads are
+//           canonical encodings of std's own types (`std/net.sv`).
 // Delivery is at most once and in order per (sender, receiver) pair — the
 // transport's guarantee, and nothing more [net-transport].
 // ======================================================================
@@ -1891,101 +1855,18 @@ pub fn salvo_set_protocols(table: Vec<(String, String)>) {
     lock.lock().unwrap().protocols = table;
 }
 
-/// [node-group] The current node joins group `name` at `endpoint`: what its
-/// HELLO carries and what a peer's HELLO is checked against.
-pub fn salvo_set_group(name: String, endpoint: Vec<u8>) {
+/// [protocol-hash] This program's own protocol table, for the HELLO a node
+/// group's mechanism builds.
+pub fn salvo_local_protocols() -> Vec<(String, String)> {
     let (lock, _) = state();
-    let mut s = lock.lock().unwrap();
-    let node = s.pools[salvo_current_pool()].node;
-    let entry = s.groups.entry(node).or_insert(GroupState {
-        name: String::new(),
-        endpoint: Vec::new(),
-        sink: None,
-    });
-    entry.name = name;
-    entry.endpoint = endpoint;
+    lock.lock().unwrap().protocols.clone()
 }
 
-/// [node-group] Where the current node's peer events go, with the builders
-/// for the three messages.
-pub fn salvo_watch_peers(sink: usize, hello: HelloOf, gone: GoneOf, intro: IntroOf) {
+/// [protocol-hash] Records the protocol table peer `node`'s handshake
+/// carried: what `salvo_peer_protocol` answers from.
+pub fn salvo_set_peer_protocols(node: u64, table: Vec<(String, String)>) {
     let (lock, _) = state();
-    let mut s = lock.lock().unwrap();
-    let node = s.pools[salvo_current_pool()].node;
-    let entry = s.groups.entry(node).or_insert(GroupState {
-        name: String::new(),
-        endpoint: Vec::new(),
-        sink: None,
-    });
-    entry.sink = Some((sink, hello, gone, intro));
-}
-
-/// [node-group] Tells peer `to` about `peers` (each an encoded endpoint): an
-/// INTRO frame from the current node.
-pub fn salvo_introduce(to: u64, peers: &[Vec<u8>]) {
-    let (lock, _) = state();
-    let mut s = lock.lock().unwrap();
-    let node = s.pools[salvo_current_pool()].node;
-    let mut frame = vec![7u8];
-    frame.extend_from_slice(&to.to_be_bytes());
-    frame.extend_from_slice(&node.to_be_bytes());
-    frame.extend_from_slice(&(peers.len() as u32).to_be_bytes());
-    for p in peers {
-        put_bytes(&mut frame, p);
-    }
-    route_frame(&mut s, node, to, frame);
-    drop(s);
-    flush_out();
-}
-
-fn put_str(out: &mut Vec<u8>, text: &str) {
-    out.extend_from_slice(&(text.len() as u32).to_be_bytes());
-    out.extend_from_slice(text.as_bytes());
-}
-
-fn put_bytes(out: &mut Vec<u8>, b: &[u8]) {
-    out.extend_from_slice(&(b.len() as u32).to_be_bytes());
-    out.extend_from_slice(b);
-}
-
-fn handshake_body(s: &Sched, node: u64, kind: u8, to: u64) -> Option<Vec<u8>> {
-    let g = s.groups.get(&node)?;
-    let mut frame = vec![kind];
-    frame.extend_from_slice(&to.to_be_bytes());
-    frame.extend_from_slice(&node.to_be_bytes());
-    put_str(&mut frame, &g.name);
-    put_bytes(&mut frame, &g.endpoint);
-    frame.extend_from_slice(&(s.protocols.len() as u32).to_be_bytes());
-    for (name, hash) in &s.protocols {
-        put_str(&mut frame, name);
-        frame.extend_from_slice(hash.as_bytes());
-    }
-    Some(frame)
-}
-
-/// [node-group] The current node's HELLO frame: sent through the transport
-/// directly by a `NodeGroup` handler, since the peer has no route yet.
-pub fn salvo_hello_frame() -> Vec<u8> {
-    let (lock, _) = state();
-    let s = lock.lock().unwrap();
-    let node = s.pools[salvo_current_pool()].node;
-    handshake_body(&s, node, 4, 0).unwrap_or_default()
-}
-
-/// [node-group] The current node leaves: a LEAVE to every peer it knows.
-pub fn salvo_leave_group() {
-    let (lock, _) = state();
-    let mut s = lock.lock().unwrap();
-    let node = s.pools[salvo_current_pool()].node;
-    let peers: Vec<u64> = s.peer_protocols.keys().copied().collect();
-    for to in peers {
-        let mut frame = vec![6u8];
-        frame.extend_from_slice(&to.to_be_bytes());
-        frame.extend_from_slice(&node.to_be_bytes());
-        route_frame(&mut s, node, to, frame);
-    }
-    drop(s);
-    flush_out();
+    lock.lock().unwrap().peer_protocols.insert(node, table.into_iter().collect());
 }
 
 /// [protocol-hash] A peer's hash for a protocol, if the handshake carried
@@ -1996,182 +1877,83 @@ pub fn salvo_peer_protocol(node: u64, effect: &str) -> Option<String> {
     s.peer_protocols.get(&node)?.get(effect).cloned()
 }
 
+/// [node-group] [actor-group] Registers `sink` as where the current node's
+/// control frames on `channel` go, as the message `build` makes.
+pub fn salvo_watch_control(channel: String, sink: usize, build: ControlOf) {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    s.controls.insert((node, channel), (sink, build));
+}
+
+fn put_str(out: &mut Vec<u8>, text: &str) {
+    out.extend_from_slice(&(text.len() as u32).to_be_bytes());
+    out.extend_from_slice(text.as_bytes());
+}
+
 fn read_str(b: &[u8], at: &mut usize) -> Option<String> {
     let n = u32::from_be_bytes(b.get(*at..*at + 4)?.try_into().ok()?) as usize;
-    *at += 4;
-    let text = std::str::from_utf8(b.get(*at..*at + n)?).ok()?.to_string();
-    *at += n;
-    Some(text)
+    let s = std::str::from_utf8(b.get(*at + 4..*at + 4 + n)?).ok()?.to_string();
+    *at += 4 + n;
+    Some(s)
 }
 
-fn read_bytes(b: &[u8], at: &mut usize) -> Option<Vec<u8>> {
-    let n = u32::from_be_bytes(b.get(*at..*at + 4)?.try_into().ok()?) as usize;
-    *at += 4;
-    let out = b.get(*at..*at + n)?.to_vec();
-    *at += n;
-    Some(out)
-}
-
-/// [node-group] A HELLO or ACK arrived at the current node: checks the group
-/// name, learns the peer's route and protocol table, answers an ACK to a
-/// HELLO, and tells the group actor. Answers whether it was accepted.
-fn deliver_handshake(kind: u8, frame: &[u8]) -> bool {
-    let (lock, cv) = state();
-    let mut at = 9;
-    let Some(from) = read_u64(frame, at) else { return false };
-    at += 8;
-    let Some(name) = read_str(frame, &mut at) else { return false };
-    let Some(endpoint) = read_bytes(frame, &mut at) else { return false };
-    let Some(count) = frame.get(at..at + 4) else { return false };
-    let count = u32::from_be_bytes([count[0], count[1], count[2], count[3]]) as usize;
-    at += 4;
-    let mut table: Vec<(String, String)> = Vec::with_capacity(count);
-    for _ in 0..count {
-        let Some(effect) = read_str(frame, &mut at) else { return false };
-        let Some(hash) = frame.get(at..at + 16).and_then(|h| std::str::from_utf8(h).ok()) else {
-            return false;
-        };
-        at += 16;
-        table.push((effect, hash.to_string()));
-    }
-    let mut s = lock.lock().unwrap();
-    // A HELLO names no node yet: it is for whichever hosted node joined the
-    // group it names — the one whose endpoint the transport listened at, in
-    // practice the current pool's. An ACK names its node.
-    let here = s.pools[salvo_current_pool()].node;
-    let to = read_u64(frame, 1).unwrap_or(0);
-    let node = if kind == 4 { here } else { to };
-    let Some(g) = s.groups.get(&node) else { return false };
-    if g.name != name {
-        return false;
-    }
-    let sink = g.sink;
-    s.routes.insert(from, endpoint.clone());
-    s.peer_protocols.insert(from, table.iter().cloned().collect());
-    if kind == 4 {
-        if let Some(ack) = handshake_body(&s, node, 5, from) {
-            route_frame(&mut s, node, from, ack);
-        }
-    }
-    let parked = std::mem::take(&mut s.parked_frames_out);
-    for (f, n, fr) in parked {
-        route_frame(&mut s, f, n, fr);
-    }
-    // [actor-group] Everything this node publishes, told to the new peer.
-    let mine: Vec<(String, RemoteRef)> = s
-        .published
-        .get(&node)
-        .map(|m| m.iter().map(|(n, (r, _))| (n.clone(), *r)).collect())
-        .unwrap_or_default();
-    for (n, r) in mine {
-        let frame = named_frame(from, node, &n, r);
-        route_frame(&mut s, node, from, frame);
-    }
-    cv.notify_all();
-    drop(s);
-    flush_out();
-    // The message is built with the lock released.
-    if let Some((sink, hello, _, _)) = sink {
-        let msg = hello(from, &endpoint, &table);
-        let mut s = lock.lock().unwrap();
-        if !s.actors[sink].dead {
-            s.actors[sink].queue.push_back(Entry::User(msg, None));
-            s.actors[sink].user_len += 1;
-        }
-        cv.notify_all();
-    }
-    true
-}
-
-fn named_frame(to: u64, from: u64, name: &str, r: RemoteRef) -> Vec<u8> {
-    let mut frame = vec![8u8];
+fn control_frame(to: u64, from: u64, channel: &str, payload: &[u8]) -> Vec<u8> {
+    let mut frame = vec![4u8];
     frame.extend_from_slice(&to.to_be_bytes());
     frame.extend_from_slice(&from.to_be_bytes());
-    put_str(&mut frame, name);
-    frame.extend_from_slice(&r.node.to_be_bytes());
-    frame.extend_from_slice(&r.actor.to_be_bytes());
-    frame.extend_from_slice(&r.bits.to_be_bytes());
+    put_str(&mut frame, channel);
+    frame.extend_from_slice(payload);
     frame
 }
 
-/// [actor-group] The current node publishes `addr` under `name`, and asks to
-/// hear — as the message `named` builds, at `sink` — of every peer node that
-/// publishes the same name, now or later. Peers already known learn of it
-/// now; a NAMED goes to every peer that completes a handshake afterwards.
-pub fn salvo_publish(name: String, addr: usize, sink: Option<(usize, NamedOf, MembersOf)>) {
+/// [node-group] A CONTROL frame from the current node on `channel`,
+/// addressed to whichever node receives it (`to` 0): what a mechanism hands
+/// the transport directly for its HELLO, since the peer has no route yet.
+pub fn salvo_control_frame(channel: &str, payload: &[u8]) -> Vec<u8> {
+    control_frame(0, salvo_here_node(), channel, payload)
+}
+
+/// [node-group] [actor-group] Routes a CONTROL frame on `channel` from the
+/// current node to node `to`; parked until `to` has a route.
+pub fn salvo_send_control(to: u64, channel: &str, payload: &[u8]) {
     let (lock, cv) = state();
     let mut s = lock.lock().unwrap();
     let node = s.pools[salvo_current_pool()].node;
-    let a = &s.actors[addr];
-    let r = a.remote.unwrap_or(RemoteRef {
-        node: a.node,
-        actor: addr as u64,
-        bits: a.bits,
-    });
-    s.published
-        .entry(node)
-        .or_default()
-        .insert(name.clone(), (r, sink));
-    let peers: Vec<u64> = s.peer_protocols.keys().copied().collect();
-    for to in peers {
-        let frame = named_frame(to, node, &name, r);
-        route_frame(&mut s, node, to, frame);
-    }
-    // Peers that published the name before we did are told to us now.
-    let already: Vec<u64> = s
-        .peer_names
-        .iter()
-        .filter(|((_, n), _)| *n == name)
-        .map(|((node, _), _)| *node)
-        .collect();
+    let frame = control_frame(to, node, channel, payload);
+    route_frame(&mut s, node, to, frame);
     cv.notify_all();
     drop(s);
     flush_out();
-    if let Some((sink, named, _)) = sink {
-        for r in already {
-            let msg = named(r);
-            let mut s = lock.lock().unwrap();
-            if !s.actors[sink].dead {
-                s.actors[sink].queue.push_back(Entry::User(msg, None));
-                s.actors[sink].user_len += 1;
-            }
-            cv.notify_all();
+}
+
+/// [node-group] [node-exit] Node `node` has left: its route and protocol
+/// table are forgotten, and every proxy of an actor on it is dead — sends to
+/// it are the silent no-op, and a `watch` on it fires.
+pub fn salvo_node_left(node: u64) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    s.routes.remove(&node);
+    s.peer_protocols.remove(&node);
+    let dead: Vec<usize> = s
+        .proxies
+        .iter()
+        .filter(|(r, _)| r.node == node)
+        .map(|(_, &idx)| idx)
+        .collect();
+    for idx in dead {
+        if s.actors[idx].dead {
+            continue;
+        }
+        s.actors[idx].dead = true;
+        s.actors[idx].exit_reason = Some("node left".to_string());
+        let watchers = std::mem::take(&mut s.actors[idx].watchers);
+        for (w, exit) in watchers {
+            let value = exit("node left".to_string());
+            deliver_reply(&mut s, w, value);
         }
     }
-}
-
-/// [actor-group] Shares `members` with the replica named `name` on peer
-/// `to`: a MEMBERS frame from the current node.
-pub fn salvo_share_members(name: &str, to: u64, members: &[usize]) {
-    let (lock, _) = state();
-    let mut s = lock.lock().unwrap();
-    let node = s.pools[salvo_current_pool()].node;
-    let mut frame = vec![9u8];
-    frame.extend_from_slice(&to.to_be_bytes());
-    frame.extend_from_slice(&node.to_be_bytes());
-    put_str(&mut frame, name);
-    frame.extend_from_slice(&(members.len() as u32).to_be_bytes());
-    for &m in members {
-        let a = &s.actors[m];
-        let r = a.remote.unwrap_or(RemoteRef {
-            node: a.node,
-            actor: m as u64,
-            bits: a.bits,
-        });
-        frame.extend_from_slice(&r.node.to_be_bytes());
-        frame.extend_from_slice(&r.actor.to_be_bytes());
-        frame.extend_from_slice(&r.bits.to_be_bytes());
-    }
-    route_frame(&mut s, node, to, frame);
-    drop(s);
-    flush_out();
-}
-
-/// [actor-group] What peer `node` published under `name`, if anything.
-pub fn salvo_lookup(node: u64, name: &str) -> Option<RemoteRef> {
-    let (lock, _) = state();
-    let s = lock.lock().unwrap();
-    s.peer_names.get(&(node, name.to_string())).copied()
+    cv.notify_all();
 }
 
 fn read_u64(b: &[u8], at: usize) -> Option<u64> {
@@ -2196,143 +1978,28 @@ pub fn salvo_deliver_frame(frame: &[u8]) -> bool {
     // found under the lock, the payload decoded with it **released** (an
     // `Addr` or `Reply` in it asks the scheduler for its identity), and the
     // decoded value delivered under the lock again.
-    if kind == 4 || kind == 5 {
-        return deliver_handshake(kind, frame);
-    }
-    if kind == 6 {
+    // [node-group] [actor-group] A CONTROL frame: the payload goes to the
+    // actor listening on its channel at the node it is for (the receiving
+    // node itself for `to` 0, a HELLO's), past the mailbox bound, as every
+    // runtime-made message is — the protocols are std's, not the runtime's.
+    if kind == 4 {
         let Some(from) = read_u64(frame, 9) else { return false };
+        let mut at = 17;
+        let Some(channel) = read_str(frame, &mut at) else { return false };
+        let payload = frame[at..].to_vec();
         let mut s = lock.lock().unwrap();
-        if !s.hosted_nodes.contains(&to_node) {
+        let node = if to_node == 0 { s.pools[salvo_current_pool()].node } else { to_node };
+        if !s.hosted_nodes.contains(&node) {
             return false;
         }
-        s.routes.remove(&from);
-        s.peer_protocols.remove(&from);
-        // Every proxy of an actor on the departed node is dead: sends to it
-        // are the silent no-op, and a `watch` on it fires [node-exit].
-        let dead: Vec<usize> = s
-            .proxies
-            .iter()
-            .filter(|(r, _)| r.node == from)
-            .map(|(_, &idx)| idx)
-            .collect();
-        for idx in dead {
-            s.actors[idx].dead = true;
-            s.actors[idx].exit_reason = Some("node left".to_string());
-            let watchers = std::mem::take(&mut s.actors[idx].watchers);
-            for (w, exit) in watchers {
-                let value = exit("node left".to_string());
-                deliver_reply(&mut s, w, value);
-            }
+        let Some(&(sink, build)) = s.controls.get(&(node, channel)) else { return false };
+        if s.actors[sink].dead {
+            return false;
         }
-        if let Some((sink, _, gone, _)) = s.groups.get(&to_node).and_then(|g| g.sink) {
-            let msg = gone(from);
-            if !s.actors[sink].dead {
-                s.actors[sink].queue.push_back(Entry::User(msg, None));
-                s.actors[sink].user_len += 1;
-            }
-        }
+        let msg = build(from, payload);
+        s.actors[sink].queue.push_back(Entry::User(msg, None));
+        s.actors[sink].user_len += 1;
         cv.notify_all();
-        drop(s);
-        flush_out();
-        return true;
-    }
-    if kind == 8 {
-        let Some(from) = read_u64(frame, 9) else { return false };
-        let mut at = 17;
-        let Some(name) = read_str(frame, &mut at) else { return false };
-        let (Some(n), Some(a), Some(b)) = (read_u64(frame, at), read_u64(frame, at + 8), read_u64(frame, at + 16))
-        else {
-            return false;
-        };
-        let r = RemoteRef { node: n, actor: a, bits: b };
-        let sink = {
-            let mut s = lock.lock().unwrap();
-            if !s.hosted_nodes.contains(&to_node) {
-                return false;
-            }
-            s.peer_names.insert((from, name.clone()), r);
-            s.published
-                .get(&to_node)
-                .and_then(|m| m.get(&name))
-                .and_then(|(_, sink)| *sink)
-        };
-        if let Some((sink, named, _)) = sink {
-            let msg = named(from);
-            let mut s = lock.lock().unwrap();
-            if !s.actors[sink].dead {
-                s.actors[sink].queue.push_back(Entry::User(msg, None));
-                s.actors[sink].user_len += 1;
-            }
-            cv.notify_all();
-        }
-        return true;
-    }
-    if kind == 9 {
-        let Some(from) = read_u64(frame, 9) else { return false };
-        let mut at = 17;
-        let Some(name) = read_str(frame, &mut at) else { return false };
-        let Some(count) = frame.get(at..at + 4) else { return false };
-        let count = u32::from_be_bytes([count[0], count[1], count[2], count[3]]) as usize;
-        at += 4;
-        let mut ids: Vec<RemoteRef> = Vec::with_capacity(count);
-        for _ in 0..count {
-            let (Some(n), Some(a), Some(b)) =
-                (read_u64(frame, at), read_u64(frame, at + 8), read_u64(frame, at + 16))
-            else {
-                return false;
-            };
-            ids.push(RemoteRef { node: n, actor: a, bits: b });
-            at += 24;
-        }
-        let sink = {
-            let s = lock.lock().unwrap();
-            if !s.hosted_nodes.contains(&to_node) {
-                return false;
-            }
-            s.published
-                .get(&to_node)
-                .and_then(|m| m.get(&name))
-                .and_then(|(_, sink)| *sink)
-        };
-        // Built with the lock released: the builder imports every identity.
-        if let Some((sink, _, members)) = sink {
-            let msg = members(from, &ids);
-            let mut s = lock.lock().unwrap();
-            if !s.actors[sink].dead {
-                s.actors[sink].queue.push_back(Entry::User(msg, None));
-                s.actors[sink].user_len += 1;
-            }
-            cv.notify_all();
-        }
-        return true;
-    }
-    if kind == 7 {
-        let mut at = 17;
-        let Some(count) = frame.get(at..at + 4) else { return false };
-        let count = u32::from_be_bytes([count[0], count[1], count[2], count[3]]) as usize;
-        at += 4;
-        let mut peers: Vec<Vec<u8>> = Vec::with_capacity(count);
-        for _ in 0..count {
-            let Some(p) = read_bytes(frame, &mut at) else { return false };
-            peers.push(p);
-        }
-        let sink = {
-            let s = lock.lock().unwrap();
-            if !s.hosted_nodes.contains(&to_node) {
-                return false;
-            }
-            s.groups.get(&to_node).and_then(|g| g.sink)
-        };
-        // Built with the lock released: the builder decodes endpoints.
-        if let Some((sink, _, _, intro)) = sink {
-            let msg = intro(&peers);
-            let mut s = lock.lock().unwrap();
-            if !s.actors[sink].dead {
-                s.actors[sink].queue.push_back(Entry::User(msg, None));
-                s.actors[sink].user_len += 1;
-            }
-            cv.notify_all();
-        }
         return true;
     }
     let delivered = match kind {

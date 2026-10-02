@@ -135,6 +135,32 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The group protocol in `net.sv` (2026-10-02; RUNTIME.md §11.5 step 4, D5).**
+The node-group handshake, introductions, departures and actor-group member
+sharing moved out of both schedulers into Salvo. The runtime now carries one
+CONTROL frame kind (4: to, from, channel, payload — `to` 0 for a HELLO,
+meaning whichever node receives it) and hands the payload to the actor
+registered on that channel at that node (`watch_control`), as the actor's
+private `control(from, data)` member; frames 5–9, the per-node group state,
+the published-name tables and the five builder types (`HelloOf`, `GoneOf`,
+`IntroOf`, `NamedOf`, `MembersOf`) are gone, replaced by one `ControlOf`.
+`net.sv` defines `Handshake = Hello | Ack | Leaving | Intro` and a shared
+`handshake(group, from, data)` both mechanisms call; the payloads are the
+canonical encoding [wire-format]. The NAMED frame is gone too: a replica
+shares `(hash, members)` with each node its node group reports `joined`,
+and shares back when it hears from a new peer whose hash matches, so the
+protocol check no longer depends on the handshake having been recorded
+first. What fell out: a replica opened after the handshake heard of no
+peers, which the runtime's name buffer used to cover, so a node group's
+`subscribe` now first reports every node it already knows (std behaviour
+change, documented on the rule). Kept in the runtime until the port: the
+route-stub views and the store behind the exported `peer_protocol`. Three
+Rust emitter defects found on the way, each refused by rustc, are ROADMAP
+item 0c (a re-declared local inheriting a loop's move decision, which
+`net.sv` avoids by naming; an uncoerced union argument to a `send fn`; an
+effect named `Box`). Scheduler sizes: Kotlin 1,994 → 1,640 lines, Rust
+2,720 → 2,160. **1668 tests.**
+
 **The host stream table in its own runtime file (2026-10-02; RUNTIME.md
 §11.5 step 3).** `SalvoIn`/`SalvoOut` and the table moved out of
 `scheduler.rs`/`scheduler.kt` into `hoststreams.rs`/`hoststreams.kt`, emitted

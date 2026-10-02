@@ -1486,20 +1486,23 @@ facts worth knowing") and keeps the history ("One shape for effects").
   call to an erased fn takes no turbofish (its `generics` are empty in the
   copy, so `effect_instance_turbofish` has nothing to emit). `#![allow(…)]`
   gains `non_upper_case_globals` for the free `__DECODE_*`/`__PROTO_*`
-  constants of erased generics. Runtime: `Sched.published` (node → name →
-  `Published { r#ref, sink, named, members }`) and `peer_names` ((node, name) →
-  `RemoteRef`); frames NAMED (8) and MEMBERS (9); `salvo_publish(name, addr,
-  sink, named, members)`, `salvo_share_members(name, to, members)`,
-  `salvo_pending(addr)` (queue depth locally, `granted` on a proxy; GRANT
-  decrements it). The handshake ACK/HELLO path sends every published name to
-  the new peer. Intrinsics lowered: `protocol<E>()` — the `Protocol { name,
+  constants of erased generics. Runtime: `salvo_pending(addr)` (queue depth
+  locally, `granted` on a proxy; GRANT decrements it). [node-group] The
+  group protocols are std's (2026-10-02, RUNTIME.md §3.3): the runtime
+  carries them as CONTROL frames (kind 4: to, from, channel, payload) to
+  `Sched.controls[(node, channel)]`, registered by `salvo_watch_control`
+  with a `ControlOf = fn(u64, Vec<u8>) -> SalvoMsg` builder, and keeps only
+  `salvo_send_control`, `salvo_control_frame` (to 0, for a HELLO),
+  `salvo_node_left`, `salvo_local_protocols` and the `peer_protocols` store
+  (`salvo_set_peer_protocols`, `salvo_peer_protocol`). Intrinsics lowered: `protocol<E>()` — the `Protocol { name,
   hash }` literal from the per-protocol hash constant, for the written type
   argument at a direct call and for the **resolved position's** `E` when it
   fills an implicit `?protocol: () -> Protocol<E>` (`emit_implicit_args`
   reads `ImplicitArg::Resolved.want`; the adapter is `&mut || Protocol {
   … }`, a generic caller forwards `&mut *protocol`) [implicit-intrinsic] —
-  `publish_group`, `share_members`,
-  `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
+  `watch_control`, `send_control`,
+  `control_frame`, `node_left`, `local_protocols`, `set_peer_protocols`,
+  `peer_protocol`, `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
   `actor_group<E>` is ordinary Salvo since 2026-09-28 [actor-group] (two
   overloads, `actor_group` and `actor_group__2` in the output).
 * [rs-wire] [route-stub] Runtime: `Sched.views` (group actor → members),
@@ -1519,9 +1522,9 @@ facts worth knowing") and keeps the history ("One shape for effects").
   mut __h = H::new(…); __h.init(); __h }` before the handle takes it — a
   dependent handler's dependencies are its own fields, so `init` is a plain
   method like every other member [rs-handle].
-  `self@Face` lowers to `self.__addr.expect(…)`; the `watch_peers` and
-  `publish_group` intrinsics build `__Priv_{current handler}` variants, since
-  the events they register for arrive as the mechanism's own private members.
+  `self@Face` lowers to `self.__addr.expect(…)`; the `watch_control`
+  intrinsic builds a `__Priv_{current handler}::Control` variant, since a
+  control frame's payload arrives as the handler's own private member.
 * [rs-actor] [actor-private-send] A private send member is an **inherent
   method** on the handler struct (`impl H { fn k(…) }`) with owned
   parameters (its written clause is all-consumed). `__Priv_H` is the
