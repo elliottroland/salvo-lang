@@ -28,6 +28,41 @@ fn runtime_source(file: &str) -> String {
         .unwrap_or_else(|e| panic!("failed to read the runtime module {}: {e}", path.display()))
 }
 
+/// [runtime-sched] The scheduler shims onto the Salvo core
+/// (`std/runtime.sv`), so it compiles only beside a generated runtime: the
+/// actors example's checked-in output, without its `main.kt`, with the
+/// current runtime sources put in place. Answers every source file written.
+fn example_sources(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/actors/kotlin");
+    let mut out = Vec::new();
+    copy_kt(&example, dir, &example, &mut out);
+    for file in ["scheduler.kt", "wire.kt", "hoststreams.kt", "hosttime.kt", "bytes.kt"] {
+        std::fs::write(dir.join(file), runtime_source(file)).unwrap();
+    }
+    out
+}
+
+fn copy_kt(from: &std::path::Path, to: &std::path::Path, root: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap() {
+        let e = e.unwrap();
+        let dest = to.join(e.file_name());
+        if e.file_type().unwrap().is_dir() {
+            copy_kt(&e.path(), &dest, root, out);
+        } else if e.path().extension().is_some_and(|x| x == "kt") && e.path() != root.join("main.kt") {
+            std::fs::copy(e.path(), &dest).unwrap();
+            out.push(dest);
+        }
+    }
+}
+
+/// The checked-in generated runtime a driver compiles against: part of the
+/// cache key, so a change to the core re-runs the cases.
+fn example_runtime() -> Vec<u8> {
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/actors/kotlin");
+    std::fs::read(example.join("runtime.kt")).unwrap_or_default()
+}
+
 /// Compiles one runtime module on its own and asserts that `kotlinc`
 /// accepted it. Warnings are asserted away for the same reason as on Rust:
 /// this code lands in user output, where the user cannot fix it.
@@ -37,11 +72,13 @@ fn compile_runtime_module(file: &str) {
         return;
     }
     let source = runtime_source(file);
+    let example_rt = example_runtime();
     let parts: Vec<&[u8]> = vec![
         b"kotlin-runtime-module",
         kotlinc.version.as_bytes(),
         file.as_bytes(),
         source.as_bytes(),
+        &example_rt,
     ];
     let Some(stamp) = salvo_testkit::cached(
         env!("CARGO_TARGET_TMPDIR"),
@@ -53,6 +90,7 @@ fn compile_runtime_module(file: &str) {
     let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("rt-{file}"));
     let src = dir.join(file);
     std::fs::write(&src, &source).expect("failed to write the runtime module");
+    let in_example = file == "scheduler.kt" || file == "wire.kt" || file == "hoststreams.kt";
     // [time-timer] `scheduler.kt`'s deadline thread reads the monotonic clock,
     // so `hosttime.kt` is compiled beside it exactly as the emitter emits the
     // two together. Every other module stands alone, and `hosttime.kt` is
@@ -60,19 +98,10 @@ fn compile_runtime_module(file: &str) {
     // [kt-wire] …and since step ③ the scheduler and the wire name each other
     // (the typed send encodes; the `Addr` codec asks the scheduler), and the
     // wire names `SalvoBytes`: the three travel with the scheduler.
-    let mut sources = vec![src.clone()];
-    // [stream-table] The stream table draws its handles from the scheduler.
-    if file == "scheduler.kt" || file == "wire.kt" || file == "hoststreams.kt" {
-        for companion in ["hosttime.kt", "bytes.kt", "scheduler.kt", "wire.kt", "hoststreams.kt"] {
-            if companion == file {
-                continue;
-            }
-            let path = dir.join(companion);
-            std::fs::write(&path, runtime_source(companion))
-                .expect("failed to write the runtime companion");
-            sources.push(path);
-        }
-    }
+    // [runtime-sched] The scheduler, the wire and the stream table name each
+    // other and the Salvo core, so those three are checked inside the actors
+    // example's generated tree; the rest stand alone.
+    let sources = if in_example { example_sources(&dir) } else { vec![src.clone()] };
     let out = Command::new("kotlinc")
         .args(&sources)
         .arg("-d")
@@ -84,8 +113,9 @@ fn compile_runtime_module(file: &str) {
         out.status.success(),
         "kotlinc rejected runtime/{file}:\n{noise}"
     );
+    let mine = |l: &&str| !in_example || l.contains(&format!("/{file}:"));
     assert!(
-        !noise.contains("warning:"),
+        !noise.lines().filter(mine).any(|l| l.contains("warning:")),
         "runtime/{file} compiles with warnings, which would land in user output:\n{noise}"
     );
     stamp.verified();
@@ -289,13 +319,13 @@ fun main() {
     val (token, wid) = SalvoSched.waiter()
     SalvoSched.watch(fragile, token, { reason -> "exit($reason)" })
     SalvoSched.send(fragile, "boom")
-    println("exit: ${SalvoSched.awaitReply(wid)}")
+    println("exit: exit(${(SalvoSched.awaitReply(wid) as salvo.core.actor.Exit).reason})")
     // A send to the dead is a no-op: this neither blocks nor fails.
     SalvoSched.send(fragile, "ignored")
     // And a watch registered after the death answers immediately.
     val (lateToken, lateWid) = SalvoSched.waiter()
     SalvoSched.watch(fragile, lateToken, { reason -> "exit($reason)" })
-    println("late watch: ${SalvoSched.awaitReply(lateWid)}")
+    println("late watch: exit(${(SalvoSched.awaitReply(lateWid) as salvo.core.actor.Exit).reason})")
 }
 "#,
             expected_stdout: "exit: exit(boom)\nlate watch: exit(boom)\n",
@@ -639,13 +669,13 @@ fun main() {
     // Nothing has been sent, so the answer is "done".
     val (first, w1) = SalvoSched.waiter()
     SalvoSched.onIdle(pool, first) { g, t -> "gates $g, tokens $t" }
-    println("settled: ${SalvoSched.awaitReply(w1)}")
+    println("settled: ${idleText(SalvoSched.awaitReply(w1))}")
     // The hook cannot fire before the message it was registered after has
     // run: a queued entry is deliverable, so the scheduler is not idle.
     SalvoSched.send(asker, "go")
     val (second, w2) = SalvoSched.waiter()
     SalvoSched.onIdle(pool, second) { g, t -> "gates $g, tokens $t" }
-    println("stuck: ${SalvoSched.awaitReply(w2)}")
+    println("stuck: ${idleText(SalvoSched.awaitReply(w2))}")
 }
 "#,
             expected_stdout: "settled: gates 0, tokens 0\nstuck: gates 1, tokens 1\n",
@@ -683,7 +713,7 @@ fun main() {
     val watcher = SalvoSched.spawn(pool, 4, Watcher())
     val (token, wid) = SalvoSched.waiter()
     SalvoSched.send(watcher, token)
-    println("from the actor: ${SalvoSched.awaitReply(wid)}")
+    println("from the actor: ${idleText(SalvoSched.awaitReply(wid))}")
 }
 "#,
             expected_stdout: "from the actor: gates 0, tokens 1\n",
@@ -733,6 +763,8 @@ fun main() {
         hosttime.as_bytes().to_vec(),
         runtime_source("bytes.kt").into_bytes(),
         runtime_source("wire.kt").into_bytes(),
+        runtime_source("hoststreams.kt").into_bytes(),
+        example_runtime(),
     ];
     for case in cases {
         parts.push(case.tag.as_bytes().to_vec());
@@ -748,17 +780,7 @@ fun main() {
     };
 
     let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), "sched-kt");
-    let module_path = dir.join("scheduler.kt");
-    std::fs::write(&module_path, &module).expect("failed to write the scheduler module");
-    let hosttime_path = dir.join("hosttime.kt");
-    std::fs::write(&hosttime_path, &hosttime).expect("failed to write the time runtime");
-    let mut sources = vec![module_path, hosttime_path];
-    // [kt-wire] The wire (and the bytes it names) travel with the scheduler.
-    for companion in ["bytes.kt", "wire.kt"] {
-        let path = dir.join(companion);
-        std::fs::write(&path, runtime_source(companion)).expect("failed to write a runtime companion");
-        sources.push(path);
-    }
+    let mut sources = example_sources(&dir);
     for case in cases {
         // Its own package and directory, since every driver declares
         // `main`. `internal` members stay visible: one `kotlinc` invocation
@@ -771,7 +793,12 @@ fun main() {
         let path = case_dir.join("main.kt");
         std::fs::write(
             &path,
-            format!("package {pkg}\n\nimport salvo.*\n{}", case.driver),
+            format!(
+                "package {pkg}\n\nimport salvo.*\n\n\
+                 fun idleText(v: Any?): String {{\n    val i = v as salvo.core.actor.Idle\n    \
+                 return \"gates ${{i.parkedGates}}, tokens ${{i.parkedTokens}}\"\n}}\n{}",
+                case.driver
+            ),
         )
         .expect("failed to write a scheduler driver");
         sources.push(path);

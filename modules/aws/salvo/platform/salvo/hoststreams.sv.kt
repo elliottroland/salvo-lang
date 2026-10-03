@@ -8,7 +8,7 @@
 // every host producer registers into (a file `HostRawFs` opened, a network
 // body, a buffer) and `stream.host`'s `HostRawStreams` reads, whoever
 // registered it. Shipped with the scheduler, whose handle counter it draws
-// from (`SalvoSched.freshHandle()` [stream-handle]). The table is locked only
+// from (`SalvoStreams.freshHandle()` [stream-handle]). The table is locked only
 // to find an entry, and each entry is its own monitor, so a slow read of one
 // stream never blocks another.
 package salvo
@@ -159,6 +159,15 @@ class SalvoOut(val source: String, val output: java.io.OutputStream, var positio
 }
 
 object SalvoStreams {
+    private val nextHandle = java.util.concurrent.atomic.AtomicLong(1)
+
+    /**
+     * [stream-handle] A handle for a new stream, unique in the process: every
+     * stream table, host and in-memory, draws from this counter, so a handle
+     * reaching the wrong table is unknown there rather than another stream's.
+     */
+    fun freshHandle(): Long = nextHandle.getAndIncrement()
+
     private val ins = HashMap<Long, SalvoIn>()
     private val outs = HashMap<Long, SalvoOut>()
 
@@ -173,13 +182,13 @@ object SalvoStreams {
         )
 
     fun registerIn(source: String, input: java.io.InputStream, position: Long): Long {
-        val handle = SalvoSched.freshHandle()
+        val handle = SalvoStreams.freshHandle()
         synchronized(this) { ins[handle] = SalvoIn(source, input, position) }
         return handle
     }
 
     fun registerOut(source: String, output: java.io.OutputStream, position: Long): Long {
-        val handle = SalvoSched.freshHandle()
+        val handle = SalvoStreams.freshHandle()
         synchronized(this) { outs[handle] = SalvoOut(source, output, position) }
         return handle
     }

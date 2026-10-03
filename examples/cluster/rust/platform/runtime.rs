@@ -57,7 +57,7 @@ pub fn guarded(body: Box<dyn FnOnce() + Send + 'static>) -> Option<String> {
 
 // [runtime-sched] `linear platform type Dyn`: an erased value.
 pub struct Dyn {
-    v: Box<dyn std::any::Any + Send>,
+    pub v: Box<dyn std::any::Any + Send>,
 }
 
 pub fn erase<T: Send + 'static>(v: T) -> Dyn {
@@ -72,16 +72,16 @@ pub fn drop_dyn(d: Dyn) {
     drop(d);
 }
 
-// [runtime-sched] `linear platform type Body`: what an activation runs.
-pub struct Body {
-    f: Box<dyn FnMut(i32, i64, Dyn) + Send>,
+// [runtime-sched] `linear platform type RtBody`: what an activation runs.
+pub struct RtBody {
+    pub f: Box<dyn FnMut(i32, i64, Dyn) + Send>,
 }
 
-pub fn body_of(f: Box<dyn FnMut(i32, i64, Dyn) + Send + 'static>) -> Body {
-    Body { f }
+pub fn body_of(f: Box<dyn FnMut(i32, i64, Dyn) + Send + 'static>) -> RtBody {
+    RtBody { f }
 }
 
-pub fn activate(mut b: Body, kind: i32, slot: i64, msg: Dyn) -> crate::runtime::Ran {
+pub fn activate(mut b: RtBody, kind: i32, slot: i64, msg: Dyn) -> crate::runtime::RtRan {
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (b.f)(kind, slot, msg)));
     let fault = outcome.err().map(|p| {
         p.downcast_ref::<&str>()
@@ -89,39 +89,49 @@ pub fn activate(mut b: Body, kind: i32, slot: i64, msg: Dyn) -> crate::runtime::
             .or_else(|| p.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "fault".to_string())
     });
-    crate::runtime::Ran { body: b, fault }
+    crate::runtime::RtRan { body: b, fault }
 }
 
-pub fn drop_body(b: Body) {
+pub fn drop_body(b: RtBody) {
     drop(b);
+}
+
+// [remote-backpressure] The routing layer's: a GRANT staged for the next
+// flush, and the flush.
+pub fn granted(addr: i32, from: i64) {
+    crate::scheduler::salvo_granted(addr as usize, from as u64);
+}
+
+pub fn flush_frames() {
+    crate::scheduler::salvo_flush_frames();
 }
 
 pub fn exit_process(code: i32) -> ! {
     std::process::exit(code)
 }
 
-// [runtime-sched] `linear platform type Slot<T>`: a cell of at most one value.
-pub struct Slot<T: Send + 'static> {
+// [runtime-sched] `linear platform type RtSlot<T>`: a cell of at most one value.
+pub struct RtSlot<T: Send + 'static> {
     v: Option<T>,
 }
 
-pub fn slot_of<T: Send + 'static>(v: T) -> Slot<T> {
-    Slot { v: Some(v) }
+pub fn slot_of<T: Send + 'static>(v: T) -> RtSlot<T> {
+    RtSlot { v: Some(v) }
 }
 
-pub fn slot_empty<T: Send + 'static>() -> Slot<T> {
-    Slot { v: None }
+pub fn slot_empty<T: Send + 'static>() -> RtSlot<T> {
+    RtSlot { v: None }
 }
 
-pub fn slot_take<T: Send + 'static>(s: &mut Slot<T>) -> Option<T> {
+pub fn slot_take<T: Send + 'static>(s: &mut RtSlot<T>) -> Option<T> {
     s.v.take()
 }
 
-pub fn slot_put<T: Send + 'static>(s: &mut Slot<T>, v: T) {
+pub fn slot_put<T: Send + 'static>(s: &mut RtSlot<T>, v: T) {
     s.v = Some(v);
 }
 
-pub fn drop_slot<T: Send + 'static>(s: Slot<T>) {
+pub fn drop_slot<T: Send + 'static>(s: RtSlot<T>) {
     drop(s);
 }
 

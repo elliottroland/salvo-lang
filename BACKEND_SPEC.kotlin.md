@@ -1174,8 +1174,10 @@ nothing but the monitor.
   * **Named `hosttime.kt`, not `time.kt`**, so it cannot collide with the
     emitted std module `time`; the general hole (runtime file names versus
     module names sharing one output namespace) is recorded in ROADMAP.
-  * **It travels with the scheduler** (`needs_time` implied by
-    `needs_scheduler`), since the deadline thread reads the monotonic clock.
+  * **It travels with the host stream table** (`needs_time` implied by
+    `hoststreams.kt`, which ships wherever the scheduler or the wire does).
+    `scheduler.kt` is a shim onto the runtime module's core (2026-10-03) and
+    holds `AddrCodec`/`ReplyCodec`, so `wire.kt` stands alone.
 * [kt-time] [time-timer] **Deadlines are the runtime module's**, in Salvo
   (2026-10-02): `SalvoSched` has no timer thread, and `HostRuntime.monoNanos`
   reads `SalvoTime.monoNanos()`. The wheel's thread is a pool worker, a daemon

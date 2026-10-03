@@ -33,6 +33,10 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
+#[path = "runtime.rs"]
+pub mod runtime;
+#[path = "platform/runtime.rs"]
+pub mod platform_runtime;
 
 use crate::core_actor::*;
 use crate::core_console::*;

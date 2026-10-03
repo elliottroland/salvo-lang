@@ -7682,9 +7682,23 @@ between endpoints and delivers what arrives into the scheduler.
   fault sink (an unwatched death reported to the pool's sink as a kind-2
   activation carrying a `Fault`, or named on stderr), owed-token accounting
   and `on_idle`, outside sources (`external_begin`/`end`), the deadlock
-  report and the main-pool wedge report — the same texts the hosts print. Host types: `Dyn` (an erased value),
-  `Body` (an activation, `activate(b, msg) -> Ran`), `Slot<T>` (a cell a
-  linear value is taken from and put back into through `Mut`).
+  report and the main-pool wedge report — the same texts the hosts print.
+  Host types: `Dyn` (an erased value), `RtBody` (an activation,
+  `activate(b, msg) -> RtRan`), `RtSlot<T>` (a cell a linear value is taken
+  from and put back into through `Mut`); the runtime's private names carry
+  an `Rt` prefix so a program's own `Token` cannot shadow them (ROADMAP 0c
+  item 8).
+  * **The cutover** (2026-10-03): generated code runs on this scheduler.
+    Each backend's `scheduler.*` keeps the entry points generated code calls,
+    as shims onto the core, plus the routing layer (proxies, credits, frames
+    0–4) on tables of its own; the core calls back `granted(addr, from)` when
+    a message that came over the wire leaves a mailbox and `flush_frames()`
+    before an activation. A watch is answered with `core.actor`'s `Exit` and
+    an idle hook with its `Idle`, built by the core. The runtime module is
+    reached by any program using an actor form (by source text outside
+    comments, an over-approximation), and an emitter refuses a build that
+    ships the scheduler without it. Node ids are non-negative, since the
+    core marks a local sender as `-1`.
 * [mod-use] **A module-level `use H()` binds an effect for every function of
   its module**, without any of them declaring it (user decision 2026-10-02,
   RUNTIME.md E4): bound once, on first use, for the life of the process, and
@@ -8281,7 +8295,8 @@ replaced the working document TESTING.md).
     `&mut Cursor` on Rust. `canbe Mut` on a copyable one is refused (a copy
     shares the object, so `Mut` could not mean exclusive access), as is
     `threadsafe linear`.
-  * **Always `noremote`** [noremote] — a host object has no wire form — and
+  * **Always `noremote`** [noremote] — a host object has no wire form, and
+    the wire predicate says so for a struct holding one — and
     sendable [actor-sendable] (Rust: `Send + 'static`), so a handle may sit
     in actor state or travel in a local message.
   * **Refused**: slots, an obligation clause (`by auto` has no fields;
@@ -8485,7 +8500,8 @@ replaced the working document TESTING.md).
 * [stream-handle] **Every stream table draws its handles from one process-wide
   counter** (user decision 2026-09-29, 22; built the same day):
   `stream.fresh_handle()`, an `intrinsic` lowered to the runtime's atomic
-  (`salvo_fresh_handle` / `SalvoSched.freshHandle()`), used by `MemFs` and by
+  (`salvo_fresh_handle` / `SalvoStreams.freshHandle()`, in the host stream
+  table's runtime file since 2026-10-03), used by `MemFs` and by
   `HostRawFs`. A handle handed to the wrong table is therefore *unknown* there
   — a trap [stream-provider] — and never another live stream, which is what
   per-table counters starting at 1 made likely. Making the mismatch a

@@ -4,7 +4,14 @@
 // salvo-abi 1 023a4214a13ba612
 use crate::aws::*;
 use crate::collections::*;
+use crate::core_actor::*;
 use crate::core_checked::*;
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_map::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
+use crate::core_string::*;
 use crate::unions::*;
 
 #[derive(Clone, Debug, PartialEq)]

@@ -12,7 +12,6 @@
 use std::io::{Read as _, Write as _};
 use std::sync::Mutex;
 
-use crate::scheduler::salvo_fresh_handle;
 /// [stream-table] A failure recorded against a stream, in host terms; the
 /// stream host maps it to `stream.StreamError`.
 #[derive(Clone, Debug)]
@@ -237,4 +236,10 @@ pub fn salvo_stream_take_in(handle: i64) -> SalvoSlot<SalvoIn> {
 pub fn salvo_stream_take_out(handle: i64) -> SalvoSlot<SalvoOut> {
     let found = salvo_stream_table().lock().unwrap().outs.remove(&handle);
     found.unwrap_or_else(|| salvo_not_ours(handle))
+}
+
+/// [stream-handle] A handle for a new stream, unique in the process.
+pub fn salvo_fresh_handle() -> i64 {
+    static NEXT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }

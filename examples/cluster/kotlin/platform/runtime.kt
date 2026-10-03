@@ -58,41 +58,47 @@ fun <T> unerase(d: Dyn): T = d.v as T
 
 fun dropDyn(d: Dyn) {}
 
-// [runtime-sched] `linear platform type Body`: what an activation runs.
-class Body(val f: (Int, Long, Dyn) -> Unit)
+// [runtime-sched] `linear platform type RtBody`: what an activation runs.
+class RtBody(val f: (Int, Long, Dyn) -> Unit)
 
-fun bodyOf(f: (Int, Long, Dyn) -> Unit): Body = Body(f)
+fun bodyOf(f: (Int, Long, Dyn) -> Unit): RtBody = RtBody(f)
 
-fun activate(b: Body, kind: Int, slot: Long, msg: Dyn): salvo.runtime.Ran =
+fun activate(b: RtBody, kind: Int, slot: Long, msg: Dyn): salvo.runtime.RtRan =
     try {
         b.f(kind, slot, msg)
-        salvo.runtime.Ran(b, null)
+        salvo.runtime.RtRan(b, null)
     } catch (t: Throwable) {
-        salvo.runtime.Ran(b, t.message ?: t.javaClass.simpleName)
+        salvo.runtime.RtRan(b, t.message ?: t.javaClass.simpleName)
     }
 
-fun dropBody(b: Body) {}
+fun dropBody(b: RtBody) {}
+
+// [remote-backpressure] The routing layer's: a GRANT staged for the next
+// flush, and the flush.
+fun granted(addr: Int, from: Long) = salvo.SalvoSched.granted(addr, from)
+
+fun flushFrames() = salvo.SalvoSched.flushFrames()
 
 fun exitProcess(code: Int): Nothing = kotlin.system.exitProcess(code)
 
-// [runtime-sched] `linear platform type Slot<T>`: a cell of at most one value.
-class Slot<T>(var v: T?)
+// [runtime-sched] `linear platform type RtSlot<T>`: a cell of at most one value.
+class RtSlot<T>(var v: T?)
 
-fun <T> slotOf(v: T): Slot<T> = Slot(v)
+fun <T> slotOf(v: T): RtSlot<T> = RtSlot(v)
 
-fun <T> slotEmpty(): Slot<T> = Slot(null)
+fun <T> slotEmpty(): RtSlot<T> = RtSlot(null)
 
-fun <T> slotTake(s: Slot<T>): T? {
+fun <T> slotTake(s: RtSlot<T>): T? {
     val out = s.v
     s.v = null
     return out
 }
 
-fun <T> slotPut(s: Slot<T>, v: T) {
+fun <T> slotPut(s: RtSlot<T>, v: T) {
     s.v = v
 }
 
-fun <T> dropSlot(s: Slot<T>) {}
+fun <T> dropSlot(s: RtSlot<T>) {}
 
 // [runtime-sched] Where this thread is: its pool and the actor whose
 // activation it is inside (-1 for none). Main's thread starts on pool 0.

@@ -214,6 +214,13 @@ fn emit_program_mode(
     // [platform-abi] [rs-platform-handler] The effects whose host-facing
     // traits and adapter are emitted beside them.
     let platform_effects = salvo_core::platform_effects(program, |m| abi || reachable.contains(m));
+    // [runtime-sched] [platform-abi] The scheduler calls into the Salvo core,
+    // so a host crate whose build runs actors carries the runtime module and
+    // what it reaches in full, as the build does.
+    let abi_full: HashSet<&ModulePath> = match salvo_core::runtime_module(program) {
+        Some(m) if abi && reachable.contains(m) => salvo_core::runtime_closure(program, &resolution, &checked),
+        _ => HashSet::new(),
+    };
     let abi_modules: HashSet<&ModulePath> = program
         .units()
         .filter(|u| {
@@ -223,7 +230,7 @@ fn emit_program_mode(
                     // nothing of it is kept: its implementation file imports it.
                     || (abi_modules_or_project(program, &u.file.module)
                         && !salvo_core::platform_declarations(u.ast).is_empty())
-            })
+            }) || (abi_full.contains(&u.file.module) && module_produces_code(u.ast))
         })
         .map(|u| &u.file.module)
         .collect();
@@ -331,7 +338,7 @@ fn emit_program_mode(
         emitter.effect_paths = effect_paths.clone();
         emitter.module_paths = module_paths.clone();
         emitter.erased = erased.clone();
-        emitter.abi_keep = closure.clone();
+        emitter.abi_keep = if abi_full.contains(&unit.file.module) { None } else { closure.clone() };
         emitter.platform_effects = platform_effects.clone();
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
@@ -367,8 +374,21 @@ fn emit_program_mode(
     // timeline `tick()` reports, which is what one shared reading buys.
     // [rs-wire] The wire runtime's `Addr`/`Reply` codecs name the scheduler,
     // so mounting one mounts the other.
-    let needs_scheduler = needs_scheduler || needs_wire;
-    let needs_time = needs_time || needs_scheduler;
+    // [stream-table] The host stream table ships wherever the wire does, as
+    // it did when the wire named the scheduler: std's stream handlers reach
+    // it without a Salvo-level edge.
+    let needs_hoststreams = needs_scheduler || needs_wire;
+    let needs_time = needs_time || needs_hoststreams;
+    // [runtime-sched] The scheduler shims onto the Salvo core: a build that
+    // ships one without the other would not compile, so it is refused here
+    // by name [backend-never-wrong].
+    if needs_scheduler && !salvo_core::runtime_module(program).is_some_and(|m| emitted_modules.contains(m)) {
+        errors.push(
+            "internal: this program uses actors but the runtime module (`std/runtime.sv`) was not \
+             reached [runtime-sched]"
+                .to_string(),
+        );
+    }
     if needs_str {
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("strings.rs"),
@@ -392,8 +412,10 @@ fn emit_program_mode(
             rel_path: std::path::PathBuf::from("scheduler.rs"),
             content: generate_scheduler_file(),
         });
-        // [stream-table] The host stream table travels with the scheduler,
-        // whose handle counter it draws from [stream-handle].
+    }
+    // [stream-table] [stream-handle] The host stream table and the handle
+    // counter every stream table draws from.
+    if needs_hoststreams {
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("hoststreams.rs"),
             content: include_str!("../runtime/hoststreams.rs").to_string(),
@@ -411,7 +433,9 @@ fn emit_program_mode(
     for comp in &program.companions {
         // [platform-abi] The host crate mounts the implementation files it
         // sits beside, never another tree's companions.
-        if abi {
+        // [runtime-sched] …except the runtime's own, which the core it
+        // carries calls.
+        if abi && !(comp.platform && abi_full.contains(&comp.module)) {
             continue;
         }
         if !abi && !reachable.contains(&comp.module) {
@@ -441,9 +465,16 @@ fn emit_program_mode(
         while !used.insert(name.clone()) {
             name.push('_');
         }
-        companion_mods.push((name, comp.rel_path.clone()));
+        let rel_path = if abi {
+            let mut p = std::path::PathBuf::from("salvo").join(&comp.rel_path);
+            p.set_extension("sv.rs");
+            p
+        } else {
+            comp.rel_path.clone()
+        };
+        companion_mods.push((name, rel_path.clone()));
         files.push(EmittedFile {
-            rel_path: comp.rel_path.clone(),
+            rel_path,
             content: comp.content.clone(),
         });
     }
@@ -553,6 +584,8 @@ fn emit_program_mode(
         }
         if needs_scheduler {
             mounts.push(("scheduler".to_string(), runtime("scheduler")));
+        }
+        if needs_hoststreams {
             mounts.push(("hoststreams".to_string(), runtime("hoststreams")));
         }
         if needs_time {
@@ -3037,7 +3070,7 @@ impl<'p> Emitter<'p> {
         // [wire-format] [rs-wire] The codec, for every struct with a wire
         // form — decided by the predicate the checker refuses `encode` with,
         // so the two never disagree about which structs have one.
-        if !borrowing && salvo_core::struct_has_wire_form(self.symbols, &s.name.name) {
+        if !borrowing && salvo_core::struct_has_wire_form(self.symbols, s) {
             out.push_str(&self.emit_struct_wire(s));
         }
         self.generics = saved;

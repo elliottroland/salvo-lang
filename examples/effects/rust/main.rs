@@ -5,8 +5,6 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
-#[path = "scheduler.rs"]
-pub mod scheduler;
 #[path = "hoststreams.rs"]
 pub mod hoststreams;
 #[path = "hosttime.rs"]

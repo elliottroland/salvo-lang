@@ -4,6 +4,7 @@
 // salvo-abi 1 023a4214a13ba612
 use crate::aws::*;
 use crate::aws_s3::*;
+use crate::core_iterator::*;
 
 pub type __Platform_HostS3 = crate::aws_s3::__Platform_S3<crate::platform_aws_s3_host::HostS3>;
 

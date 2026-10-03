@@ -1132,8 +1132,24 @@ keeps both backends passing the full suite.
     tokens (actor continuations, gated or not; waiters; tasks), the
     `waitfor` bridge serving its pool, `main`'s pool. Third part: watches,
     the fault sink, `on_idle` and owed tokens, outside sources, the deadlock
-    and wedge reports. Next: the cutover (the emitters onto this scheduler,
-    the host schedulers' local halves deleted), then routing.
+    and wedge reports. **The cutover**, 2026-10-03: both hosts' `scheduler.*`
+    are now shims onto this core (Rust 2,720 → about 1,030 lines, Kotlin
+    1,994 → about 660), every entry point generated code calls kept, plus the
+    routing layer on side tables of its own, so the emitters did not change.
+    The runtime module is reached by any program that uses an actor form,
+    and a host project whose build runs actors carries it in full. The
+    host-only behaviour tests now compile against the actors example's
+    generated runtime. Benchmarks after the cutover, medians of five:
+
+    | | ping-pong 10⁶ | fan-out | tasks 10⁵ | timers 10⁴ |
+    |---|---|---|---|---|
+    | Rust | 1,078 ms | 301 ms | 88 ms | 95 ms |
+    | Kotlin | 1,713 ms | 311 ms | 251 ms | 147 ms |
+    | budget (1.5×) | 603 / 551 ms | 317 / 533 ms | 44 / 56 ms | 87 / 153 ms |
+
+    Ping-pong and tasks are over budget on both backends (Rust 2.7× and 3×,
+    Kotlin 4.7× and 6.8× the baseline), Rust timers slightly. Next: get those
+    within budget, then routing into Salvo.
 11. **The scheduler in Salvo**: the local scheduler and routing together,
     `RuntimeHost` as the platform handler, actor bodies as E10 values moved
     in and out, payloads as `Dyn`, tasks as closures, waiting through

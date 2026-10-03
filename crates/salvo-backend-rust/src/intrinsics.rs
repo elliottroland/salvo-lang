@@ -306,7 +306,7 @@ pub fn fn_call(
         // correlation `DefaultClock` keeps) is ordinary Salvo over these.
         ("monotonic_nanos", None) => "crate::hosttime::salvo_mono_nanos()".to_string(),
         // [stream-handle] One counter for every stream table in the process.
-        ("fresh_handle", None) => "crate::scheduler::salvo_fresh_handle()".to_string(),
+        ("fresh_handle", None) => "crate::hoststreams::salvo_fresh_handle()".to_string(),
         ("epoch_nanos", None) => "crate::hosttime::salvo_epoch_nanos()".to_string(),
         // core.list ------------------------------------------------------
         // `List<T>` and `Mut List<T>` are both `Vec<T>`: Rust expresses

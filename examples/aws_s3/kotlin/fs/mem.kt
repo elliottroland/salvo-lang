@@ -54,7 +54,7 @@ class MemFs : Fs, Streams {
         if (content == null) {
             return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
         }
-        val handle = salvo.SalvoSched.freshHandle()
+        val handle = salvo.SalvoStreams.freshHandle()
         reads.put(handle, MemRead(source = path, data = salvo.SalvoBytes(content), at = 0, failed = false))
         return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
@@ -72,13 +72,13 @@ class MemFs : Fs, Streams {
         if (at > end) {
             at = end
         }
-        val handle = salvo.SalvoSched.freshHandle()
+        val handle = salvo.SalvoStreams.freshHandle()
         reads.put(handle, MemRead(source = path, data = salvo.SalvoBytes(content), at = at, failed = false))
         return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
 
     override fun openWrite(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        val handle = salvo.SalvoSched.freshHandle()
+        val handle = salvo.SalvoStreams.freshHandle()
         val empty = salvo.SalvoBytes.joined()
         writes.put(handle, MemWrite(path = path, buffer = empty))
         return Union2.U1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
@@ -91,7 +91,7 @@ class MemFs : Fs, Streams {
         } else {
             start.append(existing)
         }
-        val handle = salvo.SalvoSched.freshHandle()
+        val handle = salvo.SalvoStreams.freshHandle()
         writes.put(handle, MemWrite(path = path, buffer = start))
         return Union2.U1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
     }
@@ -252,7 +252,7 @@ class MemFs : Fs, Streams {
     }
 
     override fun fromBytes(data: salvo.SalvoBytes): InStream {
-        val handle = salvo.SalvoSched.freshHandle()
+        val handle = salvo.SalvoStreams.freshHandle()
         reads.put(handle, MemRead(source = "<bytes>", data = data, at = 0, failed = false))
         return InStream(handle = handle)
     }

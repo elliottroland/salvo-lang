@@ -70,7 +70,10 @@ types and fns) 8 (`Parker`), 9
 (monitor re-entry traps on Kotlin) and the first half of 10 (module-level
 `use` in the runtime module, `RuntimeHost`) 11a (deadlines in Salvo), 11b
 (`start_thread`, `guarded`), 11c (projections of linear elements) and the
-first part of 11d (the local scheduler core, beside the hosts'). When the sequence completes, RUNTIME.md
+11d (the local scheduler core, and the cutover: both hosts' schedulers are
+now shims onto it, with routing still on host-side tables). Open in 11:
+ping-pong and tasks are over the 1.5× budget on both backends (numbers in
+RUNTIME.md 11d), then routing. When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
 ### 0b — Three slow tests (recorded 2026-10-02, to investigate)
@@ -144,6 +147,15 @@ a correct program from building. std works around the first by naming.
    `if`/`else` instead.
 7. ✅ Closed 2026-10-02: a narrowed linear union arm handed on clones on Rust
    (now moved, [rs-linear-move]).
+8. **(core, both backends) Type tables are keyed by bare name.** A program's
+   own `struct Token` and the runtime module's private `Token` share
+   `Symbols.structs`, so whichever registers last answers every lookup: the
+   wire predicate and Rust's derives then judged the runtime's `Token` by the
+   user's fields, and a codec for a type with no wire form was emitted
+   (refused by both host compilers). `struct_has_wire_form` now takes the
+   declaration, and the runtime's private types carry an `Rt` prefix
+   (`RtToken`, `RtBody`, …) until lookups are module-aware. Repro: any actor
+   program declaring `struct Token { id: Int }` before the prefix.
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 

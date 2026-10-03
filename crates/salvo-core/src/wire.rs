@@ -33,7 +33,7 @@
 
 use std::collections::HashMap;
 
-use salvo_syntax::ast::{EffectDecl, Type};
+use salvo_syntax::ast::{EffectDecl, StructDecl, Type};
 
 use crate::program::Symbols;
 use crate::types::{Qual, Ty};
@@ -151,7 +151,8 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
                 _ => {}
             }
             if let Some(decl) = symbols.intrinsic_types.get(name.as_str()) {
-                if decl.noremote {
+                // [platform-type] A host object is always `noremote`.
+                if decl.noremote || decl.platform {
                     return Some(WireBlock::NoRemote(name.clone()));
                 }
                 // An intrinsic type without a codec in the runtimes is a
@@ -184,47 +185,53 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
             let Some(decl) = symbols.structs.get(name.as_str()) else {
                 return None;
             };
-            if decl.noremote || decl.comptime {
-                return Some(WireBlock::NoRemote(name.clone()));
-            }
-            let subst: HashMap<String, Ty> = decl
-                .generics
-                .iter()
-                .map(|g| g.name.clone())
-                .zip(args.iter().cloned())
-                .collect();
-            for field in &decl.fields {
-                let Some(field_ty) = approx_ty(&field.ty, &subst) else {
-                    continue;
-                };
-                // A generic field left unsubstituted (the struct checked at
-                // its declaration rather than at an instantiation) is the
-                // instantiation's business, not a block.
-                if let Ty::Var(_) = field_ty {
-                    continue;
-                }
-                if let Some(b) = wire_blocker_at(symbols, &field_ty, depth + 1) {
-                    return Some(match b {
-                        WireBlock::NoRemote(inner) => {
-                            WireBlock::NoRemote(format!("{name}.{} ({inner})", field.name.name))
-                        }
-                        other => other,
-                    });
-                }
-            }
-            None
+            struct_blocker(symbols, decl, args, depth)
         }
         _ => None,
     }
 }
 
+/// The block in a struct declaration's fields, at `args`.
+fn struct_blocker(symbols: &Symbols<'_>, decl: &StructDecl, args: &[Ty], depth: usize) -> Option<WireBlock> {
+    let name = &decl.name.name;
+    if decl.noremote || decl.comptime {
+        return Some(WireBlock::NoRemote(name.clone()));
+    }
+    let subst: HashMap<String, Ty> = decl
+        .generics
+        .iter()
+        .map(|g| g.name.clone())
+        .zip(args.iter().cloned())
+        .collect();
+    for field in &decl.fields {
+        let Some(field_ty) = approx_ty(&field.ty, &subst) else {
+            continue;
+        };
+        // A generic field left unsubstituted (the struct checked at
+        // its declaration rather than at an instantiation) is the
+        // instantiation's business, not a block.
+        if let Ty::Var(_) = field_ty {
+            continue;
+        }
+        if let Some(b) = wire_blocker_at(symbols, &field_ty, depth + 1) {
+            return Some(match b {
+                WireBlock::NoRemote(inner) => {
+                    WireBlock::NoRemote(format!("{name}.{} ({inner})", field.name.name))
+                }
+                other => other,
+            });
+        }
+    }
+    None
+}
+
 /// Whether a struct **declaration** has a wire form, judged with its generic
 /// parameters left free: what the emitters ask before generating a codec for
 /// it (a generic struct's codec is conditional on its arguments).
-pub fn struct_has_wire_form(symbols: &Symbols<'_>, name: &str) -> bool {
-    let Some(decl) = symbols.structs.get(name) else {
-        return false;
-    };
+pub fn struct_has_wire_form(symbols: &Symbols<'_>, decl: &StructDecl) -> bool {
+    // The declaration itself, not a lookup by name: a program's own struct
+    // may share a name with one of std's private ones (`Token`), and the
+    // name-keyed table holds only one of them.
     if decl.noremote {
         return false;
     }
@@ -236,11 +243,7 @@ pub fn struct_has_wire_form(symbols: &Symbols<'_>, name: &str) -> bool {
     // `Reply<Ok Long | Err Checked<StreamError>>`). Without arguments the
     // fields' parameters stay unresolved names, which block nothing: the codec
     // is conditional on its arguments, and the instantiation decides.
-    let ty = Ty::Named {
-        name: name.to_string(),
-        args: Vec::new(),
-    };
-    wire_blocker(symbols, &ty).is_none()
+    struct_blocker(symbols, decl, &[], 0).is_none()
 }
 
 /// A written type lowered structurally, with a struct's generic parameters

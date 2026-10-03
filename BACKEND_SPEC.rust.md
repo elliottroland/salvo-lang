@@ -1896,10 +1896,11 @@ facts worth knowing") and keeps the history ("One shape for effects").
     named `time.rs` write the same path, and the second silently clobbered the
     first (a duplicate `pub mod time;` and a pile of missing-symbol errors).
     The general hole is recorded in ROADMAP.
-  * **It travels with the scheduler**: `needs_time` is implied by
-    `needs_scheduler`, because the deadline thread reads the monotonic clock
-    and a `Fired` has to sit on the timeline `tick()` reports. Both runtime
-    tests mount it beside `scheduler.rs` for the same reason.
+  * **It travels with the host stream table**: `needs_time` is implied by
+    `hoststreams.rs`, which ships wherever the scheduler or the wire does.
+    `scheduler.rs` is a shim onto the runtime module's core (2026-10-03) and
+    holds the `Addr`/`Reply` codecs, so `wire.rs` stands alone; the runtime
+    tests compile it inside the actors example's generated tree.
 * [rs-time] [time-timer] **Deadlines are the runtime module's**, in Salvo
   (2026-10-02): the scheduler has no timer thread, and `HostRuntime.mono_nanos`
   reads `crate::hosttime::salvo_mono_nanos()`, the timeline `tick()` reports.

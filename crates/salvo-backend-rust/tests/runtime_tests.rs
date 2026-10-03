@@ -47,30 +47,16 @@ fn compile_runtime_module(file: &str) {
     if !rustc.available {
         return;
     }
+    // [runtime-sched] The scheduler shims onto the Salvo core
+    // (`std/runtime.sv`), and the wire and the stream table name the
+    // scheduler, so those three compile only inside a generated program:
+    // they are checked in the actors example's output, with the current
+    // sources put in place, and must add no warning of their own.
+    if file == "scheduler.rs" || file == "wire.rs" || file == "hoststreams.rs" {
+        compile_in_example(file, &rustc.version);
+        return;
+    }
     let source = runtime_source(file);
-    // [time-timer] `scheduler.rs` reads the monotonic clock for its deadline
-    // thread, so it compiles against `crate::hosttime` — mounted here exactly
-    // as the emitter mounts it (the two always travel together, since a
-    // `Fired` has to sit on the timeline `tick()` reports). Every other module
-    // is standalone, and `hosttime.rs` is checked on its own in this same list.
-    // [addr-routable] [rs-wire] …and since step ③ the scheduler and the wire
-    // name each other (a remote send encodes; an addr's codec asks the
-    // scheduler for its identity), so they are checked as one crate here,
-    // mounted as the emitter mounts them.
-    // [stream-table] …and the stream table draws its handles from the
-    // scheduler, so it is checked mounted beside it.
-    let source = if file == "scheduler.rs" || file == "wire.rs" || file == "hoststreams.rs" {
-        let hosttime = runtime_source("hosttime.rs");
-        let wire = runtime_source("wire.rs");
-        let scheduler = runtime_source("scheduler.rs");
-        let hoststreams = runtime_source("hoststreams.rs");
-        format!(
-            "pub mod hosttime {{\n{hosttime}\n}}\npub mod wire {{\n{wire}\n}}\n\
-             pub mod scheduler {{\n{scheduler}\n}}\npub mod hoststreams {{\n{hoststreams}\n}}\n"
-        )
-    } else {
-        source
-    };
     let parts: Vec<&[u8]> = vec![
         b"rust-runtime-module",
         rustc.version.as_bytes(),
@@ -105,6 +91,44 @@ fn compile_runtime_module(file: &str) {
     let noise = String::from_utf8_lossy(&out.stderr);
     assert!(
         noise.trim().is_empty(),
+        "runtime/{file} compiles with warnings, which would land in user output:\n{noise}"
+    );
+    stamp.verified();
+}
+
+/// [runtime-sched] Compiles the actors example's generated tree with the
+/// current runtime sources in place, and asserts no warning names `file`.
+fn compile_in_example(file: &str, version: &str) {
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/actors/rust");
+    let sources: Vec<String> = ["scheduler.rs", "wire.rs", "hoststreams.rs", "hosttime.rs"]
+        .iter()
+        .map(|f| runtime_source(f))
+        .collect();
+    let runtime = std::fs::read(example.join("runtime.rs")).unwrap_or_default();
+    let mut parts: Vec<&[u8]> = vec![b"rust-runtime-in-example", version.as_bytes(), file.as_bytes(), &runtime];
+    for s in &sources {
+        parts.push(s.as_bytes());
+    }
+    let Some(stamp) = salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), &format!("rust-runtime {file}"), &parts) else {
+        return;
+    };
+    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("rt-{file}"));
+    copy_tree(&example, &dir);
+    for (f, s) in ["scheduler.rs", "wire.rs", "hoststreams.rs", "hosttime.rs"].iter().zip(&sources) {
+        std::fs::write(dir.join(f), s).unwrap();
+    }
+    let out = Command::new("rustc")
+        .arg("--edition")
+        .arg("2021")
+        .arg(dir.join("main.rs"))
+        .arg("-o")
+        .arg(dir.join("program"))
+        .output()
+        .expect("failed to run rustc");
+    let noise = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "rustc rejected the actors example with runtime/{file}:\n{noise}");
+    assert!(
+        !noise.contains(&format!("/{file}:")),
         "runtime/{file} compiles with warnings, which would land in user output:\n{noise}"
     );
     stamp.verified();
@@ -323,7 +347,21 @@ fn wait_with_timeout(mut child: std::process::Child, secs: u64) -> std::process:
     }
 }
 
-/// Compiles `scheduler.rs` plus a driver `main` and runs it, asserting the
+/// Copies a directory tree, files and subdirectories.
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap() {
+        let e = e.unwrap();
+        let dest = to.join(e.file_name());
+        if e.file_type().unwrap().is_dir() {
+            copy_tree(&e.path(), &dest);
+        } else {
+            std::fs::copy(e.path(), dest).unwrap();
+        }
+    }
+}
+
+/// Compiles the generated runtime plus a driver `main` and runs it, asserting the
 /// exact stdout, whether the run succeeded, and a stderr marker.
 fn run_scheduler_program(
     tag: &str,
@@ -336,26 +374,28 @@ fn run_scheduler_program(
     if !rustc.available {
         return;
     }
-    let module = runtime_source("scheduler.rs");
-    // [time-timer] The scheduler's deadline thread reads the monotonic clock,
-    // so `hosttime.rs` is mounted beside it exactly as the emitter mounts it —
-    // as `crate::hosttime`, which is the path the scheduler names.
-    let hosttime = runtime_source("hosttime.rs");
-    // `dead_code` is allowed because a driver exercises one slice of the
-    // runtime's surface; the module itself is warning-checked above.
-    // [rs-wire] …and the wire, which the scheduler's typed sends name and
-    // whose `Addr` codec names the scheduler back — so the scheduler is a
-    // module here too, re-exported for the drivers' unqualified names.
-    let wire = runtime_source("wire.rs");
-    let source = format!(
-        "#![allow(dead_code)]\npub mod hosttime {{\n{hosttime}\n}}\npub mod wire {{\n{wire}\n}}\n\
-         pub mod scheduler {{\n{module}\n}}\nuse scheduler::*;\n{driver}"
-    );
+    // [runtime-sched] The scheduler is Salvo (`std/runtime.sv`), so a driver
+    // runs against a whole generated runtime: the actors example's checked-in
+    // output, which a test keeps current, with its `main.rs` cut down to the
+    // module header and the driver put in place of the program.
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/actors/rust");
+    let main = std::fs::read_to_string(example.join("main.rs")).expect("the actors example's main.rs");
+    let header: String = main
+        .lines()
+        .take_while(|l| l.starts_with("#") || l.starts_with("pub mod ") || l.starts_with("mod "))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let source = format!("{header}use scheduler::*;\n{driver}");
+    let sched_src = runtime_source("scheduler.rs");
+    let runtime_rs = std::fs::read(example.join("runtime.rs")).unwrap_or_default();
     let parts: Vec<&[u8]> = vec![
         b"rust-scheduler-behaviour",
         rustc.version.as_bytes(),
         tag.as_bytes(),
         source.as_bytes(),
+        main.as_bytes(),
+        sched_src.as_bytes(),
+        runtime_rs.as_slice(),
         expected_stdout.as_bytes(),
         stderr_contains.as_bytes(),
     ];
@@ -367,6 +407,10 @@ fn run_scheduler_program(
         return;
     };
     let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("sched-{tag}"));
+    copy_tree(&example, &dir);
+    for file in ["scheduler.rs", "wire.rs", "hoststreams.rs", "hosttime.rs"] {
+        std::fs::write(dir.join(file), runtime_source(file)).unwrap();
+    }
     let src = dir.join("main.rs");
     std::fs::write(&src, &source).expect("failed to write the scheduler program");
     let bin = dir.join("program");
@@ -566,7 +610,7 @@ fn main() {
     salvo_watch(fragile, token, |reason| Box::new(format!("exit({reason})")));
     salvo_send(fragile, Box::new("boom".to_string()));
     let exit = salvo_wait(wid);
-    println!("exit: {}", exit.downcast_ref::<String>().unwrap());
+    println!("exit: exit({})", exit.downcast_ref::<crate::core_actor::Exit>().unwrap().reason);
     // A send to the dead is a no-op: this neither blocks nor fails.
     salvo_send(fragile, Box::new("ignored".to_string()));
     // And a watch registered after the death answers immediately, with the
@@ -574,7 +618,7 @@ fn main() {
     let (late_token, late_wid) = salvo_waiter();
     salvo_watch(fragile, late_token, |reason| Box::new(format!("exit({reason})")));
     let late = salvo_wait(late_wid);
-    println!("late watch: {}", late.downcast_ref::<String>().unwrap());
+    println!("late watch: exit({})", late.downcast_ref::<crate::core_actor::Exit>().unwrap().reason);
 }
 "#,
         "exit: exit(boom)\nlate watch: exit(boom)\n",
@@ -983,6 +1027,12 @@ fn report(gates: i32, tokens: i32) -> SalvoMsg {
     Box::new(format!("gates {gates}, tokens {tokens}"))
 }
 
+/// The core answers an idle hook with `core.actor`'s `Idle`.
+fn idle_text(v: &SalvoMsg) -> String {
+    let i = v.downcast_ref::<crate::core_actor::Idle>().unwrap();
+    format!("gates {}, tokens {}", i.parked_gates, i.parked_tokens)
+}
+
 fn main() {
     let pool = salvo_pool(1);
     let holder = salvo_spawn(pool, 4, Box::new(Holder { held: Vec::new() }), None);
@@ -990,13 +1040,13 @@ fn main() {
     // Nothing has been sent, so the answer is "done".
     let (first, w1) = salvo_waiter();
     salvo_on_idle(pool, first, report);
-    println!("settled: {}", salvo_wait(w1).downcast_ref::<String>().unwrap());
+    println!("settled: {}", idle_text(&salvo_wait(w1)));
     // The hook cannot fire before the message it was registered after has
     // run: a queued entry is deliverable, so the scheduler is not idle.
     salvo_send(asker, Box::new("go".to_string()));
     let (second, w2) = salvo_waiter();
     salvo_on_idle(pool, second, report);
-    println!("stuck: {}", salvo_wait(w2).downcast_ref::<String>().unwrap());
+    println!("stuck: {}", idle_text(&salvo_wait(w2)));
 }
 "#,
         "settled: gates 0, tokens 0\nstuck: gates 1, tokens 1\n",
@@ -1036,6 +1086,12 @@ fn report(gates: i32, tokens: i32) -> SalvoMsg {
     Box::new(format!("gates {gates}, tokens {tokens}"))
 }
 
+/// The core answers an idle hook with `core.actor`'s `Idle`.
+fn idle_text(v: &SalvoMsg) -> String {
+    let i = v.downcast_ref::<crate::core_actor::Idle>().unwrap();
+    format!("gates {}, tokens {}", i.parked_gates, i.parked_tokens)
+}
+
 fn main() {
     let pool = salvo_pool(1);
     let watcher = salvo_spawn(pool, 4, Box::new(Watcher { out: None }), None);
@@ -1043,7 +1099,7 @@ fn main() {
     salvo_send(watcher, Box::new(token));
     println!(
         "from the actor: {}",
-        salvo_wait(wid).downcast_ref::<String>().unwrap()
+        idle_text(&salvo_wait(wid))
     );
 }
 "#,

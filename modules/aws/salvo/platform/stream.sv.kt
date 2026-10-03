@@ -4,7 +4,15 @@
 // salvo-abi 1 023a4214a13ba612
 package salvo.stream
 
+import salvo.core.actor.*
 import salvo.core.checked.*
+import salvo.core.deque.*
+import salvo.core.iterator.*
+import salvo.core.list.*
+import salvo.core.map.*
+import salvo.core.set.*
+import salvo.core.sorted.*
+import salvo.core.string.*
 
 data class InStream(
     val handle: Long,

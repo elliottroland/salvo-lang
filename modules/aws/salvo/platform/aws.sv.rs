@@ -2,6 +2,8 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
+use crate::core_iterator::*;
+use crate::core_string::*;
 use crate::unions::*;
 
 #[derive(Clone, Debug, PartialEq)]

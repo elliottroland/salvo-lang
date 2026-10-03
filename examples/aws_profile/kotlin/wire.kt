@@ -254,24 +254,3 @@ class TripleCodec<A, B, C>(
     }
     override fun dec(inp: WireIn): Triple<A, B, C> = Triple(a.dec(inp), b.dec(inp), c.dec(inp))
 }
-
-/** [addr-routable] An `Addr<E>` is a scheduler index; on the wire its routable identity, 24 bytes. */
-object AddrCodec : WireCodec<Int> {
-    override fun enc(v: Int, out: WireOut) {
-        val r = SalvoSched.addrIdentity(v)
-        out.i64(r.node); out.i64(r.actor); out.i64(r.bits)
-    }
-    override fun dec(inp: WireIn): Int = SalvoSched.importAddr(SalvoRemoteRef(inp.i64(), inp.i64(), inp.i64()))
-}
-
-/** [addr-routable] A `Reply<T>` on the wire: `(node, kind, id, slot, bits)`, 33 bytes. */
-object ReplyCodec : WireCodec<SalvoReply> {
-    override fun enc(v: SalvoReply, out: WireOut) {
-        val e = SalvoSched.replyExport(v)
-        out.i64(e[0]); out.u8(e[1].toInt()); out.i64(e[2]); out.i64(e[3]); out.i64(e[4])
-    }
-    override fun dec(inp: WireIn): SalvoReply {
-        val node = inp.i64(); val kind = inp.u8(); val id = inp.i64(); val slot = inp.i64(); val bits = inp.i64()
-        return SalvoSched.replyImport(node, kind, id, slot, bits)
-    }
-}

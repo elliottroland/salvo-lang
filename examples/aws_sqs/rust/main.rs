@@ -25,6 +25,8 @@ pub mod core_bytes;
 pub mod core_checked;
 #[path = "core/console.rs"]
 pub mod core_console;
+#[path = "core/deque.rs"]
+pub mod core_deque;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]
@@ -41,6 +43,10 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
+#[path = "runtime.rs"]
+pub mod runtime;
+#[path = "platform/runtime.rs"]
+pub mod platform_runtime;
 
 use crate::aws::*;
 use crate::aws_sqs::*;
@@ -49,6 +55,7 @@ use crate::core_actor::*;
 use crate::core_bytes::*;
 use crate::core_checked::*;
 use crate::core_console::*;
+use crate::core_deque::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;

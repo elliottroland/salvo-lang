@@ -135,6 +135,42 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Generated code runs on the Salvo scheduler (2026-10-03; RUNTIME.md §11.5
+slice 11d, the cutover).** Both hosts' `scheduler.*` are now shims onto
+`std/runtime.sv`'s core, keeping every entry point the emitters call, so no
+emitter lowering changed; the routing layer (proxies, credits, frames 0–4)
+stays on host-side tables until it is ported. Rust's file went from 2,720 to
+about 1,030 lines, Kotlin's from 1,994 to about 660. The core gained the hooks
+routing needs (`enqueue_remote`, `kill`, `token_to_actor`/`waiter`,
+`export_token`, `granted`, `flush_frames`, mailbox room and depth). What it
+took and what fell out:
+- **Reaching the runtime.** No Salvo code names `std/runtime.sv`, so
+  reachability adds it when a reachable module uses an actor form (source
+  text outside comments), and an emitter refuses a build that would ship the
+  scheduler without it. `scheduler.*` no longer rides along with the wire: the
+  `Addr`/`Reply` codecs moved into it and the stream handle counter into the
+  host stream table, so a program without actors ships neither.
+- **Host projects** whose build runs actors carry the runtime module and what
+  it reaches in full, with its platform file, since the shim calls into it.
+- **Two lost-progress bugs.** A node id is random bits, and a negative one
+  read as "local sender" in the core, so no credit came back and a remote
+  sender starved: node ids are now non-negative (found as a hang in about
+  three runs of four). And a refused host reply value panicked after the
+  token was taken, so `Drop` never closed the outside source and the program
+  hung: the check now runs while the token is held.
+- **Platform types had a wire form.** The wire predicate checked only the
+  `noremote` flag, though [platform-type] says a platform type always is; a
+  struct holding a `Body` got a codec. Fixed in the predicate.
+- **Name collisions** between a program's types and the runtime's private
+  ones (ROADMAP 0c item 8): the runtime's private types now carry an `Rt`
+  prefix.
+- The host-only behaviour tests (`runtime_tests.rs` on both backends) compile
+  against the actors example's generated runtime, and read the core's
+  `Exit`/`Idle` where they used to build their own.
+- **Over budget**: ping-pong and tasks are 2.7–6.8× the baseline (RUNTIME.md
+  11d has the numbers), against D6's 1.5×; the next work.
+**1679 tests**, 5m21 fresh.
+
 **The local scheduler core in Salvo, third part (2026-10-03; RUNTIME.md §11.5
 slice 11d).** Watches, the fault sink (an unwatched death reaches the pool's
 sink as a kind-2 activation carrying a `Fault`, or the named report),

@@ -1,6 +1,7 @@
 package salvo.core.sorted
 
 import salvo.core.bytes.*
+import salvo.core.deque.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.set.*

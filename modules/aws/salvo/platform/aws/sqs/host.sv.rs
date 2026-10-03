@@ -4,6 +4,7 @@
 // salvo-abi 1 023a4214a13ba612
 use crate::aws::*;
 use crate::aws_sqs::*;
+use crate::core_iterator::*;
 
 pub type __Platform_HostSqs = crate::aws_sqs::__Platform_Sqs<crate::platform_aws_sqs_host::HostSqs>;
 

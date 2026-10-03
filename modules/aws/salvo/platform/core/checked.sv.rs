@@ -2,6 +2,7 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
+use crate::core_iterator::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Checked<T: Clone + 'static> {
@@ -17,4 +18,16 @@ impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for Checked<T
             value: crate::wire::__Wire::__dec(r)?,
         })
     }
+}
+
+pub fn checked<T: Clone>(value: T) -> Checked<T> {
+    return Checked { value: value };
+}
+
+pub fn ignore<T: Clone>(checked: Checked<T>) {
+    drop(checked);
+}
+
+pub fn detach<T: Clone>(checked: Checked<T>) -> T {
+    return checked.value;
 }

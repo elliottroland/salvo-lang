@@ -71,8 +71,44 @@ pub fn reachable_modules<'p>(
             .collect();
     }
 
+    reachable_from(program, resolution, checked, roots, true)
+}
+
+/// [runtime-sched] The runtime module (`std/runtime.sv`), when the program
+/// has one.
+pub fn runtime_module(program: &Program) -> Option<&ModulePath> {
+    program
+        .units()
+        .find(|u| u.file.is_std && u.file.module.0.len() == 1 && u.file.module.0[0] == crate::resolve::STD_INTERNAL)
+        .map(|u| &u.file.module)
+}
+
+/// [runtime-sched] [platform-abi] The runtime module and every module it
+/// reaches: what a host project emits in full beside the scheduler, which
+/// calls into it.
+pub fn runtime_closure<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    checked: &crate::check::Checked,
+) -> HashSet<&'p ModulePath> {
+    match runtime_module(program) {
+        Some(m) => reachable_from(program, resolution, checked, vec![m], false),
+        None => HashSet::new(),
+    }
+}
+
+fn reachable_from<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    checked: &crate::check::Checked,
+    roots: Vec<&'p ModulePath>,
+    with_runtime: bool,
+) -> HashSet<&'p ModulePath> {
     let mut reachable: HashSet<&ModulePath> = HashSet::new();
     let mut queue: Vec<&ModulePath> = roots;
+    let runtime_module = runtime_module(program);
+    let mut runtime_added = !with_runtime;
+    loop {
     while let Some(module) = queue.pop() {
         if !reachable.insert(module) {
             continue;
@@ -102,6 +138,29 @@ pub fn reachable_modules<'p>(
                 }
             }
         }
+    }
+    // [runtime-sched] A program using actors runs on the runtime's scheduler,
+    // which no Salvo code names: reach it when any reachable module uses an
+    // actor form. Over-approximated by the source text outside comments — a
+    // module that only names one emits the runtime it does not need. The
+    // emitters refuse a build whose scheduler finds no core [backend-never-wrong].
+    if runtime_added {
+        break;
+    }
+    runtime_added = true;
+    let uses_actors = program.units().any(|u| {
+        reachable.contains(&u.file.module)
+            && u.file.content.lines().any(|line| {
+                let code = line.split("//").next().unwrap_or("");
+                ["spawn", "waitfor", "replyto", "actor effect", "send fn", "Reply<", "Addr<", "pool("]
+                    .iter()
+                    .any(|w| code.contains(w))
+            })
+    });
+    match runtime_module {
+        Some(m) if uses_actors && !reachable.contains(m) => queue.push(m),
+        _ => break,
+    }
     }
     reachable
 }
