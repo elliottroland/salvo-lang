@@ -140,6 +140,48 @@ effect RouteTable {
     fn peer_hash(node: Long, protocol: Str) -> Str? => node, protocol
     fn forget_node(node: Long) -> List<Int> => node
     fn credits_of(addr: Int) -> Int? => addr
+    // [route-stub] The views route stubs read.
+    fn set_view(group: Int, members: List<Int>) -> None => !group, !members
+    fn view_of(group: Int) -> List<Int> => group
+    fn version_of(group: Int) -> Long => group
+    fn bump(group: Int) -> None => !group
+    // Records [me] to be woken when [group]'s version moves past [seen];
+    // answers its id, or -1 when it already has.
+    fn add_view_waiter(group: Int, seen: Long, me: Parker) -> Long => !group, !seen, !me
+    fn drop_view_waiter(id: Long) -> None => !id
+}
+
+// [route-stub] [group]'s view version. (A member calling a sibling goes
+// through the module's binding, which would take the table's lock again: the
+// members share these instead.)
+fn version_in(versions: Map<Int, Long>, group: Int) [] -> Long => versions, group {
+    let v = get(versions, group)
+    if v is Long n {
+        return copy(n)
+    }
+    return 0
+}
+
+// [route-stub] Moves [group]'s version and wakes its waiters.
+fn bump_in(versions: Mut Map<Int, Long>, waiters: Mut List<ViewWaiter>, group: Int) [] -> None
+=> versions: Mut, waiters: Mut, !group {
+    put(versions, copy(group), version_in(versions, copy(group)) + 1)
+    let i = 0
+    while i < size(waiters) {
+        if get(waiters, i)!.group == group {
+            let w = remove_at(waiters, copy(i))!
+            unpark(copy(w.parker))
+        } else {
+            i = i + 1
+        }
+    }
+}
+
+// [route-stub] A sender waiting for a view to change.
+struct ViewWaiter {
+    group: Int,
+    id: Long,
+    parker: Parker
 }
 
 handler Routes() of RouteTable {
@@ -166,6 +208,12 @@ handler Routes() of RouteTable {
     peers: Mut Map<Long, List<(Str, Str)>> = mut_map_of()
     dead_entry: Int = -1
     credit_waiters: Mut List<Parker> = mut_list_of()
+    // [route-stub] Per group: the member list its replica mirrors, and a
+    // version moved by every change and every `refresh`.
+    views: Mut Map<Int, List<Int>> = mut_map_of()
+    versions: Mut Map<Int, Long> = mut_map_of()
+    view_waiters: Mut List<ViewWaiter> = mut_list_of()
+    next_waiter: Long = 0
 
     init {
         node_id = fresh_node()
@@ -415,6 +463,47 @@ handler Routes() of RouteTable {
         }
         wake_senders(credit_waiters)
         return gone
+    }
+
+    fn set_view(group: Int, members: List<Int>) -> None => !group, !members {
+        put(views, copy(group), members)
+        bump_in(versions, view_waiters, group)
+    }
+
+    fn view_of(group: Int) -> List<Int> => group {
+        let v = get(views, group)
+        if v is List<Int> found {
+            return copy(found)
+        }
+        return []
+    }
+
+    fn version_of(group: Int) -> Long => group {
+        return version_in(versions, group)
+    }
+
+    fn bump(group: Int) -> None => !group {
+        bump_in(versions, view_waiters, group)
+    }
+
+    fn add_view_waiter(group: Int, seen: Long, me: Parker) -> Long => !group, !seen, !me {
+        if version_in(versions, copy(group)) != seen {
+            return -1
+        }
+        next_waiter = next_waiter + 1
+        add(view_waiters, ViewWaiter { group: group, id: copy(next_waiter), parker: me })
+        return copy(next_waiter)
+    }
+
+    fn drop_view_waiter(id: Long) -> None => !id {
+        let i = 0
+        while i < size(view_waiters) {
+            if get(view_waiters, i)!.id == id {
+                let _w = remove_at(view_waiters, copy(i))
+                return
+            }
+            i = i + 1
+        }
     }
 
     fn credits_of(addr: Int) -> Int? => addr {
@@ -828,4 +917,66 @@ fn deliver_answer(a: AnswerFrame) [] -> Bool => a {
         drop_body(body)
     }
     return false
+}
+
+// ---- the route stubs' views [route-stub]
+
+// [route-stub] The replica of [group] mirrors its member set here, after
+// every change; waiting senders wake.
+export fn view_set(group: Int, members: List<Int>) [] -> None => !group, !members {
+    set_view(group, members)
+}
+
+// [route-stub] The mirrored members of [group], by (node, actor id): the same
+// order on every node and both backends.
+export fn view_members(group: Int) [] -> List<Int> => group {
+    let left: Mut List<Int> = mut_list_of()
+    for m in view_of(group) {
+        add(left, copy(m))
+    }
+    let out: Mut List<Int> = mut_list_of()
+    while size(left) > 0 {
+        let best = 0
+        let i = 1
+        while i < size(left) {
+            if before(identity(copy(get(left, i)!)), identity(copy(get(left, best)!))) {
+                best = copy(i)
+            }
+            i = i + 1
+        }
+        add(out, remove_at(left, best)!)
+    }
+    return copy(out)
+}
+
+fn before(a: RemoteRef, b: RemoteRef) [] -> Bool => a, b {
+    if a.node != b.node {
+        return a.node < b.node
+    }
+    return a.actor <= b.actor
+}
+
+// [route-stub] [group]'s view version: moved by every change of its members
+// and by every `refresh`.
+export fn view_version(group: Int) [] -> Long => group {
+    return version_of(group)
+}
+
+// [route-stub] Moves [group]'s view version without changing its members:
+// what something a selector reads outside the view (an election) calls when
+// its answer changes.
+export fn view_refresh(group: Int) [] -> None => !group {
+    bump(group)
+}
+
+// [route-stub] Waits until [group]'s version moves past [seen], or [nanos]
+// pass, whichever is first.
+export fn view_wait(group: Int, seen: Long, nanos: Long) [] -> None => !group, !seen, !nanos {
+    let me = this_parker()
+    let id = add_view_waiter(group, seen, copy(me))
+    if id < 0 {
+        return
+    }
+    park_nanos(me, nanos)
+    drop_view_waiter(id)
 }

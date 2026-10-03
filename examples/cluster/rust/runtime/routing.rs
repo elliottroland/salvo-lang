@@ -395,6 +395,12 @@ pub trait __Stateless_RouteTable: Send + Sync {
     fn peer_hash(&self, node: i64, protocol: &String) -> Option<String>;
     fn forget_node(&self, node: i64) -> Vec<i32>;
     fn credits_of(&self, addr: i32) -> Option<i32>;
+    fn set_view(&self, group: i32, members: Vec<i32>);
+    fn view_of(&self, group: i32) -> Vec<i32>;
+    fn version_of(&self, group: i32) -> i64;
+    fn bump(&self, group: i32);
+    fn add_view_waiter(&self, group: i32, seen: i64, me: Parker) -> i64;
+    fn drop_view_waiter(&self, id: i64);
 }
 
 pub trait __Stateful_RouteTable: Send {
@@ -429,6 +435,12 @@ pub trait __Stateful_RouteTable: Send {
     fn peer_hash(&mut self, node: i64, protocol: &String) -> Option<String>;
     fn forget_node(&mut self, node: i64) -> Vec<i32>;
     fn credits_of(&mut self, addr: i32) -> Option<i32>;
+    fn set_view(&mut self, group: i32, members: Vec<i32>);
+    fn view_of(&mut self, group: i32) -> Vec<i32>;
+    fn version_of(&mut self, group: i32) -> i64;
+    fn bump(&mut self, group: i32);
+    fn add_view_waiter(&mut self, group: i32, seen: i64, me: Parker) -> i64;
+    fn drop_view_waiter(&mut self, id: i64);
 }
 
 pub struct RouteTable {
@@ -648,6 +660,81 @@ impl RouteTable {
             __Inner_RouteTable::Locked(h) => h.lock().unwrap().credits_of(addr),
         }
     }
+    pub fn set_view(&self, group: i32, members: Vec<i32>) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.set_view(group, members),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().set_view(group, members),
+        }
+    }
+    pub fn view_of(&self, group: i32) -> Vec<i32> {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.view_of(group),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().view_of(group),
+        }
+    }
+    pub fn version_of(&self, group: i32) -> i64 {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.version_of(group),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().version_of(group),
+        }
+    }
+    pub fn bump(&self, group: i32) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.bump(group),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().bump(group),
+        }
+    }
+    pub fn add_view_waiter(&self, group: i32, seen: i64, me: Parker) -> i64 {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.add_view_waiter(group, seen, me),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().add_view_waiter(group, seen, me),
+        }
+    }
+    pub fn drop_view_waiter(&self, id: i64) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.drop_view_waiter(id),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().drop_view_waiter(id),
+        }
+    }
+}
+
+pub fn version_in(versions: &SalvoMap<i32, i64>, group: i32) -> i64 {
+    let mut v = versions.get(&group);
+    if v.is_some() {
+        let mut n = *v.unwrap();
+        return n.clone();
+    }
+    return 0i64;
+}
+
+pub fn bump_in(versions: &mut SalvoMap<i32, i64>, waiters: &mut Vec<ViewWaiter>, group: i32) {
+    versions.insert(group.clone(), version_in(versions, group.clone()) + ((1) as i64));
+    let mut i = 0;
+    while i < (waiters.len() as i32) {
+        if waiters.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:171:12").group == group {
+            let mut w = waiters.salvo_remove_at(i.clone()).expect("salvo: value is absent at runtime.routing:172:21");
+            unpark_platform(&(w.parker.clone()));
+        } else {
+            i = i + 1;
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ViewWaiter {
+    pub group: i32,
+    pub id: i64,
+    pub parker: Parker,
+}
+
+impl std::fmt::Debug for ViewWaiter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ViewWaiter")
+            .field("group", &self.group)
+            .field("id", &self.id)
+            .field("parker", &"<fn>")
+            .finish()
+    }
 }
 
 pub struct Routes {
@@ -670,6 +757,10 @@ pub struct Routes {
     peers: SalvoMap<i64, Vec<(String, String)>>,
     dead_entry: i32,
     credit_waiters: Vec<Parker>,
+    views: SalvoMap<i32, Vec<i32>>,
+    versions: SalvoMap<i32, i64>,
+    view_waiters: Vec<ViewWaiter>,
+    next_waiter: i64,
 }
 
 impl Routes {
@@ -694,6 +785,10 @@ impl Routes {
             peers: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
             dead_entry: -1,
             credit_waiters: vec![],
+            views: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            versions: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            view_waiters: vec![],
+            next_waiter: 0i64,
         }
     }
 }
@@ -809,7 +904,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     fn take_outbox(&mut self) -> Vec<Staged> {
         let mut out: Vec<Staged> = vec![];
         while ((self.outbox.len() as i32) > 0) {
-            out.push(self.outbox.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:281:22"));
+            out.push(self.outbox.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:329:22"));
         }
         return out;
     }
@@ -889,7 +984,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     fn take_task(&mut self, key: i64) -> Option<ExportedTask> {
         let mut i = 0;
         while i < (self.task_keys.len() as i32) {
-            if *self.task_keys.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:358:16") == key {
+            if *self.task_keys.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:406:16") == key {
                 let mut _k = self.task_keys.salvo_remove_at(i.clone());
                 return self.tasks.salvo_remove_at(i);
             }
@@ -954,6 +1049,48 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         return gone;
     }
 
+    fn set_view(&mut self, group: i32, members: Vec<i32>) {
+        self.views.insert(group.clone(), members);
+        bump_in(&mut self.versions, &mut self.view_waiters, group);
+    }
+
+    fn view_of(&mut self, group: i32) -> Vec<i32> {
+        let mut v = self.views.get(&group);
+        if v.is_some() {
+            let mut found = v.unwrap();
+            return found.clone();
+        }
+        return vec![];
+    }
+
+    fn version_of(&mut self, group: i32) -> i64 {
+        return version_in(&self.versions, group);
+    }
+
+    fn bump(&mut self, group: i32) {
+        bump_in(&mut self.versions, &mut self.view_waiters, group);
+    }
+
+    fn add_view_waiter(&mut self, group: i32, seen: i64, me: Parker) -> i64 {
+        if version_in(&self.versions, group.clone()) != seen {
+            return -1i64;
+        }
+        self.next_waiter = self.next_waiter + ((1) as i64);
+        self.view_waiters.push(ViewWaiter { group: group, id: self.next_waiter.clone(), parker: me });
+        return self.next_waiter.clone();
+    }
+
+    fn drop_view_waiter(&mut self, id: i64) {
+        let mut i = 0;
+        while i < (self.view_waiters.len() as i32) {
+            if self.view_waiters.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:501:16").id == id {
+                let mut _w = self.view_waiters.salvo_remove_at(i.clone());
+                return;
+            }
+            i = i + 1;
+        }
+    }
+
     fn credits_of(&mut self, addr: i32) -> Option<i32> {
         let mut c = self.credits.get(&addr);
         if c.is_some() {
@@ -1014,7 +1151,7 @@ pub fn identity_in(remote: &SalvoMap<i32, RemoteRef>, bits: &mut SalvoMap<i32, i
 
 pub fn wake_senders(waiters: &mut Vec<Parker>) {
     while ((waiters.len() as i32) > 0) {
-        unpark_platform(&(waiters.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:470:16")));
+        unpark_platform(&(waiters.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:559:16")));
     }
 }
 
@@ -1033,7 +1170,7 @@ pub fn stage_in(routes: &SalvoMap<i64, Vec<u8>>, outbound: &SalvoSet<i64>, outbo
 pub fn restage(routes: &SalvoMap<i64, Vec<u8>>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>) {
     let mut waiting: Vec<Parked> = vec![];
     while ((parked.len() as i32) > 0) {
-        waiting.push(parked.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:493:22"));
+        waiting.push(parked.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:582:22"));
     }
     for mut p in waiting.clone() {
         stage_in(routes, outbound, outbox, parked, p.from, p.to, p.frame.clone());
@@ -1332,6 +1469,55 @@ pub fn deliver_answer(a: &AnswerFrame) -> bool {
         drop_body_platform(body);
     }
     return false;
+}
+
+pub fn view_set(group: i32, members: Vec<i32>) {
+    __module_use_0().set_view(group, members);
+}
+
+pub fn view_members(group: i32) -> Vec<i32> {
+    let mut left: Vec<i32> = vec![];
+    for mut m in __module_use_0().view_of(group) {
+        left.push(m.clone());
+    }
+    let mut out: Vec<i32> = vec![];
+    while ((left.len() as i32) > 0) {
+        let mut best = 0;
+        let mut i = 1;
+        while i < (left.len() as i32) {
+            if before(&(identity(*left.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:942:37"))), &(identity(*left.get((best) as i64 as usize).expect("salvo: value is absent at runtime.routing:942:68")))) {
+                best = i.clone();
+            }
+            i = i + 1;
+        }
+        out.push(left.salvo_remove_at(best).expect("salvo: value is absent at runtime.routing:947:18"));
+    }
+    return out.clone();
+}
+
+pub fn before(a: &RemoteRef, b: &RemoteRef) -> bool {
+    if a.node != b.node {
+        return a.node < b.node;
+    }
+    return a.actor <= b.actor;
+}
+
+pub fn view_version(group: i32) -> i64 {
+    return __module_use_0().version_of(group);
+}
+
+pub fn view_refresh(group: i32) {
+    __module_use_0().bump(group);
+}
+
+pub fn view_wait(group: i32, seen: i64, nanos: i64) {
+    let mut me = this_parker_platform();
+    let mut id = __module_use_0().add_view_waiter(group, seen, me.clone());
+    if id < ((0) as i64) {
+        return;
+    }
+    park_nanos_platform(&me, nanos);
+    __module_use_0().drop_view_waiter(id);
 }
 
 pub fn hash__4(value: &RemoteRef) -> i64 {

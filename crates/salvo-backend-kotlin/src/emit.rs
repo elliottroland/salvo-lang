@@ -5782,7 +5782,7 @@ impl<'p> Emitter<'p> {
                 return String::new();
             }
         };
-        // [route-stub] `use route(group)` constructs the generated stub the
+        // [route-stub] `use route_any(group)` constructs the generated stub the
         // checker chose for the group's protocol.
         let handler_name = self
             .checked
@@ -9092,6 +9092,23 @@ impl<'p> Emitter<'p> {
                     let g = self.emit_expr(args[0]);
                     return format!("salvo.SalvoSched.viewMembers({g})");
                 }
+                "view_version" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let g = self.emit_expr(args[0]);
+                    return format!("salvo.runtime.routing.viewVersion({g})");
+                }
+                "view_refresh" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let g = self.emit_expr(args[0]);
+                    return format!("salvo.runtime.routing.viewRefresh({g})");
+                }
+                "view_wait" if args.len() == 3 => {
+                    self.needs_scheduler = true;
+                    let g = self.emit_expr(args[0]);
+                    let seen = self.emit_expr(args[1]);
+                    let nanos = self.emit_expr(args[2]);
+                    return format!("salvo.runtime.routing.viewWait({g}, {seen}, {nanos})");
+                }
                 "key_hash" if args.len() == 1 => {
                     self.needs_scheduler = true;
                     self.needs_wire = true;
@@ -9110,10 +9127,6 @@ impl<'p> Emitter<'p> {
                     return format!(
                         "salvo.SalvoSched.keyHash(salvo.salvoEncode({k}, {codec}).toByteArray())"
                     );
-                }
-                "park_briefly" if args.is_empty() => {
-                    self.needs_scheduler = true;
-                    return "salvo.SalvoSched.parkBriefly()".to_string();
                 }
                 "connected" if args.is_empty() => {
                     self.needs_scheduler = true;

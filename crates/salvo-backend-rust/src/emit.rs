@@ -9973,7 +9973,7 @@ impl<'p> Emitter<'p> {
                 return String::new();
             }
         };
-        // [route-stub] `use route(group)` constructs the generated stub the
+        // [route-stub] `use route_any(group)` constructs the generated stub the
         // checker chose for the group's protocol.
         let handler_name = self
             .checked
@@ -15929,6 +15929,25 @@ impl<'p> Emitter<'p> {
                     let g = self.emit_read(args[0]);
                     return format!("crate::scheduler::salvo_view_members(({g}).clone())");
                 }
+                "view_version" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let g = self.emit_read(args[0]);
+                    return format!("crate::runtime_routing::view_version(({g}).clone() as i32)");
+                }
+                "view_refresh" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let g = self.emit_read(args[0]);
+                    return format!("crate::runtime_routing::view_refresh(({g}).clone() as i32)");
+                }
+                "view_wait" if args.len() == 3 => {
+                    self.needs_scheduler = true;
+                    let g = self.emit_read(args[0]);
+                    let seen = self.emit_owned(args[1]);
+                    let nanos = self.emit_owned(args[2]);
+                    return format!(
+                        "crate::runtime_routing::view_wait(({g}).clone() as i32, {seen}, {nanos})"
+                    );
+                }
                 "key_hash" if args.len() == 1 => {
                     self.needs_scheduler = true;
                     self.needs_wire = true;
@@ -15936,10 +15955,6 @@ impl<'p> Emitter<'p> {
                     return format!(
                         "crate::scheduler::salvo_key_hash(&crate::wire::salvo_encode(&{k}))"
                     );
-                }
-                "park_briefly" if args.is_empty() => {
-                    self.needs_scheduler = true;
-                    return "crate::scheduler::salvo_park_briefly()".to_string();
                 }
                 "connected" if args.is_empty() => {
                     self.needs_scheduler = true;

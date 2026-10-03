@@ -90,7 +90,7 @@ handler SlowLooking(who: Str, timer: Addr<Timer>) of Lookup {
 
 // ------------------------------------------------ hand-written routers ----
 //
-// `route(group)` picks ONE member per send. A policy that must read the
+// `route_any(group)` picks ONE member per send. A policy that must read the
 // message — fan it out, race two copies — is a handler `of any E` written for
 // that protocol: `any`, because it promises no order between two sends.
 
@@ -178,8 +178,11 @@ handler Racing() of Race {
 // `Leader` is a plain effect: whoever serves it decides who leads. This one
 // is an election a child could run — the node whose host name sorts last
 // wins — and it is still a real one: when that node leaves, the answer
-// changes, and every `Elected` pick follows it. A Raft would serve the same
-// effect, and nothing that routes through `Elected` would change.
+// changes, and every `Elected` route follows it. `Elected` asks it when the
+// route's view changes, not per send — here a node leaving changes the view
+// anyway; an election whose answer moves on its own calls `refresh()` on the
+// group. A Raft would serve the same effect, and nothing that routes through
+// `Elected` would change.
 handler LastHost(nodes: Addr<NodeGroup>, me: NodeEndpoint) of Leader {
     fn leader() -> NodeId? {
         let peers = waitfor out: Reply<List<Node>> { nodes.members(out) }
@@ -231,18 +234,19 @@ fn find(key: Str) [any Lookup] -> Str {
 }
 
 // A policy and its stub are bound for a scope, and a scope is a function:
-// two policies for two protocols — `Pick<Sequencer>`, `Pick<Inventory>` — are
+// two policies for two protocols — `RouteSelector<Sequencer>`,
+// `RouteSelector<Inventory>` — are
 // one type in the generated code, so they take turns rather than share one.
 // `Leader` arrives through the signature; `Elected` captures it from there.
 fn two_ids(seq: Addr<ActorGroup<Sequencer>>) [use, Leader, Console] -> None => !seq {
     use Elected<Sequencer>()
-    use route(seq)
+    use route_any(seq)
     println("  ${fresh_id()} ${fresh_id()}")
 }
 
 fn shop(stock: Addr<ActorGroup<Inventory>>) [use, Console] -> None => !stock {
     use Sharded<Inventory>()
-    use route(stock)
+    use route_any(stock)
     checkout(["apple", "pear", "apple", "fig", "pear"])
 }
 

@@ -1403,6 +1403,7 @@ pub trait __Stateless_ActorGroup: Send + Sync {
     fn leave(&self, member: usize);
     fn members(&self, out: crate::scheduler::SalvoReply);
     fn subscribe(&self, w: usize);
+    fn refresh(&self);
 }
 
 pub trait __Stateful_ActorGroup: Send {
@@ -1410,6 +1411,7 @@ pub trait __Stateful_ActorGroup: Send {
     fn leave(&mut self, member: usize);
     fn members(&mut self, out: crate::scheduler::SalvoReply);
     fn subscribe(&mut self, w: usize);
+    fn refresh(&mut self);
 }
 
 pub struct __Stub_ActorGroup {
@@ -1434,6 +1436,9 @@ impl __Stateless_ActorGroup for __Stub_ActorGroup {
     }
     fn subscribe(&self, w: usize) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Subscribe(w), crate::net::__PROTO_ActorGroup);
+    }
+    fn refresh(&self) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Refresh, crate::net::__PROTO_ActorGroup);
     }
 }
 
@@ -1492,6 +1497,12 @@ impl ActorGroup {
             __Inner_ActorGroup::Locked(h) => h.lock().unwrap().subscribe(w),
         }
     }
+    pub fn refresh(&self) {
+        match &self.inner {
+            __Inner_ActorGroup::Shared(h) => h.refresh(),
+            __Inner_ActorGroup::Locked(h) => h.lock().unwrap().refresh(),
+        }
+    }
 }
 
 pub enum __Msg_ActorGroup {
@@ -1499,6 +1510,7 @@ pub enum __Msg_ActorGroup {
     Leave(usize),
     Members(crate::scheduler::SalvoReply),
     Subscribe(usize),
+    Refresh,
 }
 
 impl crate::wire::__Wire for __Msg_ActorGroup {
@@ -1520,6 +1532,7 @@ impl crate::wire::__Wire for __Msg_ActorGroup {
                 out.push(3);
                 crate::wire::__Wire::__enc(__p0, out);
             }
+            __Msg_ActorGroup::Refresh => out.push(4),
         }
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
@@ -1528,13 +1541,14 @@ impl crate::wire::__Wire for __Msg_ActorGroup {
             1 => Some(__Msg_ActorGroup::Leave(crate::wire::__Wire::__dec(r)?)),
             2 => Some(__Msg_ActorGroup::Members(crate::wire::__Wire::__dec(r)?)),
             3 => Some(__Msg_ActorGroup::Subscribe(crate::wire::__Wire::__dec(r)?)),
+            4 => Some(__Msg_ActorGroup::Refresh),
             _ => None,
         }
     }
 }
 
 /// [protocol-hash] The canonical hash of `ActorGroup`.
-pub const __PROTO_ActorGroup: &str = "d8ddd42c92bfcc7f";
+pub const __PROTO_ActorGroup: &str = "695f43128bdada4a";
 
 pub trait __Stateless_ActorGroupWatcher: Send + Sync {
     fn joined(&self, member: usize);
@@ -1715,6 +1729,10 @@ impl crate::net::__Stateful_ActorGroup for ActorGrouping {
         crate::scheduler::salvo_reply_wire::<Vec<usize>>(out, self.all.clone());
     }
 
+    fn refresh(&mut self) {
+        crate::runtime_routing::view_refresh((self.__addr.expect("a handler naming its own address runs as an actor")).clone() as i32);
+    }
+
     fn subscribe(&mut self, w: usize) {
         self.watchers.push(w);
     }
@@ -1811,6 +1829,7 @@ impl __Actor_ActorGrouping {
             crate::net::__Msg_ActorGroup::Leave(member) => crate::net::__Stateful_ActorGroup::leave(&mut self.handler, member),
             crate::net::__Msg_ActorGroup::Members(out) => crate::net::__Stateful_ActorGroup::members(&mut self.handler, out),
             crate::net::__Msg_ActorGroup::Subscribe(w) => crate::net::__Stateful_ActorGroup::subscribe(&mut self.handler, w),
+            crate::net::__Msg_ActorGroup::Refresh => crate::net::__Stateful_ActorGroup::refresh(&mut self.handler),
         }
     }
     fn __dispatch_NodeGroupWatcher(&mut self, msg: crate::net::__Msg_NodeGroupWatcher) {
@@ -1928,115 +1947,175 @@ pub fn withdraw(list: &mut Vec<usize>, a: usize) -> bool {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ActorView {
+pub struct RouteMember {
     pub addr: usize,
-    pub pending: i32,
     pub local: bool,
 }
 
-impl crate::wire::__Wire for ActorView {
+impl crate::wire::__Wire for RouteMember {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.addr, out);
-        crate::wire::__Wire::__enc(&self.pending, out);
         crate::wire::__Wire::__enc(&self.local, out);
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
         Some(Self {
             addr: crate::wire::__Wire::__dec(r)?,
-            pending: crate::wire::__Wire::__dec(r)?,
             local: crate::wire::__Wire::__dec(r)?,
         })
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ActorGroupView {
-    pub actors: Vec<ActorView>,
-    pub key: Option<i64>,
+pub struct RouteView {
+    pub members: Vec<RouteMember>,
 }
 
-impl crate::wire::__Wire for ActorGroupView {
+impl crate::wire::__Wire for RouteView {
     fn __enc(&self, out: &mut Vec<u8>) {
-        crate::wire::__Wire::__enc(&self.actors, out);
-        crate::wire::__Wire::__enc(&self.key, out);
+        crate::wire::__Wire::__enc(&self.members, out);
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
         Some(Self {
-            actors: crate::wire::__Wire::__dec(r)?,
-            key: crate::wire::__Wire::__dec(r)?,
+            members: crate::wire::__Wire::__dec(r)?,
         })
     }
 }
 
-pub trait __Stateless_Pick: Send + Sync {
-    fn choose(&self, view: ActorGroupView) -> Option<usize>;
+pub fn default_route_config() -> RouteConfig {
+    return RouteConfig { first_wait: Duration { nanos: 1000000i64 }, max_wait: Duration { nanos: 5000000000i64 } };
 }
 
-pub trait __Stateful_Pick: Send {
-    fn choose(&mut self, view: ActorGroupView) -> Option<usize>;
+#[derive(Clone, Debug, PartialEq)]
+pub struct RouteConfig {
+    pub first_wait: Duration,
+    pub max_wait: Duration,
 }
 
-pub struct Pick {
-    inner: __Inner_Pick,
+impl crate::wire::__Wire for RouteConfig {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.first_wait, out);
+        crate::wire::__Wire::__enc(&self.max_wait, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            first_wait: crate::wire::__Wire::__dec(r)?,
+            max_wait: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
-pub enum __Inner_Pick {
-    Shared(std::sync::Arc<dyn __Stateless_Pick>),
-    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_Pick>>),
+pub trait __Stateless_RouteSelector: Send + Sync {
+    fn changed(&self, view: &RouteView);
+    fn select(&self, view: &RouteView, key: &Option<i64>) -> Option<usize>;
 }
 
-impl Clone for Pick {
+pub trait __Stateful_RouteSelector: Send {
+    fn changed(&mut self, view: &RouteView);
+    fn select(&mut self, view: &RouteView, key: &Option<i64>) -> Option<usize>;
+}
+
+pub struct RouteSelector {
+    inner: __Inner_RouteSelector,
+}
+
+pub enum __Inner_RouteSelector {
+    Shared(std::sync::Arc<dyn __Stateless_RouteSelector>),
+    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_RouteSelector>>),
+}
+
+impl Clone for RouteSelector {
     fn clone(&self) -> Self {
         Self { inner: match &self.inner {
-            __Inner_Pick::Shared(h) => __Inner_Pick::Shared(h.clone()),
-            __Inner_Pick::Locked(h) => __Inner_Pick::Locked(h.clone()),
+            __Inner_RouteSelector::Shared(h) => __Inner_RouteSelector::Shared(h.clone()),
+            __Inner_RouteSelector::Locked(h) => __Inner_RouteSelector::Locked(h.clone()),
         } }
     }
 }
 
-impl Pick {
-    pub fn shared<__H: __Stateless_Pick + 'static>(inner: __H) -> Self {
-        Self { inner: __Inner_Pick::Shared(std::sync::Arc::new(inner)) }
+impl RouteSelector {
+    pub fn shared<__H: __Stateless_RouteSelector + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_RouteSelector::Shared(std::sync::Arc::new(inner)) }
     }
-    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_Pick>) -> Self {
-        Self { inner: __Inner_Pick::Shared(inner) }
+    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_RouteSelector>) -> Self {
+        Self { inner: __Inner_RouteSelector::Shared(inner) }
     }
-    pub fn locked<__H: __Stateful_Pick + 'static>(inner: __H) -> Self {
-        Self { inner: __Inner_Pick::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
+    pub fn locked<__H: __Stateful_RouteSelector + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_RouteSelector::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
     }
-    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Pick>>) -> Self {
-        Self { inner: __Inner_Pick::Locked(inner) }
+    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_RouteSelector>>) -> Self {
+        Self { inner: __Inner_RouteSelector::Locked(inner) }
     }
-    pub fn choose(&self, view: ActorGroupView) -> Option<usize> {
+    pub fn changed(&self, view: &RouteView) {
         match &self.inner {
-            __Inner_Pick::Shared(h) => h.choose(view),
-            __Inner_Pick::Locked(h) => h.lock().unwrap().choose(view),
+            __Inner_RouteSelector::Shared(h) => h.changed(view),
+            __Inner_RouteSelector::Locked(h) => h.lock().unwrap().changed(view),
+        }
+    }
+    pub fn select(&self, view: &RouteView, key: &Option<i64>) -> Option<usize> {
+        match &self.inner {
+            __Inner_RouteSelector::Shared(h) => h.select(view, key),
+            __Inner_RouteSelector::Locked(h) => h.lock().unwrap().select(view, key),
         }
     }
 }
 
-pub fn route_to(pick: &crate::net::Pick, group: &usize) -> usize {
-    return route_keyed(pick, group, &(None));
+#[derive(Clone, Debug, PartialEq)]
+pub struct RoutePick {
+    pub to: usize,
+    pub version: i64,
 }
 
-pub fn route_to__2(pick: &crate::net::Pick, group: &usize, key: i64) -> usize {
-    return route_keyed(pick, group, &(Some(key)));
+impl crate::wire::__Wire for RoutePick {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.to, out);
+        crate::wire::__Wire::__enc(&self.version, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            to: crate::wire::__Wire::__dec(r)?,
+            version: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
-pub fn route_keyed(pick: &crate::net::Pick, group: &usize, key: &Option<i64>) -> usize {
+pub fn route_pick(route_selector: &crate::net::RouteSelector, group: &usize, config: &RouteConfig, seen: i64) -> RoutePick {
+    return route_keyed(route_selector, group, config, seen, None);
+}
+
+pub fn route_pick__2(route_selector: &crate::net::RouteSelector, group: &usize, config: &RouteConfig, seen: i64, key: i64) -> RoutePick {
+    return route_keyed(route_selector, group, config, seen, Some(key));
+}
+
+pub fn route_keyed(route_selector: &crate::net::RouteSelector, group: &usize, config: &RouteConfig, seen: i64, key: Option<i64>) -> RoutePick {
+    let mut wait = config.first_wait.nanos;
+    let mut cap = config.max_wait.nanos;
+    let mut last = seen.clone();
     loop {
-        let mut members = crate::scheduler::salvo_view_members((group.clone()).clone());
-        let mut actors: Vec<ActorView> = vec![];
-        for m in &members {
-            actors.push(ActorView { addr: m.clone(), pending: crate::scheduler::salvo_pending((m.clone()).clone()), local: eq__2(&(NodeId { id: crate::scheduler::salvo_addr_identity((m.clone()).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })) });
+        let mut version = crate::runtime_routing::view_version((group.clone()).clone() as i32);
+        let mut view = route_view(&(group.clone()));
+        if version != last {
+            route_selector.changed(&(view.clone()));
+            last = version.clone();
         }
-        let mut picked = pick.choose(ActorGroupView { actors: actors.clone(), key: key.clone() });
+        let mut picked = route_selector.select(&view, &(key.clone()));
         if !(picked.is_none()) {
-            return picked.as_ref().unwrap().clone();
+            return RoutePick { to: picked.as_ref().unwrap().clone(), version: last.clone() };
         }
-        crate::scheduler::salvo_park_briefly();
+        crate::runtime_routing::view_wait((group.clone()).clone() as i32, version.clone(), wait.clone());
+        wait = wait * ((2) as i64);
+        if wait > cap {
+            wait = cap.clone();
+        }
     }
-    return route_keyed(pick, group, key);
+    return route_keyed(route_selector, group, config, seen, key);
+}
+
+pub fn route_view(group: &usize) -> RouteView {
+    let mut members: Vec<RouteMember> = vec![];
+    for mut m in crate::scheduler::salvo_view_members((group.clone()).clone()) {
+        members.push(RouteMember { addr: m.clone(), local: eq__2(&(NodeId { id: crate::scheduler::salvo_addr_identity((m).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })) });
+    }
+    return RouteView { members: members.clone() };
 }
 
 #[derive(Clone)]
@@ -2052,28 +2131,35 @@ impl LeastLoaded {
     }
 }
 
-impl crate::net::__Stateless_Pick for LeastLoaded {
+impl crate::net::__Stateless_RouteSelector for LeastLoaded {
 
-    fn choose(&self, view: ActorGroupView) -> Option<usize> {
-        let mut best: Option<ActorView> = None;
-        for a in &view.actors {
+    fn changed(&self, view: &RouteView) {
+    }
+
+    fn select(&self, view: &RouteView, key: &Option<i64>) -> Option<usize> {
+        let mut best: Option<RouteMember> = None;
+        let mut best_pending = 0;
+        for a in &view.members {
+            let mut load = crate::scheduler::salvo_pending((a.addr.clone()).clone());
             if best.is_none() {
                 best = Some(a.clone());
+                best_pending = load;
             } else {
-                let mut b: ActorView = best.as_ref().unwrap().clone();
+                let mut b: RouteMember = best.as_ref().unwrap().clone();
                 let mut take = if self.prefer_local && a.local && !b.local {
                     true
                 } else if self.prefer_local && !a.local && b.local {
                     false
                 } else {
-                    a.pending < b.pending
+                    load < best_pending
                 };
                 if take {
                     best = Some(a.clone());
+                    best_pending = load;
                 }
             }
         }
-        let mut chosen: ActorView = if best.is_some() { best.as_ref().unwrap().clone() } else { return None };
+        let mut chosen: RouteMember = if best.is_some() { best.as_ref().unwrap().clone() } else { return None };
         return Some(chosen.addr.clone());
     }
 }
@@ -2089,21 +2175,24 @@ impl Sharded {
     }
 }
 
-impl crate::net::__Stateless_Pick for Sharded {
+impl crate::net::__Stateless_RouteSelector for Sharded {
 
-    fn choose(&self, view: ActorGroupView) -> Option<usize> {
-        let mut n = (view.actors.len() as i32);
+    fn changed(&self, view: &RouteView) {
+    }
+
+    fn select(&self, view: &RouteView, key: &Option<i64>) -> Option<usize> {
+        let mut n = (view.members.len() as i32);
         if n == 0 {
             return None;
         }
-        let mut k = if view.key.is_some() { view.key.unwrap() } else { 0i64 };
+        let mut k = if key.is_some() { key.unwrap() } else { 0i64 };
         let mut magnitude = if k < 0i64 {
             0i64 - k
         } else {
             k
         };
         let mut slot = ((magnitude % ((n) as i64)) as i32);
-        let mut picked = { let __pick1 = view.actors.get((slot) as i64 as usize); if __pick1.is_some() { __pick1.unwrap() } else { return None } };
+        let mut picked = { let __pick1 = view.members.get((slot) as i64 as usize); if __pick1.is_some() { __pick1.unwrap() } else { return None } };
         return Some(picked.addr.clone());
     }
 }
@@ -2175,29 +2264,35 @@ impl crate::net::__Stateless_Leader for StaticLeader {
     }
 }
 
-#[derive(Clone)]
 pub struct Elected {
+    chosen: Option<usize>,
     __dep_Leader: crate::net::Leader,
 }
 
 impl Elected {
     pub fn new(__dep_Leader: crate::net::Leader) -> Self {
         Self {
+            chosen: None,
             __dep_Leader,
         }
     }
 }
 
-impl crate::net::__Stateless_Pick for Elected {
+impl crate::net::__Stateful_RouteSelector for Elected {
 
-    fn choose(&self, view: ActorGroupView) -> Option<usize> {
-        let mut l = { let __pick2 = self.__dep_Leader.leader(); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { return None } };
-        for a in &view.actors {
+    fn changed(&mut self, view: &RouteView) {
+        self.chosen = None;
+        let mut l = { let __pick2 = self.__dep_Leader.leader(); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { return } };
+        for a in &view.members {
             if eq__2(&(NodeId { id: crate::scheduler::salvo_addr_identity((a.addr.clone()).clone()).node as i64 }), &l) {
-                return Some(a.addr.clone());
+                self.chosen = Some(a.addr.clone());
+                return;
             }
         }
-        return None;
+    }
+
+    fn select(&mut self, view: &RouteView, key: &Option<i64>) -> Option<usize> {
+        return self.chosen.clone();
     }
 }
 

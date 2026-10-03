@@ -74,7 +74,8 @@ types and fns) 8 (`Parker`), 9
 now shims onto it, with routing still on host-side tables; all four
 benchmarks within the 1.5× budget on both backends) and 11e (routing in
 Salvo, the service `runtime.routing`); type identity by declaration
-[type-identity] is done too. Next: step 12.
+[type-identity] is done too, and step 12 (routes wait on their view,
+`route_any`/`RouteSelector`). Next: step 13 (pools retire).
 When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
@@ -165,6 +166,12 @@ a correct program from building. std works around the first by naming.
    Rust**: `struct Tok { f: (x: Int) -> Int }` and `Tok { f: x -> x + 1 }`
    emit the lambda with a reference parameter (`|x| *x + 1`) for an
    `Arc<dyn Fn(i32) -> i32>` field (E0614). Unnamed (`(Int) -> Int`) works.
+12. **A struct field's default is inlined where the literal is written, with
+   the names it uses unimported there (Rust)**: `struct C { d: Duration =
+   Duration { nanos: 1L } }` and `C {}` in a module that does not import
+   `Duration` emits `Duration { … }` there (E0422). `net`'s
+   `default_route_config()` builds `RouteConfig {}` in its own module
+   instead.
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 
@@ -286,7 +293,7 @@ sequence left behind, by step — each a leftover, none a blocker:
   program relying on `Sharded`'s per-key ordering; a stub for a group whose
   replica is on another node (empty view, the stub parks); the stub is
   generated only where the module spells the protocol; two instances of an
-  erased effect (`Pick<A>`, `Pick<B>`) cannot share a scope — a function per
+  erased effect (`RouteSelector<A>`, `RouteSelector<B>`) cannot share a scope — a function per
   policy is the pattern, and lifting it means keeping a phantom on the erased
   trait plus a marker type per effect on the Rust side.
 - **the tidy-up (2026-09-27)**: a node group now connects the node itself
@@ -1124,7 +1131,7 @@ several are "revisit only if a customer appears".
     that mutex mattering.
 - **Eager handle cloning**: `Stamped::new(logger.clone(), clock.clone())`
   bumps two `Arc`s per `use`; fine, noted.
-- **The erased-sibling refusal** (`Pick<A>` beside `Pick<B>` in one scope,
+- **The erased-sibling refusal** (`RouteSelector<A>` beside `RouteSelector<B>` in one scope,
   [effect-generic-decl]) was kept through the one-shape change. Its original
   reason — two `__Has_Pick` impls colliding on one fusion struct — is gone,
   and the emitters resolve a call by instance, so lifting it is probably a

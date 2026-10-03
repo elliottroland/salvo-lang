@@ -887,12 +887,12 @@ fun checkout(inventory: Inventory, console: Console, skus: List<String>) {
             salvo.SalvoSched.awaitReply(__wid) as String
         }
         val parts = answer.split(":")
-        shards.add((parts.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:217:26")))
-        println(console, "  $sku: ${(parts.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:218:30"))} reserved on its shard so far")
+        shards.add((parts.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:220:26")))
+        println(console, "  $sku: ${(parts.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:221:30"))} reserved on its shard so far")
     }
-    println(console, "  apple and apple on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:220:51"))) == ((shards.getOrNull(2) ?: throw AssertionError("salvo: value is absent at main:220:68"))))}")
-    println(console, "  apple and fig on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:221:49"))) == ((shards.getOrNull(3) ?: throw AssertionError("salvo: value is absent at main:221:66"))))}")
-    println(console, "  apple and pear on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:222:50"))) == ((shards.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:222:67"))))}")
+    println(console, "  apple and apple on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:223:51"))) == ((shards.getOrNull(2) ?: throw AssertionError("salvo: value is absent at main:223:68"))))}")
+    println(console, "  apple and fig on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:224:49"))) == ((shards.getOrNull(3) ?: throw AssertionError("salvo: value is absent at main:224:66"))))}")
+    println(console, "  apple and pear on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:225:50"))) == ((shards.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:225:67"))))}")
 }
 
 fun count(search: Search, word: String): Int {
@@ -914,14 +914,14 @@ fun find(lookup: Lookup, key: String): String {
 }
 
 fun twoIds(leader: Leader, console: Console, seq: Int) {
-    val pick: Pick = Elected(leader)
-    val sequencer: Sequencer = __Route_Sequencer(seq, pick)
+    val route_selector: RouteSelector = __Mon_RouteSelector(Elected(leader))
+    val sequencer: Sequencer = __Mon_Sequencer(__Route_Sequencer(seq, defaultRouteConfig(), route_selector))
     println(console, "  ${freshId(sequencer)} ${freshId(sequencer)}")
 }
 
 fun shop(console: Console, stock: Int) {
-    val pick: Pick = Sharded()
-    val inventory: Inventory = __Route_Inventory(stock, pick)
+    val route_selector: RouteSelector = Sharded()
+    val inventory: Inventory = __Mon_Inventory(__Route_Inventory(stock, defaultRouteConfig(), route_selector))
     checkout(inventory, console, listOf<String>("apple", "pear", "apple", "fig", "pear"))
 }
 
@@ -1132,14 +1132,16 @@ fun main() {
     twoIds(leader, console, seq)
 }
 
-class __Route_Inventory(private val group: Int, private val __dep_Pick: Pick) : Inventory {
+class __Route_Inventory(private val group: Int, private val config: RouteConfig, private val __dep_RouteSelector: RouteSelector) : Inventory {
+    private var seen: Long = -1L
     internal val __mailboxCapacity: Int = 1
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont___Route_Inventory> = mutableMapOf()
 
     override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
-        val __target = routeTo__2(__dep_Pick, group, salvo.SalvoSched.keyHash(salvo.salvoEncode(sku, salvo.StrCodec).toByteArray()))
-        salvo.SalvoSched.sendWire(__target, __Msg_Inventory.Reserve(sku, qty, out), __PROTO_Inventory, __Codec___Msg_Inventory)
+        val __pick = routePick__2(__dep_RouteSelector, group, config, seen, salvo.SalvoSched.keyHash(salvo.salvoEncode(sku, salvo.StrCodec).toByteArray()))
+        seen = __pick.version
+        salvo.SalvoSched.sendWire(__pick.to, __Msg_Inventory.Reserve(sku, qty, out), __PROTO_Inventory, __Codec___Msg_Inventory)
     }
 }
 
@@ -1186,14 +1188,16 @@ class __Actor___Route_Inventory(private val handler: __Route_Inventory) : salvo.
     }
 }
 
-class __Route_Lookup(private val group: Int, private val __dep_Pick: Pick) : Lookup {
+class __Route_Lookup(private val group: Int, private val config: RouteConfig, private val __dep_RouteSelector: RouteSelector) : Lookup {
+    private var seen: Long = -1L
     internal val __mailboxCapacity: Int = 1
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont___Route_Lookup> = mutableMapOf()
 
     override fun lookup(key: String, out: salvo.SalvoReply) {
-        val __target = routeTo(__dep_Pick, group)
-        salvo.SalvoSched.sendWire(__target, __Msg_Lookup.Lookup(key, out), __PROTO_Lookup, __Codec___Msg_Lookup)
+        val __pick = routePick(__dep_RouteSelector, group, config, seen)
+        seen = __pick.version
+        salvo.SalvoSched.sendWire(__pick.to, __Msg_Lookup.Lookup(key, out), __PROTO_Lookup, __Codec___Msg_Lookup)
     }
 }
 
@@ -1240,14 +1244,16 @@ class __Actor___Route_Lookup(private val handler: __Route_Lookup) : salvo.SalvoA
     }
 }
 
-class __Route_Search(private val group: Int, private val __dep_Pick: Pick) : Search {
+class __Route_Search(private val group: Int, private val config: RouteConfig, private val __dep_RouteSelector: RouteSelector) : Search {
+    private var seen: Long = -1L
     internal val __mailboxCapacity: Int = 1
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont___Route_Search> = mutableMapOf()
 
     override fun query(word: String, out: salvo.SalvoReply) {
-        val __target = routeTo(__dep_Pick, group)
-        salvo.SalvoSched.sendWire(__target, __Msg_Search.Query(word, out), __PROTO_Search, __Codec___Msg_Search)
+        val __pick = routePick(__dep_RouteSelector, group, config, seen)
+        seen = __pick.version
+        salvo.SalvoSched.sendWire(__pick.to, __Msg_Search.Query(word, out), __PROTO_Search, __Codec___Msg_Search)
     }
 }
 
@@ -1294,14 +1300,16 @@ class __Actor___Route_Search(private val handler: __Route_Search) : salvo.SalvoA
     }
 }
 
-class __Route_Sequencer(private val group: Int, private val __dep_Pick: Pick) : Sequencer {
+class __Route_Sequencer(private val group: Int, private val config: RouteConfig, private val __dep_RouteSelector: RouteSelector) : Sequencer {
+    private var seen: Long = -1L
     internal val __mailboxCapacity: Int = 1
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont___Route_Sequencer> = mutableMapOf()
 
     override fun next(out: salvo.SalvoReply) {
-        val __target = routeTo(__dep_Pick, group)
-        salvo.SalvoSched.sendWire(__target, __Msg_Sequencer.Next(out), __PROTO_Sequencer, __Codec___Msg_Sequencer)
+        val __pick = routePick(__dep_RouteSelector, group, config, seen)
+        seen = __pick.version
+        salvo.SalvoSched.sendWire(__pick.to, __Msg_Sequencer.Next(out), __PROTO_Sequencer, __Codec___Msg_Sequencer)
     }
 }
 

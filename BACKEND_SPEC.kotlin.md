@@ -854,11 +854,11 @@ nothing but the monitor.
   (`__Mon_E(inner)`, locking forwards) only when the program declares
   a handler `of any E`; the forwards then cover its send members too, since a
   `use`-bound router runs them inline. Without a router, nothing is emitted.
-* [kt-wire] [route-stub] Runtime: `views`, `viewSet`, `viewMembers` (sorted
-  by `(node, actor)`), `keyHash` (FNV-1a 64, identical to Rust's),
-  `parkBriefly`. Intrinsics as in Rust; `key_hash` encodes with the
+* [kt-wire] [route-stub] Runtime: `viewSet`, `viewMembers` forward to the
+  routing service, which keeps the views; `keyHash` (FNV-1a 64, identical
+  to Rust's). Intrinsics as in Rust; `key_hash` encodes with the
   argument's codec and hashes `toByteArray()`. An erased struct's codec is
-  monomorphic (`__Codec_ActorView`, no argument codecs), and an erased
+  monomorphic (`__Codec_RouteMember`, no argument codecs), and an erased
   handler is constructed without type arguments (`Sharded()`).
 * [kt-actor] [handler-init] `init` is one more private member: a plain `fun
   init()` on the class (a soft keyword in Kotlin, legal as a method name),

@@ -46,7 +46,7 @@ pub fn handler_is_stateful(h: &HandlerDecl, parks: bool) -> bool {
 /// [effect-generic-decl] Whether every type argument of `r` names an effect
 /// (an instance that erases to a monomorphic type), `true` for no arguments.
 /// `is_effect` answers for a name; an actor effect counts, since it is the
-/// common argument (`Pick<Ping>`).
+/// common argument (`RouteSelector<Ping>`).
 pub fn effect_only_args(r: &salvo_syntax::ast::TypeRef, is_effect: &impl Fn(&str) -> bool) -> bool {
     r.args.iter().all(|a| match a {
         salvo_syntax::ast::Type::Named { base, qualifiers } => {

@@ -2030,7 +2030,7 @@ pub fn hoist_struct_fns(module: &mut Module) {
 // ---------------------------------------------------------------------------
 // A read-only walk over every statement and expression of a module, for the
 // expansions that need to *find* something before they generate ([route-stub]
-// looks for `use route(…)` and for `protocol<X>()`). Blocks nested in
+// looks for `use route_any(…)` and for `protocol<X>()`). Blocks nested in
 // expressions are walked too; a declaration's body is walked in item order.
 
 /// Calls `on_stmt` for every statement and `on_expr` for every expression in

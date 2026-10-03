@@ -173,7 +173,6 @@ object SalvoSched {
     internal val taskDecoders = java.util.concurrent.ConcurrentHashMap<Long, (ByteArray) -> Pair<Boolean, Any?>>()
     internal val controls = java.util.concurrent.ConcurrentHashMap<Int, (Long, ByteArray) -> Any?>()
     internal val wires = java.util.concurrent.ConcurrentHashMap<Long, (ByteArray, ByteArray) -> Unit>()
-    private val views = java.util.concurrent.ConcurrentHashMap<Int, List<Int>>()
 
     fun nodeId(): Long = hereNode()
 
@@ -276,14 +275,11 @@ object SalvoSched {
 
     fun pending(addr: Int): Int = salvo.runtime.routing.pending(addr)
 
-    fun viewSet(group: Int, members: List<Int>) {
-        views[group] = members.toList()
-    }
+    /** [route-stub] The replica [group] mirrors its member set: the routing service keeps it. */
+    fun viewSet(group: Int, members: List<Int>) = salvo.runtime.routing.viewSet(group, members)
 
-    fun viewMembers(group: Int): List<Int> {
-        val members = views[group] ?: emptyList()
-        return members.sortedWith(compareBy({ addrIdentity(it).node }, { addrIdentity(it).actor }))
-    }
+    /** [route-stub] The mirrored members of [group], by (node, actor id). */
+    fun viewMembers(group: Int): List<Int> = salvo.runtime.routing.viewMembers(group)
 
     /** [route-stub] FNV-1a over the key's canonical bytes, identical to Rust's `salvo_key_hash`. */
     fun keyHash(bytes: ByteArray): Long {
@@ -293,10 +289,6 @@ object SalvoSched {
             h *= 1099511628211L
         }
         return h
-    }
-
-    fun parkBriefly() {
-        Thread.sleep(1)
     }
 
     /** [addr-routable] An answer that arrived over the wire for an actor, still as bytes. */

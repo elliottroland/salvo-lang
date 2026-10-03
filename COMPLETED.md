@@ -135,6 +135,30 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Routes wait on their view; `route_any` and `RouteSelector` (2026-10-03;
+user decisions; RUNTIME.md §11.5 step 12).** `use route(group)` became `use
+route_any(group[, RouteConfig { first_wait, max_wait }])`, `Pick<E>` became
+`RouteSelector<E>`, and the view types `RouteView<E>`/`RouteMember<E>`. The
+selector works in two phases (option B, of two the user weighed): `changed`
+when the view has moved since it last saw it — derive what you choose by and
+keep it in your state — and `select(view, key)` per send. The view carries
+nothing about selection (the user's point: a probability per member, or any
+other scheme, is the selector's business), and load is read per send with
+`pending`. A send whose selector answers `None` waits 1 ms doubling to 5 s,
+waking at once when the view's version moves; there is no give-up (user
+decision). Views and their versions live in the routing service;
+`ActorGroup.refresh()` moves a version alone, which is how an election tells
+the routes its answer changed — a leader change is one more view change.
+`Elected` asks its `Leader` in `changed` and keeps the answer, instead of on
+every send. `park_briefly` and both hosts' view tables are gone. What fell
+out: a monitor member calling a sibling goes through the module's own
+binding and deadlocks on its lock (the routing table's `set_view` → `bump`),
+so shared logic sits in free fns over the state; a gotcha below. A field
+default inlined at a literal site on Rust needed an import there (ROADMAP 0c
+item 12), so `use route_any(g)` passes `default_route_config()`.
+**1680 tests**, 5m26 fresh; benchmarks within budget (Rust ping-pong 412 ms,
+Kotlin 505 ms).
+
 **A type is its declaration, not its name (2026-10-03; user decision, option
 A) [type-identity].** Two modules may now declare one type name and a
 program may use both: the resolver always knew which declaration a written
@@ -21170,6 +21194,11 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A monitor member must not call a sibling member** (2026-10-03): inside a
+  handler bound by a module-level `use`, a sibling call goes through the
+  binding and takes the lock the caller holds — a deadlock on Rust, a trap on
+  Kotlin. Put shared logic in a free fn taking the state fields.
 
 - **Do not benchmark right after the suite** (2026-10-03): the machine stays
   loaded for a minute or more, and ping-pong read 1,140 ms where it reads

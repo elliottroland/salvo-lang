@@ -40,8 +40,8 @@
 //      node's replica and publishes it by name, `spawn H() on p in group`
 //      joins a member, `members`/`subscribe` read the set. `[any E]` is the
 //      claim a function makes when any member will do.
-//   6. **Picks** — `use route(group)` binds `any E` to whichever member a
-//      `Pick<E>` policy chooses per send: `LeastLoaded`, `Sharded` by a
+//   6. **Routes** — `use route_any(group)` binds `any E` to whichever member a
+//      `RouteSelector<E>` policy chooses per send: `LeastLoaded`, `Sharded` by a
 //      `Key`-marked argument, `Elected` behind a `Leader`.
 //
 // Rules: [net-transport] [net-host] [net-mem] [wire-format] [noremote]
@@ -674,6 +674,9 @@ export actor effect ActorGroup<E> {
     send fn members(out: Reply<List<Addr<E>>>) => !out
     // Hear about arrivals and departures.
     send fn subscribe(w: Addr<ActorGroupWatcher<E>>) => !w
+    // [route-stub] Something a route selector reads outside the view changed
+    // (an election's answer): every route over this group re-reads its view.
+    send fn refresh()
 }
 
 // [actor-group] What a subscriber hears.
@@ -755,7 +758,7 @@ export fn join<E>(group: Addr<ActorGroup<E>>, member: Addr<E>) [] -> None => gro
 // where the replica first shares with that node's replica, and a node's
 // departure withdraws every member it hosted. [route-stub] After every change
 // it mirrors the member set into the runtime (`view_set`), which is what a
-// `route(group)` stub reads on the sender's thread — the replica is behind the
+// `route_any(group)` stub reads on the sender's thread — the replica is behind the
 // view by one message, never in the send path.
 export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
     of ActorGroup<E>, NodeGroupWatcher {
@@ -824,6 +827,10 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
 
     send fn members(out: Reply<List<Addr<E>>>) => !out {
         out.send(copy(all))
+    }
+
+    send fn refresh() {
+        view_refresh(self@ActorGroup<E>)
     }
 
     send fn subscribe(w: Addr<ActorGroupWatcher<E>>) => !w {
@@ -914,41 +921,65 @@ export intrinsic fn node_of<E>(a: Addr<E>) [] -> NodeId => a
 // behind the replica by one message, never in the send path.
 
 // [route-stub] (private) The mirror: written by the replica, read by a
-// `route(group)` stub per send. A group with no replica on this node has an
-// empty view, so its stub parks.
+// `route_any(group)` stub per send. A group with no replica on this node has
+// an empty view, so its stub waits. Every write moves the view's **version**,
+// and so does `refresh`; a waiting send wakes when it moves.
 intrinsic fn view_set<E>(group: Addr<ActorGroup<E>>, members: List<Addr<E>>) [] -> None
     => !group, !members
 intrinsic fn view_members<E>(group: Addr<ActorGroup<E>>) [] -> List<Addr<E>> => group
+intrinsic fn view_version<E>(group: Addr<ActorGroup<E>>) [] -> Long => group
+intrinsic fn view_refresh<E>(group: Addr<ActorGroup<E>>) [] -> None => group
+intrinsic fn view_wait<E>(group: Addr<ActorGroup<E>>, seen: Long, nanos: Long) [] -> None
+    => group, !seen, !nanos
 
-// [route-stub] One member as a pick sees it: where it is, how loaded it
-// looks from here ([pending]), whether it is on this node.
-export struct ActorView<E> {
+// [route-stub] One member as a route selector sees it: where it is, and
+// whether it is on this node. Load is read when it is wanted, with
+// [pending], since it changes with every send.
+export struct RouteMember<E> {
     addr: Addr<E>,
-    pending: Int,
     local: Bool
 }
 
-// [route-stub] What a pick chooses from: every member the local replica
-// knows, in a stable order (by node, then actor — the same on every node),
-// and the hash of the send's `Key` argument when the protocol marks one.
-export struct ActorGroupView<E> {
-    actors: List<ActorView<E>>,
-    key: Long? = None
+// [route-stub] What a selector chooses from: every member the local replica
+// knows, in a stable order (by node, then actor — the same on every node).
+export struct RouteView<E> {
+    members: List<RouteMember<E>>
 }
 
-// [route-stub] The policy behind a `route(group)` stub: which member takes
-// this send. `None` means nothing is eligible yet — the stub parks the send
-// and asks again — which is how an empty group, a full group and a group
-// with no leader all wait rather than fail. std ships [LeastLoaded],
-// [Sharded] and [Elected]; a policy of your own is a handler of this.
-export effect Pick<E> {
-    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view
+// [route-stub] The default waits, as a fn: what `use route_any(group)`
+// passes. (A field default is inlined where the literal is written, which
+// would need `Duration` imported there.)
+export fn default_route_config() [] -> RouteConfig {
+    return RouteConfig {}
+}
+
+// [route-stub] How a `route_any` stub waits while its selector answers
+// `None`: [first_wait], doubling up to [max_wait], waking at once whenever
+// the view changes. A send waits as long as it takes.
+export struct RouteConfig {
+    first_wait: Duration = Duration { nanos: 1000000L },
+    max_wait: Duration = Duration { nanos: 5000000000L }
+}
+
+// [route-stub] The policy behind a `route_any(group)` stub, in two phases.
+// [changed] runs when the view has changed since this selector last saw it
+// (a member joined or left, or the group was refreshed): a selector derives
+// whatever it chooses by — a probability per member, a leader, a ring — and
+// keeps it in its state. [select] runs per send, with the same view and the
+// hash of the send's `Key` argument when the protocol marks one. `None` means
+// nothing is eligible yet: the stub waits and asks again, which is how an
+// empty group and a group with no leader wait rather than fail. std ships
+// [LeastLoaded], [Sharded] and [Elected]; a policy of your own is a handler
+// of this.
+export effect RouteSelector<E> {
+    fn changed(view: RouteView<E>) -> None => view
+    fn select(view: RouteView<E>, key: Long?) -> Addr<E>? => view, key
 }
 
 // [route-stub] Marks the parameter of a `send fn` whose value decides the
 // member: `send fn reserve(sku: Key Str, ...)`. A claim about the handle,
 // erased like any qualifier [qual-erasure]; the stub hashes the argument
-// into `ActorGroupView.key`. At most one per member.
+// into the `key` its selector's `select` receives. At most one per member.
 export provenance qualifier Key<T> of T
 
 // [route-stub] The canonical hash of a key argument — over its wire encoding,
@@ -957,63 +988,93 @@ export provenance qualifier Key<T> of T
 // program has no reason to.
 export intrinsic fn key_hash<T>(k: T) [] -> Long => k
 
-// [route-stub] (private) Yields the sender's thread briefly; what a stub does
-// between two picks that answered `None`.
-intrinsic fn park_briefly() [] -> None
-
-// [route-stub] The stub's whole send path: build the view, ask the policy,
-// park until it answers. Exported for the generated `route` stubs, which call
-// one of these two per member from the program's own module.
-export fn route_to<E>(group: Addr<ActorGroup<E>>) [Pick<E>] -> Addr<E> => group {
-    return route_keyed(group, None)
+// [route-stub] What a stub's send goes to, and the view version its selector
+// has now seen.
+export struct RoutePick<E> {
+    to: Addr<E>,
+    version: Long
 }
 
-export fn route_to<E>(group: Addr<ActorGroup<E>>, key: Long) [Pick<E>] -> Addr<E> => group, key {
-    return route_keyed(group, key)
+// [route-stub] The stub's whole send path: read the view, tell the selector
+// when it changed since [seen], ask it, and wait while it answers `None`.
+// Exported for the generated `route_any` stubs, which call it from the
+// program's own module.
+export fn route_pick<E>(group: Addr<ActorGroup<E>>, config: RouteConfig, seen: Long) [RouteSelector<E>] -> RoutePick<E>
+=> group, config, !seen {
+    return route_keyed(group, config, seen, None)
 }
 
-fn route_keyed<E>(group: Addr<ActorGroup<E>>, key: Long?) [Pick<E>] -> Addr<E> => group, key {
+export fn route_pick<E>(group: Addr<ActorGroup<E>>, config: RouteConfig, seen: Long, key: Long) [RouteSelector<E>] -> RoutePick<E>
+=> group, config, !seen, !key {
+    return route_keyed(group, config, seen, key)
+}
+
+fn route_keyed<E>(group: Addr<ActorGroup<E>>, config: RouteConfig, seen: Long, key: Long?) [RouteSelector<E>] -> RoutePick<E>
+=> group, config, !seen, !key {
+    let wait = copy(config.first_wait.nanos)
+    let cap = copy(config.max_wait.nanos)
+    let last = copy(seen)
     while true {
-        let members = view_members(copy(group))
-        let actors: Mut List<ActorView<E>> = mut_list_of()
-        for m in members {
-            add(actors, ActorView { addr: copy(m), pending: pending(copy(m)), local: eq(node_of(m), this_node()) })
+        let version = view_version(copy(group))
+        let view = route_view(copy(group))
+        if version != last {
+            changed(copy(view))
+            last = copy(version)
         }
-        let picked = choose(ActorGroupView { actors: copy(actors), key: copy(key) })
+        let picked = select(view, copy(key))
         if !(picked is None) {
-            return picked
+            return RoutePick { to: picked, version: copy(last) }
         }
-        park_briefly()
+        view_wait(copy(group), copy(version), copy(wait))
+        wait = wait * 2
+        if wait > cap {
+            wait = copy(cap)
+        }
     }
-    // Unreachable: the loop returns or parks.
-    return route_keyed(group, key)
+    // Unreachable: the loop returns or waits.
+    return route_keyed(group, config, seen, key)
+}
+
+fn route_view<E>(group: Addr<ActorGroup<E>>) [] -> RouteView<E> => group {
+    let members: Mut List<RouteMember<E>> = mut_list_of()
+    for m in view_members(copy(group)) {
+        add(members, RouteMember { addr: copy(m), local: eq(node_of(m), this_node()) })
+    }
+    return RouteView { members: copy(members) }
 }
 
 // [route-stub] The default policy: the least loaded member, local members
 // first when [prefer_local] — a hop within the node is cheaper than one
-// across the wire. `None` for an empty view.
-export handler LeastLoaded<E>(prefer_local: Bool) of Pick<E> {
-    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view {
-        let best: ActorView<E>? = None
-        for a in view.actors {
+// across the wire. Load is read per send ([pending]). `None` for an empty
+// view.
+export handler LeastLoaded<E>(prefer_local: Bool) of RouteSelector<E> {
+    fn changed(view: RouteView<E>) -> None => view {}
+
+    fn select(view: RouteView<E>, key: Long?) -> Addr<E>? => view, key {
+        let best: RouteMember<E>? = None
+        let best_pending = 0
+        for a in view.members {
+            let load = pending(copy(a.addr))
             if best is None {
                 best = copy(a)
+                best_pending = load
             } else {
-                let b: ActorView<E> = best
+                let b: RouteMember<E> = best
                 // A local member beats a remote one when locality is preferred;
                 // otherwise, or between two of the same locality, the lighter
                 // queue wins.
                 let take = when {
                     prefer_local && a.local && !b.local { true }
                     prefer_local && !a.local && b.local { false }
-                    else { a.pending < b.pending }
+                    else { load < best_pending }
                 }
                 if take {
                     best = copy(a)
+                    best_pending = load
                 }
             }
         }
-        let chosen: ActorView<E> = best ?: return None
+        let chosen: RouteMember<E> = best ?: return None
         return copy(chosen.addr)
     }
 }
@@ -1022,23 +1083,27 @@ export handler LeastLoaded<E>(prefer_local: Bool) of Pick<E> {
 // a stable order on every node, so `key mod n` lands on the same member
 // everywhere. A member joining reshuffles keys (consistent hashing is a
 // recorded follow-up). A send with no key goes to the first member.
-export handler Sharded<E>() of Pick<E> {
-    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view {
-        let n = size(view.actors)
+export handler Sharded<E>() of RouteSelector<E> {
+    fn changed(view: RouteView<E>) -> None => view {}
+
+    fn select(view: RouteView<E>, key: Long?) -> Addr<E>? => view, key {
+        let n = size(view.members)
         if n == 0 {
             return None
         }
-        let k = view.key ?: 0L
+        let k = key ?: 0L
         let magnitude = if k < 0L { 0L - k } else { k }
         let slot = to_int(magnitude % to_long(n))
-        let picked = get(view.actors, slot) ?: return None
+        let picked = get(view.members, slot) ?: return None
         return copy(picked.addr)
     }
 }
 
 // [route-stub] Who leads: `None` while an election is in progress. A Salvo
 // election or a platform handler over a lease store serve it alike; std ships
-// [StaticLeader] for a fixed one.
+// [StaticLeader] for a fixed one. Asked when a route's view changes, not per
+// send: whatever runs the election calls `refresh()` on the groups that
+// route by it when its answer changes.
 export effect Leader {
     fn leader() -> NodeId?
 }
@@ -1051,17 +1116,25 @@ export handler StaticLeader(node: NodeId) of Leader {
     }
 }
 
-// [route-stub] The member the current leader hosts; parks while there is no
-// leader or the leader hosts no member yet.
-export handler Elected<E>() [Leader] of Pick<E> {
-    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view {
-        let l = leader() ?: return None
-        for a in view.actors {
-            if eq(node_of(a.addr), l) {
-                return copy(a.addr)
+// [route-stub] The member the current leader hosts: worked out when the view
+// changes, and kept. `None` — so the send waits — while there is no leader or
+// the leader hosts no member yet.
+export handler Elected<E>() [Leader] of RouteSelector<E> {
+    chosen: Addr<E>? = None
+
+    fn changed(view: RouteView<E>) -> None => view {
+        chosen = None
+        let l = leader() ?: return
+        for a in view.members {
+            if eq(node_of(copy(a.addr)), l) {
+                chosen = copy(a.addr)
+                return
             }
         }
-        return None
+    }
+
+    fn select(view: RouteView<E>, key: Long?) -> Addr<E>? => view, key {
+        return copy(chosen)
     }
 }
 

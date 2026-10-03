@@ -284,6 +284,12 @@ interface RouteTable {
     fun peerHash(node: Long, protocol: String): String?
     fun forgetNode(node: Long): List<Int>
     fun creditsOf(addr: Int): Int?
+    fun setView(group: Int, members: List<Int>)
+    fun viewOf(group: Int): List<Int>
+    fun versionOf(group: Int): Long
+    fun bump(group: Int)
+    fun addViewWaiter(group: Int, seen: Long, me: salvo.platform.runtime.Parker): Long
+    fun dropViewWaiter(id: Long)
 }
 
 class __Mon_RouteTable(
@@ -445,7 +451,66 @@ class __Mon_RouteTable(
         lock.lock()
         try { return inner.creditsOf(addr) } finally { lock.unlock() }
     }
+    override fun setView(group: Int, members: List<Int>) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.setView(group, members) } finally { lock.unlock() }
+    }
+    override fun viewOf(group: Int): List<Int> {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.viewOf(group) } finally { lock.unlock() }
+    }
+    override fun versionOf(group: Int): Long {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.versionOf(group) } finally { lock.unlock() }
+    }
+    override fun bump(group: Int) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.bump(group) } finally { lock.unlock() }
+    }
+    override fun addViewWaiter(group: Int, seen: Long, me: salvo.platform.runtime.Parker): Long {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.addViewWaiter(group, seen, me) } finally { lock.unlock() }
+    }
+    override fun dropViewWaiter(id: Long) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.dropViewWaiter(id) } finally { lock.unlock() }
+    }
 }
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun versionIn(versions: Map<Int, Long>, group: Int): Long {
+    val v = versions[group]
+    if (v != null) {
+        val n = v as Long
+        return n
+    }
+    return 0L
+}
+
+fun bumpIn(versions: MutableMap<Int, Long>, waiters: MutableList<ViewWaiter>, group: Int) {
+    versions.put(group, versionIn(versions, group) + 1)
+    var i = 0
+    while (i < waiters.size) {
+        if ((waiters.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:171:12")).group == group) {
+            val w = ((waiters).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:172:21"))
+            unparkPlatform(w.parker)
+        } else {
+            i = i + 1
+        }
+    }
+}
+
+data class ViewWaiter(
+    val group: Int,
+    val id: Long,
+    val parker: salvo.platform.runtime.Parker,
+)
 
 class Routes : RouteTable {
     private var nodeId: Long = 0L
@@ -467,6 +532,10 @@ class Routes : RouteTable {
     private var peers: MutableMap<Long, List<Pair<String, String>>> = linkedMapOf<Long, List<Pair<String, String>>>().also { __m -> __m.putAll(listOf()) }
     private var deadEntry: Int = -1
     private var creditWaiters: MutableList<salvo.platform.runtime.Parker> = mutableListOf<salvo.platform.runtime.Parker>()
+    private var views: MutableMap<Int, List<Int>> = linkedMapOf<Int, List<Int>>().also { __m -> __m.putAll(listOf()) }
+    private var versions: MutableMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
+    private var viewWaiters: MutableList<ViewWaiter> = mutableListOf<ViewWaiter>()
+    private var nextWaiter: Long = 0L
 
     override fun nodeOfPool(pool: Int): Long {
         return nodeIn(poolNode, nodeId, pool)
@@ -581,7 +650,7 @@ class Routes : RouteTable {
     override fun takeOutbox(): MutableList<Staged> {
         val out: MutableList<Staged> = mutableListOf<Staged>()
         while (outbox.size > 0) {
-            out.add(((outbox).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:281:22")))
+            out.add(((outbox).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:329:22")))
         }
         return out
     }
@@ -663,7 +732,7 @@ class Routes : RouteTable {
     override fun takeTask(key: Long): ExportedTask? {
         var i = 0
         while (i < taskKeys.size) {
-            if ((taskKeys.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:358:16")) == key) {
+            if ((taskKeys.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:406:16")) == key) {
                 val _k = (taskKeys).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
                 return (tasks).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
             }
@@ -731,6 +800,49 @@ class Routes : RouteTable {
         return gone
     }
 
+    override fun setView(group: Int, members: List<Int>) {
+        views.put(group, members)
+        bumpIn(versions, viewWaiters, group)
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    override fun viewOf(group: Int): List<Int> {
+        val v = views[group]
+        if (v != null) {
+            val found = v as List<Int>
+            return found
+        }
+        return listOf<Int>()
+    }
+
+    override fun versionOf(group: Int): Long {
+        return versionIn(versions, group)
+    }
+
+    override fun bump(group: Int) {
+        bumpIn(versions, viewWaiters, group)
+    }
+
+    override fun addViewWaiter(group: Int, seen: Long, me: salvo.platform.runtime.Parker): Long {
+        if (versionIn(versions, group) != seen) {
+            return -1L
+        }
+        nextWaiter = nextWaiter + 1
+        viewWaiters.add(ViewWaiter(group = group, id = nextWaiter, parker = me))
+        return nextWaiter
+    }
+
+    override fun dropViewWaiter(id: Long) {
+        var i = 0
+        while (i < viewWaiters.size) {
+            if ((viewWaiters.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:501:16")).id == id) {
+                val _w = (viewWaiters).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
+                return
+            }
+            i = i + 1
+        }
+    }
+
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun creditsOf(addr: Int): Int? {
         val c = credits[addr]
@@ -792,7 +904,7 @@ fun identityIn(remote: Map<Int, RemoteRef>, bits: MutableMap<Int, Long>, poolNod
 
 fun wakeSenders(waiters: MutableList<salvo.platform.runtime.Parker>) {
     while (waiters.size > 0) {
-        unparkPlatform(((waiters).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:470:16")))
+        unparkPlatform(((waiters).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:559:16")))
     }
 }
 
@@ -812,7 +924,7 @@ fun stageIn(routes: Map<Long, salvo.SalvoBytes>, outbound: Set<Long>, outbox: Mu
 fun restage(routes: Map<Long, salvo.SalvoBytes>, outbound: Set<Long>, outbox: MutableList<Staged>, parked: MutableList<Parked>) {
     val waiting: MutableList<Parked> = mutableListOf<Parked>()
     while (parked.size > 0) {
-        waiting.add(((parked).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:493:22")))
+        waiting.add(((parked).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:582:22")))
     }
     for (p in waiting) {
         stageIn(routes, outbound, outbox, parked, p.from, p.to, salvo.SalvoBytes(p.frame))
@@ -1115,6 +1227,55 @@ fun deliverAnswer(a: AnswerFrame): Boolean {
         dropBodyPlatform(body)
     }
     return false
+}
+
+fun viewSet(group: Int, members: List<Int>) {
+    __moduleUse0.setView(group, members)
+}
+
+fun viewMembers(group: Int): List<Int> {
+    val left: MutableList<Int> = mutableListOf<Int>()
+    for (m in __moduleUse0.viewOf(group)) {
+        left.add(m)
+    }
+    val out: MutableList<Int> = mutableListOf<Int>()
+    while (left.size > 0) {
+        var best = 0
+        var i = 1
+        while (i < left.size) {
+            if (before(identity((left.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:942:37"))), identity((left.getOrNull(best) ?: throw AssertionError("salvo: value is absent at runtime.routing:942:68"))))) {
+                best = i
+            }
+            i = i + 1
+        }
+        out.add(((left).let { __l -> (best).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:947:18")))
+    }
+    return out.toMutableList()
+}
+
+fun before(a: RemoteRef, b: RemoteRef): Boolean {
+    if (a.node != b.node) {
+        return a.node < b.node
+    }
+    return a.actor <= b.actor
+}
+
+fun viewVersion(group: Int): Long {
+    return __moduleUse0.versionOf(group)
+}
+
+fun viewRefresh(group: Int) {
+    __moduleUse0.bump(group)
+}
+
+fun viewWait(group: Int, seen: Long, nanos: Long) {
+    val me = thisParkerPlatform()
+    val id = __moduleUse0.addViewWaiter(group, seen, me)
+    if (id < 0) {
+        return
+    }
+    parkNanosPlatform(me, nanos)
+    __moduleUse0.dropViewWaiter(id)
 }
 
 fun hash__4(value: RemoteRef): Long {

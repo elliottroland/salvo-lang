@@ -330,7 +330,6 @@ pub struct Registry {
     pub task_decode: HashMap<i64, ReplyDecoder>,
     pub controls: HashMap<usize, ControlOf>,
     pub wires: HashMap<i64, Arc<dyn Fn(&[u8], Vec<u8>) + Send + Sync>>,
-    pub views: HashMap<usize, Vec<usize>>,
 }
 
 /// The registry, locked. Never held across a call into the core or the
@@ -345,7 +344,6 @@ pub fn registry() -> std::sync::MutexGuard<'static, Registry> {
             task_decode: HashMap::new(),
             controls: HashMap::new(),
             wires: HashMap::new(),
-            views: HashMap::new(),
         })
     })
     .lock()
@@ -427,23 +425,15 @@ pub fn salvo_credits(addr: usize) -> Option<usize> {
     crate::runtime_routing::credits(addr as i32).map(|c| c.max(0) as usize)
 }
 
-/// [route-stub] The replica `group` mirrors its member set here.
+/// [route-stub] The replica `group` mirrors its member set here: the routing
+/// service keeps it, with its version.
 pub fn salvo_view_set(group: usize, members: &[usize]) {
-    registry().views.insert(group, members.to_vec());
+    crate::runtime_routing::view_set(group as i32, members.iter().map(|m| *m as i32).collect());
 }
 
 /// [route-stub] The mirrored members of `group`, by (node, actor id).
 pub fn salvo_view_members(group: usize) -> Vec<usize> {
-    let members: Vec<usize> = registry().views.get(&group).cloned().unwrap_or_default();
-    let mut keyed: Vec<((u64, u64), usize)> = members
-        .into_iter()
-        .map(|m| {
-            let r = salvo_addr_identity(m);
-            ((r.node, r.actor), m)
-        })
-        .collect();
-    keyed.sort_by_key(|(k, _)| *k);
-    keyed.into_iter().map(|(_, m)| m).collect()
+    crate::runtime_routing::view_members(group as i32).into_iter().map(|m| m as usize).collect()
 }
 
 /// [route-stub] FNV-1a over the key's canonical bytes.
@@ -454,11 +444,6 @@ pub fn salvo_key_hash(bytes: &[u8]) -> i64 {
         h = h.wrapping_mul(0x100000001b3);
     }
     h as i64
-}
-
-/// [route-stub] A stub whose pick answered `None` yields briefly.
-pub fn salvo_park_briefly() {
-    std::thread::sleep(std::time::Duration::from_millis(1));
 }
 
 /// [addr-routable] [wire-format] The typed reply: a token that came over the

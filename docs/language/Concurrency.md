@@ -212,9 +212,9 @@ handler RoundRobin(members: List<Addr<Resizer>>) of any Resizer { … }   // for
 
 Bare `[E]` keeps the strong meaning, so binding a group where `[Resizer]` is required is an error at the call, and a program written before groups existed cannot be broken by binding one under it. `[any E]` accepts every binding — a single instance is a group of one — and is viral downward. The full rule is in [Effects and handlers](Effects-and-Handlers.md#many-instances-any-e-and-of-any-e).
 
-### Routing: `use route(group)` and `Pick<E>`
+### Routing: `use route_any(group)` and `RouteSelector<E>`
 
-A program that wants *a* member rather than the set binds the group as the effect itself. `use route(stock)` binds `any Inventory` — each send goes to whichever member a **policy** picks — and the policy is an ordinary handler bound just before it:
+A program that wants *a* member rather than the set binds the group as the effect itself. `use route_any(stock)` binds `any Inventory` — each send goes to whichever member a **selector** chooses — and the selector is an ordinary handler bound just before it:
 
 ```
 actor effect Inventory {
@@ -225,13 +225,24 @@ fn checkout(skus: List<Str>) [any Inventory, Console] -> None { … }   // `any`
 
 let stock = actor_group<Inventory>(nodes)
 spawn Stocking("s1") on p in stock
-use Sharded<Inventory>()          // the policy: the member that owns the key…
-use route(stock)                  // …and the stub, binding `any Inventory`
+use Sharded<Inventory>()          // the selector: the member that owns the key…
+use route_any(stock)              // …and the route, binding `any Inventory`
 checkout(["apple", "pear", "apple"])   // "apple" lands on the same shard both times
 ```
 
-`route` is a handler the compiler writes for you: one `of any Inventory` whose every member asks `Pick<Inventory>` which member takes this send and forwards to it. `Pick<E>` is a plain effect — `fn choose(view: ActorGroupView<E>) -> Addr<E>?` — over a **view** of the group: every member the local replica knows, with `pending` and `local` beside each, and the hash of the send's `Key` argument when the protocol marks one. `None` parks the send until the answer changes, so an empty group, a full group and a group without a leader all wait rather than fail. The view is a mirror the replica keeps in the runtime, read on the sender's thread: no hop to the replica, and the replica is never in the send path.
+The route is a handler the compiler writes for you: one `of any Inventory` whose every member asks `RouteSelector<Inventory>` which member takes this send and forwards to it. A selector works in two phases over a **view** of the group — every member the local replica knows, with `local` beside each, in the same order on every node:
 
-std ships three policies. **`LeastLoaded<E>(prefer_local)`** takes the lightest queue, local members first when asked. **`Sharded<E>()`** takes the member that owns the key — `Key` on a parameter says which argument decides, and is erased from the type, so callers pass a plain value — and two sends for the same key land on the same member in order, a stronger guarantee than `any` claims. **`Elected<E>()`** takes the member on the leader's node, where the leader is whatever `Leader.leader()` answers: a Salvo election, a platform handler over a lease store, or `StaticLeader(node)` for a test. A policy of your own is a handler of `Pick<E>`.
+```
+effect RouteSelector<E> {
+    fn changed(view: RouteView<E>) -> None          // the view moved: derive what you choose by
+    fn select(view: RouteView<E>, key: Long?) -> Addr<E>?   // per send
+}
+```
 
-A policy that must read the message — scatter a query to every member and merge the answers, race two members and take the first, retry on a member's death — is not a pick: it is a handler `of any E` you write for that protocol, forwarding as `RoundRobin` does and receiving through an actor of its own. `examples/cluster/` has one of each, beside a singleton behind `Elected`, shards under `Sharded`, and a node leaving the group with its members withdrawn and the election following.
+`changed` runs when the view has moved since the selector last saw it — a member joined or left, or the group was **refreshed** — and the selector keeps what it derives in its own state: a probability per member, a leader, a ring. `select` runs per send, with the same view and the hash of the send's `Key` argument when the protocol marks one; a selector that wants load reads it then, with `pending(addr)`, since load changes with every send. `None` makes the send wait, so an empty group and a group without a leader wait rather than fail: it waits 1 ms, doubling up to 5 s, and wakes at once whenever the view moves. `use route_any(group, RouteConfig { first_wait: …, max_wait: … })` sets the two. The view is a mirror the replica keeps in the runtime, read on the sender's thread: no hop to the replica, and the replica is never in the send path.
+
+Something a selector reads outside the view — an election's answer — reaches it the same way: whoever decides calls `refresh()` on the group when the answer changes, the view's version moves, and every route over it runs `changed` again. So a membership change and a leader change are one signal.
+
+std ships three selectors. **`LeastLoaded<E>(prefer_local)`** takes the lightest queue, local members first when asked. **`Sharded<E>()`** takes the member that owns the key — `Key` on a parameter says which argument decides, and is erased from the type, so callers pass a plain value — and two sends for the same key land on the same member in order, a stronger guarantee than `any` claims. **`Elected<E>()`** takes the member on the leader's node, asking `Leader.leader()` when the view changes: a Salvo election, a platform handler over a lease store, or `StaticLeader(node)` for a test. A selector of your own is a handler of `RouteSelector<E>`.
+
+A policy that must read the message — scatter a query to every member and merge the answers, race two members and take the first, retry on a member's death — is not a selector: it is a handler `of any E` you write for that protocol, forwarding as `RoundRobin` does and receiving through an actor of its own. `examples/cluster/` has one of each, beside a singleton behind `Elected`, shards under `Sharded`, and a node leaving the group with its members withdrawn and the election following.

@@ -2305,12 +2305,12 @@ fn a_spare_lend_on_an_opaque_slot_warns_once() {
     );
 }
 
-/// [route-stub] The generated `route(group)` stub: a `use route(g)` binds
+/// [route-stub] The generated `route_any(group)` stub: a `use route_any(g)` binds
 /// `any E` for the `E` the group handle names, and is checked as a
 /// construction of the generated `__Route_E` — so the policy it depends on
-/// (`Pick<E>`) has to be in scope, and its faces are `any`.
+/// (`RouteSelector<E>`) has to be in scope, and its faces are `any`.
 #[test]
-fn route_binds_any_and_needs_a_pick() {
+fn route_binds_any_and_needs_a_selector() {
     let dir = src_dir("route_ok");
     let program = |tail: &str| {
         format!(
@@ -2323,7 +2323,7 @@ fn route_binds_any_and_needs_a_pick() {
     };
     fs::write(
         dir.join("main.sv"),
-        program("    use Sharded<Ping>()\n    use route(g)\n    let _a = one()\n"),
+        program("    use Sharded<Ping>()\n    use route_any(g)\n    let _a = one()\n"),
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -2333,7 +2333,7 @@ fn route_binds_any_and_needs_a_pick() {
     // The stub binds `any Ping`: a bare `[Ping]` is refused [effect-any].
     fs::write(
         dir.join("main.sv"),
-        program("    use Sharded<Ping>()\n    use route(g)\n    let a = strong()\n"),
+        program("    use Sharded<Ping>()\n    use route_any(g)\n    let a = strong()\n"),
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -2344,37 +2344,37 @@ fn route_binds_any_and_needs_a_pick() {
     );
 
     // No policy in scope: the stub's dependency is missing.
-    fs::write(dir.join("main.sv"), program("    use route(g)\n    let _a = one()\n")).unwrap();
+    fs::write(dir.join("main.sv"), program("    use route_any(g)\n    let _a = one()\n")).unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("__Route_Ping") && stderr.contains("Pick"),
-        "the stub depends on `Pick<Ping>`: {stderr}"
+        stderr.contains("__Route_Ping") && stderr.contains("RouteSelector"),
+        "the stub depends on `RouteSelector<Ping>`: {stderr}"
     );
 }
 
 /// [route-stub] The refusals: `route` of something that is not a group
-/// handle; a protocol marking two `Key` parameters; a `use route(g)` in a
+/// handle; a protocol marking two `Key` parameters; a `use route_any(g)` in a
 /// module that never spelled the protocol (no stub was generated for it).
 #[test]
 fn route_refusals_name_the_fix() {
     let dir = src_dir("route_bad");
     fs::write(
         dir.join("main.sv"),
-        "import net\n\nfn main() [use] {\n    let x = 3\n    use LeastLoaded<NodeGroup>(true)\n    use route(x)\n}\n",
+        "import net\n\nfn main() [use] {\n    let x = 3\n    use LeastLoaded<NodeGroup>(true)\n    use route_any(x)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("`route` takes a group handle") && stderr.contains("this is `Int`"),
+        stderr.contains("`route_any` takes a group handle") && stderr.contains("this is `Int`"),
         "{stderr}"
     );
 
     fs::write(
         dir.join("main.sv"),
         "import net\n\nactor effect Two {\n    send fn go(a: Key Str, b: Key Int) => !a, !b\n}\n\n\
-         fn main(g: Addr<ActorGroup<Two>>) [use] {\n    use Sharded<Two>()\n    use route(g)\n}\n",
+         fn main(g: Addr<ActorGroup<Two>>) [use] {\n    use Sharded<Two>()\n    use route_any(g)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -2394,7 +2394,7 @@ fn route_refusals_name_the_fix() {
     fs::write(
         dir.join("main.sv"),
         "import net\nimport lib.group_of\nimport lib.Ping\n\n\
-         fn main(g: Addr<ActorGroup<Ping>>) [use] {\n    use LeastLoaded<Ping>(true)\n    let h = group_of(g)\n    use route(h)\n}\n",
+         fn main(g: Addr<ActorGroup<Ping>>) [use] {\n    use LeastLoaded<Ping>(true)\n    let h = group_of(g)\n    use route_any(h)\n}\n",
     )
     .unwrap();
     // …unless it spells it, which this file does in `main`'s signature — so
@@ -2405,7 +2405,7 @@ fn route_refusals_name_the_fix() {
     fs::write(
         dir.join("main.sv"),
         "import net\nimport lib.group_of\nimport lib.Ping\nimport lib.some_group\n\n\
-         fn main() [use, spawn] {\n    use LeastLoaded<Ping>(true)\n    let h = some_group()\n    use route(h)\n}\n",
+         fn main() [use, spawn] {\n    use LeastLoaded<Ping>(true)\n    let h = some_group()\n    use route_any(h)\n}\n",
     )
     .unwrap();
     fs::write(

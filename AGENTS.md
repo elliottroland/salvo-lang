@@ -225,6 +225,25 @@ run after a relink.)
   cargo run -- compile --backend kotlin --src ./some_dir --target ./out
   ```
 
+## Track where the time goes
+
+User instruction (2026-10-03): while working, keep a timestamped log of what
+you are doing, and report from it how the time was spent, so decisions about
+code organization and test speed can rest on numbers.
+
+- `tools/timelog.sh start <area> [detail]` at the start of every activity;
+  an activity lasts until the next `start` (or `stop`). The log is
+  `tmp/timelog.txt` (gitignored).
+- Use the stable area names the script lists — `reading`, `planning`,
+  `edit-core`, `edit-rust`, `edit-kotlin`, `edit-std`, `edit-runtime`,
+  `edit-tests`, `edit-docs`, `build`, `test-suite`, `test-targeted`,
+  `test-std`, `examples`, `bench`, `debug`, `git`, `waiting` — and put the
+  specific thing in the detail (a file, a test name, a failure being chased).
+- Include waiting: a suite run is `test-suite` for as long as it runs.
+- When reporting back on a piece of work, include `tools/timelog.sh report`
+  (minutes and share per area, and the largest details) with a sentence on
+  what stands out.
+
 ## Commits
 
 - **One commit per piece of work, not per step** (user decision 2026-09-30).

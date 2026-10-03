@@ -465,7 +465,7 @@ pub struct Checked {
     /// [effect-handler-multi] Several entries when the handler wears several
     /// faces: a `use` binds every effect it implements, in declaration order.
     pub use_effects: HashMap<Key, Vec<Ty>>,
-    /// [route-stub] `use route(group)` sites, mapped to the generated handler
+    /// [route-stub] `use route_any(group)` sites, mapped to the generated handler
     /// they construct (`__Route_E`): the emitters build that handler where the
     /// program wrote `route`.
     pub route_stubs: HashMap<Key, String>,
@@ -8099,7 +8099,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return;
             }
         }
-        // [route-stub] `use route(group)`: the generated `__Route_E` stub,
+        // [route-stub] `use route_any(group)`: the generated `__Route_E` stub,
         // for the `E` the group's type names. The expansion appended the
         // stub to this module for every protocol it spelled; a `use` whose
         // protocol it never spelled is refused, naming the fix.
@@ -8124,7 +8124,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         group.span(),
                         format!(
-                            "`route` takes a group handle — an `Addr<ActorGroup<E>>` for a \
+                            "`route_any` takes a group handle — an `Addr<ActorGroup<E>>` for a \
                              non-generic actor effect `E` — and this is `{ty}` [route-stub]"
                         ),
                     );
@@ -8833,7 +8833,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     // ================= scopes, locals, narrowing =================
 
     /// [effect-generic-decl] Two instances of an effect whose arguments are
-    /// all effects — `Pick<Sequencer>` beside `Pick<Inventory>` — erase to
+    /// all effects — `RouteSelector<Sequencer>` beside `RouteSelector<Inventory>` — erase to
     /// **one** type in the output, so one scope cannot hold both: the emitters
     /// would implement one accessor twice (and the second would win silently
     /// in a fusion frame). Refused at the second `use`, naming the fix: a

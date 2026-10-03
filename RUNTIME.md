@@ -1187,9 +1187,14 @@ keeps both backends passing the full suite.
       `RuntimeHost` member (§11.7).
     - `runtime_tests.rs` moves to `std/runtime.test.sv`.
     - The step-1 benchmarks are re-run against the 1.5× budget.
-12. **The route stub waits instead of polling** (§2.3 item 5): a stub whose
-    pick answers `None` parks until its group's view changes, rather than
-    sleeping 1 ms and asking again.
+12. ✅ **The route stub waits instead of polling** (§2.3 item 5), built
+    2026-10-03 with the routing kit's redesign (user decisions the same day):
+    `use route_any(group[, RouteConfig])` and a two-phase `RouteSelector<E>`
+    (`changed` when the view moves, `select` per send, state in the
+    selector); a send whose selector answers `None` waits 1 ms doubling to
+    5 s and wakes at once when the view's version moves. Views and versions
+    live in the routing service; `ActorGroup.refresh()` moves a version alone,
+    so a leader change is a view change too. `park_briefly` is gone.
 13. **Pools retire** (§2.3 item 6): a pool on which nothing can be placed
     any more (first case: a `Dedicated` pool whose one actor is dead and
     whose queues are empty) is marked retired, its workers are unparked,

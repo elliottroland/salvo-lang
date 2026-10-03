@@ -1,19 +1,22 @@
-//! [route-stub] The generated `route(group)` stub.
+//! [route-stub] The generated `route_any(group)` stub.
 //!
-//! `use route(group)` binds a protocol `E` to **whichever member a policy
-//! picks per send**: a handler `of any E` whose every member asks `Pick<E>`
-//! for a member (`route_to`, in std `net`) and forwards to it. Nobody writes
+//! `use route_any(group)` binds a protocol `E` to **whichever member a policy
+//! selects per send**: a handler `of any E` whose every member asks
+//! `RouteSelector<E>` for a member (`route_pick`, in std `net`) and forwards
+//! to it. `use route_any(group)` is written in as `use route_any(group,
+//! default_route_config())`, so the stub has one constructor; its state is the view
+//! version its selector last saw. Nobody writes
 //! that handler — it is the same for every protocol but for the member list,
 //! so the compiler writes it: one `__Route_E` per actor effect `E` a module
-//! routes, appended to the module before resolution, and `use route(g)` is
+//! routes, appended to the module before resolution, and `use route_any(g)` is
 //! checked as `use __Route_E(g)` once `g`'s type names `E`
 //! ([`crate::check`]).
 //!
 //! **Syntactic, like every expansion here.** A module gets stubs when it
-//! contains a `use route(…)` statement, for every actor effect `X` it names
+//! contains a `use route_any(…)` statement, for every actor effect `X` it names
 //! in an `actor_group<X>(…)` or `protocol<X>()` call or an `ActorGroup<X>`
 //! type — which is where a group handle comes from or is written down
-//! (`g: Addr<ActorGroup<X>>`). A `use route(g)` whose `X` was never
+//! (`g: Addr<ActorGroup<X>>`). A `use route_any(g)` whose `X` was never
 //! spelled in the module is refused by the checker, naming that fix.
 //!
 //! **Spans.** Every synthesized node takes a fresh one-byte span **past the
@@ -25,7 +28,7 @@
 //!
 //! **Imports.** The stub is appended to the *routing* module, so the names
 //! it uses have to be visible there: the kit's (`ActorGroup`, `Pick`,
-//! `route_to`, `key_hash` from `net`) and every type the protocol's members
+//! `RouteConfig`, `route_pick`, `key_hash` from `net`) and every type the protocol's members
 //! mention. Those the module has not imported are imported for it, from the
 //! module that declares them — which is the only place the generated code
 //! reaches past what the program wrote, and it reaches only for names the
@@ -42,8 +45,8 @@ use salvo_syntax::{Diagnostic, Span};
 
 use crate::source::SourceFile;
 
-/// The contextual name in `use route(group)`.
-pub const ROUTE: &str = "route";
+/// The contextual name in `use route_any(group)` / `use route_any(group, config)`.
+pub const ROUTE: &str = "route_any";
 /// The generated handler's name for effect `E`.
 pub fn stub_name(effect: &str) -> String {
     format!("__Route_{effect}")
@@ -52,7 +55,8 @@ pub fn stub_name(effect: &str) -> String {
 pub const KEY_QUALIFIER: &str = "Key";
 
 const NET: &str = "net";
-const KIT: &[&str] = &["ActorGroup", "Pick", "route_to", "key_hash"];
+const KIT: &[&str] =
+    &["ActorGroup", "RouteSelector", "RouteConfig", "route_pick", "key_hash", "default_route_config"];
 
 /// Appends a `__Route_X` handler to every module that routes `X`.
 pub fn expand_route_stubs(files: &[SourceFile], modules: &mut [Module]) -> Vec<(usize, Diagnostic)> {
@@ -89,6 +93,7 @@ pub fn expand_route_stubs(files: &[SourceFile], modules: &mut [Module]) -> Vec<(
         exported.push(names);
     }
     for (idx, module) in modules.iter_mut().enumerate() {
+        default_route_config(module, &mut Spans::new(files[idx].content.len() as u32 + 1_000_000));
         let mut routes = false;
         let mut named: BTreeSet<String> = BTreeSet::new();
         salvo_syntax::desugar::walk_module(
@@ -233,7 +238,7 @@ pub fn expand_route_stubs(files: &[SourceFile], modules: &mut [Module]) -> Vec<(
 /// `route(expr)` as the handler of a `use`.
 pub fn is_route_call(handler: &Expr) -> bool {
     matches!(handler, Expr::Call { callee, args, .. }
-        if matches!(callee.as_ref(), Expr::Ident(id) if id.name == ROUTE) && args.len() == 1)
+        if matches!(callee.as_ref(), Expr::Ident(id) if id.name == ROUTE) && (args.len() == 1 || args.len() == 2))
 }
 
 fn fn_types(f: &FnDecl, out: &mut BTreeSet<String>) {
@@ -377,7 +382,9 @@ fn is_key(ty: &Type) -> bool {
     }
 }
 
-/// The handler `__Route_E(group: Addr<ActorGroup<E>>) [Pick<E>] of any E`.
+/// The handler `__Route_E(group: Addr<ActorGroup<E>>, config: RouteConfig)
+/// [RouteSelector<E>] of any E`, with the view version its selector has seen
+/// as state.
 fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagnostic>) {
     let mut diags = Vec::new();
     let e = effect.name.name.as_str();
@@ -424,22 +431,43 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
             respan_type(r, spans);
         }
         f.effects = None;
-        // let __target = route_to(group[, key_hash(k)])
-        let mut route_args = vec![Expr::Ident(ident("group", spans))];
+        // let __pick = route_pick(group, config, copy(seen)[, key_hash(k)])
+        let seen_now = call("copy", vec![Expr::Ident(ident("seen", spans))], spans);
+        let mut route_args = vec![
+            Expr::Ident(ident("group", spans)),
+            Expr::Ident(ident("config", spans)),
+            seen_now,
+        ];
         if let Some(k) = keys.first() {
             let k = Expr::Ident(ident(&k.name.name, spans));
             route_args.push(call("key_hash", vec![k], spans));
         }
         let target_let = Stmt::Let {
-            pattern: Pattern::Ident(ident("__target", spans)),
+            pattern: Pattern::Ident(ident("__pick", spans)),
             ty: None,
-            value: call("route_to", route_args, spans),
+            value: call("route_pick", route_args, spans),
             span: spans.take(),
         };
-        // __target.m(p1, …, pn)
+        // seen = copy(__pick.version)
+        let version = Expr::Field {
+            base: Box::new(Expr::Ident(ident("__pick", spans))),
+            field: ident("version", spans),
+            span: spans.take(),
+        };
+        let seen_set = Stmt::Assign {
+            target: Expr::Ident(ident("seen", spans)),
+            value: call("copy", vec![version], spans),
+            span: spans.take(),
+        };
+        // __pick.to.m(p1, …, pn)
+        let to = Expr::Field {
+            base: Box::new(Expr::Ident(ident("__pick", spans))),
+            field: ident("to", spans),
+            span: spans.take(),
+        };
         let forward = Expr::Call {
             callee: Box::new(Expr::Field {
-                base: Box::new(Expr::Ident(ident("__target", spans))),
+                base: Box::new(to),
                 field: ident(&member.name.name, spans),
                 span: spans.take(),
             }),
@@ -453,7 +481,7 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
             named: Vec::new(),
             span: spans.take(),
         };
-        f.body = Some(Block { stmts: vec![target_let, Stmt::Expr(forward)], span: spans.take() });
+        f.body = Some(Block { stmts: vec![target_let, seen_set, Stmt::Expr(forward)], span: spans.take() });
         fns.push(f);
     }
     let mailbox = Expr::StructLit {
@@ -467,7 +495,7 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
         }],
         span: spans.take(),
     };
-    let pick = EffectRef::Effect(type_ref("Pick", vec![named(e, Vec::new(), spans)], spans));
+    let pick = EffectRef::Effect(type_ref("RouteSelector", vec![named(e, Vec::new(), spans)], spans));
     let handler = HandlerDecl {
         docs: Vec::new(),
         exported: false,
@@ -476,19 +504,36 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
         threadsafe: false,
         name: ident(&stub_name(e), spans),
         generics: Vec::new(),
-        params: vec![Param {
-            name: ident("group", spans),
-            ty: group_ty,
-            variadic: false,
-            implicit: false,
-            span: spans.take(),
-        }],
+        params: vec![
+            Param {
+                name: ident("group", spans),
+                ty: group_ty,
+                variadic: false,
+                implicit: false,
+                span: spans.take(),
+            },
+            Param {
+                name: ident("config", spans),
+                ty: named("RouteConfig", Vec::new(), spans),
+                variadic: false,
+                implicit: false,
+                span: spans.take(),
+            },
+        ],
         effects: Some(vec![pick]),
         of: vec![named(e, Vec::new(), spans)],
         of_any: vec![true],
         init: None,
         mailbox: Some(mailbox),
-        state: Vec::new(),
+        // [route-stub] The view version its selector has seen: the stub tells
+        // the selector when the view moved past it.
+        state: vec![salvo_syntax::ast::FieldDecl {
+            docs: Vec::new(),
+            name: ident("seen", spans),
+            ty: named("Long", Vec::new(), spans),
+            default: Some(Expr::Int { value: -1, long: true, span: spans.take() }),
+            span: spans.take(),
+        }],
         fns,
         span: spans.take(),
     };
@@ -611,4 +656,46 @@ fn respan_deduction(d: &mut Deduction, spans: &mut Spans) {
         DeductionKind::KeepAll | DeductionKind::Moved | DeductionKind::Deferred => {}
     }
     d.span = spans.take();
+}
+
+/// [route-stub] `use route_any(group)` is `use route_any(group, RouteConfig {})`:
+/// the default waits, written in so the stub has one constructor.
+fn default_route_config(module: &mut Module, spans: &mut Spans) {
+    use salvo_syntax::visit_mut::{self as v, MutVisitor};
+    struct Fill<'s> {
+        spans: &'s mut Spans,
+    }
+    impl MutVisitor for Fill<'_> {
+        fn visit_stmt(&mut self, stmt: &mut Stmt) {
+            let Stmt::Use { handler, .. } = stmt else { return };
+            if !is_route_call(handler) {
+                return;
+            }
+            let Expr::Call { args, .. } = handler else { return };
+            if args.len() == 1 {
+                args.push(call("default_route_config", Vec::new(), self.spans));
+            }
+        }
+    }
+    let mut fill = Fill { spans };
+    for item in &mut module.items {
+        match item {
+            Item::Fn(f) => v::walk_fn(&mut fill, f),
+            Item::Handler(h) => {
+                for f in &mut h.fns {
+                    v::walk_fn(&mut fill, f);
+                }
+                if let Some(f) = &mut h.init {
+                    v::walk_fn(&mut fill, f);
+                }
+            }
+            Item::Struct(s) => {
+                for f in &mut s.fns {
+                    v::walk_fn(&mut fill, f);
+                }
+            }
+            Item::Test(t) => v::walk_block(&mut fill, &mut t.body),
+            _ => {}
+        }
+    }
 }

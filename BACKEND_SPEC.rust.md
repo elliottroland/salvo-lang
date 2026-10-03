@@ -1505,15 +1505,16 @@ facts worth knowing") and keeps the history ("One shape for effects").
   `peer_protocol`, `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
   `actor_group<E>` is ordinary Salvo since 2026-09-28 [actor-group] (two
   overloads, `actor_group` and `actor_group__2` in the output).
-* [rs-wire] [route-stub] Runtime: `Sched.views` (group actor → members),
-  `salvo_view_set`, `salvo_view_members` (sorted by `(node, actor)`),
-  `salvo_key_hash` (FNV-1a 64 over the wire bytes), `salvo_park_briefly`
-  (1 ms sleep). Intrinsics: `view_set`, `view_members`, `key_hash` (over
-  `salvo_encode`), `park_briefly`. `use route(g)` emits the construction of
+* [rs-wire] [route-stub] Runtime: the views live in the routing service
+  (`runtime.routing`'s `view_set`, `view_members` sorted by `(node, actor)`,
+  `view_version`, `view_refresh`, `view_wait`); `salvo_key_hash` (FNV-1a 64
+  over the wire bytes) stays host-side. Intrinsics: `view_set`,
+  `view_members`, `view_version`, `view_refresh`, `view_wait`, `key_hash`
+  (over `salvo_encode`). `use route_any(g, c)` emits the construction of
   the checker's `route_stubs[site]` handler exactly as a written `use
-  __Route_E(g)` would. An erased effect's types render without arguments
+  __Route_E(g, c)` would. An erased effect's types render without arguments
   everywhere an instance is split into base and args (`ty_effect_parts`,
-  `handler_dep_effects`, the `use` turbofish) — `Pick`, `dyn __Stateless_Pick`,
+  `handler_dep_effects`, the `use` turbofish) — `RouteSelector`, `dyn __Stateful_RouteSelector`,
   `Sharded::new()`. `while true` lowers to `loop`.
 * [rs-actor] [handler-init] `init` is one more private member: `__Priv_H::Init`,
   an inherent `fn init(&mut self)`, dispatched by `__dispatch_priv`. A spawn

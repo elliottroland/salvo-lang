@@ -931,6 +931,7 @@ interface ActorGroup {
     fun leave(member: Int)
     fun members(out: salvo.SalvoReply)
     fun subscribe(w: Int)
+    fun refresh()
 }
 
 class __Stub_ActorGroup(private val addr: Int) : ActorGroup {
@@ -945,6 +946,9 @@ class __Stub_ActorGroup(private val addr: Int) : ActorGroup {
     }
     override fun subscribe(w: Int) {
         salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Subscribe(w), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
+    }
+    override fun refresh() {
+        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Refresh(), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
     }
 }
 
@@ -972,6 +976,11 @@ class __Mon_ActorGroup(
         lock.lock()
         try { inner.subscribe(w) } finally { lock.unlock() }
     }
+    override fun refresh() {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.refresh() } finally { lock.unlock() }
+    }
 }
 
 sealed class __Msg_ActorGroup {
@@ -979,6 +988,7 @@ sealed class __Msg_ActorGroup {
     class Leave(val member: Int) : __Msg_ActorGroup()
     class Members(val out: salvo.SalvoReply) : __Msg_ActorGroup()
     class Subscribe(val w: Int) : __Msg_ActorGroup()
+    class Refresh() : __Msg_ActorGroup()
 }
 
 object __Codec___Msg_ActorGroup : salvo.WireCodec<__Msg_ActorGroup> {
@@ -988,6 +998,7 @@ object __Codec___Msg_ActorGroup : salvo.WireCodec<__Msg_ActorGroup> {
             is __Msg_ActorGroup.Leave -> { out.u8(1); salvo.AddrCodec.enc(v.member, out) }
             is __Msg_ActorGroup.Members -> { out.u8(2); salvo.ReplyCodec.enc(v.out, out) }
             is __Msg_ActorGroup.Subscribe -> { out.u8(3); salvo.AddrCodec.enc(v.w, out) }
+            is __Msg_ActorGroup.Refresh -> { out.u8(4) }
         }
     }
     override fun dec(inp: salvo.WireIn): __Msg_ActorGroup = when (inp.u8()) {
@@ -995,12 +1006,13 @@ object __Codec___Msg_ActorGroup : salvo.WireCodec<__Msg_ActorGroup> {
             1 -> __Msg_ActorGroup.Leave(salvo.AddrCodec.dec(inp))
             2 -> __Msg_ActorGroup.Members(salvo.ReplyCodec.dec(inp))
             3 -> __Msg_ActorGroup.Subscribe(salvo.AddrCodec.dec(inp))
+            4 -> __Msg_ActorGroup.Refresh()
         else -> throw salvo.WireError()
     }
 }
 
 /** [protocol-hash] The canonical hash of `ActorGroup`. */
-const val __PROTO_ActorGroup: String = "d8ddd42c92bfcc7f"
+const val __PROTO_ActorGroup: String = "695f43128bdada4a"
 
 interface ActorGroupWatcher {
     fun joined(member: Int)
@@ -1132,6 +1144,10 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
         salvo.SalvoSched.replyWire(out, all.toMutableList(), salvo.ListCodec(salvo.AddrCodec))
     }
 
+    override fun refresh() {
+        salvo.runtime.routing.viewRefresh(__addr!!)
+    }
+
     override fun subscribe(w: Int) {
         watchers.add(w)
     }
@@ -1199,6 +1215,7 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
             is __Msg_ActorGroup.Leave -> handler.leave(m.member)
             is __Msg_ActorGroup.Members -> handler.members(m.out)
             is __Msg_ActorGroup.Subscribe -> handler.subscribe(m.w)
+            is __Msg_ActorGroup.Refresh -> handler.refresh()
         }
     }
 
@@ -1295,82 +1312,136 @@ fun withdraw(list: MutableList<Int>, a: Int): Boolean {
     return true
 }
 
-data class ActorView(
+data class RouteMember(
     val addr: Int,
-    val pending: Int,
     val local: Boolean,
 )
 
-object __Codec_ActorView : salvo.WireCodec<ActorView> {
-    override fun enc(v: ActorView, out: salvo.WireOut) {
+object __Codec_RouteMember : salvo.WireCodec<RouteMember> {
+    override fun enc(v: RouteMember, out: salvo.WireOut) {
         salvo.AddrCodec.enc(v.addr, out)
-        salvo.IntCodec.enc(v.pending, out)
         salvo.BoolCodec.enc(v.local, out)
     }
-    override fun dec(inp: salvo.WireIn): ActorView = ActorView(salvo.AddrCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.BoolCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): RouteMember = RouteMember(salvo.AddrCodec.dec(inp), salvo.BoolCodec.dec(inp))
 }
 
-data class ActorGroupView(
-    val actors: List<ActorView>,
-    val key: Long? = null,
+data class RouteView(
+    val members: List<RouteMember>,
 )
 
-object __Codec_ActorGroupView : salvo.WireCodec<ActorGroupView> {
-    override fun enc(v: ActorGroupView, out: salvo.WireOut) {
-        salvo.ListCodec(__Codec_ActorView).enc(v.actors, out)
-        salvo.OptCodec(salvo.LongCodec).enc(v.key, out)
+object __Codec_RouteView : salvo.WireCodec<RouteView> {
+    override fun enc(v: RouteView, out: salvo.WireOut) {
+        salvo.ListCodec(__Codec_RouteMember).enc(v.members, out)
     }
-    override fun dec(inp: salvo.WireIn): ActorGroupView = ActorGroupView(salvo.ListCodec(__Codec_ActorView).dec(inp), salvo.OptCodec(salvo.LongCodec).dec(inp))
+    override fun dec(inp: salvo.WireIn): RouteView = RouteView(salvo.ListCodec(__Codec_RouteMember).dec(inp))
 }
 
-interface Pick {
-    fun choose(view: ActorGroupView): Int?
+fun defaultRouteConfig(): RouteConfig {
+    return RouteConfig()
 }
 
-class __Mon_Pick(
-    private val inner: Pick,
+data class RouteConfig(
+    val firstWait: Duration = Duration(nanos = 1000000L),
+    val maxWait: Duration = Duration(nanos = 5000000000L),
+)
+
+object __Codec_RouteConfig : salvo.WireCodec<RouteConfig> {
+    override fun enc(v: RouteConfig, out: salvo.WireOut) {
+        __Codec_Duration.enc(v.firstWait, out)
+        __Codec_Duration.enc(v.maxWait, out)
+    }
+    override fun dec(inp: salvo.WireIn): RouteConfig = RouteConfig(__Codec_Duration.dec(inp), __Codec_Duration.dec(inp))
+}
+
+interface RouteSelector {
+    fun changed(view: RouteView)
+    fun select(view: RouteView, key: Long?): Int?
+}
+
+class __Mon_RouteSelector(
+    private val inner: RouteSelector,
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
-) : Pick {
-    override fun choose(view: ActorGroupView): Int? {
+) : RouteSelector {
+    override fun changed(view: RouteView) {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
-        try { return inner.choose(view) } finally { lock.unlock() }
+        try { inner.changed(view) } finally { lock.unlock() }
+    }
+    override fun select(view: RouteView, key: Long?): Int? {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.select(view, key) } finally { lock.unlock() }
     }
 }
 
-fun routeTo(pick: Pick, group: Int): Int {
-    return routeKeyed(pick, group, null)
+data class RoutePick(
+    val to: Int,
+    val version: Long,
+)
+
+object __Codec_RoutePick : salvo.WireCodec<RoutePick> {
+    override fun enc(v: RoutePick, out: salvo.WireOut) {
+        salvo.AddrCodec.enc(v.to, out)
+        salvo.LongCodec.enc(v.version, out)
+    }
+    override fun dec(inp: salvo.WireIn): RoutePick = RoutePick(salvo.AddrCodec.dec(inp), salvo.LongCodec.dec(inp))
 }
 
-fun routeTo__2(pick: Pick, group: Int, key: Long): Int {
-    return routeKeyed(pick, group, key)
+fun routePick(route_selector: RouteSelector, group: Int, config: RouteConfig, seen: Long): RoutePick {
+    return routeKeyed(route_selector, group, config, seen, null)
 }
 
-fun routeKeyed(pick: Pick, group: Int, key: Long?): Int {
+fun routePick__2(route_selector: RouteSelector, group: Int, config: RouteConfig, seen: Long, key: Long): RoutePick {
+    return routeKeyed(route_selector, group, config, seen, key)
+}
+
+fun routeKeyed(route_selector: RouteSelector, group: Int, config: RouteConfig, seen: Long, key: Long?): RoutePick {
+    var wait = config.firstWait.nanos
+    val cap = config.maxWait.nanos
+    var last = seen
     while (true) {
-        val members = salvo.SalvoSched.viewMembers(group)
-        val actors: MutableList<ActorView> = mutableListOf<ActorView>()
-        for (m in members) {
-            actors.add(ActorView(addr = m, pending = salvo.SalvoSched.pending(m), local = eq__2(NodeId(salvo.SalvoSched.addrIdentity(m).node), NodeId(salvo.SalvoSched.hereNode()))))
+        val version = salvo.runtime.routing.viewVersion(group)
+        val view = routeView(group)
+        if (version != last) {
+            route_selector.changed(view)
+            last = version
         }
-        val picked = pick.choose(ActorGroupView(actors = actors.toMutableList(), key = key))
+        val picked = route_selector.select(view, key)
         if (!(picked == null)) {
-            return picked
+            return RoutePick(to = picked, version = last)
         }
-        salvo.SalvoSched.parkBriefly()
+        salvo.runtime.routing.viewWait(group, version, wait)
+        wait = wait * 2
+        if (wait > cap) {
+            wait = cap
+        }
     }
-    return routeKeyed(pick, group, key)
+    return routeKeyed(route_selector, group, config, seen, key)
 }
 
-class LeastLoaded(private val preferLocal: Boolean) : Pick {
+fun routeView(group: Int): RouteView {
+    val members: MutableList<RouteMember> = mutableListOf<RouteMember>()
+    for (m in salvo.SalvoSched.viewMembers(group)) {
+        members.add(RouteMember(addr = m, local = eq__2(NodeId(salvo.SalvoSched.addrIdentity(m).node), NodeId(salvo.SalvoSched.hereNode()))))
+    }
+    return RouteView(members = members.toMutableList())
+}
 
-    override fun choose(view: ActorGroupView): Int? {
-        var best: ActorView? = null
-        for (a in view.actors) {
+class LeastLoaded(private val preferLocal: Boolean) : RouteSelector {
+
+    override fun changed(view: RouteView) {
+    }
+
+    override fun select(view: RouteView, key: Long?): Int? {
+        var best: RouteMember? = null
+        var bestPending = 0
+        for (a in view.members) {
+            val load = salvo.SalvoSched.pending(a.addr)
             if (best == null) {
                 best = a
+                bestPending = load
             } else {
-                val b: ActorView = best
+                val b: RouteMember = best
                 val take = when {
                     preferLocal && a.local && !b.local -> {
                         true
@@ -1379,34 +1450,38 @@ class LeastLoaded(private val preferLocal: Boolean) : Pick {
                         false
                     }
                     else -> {
-                        a.pending < b.pending
+                        load < bestPending
                     }
                 }
                 if (take) {
                     best = a
+                    bestPending = load
                 }
             }
         }
-        val chosen: ActorView = (best ?: return null)
+        val chosen: RouteMember = (best ?: return null)
         return chosen.addr
     }
 }
 
-class Sharded : Pick {
+class Sharded : RouteSelector {
 
-    override fun choose(view: ActorGroupView): Int? {
-        val n = view.actors.size
+    override fun changed(view: RouteView) {
+    }
+
+    override fun select(view: RouteView, key: Long?): Int? {
+        val n = view.members.size
         if (n == 0) {
             return null
         }
-        val k = (view.key ?: 0L)
+        val k = (key ?: 0L)
         val magnitude = if (k < 0L) {
             0L - k
         } else {
             k
         }
         val slot = (magnitude % (n).toLong()).toInt()
-        val picked = (view.actors.getOrNull(slot) ?: return null)
+        val picked = (view.members.getOrNull(slot) ?: return null)
         return picked.addr
     }
 }
@@ -1433,16 +1508,22 @@ class StaticLeader(private val node: NodeId) : Leader {
     }
 }
 
-class Elected(private val __dep_Leader: Leader) : Pick {
+class Elected(private val __dep_Leader: Leader) : RouteSelector {
+    private var chosen: Int? = null
 
-    override fun choose(view: ActorGroupView): Int? {
-        val l = (__dep_Leader.leader() ?: return null)
-        for (a in view.actors) {
+    override fun changed(view: RouteView) {
+        chosen = null
+        val l = (__dep_Leader.leader() ?: return)
+        for (a in view.members) {
             if (eq__2(NodeId(salvo.SalvoSched.addrIdentity(a.addr).node), l)) {
-                return a.addr
+                chosen = a.addr
+                return
             }
         }
-        return null
+    }
+
+    override fun select(view: RouteView, key: Long?): Int? {
+        return chosen
     }
 }
 

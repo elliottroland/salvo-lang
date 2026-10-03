@@ -45,12 +45,12 @@ const STD_NET: &str = concat!(
     "export fn actor_group<E>(nodes: Addr<NodeGroup>, ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {\n",
     "    let _p = protocol()\n    return 0\n}\n",
     // The pick kit's shape, enough for the erased-sibling rule [route-stub].
-    "export struct ActorGroupView<E> { key: Long? = None }\n",
-    "export effect Pick<E> { fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view }\n",
-    "export handler LeastLoaded<E>(prefer_local: Bool) of Pick<E> {\n",
-    "    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view { return None }\n}\n",
-    "export handler Sharded<E>() of Pick<E> {\n",
-    "    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view { return None }\n}\n",
+    "export struct RouteView<E> { size: Int = 0 }\n",
+    "export effect RouteSelector<E> { fn changed(view: RouteView<E>) -> None => view\n    fn select(view: RouteView<E>, key: Long?) -> Addr<E>? => view, key }\n",
+    "export handler LeastLoaded<E>(prefer_local: Bool) of RouteSelector<E> {\n",
+    "    fn changed(view: RouteView<E>) -> None => view {}\n    fn select(view: RouteView<E>, key: Long?) -> Addr<E>? => view, key { return None }\n}\n",
+    "export handler Sharded<E>() of RouteSelector<E> {\n",
+    "    fn changed(view: RouteView<E>) -> None => view {}\n    fn select(view: RouteView<E>, key: Long?) -> Addr<E>? => view, key { return None }\n}\n",
 );
 
 fn program(src: &str) -> (Program, Vec<FileDiagnostic>) {
@@ -346,7 +346,7 @@ fn main() [use] {
         .collect();
     assert_eq!(errs.len(), 1, "{errs:?}");
     assert!(
-        errs[0].contains("`Pick<Pong>` cannot be bound while `Pick<Ping>` is")
+        errs[0].contains("`RouteSelector<Pong>` cannot be bound while `RouteSelector<Ping>` is")
             && errs[0].contains("nested block"),
         "{errs:?}"
     );
