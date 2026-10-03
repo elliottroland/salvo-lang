@@ -111,7 +111,10 @@ pub fn salvo_pool_with_sink(n: usize, sink: Option<(usize, ExitOf)>) -> usize {
 
 /// [waitfor-dedicated] A pool of exactly one thread.
 pub fn salvo_thread() -> usize {
-    salvo_pool(1)
+    // [pool-retire] Its thread returns once its actor is dead.
+    let pool = crate::runtime::new_dedicated_pool();
+    crate::runtime_routing::adopt(pool);
+    pool as usize
 }
 
 /// Spawns an actor on a pool; the queue bound is explicit.

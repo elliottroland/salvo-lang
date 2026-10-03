@@ -261,3 +261,23 @@ test "an idle hook reports the tokens still owed" {
     let _done: Int = unerase(await_answer(kept_wid))
     expect_eq(idle.parked_tokens, 1)
 }
+
+// [pool-retire] A dedicated pool's thread returns once its one actor has
+// died and nothing is left to run there; an ordinary pool's stay.
+test "a dedicated pool retires when its actor dies" {
+    let before = retired_worker_count()
+    let pool = new_dedicated_pool()
+    let doomed = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
+        let _n: Int = unerase(msg)
+        let xs: List<Int> = []
+        let _boom = get(xs, 0)!
+    }))
+    send_dyn(doomed, erase(1))
+    let me = this_parker()
+    let tries = 0
+    while retired_worker_count() == before && tries < 200 {
+        park_nanos(copy(me), 5000000L)
+        tries = tries + 1
+    }
+    expect_eq(retired_worker_count(), before + 1)
+}

@@ -4901,6 +4901,12 @@ docs/language/ remains the source of truth for everything that does.
   * The graph's block edge, **site-inferred** [actor-deadlock-cycle]: from
     `Checked`'s recorded `waitfor` sites and handler constructions, with the
     same severity it always had.
+* [pool-retire] **A `Dedicated` pool's thread ends with its actor** (2026-10-03,
+  RUNTIME.md §11.5 step 13): `thread()` makes a pool nobody else can hold —
+  the `on` clause consumes it — so once every actor on it is dead, no task is
+  queued there and no token is owed to work there, nothing can run on it
+  again. The core marks it retired, wakes its thread, and the thread returns.
+  An ordinary `pool(n)` stays: its value may still be held and spawned on.
 * [waitfor-dedicated] **A dedicated thread is placement one may want** —
   no longer a grant anything requires (SH-5(d), 2026-09-19). `thread()` (std)
   answers a **`Dedicated Pool`** — one fresh thread, owned by whatever is

@@ -1195,7 +1195,7 @@ keeps both backends passing the full suite.
     5 s and wakes at once when the view's version moves. Views and versions
     live in the routing service; `ActorGroup.refresh()` moves a version alone,
     so a leader change is a view change too. `park_briefly` is gone.
-13. **Pools retire** (§2.3 item 6): a pool on which nothing can be placed
+13. ✅ **Pools retire** (§2.3 item 6), built 2026-10-03 [pool-retire]: a pool on which nothing can be placed
     any more (first case: a `Dedicated` pool whose one actor is dead and
     whose queues are empty) is marked retired, its workers are unparked,
     see the flag and return, which ends their threads.

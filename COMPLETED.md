@@ -135,6 +135,14 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**A `Dedicated` pool's thread ends with its actor (2026-10-03; RUNTIME.md
+§11.5 step 13) [pool-retire].** `thread()` now makes a pool the core knows is
+dedicated; when its actors are all dead, its task queue is empty and no token
+is owed to work there, the core marks it retired and wakes its thread, which
+returns. Ordinary pools stay, since their value may still be held. A runtime
+test (on both backends) kills a dedicated pool's one actor and waits for its
+worker to return. **1680 tests** (std's runtime tests run as one), 5m29 fresh.
+
 **Routes wait on their view; `route_any` and `RouteSelector` (2026-10-03;
 user decisions; RUNTIME.md §11.5 step 12).** `use route(group)` became `use
 route_any(group[, RouteConfig { first_wait, max_wait }])`, `Pick<E>` became

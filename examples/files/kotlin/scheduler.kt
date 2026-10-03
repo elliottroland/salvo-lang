@@ -67,7 +67,12 @@ object SalvoSched {
     }
 
     /** [waitfor-dedicated] A pool of exactly one thread. */
-    fun thread(): Int = pool(1)
+    fun thread(): Int {
+        // [pool-retire] Its thread returns once its actor is dead.
+        val pool = salvo.runtime.newDedicatedPool()
+        salvo.runtime.routing.adopt(pool)
+        return pool
+    }
 
     /** Spawns an actor on a pool. The queue bound is explicit and required. */
     fun spawn(

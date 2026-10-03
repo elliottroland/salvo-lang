@@ -274,11 +274,16 @@ linear struct PoolRec canbe Mut {
     // [pool-fault-sink] The actor its uncaught faults go to, or -1.
     sink: Int,
     // [actor-on-idle] Tokens owed to work here that belongs to no actor.
-    owed: Int
+    owed: Int,
+    // [pool-retire] A `Dedicated` pool: made for one spawn, so nothing is
+    // placed on it but what its actors place there themselves.
+    dedicated: Bool,
+    // [pool-retire] Nothing can run here any more: its threads return.
+    retired: Bool
 }
 
 fn drop_pool_rec(p: PoolRec) [] -> None => !p {
-    let {idle, tasks, ready, sink, owed} = p
+    let {idle, tasks, ready, sink, owed, dedicated, retired} = p
     drain(tasks, t -> drop_task_run(t))
 }
 
@@ -325,6 +330,8 @@ fn drop_waiter_mint(m: WaiterMint) [] -> None => !m {
 linear struct RunActor { addr: Int, pool: Int, kind: Int, slot: Long, value: Dyn, body: Body }
 linear struct RunTask { pool: Int, body: Body, value: Dyn }
 type Work = RunActor | RunTask
+// [pool-retire] What a worker of a retired pool is told: return.
+struct Retire {}
 
 fn drop_run_actor(a: RunActor) [] -> None => !a {
     let {addr, pool, kind, slot, value, body} = a
@@ -378,7 +385,7 @@ fn drop_got(g: Got) [] -> None => !g {
 }
 
 effect SchedTable {
-    fn new_pool(sink: Int) -> Int => !sink
+    fn new_pool(sink: Int, dedicated: Bool) -> Int => !sink, !dedicated
     fn new_actor(pool: Int, bound: Int, body: Body) -> Int => !pool, !bound, !body
     // Enqueues a message: `Sent`, `Dead` (dropped), or `Full` — the message
     // comes back and [waiter] is recorded to be woken by the next dequeue.
@@ -401,7 +408,9 @@ effect SchedTable {
     fn idle_hook(pool: Int, t: Token) -> None => !pool, !t
     // The next work on [pool]; `None` having recorded [idle] to be woken
     // when work arrives there.
-    fn next_work(pool: Int, idle: Parker) -> Work? => !pool, !idle
+    fn next_work(pool: Int, idle: Parker) -> RunActor | RunTask | Retire | None => !pool, !idle
+    // [pool-retire] Worker threads that have returned from retired pools.
+    fn retired_workers() -> Int
     // One step of waiting on [wid] from a frame of kind [frame] (1 an
     // activation or task, 2 main's thread) inside [own], serving [pool].
     fn wait_step(wid: Int, pool: Int, own: Int, frame: Int, me: Parker) -> WaitStep
@@ -433,14 +442,16 @@ handler Scheduler() of SchedTable {
     parked_frames: Int = 0
     main_waits: Int = 0
     externals: Int = 0
+    // [pool-retire] Worker threads that have returned.
+    retired: Int = 0
 
     // [main-pool] Pool 0 exists from the start and belongs to `main`.
     init {
-        add(pools, Mut PoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: -1, owed: 0 })
+        add(pools, Mut PoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: -1, owed: 0, dedicated: false, retired: false })
     }
 
-    fn new_pool(sink: Int) -> Int => !sink {
-        add(pools, Mut PoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: sink, owed: 0 })
+    fn new_pool(sink: Int, dedicated: Bool) -> Int => !sink, !dedicated {
+        add(pools, Mut PoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: sink, owed: 0, dedicated: dedicated, retired: false })
         return size(pools) - 1
     }
 
@@ -573,25 +584,37 @@ handler Scheduler() of SchedTable {
         wake_all_pools(pools)
     }
 
-    fn next_work(pool: Int, idle: Parker) -> Work? => !pool, !idle {
-        let w = take_work(actors, pools, copy(pool), -1)
-        if w is None {
-            let p = get(pools, pool)!
-            add(p.idle, idle)
-            // [waitfor-pump] [actor-on-idle] Every frame still running is
-            // parked in a wait: the scheduler may have settled, idle or
-            // stuck. The hooks fire here; whether it is stuck only a waiting
-            // frame can tell, so the waiting frames look again.
-            if active == parked_frames && quiet(actors, waiters, pools, externals) {
-                if !(size(idle_hooks) == 0) && active == 0 {
-                    fire_idle(actors, waiters, pools, idle_hooks)
-                }
-                wake_waiters(waiters)
-            }
-            return None
+    fn next_work(pool: Int, idle: Parker) -> RunActor | RunTask | Retire | None => !pool, !idle {
+        if get(pools, pool)!.retired {
+            retired = retired + 1
+            return Retire {}
         }
-        active = active + 1
-        return w
+        let w = take_work(actors, pools, copy(pool), -1)
+        if w is RunActor ra {
+            active = active + 1
+            return ra
+        }
+        if w is RunTask rt {
+            active = active + 1
+            return rt
+        }
+        let p = get(pools, pool)!
+        add(p.idle, idle)
+        // [waitfor-pump] [actor-on-idle] Every frame still running is
+        // parked in a wait: the scheduler may have settled, idle or
+        // stuck. The hooks fire here; whether it is stuck only a waiting
+        // frame can tell, so the waiting frames look again.
+        if active == parked_frames && quiet(actors, waiters, pools, externals) {
+            if !(size(idle_hooks) == 0) && active == 0 {
+                fire_idle(actors, waiters, pools, idle_hooks)
+            }
+            wake_waiters(waiters)
+        }
+        return None
+    }
+
+    fn retired_workers() -> Int {
+        return copy(retired)
     }
 
     fn wait_step(wid: Int, pool: Int, own: Int, frame: Int, me: Parker) -> WaitStep
@@ -691,14 +714,16 @@ handler Scheduler() of SchedTable {
             deliver_to(actors, waiters, pools, t, erase(Exit { reason: copy(reason) }))
         }
         drain(watchers, t -> drop_token(t))
+        retire_if_done(actors, pools, copy(pool))
         wake_all_pools(pools)
     }
 
     fn task_done(pool: Int, fault: Str?) -> None => !pool, !fault {
         active = active - 1
         if fault is Str reason {
-            report_fault(actors, pools, pool, copy(reason))
+            report_fault(actors, pools, copy(pool), copy(reason))
         }
+        retire_if_done(actors, pools, pool)
     }
 
     fn pool_of_actor(addr: Int) -> Int => addr {
@@ -1032,6 +1057,25 @@ fn wake_waiters(waiters: Mut List<Mut WaiterRec>) [] -> None => waiters: Mut {
     }
 }
 
+// [pool-retire] Retires [pool] when nothing can run on it any more: a
+// `Dedicated` pool — nobody holds it but the spawn that consumed it — whose
+// actors are all dead, with no task queued and no token owed to work there.
+// Its threads are woken, see the flag and return.
+fn retire_if_done(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, pool: Int) [] -> None
+=> actors, pools: Mut, !pool {
+    let p = get(pools, pool)!
+    if !p.dedicated || p.retired || size(p.tasks) > 0 || p.owed > 0 {
+        return
+    }
+    for a in actors {
+        if a.pool == pool && !a.dead {
+            return
+        }
+    }
+    p.retired = true
+    wake_every(pools, pool)
+}
+
 // Wakes every idle thread of every pool: something global changed (a death,
 // a hook, an outside source), which any of them may have to look at.
 fn wake_all_pools(pools: Mut List<Mut PoolRec>) [] -> None => pools: Mut {
@@ -1049,7 +1093,22 @@ use Scheduler()
 // [runtime-sched] A pool of [n] worker threads; uncaught faults on it go to
 // [sink] (an actor), or to the named report when it is -1.
 export fn new_pool_of(n: Int, sink: Int) [] -> Int => n, !sink {
-    let id = new_pool(sink)
+    return start_pool(n, sink, false)
+}
+
+// [pool-retire] A `Dedicated` pool: one thread, which returns once its
+// actors are dead and nothing is left to run there.
+export fn new_dedicated_pool() [] -> Int {
+    return start_pool(1, -1, true)
+}
+
+// [pool-retire] Worker threads that have returned from retired pools.
+export fn retired_worker_count() [] -> Int {
+    return retired_workers()
+}
+
+fn start_pool(n: Int, sink: Int, dedicated: Bool) [] -> Int => n, !sink, !dedicated {
+    let id = new_pool(sink, dedicated)
     let i = 0
     while i < n {
         start_thread(() -> { serve_pool(copy(id)) })
@@ -1211,6 +1270,8 @@ fn serve_pool(pool: Int) [] -> None => !pool {
             run_actor(ra)
         } elif w is RunTask rt {
             run_task(rt)
+        } elif w is Retire {
+            return
         } else {
             park(this_parker())
         }

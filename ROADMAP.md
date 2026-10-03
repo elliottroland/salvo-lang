@@ -75,7 +75,8 @@ now shims onto it, with routing still on host-side tables; all four
 benchmarks within the 1.5× budget on both backends) and 11e (routing in
 Salvo, the service `runtime.routing`); type identity by declaration
 [type-identity] is done too, and step 12 (routes wait on their view,
-`route_any`/`RouteSelector`). Next: step 13 (pools retire).
+`route_any`/`RouteSelector`). and step 13 (a `Dedicated` pool's thread ends with its actor). Next: step
+14 (the stream table in Salvo).
 When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
