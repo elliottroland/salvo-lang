@@ -24,10 +24,14 @@ class __Stub_Sequencer(private val addr: Int) : Sequencer {
     }
 }
 
-class __Mon_Sequencer(private val inner: Sequencer) : Sequencer {
+class __Mon_Sequencer(
+    private val inner: Sequencer,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Sequencer {
     override fun next(out: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.next(out) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.next(out) } finally { lock.unlock() }
     }
 }
 
@@ -60,10 +64,14 @@ class __Stub_Inventory(private val addr: Int) : Inventory {
     }
 }
 
-class __Mon_Inventory(private val inner: Inventory) : Inventory {
+class __Mon_Inventory(
+    private val inner: Inventory,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Inventory {
     override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.reserve(sku, qty, out) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.reserve(sku, qty, out) } finally { lock.unlock() }
     }
 }
 
@@ -96,10 +104,14 @@ class __Stub_Search(private val addr: Int) : Search {
     }
 }
 
-class __Mon_Search(private val inner: Search) : Search {
+class __Mon_Search(
+    private val inner: Search,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Search {
     override fun query(word: String, out: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.query(word, out) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.query(word, out) } finally { lock.unlock() }
     }
 }
 
@@ -132,10 +144,14 @@ class __Stub_Lookup(private val addr: Int) : Lookup {
     }
 }
 
-class __Mon_Lookup(private val inner: Lookup) : Lookup {
+class __Mon_Lookup(
+    private val inner: Lookup,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Lookup {
     override fun lookup(key: String, out: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.lookup(key, out) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.lookup(key, out) } finally { lock.unlock() }
     }
 }
 
@@ -523,10 +539,14 @@ class __Stub_Gather(private val addr: Int) : Gather {
     }
 }
 
-class __Mon_Gather(private val inner: Gather) : Gather {
+class __Mon_Gather(
+    private val inner: Gather,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Gather {
     override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.scatter(word, members, out) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.scatter(word, members, out) } finally { lock.unlock() }
     }
 }
 
@@ -711,10 +731,14 @@ class __Stub_Race(private val addr: Int) : Race {
     }
 }
 
-class __Mon_Race(private val inner: Race) : Race {
+class __Mon_Race(
+    private val inner: Race,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Race {
     override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.race(key, members, out) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.race(key, members, out) } finally { lock.unlock() }
     }
 }
 
@@ -915,14 +939,19 @@ class __Stub_Boot(private val addr: Int) : Boot {
     }
 }
 
-class __Mon_Boot(private val inner: Boot) : Boot {
+class __Mon_Boot(
+    private val inner: Boot,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Boot {
     override fun boot(done: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.boot(done) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.boot(done) } finally { lock.unlock() }
     }
     override fun stop(done: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.stop(done) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.stop(done) } finally { lock.unlock() }
     }
 }
 

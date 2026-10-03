@@ -166,8 +166,9 @@ fun main() {
     println(console, "-- FakeSqs --")
     if (true) {
         val __h = FakeSqs()
-        val sqs: Sqs = __Mon_Sqs(__h)
-        val sqs_calls: SqsCalls = __Mon_SqsCalls(__h)
+        val __l = java.util.concurrent.locks.ReentrantLock()
+        val sqs: Sqs = __Mon_Sqs(__h, __l)
+        val sqs_calls: SqsCalls = __Mon_SqsCalls(__h, __l)
         roundTrip(sqs, console, "orders")
         println(console, "calls: ${sqs_calls.calls().joinToString(", ", "[", "]")}")
     }

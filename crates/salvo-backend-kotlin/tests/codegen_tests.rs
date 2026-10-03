@@ -12857,7 +12857,7 @@ fn kotlinc_compiles_and_runs_a_monitor() -> KotlinCase {
 
 /// [kt-monitor] What the monitor lowering *is*, asserted on the generated
 /// text: the per-effect lock wrapper implementing the effect's interface by
-/// synchronizing and delegating, the spawn wrapping the handler instance,
+/// locking its `ReentrantLock` and delegating, the spawn wrapping the handler instance,
 /// and no send stub for a plain effect.
 #[test]
 fn a_monitor_lowers_to_a_lock_wrapper() {
@@ -12868,12 +12868,12 @@ fn a_monitor_lowers_to_a_lock_wrapper() {
         .expect("main.kt");
     assert!(
         main.content
-            .contains("class __Mon_Random(private val inner: Random) : Random {"),
+            .contains("class __Mon_Random(\n    private val inner: Random,"),
         "the lock wrapper is missing:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("synchronized(inner) { inner.next() }"),
+        main.content.contains("lock.lock()\n        try { return inner.next() } finally { lock.unlock() }"),
         "a member does not lock and delegate:\n{}",
         main.content
     );

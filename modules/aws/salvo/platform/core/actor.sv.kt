@@ -38,10 +38,14 @@ class __Stub_Faults(private val addr: Int) : Faults {
     }
 }
 
-class __Mon_Faults(private val inner: Faults) : Faults {
+class __Mon_Faults(
+    private val inner: Faults,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Faults {
     override fun faulted(fault: Fault) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.faulted(fault) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.faulted(fault) } finally { lock.unlock() }
     }
 }
 

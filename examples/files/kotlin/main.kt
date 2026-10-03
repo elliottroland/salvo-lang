@@ -394,8 +394,9 @@ fun main() {
     println(console, "-- the same code, with no disk at all --")
     if (true) {
         val __h = MemFs()
-        val fs3: Fs = __Mon_Fs(__h)
-        val streams2: Streams = __Mon_Streams(__h)
+        val __l = java.util.concurrent.locks.ReentrantLock()
+        val fs3: Fs = __Mon_Fs(__h, __l)
+        val streams2: Streams = __Mon_Streams(__h, __l)
         workflow(fs3, console, streams2)
     }
 }

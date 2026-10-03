@@ -25,66 +25,84 @@ interface RawStreams {
     fun rawFromBytes(data: salvo.SalvoBytes): Long
 }
 
-class __Mon_RawStreams(private val inner: RawStreams) : RawStreams {
+class __Mon_RawStreams(
+    private val inner: RawStreams,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : RawStreams {
     override fun rawReadLine(handle: Long): String? {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawReadLine(handle) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawReadLine(handle) } finally { lock.unlock() }
     }
     override fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>> {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawReadAll(handle) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawReadAll(handle) } finally { lock.unlock() }
     }
     override fun rawReadBytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawReadBytes(handle, max) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawReadBytes(handle, max) } finally { lock.unlock() }
     }
     override fun rawReadToBytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>> {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawReadToBytes(handle, buf, max) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawReadToBytes(handle, buf, max) } finally { lock.unlock() }
     }
     override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>> {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawReadToStr(handle, buf) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawReadToStr(handle, buf) } finally { lock.unlock() }
     }
     override fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawReadLineToStr(handle, buf) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawReadLineToStr(handle, buf) } finally { lock.unlock() }
     }
     override fun rawReadPosition(handle: Long): Long {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawReadPosition(handle) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawReadPosition(handle) } finally { lock.unlock() }
     }
     override fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawCloseRead(handle) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawCloseRead(handle) } finally { lock.unlock() }
     }
     override fun rawWrite(handle: Long, text: String): Long {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawWrite(handle, text) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawWrite(handle, text) } finally { lock.unlock() }
     }
     override fun rawWriteBytes(handle: Long, data: salvo.SalvoBytes): Long {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawWriteBytes(handle, data) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawWriteBytes(handle, data) } finally { lock.unlock() }
     }
     override fun rawWritePosition(handle: Long): Long {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawWritePosition(handle) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawWritePosition(handle) } finally { lock.unlock() }
     }
     override fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawFlush(handle) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawFlush(handle) } finally { lock.unlock() }
     }
     override fun rawCloseWrite(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawCloseWrite(handle) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawCloseWrite(handle) } finally { lock.unlock() }
     }
     override fun rawReceive(handle: Long, reply: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.rawReceive(handle, reply) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.rawReceive(handle, reply) } finally { lock.unlock() }
     }
     override fun rawFromBytes(data: salvo.SalvoBytes): Long {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.rawFromBytes(data) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.rawFromBytes(data) } finally { lock.unlock() }
     }
 }
 

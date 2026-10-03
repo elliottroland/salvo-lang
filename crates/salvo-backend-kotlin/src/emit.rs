@@ -2131,7 +2131,9 @@ impl<'p> Emitter<'p> {
             )
         };
         let mut out = format!(
-            "\nclass {name}{generics}(private val inner: {eff}{g_args}) : {eff}{g_args} {{\n",
+            "\nclass {name}{generics}(\n    private val inner: {eff}{g_args},\n    \
+             private val lock: java.util.concurrent.locks.ReentrantLock = \
+             java.util.concurrent.locks.ReentrantLock(),\n) : {eff}{g_args} {{\n",
             eff = e.name.name
         );
         for (i, f) in &members {
@@ -2157,9 +2159,9 @@ impl<'p> Emitter<'p> {
             // directly never comes back through the handle.
             out.push_str(&format!(
                 "    override fun{member_generics} {member}({params}){ret} {{\n        \
-                 check(!Thread.holdsLock(inner)) {{ \"salvo: a handler's lock was entered again \
+                 check(!lock.isHeldByCurrentThread) {{ \"salvo: a handler's lock was entered again \
                  through its own handle, which on Rust would deadlock [monitor-handler]\" }}\n        \
-                 {ret_kw}synchronized(inner) {{ inner.{member}({}) }}\n    }}\n",
+                 lock.lock()\n        try {{ {ret_kw}inner.{member}({}) }} finally {{ lock.unlock() }}\n    }}\n",
                 args.join(", "),
                 ret_kw = if ret.is_empty() { "" } else { "return " }
             ));
@@ -5808,8 +5810,8 @@ impl<'p> Emitter<'p> {
         // the send stub), so `wrap` says whether to wrap.
         // [effect-handler-multi] Several faces share **one** instance: it is
         // built once into a local and each face gets its own `__Mon_E` over
-        // it, so a stateful multi-face handler is one lock behind several
-        // interfaces (each face's monitor locks the same object).
+        // it, sharing one `ReentrantLock`, so a stateful multi-face handler
+        // is one lock behind several interfaces.
         if faces.len() == 1 {
             let (ty, rendered) = faces.into_iter().next().unwrap();
             let var = self.unique_name(effect_param_name(&rendered));
@@ -5827,10 +5829,15 @@ impl<'p> Emitter<'p> {
         }
         let held = self.unique_name("__h".to_string());
         let mut out = format!("{pad}val {held} = {instance}\n");
+        // One lock for every face, so the faces exclude one another.
+        let lock = self.unique_name("__l".to_string());
+        if wrap {
+            out.push_str(&format!("{pad}val {lock} = java.util.concurrent.locks.ReentrantLock()\n"));
+        }
         for (ty, rendered) in faces {
             let var = self.unique_name(effect_param_name(&rendered));
             let code = if wrap {
-                format!("{}({held})", self.monitor_for(&rendered))
+                format!("{}({held}, {lock})", self.monitor_for(&rendered))
             } else {
                 held.clone()
             };

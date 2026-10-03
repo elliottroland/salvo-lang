@@ -41,14 +41,19 @@ class __Stub_Session(private val addr: Int) : Session {
     }
 }
 
-class __Mon_Session(private val inner: Session) : Session {
+class __Mon_Session(
+    private val inner: Session,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Session {
     override fun open(started: Tick, budget: Duration, out: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.open(started, budget, out) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.open(started, budget, out) } finally { lock.unlock() }
     }
     override fun expire(started: Tick, budget: Duration, out: salvo.SalvoReply, f: Fired) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.expire(started, budget, out, f) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.expire(started, budget, out, f) } finally { lock.unlock() }
     }
 }
 
@@ -162,14 +167,19 @@ class __Stub_Sleeper(private val addr: Int) : Sleeper {
     }
 }
 
-class __Mon_Sleeper(private val inner: Sleeper) : Sleeper {
+class __Mon_Sleeper(
+    private val inner: Sleeper,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Sleeper {
     override fun nap(wait: Duration, out: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.nap(wait, out) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.nap(wait, out) } finally { lock.unlock() }
     }
     override fun woke(started: Tick, out: salvo.SalvoReply, f: Fired) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.woke(started, out, f) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.woke(started, out, f) } finally { lock.unlock() }
     }
 }
 

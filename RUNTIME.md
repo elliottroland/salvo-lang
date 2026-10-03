@@ -1139,17 +1139,28 @@ keeps both backends passing the full suite.
     The runtime module is reached by any program that uses an actor form,
     and a host project whose build runs actors carries it in full. The
     host-only behaviour tests now compile against the actors example's
-    generated runtime. Benchmarks after the cutover, medians of five:
+    generated runtime. **Within budget** the same day, medians of five on a
+    quiet machine:
 
     | | ping-pong 10⁶ | fan-out | tasks 10⁵ | timers 10⁴ |
     |---|---|---|---|---|
-    | Rust | 1,078 ms | 301 ms | 88 ms | 95 ms |
-    | Kotlin | 1,713 ms | 311 ms | 251 ms | 147 ms |
+    | Rust | 295 ms | 145 ms | 23 ms | 40 ms |
+    | Kotlin | 307 ms | 142 ms | 53 ms | 49 ms |
     | budget (1.5×) | 603 / 551 ms | 317 / 533 ms | 44 / 56 ms | 87 / 153 ms |
 
-    Ping-pong and tasks are over budget on both backends (Rust 2.7× and 3×,
-    Kotlin 4.7× and 6.8× the baseline), Rust timers slightly. Next: get those
-    within budget, then routing into Salvo.
+    Kotlin tasks is the closest, at 1.43× its baseline (a cold run: the JIT
+    has not warmed up; steady state is about 315 ns a task, under the old
+    370). What it took: a ready queue per pool instead of a scan of the actor
+    table per activation; a send from an activation to its own pool defers
+    its wake to the activation's end (the finishing thread takes the work
+    itself, instead of racing a woken one for it); one thread woken per item;
+    the Kotlin monitor on a `ReentrantLock` (`Thread.holdsLock` was a third
+    of the scheduler's time); and Kotlin's `Parker` on a token of its own,
+    since a `ReentrantLock` parks through the same `LockSupport` permit and
+    ate unparks. A benchmark taken while anything else runs is worthless:
+    the first numbers after the cutover (ping-pong 1,078 / 1,713 ms) were
+    taken with six hung test programs still running. Next: routing into
+    Salvo.
 11. **The scheduler in Salvo**: the local scheduler and routing together,
     `RuntimeHost` as the platform handler, actor bodies as E10 values moved
     in and out, payloads as `Dyn`, tasks as closures, waiting through

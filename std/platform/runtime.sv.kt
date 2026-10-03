@@ -46,18 +46,24 @@ interface RuntimeHost {
     fun monoNanos(): Long
 }
 
-class __Mon_RuntimeHost(private val inner: RuntimeHost) : RuntimeHost {
+class __Mon_RuntimeHost(
+    private val inner: RuntimeHost,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : RuntimeHost {
     override fun secureBits(): Long {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.secureBits() }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.secureBits() } finally { lock.unlock() }
     }
     override fun report(line: String) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.report(line) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.report(line) } finally { lock.unlock() }
     }
     override fun monoNanos(): Long {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.monoNanos() }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.monoNanos() } finally { lock.unlock() }
     }
 }
 

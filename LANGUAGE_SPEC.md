@@ -7699,6 +7699,15 @@ between endpoints and delivers what arrives into the scheduler.
     comments, an over-approximation), and an emitter refuses a build that
     ships the scheduler without it. Node ids are non-negative, since the
     core marks a local sender as `-1`.
+  * **Finding work** (2026-10-03): each pool keeps a ready queue of actors
+    with an entry they may be activated for, in the order they became so; a
+    taker drops a stale entry, and an actor is queued again when it next has
+    something to run. One idle thread is woken per new item. A send or an
+    answer from an activation to an actor on the activation's own pool does
+    not wake anyone: the finishing thread takes one item itself and wakes one
+    thread for each further item the activation made. So an activation that
+    sends to its own pool and then blocks outside a wait (a slow host call)
+    holds that work until it returns; a wait serves the pool, as always.
 * [mod-use] **A module-level `use H()` binds an effect for every function of
   its module**, without any of them declaring it (user decision 2026-10-02,
   RUNTIME.md E4): bound once, on first use, for the life of the process, and
@@ -7728,6 +7737,10 @@ between endpoints and delivers what arrives into the scheduler.
   parker in its state and park outside its lock without losing a wakeup; a
   park may also return spuriously, so a waiter loops. Parking on another
   thread's parker traps. Private to the runtime module [mod-std-internal].
+  On Kotlin the token is the parker's own flag rather than `LockSupport`'s
+  permit, which every JDK lock parks through too (a `ReentrantLock` waited on
+  between an unpark and the park consumed the unpark, and the park never
+  returned; found 2026-10-03).
   * Found building it: a std tree on disk that shadows the embedded one
     ([std-shadow], `salvo test --src std`) brought its platform files *beside*
     the embedded copies, and the duplicate was refused as a collision; the
@@ -8422,7 +8435,7 @@ replaced the working document TESTING.md).
   * **Undeclared = serialized on both backends.** A platform handler without
     the word is **stateful** under [effect-handle]: Rust binds the host in the
     handle's locked arm (`E::locked(H::new(…))`), Kotlin in the effect's
-    `synchronized` wrapper (`__Mon_E`). A host that did not claim safety therefore behaves
+    lock wrapper (`__Mon_E`). A host that did not claim safety therefore behaves
     identically everywhere and pays only the lock — the *safe* default, and
     the one the pre-2026-09-26 Kotlin emission lacked (it bound the raw
     instance, so a non-conforming host raced there and was accidentally

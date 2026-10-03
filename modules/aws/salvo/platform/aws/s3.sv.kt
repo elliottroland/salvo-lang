@@ -251,14 +251,19 @@ interface S3 {
     fun getObject(input: GetObjectInput, reply: salvo.SalvoReply)
 }
 
-class __Mon_S3(private val inner: S3) : S3 {
+class __Mon_S3(
+    private val inner: S3,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : S3 {
     override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.putObject(input, reply) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.putObject(input, reply) } finally { lock.unlock() }
     }
     override fun getObject(input: GetObjectInput, reply: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.getObject(input, reply) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.getObject(input, reply) } finally { lock.unlock() }
     }
 }
 

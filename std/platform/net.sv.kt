@@ -59,10 +59,14 @@ class __Stub_Inbound(private val addr: Int) : Inbound {
     }
 }
 
-class __Mon_Inbound(private val inner: Inbound) : Inbound {
+class __Mon_Inbound(
+    private val inner: Inbound,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Inbound {
     override fun receiveFrame(from: NodeEndpoint, frame: salvo.SalvoBytes) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.receiveFrame(from, frame) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.receiveFrame(from, frame) } finally { lock.unlock() }
     }
 }
 
@@ -92,22 +96,29 @@ interface Transport {
     fun localEndpoint(): NodeEndpoint
 }
 
-class __Mon_Transport(private val inner: Transport) : Transport {
+class __Mon_Transport(
+    private val inner: Transport,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Transport {
     override fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>> {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.listen(at, sink) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.listen(at, sink) } finally { lock.unlock() }
     }
     override fun unlisten(at: NodeEndpoint) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.unlisten(at) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.unlisten(at) } finally { lock.unlock() }
     }
     override fun deliver(to: NodeEndpoint, frame: salvo.SalvoBytes): Union2<Unit, Union2<Unreachable, WireFailed>> {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.deliver(to, frame) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.deliver(to, frame) } finally { lock.unlock() }
     }
     override fun localEndpoint(): NodeEndpoint {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.localEndpoint() }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.localEndpoint() } finally { lock.unlock() }
     }
 }
 

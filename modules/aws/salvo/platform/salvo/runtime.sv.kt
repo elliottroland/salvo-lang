@@ -9,11 +9,19 @@ package salvo.platform.runtime
 
 import java.util.concurrent.locks.LockSupport
 
-// `threadsafe platform type Parker` [runtime-parker]: a thread's handle.
-// `LockSupport.unpark` keeps a permit, which is the contract `Parker` states.
-class Parker(val thread: Thread)
+// `threadsafe platform type Parker` [runtime-parker]: a thread's handle and
+// its one token. The token is the parker's own flag, not `LockSupport`'s
+// permit: every JDK lock parks through that permit too, so a `ReentrantLock`
+// the thread waits on in between would consume an unpark meant for this
+// parker, and the next park would never return. One parker per thread, so
+// whoever holds a copy unparks the one the thread parks on.
+class Parker(val thread: Thread) {
+    internal val token = java.util.concurrent.atomic.AtomicBoolean(false)
+}
 
-fun thisParker(): Parker = Parker(Thread.currentThread())
+private val parkers = ThreadLocal.withInitial { Parker(Thread.currentThread()) }
+
+fun thisParker(): Parker = parkers.get()
 
 private fun own(p: Parker) {
     check(p.thread === Thread.currentThread()) {
@@ -23,15 +31,23 @@ private fun own(p: Parker) {
 
 fun park(p: Parker) {
     own(p)
-    LockSupport.park()
+    while (!p.token.compareAndSet(true, false)) {
+        LockSupport.park(p)
+    }
 }
 
 fun parkNanos(p: Parker, nanos: Long) {
     own(p)
-    LockSupport.parkNanos(if (nanos < 0) 0 else nanos)
+    val deadline = System.nanoTime() + (if (nanos < 0) 0 else nanos)
+    while (!p.token.compareAndSet(true, false)) {
+        val left = deadline - System.nanoTime()
+        if (left <= 0) return
+        LockSupport.parkNanos(p, left)
+    }
 }
 
 fun unpark(p: Parker) {
+    p.token.set(true)
     LockSupport.unpark(p.thread)
 }
 

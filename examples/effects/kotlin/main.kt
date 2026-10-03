@@ -7,10 +7,14 @@ interface Clock {
     fun now(): Int
 }
 
-class __Mon_Clock(private val inner: Clock) : Clock {
+class __Mon_Clock(
+    private val inner: Clock,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Clock {
     override fun now(): Int {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.now() }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.now() } finally { lock.unlock() }
     }
 }
 
@@ -36,10 +40,14 @@ interface Logger {
     fun log(message: String)
 }
 
-class __Mon_Logger(private val inner: Logger) : Logger {
+class __Mon_Logger(
+    private val inner: Logger,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Logger {
     override fun log(message: String) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.log(message) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.log(message) } finally { lock.unlock() }
     }
 }
 
@@ -98,10 +106,14 @@ interface Audit {
     fun record(what: String)
 }
 
-class __Mon_Audit(private val inner: Audit) : Audit {
+class __Mon_Audit(
+    private val inner: Audit,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Audit {
     override fun record(what: String) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.record(what) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.record(what) } finally { lock.unlock() }
     }
 }
 
@@ -109,10 +121,14 @@ interface Metrics {
     fun record(what: String)
 }
 
-class __Mon_Metrics(private val inner: Metrics) : Metrics {
+class __Mon_Metrics(
+    private val inner: Metrics,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Metrics {
     override fun record(what: String) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.record(what) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.record(what) } finally { lock.unlock() }
     }
 }
 
@@ -143,10 +159,14 @@ interface Setting<T> {
     fun setting(copy: (T) -> T): T
 }
 
-class __Mon_Setting<T>(private val inner: Setting<T>) : Setting<T> {
+class __Mon_Setting<T>(
+    private val inner: Setting<T>,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Setting<T> {
     override fun setting(copy: (T) -> T): T {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.setting(copy) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.setting(copy) } finally { lock.unlock() }
     }
 }
 

@@ -621,7 +621,7 @@ nothing but the monitor.
   `replyto` mint, a fn-typed constructor parameter, a platform handler
   without `threadsafe`): a **stateless** handler binds raw (`val console:
   Console = StdOutConsole()` — the reference is the handle and nothing is
-  locked), a **stateful** one behind the effect's `synchronized` monitor
+  locked), a **stateful** one behind the effect's lock wrapper
   (`val random: Random<Int> = __Mon_Random(CyclicRandom(…))`, [kt-monitor]).
   The `__Mon_E` class is emitted for **every** effect, actor effects included
   (a router `of any E` with a cursor is a stateful handler of it). A `use
@@ -634,8 +634,8 @@ nothing but the monitor.
 * **A multi-face handler** is built once into a local and, when stateful,
   each face gets its own monitor over it — `val __h = H(…); val a: A =
   __Mon_A(__h); val b: B = __Mon_B(__h)` — so a stateful multi-face handler
-  is one lock behind several interfaces (`synchronized(inner)` locks the
-  same object), the shape [monitor-handler] used to refuse; a stateless one
+  is one lock behind several interfaces (the faces' wrappers are handed one
+  `ReentrantLock`), the shape [monitor-handler] used to refuse; a stateless one
   binds the local raw under each face.
 * **A dependent handler** ([effect-handler-deps]) takes **one trailing
   constructor parameter per dependency**, typed by the effect's interface
@@ -775,8 +775,10 @@ nothing but the monitor.
   with no artifacts, ones this backend wrote are removed, hand-written ones
   left alone. The script uses no API newer than Gradle 7.
 * [kt-monitor-reentry] [monitor-handler] Every `__Mon_E` member checks
-  `Thread.holdsLock(inner)` before `synchronized(inner)` and traps when the
-  thread is already inside: a JVM monitor is reentrant and Rust's `Mutex` is
+  `lock.isHeldByCurrentThread` before taking its `ReentrantLock` and traps
+  when the thread is already inside (a `synchronized` monitor with
+  `Thread.holdsLock` until 2026-10-03, when the runtime's scheduler became a
+  monitor: `holdsLock` was a third of its cost): a JVM monitor is reentrant and Rust's `Mutex` is
   not, so a re-entry through the handle would deadlock on Rust and pass here
   (2026-10-02, RUNTIME.md §2.3 item 4). The availability rule keeps programs
   from reaching it; the check is what makes a mistake fail the same way on
@@ -849,7 +851,7 @@ nothing but the monitor.
   position's `E` [implicit-intrinsic] (`actor_group` itself is ordinary Salvo
   since 2026-09-28 [actor-group]).
 * [kt-monitor] [effect-any] An actor effect gets the monitor class
-  (`__Mon_E(inner)`, `synchronized` forwards) only when the program declares
+  (`__Mon_E(inner)`, locking forwards) only when the program declares
   a handler `of any E`; the forwards then cover its send members too, since a
   `use`-bound router runs them inline. Without a router, nothing is emitted.
 * [kt-wire] [route-stub] Runtime: `views`, `viewSet`, `viewMembers` (sorted
@@ -1215,8 +1217,15 @@ nothing but the monitor.
   beside its interface:
 
   ```kotlin
-  class __Mon_E(private val inner: E) : E {
-      override fun member(…): … = synchronized(inner) { inner.member(…) }
+  class __Mon_E(
+      private val inner: E,
+      private val lock: ReentrantLock = ReentrantLock(),
+  ) : E {
+      override fun member(…): … {
+          check(!lock.isHeldByCurrentThread) { … }
+          lock.lock()
+          try { return inner.member(…) } finally { lock.unlock() }
+      }
   }
   ```
 
@@ -1242,8 +1251,8 @@ nothing but the monitor.
   * **`use addr` binds the value itself**; a plain-effect addr in a spawn's
     dependency clause passes through as itself, where an actor addr gets the
     `__Stub_E` send wrapper.
-  * **`synchronized(inner)`** uses the handler instance's own JVM monitor.
-    Its *re-entrancy* (against Rust's non-reentrant `Mutex`) is unobservable
+  * **The lock** is the wrapper's own `ReentrantLock`, or one shared by every
+    face of a multi-face handler. Its *re-entrancy* (against Rust's non-reentrant `Mutex`) is unobservable
     by construction: a shareable handler's bindings are fixed at
     construction and its deps bind strictly outward/earlier, so no path
     routes back [backend-never-wrong]. Members with their own generics are

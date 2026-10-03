@@ -23,14 +23,19 @@ class __Stub_Counter(private val addr: Int) : Counter {
     }
 }
 
-class __Mon_Counter(private val inner: Counter) : Counter {
+class __Mon_Counter(
+    private val inner: Counter,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Counter {
     override fun bump(n: Int) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.bump(n) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.bump(n) } finally { lock.unlock() }
     }
     override fun total(out: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.total(out) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.total(out) } finally { lock.unlock() }
     }
 }
 
@@ -132,14 +137,19 @@ class __Stub_Ledger(private val addr: Int) : Ledger {
     }
 }
 
-class __Mon_Ledger(private val inner: Ledger) : Ledger {
+class __Mon_Ledger(
+    private val inner: Ledger,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Ledger {
     override fun report(label: String, out: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.report(label, out) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.report(label, out) } finally { lock.unlock() }
     }
     override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.reported(label, out, total) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.reported(label, out, total) } finally { lock.unlock() }
     }
 }
 
@@ -244,18 +254,24 @@ class __Stub_Desk(private val addr: Int) : Desk {
     }
 }
 
-class __Mon_Desk(private val inner: Desk) : Desk {
+class __Mon_Desk(
+    private val inner: Desk,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Desk {
     override fun ticket(out: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.ticket(out) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.ticket(out) } finally { lock.unlock() }
     }
     override fun serve(name: String) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.serve(name) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.serve(name) } finally { lock.unlock() }
     }
     override fun closeUp(reason: String) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.closeUp(reason) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.closeUp(reason) } finally { lock.unlock() }
     }
 }
 
@@ -373,10 +389,14 @@ class __Stub_Fragile(private val addr: Int) : Fragile {
     }
 }
 
-class __Mon_Fragile(private val inner: Fragile) : Fragile {
+class __Mon_Fragile(
+    private val inner: Fragile,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Fragile {
     override fun crash() {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.crash() }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.crash() } finally { lock.unlock() }
     }
 }
 

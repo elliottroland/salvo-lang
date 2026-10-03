@@ -165,8 +165,9 @@ fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
     val console: Console = StdOutConsole()
     val __h = MemFs()
-    val fs: Fs = __Mon_Fs(__h)
-    val streams: Streams = __Mon_Streams(__h)
+    val __l = java.util.concurrent.locks.ReentrantLock()
+    val fs: Fs = __Mon_Fs(__h, __l)
+    val streams: Streams = __Mon_Streams(__h, __l)
     val written = writeStr(fs, streams, "notes.txt", "hello from Salvo\nsecond line\n")
     if (written is Union2.U2<*, *>) {
         println(console, "write: ${toStr(detach((written.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
@@ -175,8 +176,9 @@ fun main() {
     println(console, "-- FakeS3 --")
     if (true) {
         val __h2 = FakeS3(streams)
-        val s3: S3 = __Mon_S3(__h2)
-        val s3_calls: S3Calls = __Mon_S3Calls(__h2)
+        val __l2 = java.util.concurrent.locks.ReentrantLock()
+        val s3: S3 = __Mon_S3(__h2, __l2)
+        val s3_calls: S3Calls = __Mon_S3Calls(__h2, __l2)
         roundTrip(s3, fs, console, streams, "greeting.txt")
         upload(s3, fs, console, streams, "notes", "unsized.txt", "notes.txt", null)
         println(console, "calls: ${s3_calls.calls().joinToString(", ", "[", "]")}")

@@ -135,6 +135,31 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The Salvo scheduler within the benchmark budget (2026-10-03; RUNTIME.md
+§11.5 slice 11d).** All four benchmarks within D6's 1.5× on both backends
+(numbers in RUNTIME.md 11d; Rust ping-pong 295 ms against a 402 ms baseline,
+Kotlin tasks the closest at 1.43×). What it took: a ready queue per pool, so
+finding work no longer scans the actor table (fan-out had been 10⁸ checks);
+one thread woken per item, and none for a send from an activation to its own
+pool, whose finishing thread takes the work itself — the wake races were most
+of ping-pong's cost; the pool carried in the activation record instead of a
+second monitor call; Kotlin's `__Mon_E` on a `ReentrantLock` with
+`isHeldByCurrentThread` instead of `synchronized` with `Thread.holdsLock`, a
+third of the scheduler's time (a multi-face handler's wrappers share one lock).
+What fell out:
+- **A lost unpark on Kotlin.** A `ReentrantLock` parks through the same
+  `LockSupport` permit as `Parker`, so an unpark landing while the thread
+  waited for the lock was consumed there and the thread's next park never
+  returned. `Parker` now carries its own token.
+- **Benchmarks lie on a busy machine.** The over-budget numbers recorded at
+  the cutover were taken with six hung test programs still running (a time
+  limit that killed `sh` and not its child); on a quiet machine the same
+  binary was within budget for Rust already. Gotcha recorded.
+- The trade-off of the deferred wake: an activation that sends to its own
+  pool and then blocks outside a wait holds that work until it returns
+  ([runtime-sched] states it).
+**1679 tests**, 5m05 fresh.
+
 **Generated code runs on the Salvo scheduler (2026-10-03; RUNTIME.md §11.5
 slice 11d, the cutover).** Both hosts' `scheduler.*` are now shims onto
 `std/runtime.sv`'s core, keeping every entry point the emitters call, so no
@@ -21082,6 +21107,17 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Benchmark only on a quiet machine, and check for leftovers first**
+  (2026-10-03). `tmp/limit.sh` kills the command it runs, not that command's
+  children: a `sh -c 'program | cat'` under it left the program running, and
+  six hung copies tripled the scheduler benchmarks. `pgrep -fl` before
+  timing; compare against an old binary run in the same minute.
+
+- **On the JVM, `LockSupport`'s permit is shared by every lock** (2026-10-03).
+  A park/unpark token built on it loses unparks: a `ReentrantLock` the thread
+  waits on in between parks through the same permit and consumes it. Give
+  the token its own flag and loop on it.
 
 - **An embedded language in a TextMate grammar is an injection, not a
   pattern** (2026-09-30, [host-splice]). Including the host grammar and adding

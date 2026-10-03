@@ -31,26 +31,34 @@ interface DeadlineTable {
     fun nextDeadline(): Long?
 }
 
-class __Mon_DeadlineTable(private val inner: DeadlineTable) : DeadlineTable {
+class __Mon_DeadlineTable(
+    private val inner: DeadlineTable,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : DeadlineTable {
     override fun register(at: Long, done: salvo.SalvoReply): Boolean {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.register(at, done) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.register(at, done) } finally { lock.unlock() }
     }
     override fun wheelParker(p: salvo.platform.runtime.Parker) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.wheelParker(p) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.wheelParker(p) } finally { lock.unlock() }
     }
     override fun waker(): salvo.platform.runtime.Parker? {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.waker() }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.waker() } finally { lock.unlock() }
     }
     override fun takeDue(now: Long): MutableList<salvo.SalvoReply> {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.takeDue(now) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.takeDue(now) } finally { lock.unlock() }
     }
     override fun nextDeadline(): Long? {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.nextDeadline() }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.nextDeadline() } finally { lock.unlock() }
     }
 }
 
@@ -128,10 +136,14 @@ class __Stub_Wheel(private val addr: Int) : Wheel {
     }
 }
 
-class __Mon_Wheel(private val inner: Wheel) : Wheel {
+class __Mon_Wheel(
+    private val inner: Wheel,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Wheel {
     override fun run() {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.run() }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.run() } finally { lock.unlock() }
     }
 }
 

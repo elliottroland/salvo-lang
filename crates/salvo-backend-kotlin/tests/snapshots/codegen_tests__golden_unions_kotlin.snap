@@ -37,10 +37,14 @@ interface Console {
     fun print(message: String)
 }
 
-class __Mon_Console(private val inner: Console) : Console {
+class __Mon_Console(
+    private val inner: Console,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Console {
     override fun print(message: String) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.print(message) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.print(message) } finally { lock.unlock() }
     }
 }
 

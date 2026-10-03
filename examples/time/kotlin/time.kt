@@ -173,10 +173,14 @@ interface Ticker {
     fun tick(): Tick
 }
 
-class __Mon_Ticker(private val inner: Ticker) : Ticker {
+class __Mon_Ticker(
+    private val inner: Ticker,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Ticker {
     override fun tick(): Tick {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.tick() }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.tick() } finally { lock.unlock() }
     }
 }
 
@@ -186,18 +190,24 @@ interface Clock {
     fun toTick(at: Instant): Tick
 }
 
-class __Mon_Clock(private val inner: Clock) : Clock {
+class __Mon_Clock(
+    private val inner: Clock,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Clock {
     override fun now(): Instant {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.now() }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.now() } finally { lock.unlock() }
     }
     override fun toInstant(at: Tick): Instant {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.toInstant(at) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.toInstant(at) } finally { lock.unlock() }
     }
     override fun toTick(at: Instant): Tick {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.toTick(at) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.toTick(at) } finally { lock.unlock() }
     }
 }
 
@@ -250,10 +260,14 @@ class __Stub_Timer(private val addr: Int) : Timer {
     }
 }
 
-class __Mon_Timer(private val inner: Timer) : Timer {
+class __Mon_Timer(
+    private val inner: Timer,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Timer {
     override fun after(wait: Duration, done: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.after(wait, done) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.after(wait, done) } finally { lock.unlock() }
     }
 }
 
@@ -339,10 +353,14 @@ class __Stub_TimerCtl(private val addr: Int) : TimerCtl {
     }
 }
 
-class __Mon_TimerCtl(private val inner: TimerCtl) : TimerCtl {
+class __Mon_TimerCtl(
+    private val inner: TimerCtl,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : TimerCtl {
     override fun advance(by: Duration) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.advance(by) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.advance(by) } finally { lock.unlock() }
     }
 }
 

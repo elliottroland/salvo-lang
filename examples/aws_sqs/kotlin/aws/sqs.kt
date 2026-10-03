@@ -216,30 +216,39 @@ interface Sqs {
     fun deleteQueue(input: DeleteQueueInput, reply: salvo.SalvoReply)
 }
 
-class __Mon_Sqs(private val inner: Sqs) : Sqs {
+class __Mon_Sqs(
+    private val inner: Sqs,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Sqs {
     override fun createQueue(input: CreateQueueInput, reply: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.createQueue(input, reply) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.createQueue(input, reply) } finally { lock.unlock() }
     }
     override fun getQueueUrl(input: GetQueueUrlInput, reply: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.getQueueUrl(input, reply) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.getQueueUrl(input, reply) } finally { lock.unlock() }
     }
     override fun sendMessage(input: SendMessageInput, reply: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.sendMessage(input, reply) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.sendMessage(input, reply) } finally { lock.unlock() }
     }
     override fun receiveMessage(input: ReceiveMessageInput, reply: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.receiveMessage(input, reply) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.receiveMessage(input, reply) } finally { lock.unlock() }
     }
     override fun deleteMessage(input: DeleteMessageInput, reply: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.deleteMessage(input, reply) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.deleteMessage(input, reply) } finally { lock.unlock() }
     }
     override fun deleteQueue(input: DeleteQueueInput, reply: salvo.SalvoReply) {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        synchronized(inner) { inner.deleteQueue(input, reply) }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.deleteQueue(input, reply) } finally { lock.unlock() }
     }
 }
 
@@ -247,10 +256,14 @@ interface SqsCalls {
     fun calls(): List<String>
 }
 
-class __Mon_SqsCalls(private val inner: SqsCalls) : SqsCalls {
+class __Mon_SqsCalls(
+    private val inner: SqsCalls,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : SqsCalls {
     override fun calls(): List<String> {
-        check(!Thread.holdsLock(inner)) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
-        return synchronized(inner) { inner.calls() }
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.calls() } finally { lock.unlock() }
     }
 }
 

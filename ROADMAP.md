@@ -71,9 +71,9 @@ types and fns) 8 (`Parker`), 9
 `use` in the runtime module, `RuntimeHost`) 11a (deadlines in Salvo), 11b
 (`start_thread`, `guarded`), 11c (projections of linear elements) and the
 11d (the local scheduler core, and the cutover: both hosts' schedulers are
-now shims onto it, with routing still on host-side tables). Open in 11:
-ping-pong and tasks are over the 1.5× budget on both backends (numbers in
-RUNTIME.md 11d), then routing. When the sequence completes, RUNTIME.md
+now shims onto it, with routing still on host-side tables; all four
+benchmarks within the 1.5× budget on both backends). Next in 11: routing.
+When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
 ### 0b — Three slow tests (recorded 2026-10-02, to investigate)
