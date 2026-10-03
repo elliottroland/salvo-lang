@@ -53,7 +53,7 @@ test "a fault inside the boundary is answered, not raised" {
 test "the scheduler runs an actor's messages in order on its pool" {
     let me = this_parker()
     let waker = copy(me)
-    let pool = new_pool_of(2)
+    let pool = new_pool_of(2, -1)
     let next = 0
     let body = body_of((kind, slot, msg) -> {
         let n: Int = unerase(msg)
@@ -83,7 +83,7 @@ test "the scheduler runs an actor's messages in order on its pool" {
 test "an actor that faults dies and later sends are dropped" {
     let me = this_parker()
     let waker = copy(me)
-    let pool = new_pool_of(1)
+    let pool = new_pool_of(1, -1)
     let fragile = spawn_body(copy(pool), 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
         let xs: List<Int> = []
@@ -104,7 +104,7 @@ test "an actor that faults dies and later sends are dropped" {
 // [actor-replyto] [actor-waitfor] Request and response: the message carries
 // a token, the actor answers it, and the waiting frame gets the answer.
 test "an actor answers a token, and a waiting frame receives it" {
-    let pool = new_pool_of(1)
+    let pool = new_pool_of(1, -1)
     let sum = 0
     let counter = spawn_body(pool, 4, body_of((kind, slot, msg) -> {
         let t: Token = unerase(msg)
@@ -175,7 +175,7 @@ fn drop_gate_msg(m: GateMsg) [] -> None => !m {
 }
 
 test "a gated actor serves its awaited answer before older messages" {
-    let pool = new_pool_of(2)
+    let pool = new_pool_of(2, -1)
     let slow = spawn_body(copy(pool), 2, body_of((kind, slot, msg) -> {
         let t: Token = unerase(msg)
         park_nanos(this_parker(), 50000000)
@@ -209,4 +209,55 @@ test "a gated actor serves its awaited answer before older messages" {
     send_dyn(copy(gated), erase(GateMsg { code: 2, me: copy(gated), peer: copy(slow), out: token }))
     let order: Str = unerase(await_answer(wid))
     expect_eq(order, "[reply, late]")
+}
+
+// [actor-watch] A watch is answered with the `Exit` of the actor's death.
+test "a watch is answered when the actor dies" {
+    let pool = new_pool_of(1, -1)
+    let fragile = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
+        let _n: Int = unerase(msg)
+        let xs: List<Int> = []
+        let _boom = get(xs, 0)!
+    }))
+    let w = waiter()
+    let {token, wid} = w
+    watch(copy(fragile), token)
+    send_dyn(fragile, erase(1))
+    let exit: Exit = unerase(await_answer(wid))
+    expect(size(exit.reason) > 0, "the exit carries a reason")
+}
+
+// [pool-fault-sink] A death nobody watches reaches the pool's sink, as a
+// report the sink's body receives as kind 2.
+test "an unwatched death reaches the pool's sink" {
+    let w = waiter()
+    let {token, wid} = w
+    let sink = spawn_body(main_pool(), 4, body_of((kind, slot, msg) -> {
+        let f: Fault = unerase(msg)
+        discard(f)
+    }))
+    let pool = new_pool_of(1, copy(sink))
+    let fragile = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
+        let _n: Int = unerase(msg)
+        let xs: List<Int> = []
+        let _boom = get(xs, 0)!
+    }))
+    send_dyn(fragile, erase(1))
+    on_idle(main_pool(), token)
+    let idle: Idle = unerase(await_answer(wid))
+    expect_eq(idle.parked_gates, 0)
+}
+
+// [actor-on-idle] The hook fires when nothing anywhere can run, reporting
+// what its pool is owed: here one token `main` is still holding.
+test "an idle hook reports the tokens still owed" {
+    let held = waiter()
+    let {token: kept, wid: kept_wid} = held
+    let w = waiter()
+    let {token, wid} = w
+    on_idle(main_pool(), token)
+    let idle: Idle = unerase(await_answer(wid))
+    answer(kept, erase(0))
+    let _done: Int = unerase(await_answer(kept_wid))
+    expect_eq(idle.parked_tokens, 1)
 }

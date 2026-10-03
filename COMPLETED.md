@@ -135,6 +135,22 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The local scheduler core in Salvo, third part (2026-10-03; RUNTIME.md §11.5
+slice 11d).** Watches, the fault sink (an unwatched death reaches the pool's
+sink as a kind-2 activation carrying a `Fault`, or the named report),
+owed-token accounting with `untrack` for tokens the scheduler holds itself,
+`on_idle`, outside sources, the deadlock report and the main-pool wedge
+report, with the hosts' exact texts; `exit_process` joins the core's host
+fns. Three std tests: a watch answered at death, a death reaching the sink,
+an idle hook reporting one owed token. What fell out: **a lost wakeup the
+first draft had** — a wait that fired the idle hooks returned `Sleep` and
+parked, and when a hook's answer was that same waiter's, nobody unparked it
+(its parker was only recorded on the other sleep path); the step now answers
+`Again` and the wait looks before sleeping. Found as a 30-minute hang of `salvo
+test`, which nothing bounded: `std_tests_pass` now kills the run after 240 s
+and fails naming the hang (pipes drained on threads so the limit can be
+watched). **1679 tests** (three more std tests).
+
 **The local scheduler core in Salvo, second part (2026-10-02; RUNTIME.md
 §11.5 slice 11d).** Answers and waits: a linear `Token` aimed at an actor's
 parked continuation (gated or not), at a waiting frame, or at a task whose
@@ -14820,6 +14836,13 @@ by faithful emission. Rule [fn-contract]:
 Each was reproduced before it was fixed, and the repro is kept: it is the
 argument for the rule that closed it. Defects still open are in
 [ROADMAP.md](ROADMAP.md).
+
+### ~~A hang in `salvo test --src std` was unbounded~~ — found and closed 2026-10-03
+
+`std_tests_pass` ran `salvo test --src std` with `.output()`, so a scheduler
+bug in `std/runtime.sv` (the lost wakeup above) stalled `cargo test` for 30
+minutes with no output. It now has a 240 s limit and fails naming the hang. A
+killed run can leave the harness program it started still running.
 
 ### ~~A spawn's `with` clause swallows a `use` statement on the next line~~ — found and closed 2026-09-19
 

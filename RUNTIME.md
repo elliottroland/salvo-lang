@@ -1130,9 +1130,10 @@ keeps both backends passing the full suite.
     activations, death — beside the hosts' schedulers, tested in
     `std/runtime.test.sv` on both backends. Second part, same day: answer
     tokens (actor continuations, gated or not; waiters; tasks), the
-    `waitfor` bridge serving its pool, `main`'s pool. Next: watches, the
-    fault sink, `on_idle`, the deadlock report and the counts behind it;
-    then the cutover and routing.
+    `waitfor` bridge serving its pool, `main`'s pool. Third part: watches,
+    the fault sink, `on_idle` and owed tokens, outside sources, the deadlock
+    and wedge reports. Next: the cutover (the emitters onto this scheduler,
+    the host schedulers' local halves deleted), then routing.
 11. **The scheduler in Salvo**: the local scheduler and routing together,
     `RuntimeHost` as the platform handler, actor bodies as E10 values moved
     in and out, payloads as `Dyn`, tasks as closures, waiting through

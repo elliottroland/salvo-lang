@@ -7677,7 +7677,12 @@ between endpoints and delivers what arrives into the scheduler.
   no thread of its own, and the thread-local `here` (pool, actor) a wait
   reads to know what it must not serve. A runtime platform fn's kept
   callback may carry state of its own: the [iter-mut-param] callback rule
-  does not apply to it, since an actor body is exactly that. Host types: `Dyn` (an erased value),
+  does not apply to it, since an actor body is exactly that. Third slice:
+  watches (`Exit` answered at death, or at once for the already dead), the
+  fault sink (an unwatched death reported to the pool's sink as a kind-2
+  activation carrying a `Fault`, or named on stderr), owed-token accounting
+  and `on_idle`, outside sources (`external_begin`/`end`), the deadlock
+  report and the main-pool wedge report — the same texts the hosts print. Host types: `Dyn` (an erased value),
   `Body` (an activation, `activate(b, msg) -> Ran`), `Slot<T>` (a cell a
   linear value is taken from and put back into through `Mut`).
 * [mod-use] **A module-level `use H()` binds an effect for every function of

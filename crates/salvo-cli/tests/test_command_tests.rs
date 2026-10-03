@@ -250,12 +250,18 @@ fn std_tests_pass() {
         .unwrap()
         .to_path_buf();
     let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("std_suite");
-    let out = Command::new(env!("CARGO_BIN_EXE_salvo"))
+    // A wall-clock limit: std's tests now drive the runtime's own scheduler,
+    // and a scheduler bug is a hang — which has to fail the suite rather than
+    // stall it (AGENTS.md: watch the clock).
+    let child = Command::new(env!("CARGO_BIN_EXE_salvo"))
         .current_dir(&repo)
         .args(["test", "--src", "std", "--target"])
         .arg(&target)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .expect("failed to run salvo");
+    let out = wait_with_limit(child, 240);
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "stdout: {stdout}\nstderr: {stderr}");
@@ -365,4 +371,44 @@ fn test_honours_clean_target() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(!target.exists(), "`both` should delete the target after the report");
     __stamp.verified();
+}
+
+/// Waits for [child], killing it and failing after [secs] seconds. Both pipes
+/// are drained on threads of their own, so a chatty child cannot fill one and
+/// block while the limit is being watched.
+fn wait_with_limit(mut child: std::process::Child, secs: u64) -> std::process::Output {
+    use std::io::Read;
+    let mut out_pipe = child.stdout.take().expect("piped stdout");
+    let mut err_pipe = child.stderr.take().expect("piped stderr");
+    let out_thread = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = out_pipe.read_to_end(&mut b);
+        b
+    });
+    let err_thread = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = err_pipe.read_to_end(&mut b);
+        b
+    });
+    let start = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("failed to poll salvo") {
+            break status;
+        }
+        if start.elapsed() > std::time::Duration::from_secs(secs) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let stdout = out_thread.join().unwrap_or_default();
+            panic!(
+                "`salvo test --src std` ran past {secs}s and was killed — a hang\nstdout: {}",
+                String::from_utf8_lossy(&stdout)
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    };
+    std::process::Output {
+        status,
+        stdout: out_thread.join().unwrap_or_default(),
+        stderr: err_thread.join().unwrap_or_default(),
+    }
 }

@@ -73,6 +73,8 @@ fun activate(b: Body, kind: Int, slot: Long, msg: Dyn): salvo.runtime.Ran =
 
 fun dropBody(b: Body) {}
 
+fun exitProcess(code: Int): Nothing = kotlin.system.exitProcess(code)
+
 // [runtime-sched] `linear platform type Slot<T>`: a cell of at most one value.
 class Slot<T>(var v: T?)
 

@@ -96,6 +96,10 @@ pub fn drop_body(b: Body) {
     drop(b);
 }
 
+pub fn exit_process(code: i32) -> ! {
+    std::process::exit(code)
+}
+
 // [runtime-sched] `linear platform type Slot<T>`: a cell of at most one value.
 pub struct Slot<T: Send + 'static> {
     v: Option<T>,
