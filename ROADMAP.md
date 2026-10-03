@@ -76,8 +76,8 @@ benchmarks within the 1.5× budget on both backends) and 11e (routing in
 Salvo, the service `runtime.routing`); type identity by declaration
 [type-identity] is done too, and step 12 (routes wait on their view,
 `route_any`/`RouteSelector`). step 13 (a `Dedicated` pool's thread ends with its actor) and step 14 (the
-stream table in Salvo, `runtime.streams`). Next: step 15 (the virtual
-runtime).
+stream table in Salvo, `runtime.streams`) and step 15 (the virtual runtime,
+under `test actor`). Next: step 16 (docs).
 When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
@@ -180,6 +180,11 @@ a correct program from building. std works around the first by naming.
    beside `stream`'s effect `Streams` was ambiguous to kotlinc. The handler
    was renamed (`HostStreamTable`); [type-identity] tracks the two
    namespaces separately, so the emitter should qualify across them too.
+14. **Assigning a field of a `for` element is accepted but does not build on
+   Rust**: `for a in actors { a.dead = true }` over a `Mut List<Mut ActorRec>`
+   checks, and emits `for a in &*actors`, which rustc refuses. Either the
+   checker refuses it or the emitter iterates mutably. Workaround: index with
+   `get(actors, i)!`.
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 
@@ -1323,8 +1328,15 @@ several are "revisit only if a customer appears".
 - **The unified test clock fakes `Ticker`; the `Clock` face is untested**, and a
   handler that waits on a *positive* deadline still wedges a `ManualTime` test —
   though it now says so, via the deadlock report. Every clock reading through the
-  unified form is a round trip, which is the stance's remaining cost; the recorded
-  upgrade is scheduler-owned virtual time.
+  unified form is a round trip, which is the stance's remaining cost.
+  Scheduler-owned virtual time now exists under `test actor` [test-actor];
+  whether `ManualTime` and the unified test clock stay, for plain tests, or
+  the `time` example moves to an actor test, is open (asked 2026-10-03).
+- **`test actor` follow-ups**: services other than the scheduler and the
+  timers keep their state across actor tests (the routing table, the stream
+  table), which a test using `MemTransport` could notice; `test property`
+  will generate the seed. `std.test`'s `trapped_by` and the runtime's
+  `guarded` are still two primitives (RUNTIME.md §11.7).
 - **The parked-obligation gap in the deadlock graph**: an actor gated on a token a
   *task* must discharge has a wait-for edge pointing at no effect node.
 - **Array elements never narrow**, **deduction inference does not track

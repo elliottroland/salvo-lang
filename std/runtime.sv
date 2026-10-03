@@ -69,14 +69,22 @@ threadsafe platform handler HostRuntime() of RuntimeHost
 // here reaches it without declaring it.
 use HostRuntime()
 
-// [addr-capability] The bits an addr's identity carries.
+// [addr-capability] The bits an addr's identity carries: from the seed, on
+// the virtual runtime [test-actor].
 fn fresh_bits() [] -> Long {
+    if is_virtual() {
+        return random_bits()
+    }
     return secure_bits()
 }
 
 // [time-timer] The monotonic clock, for the services: the timeline
-// `time.tick()` reads.
+// `time.tick()` reads. On the virtual runtime, the clock the scheduler moves
+// [test-actor].
 export fn now_nanos() [] -> Long {
+    if is_virtual() {
+        return virtual_now()
+    }
     return mono_nanos()
 }
 
@@ -101,7 +109,7 @@ export platform fn drop_dyn(d: Dyn) [] -> None => !d
 // one actor never runs twice at once. [kind] is 0 for a message and 1 for
 // an answer to the continuation parked at [slot].
 export linear platform type Body
-platform fn body_of(f: (kind: Int, slot: Long, value: Dyn) -> None) [] -> Body
+export platform fn body_of(f: (kind: Int, slot: Long, value: Dyn) -> None) [] -> Body
 =>[f] !value => !f
 // Runs one activation of [b] inside the fault boundary, handing the body
 // back with `None` or with the fault that ended the activation.
@@ -427,6 +435,18 @@ effect SchedTable {
     fn room(addr: Int) -> Int => addr
     fn is_dead(addr: Int) -> Bool => addr
     fn queued(addr: Int) -> Int => addr
+    // [test-actor] The virtual runtime: enters it with randomness from
+    // [seed], leaving a fresh scheduler (every actor so far dead, silently).
+    fn go_virtual(seed: Long) -> None => !seed
+    fn is_virtual() -> Bool
+    fn virtual_now() -> Long
+    // Moves the virtual clock forward to [at] (never back).
+    fn advance_to(at: Long) -> None => !at
+    fn random_bits() -> Long
+    // A token answered when nothing can run: what moves virtual time.
+    fn clock_hook(t: Token) -> None => !t
+    // Work from any pool but [own]'s activations, for a send waiting for room.
+    fn virtual_work(own: Int) -> RunActor | RunTask | None => !own
 }
 
 handler Scheduler() of SchedTable {
@@ -444,6 +464,12 @@ handler Scheduler() of SchedTable {
     externals: Int = 0
     // [pool-retire] Worker threads that have returned.
     retired: Int = 0
+    // [test-actor] The virtual runtime: no worker threads, a clock moved by
+    // the scheduler, randomness from a seed, and the hooks that move time.
+    virtual_mode: Bool = false
+    vnow: Long = 0
+    rng: Long = 1
+    clock_hooks: Mut List<Token> = mut_list_of()
 
     // [main-pool] Pool 0 exists from the start and belongs to `main`.
     init {
@@ -648,7 +674,9 @@ handler Scheduler() of SchedTable {
             wake_pool(pools, copy(pool))
             return Got { value: v }
         }
-        let work = take_work(actors, pools, copy(pool), copy(own))
+        // [test-actor] On the virtual runtime the one thread serves every
+        // pool.
+        let work = take_for(actors, pools, copy(pool), copy(own), copy(virtual_mode))
         if work is RunActor ra {
             active = active + 1
             return ra
@@ -657,14 +685,21 @@ handler Scheduler() of SchedTable {
             active = active + 1
             return rt
         }
+        let q = quiet(actors, waiters, pools, externals)
+        // [test-actor] Nothing can run on the one thread: time moves to the
+        // next deadline, before anything is called idle or stuck.
+        if virtual_mode && size(clock_hooks) > 0 && q {
+            fire_clock(actors, waiters, pools, clock_hooks)
+            return Again {}
+        }
         // [actor-on-idle] Nothing to run is exactly when the hooks fire, and
         // firing one is progress — so it comes before the deadlock report.
-        let q = quiet(actors, waiters, pools, externals)
         if !(size(idle_hooks) == 0) && active == 0 && q {
             fire_idle(actors, waiters, pools, idle_hooks)
             return Again {}
         }
-        if active == parked_frames && main_waits > 0 && q {
+        // [test-actor] With one thread, a park could never be woken.
+        if virtual_mode || (active == parked_frames && main_waits > 0 && q) {
             return Stuck { report: deadlock_report(actors, waiters, own) }
         }
         let parked = get(waiters, wid)!
@@ -759,6 +794,153 @@ handler Scheduler() of SchedTable {
         }
         wake_all_pools(pools)
     }
+
+    fn go_virtual(seed: Long) -> None => !seed {
+        virtual_mode = true
+        vnow = 0
+        rng = seed_of(seed)
+        reset_all(actors, pools, idle_hooks, clock_hooks)
+        active = 0
+        parked_frames = 0
+        main_waits = 0
+        externals = 0
+    }
+
+    fn is_virtual() -> Bool {
+        return copy(virtual_mode)
+    }
+
+    fn virtual_now() -> Long {
+        return copy(vnow)
+    }
+
+    fn advance_to(at: Long) -> None => !at {
+        if at > vnow {
+            vnow = at
+        }
+    }
+
+    fn random_bits() -> Long {
+        let hi = lehmer(copy(rng))
+        let lo = lehmer(copy(hi))
+        rng = copy(lo)
+        return hi * 2147483647 + lo
+    }
+
+    fn clock_hook(t: Token) -> None => !t {
+        let hook = untrack(actors, waiters, pools, t)
+        add(clock_hooks, hook)
+    }
+
+    fn virtual_work(own: Int) -> RunActor | RunTask | None => !own {
+        let w = take_for(actors, pools, 0, own, true)
+        if w is RunActor ra {
+            active = active + 1
+            return ra
+        }
+        if w is RunTask rt {
+            active = active + 1
+            return rt
+        }
+        return None
+    }
+}
+
+// [test-actor] The next value of a Lehmer generator: in 1..2^31-2, and no
+// product past 2^47, so nothing overflows.
+fn lehmer(x: Long) [] -> Long => !x {
+    return x * 48271 % 2147483647
+}
+
+// [test-actor] A generator state from a seed: never 0, which is the one
+// state a Lehmer generator cannot leave.
+fn seed_of(seed: Long) [] -> Long => !seed {
+    let s = seed % 2147483646
+    if s < 0 {
+        s = 0 - s
+    }
+    return s + 1
+}
+
+// [test-actor] A fresh scheduler, keeping the table's indices: every actor is
+// dead, without a report or an `Exit`, so an addr or a token left from before
+// is a send to the dead; every pool's queued work is dropped, and every pool
+// but main's retired.
+fn reset_all(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, idle_hooks: Mut List<IdleHook>, clock_hooks: Mut List<Token>) [] -> None
+=> actors: Mut, pools: Mut, idle_hooks: Mut, clock_hooks: Mut {
+    let k = 0
+    while k < size(actors) {
+        let a = get(actors, k)!
+        k = k + 1
+        a.dead = true
+        a.running = false
+        a.ready = false
+        a.gate = None
+        a.user_len = 0
+        a.owed = 0
+        while size(a.queue) > 0 {
+            drop_entry(remove_first(a.queue)!)
+        }
+        while remove_first(a.slots) is Long {
+        }
+        while remove_first(a.watchers) is Token t {
+            drop_token(t)
+        }
+        while remove_first(a.blocked) is Parker {
+        }
+        if slot_take(a.body) is Body b {
+            drop_body(b)
+        }
+    }
+    let i = 0
+    while i < size(pools) {
+        let p = get(pools, i)!
+        while remove_first(p.tasks) is TaskRun t {
+            drop_task_run(t)
+        }
+        while remove_first(p.ready) is Int {
+        }
+        p.owed = 0
+        if i > 0 {
+            p.retired = true
+        }
+        i = i + 1
+    }
+    while remove_first(idle_hooks) is IdleHook h {
+        drop_idle_hook(h)
+    }
+    while remove_first(clock_hooks) is Token t {
+        drop_token(t)
+    }
+}
+
+// [test-actor] Answers the hook that moves virtual time.
+fn fire_clock(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>, hooks: Mut List<Token>) [] -> None
+=> actors: Mut, waiters: Mut, pools: Mut, hooks: Mut {
+    if remove_first(hooks) is Token t {
+        deliver_to(actors, waiters, pools, t, erase(0))
+    }
+}
+
+// The next work for a thread serving [pool] — or, on the virtual runtime
+// ([any]), every pool in order [test-actor].
+fn take_for(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, pool: Int, exclude: Int, any: Bool) [] -> Work?
+=> actors: Mut, pools: Mut, !pool, !exclude, !any {
+    if !any {
+        return take_work(actors, pools, pool, exclude)
+    }
+    let i = 0
+    while i < size(pools) {
+        let w = take_work(actors, pools, copy(i), copy(exclude))
+        if w is RunActor ra {
+            return ra
+        }
+        if w is RunTask rt {
+            return rt
+        }
+        i = i + 1
+    }
+    return None
 }
 
 // [actor-on-idle] A token the scheduler takes over (a watch, an idle hook):
@@ -1109,6 +1291,10 @@ export fn retired_worker_count() [] -> Int {
 
 fn start_pool(n: Int, sink: Int, dedicated: Bool) [] -> Int => n, !sink, !dedicated {
     let id = new_pool(sink, dedicated)
+    // [test-actor] The virtual runtime's one thread serves every pool.
+    if is_virtual() {
+        return id
+    }
     let i = 0
     while i < n {
         start_thread(() -> { serve_pool(copy(id)) })
@@ -1137,6 +1323,14 @@ export fn send_dyn(addr: Int, msg: Dyn) [] -> None => !addr, !msg {
 export fn send_or_back(addr: Int, msg: Dyn) [] -> Dyn? => !addr, !msg {
     let r = enqueue(copy(addr), msg, this_parker())
     while r is Full full {
+        // [test-actor] One thread: the room is made by running the work
+        // there is, here, until the mailbox has some.
+        if is_virtual() {
+            make_room(copy(addr))
+            let {msg: again} = full
+            r = enqueue(copy(addr), again, this_parker())
+            continue
+        }
         // [main-pool] Blocking here would be a guaranteed wedge: the only
         // thread that could drain a main-pool mailbox is main, sending.
         if here_pool() == main_pool() && here_actor() == no_frame() && pool_of_actor(copy(addr)) == main_pool() {
@@ -1159,6 +1353,22 @@ export fn send_or_back(addr: Int, msg: Dyn) [] -> Dyn? => !addr, !msg {
         return back
     }
     return None
+}
+
+// [test-actor] Runs one piece of work so a full mailbox can drain, or reports
+// that nothing can.
+fn make_room(addr: Int) [] -> None => !addr {
+    let w = virtual_work(here_actor())
+    if w is RunActor ra {
+        run_actor(ra)
+        return
+    }
+    if w is RunTask rt {
+        run_task(rt)
+        return
+    }
+    report("salvo: deadlock: actor ${addr} has a full mailbox and nothing can run to drain it: an actor test runs every pool on one thread")
+    exit_process(1)
 }
 
 // [addr-routable] Marks [addr] a proxy: sends to it are handed back.
@@ -1202,7 +1412,35 @@ export fn on_idle(pool: Int, t: Token) [] -> None => !pool, !t {
 // [threadsafe-platform] A host thread that may send at any moment is open,
 // or closed: while one is open the program is neither idle nor stuck.
 export fn external_begin() [] -> None {
+    // [test-actor] Work arriving from a host thread would arrive off the
+    // virtual clock, so an actor test may not open one.
+    if is_virtual() {
+        report("salvo: an actor test opened a host thread (a platform handler that reads or listens on a thread of its own): the virtual runtime runs everything on one thread, so its work would not be deterministic — use an in-memory fake (`MemTransport`, `MemFs`)")
+        exit_process(1)
+    }
     external(1)
+}
+
+// [test-actor] Enters the virtual runtime, as a fresh scheduler: what an
+// actor test runs on.
+export fn enter_virtual(seed: Long) [] -> None => !seed {
+    go_virtual(seed)
+}
+
+// [test-actor] Whether this is the virtual runtime.
+export fn virtual_runtime() [] -> Bool {
+    return is_virtual()
+}
+
+// [test-actor] Moves the virtual clock forward to [at].
+export fn set_virtual_now(at: Long) [] -> None => !at {
+    advance_to(at)
+}
+
+// [test-actor] Answers [t] once nothing can run: how the timer service moves
+// virtual time.
+export fn on_clock(t: Token) [] -> None => !t {
+    clock_hook(t)
 }
 
 export fn external_end() [] -> None {

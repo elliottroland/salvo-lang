@@ -412,3 +412,80 @@ fn wait_with_limit(mut child: std::process::Child, secs: u64) -> std::process::O
         stderr: err_thread.join().unwrap_or_default(),
     }
 }
+
+/// [test-actor] [test-kind] Actor tests run on the virtual runtime, in a
+/// program of their own after the plain tests: a timer fires without the wait,
+/// a wait nothing can answer is the deadlock report (the test's death, and the
+/// rest re-run in a fresh process), and the seed is what the declaration says.
+#[test]
+fn actor_tests_run_on_the_virtual_runtime() {
+    let Some(stamp) = e2e_stamp("actor_tests", &["rustc"]) else {
+        return;
+    };
+    if !have("rustc") {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let dir = work_dir("actor_tests");
+    fs::write(dir.join("calc.sv"), CALC).unwrap();
+    fs::write(
+        dir.join("calc.test.sv"),
+        r#"import time
+
+actor effect Hoard {
+    send fn ask(out: Reply<Int>) => !out
+}
+
+// Keeps every reply, answering none.
+handler Hoarding() of Hoard {
+    mailbox { capacity: 2 }
+    kept: Mut List<Reply<Int>> = mut_list_of()
+
+    send fn ask(out: Reply<Int>) {
+        add(kept, out)
+    }
+}
+
+test actor "a day passes at once" {
+    let timer = spawn DefaultTimer() on pool(1)
+    use DefaultTicker()
+    let fired = waitfor answer: Reply<Fired> {
+        timer.after(hours(24), answer)
+    }
+    expect_eq(fired.at.nanos, hours(24).nanos)
+}
+
+test "a plain test" {
+    expect_eq(double(2), 4)
+}
+
+test actor(seed: 3) "nobody answers" {
+    let hoard = spawn Hoarding() on pool(1)
+    let n = waitfor answer: Reply<Int> {
+        hoard.ask(answer)
+    }
+    expect_eq(n, 1)
+}
+
+test actor "after the death" {
+    use DefaultTicker()
+    expect_eq(tick().nanos, 0L)
+}
+"#,
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["test", "--src", "."]);
+    let stdout = normalize_ms(&String::from_utf8_lossy(&out.stdout));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stdout.contains("test calc :: a plain test ... ok"), "{stdout}\n{stderr}");
+    assert!(stdout.contains("test calc :: a day passes at once ... ok"), "{stdout}\n{stderr}");
+    assert!(stdout.contains("test calc :: after the death ... ok"), "{stdout}\n{stderr}");
+    // The plain test runs first, in the threaded program.
+    assert!(
+        stdout.find("a plain test").unwrap() < stdout.find("a day passes").unwrap(),
+        "{stdout}"
+    );
+    assert!(stdout.contains("salvo: deadlock"), "{stdout}\n{stderr}");
+    assert!(!out.status.success());
+    stamp.verified();
+}

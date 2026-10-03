@@ -47,6 +47,7 @@ mod tests {
             tested: ModulePath(vec![module.to_string()]),
             name: name.to_string(),
             fn_name: "__salvo_test_0".to_string(),
+            kind: salvo_syntax::ast::TestKind::Plain,
         }
     }
 

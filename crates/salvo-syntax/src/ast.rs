@@ -82,8 +82,24 @@ pub struct TestDecl {
     /// The span of the name literal — the test's identity for diagnostics,
     /// and (uniquely per test) the span the synthesized fn is keyed by.
     pub name_span: Span,
+    /// [test-kind] Which kind of test, which decides what it runs on.
+    pub kind: TestKind,
     pub body: Block,
     pub span: Span,
+}
+
+/// [test-kind] The kind of a test: `test "…"` or `test actor(…) "…"`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TestKind {
+    /// A plain test, on the threaded runtime.
+    Plain,
+    /// [test-actor] An actor test, on the virtual runtime: one thread, time
+    /// the scheduler advances, randomness from [seed](TestKind::Actor::seed).
+    Actor {
+        /// The seed the runtime's randomness starts from (`seed: N`; 0 when
+        /// not given).
+        seed: i64,
+    },
 }
 
 /// `refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]`

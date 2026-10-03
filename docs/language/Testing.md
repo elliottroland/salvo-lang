@@ -51,6 +51,34 @@ test "a missing file reports its path" {
 
 Everything else about a body is the language as it is everywhere else — narrowing, linearity, deductions, effects. A linear value a test opens must still be closed on every path, and a test that leaks one does not compile.
 
+## Actor tests
+
+A test about actors says so in its kind, and runs on a runtime built for testing them:
+
+```
+test actor "a session expires an hour after it opens" {
+    let timer = spawn DefaultTimer() on pool(1)
+    use DefaultTicker()
+    let started = tick()
+    let fired = waitfor answer: Reply<Fired> {
+        timer.after(hours(1), answer)
+    }
+    expect_eq(between(started, fired.at).nanos, hours(1).nanos)
+}
+```
+
+An actor test may `spawn`, and it runs on the **virtual runtime**:
+
+- **One thread.** A pool starts no threads of its own; the test's own frame runs every actor's work while it waits.
+- **Time moves when nothing can run.** When every actor is waiting and a deadline is pending, the clock jumps to that deadline and fires it. So the hour above passes at once, and `tick()` reads exactly one hour later. Each actor test starts its clock at zero.
+- **Randomness from a seed.** What the runtime draws (an addr's identity bits) comes from the test's seed, so a run repeats exactly. The seed is the kind's argument: `test actor(seed: 7) "…"`, and 0 when not given.
+- **A fresh scheduler.** Each actor test starts with no actors and no pending deadline; whatever an earlier test left behind is gone.
+- **A wait nothing can answer is a deadlock**, reported by name, since on one thread nobody else could answer it.
+
+A host thread would bring work from outside the virtual clock, so an actor test may not open one: a platform handler that listens or reads on a thread of its own (`HostTcpTransport`, a stream's `receive`) stops the test with a report. Its in-memory fakes (`MemTransport`, `MemFs`) are what an actor test uses.
+
+A plain `test` that spawns is on the real, threaded runtime, as a program is. The runner writes one program for the plain tests and one for the actor tests, so the plain tests are reported first.
+
 ## How a test fails
 
 `std.test` is **implicitly available in every annex**, which is why no test file imports anything to assert:
@@ -119,6 +147,8 @@ test "the message is available" {
 ```
 
 The body is a plain fn value, so it does not inherit the test's effects — a body that needs one registers it itself (`() -> { use StdOutConsole(); … }`).
+
+An actor test's own frame is not inside that catch, because its body spawns and a fn value cannot. A trap there ends the program, and the runner reports the test as having died and re-runs the rest in a fresh process. A fault inside an actor is that actor's death, as anywhere.
 
 The runner works by writing a Salvo program. It synthesizes a module that calls each test inside its own `try`, compiles it with the rest of the sources exactly as `salvo run` would, and renders what it prints. So the two backends run the same tests the same way, and the report is identical on both — a test suite is not a place where a target language should show through.
 

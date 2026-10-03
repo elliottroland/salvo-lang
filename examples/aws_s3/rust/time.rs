@@ -7,6 +7,7 @@ use crate::core_map::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::runtime::*;
 use crate::runtime_timers::*;
 use crate::seq::*;
 
@@ -313,7 +314,7 @@ impl DefaultTicker {
 impl crate::time::__Stateless_Ticker for DefaultTicker {
 
     fn tick(&self) -> Tick {
-        return Tick { nanos: crate::hosttime::salvo_mono_nanos() };
+        return Tick { nanos: monotonic_nanos() };
     }
 }
 
@@ -325,7 +326,7 @@ pub struct DefaultClock {
 impl DefaultClock {
     pub fn new() -> Self {
         Self {
-            base_tick: crate::hosttime::salvo_mono_nanos(),
+            base_tick: monotonic_nanos(),
             base_epoch: crate::hosttime::salvo_epoch_nanos(),
         }
     }
@@ -344,6 +345,10 @@ impl crate::time::__Stateful_Clock for DefaultClock {
     fn to_tick(&mut self, at: &Instant) -> Tick {
         return Tick { nanos: self.base_tick + (at.nanos - self.base_epoch) };
     }
+}
+
+pub fn monotonic_nanos() -> i64 {
+    return now_nanos();
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -659,7 +664,7 @@ impl crate::time::__Stateful_TimerCtl for ManualTime {
                 break;
             }
             let mut at = __is1.unwrap();
-            let mut deadline = *self.deadlines.get((at) as i64 as usize).expect("salvo: value is absent at time:473:33");
+            let mut deadline = *self.deadlines.get((at) as i64 as usize).expect("salvo: value is absent at time:477:33");
             self.deadlines.salvo_remove_at(at);
             self.now = deadline.clone();
             let mut __is2 = self.pending.salvo_remove_at(at);
@@ -752,7 +757,7 @@ pub fn earliest_due(deadlines: &Vec<i64>, target: i64) -> Option<i32> {
     let mut best_at = 0i64;
     let mut i = 0;
     while i < (deadlines.len() as i32) {
-        let mut at = *deadlines.get((i) as i64 as usize).expect("salvo: value is absent at time:497:23");
+        let mut at = *deadlines.get((i) as i64 as usize).expect("salvo: value is absent at time:501:23");
         if at <= target && (best < 0 || at < best_at) {
             best = i.clone();
             best_at = at.clone();

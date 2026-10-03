@@ -176,7 +176,6 @@ pub fn fn_call(
         // [time-ticker] [time-clock] [kt-time] The two clock readings, each a
         // `Long` of nanoseconds — the whole of the host's contribution to the
         // time surface, matching `time.rs` number for number.
-        ("monotonic_nanos", None) => "salvo.SalvoTime.monoNanos()".to_string(),
         // [stream-handle] One counter for every stream table in the process.
         ("epoch_nanos", None) => "salvo.SalvoTime.epochNanos()".to_string(),
         // core.list ------------------------------------------------------

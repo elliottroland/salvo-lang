@@ -29,6 +29,7 @@ interface DeadlineTable {
     fun waker(): salvo.platform.runtime.Parker?
     fun takeDue(now: Long): MutableList<salvo.SalvoReply>
     fun nextDeadline(): Long?
+    fun clear()
 }
 
 class __Mon_DeadlineTable(
@@ -60,6 +61,11 @@ class __Mon_DeadlineTable(
         lock.lock()
         try { return inner.nextDeadline() } finally { lock.unlock() }
     }
+    override fun clear() {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.clear() } finally { lock.unlock() }
+    }
 }
 
 class Deadlines : DeadlineTable {
@@ -67,6 +73,7 @@ class Deadlines : DeadlineTable {
     private var dones: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
     private var running: Boolean = false
     private var parker: salvo.platform.runtime.Parker? = null
+    private var forgotten: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
 
     override fun register(at: Long, done: salvo.SalvoReply): Boolean {
         ats.add(at)
@@ -94,7 +101,7 @@ class Deadlines : DeadlineTable {
         val due: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
         var i = 0
         while (i < ats.size) {
-            if ((ats.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.timers:68:16")) <= now) {
+            if ((ats.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.timers:72:16")) <= now) {
                 val _at = (ats).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
                 var __is1 = (dones).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
                 if (__is1 != null) {
@@ -119,6 +126,19 @@ class Deadlines : DeadlineTable {
             running = false
         }
         return earliest
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    override fun clear() {
+        while (true) {
+            var __is2 = (dones).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
+            if (!(__is2 != null)) break
+            val r = __is2 as salvo.SalvoReply
+            forgotten.add(r)
+        }
+        while ((ats).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) } != null) {
+        }
+        running = false
     }
 }
 
@@ -219,6 +239,12 @@ fun afterNanos(delay: Long, done: salvo.SalvoReply) {
     if (wait < 0) {
         wait = 0L
     }
+    if (virtualRuntime()) {
+        if (__moduleUse0.register(nowNanos() + wait, done)) {
+            armClock()
+        }
+        return
+    }
     if (__moduleUse0.register(nowNanos() + wait, done)) {
         __moduleUse1.run()
         return
@@ -227,4 +253,30 @@ fun afterNanos(delay: Long, done: salvo.SalvoReply) {
     if (p != null) {
         unparkPlatform(p)
     }
+}
+
+fun armClock() {
+    onClock(mintTaskOn(mainPool(), bodyOfPlatform({ kind, slot, value ->
+    dropDynPlatform(value)
+    advance()
+})))
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun advance() {
+    val until = __moduleUse0.nextDeadline()
+    if (until != null) {
+        val at = until as Long
+        setVirtualNow(at)
+        val now = nowNanos()
+        val due = __moduleUse0.takeDue(now)
+        answerAll(due, now)
+        if (__moduleUse0.nextDeadline() != null) {
+            armClock()
+        }
+    }
+}
+
+fun resetTimers() {
+    __moduleUse0.clear()
 }

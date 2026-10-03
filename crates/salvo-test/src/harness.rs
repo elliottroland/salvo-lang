@@ -66,7 +66,20 @@ pub fn harness_source(tests: &[TestCase]) -> String {
     for annex in &annexes {
         out.push_str(&format!("import {annex}\n"));
     }
-    out.push_str("\nfn main() [use] {\n    use StdOutConsole()\n");
+    // [test-actor] An actor test starts the virtual runtime afresh. The
+    // harness holds one kind of test or the other, never both: the runner
+    // writes one program per runtime [test-kind].
+    let actor = tests
+        .iter()
+        .any(|t| matches!(t.kind, salvo_syntax::ast::TestKind::Actor { .. }));
+    if actor {
+        out.push_str("import test.actor\n");
+    }
+    out.push_str(if actor {
+        "\nfn main() [use, spawn] {\n    use StdOutConsole()\n"
+    } else {
+        "\nfn main() [use] {\n    use StdOutConsole()\n"
+    });
     for (i, test) in tests.iter().enumerate() {
         // [test-recover] Each test runs inside `trapped_by`, so a failure the
         // program cannot continue past — a failed `assert!` [assert-trap], a
@@ -76,30 +89,61 @@ pub fn harness_source(tests: &[TestCase]) -> String {
         // the body's value, `trapped_by` answers the trap instead. The body
         // performs no effects, so nothing is threaded into the catch, and the
         // verdict is printed out here.
-        out.push_str(&format!(
-            "\n    println(\"{BEGIN}{}\")\n\
-             \x20   let failure{i} = trapped_by(() -> {{\n\
-             \x20       let outcome{i} = try {{\n\
-             \x20           {}()\n\
-             \x20       }}\n\
-             \x20       return when outcome{i} {{\n\
-             \x20           is Ok {{\n\
-             \x20               None\n\
-             \x20           }}\n\
-             \x20           is Thrown {{\n\
-             \x20               let why{i}: Failure = outcome{i}\n\
-             \x20               to_str(why{i})\n\
-             \x20           }}\n\
-             \x20       }}\n\
-             \x20   }})\n\
-             \x20   if failure{i} is Str {{\n\
-             \x20       println(\"{FAIL}${{failure{i}}}\")\n\
-             \x20   }} else {{\n\
-             \x20       println(\"{OK}\")\n\
-             \x20   }}\n",
-            escape(&test.id()),
-            test.fn_name,
-        ));
+        match test.kind {
+            salvo_syntax::ast::TestKind::Actor { seed } => {
+                // [test-actor] No `trapped_by` around an actor test: its
+                // body spawns, and a lambda cannot [actor-spawn-expr]. A trap
+                // in the test's own frame ends the process instead, and the
+                // runner re-runs the rest in a fresh one [test-recover] —
+                // which, for a test on the virtual runtime, is also the
+                // fresh scheduler it was owed. A fault in an actor is that
+                // actor's death, as anywhere.
+                out.push_str(&format!(
+                    "\n    println(\"{BEGIN}{}\")\n\
+                     \x20   begin_actor_test({seed}L)\n\
+                     \x20   let outcome{i} = try {{\n\
+                     \x20       {}()\n\
+                     \x20   }}\n\
+                     \x20   when outcome{i} {{\n\
+                     \x20       is Ok {{\n\
+                     \x20           println(\"{OK}\")\n\
+                     \x20       }}\n\
+                     \x20       is Thrown {{\n\
+                     \x20           let why{i}: Failure = outcome{i}\n\
+                     \x20           println(\"{FAIL}${{to_str(why{i})}}\")\n\
+                     \x20       }}\n\
+                     \x20   }}\n",
+                    escape(&test.id()),
+                    test.fn_name,
+                ));
+            }
+            salvo_syntax::ast::TestKind::Plain => {
+                out.push_str(&format!(
+                    "\n    println(\"{BEGIN}{}\")\n\
+                     \x20   let failure{i} = trapped_by(() -> {{\n\
+                     \x20       let outcome{i} = try {{\n\
+                     \x20           {}()\n\
+                     \x20       }}\n\
+                     \x20       return when outcome{i} {{\n\
+                     \x20           is Ok {{\n\
+                     \x20               None\n\
+                     \x20           }}\n\
+                     \x20           is Thrown {{\n\
+                     \x20               let why{i}: Failure = outcome{i}\n\
+                     \x20               to_str(why{i})\n\
+                     \x20           }}\n\
+                     \x20       }}\n\
+                     \x20   }})\n\
+                     \x20   if failure{i} is Str {{\n\
+                     \x20       println(\"{FAIL}${{failure{i}}}\")\n\
+                     \x20   }} else {{\n\
+                     \x20       println(\"{OK}\")\n\
+                     \x20   }}\n",
+                    escape(&test.id()),
+                    test.fn_name,
+                ));
+            }
+        }
     }
     out.push_str("}\n");
     out
@@ -132,6 +176,7 @@ mod tests {
             tested: ModulePath(vec!["heap".to_string()]),
             name: name.to_string(),
             fn_name: fn_name.to_string(),
+            kind: salvo_syntax::ast::TestKind::Plain,
         }
     }
 
@@ -152,6 +197,19 @@ mod tests {
             "{src}"
         );
         assert_eq!(src.matches("import heap.test").count(), 1);
+    }
+
+    /// [test-actor] An actor test's program imports `test.actor`, may spawn,
+    /// and starts the virtual runtime with the test's seed before each test.
+    #[test]
+    fn an_actor_test_starts_the_virtual_runtime() {
+        let mut t = case("ticks", "__salvo_test_heap_test_0");
+        t.kind = salvo_syntax::ast::TestKind::Actor { seed: 5 };
+        let src = harness_source(&[t]);
+        assert!(src.contains("import test.actor\n"), "{src}");
+        assert!(src.contains("fn main() [use, spawn] {"), "{src}");
+        assert!(src.contains("begin_actor_test(5L)"), "{src}");
+        assert!(!src.contains("trapped_by"), "{src}");
     }
 
     /// A name is source text, so it is escaped into the literal.

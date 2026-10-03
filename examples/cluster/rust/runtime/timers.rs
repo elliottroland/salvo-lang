@@ -36,6 +36,7 @@ pub trait __Stateless_DeadlineTable: Send + Sync {
     fn waker(&self) -> Option<Parker>;
     fn take_due(&self, now: i64) -> Vec<crate::scheduler::SalvoReply>;
     fn next_deadline(&self) -> Option<i64>;
+    fn clear(&self);
 }
 
 pub trait __Stateful_DeadlineTable: Send {
@@ -44,6 +45,7 @@ pub trait __Stateful_DeadlineTable: Send {
     fn waker(&mut self) -> Option<Parker>;
     fn take_due(&mut self, now: i64) -> Vec<crate::scheduler::SalvoReply>;
     fn next_deadline(&mut self) -> Option<i64>;
+    fn clear(&mut self);
 }
 
 pub struct DeadlineTable {
@@ -107,6 +109,12 @@ impl DeadlineTable {
             __Inner_DeadlineTable::Locked(h) => h.lock().unwrap().next_deadline(),
         }
     }
+    pub fn clear(&self) {
+        match &self.inner {
+            __Inner_DeadlineTable::Shared(h) => h.clear(),
+            __Inner_DeadlineTable::Locked(h) => h.lock().unwrap().clear(),
+        }
+    }
 }
 
 pub struct Deadlines {
@@ -114,6 +122,7 @@ pub struct Deadlines {
     dones: Vec<crate::scheduler::SalvoReply>,
     running: bool,
     parker: Option<Parker>,
+    forgotten: Vec<crate::scheduler::SalvoReply>,
 }
 
 impl Deadlines {
@@ -123,6 +132,7 @@ impl Deadlines {
             dones: vec![],
             running: false,
             parker: None,
+            forgotten: vec![],
         }
     }
 }
@@ -154,7 +164,7 @@ impl crate::runtime_timers::__Stateful_DeadlineTable for Deadlines {
         let mut due: Vec<crate::scheduler::SalvoReply> = vec![];
         let mut i = 0;
         while i < (self.ats.len() as i32) {
-            if *self.ats.get((i) as i64 as usize).expect("salvo: value is absent at runtime.timers:68:16") <= now {
+            if *self.ats.get((i) as i64 as usize).expect("salvo: value is absent at runtime.timers:72:16") <= now {
                 let mut _at = self.ats.salvo_remove_at(i);
                 let mut __is1 = self.dones.salvo_remove_at(i);
                 if __is1.is_some() {
@@ -179,6 +189,20 @@ impl crate::runtime_timers::__Stateful_DeadlineTable for Deadlines {
             self.running = false;
         }
         return earliest;
+    }
+
+    fn clear(&mut self) {
+        loop {
+            let mut __is2 = self.dones.salvo_remove_first();
+            if !(__is2.is_some()) {
+                break;
+            }
+            let mut r = __is2.unwrap();
+            self.forgotten.push(r);
+        }
+        while self.ats.salvo_remove_first().is_some() {
+        }
+        self.running = false;
     }
 }
 
@@ -348,6 +372,12 @@ pub fn after_nanos(delay: i64, done: crate::scheduler::SalvoReply) {
     if wait < ((0) as i64) {
         wait = 0i64;
     }
+    if virtual_runtime() {
+        if __module_use_0().register(now_nanos() + wait, done) {
+            arm_clock();
+        }
+        return;
+    }
     if __module_use_0().register(now_nanos() + wait, done) {
         __module_use_1().run();
         return;
@@ -356,4 +386,29 @@ pub fn after_nanos(delay: i64, done: crate::scheduler::SalvoReply) {
     if p.is_some() {
         unpark_platform(p.as_ref().unwrap());
     }
+}
+
+pub fn arm_clock() {
+    on_clock(mint_task_on(main_pool(), body_of_platform(Box::new(move |kind, slot, value| {
+    drop_dyn_platform(value);
+    advance();
+}))));
+}
+
+pub fn advance() {
+    let mut until = __module_use_0().next_deadline();
+    if until.is_some() {
+        let mut at = until.unwrap();
+        set_virtual_now(at);
+        let mut now = now_nanos();
+        let mut due = __module_use_0().take_due(now.clone());
+        answer_all(due, now);
+        if __module_use_0().next_deadline().is_some() {
+            arm_clock();
+        }
+    }
+}
+
+pub fn reset_timers() {
+    __module_use_0().clear();
 }

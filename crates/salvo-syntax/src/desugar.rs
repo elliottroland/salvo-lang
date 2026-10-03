@@ -1123,6 +1123,8 @@ pub struct ExpandedTest {
     pub fn_name: String,
     /// The span of the name literal, for diagnostics.
     pub span: Span,
+    /// [test-kind] What the test runs on.
+    pub kind: TestKind,
 }
 
 /// [test-decl] [test-run] Expands every `test "name" { … }` in `module` into an
@@ -1173,6 +1175,7 @@ pub fn expand_tests(module: &mut Module, mangled: &str) -> (Vec<ExpandedTest>, V
             name: test.name.clone(),
             fn_name: fn_name.clone(),
             span,
+            kind: test.kind.clone(),
         });
         expanded.push(Item::Fn(test_fn(test, fn_name)));
     }
@@ -1218,7 +1221,11 @@ fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
         // [test-body] A test has `main`'s powers for registration: `use` is
         // available without declaring anything, which is what lets a test
         // register a fake (`use MemFs()`) the way an entry point does.
-        effects: Some(vec![EffectRef::Use(span), EffectRef::Effect(throw)]),
+        // [test-actor] An actor test may also spawn: actors are what it tests.
+        effects: Some(match test.kind {
+            TestKind::Actor { .. } => vec![EffectRef::Use(span), EffectRef::Spawn(span), EffectRef::Effect(throw)],
+            TestKind::Plain => vec![EffectRef::Use(span), EffectRef::Effect(throw)],
+        }),
         deductions: None,
         return_type: None,
         constructs: None,

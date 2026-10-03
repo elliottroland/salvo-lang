@@ -36,6 +36,7 @@
 // both of them capabilities, because a function that secretly reads a clock
 // is a function whose answer depends on when you called it.
 
+import runtime.now_nanos
 import runtime.timers.after_nanos
 
 // A span of time, in nanoseconds, and the currency of every time API here:
@@ -333,7 +334,10 @@ export handler DefaultClock() of Clock {
 // [time-clock] The monotonic clock's reading, in nanoseconds from an
 // arbitrary origin. The plumbing under [DefaultTicker] and [DefaultClock] —
 // bind [Ticker] instead, so the dependency is visible in your signature.
-export intrinsic fn monotonic_nanos() [] -> Long
+// In an actor test, the clock the scheduler moves [test-actor].
+export fn monotonic_nanos() [] -> Long {
+    return now_nanos()
+}
 
 // [time-clock] The wall clock's reading, in nanoseconds since the Unix epoch.
 // The plumbing under [DefaultClock]; bind [Clock] instead.

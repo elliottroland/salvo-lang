@@ -1207,8 +1207,11 @@ keeps both backends passing the full suite.
 
 **After the port:**
 
-15. **The virtual runtime** (D11, §11.7), with the harness writing one
-    program per mode, as the actor test kind and `proptest` arrive.
+15. ✅ **The virtual runtime** (D11, §11.7), built 2026-10-03 with the actor
+    test kind, `test actor(seed: N) "…"` [test-actor]: a mode of the Salvo
+    scheduler (no threads, a clock hook the timer service arms, a seeded
+    generator, reset per test), and one harness program per mode. `test
+    property` will reuse it with the seed as a generated input.
 16. **Docs**: BACKEND_SPEC.kotlin.md / BACKEND_SPEC.rust.md runtime
     sections, ABI.md (platform types, generic platform code, fn values at
     the boundary), LANGUAGE_SPEC rules for each expansion, ROADMAP (remove

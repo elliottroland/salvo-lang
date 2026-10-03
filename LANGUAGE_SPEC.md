@@ -8037,6 +8037,29 @@ replaced the working document TESTING.md).
     anything.
   * [test-unique] Two tests in one file may not share a name — the name is the
     test's identity to the runner.
+* [test-kind] **A test's kind decides what it runs on** (user decision
+  2026-10-03, D11): `test "…"` is a plain test, on the threaded runtime;
+  `test actor(ARGS) "…"` is an actor test, on the virtual runtime
+  [test-actor]; `test property(ARGS) "…"` is planned. The kind and its
+  arguments come before the name; with no arguments the parentheses may be
+  left off. `salvo test` writes **one program per runtime** — the plain tests,
+  then the actor tests — since a process cannot leave the threaded runtime
+  once its workers have started.
+* [test-actor] **An actor test** declares `[use, spawn, Throw<Failure>]` and
+  runs on the **virtual runtime**, which the harness enters before each one
+  (`test.actor.begin_actor_test(seed)`): no worker threads (the test's frame
+  serves every pool while it waits); a clock the scheduler moves to the
+  earliest deadline when nothing can run, starting at 0 (`time.monotonic_nanos`
+  reads it, and the timer service arms a clock hook instead of its wheel);
+  randomness from the seed (`seed: N`, default 0; a Lehmer generator); a
+  fresh scheduler (every earlier actor dead without a report, queued work
+  dropped, pools retired, pending deadlines forgotten); a send to a full
+  mailbox runs work until there is room; and a wait nothing can answer is the
+  deadlock report, since a park could never be woken. Opening a host thread
+  (`external_begin`) stops the program with a report. The harness does not
+  wrap an actor test in `trapped_by` (a lambda cannot spawn
+  [actor-spawn-expr]), so a trap in the test's own frame is a death the
+  runner recovers from [test-recover].
 * [test-file] A test lives in a **test annex** and nowhere else: `heap.test.sv`
   beside `heap.sv`. A `test` block in a production source file is an error
   naming the annex as the fix (`salvo_core::expand`, before resolution, so

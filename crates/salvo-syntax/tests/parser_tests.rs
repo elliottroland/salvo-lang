@@ -2656,6 +2656,40 @@ fn a_test_declaration_carries_its_name_as_a_string() {
     }
 }
 
+/// [test-kind] [test-actor] `test actor(seed: N) "…"` declares an actor
+/// test; the parentheses may be left off, and the seed defaults to 0.
+#[test]
+fn an_actor_test_carries_its_kind_and_seed() {
+    use salvo_syntax::ast::{Item, TestKind};
+    let (module, diagnostics) = salvo_syntax::parse_module(
+        "test actor \"a\" {\n}\n\ntest actor(seed: -7) \"b\" {\n}\n\ntest \"c\" {\n}\n",
+    );
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    let kinds: Vec<TestKind> = module
+        .items
+        .iter()
+        .map(|i| match i {
+            Item::Test(t) => t.kind.clone(),
+            other => panic!("expected a test, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![TestKind::Actor { seed: 0 }, TestKind::Actor { seed: -7 }, TestKind::Plain]
+    );
+}
+
+/// [test-actor] An actor test takes `seed`, and nothing else.
+#[test]
+fn an_actor_test_refuses_an_unknown_argument() {
+    let errors = errors_of("test actor(speed: 2) \"x\" {\n}\n");
+    assert!(
+        errors.iter().any(|m| m.contains("takes `seed`, not `speed`")),
+        "got {errors:?}"
+    );
+}
+
 /// [test-decl] The name must be knowable without running anything — `--list`
 /// and the filter depend on it — so interpolation is refused.
 #[test]

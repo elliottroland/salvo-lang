@@ -135,6 +135,30 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Actor tests and the virtual runtime (2026-10-03; RUNTIME.md §11.5 step
+15) [test-kind] [test-actor].** User decisions: the kind is written before the
+name with its arguments, `test actor(ARGS) "…"`, and `test property(ARGS)
+"…"` comes later; option (a) of the step-15 question (a new kind, rather than
+a modifier or `proptest` first). Built: the parser reads the kind (`seed: N`
+is the one argument, parentheses optional without one); an actor test
+declares `[use, spawn, Throw<Failure>]`; the runner writes one program per
+runtime, plain tests first. The virtual runtime is a mode of the Salvo
+scheduler: `start_pool` starts no threads, a wait serves every pool, the
+timer service arms a clock hook (a task the scheduler answers when nothing can
+run) instead of the wheel, `now_nanos` reads the virtual clock, `fresh_bits`
+draws from a Lehmer generator, a full mailbox is drained by running work in
+place, a wait with nothing runnable is the deadlock report, and
+`external_begin` refuses. Each test starts fresh: actors killed in place
+(indices kept, so a stale addr or token is a send to the dead), queued work
+dropped, pools retired, deadlines forgotten. `time.monotonic_nanos` is no
+longer an intrinsic. What fell out: a lambda cannot spawn, so the harness
+cannot wrap an actor test in `trapped_by`; a trap there is a process death the
+runner already recovers from. New tests: `std/time.test.sv` (three actor
+tests), a seed test in `std/runtime.test.sv`, the CLI test
+`actor_tests_run_on_the_virtual_runtime`, two parser tests and a harness
+test. Gotcha: `for x in list` with `x.field = …` emits an immutable borrow on
+Rust (the checker accepts it); index with `get(list, i)!`.
+
 **The host stream table in Salvo (2026-10-03; RUNTIME.md §11.5 step 14)
 [stream-table].** The runtime service `runtime.streams` now keeps the table,
 the read-ahead and line splitting, positions, failure recording and strict

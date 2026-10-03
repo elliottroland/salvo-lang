@@ -9,6 +9,7 @@ import salvo.core.map.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
+import salvo.runtime.*
 import salvo.runtime.timers.*
 
 data class Duration(
@@ -220,12 +221,12 @@ fun elapsed(ticker: Ticker, since: Tick): Duration {
 class DefaultTicker : Ticker {
 
     override fun tick(): Tick {
-        return Tick(nanos = salvo.SalvoTime.monoNanos())
+        return Tick(nanos = monotonicNanos())
     }
 }
 
 class DefaultClock : Clock {
-    private var baseTick: Long = salvo.SalvoTime.monoNanos()
+    private var baseTick: Long = monotonicNanos()
     private var baseEpoch: Long = salvo.SalvoTime.epochNanos()
 
     override fun now(): Instant {
@@ -239,6 +240,10 @@ class DefaultClock : Clock {
     override fun toTick(at: Instant): Tick {
         return Tick(nanos = baseTick + (at.nanos - baseEpoch))
     }
+}
+
+fun monotonicNanos(): Long {
+    return nowNanos()
 }
 
 data class Fired(
@@ -409,7 +414,7 @@ class ManualTime : Timer, TimerCtl {
             var __is1 = earliestDue(deadlines, target)
             if (!(__is1 != null)) break
             val at = __is1 as Int
-            val deadline = (deadlines.getOrNull(at) ?: throw AssertionError("salvo: value is absent at time:473:33"))
+            val deadline = (deadlines.getOrNull(at) ?: throw AssertionError("salvo: value is absent at time:477:33"))
             (deadlines).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
             now = deadline
             var __is2 = (pending).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
@@ -484,7 +489,7 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
     var bestAt = 0L
     var i = 0
     while (i < deadlines.size) {
-        val at = (deadlines.getOrNull(i) ?: throw AssertionError("salvo: value is absent at time:497:23"))
+        val at = (deadlines.getOrNull(i) ?: throw AssertionError("salvo: value is absent at time:501:23"))
         if (at <= target && (best < 0 || at < bestAt)) {
             best = i
             bestAt = at

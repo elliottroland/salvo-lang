@@ -26,6 +26,8 @@ pub struct TestCase {
     pub name: String,
     /// The synthesized fn the harness calls [test-run].
     pub fn_name: String,
+    /// [test-kind] What the test runs on.
+    pub kind: salvo_syntax::ast::TestKind,
 }
 
 impl TestCase {
@@ -82,6 +84,7 @@ pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
                 tested: tested.clone(),
                 name: t.name,
                 fn_name: t.fn_name,
+                kind: t.kind,
             }));
         } else {
             // [test-file] A `test` block in a production file: refused here,

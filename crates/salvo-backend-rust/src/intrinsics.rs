@@ -304,7 +304,6 @@ pub fn fn_call(
         // plain `i64` of nanoseconds — the whole of what the host contributes
         // to the time surface. Everything else (`Duration`, `between`, the
         // correlation `DefaultClock` keeps) is ordinary Salvo over these.
-        ("monotonic_nanos", None) => "crate::hosttime::salvo_mono_nanos()".to_string(),
         // [stream-handle] One counter for every stream table in the process.
         ("epoch_nanos", None) => "crate::hosttime::salvo_epoch_nanos()".to_string(),
         // core.list ------------------------------------------------------

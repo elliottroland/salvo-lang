@@ -32,6 +32,9 @@ effect DeadlineTable {
     fn take_due(now: Long) -> Mut List<Reply<Fired>> => now
     // The earliest deadline left, or `None` having marked the wheel stopped.
     fn next_deadline() -> Long?
+    // [test-actor] Forgets every deadline, for a fresh virtual runtime: the
+    // tokens are kept, never answered, since what they answer is gone.
+    fn clear() -> None
 }
 
 handler Deadlines() of DeadlineTable {
@@ -39,6 +42,7 @@ handler Deadlines() of DeadlineTable {
     dones: Mut List<Reply<Fired>> = mut_list_of()
     running: Bool = false
     parker: Parker? = None
+    forgotten: Mut List<Reply<Fired>> = mut_list_of()
 
     fn register(at: Long, done: Reply<Fired>) -> Bool => !at, !done {
         add(ats, at)
@@ -89,6 +93,15 @@ handler Deadlines() of DeadlineTable {
         }
         return earliest
     }
+
+    fn clear() -> None {
+        while remove_first(dones) is Reply<Fired> r {
+            add(forgotten, r)
+        }
+        while remove_first(ats) is Long {
+        }
+        running = false
+    }
 }
 
 // Answers every token in [due] with the reading [now].
@@ -133,6 +146,14 @@ export fn after_nanos(delay: Long, done: Reply<Fired>) [] -> None => delay, !don
     if wait < 0 {
         wait = 0
     }
+    // [test-actor] On the virtual runtime there is no wheel: the scheduler
+    // moves the clock to the earliest deadline when nothing can run.
+    if virtual_runtime() {
+        if register(now_nanos() + wait, done) {
+            arm_clock()
+        }
+        return
+    }
     if register(now_nanos() + wait, done) {
         run()
         return
@@ -141,4 +162,32 @@ export fn after_nanos(delay: Long, done: Reply<Fired>) [] -> None => delay, !don
     if p is Parker {
         unpark(p)
     }
+}
+
+// [test-actor] Asks the scheduler to run [advance] once nothing can run.
+fn arm_clock() [] -> None {
+    on_clock(mint_task_on(main_pool(), body_of((kind, slot, value) -> {
+        drop_dyn(value)
+        advance()
+    })))
+}
+
+// [test-actor] Moves the virtual clock to the earliest deadline and fires
+// what is due there, arming the clock again while any deadline is left.
+fn advance() [] -> None {
+    let until = next_deadline()
+    if until is Long at {
+        set_virtual_now(at)
+        let now = now_nanos()
+        let due = take_due(copy(now))
+        answer_all(due, now)
+        if next_deadline() is Long {
+            arm_clock()
+        }
+    }
+}
+
+// [test-actor] Forgets every pending deadline, for a fresh virtual runtime.
+export fn reset_timers() [] -> None {
+    clear()
 }

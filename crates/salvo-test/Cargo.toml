@@ -7,4 +7,5 @@ description = "The Salvo test harness: discovery, harness synthesis, and the rep
 
 [dependencies]
 salvo-core = { workspace = true }
+salvo-syntax = { workspace = true }
 salvo-backend = { workspace = true }

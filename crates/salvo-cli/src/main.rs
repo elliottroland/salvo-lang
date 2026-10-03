@@ -1001,25 +1001,80 @@ fn test_one(
     // the test that was in flight, and re-runs what was left in a fresh
     // process: a death costs one extra build, not the rest of the suite (user
     // decision 2026-09-23, A-5).
-    let mut remaining: Vec<salvo_core::TestCase> = selected.clone();
     let mut total = salvo_test::Summary::default();
-    // One pass per death, plus the first: a pass always either finishes or
-    // removes one test from `remaining`, so this cannot spin.
-    let mut passes_left = selected.len() + 1;
-    while !remaining.is_empty() && passes_left > 0 {
-        passes_left -= 1;
-        let pass = match run_test_pass(
+    // [test-kind] One program per runtime (D11): the plain tests on the
+    // threaded runtime, then the actor tests on the virtual one — a process
+    // cannot leave the threaded runtime once its workers have started.
+    let (actor_tests, plain_tests): (Vec<salvo_core::TestCase>, Vec<salvo_core::TestCase>) =
+        selected
+            .iter()
+            .cloned()
+            .partition(|t| matches!(t.kind, salvo_syntax::ast::TestKind::Actor { .. }));
+    for group in [plain_tests, actor_tests] {
+        if let Err(code) = run_test_group(
             backend,
             &mut assembled.program,
             &harness_module,
-            &remaining,
+            group,
             &target,
             color,
             &host,
             inputs.project.as_ref(),
+            &mut total,
+        ) {
+            return code;
+        }
+    }
+    let mut out = std::io::stdout().lock();
+    let _ = salvo_test::print_summary(&total, &mut out, color);
+    drop(out);
+    // [cli-run] `--clean-target both` deletes the generated harness after the
+    // report, exactly as `run` deletes a program's sources. The default is
+    // `before`, because a failing harness is worth reading.
+    if clean == CleanTarget::Both {
+        if let Err(msg) = clear_target(&target) {
+            eprintln!("warning: {msg}");
+        }
+    }
+    if total.ok() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// [test-recover] [test-kind] Runs one group of tests — one runtime's — in as
+/// many passes as deaths require, adding to [total].
+#[allow(clippy::too_many_arguments)]
+fn run_test_group(
+    backend: &dyn salvo_backend::Backend,
+    program: &mut Program,
+    harness_module: &salvo_core::ModulePath,
+    group: Vec<salvo_core::TestCase>,
+    target: &Path,
+    color: salvo_test::Color,
+    host: &salvo_core::HostDeps,
+    project: Option<&salvo_core::Project>,
+    total: &mut salvo_test::Summary,
+) -> Result<(), ExitCode> {
+    let mut remaining: Vec<salvo_core::TestCase> = group;
+    // One pass per death, plus the first: a pass always either finishes or
+    // removes one test from `remaining`, so this cannot spin.
+    let mut passes_left = remaining.len() + 1;
+    while !remaining.is_empty() && passes_left > 0 {
+        passes_left -= 1;
+        let pass = match run_test_pass(
+            backend,
+            program,
+            harness_module,
+            &remaining,
+            target,
+            color,
+            host,
+            project,
         ) {
             Ok(pass) => pass,
-            Err(code) => return code,
+            Err(code) => return Err(code),
         };
         let died = pass.summary.unfinished.last().cloned();
         let ok_so_far = pass.summary.ok();
@@ -1061,29 +1116,14 @@ fn test_one(
                         "error: the test harness exited with a failure although \
                          every test passed"
                     );
-                    return ExitCode::FAILURE;
+                    return Err(ExitCode::FAILURE);
                 }
                 remaining.clear();
             }
         }
     }
 
-    let mut out = std::io::stdout().lock();
-    let _ = salvo_test::print_summary(&total, &mut out, color);
-    drop(out);
-    // [cli-run] `--clean-target both` deletes the generated harness after the
-    // report, exactly as `run` deletes a program's sources. The default is
-    // `before`, because a failing harness is worth reading.
-    if clean == CleanTarget::Both {
-        if let Err(msg) = clear_target(&target) {
-            eprintln!("warning: {msg}");
-        }
-    }
-    if total.ok() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    Ok(())
 }
 
 /// [test-recover] One pass of the harness: synthesize a module for `tests`,

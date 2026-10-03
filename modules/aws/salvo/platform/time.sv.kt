@@ -12,6 +12,7 @@ import salvo.core.map.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
+import salvo.runtime.*
 
 data class Instant(
     val nanos: Long,

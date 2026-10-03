@@ -560,6 +560,7 @@ version = "0.1.0"
 dependencies = [
  "salvo-backend",
  "salvo-core",
+ "salvo-syntax",
 ]
 
 [[package]]

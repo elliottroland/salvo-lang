@@ -281,3 +281,14 @@ test "a dedicated pool retires when its actor dies" {
     }
     expect_eq(retired_worker_count(), before + 1)
 }
+
+// [test-actor] The virtual runtime's randomness repeats from its seed.
+test actor(seed: 7) "the seed decides the identity bits" {
+    enter_virtual(7L)
+    let a = identity_bits()
+    let b = identity_bits()
+    enter_virtual(7L)
+    expect_eq(identity_bits(), a)
+    expect_eq(identity_bits(), b)
+    expect(a != b, "two draws differ")
+}

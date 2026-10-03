@@ -713,7 +713,10 @@ impl<'s> Parser<'s> {
             // in the next position is what makes the form unambiguous with no
             // lookahead beyond it.
             TokenKind::Ident(name)
-                if name == "test" && matches!(self.peek_at(1).kind, TokenKind::Str(_)) =>
+                if name == "test"
+                    && (matches!(self.peek_at(1).kind, TokenKind::Str(_))
+                        || (matches!(&self.peek_at(1).kind, TokenKind::Ident(k) if k == "actor")
+                            && matches!(self.peek_at(2).kind, TokenKind::Str(_) | TokenKind::LParen))) =>
             {
                 self.parse_test().map(Item::Test)
             }
@@ -975,6 +978,50 @@ impl<'s> Parser<'s> {
         let docs = self.docs_here();
         let start = self.peek().span;
         self.bump(); // `test`
+        // [test-kind] `test actor(seed: 7) "…"`: the kind, then its
+        // arguments, before the name. The parentheses may be left off when
+        // there are none.
+        let mut kind = TestKind::Plain;
+        if matches!(&self.kind(), TokenKind::Ident(k) if k == "actor") {
+            self.bump(); // `actor`
+            let mut seed = 0;
+            if self.eat(&TokenKind::LParen).is_some() {
+                while !self.at(&TokenKind::RParen) {
+                    let arg = self.ident()?;
+                    self.expect(&TokenKind::Colon)?;
+                    let negative = self.eat(&TokenKind::Minus).is_some();
+                    let value_token = self.peek().clone();
+                    let TokenKind::Int { value, .. } = value_token.kind else {
+                        self.error(
+                            format!(
+                                "an actor test's `{}` must be an integer literal [test-actor]",
+                                arg.name
+                            ),
+                            value_token.span,
+                        );
+                        return None;
+                    };
+                    self.bump();
+                    match arg.name.as_str() {
+                        "seed" => seed = if negative { -value } else { value },
+                        other => {
+                            self.error(
+                                format!(
+                                    "an actor test takes `seed`, not `{other}` [test-actor]"
+                                ),
+                                arg.span,
+                            );
+                            return None;
+                        }
+                    }
+                    if self.eat(&TokenKind::Comma).is_none() {
+                        break;
+                    }
+                }
+                self.expect(&TokenKind::RParen)?;
+            }
+            kind = TestKind::Actor { seed };
+        }
         let name_token = self.peek().clone();
         let TokenKind::Str(parts) = &name_token.kind else {
             // Unreachable: the caller only dispatches here on a string
@@ -1006,6 +1053,7 @@ impl<'s> Parser<'s> {
             docs,
             name,
             name_span,
+            kind,
             span: start.to(body.span),
             body,
         })
