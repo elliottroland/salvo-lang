@@ -24,6 +24,7 @@ pub mod reach;
 pub mod refine;
 pub mod resolve;
 pub mod source;
+pub mod typekey;
 pub mod types;
 pub mod wire;
 

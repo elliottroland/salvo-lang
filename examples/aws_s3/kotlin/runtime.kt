@@ -108,15 +108,15 @@ fun dropDynPlatform(d: salvo.platform.runtime.Dyn) {
     return salvo.platform.runtime.dropDyn(d)
 }
 
-fun bodyOfPlatform(f: (Int, Long, salvo.platform.runtime.Dyn) -> Unit): salvo.platform.runtime.RtBody {
+fun bodyOfPlatform(f: (Int, Long, salvo.platform.runtime.Dyn) -> Unit): salvo.platform.runtime.Body {
     return salvo.platform.runtime.bodyOf(f)
 }
 
-fun activatePlatform(b: salvo.platform.runtime.RtBody, kind: Int, slot: Long, value: salvo.platform.runtime.Dyn): RtRan {
+fun activatePlatform(b: salvo.platform.runtime.Body, kind: Int, slot: Long, value: salvo.platform.runtime.Dyn): Ran {
     return salvo.platform.runtime.activate(b, kind, slot, value)
 }
 
-fun dropBodyPlatform(b: salvo.platform.runtime.RtBody) {
+fun dropBodyPlatform(b: salvo.platform.runtime.Body) {
     return salvo.platform.runtime.dropBody(b)
 }
 
@@ -132,35 +132,35 @@ fun exitProcessPlatform(code: Int): Nothing {
     return salvo.platform.runtime.exitProcess(code)
 }
 
-data class RtRan(
-    val body: salvo.platform.runtime.RtBody,
+data class Ran(
+    val body: salvo.platform.runtime.Body,
     val fault: String?,
 )
 
-fun dropRan(r: RtRan) {
+fun dropRan(r: Ran) {
     val __destructured1 = r
     val body = __destructured1.body
     val fault = __destructured1.fault
     dropBodyPlatform(body)
 }
 
-fun<T> slotOfPlatform(v: T): salvo.platform.runtime.RtSlot<T> {
+fun<T> slotOfPlatform(v: T): salvo.platform.runtime.Slot<T> {
     return salvo.platform.runtime.slotOf(v)
 }
 
-fun<T> slotEmptyPlatform(): salvo.platform.runtime.RtSlot<T> {
+fun<T> slotEmptyPlatform(): salvo.platform.runtime.Slot<T> {
     return salvo.platform.runtime.slotEmpty()
 }
 
-fun<T> slotTakePlatform(s: salvo.platform.runtime.RtSlot<T>): T? {
+fun<T> slotTakePlatform(s: salvo.platform.runtime.Slot<T>): T? {
     return salvo.platform.runtime.slotTake(s)
 }
 
-fun<T> slotPutPlatform(s: salvo.platform.runtime.RtSlot<T>, v: T) {
+fun<T> slotPutPlatform(s: salvo.platform.runtime.Slot<T>, v: T) {
     return salvo.platform.runtime.slotPut(s, v)
 }
 
-fun<T> dropSlotPlatform(s: salvo.platform.runtime.RtSlot<T>) {
+fun<T> dropSlotPlatform(s: salvo.platform.runtime.Slot<T>) {
     return salvo.platform.runtime.dropSlot(s)
 }
 
@@ -188,35 +188,35 @@ fun taskFrame(): Int {
     return -2
 }
 
-data class RtDelivered(
+data class Delivered(
     val msg: salvo.platform.runtime.Dyn,
     val from: Long,
 )
 
-data class RtAnswered(
+data class Answered(
     val slot: Long,
     val value: salvo.platform.runtime.Dyn,
 )
 
-data class RtReported(
+data class Reported(
     val reason: String,
 )
 
-object __Codec_RtReported : salvo.WireCodec<RtReported> {
-    override fun enc(v: RtReported, out: salvo.WireOut) {
+object __Codec_Reported : salvo.WireCodec<Reported> {
+    override fun enc(v: Reported, out: salvo.WireOut) {
         salvo.StrCodec.enc(v.reason, out)
     }
-    override fun dec(inp: salvo.WireIn): RtReported = RtReported(salvo.StrCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Reported = Reported(salvo.StrCodec.dec(inp))
 }
 
-fun dropDelivered(d: RtDelivered) {
+fun dropDelivered(d: Delivered) {
     val __destructured2 = d
     val msg = __destructured2.msg
     val from = __destructured2.from
     dropDynPlatform(msg)
 }
 
-fun dropAnswered(a: RtAnswered) {
+fun dropAnswered(a: Answered) {
     val __destructured3 = a
     val slot = __destructured3.slot
     val value = __destructured3.value
@@ -224,23 +224,23 @@ fun dropAnswered(a: RtAnswered) {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun dropEntry(e: Union3<RtDelivered, RtAnswered, RtReported>) {
+fun dropEntry(e: Union3<Delivered, Answered, Reported>) {
     if (e is Union3.U1<*, *, *>) {
-        val d = e.value as RtDelivered
+        val d = e.value as Delivered
         dropDelivered(d)
     } else if (e is Union3.U2<*, *, *>) {
-        val a = e.value as RtAnswered
+        val a = e.value as Answered
         dropAnswered(a)
     } else {
-        ((e.value as RtReported)).let {}
+        ((e.value as Reported)).let {}
     }
 }
 
-data class RtActorRec(
-    var body: salvo.platform.runtime.RtSlot<salvo.platform.runtime.RtBody>,
+data class ActorRec(
+    var body: salvo.platform.runtime.Slot<salvo.platform.runtime.Body>,
     var pool: Int,
     var bound: Int,
-    var queue: kotlin.collections.ArrayDeque<Union3<RtDelivered, RtAnswered, RtReported>>,
+    var queue: kotlin.collections.ArrayDeque<Union3<Delivered, Answered, Reported>>,
     var slots: kotlin.collections.ArrayDeque<Long>,
     var userLen: Int,
     var gate: Long?,
@@ -248,13 +248,13 @@ data class RtActorRec(
     var dead: Boolean,
     var exitReason: String,
     var blocked: MutableList<salvo.platform.runtime.Parker>,
-    var watchers: MutableList<RtToken>,
+    var watchers: MutableList<Token>,
     var owed: Int,
     var ready: Boolean,
     var proxy: Boolean,
 )
 
-fun dropActorRec(a: RtActorRec) {
+fun dropActorRec(a: ActorRec) {
     val __destructured4 = a
     val body = __destructured4.body
     val pool = __destructured4.pool
@@ -276,16 +276,16 @@ fun dropActorRec(a: RtActorRec) {
     (watchers).toList().forEach({ t -> dropToken(t) })
 }
 
-data class RtWaiterRec(
+data class WaiterRec(
     var pool: Int,
-    var value: salvo.platform.runtime.RtSlot<salvo.platform.runtime.Dyn>,
+    var value: salvo.platform.runtime.Slot<salvo.platform.runtime.Dyn>,
     var filled: Boolean,
     var parker: salvo.platform.runtime.Parker?,
     var waiting: Int,
     var waitingActor: Int,
 )
 
-fun dropWaiterRec(w: RtWaiterRec) {
+fun dropWaiterRec(w: WaiterRec) {
     val __destructured5 = w
     val pool = __destructured5.pool
     val value = __destructured5.value
@@ -296,12 +296,12 @@ fun dropWaiterRec(w: RtWaiterRec) {
     dropSlotPlatform(value)
 }
 
-data class RtTaskRun(
-    val body: salvo.platform.runtime.RtBody,
+data class TaskRun(
+    val body: salvo.platform.runtime.Body,
     val value: salvo.platform.runtime.Dyn,
 )
 
-fun dropTaskRun(t: RtTaskRun) {
+fun dropTaskRun(t: TaskRun) {
     val __destructured6 = t
     val body = __destructured6.body
     val value = __destructured6.value
@@ -309,15 +309,15 @@ fun dropTaskRun(t: RtTaskRun) {
     dropDynPlatform(value)
 }
 
-data class RtPoolRec(
+data class PoolRec(
     var idle: MutableList<salvo.platform.runtime.Parker>,
-    var tasks: kotlin.collections.ArrayDeque<RtTaskRun>,
+    var tasks: kotlin.collections.ArrayDeque<TaskRun>,
     var ready: kotlin.collections.ArrayDeque<Int>,
     var sink: Int,
     var owed: Int,
 )
 
-fun dropPoolRec(p: RtPoolRec) {
+fun dropPoolRec(p: PoolRec) {
     val __destructured7 = p
     val idle = __destructured7.idle
     val tasks = __destructured7.tasks
@@ -327,78 +327,78 @@ fun dropPoolRec(p: RtPoolRec) {
     (tasks).toList().forEach({ t -> dropTaskRun(t) })
 }
 
-data class RtToActor(
+data class ToActor(
     val addr: Int,
 )
 
-object __Codec_RtToActor : salvo.WireCodec<RtToActor> {
-    override fun enc(v: RtToActor, out: salvo.WireOut) {
+object __Codec_ToActor : salvo.WireCodec<ToActor> {
+    override fun enc(v: ToActor, out: salvo.WireOut) {
         salvo.IntCodec.enc(v.addr, out)
     }
-    override fun dec(inp: salvo.WireIn): RtToActor = RtToActor(salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): ToActor = ToActor(salvo.IntCodec.dec(inp))
 }
 
-data class RtToWaiter(
+data class ToWaiter(
     val wid: Int,
 )
 
-object __Codec_RtToWaiter : salvo.WireCodec<RtToWaiter> {
-    override fun enc(v: RtToWaiter, out: salvo.WireOut) {
+object __Codec_ToWaiter : salvo.WireCodec<ToWaiter> {
+    override fun enc(v: ToWaiter, out: salvo.WireOut) {
         salvo.IntCodec.enc(v.wid, out)
     }
-    override fun dec(inp: salvo.WireIn): RtToWaiter = RtToWaiter(salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): ToWaiter = ToWaiter(salvo.IntCodec.dec(inp))
 }
 
-data class RtToTask(
+data class ToTask(
     val pool: Int,
-    val body: salvo.platform.runtime.RtBody,
+    val body: salvo.platform.runtime.Body,
 )
 
-fun dropToTask(t: RtToTask) {
+fun dropToTask(t: ToTask) {
     val __destructured8 = t
     val pool = __destructured8.pool
     val body = __destructured8.body
     dropBodyPlatform(body)
 }
 
-data class RtToken(
-    val target: Union3<RtToActor, RtToWaiter, RtToTask>,
+data class Token(
+    val target: Union3<ToActor, ToWaiter, ToTask>,
     val slot: Long,
     val tracked: Boolean,
 )
 
-fun dropToken(t: RtToken) {
+fun dropToken(t: Token) {
     answer(t, erasePlatform(0))
 }
 
-data class RtWaiterMint(
-    val token: RtToken,
+data class WaiterMint(
+    val token: Token,
     val wid: Int,
 )
 
-fun dropWaiterMint(m: RtWaiterMint) {
+fun dropWaiterMint(m: WaiterMint) {
     val __destructured9 = m
     val token = __destructured9.token
     val wid = __destructured9.wid
     dropToken(token)
 }
 
-data class RtRunActor(
+data class RunActor(
     val addr: Int,
     val pool: Int,
     val kind: Int,
     val slot: Long,
     val value: salvo.platform.runtime.Dyn,
-    val body: salvo.platform.runtime.RtBody,
+    val body: salvo.platform.runtime.Body,
 )
 
-data class RtRunTask(
+data class RunTask(
     val pool: Int,
-    val body: salvo.platform.runtime.RtBody,
+    val body: salvo.platform.runtime.Body,
     val value: salvo.platform.runtime.Dyn,
 )
 
-fun dropRunActor(a: RtRunActor) {
+fun dropRunActor(a: RunActor) {
     val __destructured10 = a
     val addr = __destructured10.addr
     val pool = __destructured10.pool
@@ -410,7 +410,7 @@ fun dropRunActor(a: RtRunActor) {
     dropBodyPlatform(body)
 }
 
-fun dropRunTask(t: RtRunTask) {
+fun dropRunTask(t: RunTask) {
     val __destructured11 = t
     val pool = __destructured11.pool
     val body = __destructured11.body
@@ -419,86 +419,86 @@ fun dropRunTask(t: RtRunTask) {
     dropDynPlatform(value)
 }
 
-class RtSent
+class Sent
 
-object __Codec_RtSent : salvo.WireCodec<RtSent> {
-    override fun enc(v: RtSent, out: salvo.WireOut) {
+object __Codec_Sent : salvo.WireCodec<Sent> {
+    override fun enc(v: Sent, out: salvo.WireOut) {
     }
-    override fun dec(inp: salvo.WireIn): RtSent = RtSent()
+    override fun dec(inp: salvo.WireIn): Sent = Sent()
 }
 
-class RtDead
+class Dead
 
-object __Codec_RtDead : salvo.WireCodec<RtDead> {
-    override fun enc(v: RtDead, out: salvo.WireOut) {
+object __Codec_Dead : salvo.WireCodec<Dead> {
+    override fun enc(v: Dead, out: salvo.WireOut) {
     }
-    override fun dec(inp: salvo.WireIn): RtDead = RtDead()
+    override fun dec(inp: salvo.WireIn): Dead = Dead()
 }
 
-data class RtFull(
+data class Full(
     val msg: salvo.platform.runtime.Dyn,
 )
 
-data class RtRemote(
+data class Remote(
     val msg: salvo.platform.runtime.Dyn,
 )
 
-fun dropRemote(r: RtRemote) {
+fun dropRemote(r: Remote) {
     val __destructured12 = r
     val msg = __destructured12.msg
     dropDynPlatform(msg)
 }
 
-fun dropFull(f: RtFull) {
+fun dropFull(f: Full) {
     val __destructured13 = f
     val msg = __destructured13.msg
     dropDynPlatform(msg)
 }
 
-data class RtIdleHook(
+data class IdleHook(
     val pool: Int,
-    val token: RtToken,
+    val token: Token,
 )
 
-fun dropIdleHook(h: RtIdleHook) {
+fun dropIdleHook(h: IdleHook) {
     val __destructured14 = h
     val pool = __destructured14.pool
     val token = __destructured14.token
     dropToken(token)
 }
 
-data class RtGot(
+data class Got(
     val value: salvo.platform.runtime.Dyn,
 )
 
-class RtSleep
+class Sleep
 
-object __Codec_RtSleep : salvo.WireCodec<RtSleep> {
-    override fun enc(v: RtSleep, out: salvo.WireOut) {
+object __Codec_Sleep : salvo.WireCodec<Sleep> {
+    override fun enc(v: Sleep, out: salvo.WireOut) {
     }
-    override fun dec(inp: salvo.WireIn): RtSleep = RtSleep()
+    override fun dec(inp: salvo.WireIn): Sleep = Sleep()
 }
 
-class RtAgain
+class Again
 
-object __Codec_RtAgain : salvo.WireCodec<RtAgain> {
-    override fun enc(v: RtAgain, out: salvo.WireOut) {
+object __Codec_Again : salvo.WireCodec<Again> {
+    override fun enc(v: Again, out: salvo.WireOut) {
     }
-    override fun dec(inp: salvo.WireIn): RtAgain = RtAgain()
+    override fun dec(inp: salvo.WireIn): Again = Again()
 }
 
-data class RtStuck(
+data class Stuck(
     val report: String,
 )
 
-object __Codec_RtStuck : salvo.WireCodec<RtStuck> {
-    override fun enc(v: RtStuck, out: salvo.WireOut) {
+object __Codec_Stuck : salvo.WireCodec<Stuck> {
+    override fun enc(v: Stuck, out: salvo.WireOut) {
         salvo.StrCodec.enc(v.report, out)
     }
-    override fun dec(inp: salvo.WireIn): RtStuck = RtStuck(salvo.StrCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Stuck = Stuck(salvo.StrCodec.dec(inp))
 }
 
-fun dropGot(g: RtGot) {
+fun dropGot(g: Got) {
     val __destructured15 = g
     val value = __destructured15.value
     dropDynPlatform(value)
@@ -506,20 +506,20 @@ fun dropGot(g: RtGot) {
 
 interface SchedTable {
     fun newPool(sink: Int): Int
-    fun newActor(pool: Int, bound: Int, body: salvo.platform.runtime.RtBody): Int
-    fun enqueue(addr: Int, msg: salvo.platform.runtime.Dyn, waiter: salvo.platform.runtime.Parker): Union4<RtSent, RtDead, RtFull, RtRemote>
+    fun newActor(pool: Int, bound: Int, body: salvo.platform.runtime.Body): Int
+    fun enqueue(addr: Int, msg: salvo.platform.runtime.Dyn, waiter: salvo.platform.runtime.Parker): Union4<Sent, Dead, Full, Remote>
     fun setProxy(addr: Int)
     fun enqueueRemote(addr: Int, msg: salvo.platform.runtime.Dyn, from: Long): Boolean
     fun kill(addr: Int, reason: String)
-    fun mintActor(addr: Int, gated: Boolean): RtToken
-    fun mintTask(pool: Int, body: salvo.platform.runtime.RtBody): RtToken
-    fun mintWaiter(pool: Int): RtWaiterMint
-    fun deliver(t: RtToken, value: salvo.platform.runtime.Dyn)
-    fun watchActor(addr: Int, t: RtToken)
-    fun idleHook(pool: Int, t: RtToken)
-    fun nextWork(pool: Int, idle: salvo.platform.runtime.Parker): Union2<RtRunActor, RtRunTask>?
-    fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.runtime.Parker): Union6<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck>
-    fun finish(addr: Int, body: salvo.platform.runtime.RtBody, fault: String?)
+    fun mintActor(addr: Int, gated: Boolean): Token
+    fun mintTask(pool: Int, body: salvo.platform.runtime.Body): Token
+    fun mintWaiter(pool: Int): WaiterMint
+    fun deliver(t: Token, value: salvo.platform.runtime.Dyn)
+    fun watchActor(addr: Int, t: Token)
+    fun idleHook(pool: Int, t: Token)
+    fun nextWork(pool: Int, idle: salvo.platform.runtime.Parker): Union2<RunActor, RunTask>?
+    fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.runtime.Parker): Union6<Got, RunActor, RunTask, Sleep, Again, Stuck>
+    fun finish(addr: Int, body: salvo.platform.runtime.Body, fault: String?)
     fun taskDone(pool: Int, fault: String?)
     fun poolOfActor(addr: Int): Int
     fun poolOfWaiter(wid: Int): Int
@@ -538,12 +538,12 @@ class __Mon_SchedTable(
         lock.lock()
         try { return inner.newPool(sink) } finally { lock.unlock() }
     }
-    override fun newActor(pool: Int, bound: Int, body: salvo.platform.runtime.RtBody): Int {
+    override fun newActor(pool: Int, bound: Int, body: salvo.platform.runtime.Body): Int {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.newActor(pool, bound, body) } finally { lock.unlock() }
     }
-    override fun enqueue(addr: Int, msg: salvo.platform.runtime.Dyn, waiter: salvo.platform.runtime.Parker): Union4<RtSent, RtDead, RtFull, RtRemote> {
+    override fun enqueue(addr: Int, msg: salvo.platform.runtime.Dyn, waiter: salvo.platform.runtime.Parker): Union4<Sent, Dead, Full, Remote> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.enqueue(addr, msg, waiter) } finally { lock.unlock() }
@@ -563,47 +563,47 @@ class __Mon_SchedTable(
         lock.lock()
         try { inner.kill(addr, reason) } finally { lock.unlock() }
     }
-    override fun mintActor(addr: Int, gated: Boolean): RtToken {
+    override fun mintActor(addr: Int, gated: Boolean): Token {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.mintActor(addr, gated) } finally { lock.unlock() }
     }
-    override fun mintTask(pool: Int, body: salvo.platform.runtime.RtBody): RtToken {
+    override fun mintTask(pool: Int, body: salvo.platform.runtime.Body): Token {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.mintTask(pool, body) } finally { lock.unlock() }
     }
-    override fun mintWaiter(pool: Int): RtWaiterMint {
+    override fun mintWaiter(pool: Int): WaiterMint {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.mintWaiter(pool) } finally { lock.unlock() }
     }
-    override fun deliver(t: RtToken, value: salvo.platform.runtime.Dyn) {
+    override fun deliver(t: Token, value: salvo.platform.runtime.Dyn) {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.deliver(t, value) } finally { lock.unlock() }
     }
-    override fun watchActor(addr: Int, t: RtToken) {
+    override fun watchActor(addr: Int, t: Token) {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.watchActor(addr, t) } finally { lock.unlock() }
     }
-    override fun idleHook(pool: Int, t: RtToken) {
+    override fun idleHook(pool: Int, t: Token) {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.idleHook(pool, t) } finally { lock.unlock() }
     }
-    override fun nextWork(pool: Int, idle: salvo.platform.runtime.Parker): Union2<RtRunActor, RtRunTask>? {
+    override fun nextWork(pool: Int, idle: salvo.platform.runtime.Parker): Union2<RunActor, RunTask>? {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.nextWork(pool, idle) } finally { lock.unlock() }
     }
-    override fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.runtime.Parker): Union6<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck> {
+    override fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.runtime.Parker): Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.waitStep(wid, pool, own, frame, me) } finally { lock.unlock() }
     }
-    override fun finish(addr: Int, body: salvo.platform.runtime.RtBody, fault: String?) {
+    override fun finish(addr: Int, body: salvo.platform.runtime.Body, fault: String?) {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.finish(addr, body, fault) } finally { lock.unlock() }
@@ -646,10 +646,10 @@ class __Mon_SchedTable(
 }
 
 class Scheduler : SchedTable {
-    private var actors: MutableList<RtActorRec> = mutableListOf<RtActorRec>()
-    private var waiters: MutableList<RtWaiterRec> = mutableListOf<RtWaiterRec>()
-    private var pools: MutableList<RtPoolRec> = mutableListOf<RtPoolRec>()
-    private var idleHooks: MutableList<RtIdleHook> = mutableListOf<RtIdleHook>()
+    private var actors: MutableList<ActorRec> = mutableListOf<ActorRec>()
+    private var waiters: MutableList<WaiterRec> = mutableListOf<WaiterRec>()
+    private var pools: MutableList<PoolRec> = mutableListOf<PoolRec>()
+    private var idleHooks: MutableList<IdleHook> = mutableListOf<IdleHook>()
     private var nextSlot: Long = 0L
     private var active: Int = 0
     private var parkedFrames: Int = 0
@@ -657,33 +657,33 @@ class Scheduler : SchedTable {
     private var externals: Int = 0
 
     override fun newPool(sink: Int): Int {
-        pools.add(RtPoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = kotlin.collections.ArrayDeque<RtTaskRun>(listOf<RtTaskRun>()), ready = kotlin.collections.ArrayDeque<Int>(listOf<Int>()), sink = sink, owed = 0))
+        pools.add(PoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = kotlin.collections.ArrayDeque<TaskRun>(listOf<TaskRun>()), ready = kotlin.collections.ArrayDeque<Int>(listOf<Int>()), sink = sink, owed = 0))
         return pools.size - 1
     }
 
-    override fun newActor(pool: Int, bound: Int, body: salvo.platform.runtime.RtBody): Int {
-        actors.add(RtActorRec(body = slotOfPlatform(body), pool = pool, bound = bound, queue = kotlin.collections.ArrayDeque<Union3<RtDelivered, RtAnswered, RtReported>>(listOf<Union3<RtDelivered, RtAnswered, RtReported>>()), slots = kotlin.collections.ArrayDeque<Long>(listOf<Long>()), userLen = 0, gate = null, running = false, dead = false, exitReason = "", blocked = mutableListOf<salvo.platform.runtime.Parker>(), watchers = mutableListOf<RtToken>(), owed = 0, ready = false, proxy = false))
+    override fun newActor(pool: Int, bound: Int, body: salvo.platform.runtime.Body): Int {
+        actors.add(ActorRec(body = slotOfPlatform(body), pool = pool, bound = bound, queue = kotlin.collections.ArrayDeque<Union3<Delivered, Answered, Reported>>(listOf<Union3<Delivered, Answered, Reported>>()), slots = kotlin.collections.ArrayDeque<Long>(listOf<Long>()), userLen = 0, gate = null, running = false, dead = false, exitReason = "", blocked = mutableListOf<salvo.platform.runtime.Parker>(), watchers = mutableListOf<Token>(), owed = 0, ready = false, proxy = false))
         return actors.size - 1
     }
 
-    override fun enqueue(addr: Int, msg: salvo.platform.runtime.Dyn, waiter: salvo.platform.runtime.Parker): Union4<RtSent, RtDead, RtFull, RtRemote> {
+    override fun enqueue(addr: Int, msg: salvo.platform.runtime.Dyn, waiter: salvo.platform.runtime.Parker): Union4<Sent, Dead, Full, Remote> {
         if (addr < 0 || addr >= actors.size) {
             dropDynPlatform(msg)
-            return Union4.U2<RtSent, RtDead, RtFull, RtRemote>(RtDead())
+            return Union4.U2<Sent, Dead, Full, Remote>(Dead())
         }
         val a = (actors.getOrNull(addr) ?: throw AssertionError("salvo: value is absent at runtime:461:17"))
         if (a.dead) {
             dropDynPlatform(msg)
-            return Union4.U2<RtSent, RtDead, RtFull, RtRemote>(RtDead())
+            return Union4.U2<Sent, Dead, Full, Remote>(Dead())
         }
         if (a.proxy) {
-            return Union4.U4<RtSent, RtDead, RtFull, RtRemote>(RtRemote(msg = msg))
+            return Union4.U4<Sent, Dead, Full, Remote>(Remote(msg = msg))
         }
         if (a.userLen >= a.bound) {
             a.blocked.add(waiter)
-            return Union4.U3<RtSent, RtDead, RtFull, RtRemote>(RtFull(msg = msg))
+            return Union4.U3<Sent, Dead, Full, Remote>(Full(msg = msg))
         }
-        val e: Union3<RtDelivered, RtAnswered, RtReported> = Union3.U1<RtDelivered, RtAnswered, RtReported>(RtDelivered(msg = msg, from = (-1).toLong()))
+        val e: Union3<Delivered, Answered, Reported> = Union3.U1<Delivered, Answered, Reported>(Delivered(msg = msg, from = (-1).toLong()))
         a.queue.addLast(e)
         a.slots.addLast((-1).toLong())
         a.userLen = a.userLen + 1
@@ -691,7 +691,7 @@ class Scheduler : SchedTable {
             val pool = a.pool
             wakePool(pools, pool)
         }
-        return Union4.U1<RtSent, RtDead, RtFull, RtRemote>(RtSent())
+        return Union4.U1<Sent, Dead, Full, Remote>(Sent())
     }
 
     override fun enqueueRemote(addr: Int, msg: salvo.platform.runtime.Dyn, from: Long): Boolean {
@@ -704,7 +704,7 @@ class Scheduler : SchedTable {
             dropDynPlatform(msg)
             return false
         }
-        val e: Union3<RtDelivered, RtAnswered, RtReported> = Union3.U1<RtDelivered, RtAnswered, RtReported>(RtDelivered(msg = msg, from = from))
+        val e: Union3<Delivered, Answered, Reported> = Union3.U1<Delivered, Answered, Reported>(Delivered(msg = msg, from = from))
         a.queue.addLast(e)
         a.slots.addLast((-1).toLong())
         a.userLen = a.userLen + 1
@@ -729,23 +729,23 @@ class Scheduler : SchedTable {
             val b = __is1 as salvo.platform.runtime.Parker
             unparkPlatform(b)
         }
-        val watchers: MutableList<RtToken> = mutableListOf<RtToken>()
+        val watchers: MutableList<Token> = mutableListOf<Token>()
         while (true) {
             var __is2 = (a.watchers).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
             if (!(__is2 != null)) break
-            val t = __is2 as RtToken
+            val t = __is2 as Token
             watchers.add(t)
         }
         while (true) {
             var __is3 = (watchers).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
             if (!(__is3 != null)) break
-            val t = __is3 as RtToken
+            val t = __is3 as Token
             deliverTo(actors, waiters, pools, t, erasePlatform(Exit(reason = reason)))
         }
         (watchers).toList().forEach({ t -> dropToken(t) })
     }
 
-    override fun mintActor(addr: Int, gated: Boolean): RtToken {
+    override fun mintActor(addr: Int, gated: Boolean): Token {
         nextSlot = nextSlot + 1
         val slot = nextSlot
         val a = (actors.getOrNull(addr) ?: throw AssertionError("salvo: value is absent at runtime:528:17"))
@@ -753,31 +753,31 @@ class Scheduler : SchedTable {
             a.gate = slot
         }
         a.owed = a.owed + 1
-        return RtToken(target = Union3.U1<RtToActor, RtToWaiter, RtToTask>(RtToActor(addr = addr)), slot = slot, tracked = true)
+        return Token(target = Union3.U1<ToActor, ToWaiter, ToTask>(ToActor(addr = addr)), slot = slot, tracked = true)
     }
 
-    override fun mintTask(pool: Int, body: salvo.platform.runtime.RtBody): RtToken {
+    override fun mintTask(pool: Int, body: salvo.platform.runtime.Body): Token {
         nextSlot = nextSlot + 1
         val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:538:17"))
         p.owed = p.owed + 1
-        return RtToken(target = Union3.U3<RtToActor, RtToWaiter, RtToTask>(RtToTask(pool = pool, body = body)), slot = nextSlot, tracked = true)
+        return Token(target = Union3.U3<ToActor, ToWaiter, ToTask>(ToTask(pool = pool, body = body)), slot = nextSlot, tracked = true)
     }
 
-    override fun mintWaiter(pool: Int): RtWaiterMint {
+    override fun mintWaiter(pool: Int): WaiterMint {
         val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:544:17"))
         p.owed = p.owed + 1
-        waiters.add(RtWaiterRec(pool = pool, value = slotEmptyPlatform(), filled = false, parker = null, waiting = 0, waitingActor = -1))
+        waiters.add(WaiterRec(pool = pool, value = slotEmptyPlatform(), filled = false, parker = null, waiting = 0, waitingActor = -1))
         val wid = waiters.size - 1
         nextSlot = nextSlot + 1
-        val t = RtToken(target = Union3.U2<RtToActor, RtToWaiter, RtToTask>(RtToWaiter(wid = wid)), slot = nextSlot, tracked = true)
-        return RtWaiterMint(token = t, wid = wid)
+        val t = Token(target = Union3.U2<ToActor, ToWaiter, ToTask>(ToWaiter(wid = wid)), slot = nextSlot, tracked = true)
+        return WaiterMint(token = t, wid = wid)
     }
 
-    override fun deliver(t: RtToken, value: salvo.platform.runtime.Dyn) {
+    override fun deliver(t: Token, value: salvo.platform.runtime.Dyn) {
         deliverTo(actors, waiters, pools, t, value)
     }
 
-    override fun watchActor(addr: Int, t: RtToken) {
+    override fun watchActor(addr: Int, t: Token) {
         val watch = untrack(actors, waiters, pools, t)
         val a = (actors.getOrNull(addr) ?: throw AssertionError("salvo: value is absent at runtime:561:17"))
         if (a.dead) {
@@ -788,13 +788,13 @@ class Scheduler : SchedTable {
         a.watchers.add(watch)
     }
 
-    override fun idleHook(pool: Int, t: RtToken) {
+    override fun idleHook(pool: Int, t: Token) {
         val hook = untrack(actors, waiters, pools, t)
-        idleHooks.add(RtIdleHook(pool = pool, token = hook))
+        idleHooks.add(IdleHook(pool = pool, token = hook))
         wakeAllPools(pools)
     }
 
-    override fun nextWork(pool: Int, idle: salvo.platform.runtime.Parker): Union2<RtRunActor, RtRunTask>? {
+    override fun nextWork(pool: Int, idle: salvo.platform.runtime.Parker): Union2<RunActor, RunTask>? {
         val w = takeWork(actors, pools, pool, -1)
         if (w == null) {
             val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:579:21"))
@@ -812,7 +812,7 @@ class Scheduler : SchedTable {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.runtime.Parker): Union6<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck> {
+    override fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.runtime.Parker): Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> {
         val w = (waiters.getOrNull(wid) ?: throw AssertionError("salvo: value is absent at runtime:599:17"))
         if (w.waiting == 0) {
             w.waiting = frame
@@ -836,36 +836,36 @@ class Scheduler : SchedTable {
             w.waiting = 0
             w.waitingActor = -1
             wakePool(pools, pool)
-            return Union6.U1<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck>(RtGot(value = v))
+            return Union6.U1<Got, RunActor, RunTask, Sleep, Again, Stuck>(Got(value = v))
         }
         val work = takeWork(actors, pools, pool, own)
         if (work is Union2.U1<*, *>) {
-            val ra = work?.value as RtRunActor
+            val ra = work?.value as RunActor
             active = active + 1
-            return Union6.U2<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck>(ra)
+            return Union6.U2<Got, RunActor, RunTask, Sleep, Again, Stuck>(ra)
         }
         if (work is Union2.U2<*, *>) {
-            val rt = work?.value as RtRunTask
+            val rt = work?.value as RunTask
             active = active + 1
-            return Union6.U3<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck>(rt)
+            return Union6.U3<Got, RunActor, RunTask, Sleep, Again, Stuck>(rt)
         }
         val q = quiet(actors, waiters, pools, externals)
         if (!(idleHooks.size == 0) && active == 0 && q) {
             fireIdle(actors, waiters, pools, idleHooks)
-            return Union6.U5<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck>(RtAgain())
+            return Union6.U5<Got, RunActor, RunTask, Sleep, Again, Stuck>(Again())
         }
         if (active == parkedFrames && mainWaits > 0 && q) {
-            return Union6.U6<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck>(RtStuck(report = deadlockReport(actors, waiters, own)))
+            return Union6.U6<Got, RunActor, RunTask, Sleep, Again, Stuck>(Stuck(report = deadlockReport(actors, waiters, own)))
         }
         val parked = (waiters.getOrNull(wid) ?: throw AssertionError("salvo: value is absent at runtime:647:22"))
         parked.parker = me
         val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:649:17"))
         p.idle.add(me)
-        return Union6.U4<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck>(RtSleep())
+        return Union6.U4<Got, RunActor, RunTask, Sleep, Again, Stuck>(Sleep())
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun finish(addr: Int, body: salvo.platform.runtime.RtBody, fault: String?) {
+    override fun finish(addr: Int, body: salvo.platform.runtime.Body, fault: String?) {
         active = active - 1
         val a = (actors.getOrNull(addr) ?: throw AssertionError("salvo: value is absent at runtime:656:17"))
         a.running = false
@@ -893,11 +893,11 @@ class Scheduler : SchedTable {
             unparkPlatform(b)
         }
         val pool = a.pool
-        val watchers: MutableList<RtToken> = mutableListOf<RtToken>()
+        val watchers: MutableList<Token> = mutableListOf<Token>()
         while (true) {
             var __is5 = (a.watchers).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
             if (!(__is5 != null)) break
-            val t = __is5 as RtToken
+            val t = __is5 as Token
             watchers.add(t)
         }
         if (watchers.size == 0) {
@@ -906,7 +906,7 @@ class Scheduler : SchedTable {
         while (true) {
             var __is6 = (watchers).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
             if (!(__is6 != null)) break
-            val t = __is6 as RtToken
+            val t = __is6 as Token
             deliverTo(actors, waiters, pools, t, erasePlatform(Exit(reason = reason)))
         }
         (watchers).toList().forEach({ t -> dropToken(t) })
@@ -957,7 +957,7 @@ class Scheduler : SchedTable {
     }
 
     fun init() {
-        pools.add(RtPoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = kotlin.collections.ArrayDeque<RtTaskRun>(listOf<RtTaskRun>()), ready = kotlin.collections.ArrayDeque<Int>(listOf<Int>()), sink = -1, owed = 0))
+        pools.add(PoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = kotlin.collections.ArrayDeque<TaskRun>(listOf<TaskRun>()), ready = kotlin.collections.ArrayDeque<Int>(listOf<Int>()), sink = -1, owed = 0))
     }
 }
 
@@ -965,7 +965,7 @@ sealed class __Priv_Scheduler {
     object Init : __Priv_Scheduler()
 }
 
-fun untrack(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>, pools: MutableList<RtPoolRec>, t: RtToken): RtToken {
+fun untrack(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pools: MutableList<PoolRec>, t: Token): Token {
     val __destructured16 = t
     val target = __destructured16.target
     val slot = __destructured16.slot
@@ -973,26 +973,26 @@ fun untrack(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>, 
     if (tracked) {
         release(actors, waiters, pools, target)
     }
-    return RtToken(target = target, slot = slot, tracked = false)
+    return Token(target = target, slot = slot, tracked = false)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun release(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>, pools: MutableList<RtPoolRec>, target: Union3<RtToActor, RtToWaiter, RtToTask>) {
+fun release(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pools: MutableList<PoolRec>, target: Union3<ToActor, ToWaiter, ToTask>) {
     if (target is Union3.U1<*, *, *>) {
-        val to = target.value as RtToActor
+        val to = target.value as ToActor
         val a = (actors.getOrNull(to.addr) ?: throw AssertionError("salvo: value is absent at runtime:754:17"))
         if (a.owed > 0) {
             a.owed = a.owed - 1
         }
     } else if (target is Union3.U2<*, *, *>) {
-        val tw = target.value as RtToWaiter
+        val tw = target.value as ToWaiter
         val pool = (waiters.getOrNull(tw.wid) ?: throw AssertionError("salvo: value is absent at runtime:759:25")).pool
         val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:760:17"))
         if (p.owed > 0) {
             p.owed = p.owed - 1
         }
     } else {
-        val p = (pools.getOrNull((target.value as RtToTask).pool) ?: throw AssertionError("salvo: value is absent at runtime:765:17"))
+        val p = (pools.getOrNull((target.value as ToTask).pool) ?: throw AssertionError("salvo: value is absent at runtime:765:17"))
         if (p.owed > 0) {
             p.owed = p.owed - 1
         }
@@ -1000,7 +1000,7 @@ fun release(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>, 
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun deliverTo(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>, pools: MutableList<RtPoolRec>, t: RtToken, value: salvo.platform.runtime.Dyn) {
+fun deliverTo(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pools: MutableList<PoolRec>, t: Token, value: salvo.platform.runtime.Dyn) {
     val __destructured17 = t
     val target = __destructured17.target
     val slot = __destructured17.slot
@@ -1009,21 +1009,21 @@ fun deliverTo(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>
         release(actors, waiters, pools, target)
     }
     if (target is Union3.U1<*, *, *>) {
-        val to = target.value as RtToActor
+        val to = target.value as ToActor
         val a = (actors.getOrNull(to.addr) ?: throw AssertionError("salvo: value is absent at runtime:781:17"))
         if (a.dead) {
             dropDynPlatform(value)
             return
         }
         a.slots.addLast(slot)
-        val e: Union3<RtDelivered, RtAnswered, RtReported> = Union3.U2<RtDelivered, RtAnswered, RtReported>(RtAnswered(slot = slot, value = value))
+        val e: Union3<Delivered, Answered, Reported> = Union3.U2<Delivered, Answered, Reported>(Answered(slot = slot, value = value))
         a.queue.addLast(e)
         if (markReady(a, pools, to.addr)) {
             val pool = a.pool
             wakePool(pools, pool)
         }
     } else if (target is Union3.U2<*, *, *>) {
-        val tw = target.value as RtToWaiter
+        val tw = target.value as ToWaiter
         val w = (waiters.getOrNull(tw.wid) ?: throw AssertionError("salvo: value is absent at runtime:794:17"))
         slotPutPlatform(w.value, value)
         w.filled = true
@@ -1032,21 +1032,21 @@ fun deliverTo(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>
             unparkPlatform(p)
         }
     } else {
-        val __destructured18 = (target.value as RtToTask)
+        val __destructured18 = (target.value as ToTask)
         val pool = __destructured18.pool
         val body = __destructured18.body
         val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:802:17"))
-        p.tasks.addLast(RtTaskRun(body = body, value = value))
+        p.tasks.addLast(TaskRun(body = body, value = value))
         wakePool(pools, pool)
     }
 }
 
-fun reportFault(actors: MutableList<RtActorRec>, pools: MutableList<RtPoolRec>, pool: Int, reason: String) {
+fun reportFault(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, pool: Int, reason: String) {
     val sink = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:813:21")).sink
     if (sink >= 0) {
         val s = (actors.getOrNull(sink) ?: throw AssertionError("salvo: value is absent at runtime:815:17"))
         if (!s.dead) {
-            val e: Union3<RtDelivered, RtAnswered, RtReported> = Union3.U3<RtDelivered, RtAnswered, RtReported>(RtReported(reason = reason))
+            val e: Union3<Delivered, Answered, Reported> = Union3.U3<Delivered, Answered, Reported>(Reported(reason = reason))
             s.queue.addLast(e)
             s.slots.addLast((-1).toLong())
             if (markReady(s, pools, sink)) {
@@ -1059,7 +1059,7 @@ fun reportFault(actors: MutableList<RtActorRec>, pools: MutableList<RtPoolRec>, 
     __moduleUse0.report("salvo: an uncaught fault on pool $pool: $reason")
 }
 
-fun quiet(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>, pools: MutableList<RtPoolRec>, externals: Int): Boolean {
+fun quiet(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pools: MutableList<PoolRec>, externals: Int): Boolean {
     if (externals > 0) {
         return false
     }
@@ -1082,11 +1082,11 @@ fun quiet(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>, po
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun fireIdle(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>, pools: MutableList<RtPoolRec>, hooks: MutableList<RtIdleHook>) {
+fun fireIdle(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pools: MutableList<PoolRec>, hooks: MutableList<IdleHook>) {
     while (true) {
         var __is7 = (hooks).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
         if (!(__is7 != null)) break
-        val h = __is7 as RtIdleHook
+        val h = __is7 as IdleHook
         val __destructured19 = h
         val pool = __destructured19.pool
         val token = __destructured19.token
@@ -1104,7 +1104,7 @@ fun fireIdle(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>,
     }
 }
 
-fun deadlockReport(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaiterRec>, own: Int): String {
+fun deadlockReport(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, own: Int): String {
     val occupied: MutableList<String> = mutableListOf<String>()
     for (w in waiters) {
         if (w.waiting > 0 && w.waitingActor >= 0) {
@@ -1140,15 +1140,15 @@ fun deadlockReport(actors: MutableList<RtActorRec>, waiters: MutableList<RtWaite
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun takeWork(actors: MutableList<RtActorRec>, pools: MutableList<RtPoolRec>, pool: Int, exclude: Int): Union2<RtRunActor, RtRunTask>? {
+fun takeWork(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, pool: Int, exclude: Int): Union2<RunActor, RunTask>? {
     val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:914:13"))
     val task = p.tasks.removeFirstOrNull()
     if (task != null) {
-        val t = task as RtTaskRun
+        val t = task as TaskRun
         val __destructured20 = t
         val body = __destructured20.body
         val value = __destructured20.value
-        return Union2.U2<RtRunActor, RtRunTask>(RtRunTask(pool = pool, body = body, value = value))
+        return Union2.U2<RunActor, RunTask>(RunTask(pool = pool, body = body, value = value))
     }
     while (true) {
         var __is8 = p.ready.removeFirstOrNull()
@@ -1171,7 +1171,7 @@ fun takeWork(actors: MutableList<RtActorRec>, pools: MutableList<RtPoolRec>, poo
     return null
 }
 
-fun markReady(a: RtActorRec, pools: MutableList<RtPoolRec>, addr: Int): Boolean {
+fun markReady(a: ActorRec, pools: MutableList<PoolRec>, addr: Int): Boolean {
     if (a.ready || a.running || a.dead) {
         return false
     }
@@ -1185,9 +1185,9 @@ fun markReady(a: RtActorRec, pools: MutableList<RtPoolRec>, addr: Int): Boolean 
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun workOf(a: RtActorRec, addr: Int, e: Union3<RtDelivered, RtAnswered, RtReported>, body: salvo.platform.runtime.RtBody): Union2<RtRunActor, RtRunTask>? {
+fun workOf(a: ActorRec, addr: Int, e: Union3<Delivered, Answered, Reported>, body: salvo.platform.runtime.Body): Union2<RunActor, RunTask>? {
     if (e is Union3.U1<*, *, *>) {
-        val d = e.value as RtDelivered
+        val d = e.value as Delivered
         a.userLen = a.userLen - 1
         val woken = (a.blocked).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
         if (woken != null) {
@@ -1200,13 +1200,13 @@ fun workOf(a: RtActorRec, addr: Int, e: Union3<RtDelivered, RtAnswered, RtReport
         if (from >= 0) {
             grantedPlatform(addr, a.pool, from)
         }
-        return Union2.U1<RtRunActor, RtRunTask>(RtRunActor(addr = addr, pool = a.pool, kind = 0, slot = 0L, value = msg, body = body))
+        return Union2.U1<RunActor, RunTask>(RunActor(addr = addr, pool = a.pool, kind = 0, slot = 0L, value = msg, body = body))
     }
     if (e is Union3.U3<*, *, *>) {
-        val r = e.value as RtReported
-        return Union2.U1<RtRunActor, RtRunTask>(RtRunActor(addr = addr, pool = a.pool, kind = 2, slot = 0L, value = erasePlatform(r.reason), body = body))
+        val r = e.value as Reported
+        return Union2.U1<RunActor, RunTask>(RunActor(addr = addr, pool = a.pool, kind = 2, slot = 0L, value = erasePlatform(r.reason), body = body))
     }
-    val __destructured22 = (e.value as RtAnswered)
+    val __destructured22 = (e.value as Answered)
     val slot = __destructured22.slot
     val value = __destructured22.value
     var opens = false
@@ -1217,7 +1217,7 @@ fun workOf(a: RtActorRec, addr: Int, e: Union3<RtDelivered, RtAnswered, RtReport
     if (opens) {
         a.gate = null
     }
-    return Union2.U1<RtRunActor, RtRunTask>(RtRunActor(addr = addr, pool = a.pool, kind = 1, slot = slot, value = value, body = body))
+    return Union2.U1<RunActor, RunTask>(RunActor(addr = addr, pool = a.pool, kind = 1, slot = slot, value = value, body = body))
 }
 
 fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
@@ -1238,7 +1238,7 @@ fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun wakePool(pools: MutableList<RtPoolRec>, pool: Int) {
+fun wakePool(pools: MutableList<PoolRec>, pool: Int) {
     val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:1011:13"))
     var __is9 = (p.idle).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
     if (__is9 != null) {
@@ -1248,7 +1248,7 @@ fun wakePool(pools: MutableList<RtPoolRec>, pool: Int) {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun wakeEvery(pools: MutableList<RtPoolRec>, pool: Int) {
+fun wakeEvery(pools: MutableList<PoolRec>, pool: Int) {
     val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:1019:13"))
     while (true) {
         var __is10 = (p.idle).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
@@ -1259,7 +1259,7 @@ fun wakeEvery(pools: MutableList<RtPoolRec>, pool: Int) {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun wakeWaiters(waiters: MutableList<RtWaiterRec>) {
+fun wakeWaiters(waiters: MutableList<WaiterRec>) {
     for (w in waiters) {
         if (w.waiting > 0 && (w.parker != null)) {
             val p = w.parker as salvo.platform.runtime.Parker
@@ -1268,7 +1268,7 @@ fun wakeWaiters(waiters: MutableList<RtWaiterRec>) {
     }
 }
 
-fun wakeAllPools(pools: MutableList<RtPoolRec>) {
+fun wakeAllPools(pools: MutableList<PoolRec>) {
     var i = 0
     while (i < pools.size) {
         wakeEvery(pools, i)
@@ -1288,7 +1288,7 @@ fun newPoolOf(n: Int, sink: Int): Int {
     return id
 }
 
-fun spawnBody(pool: Int, bound: Int, body: salvo.platform.runtime.RtBody): Int {
+fun spawnBody(pool: Int, bound: Int, body: salvo.platform.runtime.Body): Int {
     return __moduleUse1.newActor(pool, bound, body)
 }
 
@@ -1305,7 +1305,7 @@ fun sendDyn(addr: Int, msg: salvo.platform.runtime.Dyn) {
 fun sendOrBack(addr: Int, msg: salvo.platform.runtime.Dyn): salvo.platform.runtime.Dyn? {
     var r = __moduleUse1.enqueue(addr, msg, thisParkerPlatform())
     while (r is Union4.U3<*, *, *, *>) {
-        val full = r.value as RtFull
+        val full = r.value as Full
         if (herePoolPlatform() == mainPool() && hereActorPlatform() == noFrame() && __moduleUse1.poolOfActor(addr) == mainPool()) {
             __moduleUse0.report("salvo: deadlock: the main pool's actor $addr has a full mailbox and the only thread that could drain it is the one sending: the main pool has one worker, `main` itself, and it serves work only inside a `waitfor` — send fewer messages before waiting, raise the handler's `mailbox` capacity, or place the actor on a pool of its own")
             exitProcessPlatform(1)
@@ -1316,12 +1316,12 @@ fun sendOrBack(addr: Int, msg: salvo.platform.runtime.Dyn): salvo.platform.runti
         r = __moduleUse1.enqueue(addr, back, thisParkerPlatform())
     }
     if (r is Union4.U3<*, *, *, *>) {
-        val full = r.value as RtFull
+        val full = r.value as Full
         dropFull(full)
         return null
     }
     if (r is Union4.U4<*, *, *, *>) {
-        val remote = r.value as RtRemote
+        val remote = r.value as Remote
         val __destructured24 = remote
         val back = __destructured24.msg
         return back
@@ -1333,27 +1333,27 @@ fun markProxy(addr: Int) {
     __moduleUse1.setProxy(addr)
 }
 
-fun mint(addr: Int, gated: Boolean): RtToken {
+fun mint(addr: Int, gated: Boolean): Token {
     return __moduleUse1.mintActor(addr, gated)
 }
 
-fun mintTaskOn(pool: Int, body: salvo.platform.runtime.RtBody): RtToken {
+fun mintTaskOn(pool: Int, body: salvo.platform.runtime.Body): Token {
     return __moduleUse1.mintTask(pool, body)
 }
 
-fun waiter(): RtWaiterMint {
+fun waiter(): WaiterMint {
     return __moduleUse1.mintWaiter(herePoolPlatform())
 }
 
-fun answer(t: RtToken, value: salvo.platform.runtime.Dyn) {
+fun answer(t: Token, value: salvo.platform.runtime.Dyn) {
     __moduleUse1.deliver(t, value)
 }
 
-fun watch(addr: Int, t: RtToken) {
+fun watch(addr: Int, t: Token) {
     __moduleUse1.watchActor(addr, t)
 }
 
-fun onIdle(pool: Int, t: RtToken) {
+fun onIdle(pool: Int, t: Token) {
     __moduleUse1.idleHook(pool, t)
 }
 
@@ -1377,19 +1377,19 @@ fun awaitAnswer(wid: Int): salvo.platform.runtime.Dyn {
     while (true) {
         val step = __moduleUse1.waitStep(wid, pool, own, frame, thisParkerPlatform())
         if (step is Union6.U1<*, *, *, *, *, *>) {
-            val g = step.value as RtGot
+            val g = step.value as Got
             val __destructured25 = g
             val value = __destructured25.value
             return value
         }
         if (step is Union6.U2<*, *, *, *, *, *>) {
-            val ra = step.value as RtRunActor
+            val ra = step.value as RunActor
             runActor(ra)
         } else if (step is Union6.U3<*, *, *, *, *, *>) {
-            val rt = step.value as RtRunTask
+            val rt = step.value as RunTask
             runTask(rt)
         } else if (step is Union6.U6<*, *, *, *, *, *>) {
-            val s = step.value as RtStuck
+            val s = step.value as Stuck
             __moduleUse0.report(s.report)
             exitProcessPlatform(1)
         } else if (step is Union6.U4<*, *, *, *, *, *>) {
@@ -1399,7 +1399,7 @@ fun awaitAnswer(wid: Int): salvo.platform.runtime.Dyn {
     return unerasePlatform(erasePlatform(0))
 }
 
-fun runActor(ra: RtRunActor) {
+fun runActor(ra: RunActor) {
     flushFramesPlatform()
     val __destructured26 = ra
     val addr = __destructured26.addr
@@ -1419,7 +1419,7 @@ fun runActor(ra: RtRunActor) {
     __moduleUse1.finish(addr, back, fault)
 }
 
-fun runTask(rt: RtRunTask) {
+fun runTask(rt: RunTask) {
     val __destructured28 = rt
     val pool = __destructured28.pool
     val body = __destructured28.body
@@ -1442,10 +1442,10 @@ fun servePool(pool: Int) {
     while (true) {
         val w = __moduleUse1.nextWork(pool, thisParkerPlatform())
         if (w is Union2.U1<*, *>) {
-            val ra = w?.value as RtRunActor
+            val ra = w?.value as RunActor
             runActor(ra)
         } else if (w is Union2.U2<*, *>) {
-            val rt = w?.value as RtRunTask
+            val rt = w?.value as RunTask
             runTask(rt)
         } else {
             parkPlatform(thisParkerPlatform())
@@ -1453,56 +1453,56 @@ fun servePool(pool: Int) {
     }
 }
 
-fun tokenToActor(addr: Int, slot: Long): RtToken {
-    return RtToken(target = Union3.U1<RtToActor, RtToWaiter, RtToTask>(RtToActor(addr = addr)), slot = slot, tracked = false)
+fun tokenToActor(addr: Int, slot: Long): Token {
+    return Token(target = Union3.U1<ToActor, ToWaiter, ToTask>(ToActor(addr = addr)), slot = slot, tracked = false)
 }
 
-fun tokenToWaiter(wid: Int, slot: Long): RtToken {
-    return RtToken(target = Union3.U2<RtToActor, RtToWaiter, RtToTask>(RtToWaiter(wid = wid)), slot = slot, tracked = false)
+fun tokenToWaiter(wid: Int, slot: Long): Token {
+    return Token(target = Union3.U2<ToActor, ToWaiter, ToTask>(ToWaiter(wid = wid)), slot = slot, tracked = false)
 }
 
-data class RtExported(
+data class Exported(
     val kind: Int,
     val id: Int,
     val slot: Long,
-    val body: salvo.platform.runtime.RtBody?,
+    val body: salvo.platform.runtime.Body?,
 )
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun exportToken(t: RtToken): RtExported {
+fun exportToken(t: Token): Exported {
     val __destructured30 = t
     val target = __destructured30.target
     val slot = __destructured30.slot
     val tracked = __destructured30.tracked
     if (target is Union3.U3<*, *, *>) {
-        val tt = target.value as RtToTask
+        val tt = target.value as ToTask
         val __destructured31 = tt
         val pool = __destructured31.pool
         val body = __destructured31.body
-        return RtExported(kind = 2, id = pool, slot = slot, body = body)
+        return Exported(kind = 2, id = pool, slot = slot, body = body)
     }
     var kind = 0
     var id = 0
     if (target is Union3.U1<*, *, *>) {
-        val to = target.value as RtToActor
+        val to = target.value as ToActor
         id = to.addr
     } else if (target is Union3.U2<*, *, *>) {
-        val tw = target.value as RtToWaiter
+        val tw = target.value as ToWaiter
         kind = 1
         id = tw.wid
     }
-    return RtExported(kind = kind, id = id, slot = slot, body = null)
+    return Exported(kind = kind, id = id, slot = slot, body = null)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun dropExported(e: RtExported) {
+fun dropExported(e: Exported) {
     val __destructured32 = e
     val kind = __destructured32.kind
     val id = __destructured32.id
     val slot = __destructured32.slot
     val body = __destructured32.body
     if (body != null) {
-        val b = body as salvo.platform.runtime.RtBody
+        val b = body as salvo.platform.runtime.Body
         dropBodyPlatform(b)
     }
 }

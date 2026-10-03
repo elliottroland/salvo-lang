@@ -100,7 +100,7 @@ fn emit_program_mode(
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
     let original_symbols = Symbols::collect(program);
     let resolution = salvo_core::resolve(program);
-    let checked = salvo_core::check_program(program, &resolution, &original_symbols);
+    let mut checked = salvo_core::check_program(program, &resolution, &original_symbols);
     // [effect-generic-decl] Emission reads the program with its effect-only
     // generics erased, against the checker's span-keyed tables from the
     // original (see the Rust backend's `emit_program_reporting`).
@@ -112,6 +112,8 @@ fn emit_program_mode(
     // address between the scopes and the symbol table, so both must point
     // into the same tree.
     let resolution = salvo_core::resolve(program);
+    // [type-identity] Written references, keyed by address: the erased copy's.
+    checked.type_ref_keys.extend(salvo_core::resolve::written_keys(program, &resolution, &symbols));
     // Only *errors* stop emission: a warning reports something the author
     // probably did not intend without rejecting the program
     // [diag-structured], which is what a suppressed refinement conflict
@@ -187,7 +189,7 @@ fn emit_program_mode(
         let prefix = format!("{}.", kotlin_package(&unit.file.module));
         for item in &unit.ast.items {
             if let Item::Effect(e) = item {
-                effect_paths.insert(e.name.name.clone(), prefix.clone());
+                effect_paths.insert(symbols.key_or(e, &e.name.name).to_string(), prefix.clone());
             }
         }
     }
@@ -414,12 +416,24 @@ fn reply_payload(ty: &Type) -> Option<&Type> {
 
 /// [platform-abi] The host-facing interface of an effect's platform handlers.
 fn platform_interface_name(effect: &str) -> String {
+    // [type-identity] Named after the declaration's written name; a
+    // package path a clashing name renders with stays in front.
+    if let Some((pkg, last)) = split_package(effect) {
+        return format!("{pkg}.{}", platform_interface_name(last));
+    }
+    let effect = salvo_core::typekey::plain(effect);
     format!("{effect}Platform")
 }
 
 /// [platform-abi] The adapter of an effect (`__Platform_E`) or of one platform
 /// handler (`__Platform_H`): generated, never host-facing.
 fn platform_adapter_name(name: &str) -> String {
+    // [type-identity] Named after the declaration's written name; a
+    // package path a clashing name renders with stays in front.
+    if let Some((pkg, last)) = split_package(name) {
+        return format!("{pkg}.{}", platform_adapter_name(last));
+    }
+    let name = salvo_core::typekey::plain(name);
     format!("__Platform_{name}")
 }
 
@@ -455,6 +469,18 @@ fn sanitize_instance(rendered: &str) -> String {
 /// is "unresolved reference"), which is silently wrong output rather than a
 /// diagnostic [backend-never-wrong]. std's own `throw` module is the customer —
 /// found the day it left `core` (2026-09-26).
+/// [type-identity] A clashing name renders under its package
+/// (`salvo.lib.a.Clock`): the package and the name, or `None` for a bare
+/// name.
+fn split_package(name: &str) -> Option<(&str, &str)> {
+    if !name.starts_with("salvo.") {
+        return None;
+    }
+    let base_end = name.find('<').unwrap_or(name.len());
+    let i = name[..base_end].rfind('.')?;
+    Some((&name[..i], &name[i + 1..]))
+}
+
 fn kt_package_part(name: &str) -> String {
     if KOTLIN_KEYWORDS.contains(&name) {
         format!("{name}_")
@@ -556,6 +582,12 @@ fn generate_time_file() -> String {
 
 /// [actor-use-addr] The forwarding stub of a protocol: `__Stub_Counter`.
 fn stub_class_name(effect: &str) -> String {
+    // [type-identity] Named after the declaration's written name; a
+    // package path a clashing name renders with stays in front.
+    if let Some((pkg, last)) = split_package(effect) {
+        return format!("{pkg}.{}", stub_class_name(last));
+    }
+    let effect = salvo_core::typekey::plain(effect);
     format!("__Stub_{effect}")
 }
 
@@ -568,10 +600,18 @@ fn stub_class_name(effect: &str) -> String {
 /// `__Codec_Environment_Id` for a nested dot-named struct (an `object` is
 /// top-level, so the namespace is flattened into the name).
 fn struct_codec_name(struct_name: &str) -> String {
+    // [type-identity] Named after the declaration's written name.
+    let struct_name = salvo_core::typekey::plain(struct_name);
     format!("__Codec_{}", struct_name.replace('.', "_"))
 }
 
 fn monitor_class_name(effect: &str) -> String {
+    // [type-identity] Named after the declaration's written name; a
+    // package path a clashing name renders with stays in front.
+    if let Some((pkg, last)) = split_package(effect) {
+        return format!("{pkg}.{}", monitor_class_name(last));
+    }
+    let effect = salvo_core::typekey::plain(effect);
     format!("__Mon_{effect}")
 }
 
@@ -579,6 +619,12 @@ fn monitor_class_name(effect: &str) -> String {
 /// `__Fac_CyclicRandom` — the servant's addr plus the constructor parameters
 /// plus the sync member bodies. Per *handler*, since the bodies are its.
 fn facade_class_name(handler: &str) -> String {
+    // [type-identity] Named after the declaration's written name; a
+    // package path a clashing name renders with stays in front.
+    if let Some((pkg, last)) = split_package(handler) {
+        return format!("{pkg}.{}", facade_class_name(last));
+    }
+    let handler = salvo_core::typekey::plain(handler);
     format!("__Fac_{handler}")
 }
 
@@ -597,12 +643,24 @@ fn base_of_rendered(rendered: &str) -> &str {
 /// [kt-actor] The message class of a protocol: `__Msg_Counter`, named after
 /// the *effect*, since that is what a sender knows [actor-types].
 fn msg_class_name(effect: &str) -> String {
+    // [type-identity] Named after the declaration's written name; a
+    // package path a clashing name renders with stays in front.
+    if let Some((pkg, last)) = split_package(effect) {
+        return format!("{pkg}.{}", msg_class_name(last));
+    }
+    let effect = salvo_core::typekey::plain(effect);
     format!("__Msg_{effect}")
 }
 
 /// [kt-actor] [actor-replyto] The parked-continuation class of a protocol:
 /// [actor-private-send] `__Priv_Gathering`: a handler's private messages.
 fn private_class_name(handler: &str) -> String {
+    // [type-identity] Named after the declaration's written name; a
+    // package path a clashing name renders with stays in front.
+    if let Some((pkg, last)) = split_package(handler) {
+        return format!("{pkg}.{}", private_class_name(last));
+    }
+    let handler = salvo_core::typekey::plain(handler);
     format!("__Priv_{handler}")
 }
 
@@ -617,6 +675,12 @@ enum ContTarget<'p> {
 /// `__Cont_Counter`. Beside the message class and named the same way — a
 /// continuation is a member invocation waiting for its last argument.
 fn cont_class_name(effect: &str) -> String {
+    // [type-identity] Named after the declaration's written name; a
+    // package path a clashing name renders with stays in front.
+    if let Some((pkg, last)) = split_package(effect) {
+        return format!("{pkg}.{}", cont_class_name(last));
+    }
+    let effect = salvo_core::typekey::plain(effect);
     format!("__Cont_{effect}")
 }
 
@@ -644,6 +708,12 @@ fn msg_variant_name(member: &str) -> String {
 /// `__Actor_Counting`, wrapping the handler instance and dispatching messages
 /// onto its members.
 fn actor_class_name(handler: &str) -> String {
+    // [type-identity] Named after the declaration's written name; a
+    // package path a clashing name renders with stays in front.
+    if let Some((pkg, last)) = split_package(handler) {
+        return format!("{pkg}.{}", actor_class_name(last));
+    }
+    let handler = salvo_core::typekey::plain(handler);
     format!("__Actor_{handler}")
 }
 
@@ -821,7 +891,8 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
     for unit in program.units() {
         for item in &unit.ast.items {
             if let Item::Effect(e) = item {
-                all_effect_module.insert(e.name.name.as_str(), &unit.file.module);
+                // [type-identity] By key: the face resolved to it.
+                all_effect_module.insert(symbols.key_or(e, &e.name.name), &unit.file.module);
             }
         }
     }
@@ -884,7 +955,7 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
         for h in &handlers {
             // [platform-handler] [effect-handler-multi] One face: the host
             // writes one class implementing one generated interface.
-            let Some(effect) = type_base_name(&h.of[0]) else {
+            let Some(effect) = type_key_name(&checked, &h.of[0]) else {
                 continue;
             };
             match all_effect_module.get(effect) {
@@ -945,7 +1016,7 @@ const KOTLIN_KEYWORDS: &[&str] = &[
 /// (`salvo_core::case::camel`, the definition the checker's clash rule uses
 /// [name-camel]), back-quoted when it is a Kotlin keyword.
 fn kt_ident(name: &str) -> String {
-    let name = salvo_core::case::camel(name);
+    let name = salvo_core::case::camel(salvo_core::typekey::plain(name));
     if KOTLIN_KEYWORDS.contains(&name.as_str()) {
         format!("`{name}`")
     } else {
@@ -2371,6 +2442,10 @@ impl<'p> Emitter<'p> {
     /// [platform-type] The module declaring platform type `name`, which is
     /// recorded as needing its implementation file.
     fn platform_type_module(&mut self, name: &str) -> Option<ModulePath> {
+        // [type-identity] A key names its module.
+        if let Some(m) = self.symbols.key_modules.get(name) {
+            return Some((*m).clone());
+        }
         // The declaring module as this file sees it: its own first, then an
         // import of it, then any (names are unique among what is visible).
         let own = self.program.files[self.file_idx].module.clone();
@@ -2626,8 +2701,8 @@ impl<'p> Emitter<'p> {
 
     fn host_handler_impl(&mut self, h: &HandlerDecl) -> String {
         let of = self.emit_type(&h.of[0]);
-        let iface = platform_interface_name(type_base_name(&h.of[0]).unwrap_or(&of));
-        let Some(effect) = type_base_name(&h.of[0])
+        let iface = platform_interface_name(type_key_name(self.checked, &h.of[0]).unwrap_or(&of));
+        let Some(effect) = type_key_name(self.checked, &h.of[0])
             .and_then(|n| self.symbols.effects.get(n))
             .copied()
         else {
@@ -2706,7 +2781,7 @@ impl<'p> Emitter<'p> {
     /// what a `use` constructs, so the implementation is only ever reached
     /// through the adapter.
     fn emit_platform_handler(&mut self, h: &HandlerDecl) -> String {
-        let Some(effect) = type_base_name(&h.of[0]) else {
+        let Some(effect) = type_key_name(self.checked, &h.of[0]) else {
             return String::new();
         };
         let Some(effect_module) = self.effect_module(effect) else {
@@ -2826,11 +2901,17 @@ impl<'p> Emitter<'p> {
 
     /// The module declaring the effect named `name`.
     fn effect_module(&self, name: &str) -> Option<ModulePath> {
+        // [type-identity] By key, where the name clashes.
+        if let Some(m) = self.symbols.key_modules.get(name) {
+            if self.symbols.effects.contains_key(name) {
+                return Some((*m).clone());
+            }
+        }
         self.program.units().find_map(|u| {
             u.ast
                 .items
                 .iter()
-                .any(|i| matches!(i, Item::Effect(e) if e.name.name == name))
+                .any(|i| matches!(i, Item::Effect(e) if self.symbols.key_or(e, &e.name.name) == name))
                 .then(|| u.file.module.clone())
         })
     }
@@ -3299,7 +3380,7 @@ impl<'p> Emitter<'p> {
             }
             // Only effects of modules this program emits: `effect_paths` is
             // the package prefix table for exactly those.
-            let Some(prefix) = self.effect_paths.get(&e.name.name).cloned() else { continue };
+            let Some(prefix) = self.effect_paths.get(self.symbols.key_or(e, &e.name.name)).cloned() else { continue };
             entries.push(format!(
                 "Pair(\"{}\", {prefix}__PROTO_{})",
                 e.name.name,
@@ -3355,7 +3436,7 @@ impl<'p> Emitter<'p> {
         // [effect-handler-multi] Every face of a handler is of one kind, so any
         // of them answers.
         h.of.iter().any(|of| {
-            type_base_name(of)
+            type_key_name(self.checked, of)
                 .and_then(|n| self.symbols.effects.get(n))
                 .is_some_and(|e| e.is_actor)
         })
@@ -3402,7 +3483,7 @@ impl<'p> Emitter<'p> {
     fn handler_faces(&self, h: &HandlerDecl) -> Vec<&'p EffectDecl> {
         h.of
             .iter()
-            .filter_map(|of| type_base_name(of))
+            .filter_map(|of| type_key_name(self.checked, of))
             .filter_map(|n| self.symbols.effects.get(n).copied())
             .collect()
     }
@@ -3443,7 +3524,7 @@ impl<'p> Emitter<'p> {
     /// dispatched from the handler-keyed `__Priv_H`. Empty for a mixed
     /// handler, whose servant owns every send member [mixed-handler].
     fn private_members(&self, h: &HandlerDecl) -> Vec<&'p FnDecl> {
-        let Some(decl) = self.symbols.handlers.get(h.name.name.as_str()).copied() else {
+        let Some(decl) = self.symbols.handlers.get(self.symbols.key_or(h, &h.name.name)).copied() else {
             return Vec::new();
         };
         // [handler-init] The `init` block: a private member sent once, first —
@@ -3497,12 +3578,14 @@ impl<'p> Emitter<'p> {
     /// 2026-09-14 (user decision). No filtering: every entry is a
     /// dependency, and the checker has already refused `use` and `Throw`.
     fn handler_dep_effects(&mut self, h: &HandlerDecl) -> Vec<String> {
-        let refs: Vec<TypeRef> = h
+        // The declaration's own nodes, not copies: a written reference is
+        // resolved by its address [type-identity].
+        let refs: Vec<&TypeRef> = h
             .effects
             .iter()
             .flatten()
             .filter_map(|e| match e {
-                EffectRef::Effect(r) | EffectRef::AnyEffect(r) => Some(r.clone()),
+                EffectRef::Effect(r) | EffectRef::AnyEffect(r) => Some(r),
                 EffectRef::Use(_) => None,
                 // [actor-spawn-effect] A capability, not an effect type: no
                 // handler parameter is threaded for it.
@@ -3523,7 +3606,7 @@ impl<'p> Emitter<'p> {
         // [effect-handler-multi] One face, like a platform handler's: the
         // members are the backend's, and the checker refuses a second.
         let of = self.emit_type(&h.of[0]);
-        let Some(effect) = type_base_name(&h.of[0])
+        let Some(effect) = type_key_name(self.checked, &h.of[0])
             .and_then(|n| self.symbols.effects.get(n))
             .copied()
         else {
@@ -3964,7 +4047,7 @@ impl<'p> Emitter<'p> {
         for name in bound {
             for unit in self.program.units() {
                 let declares = unit.ast.items.iter().any(|item| {
-                    matches!(item, Item::Effect(e) if e.name.name == name)
+                    matches!(item, Item::Effect(e) if self.symbols.key_or(e, &e.name.name) == name)
                 });
                 let module = &unit.file.module;
                 if declares && module != own && emitted_modules.contains(module) {
@@ -4234,7 +4317,8 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_named_type(&mut self, qualifiers: &[TypeRef], base: &TypeRef) -> String {
-        let name = base.name.name.as_str().to_string();
+        // [type-identity] The declaration the written name resolved to.
+        let name = self.checked.written_key(base).to_string();
         let has_mut = qualifiers.iter().any(|q| q.name.name == "Mut");
 
         // A `Mut`-qualified intrinsic type maps through its own `Mut`
@@ -4264,10 +4348,12 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_type_ref(&mut self, r: &TypeRef) -> String {
-        if self.erased.is_erased(&r.name.name) {
-            return self.emit_type_ref_named(&r.name.name, &[]);
+        // [type-identity] The declaration the written name resolved to.
+        let key = self.checked.written_key(r).to_string();
+        if self.erased.is_erased(&key) {
+            return self.emit_type_ref_named(&key, &[]);
         }
-        self.emit_type_ref_named(&r.name.name, &r.args)
+        self.emit_type_ref_named(&key, &r.args)
     }
 
     /// [cmp-carry] The rendered type arguments, **identities dropped**: an
@@ -4390,7 +4476,7 @@ impl<'p> Emitter<'p> {
         // `salvo.platform.…`, and nothing is re-exported.
         if self.symbols.intrinsic_types.get(name).is_some_and(|t| t.platform) {
             if let Some(module) = self.platform_type_module(name) {
-                return format!("{}.{name}{args}", host_package(&module));
+                return format!("{}.{}{args}", host_package(&module), salvo_core::typekey::plain(name));
             }
         }
         if self.symbols.intrinsic_types.contains_key(name) {
@@ -4400,7 +4486,41 @@ impl<'p> Emitter<'p> {
             return format!("{name}{args}");
         }
         // Structs, generics, effects, and unknown names pass through.
-        format!("{name}{args}")
+        format!("{}{args}", self.type_path(name))
+    }
+
+    /// [type-identity] How a declared type is spelled: its name, or — when
+    /// another module declares the name too — its full package path, since
+    /// the star imports of the two would be ambiguous.
+    /// [type-identity] The key a rendered type name stands for: the inverse
+    /// of [type_path].
+    fn rendered_key(&self, rendered: &str) -> String {
+        let Some((pkg, last)) = split_package(rendered) else {
+            return rendered.to_string();
+        };
+        self.symbols
+            .key_modules
+            .iter()
+            .find(|(k, m)| salvo_core::typekey::plain(k) == last && kotlin_package(m) == pkg)
+            .map(|(k, _)| k.to_string())
+            .unwrap_or_else(|| rendered.to_string())
+    }
+
+    fn type_path(&self, key: &str) -> String {
+        let plain = salvo_core::typekey::plain(key).to_string();
+        if !self.symbols.clashes(key) {
+            return plain;
+        }
+        // A declaration of the module being emitted shadows every import of
+        // the name, so its own name is enough.
+        let own = self.program.units().nth(self.file_idx).map(|u| &u.file.module);
+        if self.symbols.key_modules.get(key).copied() == own {
+            return plain;
+        }
+        match self.symbols.key_modules.get(key) {
+            Some(m) => format!("{}.{plain}", kotlin_package(m)),
+            None => plain,
+        }
     }
 
     fn emit_type_args(&mut self, args: &[Type]) -> String {
@@ -5001,10 +5121,15 @@ impl<'p> Emitter<'p> {
     /// not among a module's generated imports and a `use` may sit in any
     /// module.
     fn handler_ctor_name(&mut self, name: &str, decl: &HandlerDecl) -> String {
+        // [type-identity] The handler the written name resolved to.
+        let key = self.symbols.key_or(decl, name).to_string();
         if !decl.platform {
+            if self.symbols.clashes(&key) {
+                return self.type_path(&key);
+            }
             return kt_ident(name);
         }
-        match self.symbols.handler_modules.get(name) {
+        match self.symbols.handler_modules.get(key.as_str()) {
             Some(module) => {
                 self.platform_hosts.insert((*module).clone());
                 format!("{}.{}", kotlin_package(module), platform_adapter_name(name))
@@ -5064,7 +5189,7 @@ impl<'p> Emitter<'p> {
                 return "TODO()".to_string();
             }
         };
-        let Some(decl) = self.symbols.handlers.get(handler_name.as_str()).copied() else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler_name)).copied() else {
             self.error(format!("unknown handler `{handler_name}` in `spawn`"));
             return "TODO()".to_string();
         };
@@ -5081,7 +5206,7 @@ impl<'p> Emitter<'p> {
         // dependencies, sendable state) and refused the `on` clause.
         let plain_faces = !decl.of.is_empty()
             && decl.of.iter().all(|of| {
-                type_base_name(of).is_some_and(|n| {
+                type_key_name(self.checked, of).is_some_and(|n| {
                     self.symbols
                         .effects
                         .get(n)
@@ -5259,7 +5384,7 @@ impl<'p> Emitter<'p> {
             _ => None,
         };
         if let Some((name, args)) = named {
-            if let Some(decl) = self.symbols.handlers.get(name.as_str()).copied() {
+            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name)).copied() {
                 let arg_code: Vec<String> =
                     args.iter().map(|a| self.emit_expr(a)).collect();
                 let ctor = self.handler_ctor_name(&name, decl);
@@ -5282,7 +5407,7 @@ impl<'p> Emitter<'p> {
         if self
             .symbols
             .effects
-            .get(base)
+            .get(self.rendered_key(base).as_str())
             .is_some_and(|e| !e.is_actor)
         {
             return addr_code;
@@ -5421,7 +5546,7 @@ impl<'p> Emitter<'p> {
         h.fns.iter().any(|f| f.is_send)
             && !h.of.is_empty()
             && h.of.iter().all(|of| {
-                type_base_name(of).is_some_and(|n| {
+                type_key_name(self.checked, of).is_some_and(|n| {
                     self.symbols.effects.get(n).is_some_and(|e| !e.is_actor)
                 })
             })
@@ -5445,7 +5570,7 @@ impl<'p> Emitter<'p> {
             _ => None,
         };
         if let Some((name, args)) = named {
-            if let Some(decl) = self.symbols.handlers.get(name.as_str()).copied() {
+            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name)).copied() {
                 let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
                 let ctor = self.handler_ctor_name(&name, decl);
                 let inner = format!("{ctor}({})", arg_code.join(", "));
@@ -5665,7 +5790,7 @@ impl<'p> Emitter<'p> {
             .get(&(self.file_idx, span))
             .cloned()
             .unwrap_or(handler_name);
-        let Some(decl) = self.symbols.handlers.get(handler_name.as_str()) else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler_name)) else {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
         };
@@ -7628,7 +7753,7 @@ impl<'p> Emitter<'p> {
     /// being emitted — the enclosing handler, since a mint is lexical.
     fn current_cont_type(&self) -> Option<String> {
         let name = self.current_handler.as_deref()?;
-        let h = self.symbols.handlers.get(name)?;
+        let h = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name))?;
         self.handler_cont_type(h)
     }
 
@@ -7643,7 +7768,7 @@ impl<'p> Emitter<'p> {
             self.error("internal: a self-send outside a handler member");
             return "TODO()".to_string();
         };
-        let Some(decl) = self.symbols.handlers.get(handler.as_str()).copied() else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler)).copied() else {
             self.error(format!("internal: no handler `{handler}` for a self-send"));
             return "TODO()".to_string();
         };
@@ -9902,6 +10027,17 @@ enum PlaceUnwrap {
 /// The base type name of an AST type, used to disambiguate overloads in
 /// unchecked contexts. `None` for shapes without a single base name
 /// (unions, tuples, fn types).
+/// [type-identity] [`type_base_name`] for a reference to a declaration:
+/// the key the written name resolved to.
+fn type_key_name<'a>(checked: &'a salvo_core::Checked, ty: &'a Type) -> Option<&'a str> {
+    match ty {
+        Type::Named { base, .. } => Some(checked.written_key(base)),
+        Type::Nullable { inner, .. } => type_key_name(checked, inner),
+        Type::QualifiedGroup { base, .. } => type_key_name(checked, base),
+        _ => type_base_name(ty),
+    }
+}
+
 fn type_base_name(ty: &Type) -> Option<&str> {
     match ty {
         Type::Named { base, .. } => Some(base.name.name.as_str()),
@@ -9990,6 +10126,13 @@ fn ty_is_concrete(ty: &Ty) -> bool {
     }
 }
 fn effect_param_name(effect_ty: &str) -> String {
+    // [type-identity] A clashing effect renders with its package; the
+    // variable is named after the effect alone.
+    let base_end = effect_ty.find('<').unwrap_or(effect_ty.len());
+    let effect_ty = match effect_ty[..base_end].rfind('.') {
+        Some(i) => &effect_ty[i + 1..],
+        None => effect_ty,
+    };
     let mut out = String::new();
     for c in effect_ty.chars() {
         match c {

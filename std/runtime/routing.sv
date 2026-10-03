@@ -53,28 +53,28 @@ platform fn wire_out(from: Long, to: Bytes, frame: Bytes) [] -> None => from, !t
 // ---- the frames [wire-format] (D4)
 
 // 0: a message for a hosted actor, encoded with its protocol's hash.
-struct RtMsgFrame { to: Long, actor: Long, bits: Long, from: Long, proto: Str, payload: Bytes }
+struct MsgFrame { to: Long, actor: Long, bits: Long, from: Long, proto: Str, payload: Bytes }
 // 1: an answer for a token minted on the node it goes to: an actor's
 // continuation (kind 0), a waiting frame (1) or an exported task (2).
-struct RtAnswerFrame { to: Long, kind: Int, id: Long, slot: Long, bits: Long, payload: Bytes }
+struct AnswerFrame { to: Long, kind: Int, id: Long, slot: Long, bits: Long, payload: Bytes }
 // 2: credits for a proxy of actor (host, actor, bits) on node [to].
-struct RtGrantFrame { to: Long, host: Long, actor: Long, bits: Long, n: Int }
+struct GrantFrame { to: Long, host: Long, actor: Long, bits: Long, n: Int }
 // 3: a new proxy asks for its first credits.
-struct RtOpenFrame { to: Long, actor: Long, bits: Long, from: Long }
+struct OpenFrame { to: Long, actor: Long, bits: Long, from: Long }
 // 4: a payload for the actor listening on [channel] at node [to] (0: the
 // receiving node itself, a HELLO's).
-struct RtControlFrame { to: Long, from: Long, channel: Str, payload: Bytes }
-type RtFrame = RtMsgFrame | RtAnswerFrame | RtGrantFrame | RtOpenFrame | RtControlFrame
+struct ControlFrame { to: Long, from: Long, channel: Str, payload: Bytes }
+type Frame = MsgFrame | AnswerFrame | GrantFrame | OpenFrame | ControlFrame
 
 // [addr-routable] The routable identity of an actor.
-export struct RtRemoteRef : Hashed<self> by auto {
+export struct RemoteRef : Hashed<self> by auto {
     node: Long,
     actor: Long,
     bits: Long
 }
 
 // [addr-routable] A reply token's wire form.
-export struct RtReplyParts {
+export struct ReplyParts {
     node: Long,
     kind: Int,
     id: Long,
@@ -82,56 +82,56 @@ export struct RtReplyParts {
     bits: Long
 }
 
-struct RtControlKey : Hashed<self> by auto {
+struct ControlKey : Hashed<self> by auto {
     node: Long,
     channel: Str
 }
 
 // A frame waiting for its route or its node's outbound hook.
-struct RtParked { from: Long, to: Long, frame: Bytes }
+struct Parked { from: Long, to: Long, frame: Bytes }
 // A frame ready to go, sent by [flush].
-struct RtStaged { from: Long, to: Bytes, frame: Bytes }
+struct Staged { from: Long, to: Bytes, frame: Bytes }
 
 // [addr-routable] A task whose token crossed the wire: its body waits here
 // for the answer.
-linear struct RtExportedTask { pool: Int, body: RtBody }
+linear struct ExportedTask { pool: Int, body: Body }
 
-fn drop_exported_task(t: RtExportedTask) [] -> None => !t {
+fn drop_exported_task(t: ExportedTask) [] -> None => !t {
     let {pool, body} = t
     drop_body(body)
 }
 
 // What importing an identity needs done outside the table.
-export struct RtFound { idx: Int }
-struct RtMakeProxy {}
-struct RtMakeDead {}
-type RtImport = RtFound | RtMakeProxy | RtMakeDead
+export struct Found { idx: Int }
+struct MakeProxy {}
+struct MakeDead {}
+type Import = Found | MakeProxy | MakeDead
 
-effect RtRouteTable {
+effect RouteTable {
     fn node_of_pool(pool: Int) -> Long => pool
     fn adopt_pool(pool: Int, node: Long) -> None => !pool, !node
     fn add_node() -> Long
     fn hosts(node: Long) -> Bool => node
-    fn identity_of(addr: Int, pool: Int) -> RtRemoteRef => addr, pool
-    fn find_import(r: RtRemoteRef, here: Long) -> RtImport => r, here
-    fn register_proxy(r: RtRemoteRef, idx: Int, here: Long) -> Int => !r, !idx, !here
+    fn identity_of(addr: Int, pool: Int) -> RemoteRef => addr, pool
+    fn find_import(r: RemoteRef, here: Long) -> Import => r, here
+    fn register_proxy(r: RemoteRef, idx: Int, here: Long) -> Int => !r, !idx, !here
     fn register_dead(idx: Int) -> Int => !idx
     fn is_proxy(addr: Int) -> Bool => addr
-    fn proxy_ref(addr: Int) -> RtRemoteRef? => addr
+    fn proxy_ref(addr: Int) -> RemoteRef? => addr
     // 1: a credit taken; 0: none, [me] recorded to be woken; -1: not a proxy.
     fn take_credit(addr: Int, me: Parker) -> Int => addr, !me
     fn stage(from: Long, to: Long, frame: Bytes) -> None => !from, !to, !frame
     fn grant(addr: Int, pool: Int, from: Long, n: Int) -> None => !addr, !pool, !from, !n
-    fn take_outbox() -> Mut List<RtStaged>
+    fn take_outbox() -> Mut List<Staged>
     fn add_route(node: Long, at: Bytes) -> None => !node, !at
     fn set_outbound(node: Long) -> None => !node
     fn has_outbound(node: Long) -> Bool => node
     fn accepts(to: Long, actor: Long, claimed: Long) -> Bool => to, actor, claimed
     fn received(idx: Int) -> None => !idx
-    fn credited(r: RtRemoteRef, to: Long, n: Int) -> Bool => !r, !to, !n
+    fn credited(r: RemoteRef, to: Long, n: Int) -> Bool => !r, !to, !n
     fn held(idx: Int) -> Int => idx
-    fn put_task(key: Long, t: RtExportedTask) -> None => !key, !t
-    fn take_task(key: Long) -> RtExportedTask? => key
+    fn put_task(key: Long, t: ExportedTask) -> None => !key, !t
+    fn take_task(key: Long) -> ExportedTask? => key
     fn watch_channel(node: Long, channel: Str, sink: Int) -> None => !node, !channel, !sink
     fn channel_sink(node: Long, channel: Str) -> Int => node, channel
     fn set_protocols(table: List<(Str, Str)>) -> None => !table
@@ -142,26 +142,26 @@ effect RtRouteTable {
     fn credits_of(addr: Int) -> Int? => addr
 }
 
-handler RtRoutes() of RtRouteTable {
+handler Routes() of RouteTable {
     node_id: Long = 0
     hosted: Mut Set<Long> = mut_set_of()
     pool_node: Mut Map<Int, Long> = mut_map_of()
     bits: Mut Map<Int, Long> = mut_map_of()
-    remote: Mut Map<Int, RtRemoteRef> = mut_map_of()
-    proxies: Mut Map<RtRemoteRef, Int> = mut_map_of()
+    remote: Mut Map<Int, RemoteRef> = mut_map_of()
+    proxies: Mut Map<RemoteRef, Int> = mut_map_of()
     credits: Mut Map<Int, Int> = mut_map_of()
     // For a hosted actor, the credits remote senders still hold; for a
     // proxy, the messages in flight to it.
     held_n: Mut Map<Int, Int> = mut_map_of()
     routes: Mut Map<Long, Bytes> = mut_map_of()
     outbound: Mut Set<Long> = mut_set_of()
-    parked: Mut List<RtParked> = mut_list_of()
-    outbox: Mut List<RtStaged> = mut_list_of()
+    parked: Mut List<Parked> = mut_list_of()
+    outbox: Mut List<Staged> = mut_list_of()
     // Exported tasks and their keys, index-aligned: a map of linear values
     // does not build on Rust yet (ROADMAP 0c).
     task_keys: Mut List<Long> = mut_list_of()
-    tasks: Mut List<RtExportedTask> = mut_list_of()
-    controls: Mut Map<RtControlKey, Int> = mut_map_of()
+    tasks: Mut List<ExportedTask> = mut_list_of()
+    controls: Mut Map<ControlKey, Int> = mut_map_of()
     local: List<(Str, Str)> = []
     peers: Mut Map<Long, List<(Str, Str)>> = mut_map_of()
     dead_entry: Int = -1
@@ -191,32 +191,32 @@ handler RtRoutes() of RtRouteTable {
         return contains(hosted, node)
     }
 
-    fn identity_of(addr: Int, pool: Int) -> RtRemoteRef => addr, pool {
+    fn identity_of(addr: Int, pool: Int) -> RemoteRef => addr, pool {
         return identity_in(remote, bits, pool_node, node_id, addr, pool)
     }
 
-    fn find_import(r: RtRemoteRef, here: Long) -> RtImport => r, here {
+    fn find_import(r: RemoteRef, here: Long) -> Import => r, here {
         if r.node == here {
             let idx = to_int(r.actor)
             let b = get(bits, idx)
             if !contains_key(remote, idx) && b is Long known {
                 if known == r.bits {
-                    return RtFound { idx: idx }
+                    return Found { idx: idx }
                 }
             }
             if dead_entry >= 0 {
-                return RtFound { idx: copy(dead_entry) }
+                return Found { idx: copy(dead_entry) }
             }
-            return RtMakeDead {}
+            return MakeDead {}
         }
         let p = get(proxies, r)
         if p is Int idx {
-            return RtFound { idx: copy(idx) }
+            return Found { idx: copy(idx) }
         }
-        return RtMakeProxy {}
+        return MakeProxy {}
     }
 
-    fn register_proxy(r: RtRemoteRef, idx: Int, here: Long) -> Int => !r, !idx, !here {
+    fn register_proxy(r: RemoteRef, idx: Int, here: Long) -> Int => !r, !idx, !here {
         let existing = get(proxies, r)
         if existing is Int e {
             // Another thread imported it meanwhile; the spare entry is unused.
@@ -225,7 +225,7 @@ handler RtRoutes() of RtRouteTable {
         put(remote, copy(idx), copy(r))
         put(proxies, copy(r), copy(idx))
         put(credits, copy(idx), 0)
-        let frame = encode<RtFrame>(RtOpenFrame { to: copy(r.node), actor: copy(r.actor), bits: copy(r.bits), from: copy(here) })
+        let frame = encode<Frame>(OpenFrame { to: copy(r.node), actor: copy(r.actor), bits: copy(r.bits), from: copy(here) })
         stage_in(routes, outbound, outbox, parked, here, copy(r.node), frame)
         return idx
     }
@@ -242,9 +242,9 @@ handler RtRoutes() of RtRouteTable {
         return contains_key(remote, addr)
     }
 
-    fn proxy_ref(addr: Int) -> RtRemoteRef? => addr {
+    fn proxy_ref(addr: Int) -> RemoteRef? => addr {
         let r = get(remote, addr)
-        if r is RtRemoteRef found {
+        if r is RemoteRef found {
             return copy(found)
         }
         return None
@@ -271,12 +271,12 @@ handler RtRoutes() of RtRouteTable {
     fn grant(addr: Int, pool: Int, from: Long, n: Int) -> None => !addr, !pool, !from, !n {
         put(held_n, copy(addr), held_in(held_n, copy(addr)) + n)
         let me = identity_in(remote, bits, pool_node, node_id, copy(addr), pool)
-        let frame = encode<RtFrame>(RtGrantFrame { to: copy(from), host: copy(me.node), actor: copy(me.actor), bits: copy(me.bits), n: n })
+        let frame = encode<Frame>(GrantFrame { to: copy(from), host: copy(me.node), actor: copy(me.actor), bits: copy(me.bits), n: n })
         stage_in(routes, outbound, outbox, parked, copy(me.node), from, frame)
     }
 
-    fn take_outbox() -> Mut List<RtStaged> {
-        let out: Mut List<RtStaged> = mut_list_of()
+    fn take_outbox() -> Mut List<Staged> {
+        let out: Mut List<Staged> = mut_list_of()
         while size(outbox) > 0 {
             add(out, remove_at(outbox, 0)!)
         }
@@ -319,7 +319,7 @@ handler RtRoutes() of RtRouteTable {
         }
     }
 
-    fn credited(r: RtRemoteRef, to: Long, n: Int) -> Bool => !r, !to, !n {
+    fn credited(r: RemoteRef, to: Long, n: Int) -> Bool => !r, !to, !n {
         if !contains(hosted, to) {
             return false
         }
@@ -347,12 +347,12 @@ handler RtRoutes() of RtRouteTable {
         return held_in(held_n, idx)
     }
 
-    fn put_task(key: Long, t: RtExportedTask) -> None => !key, !t {
+    fn put_task(key: Long, t: ExportedTask) -> None => !key, !t {
         add(task_keys, key)
         add(tasks, t)
     }
 
-    fn take_task(key: Long) -> RtExportedTask? => key {
+    fn take_task(key: Long) -> ExportedTask? => key {
         let i = 0
         while i < size(task_keys) {
             if get(task_keys, i)! == key {
@@ -365,11 +365,11 @@ handler RtRoutes() of RtRouteTable {
     }
 
     fn watch_channel(node: Long, channel: Str, sink: Int) -> None => !node, !channel, !sink {
-        put(controls, RtControlKey { node: node, channel: channel }, sink)
+        put(controls, ControlKey { node: node, channel: channel }, sink)
     }
 
     fn channel_sink(node: Long, channel: Str) -> Int => node, channel {
-        let s = get(controls, RtControlKey { node: copy(node), channel: copy(channel) })
+        let s = get(controls, ControlKey { node: copy(node), channel: copy(channel) })
         if s is Int sink {
             return copy(sink)
         }
@@ -407,7 +407,7 @@ handler RtRoutes() of RtRouteTable {
         let gone: Mut List<Int> = mut_list_of()
         for idx in keys(remote) {
             let r = get(remote, idx)
-            if r is RtRemoteRef found {
+            if r is RemoteRef found {
                 if found.node == node {
                     add(gone, copy(idx))
                 }
@@ -448,20 +448,20 @@ fn held_in(held_n: Map<Int, Int>, idx: Int) [] -> Int => held_n, idx {
 // [addr-routable] The identity of local index [addr] on [pool]: its bits
 // minted the first time it is asked for, which is the first time the addr
 // leaves its node.
-fn identity_in(remote: Map<Int, RtRemoteRef>, bits: Mut Map<Int, Long>, pool_node: Map<Int, Long>, node_id: Long, addr: Int, pool: Int) [] -> RtRemoteRef
+fn identity_in(remote: Map<Int, RemoteRef>, bits: Mut Map<Int, Long>, pool_node: Map<Int, Long>, node_id: Long, addr: Int, pool: Int) [] -> RemoteRef
 => remote, bits: Mut, pool_node, node_id, addr, pool {
     let r = get(remote, addr)
-    if r is RtRemoteRef found {
+    if r is RemoteRef found {
         return copy(found)
     }
     let n = node_in(pool_node, node_id, pool)
     let b = get(bits, addr)
     if b is Long known {
-        return RtRemoteRef { node: n, actor: to_long(addr), bits: copy(known) }
+        return RemoteRef { node: n, actor: to_long(addr), bits: copy(known) }
     }
     let minted = identity_bits()
     put(bits, copy(addr), copy(minted))
-    return RtRemoteRef { node: n, actor: to_long(addr), bits: minted }
+    return RemoteRef { node: n, actor: to_long(addr), bits: minted }
 }
 
 // Senders waiting for credit look again: a grant arrived, or a node left.
@@ -473,22 +473,22 @@ fn wake_senders(waiters: Mut List<Parker>) [] -> None => waiters: Mut {
 
 // Stages [frame] from node [from] for node [to]: ready to send when [to] has
 // a route and [from] an outbound hook, parked until then otherwise.
-fn stage_in(routes: Map<Long, Bytes>, outbound: Set<Long>, outbox: Mut List<RtStaged>, parked: Mut List<RtParked>, from: Long, to: Long, frame: Bytes) [] -> None
+fn stage_in(routes: Map<Long, Bytes>, outbound: Set<Long>, outbox: Mut List<Staged>, parked: Mut List<Parked>, from: Long, to: Long, frame: Bytes) [] -> None
 => routes, outbound, outbox: Mut, parked: Mut, !from, !to, !frame {
     let ep = get(routes, to)
     if ep is Bytes at {
         if contains(outbound, from) {
-            add(outbox, RtStaged { from: from, to: copy(at), frame: frame })
+            add(outbox, Staged { from: from, to: copy(at), frame: frame })
             return
         }
     }
-    add(parked, RtParked { from: from, to: to, frame: frame })
+    add(parked, Parked { from: from, to: to, frame: frame })
 }
 
 // Frames parked for a route or an outbound hook try again.
-fn restage(routes: Map<Long, Bytes>, outbound: Set<Long>, outbox: Mut List<RtStaged>, parked: Mut List<RtParked>) [] -> None
+fn restage(routes: Map<Long, Bytes>, outbound: Set<Long>, outbox: Mut List<Staged>, parked: Mut List<Parked>) [] -> None
 => routes, outbound, outbox: Mut, parked: Mut {
-    let waiting: Mut List<RtParked> = mut_list_of()
+    let waiting: Mut List<Parked> = mut_list_of()
     while size(parked) > 0 {
         add(waiting, remove_at(parked, 0)!)
     }
@@ -497,7 +497,7 @@ fn restage(routes: Map<Long, Bytes>, outbound: Set<Long>, outbox: Mut List<RtSta
     }
 }
 
-use RtRoutes()
+use Routes()
 
 // [addr-routable] A fresh node identity: random and non-negative, since the
 // core marks a local sender as -1.
@@ -534,7 +534,7 @@ export fn pool_at(node: Long, n: Int) [] -> Int => !node, n {
 }
 
 // [addr-routable] The routable identity of local index [addr].
-export fn identity(addr: Int) [] -> RtRemoteRef => addr {
+export fn identity(addr: Int) [] -> RemoteRef => addr {
     return identity_of(copy(addr), actor_pool(copy(addr)))
 }
 
@@ -555,14 +555,14 @@ export fn same_actor(a: Int, b: Int) [] -> Bool => a, b {
 // answers the one shared dead entry), a proxy otherwise — made once, with an
 // OPEN frame asking the host for credits.
 export fn import_addr(node: Long, actor: Long, bits: Long) [] -> Int => !node, !actor, !bits {
-    let r = RtRemoteRef { node: node, actor: actor, bits: bits }
+    let r = RemoteRef { node: node, actor: actor, bits: bits }
     let here = here_node()
     let found = find_import(copy(r), copy(here))
-    if found is RtFound f {
+    if found is Found f {
         return copy(f.idx)
     }
     let idx = spawn_inert()
-    if found is RtMakeDead {
+    if found is MakeDead {
         kill_actor(copy(idx), "unknown identity")
         return register_dead(idx)
     }
@@ -591,7 +591,7 @@ export fn send_remote(addr: Int, proto: Str, payload: Bytes) [] -> None => !addr
         let got = take_credit(copy(addr), this_parker())
         if got == 1 {
             let from = here_node()
-            let frame = encode<RtFrame>(RtMsgFrame { to: copy(r.node), actor: copy(r.actor), bits: copy(r.bits), from: copy(from), proto: proto, payload: payload })
+            let frame = encode<Frame>(MsgFrame { to: copy(r.node), actor: copy(r.actor), bits: copy(r.bits), from: copy(from), proto: proto, payload: payload })
             stage(from, copy(r.node), frame)
             flush()
             return
@@ -608,31 +608,31 @@ export fn send_remote(addr: Int, proto: Str, payload: Bytes) [] -> None => !addr
 
 // [addr-routable] [wire-format] Answers a token minted elsewhere: a REPLY
 // frame back to its node.
-export fn answer_remote(t: RtReplyParts, payload: Bytes) [] -> None => !t, !payload {
+export fn answer_remote(t: ReplyParts, payload: Bytes) [] -> None => !t, !payload {
     let from = here_node()
-    let frame = encode<RtFrame>(RtAnswerFrame { to: copy(t.node), kind: copy(t.kind), id: copy(t.id), slot: copy(t.slot), bits: copy(t.bits), payload: payload })
+    let frame = encode<Frame>(AnswerFrame { to: copy(t.node), kind: copy(t.kind), id: copy(t.id), slot: copy(t.slot), bits: copy(t.bits), payload: payload })
     stage(from, copy(t.node), frame)
     flush()
 }
 
 // [addr-routable] A reply token's wire form. Exporting a task moves its body
 // here until its answer returns, keyed by its slot.
-export fn export_reply(e: RtExported) [] -> RtReplyParts => !e {
+export fn export_reply(e: Exported) [] -> ReplyParts => !e {
     let {kind, id, slot, body} = e
     if kind == 2 {
-        if body is RtBody b {
-            put_task(copy(slot), RtExportedTask { pool: copy(id), body: b })
+        if body is Body b {
+            put_task(copy(slot), ExportedTask { pool: copy(id), body: b })
         }
-        return RtReplyParts { node: node_of_pool(copy(id)), kind: 2, id: copy(slot), slot: slot, bits: 0 }
+        return ReplyParts { node: node_of_pool(copy(id)), kind: 2, id: copy(slot), slot: slot, bits: 0 }
     }
-    if body is RtBody b {
+    if body is Body b {
         drop_body(b)
     }
     if kind == 1 {
-        return RtReplyParts { node: node_of_pool(waiter_pool(copy(id))), kind: 1, id: to_long(id), slot: slot, bits: 0 }
+        return ReplyParts { node: node_of_pool(waiter_pool(copy(id))), kind: 1, id: to_long(id), slot: slot, bits: 0 }
     }
     let me = identity(id)
-    return RtReplyParts { node: copy(me.node), kind: 0, id: copy(me.actor), slot: slot, bits: copy(me.bits) }
+    return ReplyParts { node: copy(me.node), kind: 0, id: copy(me.actor), slot: slot, bits: copy(me.bits) }
 }
 
 // [remote-backpressure] The core's call when a message that came from node
@@ -693,7 +693,7 @@ export fn watch_control(channel: Str, sink: Int) [] -> None => !channel, !sink {
 // node to node [to].
 export fn send_control(to: Long, channel: Str, payload: Bytes) [] -> None => !to, !channel, !payload {
     let from = here_node()
-    let frame = encode<RtFrame>(RtControlFrame { to: copy(to), from: copy(from), channel: channel, payload: payload })
+    let frame = encode<Frame>(ControlFrame { to: copy(to), from: copy(from), channel: channel, payload: payload })
     stage(from, to, frame)
     flush()
 }
@@ -701,7 +701,7 @@ export fn send_control(to: Long, channel: Str, payload: Bytes) [] -> None => !to
 // [node-group] A CONTROL frame for whichever node receives it: a HELLO's,
 // handed to the transport directly, since the peer has no route yet.
 export fn control_frame(channel: Str, payload: Bytes) [] -> Bytes => !channel, !payload {
-    return encode<RtFrame>(RtControlFrame { to: 0, from: here_node(), channel: channel, payload: payload })
+    return encode<Frame>(ControlFrame { to: 0, from: here_node(), channel: channel, payload: payload })
 }
 
 // [node-group] [node-exit] Node [node] has left: its route and protocol
@@ -739,8 +739,8 @@ export fn peer_protocol(node: Long, protocol: Str) [] -> Str? => node, protocol 
 // decoded with no lock held: an `Addr` or a `Reply` in one asks this module
 // for its identity.
 export fn deliver(data: Bytes) [] -> Bool => data {
-    let f = decode<RtFrame>(data)
-    if f is RtMsgFrame m {
+    let f = decode<Frame>(data)
+    if f is MsgFrame m {
         if !accepts(copy(m.to), copy(m.actor), copy(m.bits)) {
             return false
         }
@@ -753,13 +753,13 @@ export fn deliver(data: Bytes) [] -> Bool => data {
         }
         return false
     }
-    if f is RtAnswerFrame a {
+    if f is AnswerFrame a {
         return deliver_answer(a)
     }
-    if f is RtGrantFrame g {
-        return credited(RtRemoteRef { node: copy(g.host), actor: copy(g.actor), bits: copy(g.bits) }, copy(g.to), copy(g.n))
+    if f is GrantFrame g {
+        return credited(RemoteRef { node: copy(g.host), actor: copy(g.actor), bits: copy(g.bits) }, copy(g.to), copy(g.n))
     }
-    if f is RtOpenFrame o {
+    if f is OpenFrame o {
         if !accepts(copy(o.to), copy(o.actor), copy(o.bits)) {
             return false
         }
@@ -775,7 +775,7 @@ export fn deliver(data: Bytes) [] -> Bool => data {
         flush()
         return true
     }
-    if f is RtControlFrame c {
+    if f is ControlFrame c {
         let node = copy(c.to)
         if node == 0 {
             node = here_node()
@@ -797,7 +797,7 @@ export fn deliver(data: Bytes) [] -> Bool => data {
     return false
 }
 
-fn deliver_answer(a: RtAnswerFrame) [] -> Bool => a {
+fn deliver_answer(a: AnswerFrame) [] -> Bool => a {
     if !hosts(copy(a.to)) {
         return false
     }
@@ -818,7 +818,7 @@ fn deliver_answer(a: RtAnswerFrame) [] -> Bool => a {
         return false
     }
     let t = take_task(copy(a.id))
-    if t is RtExportedTask task {
+    if t is ExportedTask task {
         let v = decode_task_answer(copy(a.id), copy(a.payload))
         let {pool, body} = task
         if v is Dyn value {

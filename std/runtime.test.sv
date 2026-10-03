@@ -107,7 +107,7 @@ test "an actor answers a token, and a waiting frame receives it" {
     let pool = new_pool_of(1, -1)
     let sum = 0
     let counter = spawn_body(pool, 4, body_of((kind, slot, msg) -> {
-        let t: RtToken = unerase(msg)
+        let t: Token = unerase(msg)
         sum = sum + 10
         answer(t, erase(copy(sum)))
     }))
@@ -127,7 +127,7 @@ test "an actor answers a token, and a waiting frame receives it" {
 // own: it runs while `main` waits, on `main`'s thread.
 test "an actor on the main pool runs while main waits" {
     let echo = spawn_body(main_pool(), 2, body_of((kind, slot, msg) -> {
-        let t: RtToken = unerase(msg)
+        let t: Token = unerase(msg)
         answer(t, erase(here_pool() * 100 + 7))
     }))
     let w = waiter()
@@ -140,7 +140,7 @@ test "an actor on the main pool runs while main waits" {
 // [task-mint] A task's answer schedules its body on the pool it was minted
 // for — here `main`'s, served by the wait. The answer carries the token the
 // task answers in turn.
-linear struct Req { n: Int, out: RtToken }
+linear struct Req { n: Int, out: Token }
 
 fn finish_req(r: Req) [] -> None => !r {
     let {n, out} = r
@@ -161,7 +161,7 @@ test "a task runs when its token is answered" {
 
 // [actor-replyto] The gate: while a gated continuation is outstanding, the
 // actor serves only the awaited answer — a message that arrived first waits.
-linear struct GateMsg { code: Int, me: Int, peer: Int, out: RtToken? }
+linear struct GateMsg { code: Int, me: Int, peer: Int, out: Token? }
 
 fn gate_msg(code: Int, me: Int, peer: Int) [] -> GateMsg => !code, !me, !peer {
     return GateMsg { code: code, me: me, peer: peer, out: None }
@@ -169,7 +169,7 @@ fn gate_msg(code: Int, me: Int, peer: Int) [] -> GateMsg => !code, !me, !peer {
 
 fn drop_gate_msg(m: GateMsg) [] -> None => !m {
     let {code, me, peer, out} = m
-    if out is RtToken t {
+    if out is Token t {
         answer(t, erase(""))
     }
 }
@@ -177,7 +177,7 @@ fn drop_gate_msg(m: GateMsg) [] -> None => !m {
 test "a gated actor serves its awaited answer before older messages" {
     let pool = new_pool_of(2, -1)
     let slow = spawn_body(copy(pool), 2, body_of((kind, slot, msg) -> {
-        let t: RtToken = unerase(msg)
+        let t: Token = unerase(msg)
         park_nanos(this_parker(), 50000000)
         answer(t, erase(1))
     }))
@@ -196,7 +196,7 @@ test "a gated actor serves its awaited answer before older messages" {
                 drop_gate_msg(m)
             } else {
                 let {code, me, peer, out} = m
-                if out is RtToken t {
+                if out is Token t {
                     answer(t, erase(to_str(log)))
                 }
             }

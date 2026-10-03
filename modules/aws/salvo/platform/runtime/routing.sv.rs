@@ -17,11 +17,11 @@ use crate::seq::*;
 use crate::unions::*;
 
 /// [mod-use] The module's `use` #0, bound on first use.
-fn __module_use_0() -> &'static crate::runtime_routing::RtRouteTable {
-    static CELL: std::sync::OnceLock<crate::runtime_routing::RtRouteTable> = std::sync::OnceLock::new();
+fn __module_use_0() -> &'static crate::runtime_routing::RouteTable {
+    static CELL: std::sync::OnceLock<crate::runtime_routing::RouteTable> = std::sync::OnceLock::new();
     CELL.get_or_init(|| {
-            let rt_route_table = crate::runtime_routing::RtRouteTable::locked({ let mut __h = RtRoutes::new(); __h.init(); __h });
-        rt_route_table
+            let route_table = crate::runtime_routing::RouteTable::locked({ let mut __h = Routes::new(); __h.init(); __h });
+        route_table
     })
 }
 
@@ -50,7 +50,7 @@ pub fn wire_out_platform(from: i64, to: Vec<u8>, frame: Vec<u8>) {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RtMsgFrame {
+pub struct MsgFrame {
     pub to: i64,
     pub actor: i64,
     pub bits: i64,
@@ -59,7 +59,7 @@ pub struct RtMsgFrame {
     pub payload: Vec<u8>,
 }
 
-impl crate::wire::__Wire for RtMsgFrame {
+impl crate::wire::__Wire for MsgFrame {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.to, out);
         crate::wire::__Wire::__enc(&self.actor, out);
@@ -81,7 +81,7 @@ impl crate::wire::__Wire for RtMsgFrame {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RtAnswerFrame {
+pub struct AnswerFrame {
     pub to: i64,
     pub kind: i32,
     pub id: i64,
@@ -90,7 +90,7 @@ pub struct RtAnswerFrame {
     pub payload: Vec<u8>,
 }
 
-impl crate::wire::__Wire for RtAnswerFrame {
+impl crate::wire::__Wire for AnswerFrame {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.to, out);
         crate::wire::__Wire::__enc(&self.kind, out);
@@ -112,7 +112,7 @@ impl crate::wire::__Wire for RtAnswerFrame {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RtGrantFrame {
+pub struct GrantFrame {
     pub to: i64,
     pub host: i64,
     pub actor: i64,
@@ -120,7 +120,7 @@ pub struct RtGrantFrame {
     pub n: i32,
 }
 
-impl crate::wire::__Wire for RtGrantFrame {
+impl crate::wire::__Wire for GrantFrame {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.to, out);
         crate::wire::__Wire::__enc(&self.host, out);
@@ -140,14 +140,14 @@ impl crate::wire::__Wire for RtGrantFrame {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RtOpenFrame {
+pub struct OpenFrame {
     pub to: i64,
     pub actor: i64,
     pub bits: i64,
     pub from: i64,
 }
 
-impl crate::wire::__Wire for RtOpenFrame {
+impl crate::wire::__Wire for OpenFrame {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.to, out);
         crate::wire::__Wire::__enc(&self.actor, out);
@@ -165,14 +165,14 @@ impl crate::wire::__Wire for RtOpenFrame {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RtControlFrame {
+pub struct ControlFrame {
     pub to: i64,
     pub from: i64,
     pub channel: String,
     pub payload: Vec<u8>,
 }
 
-impl crate::wire::__Wire for RtControlFrame {
+impl crate::wire::__Wire for ControlFrame {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.to, out);
         crate::wire::__Wire::__enc(&self.from, out);
@@ -190,13 +190,13 @@ impl crate::wire::__Wire for RtControlFrame {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RtRemoteRef {
+pub struct RemoteRef {
     pub node: i64,
     pub actor: i64,
     pub bits: i64,
 }
 
-impl crate::wire::__Wire for RtRemoteRef {
+impl crate::wire::__Wire for RemoteRef {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.node, out);
         crate::wire::__Wire::__enc(&self.actor, out);
@@ -212,7 +212,7 @@ impl crate::wire::__Wire for RtRemoteRef {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RtReplyParts {
+pub struct ReplyParts {
     pub node: i64,
     pub kind: i32,
     pub id: i64,
@@ -220,7 +220,7 @@ pub struct RtReplyParts {
     pub bits: i64,
 }
 
-impl crate::wire::__Wire for RtReplyParts {
+impl crate::wire::__Wire for ReplyParts {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.node, out);
         crate::wire::__Wire::__enc(&self.kind, out);
@@ -240,12 +240,12 @@ impl crate::wire::__Wire for RtReplyParts {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RtControlKey {
+pub struct ControlKey {
     pub node: i64,
     pub channel: String,
 }
 
-impl crate::wire::__Wire for RtControlKey {
+impl crate::wire::__Wire for ControlKey {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.node, out);
         crate::wire::__Wire::__enc(&self.channel, out);
@@ -259,13 +259,13 @@ impl crate::wire::__Wire for RtControlKey {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RtParked {
+pub struct Parked {
     pub from: i64,
     pub to: i64,
     pub frame: Vec<u8>,
 }
 
-impl crate::wire::__Wire for RtParked {
+impl crate::wire::__Wire for Parked {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.from, out);
         crate::wire::__Wire::__enc(&self.to, out);
@@ -281,13 +281,13 @@ impl crate::wire::__Wire for RtParked {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RtStaged {
+pub struct Staged {
     pub from: i64,
     pub to: Vec<u8>,
     pub frame: Vec<u8>,
 }
 
-impl crate::wire::__Wire for RtStaged {
+impl crate::wire::__Wire for Staged {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.from, out);
         crate::wire::__Wire::__enc(&self.to, out);
@@ -303,21 +303,21 @@ impl crate::wire::__Wire for RtStaged {
 }
 
 
-pub struct RtExportedTask {
+pub struct ExportedTask {
     pub pool: i32,
-    pub body: RtBody,
+    pub body: Body,
 }
 
-impl std::fmt::Debug for RtExportedTask {
+impl std::fmt::Debug for ExportedTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RtExportedTask")
+        f.debug_struct("ExportedTask")
             .field("pool", &self.pool)
             .field("body", &"<fn>")
             .finish()
     }
 }
 
-pub fn drop_exported_task(t: RtExportedTask) {
+pub fn drop_exported_task(t: ExportedTask) {
     let __destructured1 = t;
     let mut pool = __destructured1.pool;
     let mut body = __destructured1.body;
@@ -325,11 +325,11 @@ pub fn drop_exported_task(t: RtExportedTask) {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RtFound {
+pub struct Found {
     pub idx: i32,
 }
 
-impl crate::wire::__Wire for RtFound {
+impl crate::wire::__Wire for Found {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.idx, out);
     }
@@ -341,10 +341,10 @@ impl crate::wire::__Wire for RtFound {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RtMakeProxy {
+pub struct MakeProxy {
 }
 
-impl crate::wire::__Wire for RtMakeProxy {
+impl crate::wire::__Wire for MakeProxy {
     fn __enc(&self, out: &mut Vec<u8>) {
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
@@ -354,10 +354,10 @@ impl crate::wire::__Wire for RtMakeProxy {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RtMakeDead {
+pub struct MakeDead {
 }
 
-impl crate::wire::__Wire for RtMakeDead {
+impl crate::wire::__Wire for MakeDead {
     fn __enc(&self, out: &mut Vec<u8>) {
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
@@ -366,30 +366,30 @@ impl crate::wire::__Wire for RtMakeDead {
     }
 }
 
-pub trait __Stateless_RtRouteTable: Send + Sync {
+pub trait __Stateless_RouteTable: Send + Sync {
     fn node_of_pool(&self, pool: i32) -> i64;
     fn adopt_pool(&self, pool: i32, node: i64);
     fn add_node(&self) -> i64;
     fn hosts(&self, node: i64) -> bool;
-    fn identity_of(&self, addr: i32, pool: i32) -> RtRemoteRef;
-    fn find_import(&self, r: &RtRemoteRef, here: i64) -> Union3<RtFound, RtMakeProxy, RtMakeDead>;
-    fn register_proxy(&self, r: RtRemoteRef, idx: i32, here: i64) -> i32;
+    fn identity_of(&self, addr: i32, pool: i32) -> RemoteRef;
+    fn find_import(&self, r: &RemoteRef, here: i64) -> Union3<Found, MakeProxy, MakeDead>;
+    fn register_proxy(&self, r: RemoteRef, idx: i32, here: i64) -> i32;
     fn register_dead(&self, idx: i32) -> i32;
     fn is_proxy(&self, addr: i32) -> bool;
-    fn proxy_ref(&self, addr: i32) -> Option<RtRemoteRef>;
+    fn proxy_ref(&self, addr: i32) -> Option<RemoteRef>;
     fn take_credit(&self, addr: i32, me: Parker) -> i32;
     fn stage(&self, from: i64, to: i64, frame: Vec<u8>);
     fn grant(&self, addr: i32, pool: i32, from: i64, n: i32);
-    fn take_outbox(&self) -> Vec<RtStaged>;
+    fn take_outbox(&self) -> Vec<Staged>;
     fn add_route(&self, node: i64, at: Vec<u8>);
     fn set_outbound(&self, node: i64);
     fn has_outbound(&self, node: i64) -> bool;
     fn accepts(&self, to: i64, actor: i64, claimed: i64) -> bool;
     fn received(&self, idx: i32);
-    fn credited(&self, r: RtRemoteRef, to: i64, n: i32) -> bool;
+    fn credited(&self, r: RemoteRef, to: i64, n: i32) -> bool;
     fn held(&self, idx: i32) -> i32;
-    fn put_task(&self, key: i64, t: RtExportedTask);
-    fn take_task(&self, key: i64) -> Option<RtExportedTask>;
+    fn put_task(&self, key: i64, t: ExportedTask);
+    fn take_task(&self, key: i64) -> Option<ExportedTask>;
     fn watch_channel(&self, node: i64, channel: String, sink: i32);
     fn channel_sink(&self, node: i64, channel: &String) -> i32;
     fn set_protocols(&self, table: Vec<(String, String)>);
@@ -400,30 +400,30 @@ pub trait __Stateless_RtRouteTable: Send + Sync {
     fn credits_of(&self, addr: i32) -> Option<i32>;
 }
 
-pub trait __Stateful_RtRouteTable: Send {
+pub trait __Stateful_RouteTable: Send {
     fn node_of_pool(&mut self, pool: i32) -> i64;
     fn adopt_pool(&mut self, pool: i32, node: i64);
     fn add_node(&mut self) -> i64;
     fn hosts(&mut self, node: i64) -> bool;
-    fn identity_of(&mut self, addr: i32, pool: i32) -> RtRemoteRef;
-    fn find_import(&mut self, r: &RtRemoteRef, here: i64) -> Union3<RtFound, RtMakeProxy, RtMakeDead>;
-    fn register_proxy(&mut self, r: RtRemoteRef, idx: i32, here: i64) -> i32;
+    fn identity_of(&mut self, addr: i32, pool: i32) -> RemoteRef;
+    fn find_import(&mut self, r: &RemoteRef, here: i64) -> Union3<Found, MakeProxy, MakeDead>;
+    fn register_proxy(&mut self, r: RemoteRef, idx: i32, here: i64) -> i32;
     fn register_dead(&mut self, idx: i32) -> i32;
     fn is_proxy(&mut self, addr: i32) -> bool;
-    fn proxy_ref(&mut self, addr: i32) -> Option<RtRemoteRef>;
+    fn proxy_ref(&mut self, addr: i32) -> Option<RemoteRef>;
     fn take_credit(&mut self, addr: i32, me: Parker) -> i32;
     fn stage(&mut self, from: i64, to: i64, frame: Vec<u8>);
     fn grant(&mut self, addr: i32, pool: i32, from: i64, n: i32);
-    fn take_outbox(&mut self) -> Vec<RtStaged>;
+    fn take_outbox(&mut self) -> Vec<Staged>;
     fn add_route(&mut self, node: i64, at: Vec<u8>);
     fn set_outbound(&mut self, node: i64);
     fn has_outbound(&mut self, node: i64) -> bool;
     fn accepts(&mut self, to: i64, actor: i64, claimed: i64) -> bool;
     fn received(&mut self, idx: i32);
-    fn credited(&mut self, r: RtRemoteRef, to: i64, n: i32) -> bool;
+    fn credited(&mut self, r: RemoteRef, to: i64, n: i32) -> bool;
     fn held(&mut self, idx: i32) -> i32;
-    fn put_task(&mut self, key: i64, t: RtExportedTask);
-    fn take_task(&mut self, key: i64) -> Option<RtExportedTask>;
+    fn put_task(&mut self, key: i64, t: ExportedTask);
+    fn take_task(&mut self, key: i64) -> Option<ExportedTask>;
     fn watch_channel(&mut self, node: i64, channel: String, sink: i32);
     fn channel_sink(&mut self, node: i64, channel: &String) -> i32;
     fn set_protocols(&mut self, table: Vec<(String, String)>);
@@ -434,248 +434,248 @@ pub trait __Stateful_RtRouteTable: Send {
     fn credits_of(&mut self, addr: i32) -> Option<i32>;
 }
 
-pub struct RtRouteTable {
-    inner: __Inner_RtRouteTable,
+pub struct RouteTable {
+    inner: __Inner_RouteTable,
 }
 
-pub enum __Inner_RtRouteTable {
-    Shared(std::sync::Arc<dyn __Stateless_RtRouteTable>),
-    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_RtRouteTable>>),
+pub enum __Inner_RouteTable {
+    Shared(std::sync::Arc<dyn __Stateless_RouteTable>),
+    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_RouteTable>>),
 }
 
-impl Clone for RtRouteTable {
+impl Clone for RouteTable {
     fn clone(&self) -> Self {
         Self { inner: match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => __Inner_RtRouteTable::Shared(h.clone()),
-            __Inner_RtRouteTable::Locked(h) => __Inner_RtRouteTable::Locked(h.clone()),
+            __Inner_RouteTable::Shared(h) => __Inner_RouteTable::Shared(h.clone()),
+            __Inner_RouteTable::Locked(h) => __Inner_RouteTable::Locked(h.clone()),
         } }
     }
 }
 
-impl RtRouteTable {
-    pub fn shared<__H: __Stateless_RtRouteTable + 'static>(inner: __H) -> Self {
-        Self { inner: __Inner_RtRouteTable::Shared(std::sync::Arc::new(inner)) }
+impl RouteTable {
+    pub fn shared<__H: __Stateless_RouteTable + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_RouteTable::Shared(std::sync::Arc::new(inner)) }
     }
-    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_RtRouteTable>) -> Self {
-        Self { inner: __Inner_RtRouteTable::Shared(inner) }
+    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_RouteTable>) -> Self {
+        Self { inner: __Inner_RouteTable::Shared(inner) }
     }
-    pub fn locked<__H: __Stateful_RtRouteTable + 'static>(inner: __H) -> Self {
-        Self { inner: __Inner_RtRouteTable::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
+    pub fn locked<__H: __Stateful_RouteTable + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_RouteTable::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
     }
-    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_RtRouteTable>>) -> Self {
-        Self { inner: __Inner_RtRouteTable::Locked(inner) }
+    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_RouteTable>>) -> Self {
+        Self { inner: __Inner_RouteTable::Locked(inner) }
     }
     pub fn node_of_pool(&self, pool: i32) -> i64 {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.node_of_pool(pool),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().node_of_pool(pool),
+            __Inner_RouteTable::Shared(h) => h.node_of_pool(pool),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().node_of_pool(pool),
         }
     }
     pub fn adopt_pool(&self, pool: i32, node: i64) {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.adopt_pool(pool, node),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().adopt_pool(pool, node),
+            __Inner_RouteTable::Shared(h) => h.adopt_pool(pool, node),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().adopt_pool(pool, node),
         }
     }
     pub fn add_node(&self) -> i64 {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.add_node(),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().add_node(),
+            __Inner_RouteTable::Shared(h) => h.add_node(),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().add_node(),
         }
     }
     pub fn hosts(&self, node: i64) -> bool {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.hosts(node),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().hosts(node),
+            __Inner_RouteTable::Shared(h) => h.hosts(node),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().hosts(node),
         }
     }
-    pub fn identity_of(&self, addr: i32, pool: i32) -> RtRemoteRef {
+    pub fn identity_of(&self, addr: i32, pool: i32) -> RemoteRef {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.identity_of(addr, pool),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().identity_of(addr, pool),
+            __Inner_RouteTable::Shared(h) => h.identity_of(addr, pool),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().identity_of(addr, pool),
         }
     }
-    pub fn find_import(&self, r: &RtRemoteRef, here: i64) -> Union3<RtFound, RtMakeProxy, RtMakeDead> {
+    pub fn find_import(&self, r: &RemoteRef, here: i64) -> Union3<Found, MakeProxy, MakeDead> {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.find_import(r, here),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().find_import(r, here),
+            __Inner_RouteTable::Shared(h) => h.find_import(r, here),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().find_import(r, here),
         }
     }
-    pub fn register_proxy(&self, r: RtRemoteRef, idx: i32, here: i64) -> i32 {
+    pub fn register_proxy(&self, r: RemoteRef, idx: i32, here: i64) -> i32 {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.register_proxy(r, idx, here),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().register_proxy(r, idx, here),
+            __Inner_RouteTable::Shared(h) => h.register_proxy(r, idx, here),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().register_proxy(r, idx, here),
         }
     }
     pub fn register_dead(&self, idx: i32) -> i32 {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.register_dead(idx),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().register_dead(idx),
+            __Inner_RouteTable::Shared(h) => h.register_dead(idx),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().register_dead(idx),
         }
     }
     pub fn is_proxy(&self, addr: i32) -> bool {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.is_proxy(addr),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().is_proxy(addr),
+            __Inner_RouteTable::Shared(h) => h.is_proxy(addr),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().is_proxy(addr),
         }
     }
-    pub fn proxy_ref(&self, addr: i32) -> Option<RtRemoteRef> {
+    pub fn proxy_ref(&self, addr: i32) -> Option<RemoteRef> {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.proxy_ref(addr),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().proxy_ref(addr),
+            __Inner_RouteTable::Shared(h) => h.proxy_ref(addr),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().proxy_ref(addr),
         }
     }
     pub fn take_credit(&self, addr: i32, me: Parker) -> i32 {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.take_credit(addr, me),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().take_credit(addr, me),
+            __Inner_RouteTable::Shared(h) => h.take_credit(addr, me),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().take_credit(addr, me),
         }
     }
     pub fn stage(&self, from: i64, to: i64, frame: Vec<u8>) {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.stage(from, to, frame),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().stage(from, to, frame),
+            __Inner_RouteTable::Shared(h) => h.stage(from, to, frame),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().stage(from, to, frame),
         }
     }
     pub fn grant(&self, addr: i32, pool: i32, from: i64, n: i32) {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.grant(addr, pool, from, n),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().grant(addr, pool, from, n),
+            __Inner_RouteTable::Shared(h) => h.grant(addr, pool, from, n),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().grant(addr, pool, from, n),
         }
     }
-    pub fn take_outbox(&self) -> Vec<RtStaged> {
+    pub fn take_outbox(&self) -> Vec<Staged> {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.take_outbox(),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().take_outbox(),
+            __Inner_RouteTable::Shared(h) => h.take_outbox(),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().take_outbox(),
         }
     }
     pub fn add_route(&self, node: i64, at: Vec<u8>) {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.add_route(node, at),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().add_route(node, at),
+            __Inner_RouteTable::Shared(h) => h.add_route(node, at),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().add_route(node, at),
         }
     }
     pub fn set_outbound(&self, node: i64) {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.set_outbound(node),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().set_outbound(node),
+            __Inner_RouteTable::Shared(h) => h.set_outbound(node),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().set_outbound(node),
         }
     }
     pub fn has_outbound(&self, node: i64) -> bool {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.has_outbound(node),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().has_outbound(node),
+            __Inner_RouteTable::Shared(h) => h.has_outbound(node),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().has_outbound(node),
         }
     }
     pub fn accepts(&self, to: i64, actor: i64, claimed: i64) -> bool {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.accepts(to, actor, claimed),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().accepts(to, actor, claimed),
+            __Inner_RouteTable::Shared(h) => h.accepts(to, actor, claimed),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().accepts(to, actor, claimed),
         }
     }
     pub fn received(&self, idx: i32) {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.received(idx),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().received(idx),
+            __Inner_RouteTable::Shared(h) => h.received(idx),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().received(idx),
         }
     }
-    pub fn credited(&self, r: RtRemoteRef, to: i64, n: i32) -> bool {
+    pub fn credited(&self, r: RemoteRef, to: i64, n: i32) -> bool {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.credited(r, to, n),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().credited(r, to, n),
+            __Inner_RouteTable::Shared(h) => h.credited(r, to, n),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().credited(r, to, n),
         }
     }
     pub fn held(&self, idx: i32) -> i32 {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.held(idx),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().held(idx),
+            __Inner_RouteTable::Shared(h) => h.held(idx),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().held(idx),
         }
     }
-    pub fn put_task(&self, key: i64, t: RtExportedTask) {
+    pub fn put_task(&self, key: i64, t: ExportedTask) {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.put_task(key, t),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().put_task(key, t),
+            __Inner_RouteTable::Shared(h) => h.put_task(key, t),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().put_task(key, t),
         }
     }
-    pub fn take_task(&self, key: i64) -> Option<RtExportedTask> {
+    pub fn take_task(&self, key: i64) -> Option<ExportedTask> {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.take_task(key),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().take_task(key),
+            __Inner_RouteTable::Shared(h) => h.take_task(key),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().take_task(key),
         }
     }
     pub fn watch_channel(&self, node: i64, channel: String, sink: i32) {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.watch_channel(node, channel, sink),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().watch_channel(node, channel, sink),
+            __Inner_RouteTable::Shared(h) => h.watch_channel(node, channel, sink),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().watch_channel(node, channel, sink),
         }
     }
     pub fn channel_sink(&self, node: i64, channel: &String) -> i32 {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.channel_sink(node, channel),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().channel_sink(node, channel),
+            __Inner_RouteTable::Shared(h) => h.channel_sink(node, channel),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().channel_sink(node, channel),
         }
     }
     pub fn set_protocols(&self, table: Vec<(String, String)>) {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.set_protocols(table),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().set_protocols(table),
+            __Inner_RouteTable::Shared(h) => h.set_protocols(table),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().set_protocols(table),
         }
     }
     pub fn protocols(&self) -> Vec<(String, String)> {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.protocols(),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().protocols(),
+            __Inner_RouteTable::Shared(h) => h.protocols(),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().protocols(),
         }
     }
     pub fn set_peer(&self, node: i64, table: Vec<(String, String)>) {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.set_peer(node, table),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().set_peer(node, table),
+            __Inner_RouteTable::Shared(h) => h.set_peer(node, table),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().set_peer(node, table),
         }
     }
     pub fn peer_hash(&self, node: i64, protocol: &String) -> Option<String> {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.peer_hash(node, protocol),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().peer_hash(node, protocol),
+            __Inner_RouteTable::Shared(h) => h.peer_hash(node, protocol),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().peer_hash(node, protocol),
         }
     }
     pub fn forget_node(&self, node: i64) -> Vec<i32> {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.forget_node(node),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().forget_node(node),
+            __Inner_RouteTable::Shared(h) => h.forget_node(node),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().forget_node(node),
         }
     }
     pub fn credits_of(&self, addr: i32) -> Option<i32> {
         match &self.inner {
-            __Inner_RtRouteTable::Shared(h) => h.credits_of(addr),
-            __Inner_RtRouteTable::Locked(h) => h.lock().unwrap().credits_of(addr),
+            __Inner_RouteTable::Shared(h) => h.credits_of(addr),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().credits_of(addr),
         }
     }
 }
 
-pub struct RtRoutes {
+pub struct Routes {
     node_id: i64,
     hosted: SalvoSet<i64>,
     pool_node: SalvoMap<i32, i64>,
     bits: SalvoMap<i32, i64>,
-    remote: SalvoMap<i32, RtRemoteRef>,
-    proxies: SalvoMap<RtRemoteRef, i32>,
+    remote: SalvoMap<i32, RemoteRef>,
+    proxies: SalvoMap<RemoteRef, i32>,
     credits: SalvoMap<i32, i32>,
     held_n: SalvoMap<i32, i32>,
     routes: SalvoMap<i64, Vec<u8>>,
     outbound: SalvoSet<i64>,
-    parked: Vec<RtParked>,
-    outbox: Vec<RtStaged>,
+    parked: Vec<Parked>,
+    outbox: Vec<Staged>,
     task_keys: Vec<i64>,
-    tasks: Vec<RtExportedTask>,
-    controls: SalvoMap<RtControlKey, i32>,
+    tasks: Vec<ExportedTask>,
+    controls: SalvoMap<ControlKey, i32>,
     local: Vec<(String, String)>,
     peers: SalvoMap<i64, Vec<(String, String)>>,
     dead_entry: i32,
     credit_waiters: Vec<Parker>,
 }
 
-impl RtRoutes {
+impl Routes {
     pub fn new() -> Self {
         Self {
             node_id: 0i64,
@@ -683,7 +683,7 @@ impl RtRoutes {
             pool_node: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
             bits: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
             remote: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
-            proxies: SalvoMap::from_entries::<__Hash_hash__RtRemoteRef_RtRemoteRef, __Eq_eq__RtRemoteRef_RtRemoteRef, _>(vec![]),
+            proxies: SalvoMap::from_entries::<__Hash_hash__RemoteRef_RemoteRef, __Eq_eq__RemoteRef_RemoteRef, _>(vec![]),
             credits: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
             held_n: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
             routes: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
@@ -692,7 +692,7 @@ impl RtRoutes {
             outbox: vec![],
             task_keys: vec![],
             tasks: vec![],
-            controls: SalvoMap::from_entries::<__Hash_hash__RtControlKey_RtControlKey, __Eq_eq__RtControlKey_RtControlKey, _>(vec![]),
+            controls: SalvoMap::from_entries::<__Hash_hash__ControlKey_ControlKey, __Eq_eq__ControlKey_ControlKey, _>(vec![]),
             local: vec![],
             peers: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
             dead_entry: -1,
@@ -701,7 +701,7 @@ impl RtRoutes {
     }
 }
 
-impl crate::runtime_routing::__Stateful_RtRouteTable for RtRoutes {
+impl crate::runtime_routing::__Stateful_RouteTable for Routes {
 
     fn node_of_pool(&mut self, pool: i32) -> i64 {
         return node_in(&self.pool_node, self.node_id, pool);
@@ -721,34 +721,34 @@ impl crate::runtime_routing::__Stateful_RtRouteTable for RtRoutes {
         return self.hosted.contains(&node);
     }
 
-    fn identity_of(&mut self, addr: i32, pool: i32) -> RtRemoteRef {
+    fn identity_of(&mut self, addr: i32, pool: i32) -> RemoteRef {
         return identity_in(&self.remote, &mut self.bits, &self.pool_node, self.node_id, addr, pool);
     }
 
-    fn find_import(&mut self, r: &RtRemoteRef, here: i64) -> Union3<RtFound, RtMakeProxy, RtMakeDead> {
+    fn find_import(&mut self, r: &RemoteRef, here: i64) -> Union3<Found, MakeProxy, MakeDead> {
         if r.node == here {
             let mut idx = ((r.actor) as i32);
             let mut b = self.bits.get(&idx);
             if !self.remote.contains_key(&idx) && (b.is_some()) {
                 let mut known = *b.unwrap();
                 if known == r.bits {
-                    return Union3::<RtFound, RtMakeProxy, RtMakeDead>::U1(RtFound { idx: idx });
+                    return Union3::<Found, MakeProxy, MakeDead>::U1(Found { idx: idx });
                 }
             }
             if self.dead_entry >= 0 {
-                return Union3::<RtFound, RtMakeProxy, RtMakeDead>::U1(RtFound { idx: self.dead_entry.clone() });
+                return Union3::<Found, MakeProxy, MakeDead>::U1(Found { idx: self.dead_entry.clone() });
             }
-            return Union3::<RtFound, RtMakeProxy, RtMakeDead>::U3(RtMakeDead {  });
+            return Union3::<Found, MakeProxy, MakeDead>::U3(MakeDead {  });
         }
         let mut p = self.proxies.get(&r);
         if p.is_some() {
             let mut idx = *p.unwrap();
-            return Union3::<RtFound, RtMakeProxy, RtMakeDead>::U1(RtFound { idx: idx.clone() });
+            return Union3::<Found, MakeProxy, MakeDead>::U1(Found { idx: idx.clone() });
         }
-        return Union3::<RtFound, RtMakeProxy, RtMakeDead>::U2(RtMakeProxy {  });
+        return Union3::<Found, MakeProxy, MakeDead>::U2(MakeProxy {  });
     }
 
-    fn register_proxy(&mut self, r: RtRemoteRef, idx: i32, here: i64) -> i32 {
+    fn register_proxy(&mut self, r: RemoteRef, idx: i32, here: i64) -> i32 {
         let mut existing = self.proxies.get(&r);
         if existing.is_some() {
             let mut e = *existing.unwrap();
@@ -757,7 +757,7 @@ impl crate::runtime_routing::__Stateful_RtRouteTable for RtRoutes {
         self.remote.insert(idx.clone(), r.clone());
         self.proxies.insert(r.clone(), idx.clone());
         self.credits.insert(idx.clone(), 0);
-        let mut frame = crate::wire::salvo_encode(&Union5::<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>::U4(RtOpenFrame { to: r.node, actor: r.actor, bits: r.bits, from: here.clone() }));
+        let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U4(OpenFrame { to: r.node, actor: r.actor, bits: r.bits, from: here.clone() }));
         stage_in(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked, here, r.node, frame);
         return idx;
     }
@@ -774,7 +774,7 @@ impl crate::runtime_routing::__Stateful_RtRouteTable for RtRoutes {
         return self.remote.contains_key(&addr);
     }
 
-    fn proxy_ref(&mut self, addr: i32) -> Option<RtRemoteRef> {
+    fn proxy_ref(&mut self, addr: i32) -> Option<RemoteRef> {
         let mut r = self.remote.get(&addr);
         if r.is_some() {
             let mut found = r.unwrap();
@@ -805,12 +805,12 @@ impl crate::runtime_routing::__Stateful_RtRouteTable for RtRoutes {
     fn grant(&mut self, addr: i32, pool: i32, from: i64, n: i32) {
         self.held_n.insert(addr.clone(), held_in(&self.held_n, addr.clone()) + n);
         let mut me = identity_in(&self.remote, &mut self.bits, &self.pool_node, self.node_id, addr.clone(), pool);
-        let mut frame = crate::wire::salvo_encode(&Union5::<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>::U3(RtGrantFrame { to: from.clone(), host: me.node, actor: me.actor, bits: me.bits, n: n }));
+        let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U3(GrantFrame { to: from.clone(), host: me.node, actor: me.actor, bits: me.bits, n: n }));
         stage_in(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked, me.node, from, frame);
     }
 
-    fn take_outbox(&mut self) -> Vec<RtStaged> {
-        let mut out: Vec<RtStaged> = vec![];
+    fn take_outbox(&mut self) -> Vec<Staged> {
+        let mut out: Vec<Staged> = vec![];
         while ((self.outbox.len() as i32) > 0) {
             out.push(self.outbox.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:281:22"));
         }
@@ -854,7 +854,7 @@ impl crate::runtime_routing::__Stateful_RtRouteTable for RtRoutes {
         }
     }
 
-    fn credited(&mut self, r: RtRemoteRef, to: i64, n: i32) -> bool {
+    fn credited(&mut self, r: RemoteRef, to: i64, n: i32) -> bool {
         if !self.hosted.contains(&to) {
             return false;
         }
@@ -884,12 +884,12 @@ impl crate::runtime_routing::__Stateful_RtRouteTable for RtRoutes {
         return held_in(&self.held_n, idx);
     }
 
-    fn put_task(&mut self, key: i64, t: RtExportedTask) {
+    fn put_task(&mut self, key: i64, t: ExportedTask) {
         self.task_keys.push(key);
         self.tasks.push(t);
     }
 
-    fn take_task(&mut self, key: i64) -> Option<RtExportedTask> {
+    fn take_task(&mut self, key: i64) -> Option<ExportedTask> {
         let mut i = 0;
         while i < (self.task_keys.len() as i32) {
             if *self.task_keys.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:358:16") == key {
@@ -902,11 +902,11 @@ impl crate::runtime_routing::__Stateful_RtRouteTable for RtRoutes {
     }
 
     fn watch_channel(&mut self, node: i64, channel: String, sink: i32) {
-        self.controls.insert(RtControlKey { node: node, channel: channel }, sink);
+        self.controls.insert(ControlKey { node: node, channel: channel }, sink);
     }
 
     fn channel_sink(&mut self, node: i64, channel: &String) -> i32 {
-        let mut s = self.controls.get(&RtControlKey { node: node.clone(), channel: channel.clone() });
+        let mut s = self.controls.get(&ControlKey { node: node.clone(), channel: channel.clone() });
         if s.is_some() {
             let mut sink = *s.unwrap();
             return sink.clone();
@@ -967,7 +967,7 @@ impl crate::runtime_routing::__Stateful_RtRouteTable for RtRoutes {
     }
 }
 
-impl RtRoutes {
+impl Routes {
 
     fn init(&mut self) {
         self.node_id = fresh_node();
@@ -976,7 +976,7 @@ impl RtRoutes {
     }
 }
 
-pub enum __Priv_RtRoutes {
+pub enum __Priv_Routes {
     Init,
 }
 
@@ -998,7 +998,7 @@ pub fn held_in(held_n: &SalvoMap<i32, i32>, idx: i32) -> i32 {
     return 0;
 }
 
-pub fn identity_in(remote: &SalvoMap<i32, RtRemoteRef>, bits: &mut SalvoMap<i32, i64>, pool_node: &SalvoMap<i32, i64>, node_id: i64, addr: i32, pool: i32) -> RtRemoteRef {
+pub fn identity_in(remote: &SalvoMap<i32, RemoteRef>, bits: &mut SalvoMap<i32, i64>, pool_node: &SalvoMap<i32, i64>, node_id: i64, addr: i32, pool: i32) -> RemoteRef {
     let mut r = remote.get(&addr);
     if r.is_some() {
         let mut found = r.unwrap();
@@ -1008,11 +1008,11 @@ pub fn identity_in(remote: &SalvoMap<i32, RtRemoteRef>, bits: &mut SalvoMap<i32,
     let mut b = bits.get(&addr);
     if b.is_some() {
         let mut known = *b.unwrap();
-        return RtRemoteRef { node: n, actor: ((addr) as i64), bits: known.clone() };
+        return RemoteRef { node: n, actor: ((addr) as i64), bits: known.clone() };
     }
     let mut minted = identity_bits();
     bits.insert(addr.clone(), minted.clone());
-    return RtRemoteRef { node: n, actor: ((addr) as i64), bits: minted };
+    return RemoteRef { node: n, actor: ((addr) as i64), bits: minted };
 }
 
 pub fn wake_senders(waiters: &mut Vec<Parker>) {
@@ -1021,20 +1021,20 @@ pub fn wake_senders(waiters: &mut Vec<Parker>) {
     }
 }
 
-pub fn stage_in(routes: &SalvoMap<i64, Vec<u8>>, outbound: &SalvoSet<i64>, outbox: &mut Vec<RtStaged>, parked: &mut Vec<RtParked>, from: i64, to: i64, frame: Vec<u8>) {
+pub fn stage_in(routes: &SalvoMap<i64, Vec<u8>>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>, from: i64, to: i64, frame: Vec<u8>) {
     let mut ep = routes.get(&to);
     if ep.is_some() {
         let mut at = ep.unwrap();
         if outbound.contains(&from) {
-            outbox.push(RtStaged { from: from, to: at.clone(), frame: frame });
+            outbox.push(Staged { from: from, to: at.clone(), frame: frame });
             return;
         }
     }
-    parked.push(RtParked { from: from, to: to, frame: frame });
+    parked.push(Parked { from: from, to: to, frame: frame });
 }
 
-pub fn restage(routes: &SalvoMap<i64, Vec<u8>>, outbound: &SalvoSet<i64>, outbox: &mut Vec<RtStaged>, parked: &mut Vec<RtParked>) {
-    let mut waiting: Vec<RtParked> = vec![];
+pub fn restage(routes: &SalvoMap<i64, Vec<u8>>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>) {
+    let mut waiting: Vec<Parked> = vec![];
     while ((parked.len() as i32) > 0) {
         waiting.push(parked.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:493:22"));
     }
@@ -1069,7 +1069,7 @@ pub fn pool_at(node: i64, n: i32) -> i32 {
     return p;
 }
 
-pub fn identity(addr: i32) -> RtRemoteRef {
+pub fn identity(addr: i32) -> RemoteRef {
     return __module_use_0().identity_of(addr.clone(), actor_pool(addr.clone()));
 }
 
@@ -1084,7 +1084,7 @@ pub fn same_actor(a: i32, b: i32) -> bool {
 }
 
 pub fn import_addr(node: i64, actor: i64, bits: i64) -> i32 {
-    let mut r = RtRemoteRef { node: node, actor: actor, bits: bits };
+    let mut r = RemoteRef { node: node, actor: actor, bits: bits };
     let mut here = here_node();
     let mut found = __module_use_0().find_import(&(r.clone()), here.clone());
     if matches!(found, Union3::U1(_)) {
@@ -1117,7 +1117,7 @@ pub fn send_remote(addr: i32, proto: String, payload: Vec<u8>) {
         let mut got = __module_use_0().take_credit(addr.clone(), this_parker_platform());
         if got == 1 {
             let mut from = here_node();
-            let mut frame = crate::wire::salvo_encode(&Union5::<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>::U1(RtMsgFrame { to: r.as_ref().unwrap().clone().node, actor: r.as_ref().unwrap().clone().actor, bits: r.as_ref().unwrap().clone().bits, from: from.clone(), proto: proto, payload: payload }));
+            let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U1(MsgFrame { to: r.as_ref().unwrap().clone().node, actor: r.as_ref().unwrap().clone().actor, bits: r.as_ref().unwrap().clone().bits, from: from.clone(), proto: proto, payload: payload }));
             __module_use_0().stage(from, r.as_ref().unwrap().clone().node, frame);
             flush();
             return;
@@ -1132,14 +1132,14 @@ pub fn send_remote(addr: i32, proto: String, payload: Vec<u8>) {
     }
 }
 
-pub fn answer_remote(t: RtReplyParts, payload: Vec<u8>) {
+pub fn answer_remote(t: ReplyParts, payload: Vec<u8>) {
     let mut from = here_node();
-    let mut frame = crate::wire::salvo_encode(&Union5::<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>::U2(RtAnswerFrame { to: t.node, kind: t.kind, id: t.id, slot: t.slot, bits: t.bits, payload: payload }));
+    let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U2(AnswerFrame { to: t.node, kind: t.kind, id: t.id, slot: t.slot, bits: t.bits, payload: payload }));
     __module_use_0().stage(from, t.node, frame);
     flush();
 }
 
-pub fn export_reply(e: RtExported) -> RtReplyParts {
+pub fn export_reply(e: Exported) -> ReplyParts {
     let __destructured2 = e;
     let mut kind = __destructured2.kind;
     let mut id = __destructured2.id;
@@ -1148,19 +1148,19 @@ pub fn export_reply(e: RtExported) -> RtReplyParts {
     if kind == 2 {
         if body.is_some() {
             let mut b = body.unwrap();
-            __module_use_0().put_task(slot.clone(), RtExportedTask { pool: id.clone(), body: b });
+            __module_use_0().put_task(slot.clone(), ExportedTask { pool: id.clone(), body: b });
         }
-        return RtReplyParts { node: __module_use_0().node_of_pool(id.clone()), kind: 2, id: slot.clone(), slot: slot, bits: 0i64 };
+        return ReplyParts { node: __module_use_0().node_of_pool(id.clone()), kind: 2, id: slot.clone(), slot: slot, bits: 0i64 };
     }
     if body.is_some() {
         let mut b = body.unwrap();
         drop_body_platform(b);
     }
     if kind == 1 {
-        return RtReplyParts { node: __module_use_0().node_of_pool(waiter_pool(id.clone())), kind: 1, id: ((id) as i64), slot: slot, bits: 0i64 };
+        return ReplyParts { node: __module_use_0().node_of_pool(waiter_pool(id.clone())), kind: 1, id: ((id) as i64), slot: slot, bits: 0i64 };
     }
     let mut me = identity(id);
-    return RtReplyParts { node: me.node, kind: 0, id: me.actor, slot: slot, bits: me.bits };
+    return ReplyParts { node: me.node, kind: 0, id: me.actor, slot: slot, bits: me.bits };
 }
 
 pub fn credit_back(addr: i32, pool: i32, from: i64) {
@@ -1205,13 +1205,13 @@ pub fn watch_control(channel: String, sink: i32) {
 
 pub fn send_control(to: i64, channel: String, payload: Vec<u8>) {
     let mut from = here_node();
-    let mut frame = crate::wire::salvo_encode(&Union5::<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>::U5(RtControlFrame { to: to.clone(), from: from.clone(), channel: channel, payload: payload }));
+    let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U5(ControlFrame { to: to.clone(), from: from.clone(), channel: channel, payload: payload }));
     __module_use_0().stage(from, to, frame);
     flush();
 }
 
 pub fn control_frame(channel: String, payload: Vec<u8>) -> Vec<u8> {
-    return crate::wire::salvo_encode(&Union5::<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>::U5(RtControlFrame { to: 0i64, from: here_node(), channel: channel, payload: payload }));
+    return crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U5(ControlFrame { to: 0i64, from: here_node(), channel: channel, payload: payload }));
 }
 
 pub fn node_left(node: i64) {
@@ -1237,7 +1237,7 @@ pub fn peer_protocol(node: i64, protocol: &String) -> Option<String> {
 }
 
 pub fn deliver(data: &Vec<u8>) -> bool {
-    let mut f = crate::wire::salvo_decode::<Union5<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>>(&data.clone());
+    let mut f = crate::wire::salvo_decode::<Union5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>>(&data.clone());
     if matches!(f, Some(Union5::U1(_))) {
         let mut m = f.as_ref().unwrap().u1().clone();
         if !__module_use_0().accepts(m.to, m.actor, m.bits) {
@@ -1259,7 +1259,7 @@ pub fn deliver(data: &Vec<u8>) -> bool {
     }
     if matches!(f, Some(Union5::U3(_))) {
         let mut g = f.as_ref().unwrap().u3().clone();
-        return __module_use_0().credited(RtRemoteRef { node: g.host, actor: g.actor, bits: g.bits }, g.to, g.n);
+        return __module_use_0().credited(RemoteRef { node: g.host, actor: g.actor, bits: g.bits }, g.to, g.n);
     }
     if matches!(f, Some(Union5::U4(_))) {
         let mut o = f.as_ref().unwrap().u4().clone();
@@ -1299,7 +1299,7 @@ pub fn deliver(data: &Vec<u8>) -> bool {
     return false;
 }
 
-pub fn deliver_answer(a: &RtAnswerFrame) -> bool {
+pub fn deliver_answer(a: &AnswerFrame) -> bool {
     if !__module_use_0().hosts(a.to) {
         return false;
     }
@@ -1337,7 +1337,7 @@ pub fn deliver_answer(a: &RtAnswerFrame) -> bool {
     return false;
 }
 
-pub fn hash__4(value: &RtRemoteRef) -> i64 {
+pub fn hash__4(value: &RemoteRef) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.actor), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
@@ -1345,7 +1345,7 @@ pub fn hash__4(value: &RtRemoteRef) -> i64 {
     return h;
 }
 
-pub fn eq__4(a: &RtRemoteRef, b: &RtRemoteRef) -> bool {
+pub fn eq__4(a: &RemoteRef, b: &RemoteRef) -> bool {
     if !((a.node) == (b.node)) {
         return false;
     }
@@ -1358,14 +1358,14 @@ pub fn eq__4(a: &RtRemoteRef, b: &RtRemoteRef) -> bool {
     return true;
 }
 
-pub fn hash__5(value: &RtControlKey) -> i64 {
+pub fn hash__5(value: &ControlKey) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.channel[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__5(a: &RtControlKey, b: &RtControlKey) -> bool {
+pub fn eq__5(a: &ControlKey, b: &ControlKey) -> bool {
     if !((a.node) == (b.node)) {
         return false;
     }
@@ -1375,22 +1375,22 @@ pub fn eq__5(a: &RtControlKey, b: &RtControlKey) -> bool {
     return true;
 }
 
-pub struct __Hash_hash__RtRemoteRef_RtRemoteRef;
-impl SalvoHash<RtRemoteRef> for __Hash_hash__RtRemoteRef_RtRemoteRef {
-    fn hash(__v: &RtRemoteRef) -> i64 { hash__4(__v) }
+pub struct __Hash_hash__RemoteRef_RemoteRef;
+impl SalvoHash<RemoteRef> for __Hash_hash__RemoteRef_RemoteRef {
+    fn hash(__v: &RemoteRef) -> i64 { hash__4(__v) }
 }
 
-pub struct __Eq_eq__RtRemoteRef_RtRemoteRef;
-impl SalvoEq<RtRemoteRef> for __Eq_eq__RtRemoteRef_RtRemoteRef {
-    fn eq(__a: &RtRemoteRef, __b: &RtRemoteRef) -> bool { eq__4(__a, __b) }
+pub struct __Eq_eq__RemoteRef_RemoteRef;
+impl SalvoEq<RemoteRef> for __Eq_eq__RemoteRef_RemoteRef {
+    fn eq(__a: &RemoteRef, __b: &RemoteRef) -> bool { eq__4(__a, __b) }
 }
 
-pub struct __Hash_hash__RtControlKey_RtControlKey;
-impl SalvoHash<RtControlKey> for __Hash_hash__RtControlKey_RtControlKey {
-    fn hash(__v: &RtControlKey) -> i64 { hash__5(__v) }
+pub struct __Hash_hash__ControlKey_ControlKey;
+impl SalvoHash<ControlKey> for __Hash_hash__ControlKey_ControlKey {
+    fn hash(__v: &ControlKey) -> i64 { hash__5(__v) }
 }
 
-pub struct __Eq_eq__RtControlKey_RtControlKey;
-impl SalvoEq<RtControlKey> for __Eq_eq__RtControlKey_RtControlKey {
-    fn eq(__a: &RtControlKey, __b: &RtControlKey) -> bool { eq__5(__a, __b) }
+pub struct __Eq_eq__ControlKey_ControlKey;
+impl SalvoEq<ControlKey> for __Eq_eq__ControlKey_ControlKey {
+    fn eq(__a: &ControlKey, __b: &ControlKey) -> bool { eq__5(__a, __b) }
 }

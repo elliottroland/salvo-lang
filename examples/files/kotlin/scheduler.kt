@@ -11,7 +11,7 @@
 package salvo
 
 import salvo.platform.runtime.Dyn
-import salvo.platform.runtime.RtBody
+import salvo.platform.runtime.Body
 
 interface SalvoActor {
     /** A user message (a `send fn` invocation). */
@@ -82,8 +82,8 @@ object SalvoSched {
     }
 
     /** The core's body for a generated actor: 0 a message, 1 an answer, 2 a fault report for a sink. */
-    private fun bodyOf(actor: SalvoActor): RtBody =
-        RtBody { kind, slot, value ->
+    private fun bodyOf(actor: SalvoActor): Body =
+        Body { kind, slot, value ->
             val ctx = SalvoCtx(salvo.platform.runtime.hereActor())
             when (kind) {
                 0 -> actor.handle(ctx, value.v)
@@ -125,7 +125,7 @@ object SalvoSched {
         body: (Any?) -> Unit,
     ): SalvoReply {
         var once: ((Any?) -> Unit)? = body
-        val b = RtBody { _, _, value ->
+        val b = Body { _, _, value ->
             val f = once
             once = null
             f?.invoke(value.v)
@@ -226,16 +226,16 @@ object SalvoSched {
     }
 
     /** [addr-routable] The wire form of a reply token. Exporting a task moves its body aside. */
-    fun replyExport(reply: SalvoReply): salvo.runtime.routing.RtReplyParts {
+    fun replyExport(reply: SalvoReply): salvo.runtime.routing.ReplyParts {
         reply.remote?.let { return it }
-        val tok = reply.takeLocal() ?: return salvo.runtime.routing.RtReplyParts(0, 0, 0, 0, 0)
+        val tok = reply.takeLocal() ?: return salvo.runtime.routing.ReplyParts(0, 0, 0, 0, 0)
         val parts = salvo.runtime.routing.exportReply(salvo.runtime.exportToken(tok))
         if (parts.kind == 2) taskDecoders[parts.id] = reply.decode
         return parts
     }
 
     /** [addr-routable] A reply token decoded from the wire. */
-    fun replyImport(parts: salvo.runtime.routing.RtReplyParts): SalvoReply {
+    fun replyImport(parts: salvo.runtime.routing.ReplyParts): SalvoReply {
         val here = hereNode()
         return when {
             parts.node == here && parts.kind == 0 -> SalvoReply(salvo.runtime.tokenToActor(parts.id.toInt(), parts.slot))
@@ -306,9 +306,9 @@ object SalvoSched {
  * another node and decoded here. `send` delivers exactly once — the guarantee
  * is the checker's; the runtime only enqueues.
  */
-class SalvoReply internal constructor(private var token: salvo.runtime.RtToken?) {
+class SalvoReply internal constructor(private var token: salvo.runtime.Token?) {
     /** [addr-routable] For a token minted elsewhere: (node, kind, id, slot, bits). */
-    internal var remote: salvo.runtime.routing.RtReplyParts? = null
+    internal var remote: salvo.runtime.routing.ReplyParts? = null
 
     /** [wire-format] How a task's answer is decoded should it return over the wire. */
     internal var decode: (ByteArray) -> Pair<Boolean, Any?> = { _ -> Pair(false, null) }
@@ -316,7 +316,7 @@ class SalvoReply internal constructor(private var token: salvo.runtime.RtToken?)
     /** [platform-check] What a platform adapter checks of the value the host sends. */
     internal var check: ((Any?) -> Any?)? = null
 
-    internal fun takeLocal(): salvo.runtime.RtToken? =
+    internal fun takeLocal(): salvo.runtime.Token? =
         synchronized(this) {
             val t = token
             token = null
@@ -380,6 +380,6 @@ object ReplyCodec : WireCodec<SalvoReply> {
     }
     override fun dec(inp: WireIn): SalvoReply {
         val node = inp.i64(); val kind = inp.u8(); val id = inp.i64(); val slot = inp.i64(); val bits = inp.i64()
-        return SalvoSched.replyImport(salvo.runtime.routing.RtReplyParts(node, kind, id, slot, bits))
+        return SalvoSched.replyImport(salvo.runtime.routing.ReplyParts(node, kind, id, slot, bits))
     }
 }

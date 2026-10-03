@@ -62,8 +62,8 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
     // modules' same-named types is the resolver's error, not a reason to
     // stamp nothing.
     let mut compfns: Vec<CompFnDecl> = Vec::new();
-    let mut structs: HashMap<String, StructDecl> = HashMap::new();
-    let mut types: HashMap<String, TypeDecl> = HashMap::new();
+    let mut structs: HashMap<String, Vec<(ModulePath, StructDecl)>> = HashMap::new();
+    let mut types: HashMap<String, Vec<(ModulePath, TypeDecl)>> = HashMap::new();
     let mut groups: HashMap<String, ParamsDecl> = HashMap::new();
     // [std-shadow] The repository root opened as a workspace loads `std/` a
     // second time as user files (`std.core.auto` beside the embedded
@@ -92,11 +92,13 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                         decl: f.clone(),
                     });
                 }
+                // [type-identity] Every declaration of a name, by module: one
+                // stamped in a module reads that module's own first.
                 Item::Struct(s) => {
-                    structs.entry(s.name.name.clone()).or_insert_with(|| s.clone());
+                    structs.entry(s.name.name.clone()).or_default().push((file.module.clone(), s.clone()));
                 }
                 Item::Type(t) => {
-                    types.entry(t.name.name.clone()).or_insert_with(|| t.clone());
+                    types.entry(t.name.name.clone()).or_default().push((file.module.clone(), t.clone()));
                 }
                 Item::Params(g) => {
                     groups.entry(g.name.name.clone()).or_insert_with(|| g.clone());
@@ -109,6 +111,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
         compfns,
         structs,
         types,
+        own: std::cell::RefCell::new(ModulePath(Vec::new())),
         groups,
         module_paths: files
             .iter()
@@ -119,6 +122,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
     };
 
     for (file_idx, (file, module)) in files.iter().zip(modules.iter_mut()).enumerate() {
+        *world.own.borrow_mut() = file.module.clone();
         let mut diags: Vec<Diagnostic> = Vec::new();
         let mut virtual_next = file.content.len() as u32 + 1;
         let mut generated: Vec<Item> = Vec::new();
@@ -809,13 +813,28 @@ struct Target {
 
 struct World {
     compfns: Vec<CompFnDecl>,
-    structs: HashMap<String, StructDecl>,
-    types: HashMap<String, TypeDecl>,
+    structs: HashMap<String, Vec<(ModulePath, StructDecl)>>,
+    types: HashMap<String, Vec<(ModulePath, TypeDecl)>>,
+    /// [type-identity] The module being expanded: its own declaration of a
+    /// name is the one meant.
+    own: std::cell::RefCell<ModulePath>,
     groups: HashMap<String, ParamsDecl>,
     module_paths: Vec<ModulePath>,
 }
 
 impl World {
+    fn struct_named(&self, name: &str) -> Option<&StructDecl> {
+        let all = self.structs.get(name)?;
+        let own = self.own.borrow();
+        all.iter().find(|(m, _)| *m == *own).or_else(|| all.first()).map(|(_, d)| d)
+    }
+
+    fn type_named(&self, name: &str) -> Option<&TypeDecl> {
+        let all = self.types.get(name)?;
+        let own = self.own.borrow();
+        all.iter().find(|(m, _)| *m == *own).or_else(|| all.first()).map(|(_, d)| d)
+    }
+
     fn simple_named(name: &str, span: Span) -> Type {
         Type::Named {
             qualifiers: vec![],
@@ -839,7 +858,7 @@ impl World {
     /// The target a type name denotes: a struct, or a `type` declaration
     /// whose alias is a union. Anything else is not a `by` target.
     fn target(&self, name: &str) -> Option<Target> {
-        if let Some(s) = self.structs.get(name) {
+        if let Some(s) = self.struct_named(name) {
             return Some(Target {
                 name: name.to_string(),
                 kind: CompKind::Struct,
@@ -848,7 +867,7 @@ impl World {
                 canbe: s.auto_qualifiers.iter().map(|q| q.name.name.clone()).collect(),
             });
         }
-        if let Some(t) = self.types.get(name) {
+        if let Some(t) = self.type_named(name) {
             // Only a declared *union* is a target: an intrinsic type has no
             // arms, and an alias of something else is not a kind a compfn is
             // bound to.
@@ -1077,7 +1096,7 @@ impl World {
                 if self.structs.contains_key(name) {
                     return TypeKindWord::Struct;
                 }
-                if let Some(t) = self.types.get(name) {
+                if let Some(t) = self.type_named(name) {
                     if t.intrinsic {
                         return TypeKindWord::Basic;
                     }
@@ -1095,10 +1114,10 @@ impl World {
     fn canbe(&self, ty: &Type, qual: &str) -> bool {
         match ty {
             Type::Named { base, .. } => {
-                if let Some(s) = self.structs.get(base.name.name.as_str()) {
+                if let Some(s) = self.struct_named(base.name.name.as_str()) {
                     return s.auto_qualifiers.iter().any(|q| q.name.name == qual);
                 }
-                if let Some(t) = self.types.get(base.name.name.as_str()) {
+                if let Some(t) = self.type_named(base.name.name.as_str()) {
                     return t.auto_qualifiers.iter().any(|q| q.name.name == qual);
                 }
                 false
@@ -1114,7 +1133,7 @@ impl World {
         match ty {
             Type::Literal { value, .. } => value.to_string(),
             Type::Named { base, .. } => {
-                if let Some(t) = self.types.get(base.name.name.as_str()) {
+                if let Some(t) = self.type_named(base.name.name.as_str()) {
                     if let Some(alias) = &t.alias {
                         if base.args.is_empty() && !t.intrinsic {
                             return self.normalized(alias);
@@ -1597,7 +1616,7 @@ impl<'w> Expander<'w> {
             return None;
         }
         let Some(name) = named_base(&ty) else { return None };
-        let Some(s) = self.world.structs.get(&name) else { return None };
+        let Some(s) = self.world.struct_named(&name) else { return None };
         let n = s.fields.len();
         let type_name = name.clone();
         Some(
@@ -1621,7 +1640,7 @@ impl<'w> Expander<'w> {
 
     fn arms_of_type(&self, ty: &Type) -> Vec<Type> {
         match ty {
-            Type::Named { base, .. } => match self.world.types.get(base.name.name.as_str()).and_then(|t| t.alias.as_ref()) {
+            Type::Named { base, .. } => match self.world.type_named(base.name.name.as_str()).and_then(|t| t.alias.as_ref()) {
                 Some(alias) => self.world.arms_of(alias),
                 None => vec![],
             },
@@ -1658,7 +1677,7 @@ impl<'w> Expander<'w> {
                 // A name no field has is a mistake at the template, caught at
                 // the first instantiation.
                 if let Some(owner) = &b.owner {
-                    if let Some(st) = self.world.structs.get(owner) {
+                    if let Some(st) = self.world.struct_named(owner) {
                         if !st.fields.iter().any(|f| f.name.name == *lit) {
                             self.error(*span, format!("`{owner}` has no field `{lit}` [comptime-inline]"));
                             return None;

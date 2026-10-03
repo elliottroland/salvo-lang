@@ -746,6 +746,17 @@ pub struct Checked {
     /// name mapped to where its declaration's identifier is written.
     /// Drives go-to-definition for everything `fn_refs` does not cover.
     pub def_refs: HashMap<Key, DefSite>,
+    /// [type-identity] The key every written type reference resolves to,
+    /// by the reference's address, where it is not the written name (a
+    /// clash or an alias): what an emitter rendering a written type reads.
+    pub type_ref_keys: HashMap<usize, String>,
+    /// [type-identity] The same by (span, written name), for copies.
+    pub type_ref_span_keys: HashMap<(u32, u32, String), String>,
+    /// [type-identity] Per file, the key every visible name of a type,
+    /// effect or handler stands for where it is not the name itself (a clash
+    /// or an alias): how an emitter resolves a name written in an
+    /// expression (`use H()`, `spawn H()`).
+    pub visible_keys: HashMap<(usize, String), String>,
     /// Field accesses [lsp-definition]: the span of the field *name* in
     /// `base.field` mapped to where the field's declaration is written.
     /// Drives go-to-definition and doc hover on fields [doc-comment].
@@ -1060,6 +1071,29 @@ pub struct LambdaCapture {
 }
 
 impl Checked {
+    /// [type-identity] The key a written type reference resolves to: its
+    /// declaration's, or the written name.
+    /// [type-identity] The key a name written in file [file] stands for.
+    pub fn visible_key<'a>(&'a self, file: usize, name: &'a str) -> &'a str {
+        if self.visible_keys.is_empty() {
+            return name;
+        }
+        self.visible_keys.get(&(file, name.to_string())).map(|k| k.as_str()).unwrap_or(name)
+    }
+
+    pub fn written_key<'a>(&'a self, r: &'a TypeRef) -> &'a str {
+        if let Some(k) = self.type_ref_keys.get(&(r as *const TypeRef as usize)) {
+            return k;
+        }
+        if self.type_ref_span_keys.is_empty() {
+            return &r.name.name;
+        }
+        self.type_ref_span_keys
+            .get(&(r.name.span.start, r.name.span.end, r.name.name.clone()))
+            .map(|k| k.as_str())
+            .unwrap_or(&r.name.name)
+    }
+
     pub fn ty_of(&self, file: usize, span: Span) -> Option<&Ty> {
         self.expr_ty.get(&(file, span))
     }
@@ -1229,6 +1263,24 @@ fn check_once<'p>(
     parking_handlers: &mut HashSet<String>,
 ) -> Checked {
     let mut out = Checked::default();
+    out.type_ref_keys = crate::resolve::written_keys(program, resolution, symbols);
+    out.type_ref_span_keys = crate::resolve::written_keys_by_span(program, resolution, symbols);
+    for (file, scope) in resolution.scopes.iter().enumerate() {
+        let names = scope
+            .handlers
+            .keys()
+            .chain(scope.structs.keys())
+            .chain(scope.effects.keys())
+            .chain(scope.type_aliases.keys())
+            .chain(scope.opaque_types.keys());
+        for name in names {
+            if let Some(key) = crate::resolve::key_in(symbols, scope, name) {
+                if key != *name {
+                    out.visible_keys.insert((file, name.to_string()), key.to_string());
+                }
+            }
+        }
+    }
     out.errors.extend(resolution.errors.iter().cloned());
     // [protocol-hash] One hash per actor effect, over its canonical form.
     for (name, effect) in &symbols.effects {
@@ -2778,7 +2830,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     Some(C::Shape { kind, inner })
                 }
                 _ => {
-                    let decl: &'p StructDecl = self.scope.structs.get(name.as_str()).copied()?;
+                    let decl: &'p StructDecl = self.symbols.structs.get(name.as_str()).copied()?;
                     if let Some(seen) = visiting.iter_mut().find(|(n, _)| n == name) {
                         // Only a field that itself needs a check makes this a
                         // problem (reported below); a plain recursive struct
@@ -3388,7 +3440,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 && s.fields.iter().any(|f| type_mentions_generic(&f.ty, &id.name))
         });
         if (s.linear || conditional) && self.inferred.is_some() {
-            let set = self.discharge_set(&s.name.name);
+            let set = self.discharge_set(self.symbols.key_or(s, &s.name.name));
             if set.is_empty() {
                 let what = if s.linear {
                     format!("linear struct `{}`", s.name.name)
@@ -4081,7 +4133,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if args.iter().any(|a| self.ty_holds_fn(a, depth + 1)) {
                     return true;
                 }
-                let Some(decl) = self.scope.structs.get(name.as_str()) else {
+                let Some(decl) = self.symbols.structs.get(name.as_str()) else {
                     return false;
                 };
                 // A field's *written* type is enough: a fn type is syntactic
@@ -7850,7 +7902,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // whether there is a queue at all.
         let is_actor = of.iter().any(|of| match of.strip_quals() {
             Ty::Named { name, .. } => self
-                .scope
+                .symbols
                 .effects
                 .get(name.as_str())
                 .is_some_and(|e| e.is_actor),
@@ -7944,7 +7996,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// to a declared effect with the right number of type arguments.
     fn lower_effect_ref(&mut self, r: &TypeRef) -> Option<Ty> {
         let name = r.name.name.as_str();
-        let Some(effect) = self.scope.effects.get(name).copied() else {
+        let written_in = self.scope_of(r);
+        let Some(effect) = written_in.effects.get(name).copied() else {
             self.error_unresolved(r.span, format!("unknown effect `{name}`"), name);
             return None;
         };
@@ -8791,7 +8844,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let effect_only = args.iter().all(|a| {
-            matches!(a, Ty::Named { name, args } if args.is_empty() && self.scope.effects.contains_key(name.as_str()))
+            matches!(a, Ty::Named { name, args } if args.is_empty() && self.symbols.effects.contains_key(name.as_str()))
         });
         if !effect_only {
             return;
@@ -9405,7 +9458,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // opting in (user decision 2026-09-28, replacing the default-on
         // derivation): the remedy is one clause.
         let remedy = match ty.strip_quals() {
-            Ty::Named { name, .. } if self.scope.structs.contains_key(name.as_str()) => format!(
+            Ty::Named { name, .. } if self.symbols.structs.contains_key(name.as_str()) => format!(
                 " — declare `: ToStr<self> by auto` on `{name}` for the field-wise one, or a \
                  `to_str` of your own [obligation-by]"
             ),
@@ -10103,7 +10156,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Ty::Named { name, .. } = ty.strip_quals() else {
             return Vec::new();
         };
-        let Some(decl) = self.scope.structs.get(name.as_str()) else {
+        let Some(decl) = self.symbols.structs.get(name.as_str()) else {
             return Vec::new();
         };
         decl.fields
@@ -10129,7 +10182,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut ns = Vec::new();
         names(ty, &mut ns);
         ns.into_iter().any(|n| {
-            self.scope.structs.get(n.as_str()).is_some_and(|d| {
+            self.symbols.structs.get(n.as_str()).is_some_and(|d| {
                 d.fields.iter().any(|f| {
                     crate::lends::type_has_proj(&f.ty)
                         || crate::lends::holds_proj(&f.ty, &self.scope.structs)
@@ -10712,7 +10765,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if args.iter().any(|a| self.ty_transitively_mut(a, visited)) {
                     return true;
                 }
-                let Some(decl) = self.scope.structs.get(name.as_str()) else {
+                let Some(decl) = self.symbols.structs.get(name.as_str()) else {
                     return false;
                 };
                 if !visited.insert(name.clone()) {
@@ -11026,7 +11079,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                  `?{group}<{v}>` (or `?{member}: …`) to this function's parameters \
                  [implicit-forward]"
             ),
-            Ty::Named { name, .. } if self.scope.structs.contains_key(name.as_str()) => format!(
+            Ty::Named { name, .. } if self.symbols.structs.contains_key(name.as_str()) => format!(
                 " — declare a `{member}` inside `{name}`'s body, or ask for the \
                  structural one with `: …<self> by auto` on `{name}` [obligation-by] \
                  [fn-attached]"
@@ -11162,7 +11215,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 e.decl
                     .params
                     .first()
-                    .is_some_and(|p| matches!(&p.ty, ast::Type::Named { base, .. } if base.name.name == name))
+                    .is_some_and(|p| matches!(&p.ty, ast::Type::Named { base, .. }
+                        if Self::key_in(self.symbols, self.scope_of(base), &base.name.name) == name))
             })
         })
     }
@@ -11192,7 +11246,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .iter()
                     .take(2)
                     .find_map(|a| self.hash_ineligible(a, depth + 1)),
-                _ if self.scope.structs.contains_key(name.as_str()) => {
+                _ if self.symbols.structs.contains_key(name.as_str()) => {
                     // [cmp-groups] A key needs both halves: a `hash` to find the
                     // bucket and an `eq` to compare within it.
                     if self.has_member_for("hash", name) && self.has_member_for("eq", name) {
@@ -11249,7 +11303,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 "List" => args
                     .first()
                     .and_then(|a| self.order_ineligible(a, depth + 1)),
-                _ if self.scope.structs.contains_key(name.as_str()) => {
+                _ if self.symbols.structs.contains_key(name.as_str()) => {
                     if self.has_member_for("cmp", name) {
                         None
                     } else {
@@ -11328,7 +11382,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Err(_) => {
                     let slot = self
-                        .type_fn_slots(&name)
+                        .type_fn_slots(&self.type_key(&name))
                         .get(at)
                         .map(|s| s.name.clone())
                         .unwrap_or_else(|| "?".to_string());
@@ -11544,7 +11598,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [linear-generics]. Attaching an obligation on the strength of a
     /// function name is what [qual-*] keeps the compiler from doing.
     fn has_auto_linear(&self, name: &str) -> bool {
-        self.scope.structs.get(name).is_some_and(|s| s.linear)
+        self.symbols.structs.get(name).is_some_and(|s| s.linear)
             || self.opaque_linear(name)
     }
 
@@ -11554,7 +11608,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// discharge set is computed the same way; it simply has no fields for
     /// linearity to reach through.
     fn opaque_linear(&self, name: &str) -> bool {
-        self.scope.opaque_types.get(name).is_some_and(|t| t.linear)
+        self.symbols.intrinsic_types.get(name).is_some_and(|t| t.linear)
     }
 
     /// [linear-generics] Whether values of this struct *can* owe: the
@@ -11573,7 +11627,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !self.linear_opt_in_positions(name).is_empty() {
             return true;
         }
-        self.scope.structs.get(name).is_some_and(|s| {
+        self.symbols.structs.get(name).is_some_and(|s| {
             s.linear
                 || s.generic_canbe.iter().any(|(id, q)| {
                     q.name.name == "linear"
@@ -11590,7 +11644,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Ty::Named { name, args } = ty.strip_quals() else {
             return Vec::new();
         };
-        let Some(s) = self.scope.structs.get(name.as_str()) else {
+        let Some(s) = self.symbols.structs.get(name.as_str()) else {
             return Vec::new();
         };
         let subst: HashMap<String, Ty> = s
@@ -11633,12 +11687,18 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// **every handler's implementing body**, wherever the handler lives,
     /// since discharger status attaches to the *member declaration*
     /// [linear-discard].
+    /// [type-identity] The file a declaration is in, by its address.
+    fn file_declaring(&self, addr: usize) -> Option<usize> {
+        self.resolution.decl_files.get(&addr).copied()
+    }
+
     fn discharge_set(&self, type_name: &str) -> Vec<String> {
         // The declaring file is what the rule keys on, and either
         // declaration form can carry the obligation: a `linear struct` or a
         // `linear intrinsic type` [linear-group].
-        let struct_file = match self.scope.structs.get(type_name) {
-            Some(_) => self.scope.struct_files.get(type_name).copied(),
+        // [type-identity] Which file declares it, by the declaration itself.
+        let struct_file = match self.symbols.structs.get(type_name) {
+            Some(d) => self.file_declaring(*d as *const ast::StructDecl as usize),
             // [linear-container] …or a **conditional container**, whose
             // terminal is what a leak diagnostic must name: `drain` for a
             // `List`/`Map` of obligations (user decision 2026-09-16). An
@@ -11648,7 +11708,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             None if self.opaque_linear(type_name)
                 || !self.linear_opt_in_positions(type_name).is_empty() =>
             {
-                self.scope.opaque_type_files.get(type_name).copied()
+                match self.symbols.intrinsic_types.get(type_name) {
+                    Some(d) => self.file_declaring(*d as *const ast::TypeDecl as usize),
+                    None => self.scope.opaque_type_files.get(type_name).copied(),
+                }
             }
             None => return Vec::new(),
         };
@@ -11660,10 +11723,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 let consumes_self_typed = e.decl.params.iter().any(|p| {
                     let base_matches = match &p.ty {
-                        ast::Type::Named { base, .. } => base.name.name == type_name,
+                        ast::Type::Named { base, .. } => base.name.name == crate::typekey::plain(type_name),
                         ast::Type::QualifiedGroup { base, .. } => matches!(
                             base.as_ref(),
-                            ast::Type::Named { base: b, .. } if b.name.name == type_name
+                            ast::Type::Named { base: b, .. } if b.name.name == crate::typekey::plain(type_name)
                         ),
                         _ => false,
                     };
@@ -11702,7 +11765,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !t.linear || self.inferred.is_none() {
             return;
         }
-        if !self.discharge_set(&t.name.name).is_empty() {
+        if !self.discharge_set(self.symbols.key_or(t, &t.name.name)).is_empty() {
             return;
         }
         self.error(
@@ -12015,13 +12078,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         match ty {
             ast::Type::Named { base, .. } => {
                 let name = &base.name.name;
-                if self.has_auto_linear(name) {
+                let key = self.type_key(name);
+                if self.has_auto_linear(&key) {
                     return Some(name.clone());
                 }
                 // [linear-container] A conditional container written with a
                 // linear argument in an opted-in, holding position
                 // (`Box<Lines>`, `List<Reply<Int>>`) is linear itself.
-                for i in self.linear_opt_in_positions(name.as_str()) {
+                for i in self.linear_opt_in_positions(&key) {
                     if let Some(arg) = base.args.get(i) {
                         if let Some(found) = self.ast_type_own_linear(arg) {
                             return Some(found);
@@ -12051,7 +12115,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// which is exactly what `intrinsic type List<T canbe linear>` claims
     /// about its elements.
     fn linear_opt_in_positions(&self, name: &str) -> Vec<usize> {
-        if let Some(s) = self.scope.structs.get(name) {
+        if let Some(s) = self.symbols.structs.get(name) {
             return s
                 .generic_canbe
                 .iter()
@@ -12060,7 +12124,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .filter_map(|(id, _)| s.generics.iter().position(|g| g.name == id.name))
                 .collect();
         }
-        if let Some(t) = self.scope.opaque_types.get(name) {
+        if let Some(t) = self.symbols.intrinsic_types.get(name) {
             return t
                 .generic_canbe
                 .iter()
@@ -12101,7 +12165,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// implementation could remove later, so the diagnostic says which.
     fn linear_position_reason(&self, container: &str, index: usize) -> Option<String> {
         // Std's own containers, not a program's types of the same name.
-        if !self.scope.opaque_types.contains_key(container) {
+        if !self.symbols.intrinsic_types.contains_key(container) {
             return None;
         }
         match (container, index) {
@@ -12136,7 +12200,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         match ty {
             ast::Type::Literal { .. } => {}
             ast::Type::Named { base, .. } => {
-                let opted = self.linear_opt_in_positions(base.name.name.as_str());
+                let opted = self.linear_opt_in_positions(&self.type_key(&base.name.name));
                 for (i, a) in base.args.iter().enumerate() {
                     if let Some(linear) = self.ast_type_own_linear(a) {
                         // [linear-container] A parameter that declares
@@ -12148,7 +12212,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if opted.contains(&i) {
                             continue;
                         }
-                        match self.linear_position_reason(base.name.name.as_str(), i) {
+                        match self.linear_position_reason(&self.type_key(&base.name.name), i) {
                             // [linear-container] LC-3's two semantic refusals
                             // say why in their own words.
                             Some(reason) => reasoned.push((a.span(), linear, reason)),
@@ -12957,7 +13021,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Ty::Named { name, .. } => name.clone(),
             _ => return Ty::Unknown,
         };
-        let Some(effect) = self.scope.effects.get(effect_name.as_str()).copied() else {
+        let Some(effect) = self.symbols.effects.get(effect_name.as_str()).copied() else {
             for a in args {
                 self.check_expr(a, None);
             }
@@ -13258,7 +13322,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let plain_faces = !effects.is_empty()
             && effects.iter().all(|effect| {
                 matches!(effect.strip_quals(), Ty::Named { name, .. }
-                    if self.scope.effects.get(name.as_str()).is_some_and(|d| !d.is_actor))
+                    if self.symbols.effects.get(name.as_str()).is_some_and(|d| !d.is_actor))
             });
         if plain_faces {
             // [mixed-handler] Send members split the plain-face spawn in two:
@@ -13727,7 +13791,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ms.iter()
                     .filter(|(e, _)| {
                         self.effect_env.iter().any(
-                            |t| matches!(&t.ty, Ty::Named { name, .. } if *name == e.name.name),
+                            |t| matches!(&t.ty, Ty::Named { name, .. } if *name == self.symbols.key_or(*e, &e.name.name)),
                         )
                     })
                     .map(|(e, _)| format!("`{}`", e.name.name))
@@ -16227,7 +16291,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// arguments written beside it: `SortedSet<Str>(?cmp)` wants
     /// `(Str, Str) -> Int`.
     fn type_slot_ty(&mut self, name: &str, type_args: &[Ty], index: usize) -> Option<Ty> {
-        let decl = self.scope.opaque_types.get(name).copied()?;
+        let decl = self.symbols.intrinsic_types.get(name).copied()?;
         let slots = self.type_fn_slots(name);
         let want = slots.get(index)?.ty.clone();
         let subst: HashMap<String, Ty> = decl
@@ -16375,7 +16439,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [cmp-carry] The same for an `intrinsic type`.
     fn type_fn_slots(&mut self, name: &str) -> Vec<FnSlotInfo> {
-        let Some(decl) = self.scope.opaque_types.get(name).copied() else {
+        let Some(decl) = self.symbols.intrinsic_types.get(name).copied() else {
             return Vec::new();
         };
         if decl.fn_slots.is_empty() {
@@ -16775,6 +16839,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// alias expansion, plain nominals.
     fn lower_base_ref(&mut self, base: &TypeRef, subst: &HashMap<String, Ty>, depth: usize) -> Ty {
         let name = base.name.name.as_str();
+        // [type-identity] A written name means what it means in the file that
+        // wrote it, which is not this one when a callee's signature or a
+        // struct's field is lowered at a use.
+        let written_in = self.scope_of(base);
         if base.args.is_empty() {
             if let Some(bound) = subst.get(name) {
                 return bound.clone();
@@ -16837,15 +16905,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             // `SortedSet<Str>(my_cmp)`. The leading arguments are types as
             // ever; the trailing ones are identities, and a slot nobody wrote
             // takes its declared default (`?cmp: (T, T) -> Int = cmp`).
-            let slots = self.type_fn_slots(name);
+            let slots = self.type_fn_slots(&Self::key_in(self.symbols, written_in, name));
             if slots.is_empty() {
                 base.args
                     .iter()
                     .map(|a| self.lower_type_subst(a, subst, depth))
                     .collect()
             } else {
-                let arity = self
-                    .scope
+                let arity = written_in
                     .opaque_types
                     .get(name)
                     .map_or(0, |d| d.generics.len());
@@ -16853,21 +16920,49 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         };
         // Type aliases expand structurally (with generic substitution).
-        if let Some(alias) = self.scope.type_aliases.get(name) {
+        if let Some(alias) = written_in.type_aliases.get(name).copied() {
             if let Some(target) = &alias.alias {
                 let mut alias_subst = HashMap::new();
                 for (g, arg) in alias.generics.iter().zip(&args) {
                     alias_subst.insert(g.name.clone(), arg.clone());
                 }
-                let target = target.clone();
-                return self.lower_type_subst(&target, &alias_subst, depth + 1);
+                // The declaration's own node, not a copy: its references are
+                // resolved in the alias's file [type-identity].
+                return self.lower_type_subst(target, &alias_subst, depth + 1);
             }
         }
         Ty::Named {
-            name: name.to_string(),
+            name: Self::key_in(self.symbols, written_in, name),
             args,
         }
     }
+
+    /// [type-identity] The key of the type a *written* name means in this
+    /// file: the declaration the file's scope resolves it to (through an
+    /// import alias too), or the name itself when it names no declaration
+    /// (a generic, a builtin the scope does not list).
+    /// [type-identity] The scope of the file that wrote [r]; this file's for
+    /// a reference the checker made up.
+    fn scope_of(&self, r: &TypeRef) -> &'r ModuleScope<'p> {
+        self.resolution
+            .type_ref_files
+            .get(&(r as *const TypeRef as usize))
+            .map(|f| &self.resolution.scopes[*f])
+            .unwrap_or(self.scope)
+    }
+
+    fn type_key(&self, name: &str) -> String {
+        Self::key_in(self.symbols, self.scope, name)
+    }
+
+    fn key_in(symbols: &Symbols<'p>, scope: &ModuleScope<'p>, name: &str) -> String {
+        Self::written_key(symbols, scope, name).unwrap_or(name).to_string()
+    }
+
+    fn written_key(symbols: &Symbols<'p>, scope: &ModuleScope<'p>, name: &str) -> Option<&'p str> {
+        crate::resolve::key_in(symbols, scope, name)
+    }
+
 
     /// Builds a union, recording the wrapper size when one is needed.
     fn mk_union(&mut self, arms: Vec<Ty>) -> Ty {
@@ -17069,7 +17164,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         };
         let name = name.clone();
-        let Some(decl) = self.scope.effects.get(name.as_str()).copied() else {
+        let Some(decl) = self.symbols.effects.get(name.as_str()).copied() else {
             return;
         };
         if decl.is_actor {
@@ -17212,7 +17307,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // filling a `Mut List<Reply<Str>>`), and its terminal is checked
             // where the container is.
             ast::Type::Named { base, .. } => {
-                let opted = self.linear_opt_in_positions(base.name.name.as_str());
+                let opted = self.linear_opt_in_positions(&self.type_key(&base.name.name));
                 base.args
                     .iter()
                     .enumerate()
@@ -17521,7 +17616,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // back — so the obligation would have no reachable discharge at
             // all. Hold it in a container, whose take-by-move operations
             // leave the storage itself intact.
-            if self.has_auto_linear(&linear) && self.container_of_linear(&field.ty).is_none() {
+            if self.has_auto_linear(&self.type_key(&linear)) && self.container_of_linear(&field.ty).is_none() {
                 self.error(
                     field.ty.span(),
                     format!(
@@ -18275,13 +18370,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             return false;
         };
         let has_mut = |quals: &[ast::TypeRef]| quals.iter().any(|q| q.name.name == "Mut");
-        self.scope
+        self.symbols
             .structs
             .get(name.as_str())
             .is_some_and(|s| has_mut(&s.auto_qualifiers))
             || self
-                .scope
-                .opaque_types
+                .symbols
+                .intrinsic_types
                 .get(name.as_str())
                 .is_some_and(|t| has_mut(&t.auto_qualifiers))
     }
@@ -18424,7 +18519,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 None => {
                     if let Ty::Named { name, .. } = of_ty.strip_quals() {
-                        if self.scope.structs.contains_key(name.as_str()) {
+                        if self.symbols.structs.contains_key(name.as_str()) {
                             let name = name.clone();
                             self.error(
                                 fo.name.span,
@@ -20103,7 +20198,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             let is_struct = matches!(
                                 base_ty.strip_quals(),
                                 Ty::Named { name, .. }
-                                    if self.scope.structs.contains_key(name.as_str())
+                                    if self.symbols.structs.contains_key(name.as_str())
                             );
                             let has_mut = base_ty.quals().iter().any(|q| q.name == "Mut");
                             if is_struct && !has_mut {
@@ -20852,7 +20947,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     return narrowed;
                 }
                 if self.scope.handlers.contains_key(id.name.as_str()) {
-                    return Ty::named(&id.name);
+                    return Ty::named(&self.type_key(&id.name));
                 }
                 if self.has_callable(&id.name) {
                     // [fn-value-select] Passing a function *by name*: the
@@ -22268,7 +22363,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Ty::Named { name, .. } = base_ty.strip_quals() else {
             return;
         };
-        let Some(decl) = self.scope.structs.get(name.as_str()).copied() else {
+        let Some(decl) = self.symbols.structs.get(name.as_str()).copied() else {
             return;
         };
         let Some(f) = decl.fields.iter().find(|f| f.name.name == field.name) else {
@@ -22302,7 +22397,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [type-unknown-lenient].
                 let stripped = base_ty.strip_quals().clone();
                 match &stripped {
-                    Ty::Named { name, .. } if self.scope.structs.contains_key(name.as_str()) => {
+                    Ty::Named { name, .. } if self.symbols.structs.contains_key(name.as_str()) => {
                         let name = name.clone();
                         self.error(
                             field.span,
@@ -22418,7 +22513,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Ty::Named { name, args } = base_ty.strip_quals() else {
             return None;
         };
-        let decl: &'p StructDecl = self.scope.structs.get(name.as_str())?;
+        let decl: &'p StructDecl = self.symbols.structs.get(name.as_str())?;
         let field = decl.fields.iter().find(|f| f.name.name == field_name)?;
         let mut subst = HashMap::new();
         for (i, g) in decl.generics.iter().enumerate() {
@@ -22436,7 +22531,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Ty::Named { name, .. } = stripped else {
             return None;
         };
-        let decl: &'p StructDecl = self.scope.structs.get(name.as_str()).copied()?;
+        let decl: &'p StructDecl = self.symbols.structs.get(name.as_str()).copied()?;
         let ob = decl
             .obligations
             .iter()
@@ -22588,7 +22683,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Ty::Named { name, .. } = subject.strip_quals() else {
             return true;
         };
-        let Some(mine) = self.scope.structs.get(name.as_str()).copied() else {
+        let Some(mine) = self.symbols.structs.get(name.as_str()).copied() else {
             return true;
         };
         let param_name = match &decl.params[0].ty {
@@ -23164,8 +23259,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn is_intrinsic_container(&self, subject: &Ty) -> bool {
         match subject {
             Ty::Named { name, .. } => self
-                .scope
-                .opaque_types
+                .symbols
+                .intrinsic_types
                 .get(name.as_str())
                 .is_some_and(|d| d.intrinsic),
             _ => false,
@@ -23561,7 +23656,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         };
         let (decl, subst) = match struct_ty.strip_quals() {
-            Ty::Named { name, args } => match self.scope.structs.get(name.as_str()).copied() {
+            Ty::Named { name, args } => match self.symbols.structs.get(name.as_str()).copied() {
                 Some(decl) => {
                     let mut subst = HashMap::new();
                     for (i, g) in decl.generics.iter().enumerate() {
@@ -26462,7 +26557,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let any_available = members.iter().any(|(e, _)| {
                 self.effect_env
                     .iter()
-                    .any(|t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == e.name.name))
+                    .any(|t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == self.symbols.key_or(*e, &e.name.name)))
             });
             if !any_available && !self.overloads_of(name).is_empty() {
                 // Fall through to the fn overloads below — and tell the
@@ -26490,7 +26585,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .iter()
                     .filter(|e| {
                         self.effect_env.iter().any(
-                            |t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == e.name.name),
+                            |t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == self.symbols.key_or(**e, &e.name.name)),
                         )
                     })
                     .copied()
@@ -27897,7 +27992,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `fill_one_implicit`.
         if decl.intrinsic && decl.name.name == "protocol" && args.is_empty() {
             if let Some(ast::Type::Named { base, .. }) = type_args.first() {
-                let effect = base.name.name.clone();
+                let effect = self.type_key(&base.name.name);
                 self.refuse_noremote_protocol(&effect, "protocol", span);
             }
         }
@@ -27917,7 +28012,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the diagnostic. Silent for a name that is not an effect in scope —
     /// the ordinary type errors cover that.
     fn refuse_noremote_protocol(&mut self, effect: &str, via: &str, span: Span) {
-        let Some(effect) = self.scope.effects.get(effect).copied() else {
+        let Some(effect) = self.symbols.effects.get(effect).copied() else {
             return;
         };
         let empty = std::collections::HashMap::new();
@@ -28477,14 +28572,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         let candidates: Vec<Ty> = self
             .visible_effects()
             .into_iter()
-            .filter(|t| matches!(t, Ty::Named { name, .. } if *name == effect.name.name))
+            .filter(|t| matches!(t, Ty::Named { name, .. } if *name == self.symbols.key_or(effect, &effect.name.name)))
             .collect();
 
         let resolved: Option<Ty> = if !type_args.is_empty() {
             // Explicit type arguments pin the instance.
             let targs: Vec<Ty> = type_args.iter().map(|t| self.lower_type(t)).collect();
             let want = Ty::Named {
-                name: effect.name.name.clone(),
+                name: self.symbols.key_of(effect).unwrap_or(&effect.name.name).to_string(),
                 args: targs,
             };
             if candidates
@@ -28515,7 +28610,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [effect-intercept], not to this one. Recorded as a gap in
             // ROADMAP.md.
             let own = self.handler_ofs.iter().find(
-                |of| matches!(of.strip_quals(), Ty::Named { name, .. } if *name == effect.name.name),
+                |of| matches!(of.strip_quals(), Ty::Named { name, .. } if *name == self.symbols.key_or(effect, &effect.name.name)),
             ).cloned();
             match own {
                 Some(of) => {
@@ -29206,10 +29301,10 @@ fn type_mentions_generic(ty: &ast::Type, name: &str) -> bool {
 fn member_consumes_type(member: &FnDecl, type_name: &str) -> bool {
     member.params.iter().any(|p| {
         let base_matches = match &p.ty {
-            ast::Type::Named { base, .. } => base.name.name == type_name,
+            ast::Type::Named { base, .. } => base.name.name == crate::typekey::plain(type_name),
             ast::Type::QualifiedGroup { base, .. } => matches!(
                 base.as_ref(),
-                ast::Type::Named { base: b, .. } if b.name.name == type_name
+                ast::Type::Named { base: b, .. } if b.name.name == crate::typekey::plain(type_name)
             ),
             _ => false,
         };

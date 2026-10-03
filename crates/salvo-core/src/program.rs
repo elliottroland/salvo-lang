@@ -38,6 +38,16 @@ impl Program {
     }
 }
 
+/// [type-identity] A declaration with a key: what `Symbols::key_of` takes.
+/// A trait rather than any `T`, so passing a reference to one (`&&EffectDecl`
+/// from an iterator) is a type error instead of the address of the
+/// reference.
+pub trait TypeDeclaration {}
+impl TypeDeclaration for StructDecl {}
+impl TypeDeclaration for EffectDecl {}
+impl TypeDeclaration for HandlerDecl {}
+impl TypeDeclaration for TypeDecl {}
+
 /// Global symbol tables, keyed by simple name.
 #[derive(Default)]
 pub struct Symbols<'p> {
@@ -73,6 +83,16 @@ pub struct Symbols<'p> {
     /// `params` groups by name [implicit-group]: bundles of implicit
     /// parameters, spread into a signature as `?Name<T>`.
     pub param_groups: HashMap<&'p str, &'p ParamsDecl>,
+    /// [type-identity] The key of every type declaration (struct, effect,
+    /// alias, intrinsic or platform type, handler), by the declaration's
+    /// address: what `key_of` answers. See `typekey`.
+    pub decl_keys: HashMap<usize, &'p str>,
+    /// [type-identity] The module every key is declared in.
+    pub key_modules: HashMap<&'p str, &'p ModulePath>,
+    /// [type-identity] The names more than one module declares: an emitter
+    /// spells every declaration of one with its module's path, since a
+    /// glob or star import of two would be ambiguous in the host.
+    pub clashing: std::collections::HashSet<&'p str>,
 }
 
 impl<'p> Symbols<'p> {
@@ -81,9 +101,71 @@ impl<'p> Symbols<'p> {
         self.qualifier_modules.iter().find(|(q, _)| std::ptr::eq(*q, decl)).map(|(_, m)| *m)
     }
 
+    /// [type-identity] The key of a type declaration: its name, unless
+    /// another module declared that name first.
+    pub fn key_of<D: TypeDeclaration>(&self, decl: &D) -> Option<&'p str> {
+        self.decl_keys.get(&(decl as *const D as usize)).copied()
+    }
+
+    /// [type-identity] The key of a declaration, or [name] (its written
+    /// name) for one the tables do not hold.
+    pub fn clashes(&self, key: &str) -> bool {
+        self.clashing.contains(crate::typekey::plain(key))
+    }
+
+    pub fn key_or<'a, D: TypeDeclaration>(&self, decl: &D, name: &'a str) -> &'a str
+    where
+        'p: 'a,
+    {
+        self.key_of(decl).unwrap_or(name)
+    }
+
     /// Collects symbols from every module of the program.
     pub fn collect(program: &'p Program) -> Self {
         let mut symbols = Symbols::default();
+        // [type-identity] Which module first declared each type name, and
+        // which handler name: one namespace for types and effects, one for
+        // handlers.
+        let mut first_type: HashMap<&'p str, &'p ModulePath> = HashMap::new();
+        let mut first_handler: HashMap<&'p str, &'p ModulePath> = HashMap::new();
+        for unit in program.units() {
+            let module = &unit.file.module;
+            for item in &unit.ast.items {
+                let (name, table) = match item {
+                    Item::Struct(s) => (s.name.name.as_str(), &mut first_type),
+                    Item::Effect(e) => (e.name.name.as_str(), &mut first_type),
+                    Item::Type(t) => (t.name.name.as_str(), &mut first_type),
+                    Item::Handler(h) => (h.name.name.as_str(), &mut first_handler),
+                    _ => continue,
+                };
+                if table.get(name).is_some_and(|m| *m != module) {
+                    symbols.clashing.insert(name);
+                }
+                table.entry(name).or_insert(module);
+            }
+        }
+        for unit in program.units() {
+            let module: &'p ModulePath = &unit.file.module;
+            let key_in = |name: &'p str, first: &HashMap<&'p str, &'p ModulePath>| -> &'p str {
+                match first.get(name) {
+                    Some(m) if *m != module => crate::typekey::keyed(name, &module.to_string()),
+                    _ => name,
+                }
+            };
+            for item in &unit.ast.items {
+                let (addr, key) = match item {
+                    Item::Struct(s) => (s as *const StructDecl as usize, key_in(&s.name.name, &first_type)),
+                    Item::Effect(e) => (e as *const EffectDecl as usize, key_in(&e.name.name, &first_type)),
+                    Item::Type(t) => (t as *const TypeDecl as usize, key_in(&t.name.name, &first_type)),
+                    Item::Handler(h) => (h as *const HandlerDecl as usize, key_in(&h.name.name, &first_handler)),
+                    _ => continue,
+                };
+                symbols.decl_keys.insert(addr, key);
+                symbols.key_modules.insert(key, module);
+            }
+        }
+        let keys = symbols.decl_keys.clone();
+        let key = |addr: usize, name: &'p str| -> &'p str { keys.get(&addr).copied().unwrap_or(name) };
         for unit in program.units() {
             for item in &unit.ast.items {
                 match item {
@@ -93,23 +175,19 @@ impl<'p> Symbols<'p> {
                     // erased before emission.
                     Item::Rename(_) => {}
                     Item::Struct(s) => {
-                        symbols.structs.insert(&s.name.name, s);
+                        symbols.structs.insert(key(s as *const StructDecl as usize, &s.name.name), s);
                     }
                     Item::Effect(e) => {
-                        symbols.effects.insert(&e.name.name, e);
+                        let k = key(e as *const EffectDecl as usize, &e.name.name);
+                        symbols.effects.insert(k, e);
                         for f in &e.fns {
-                            symbols
-                                .effect_of_fn
-                                .entry(&f.name.name)
-                                .or_default()
-                                .push(&e.name.name);
+                            symbols.effect_of_fn.entry(&f.name.name).or_default().push(k);
                         }
                     }
                     Item::Handler(h) => {
-                        symbols.handlers.insert(&h.name.name, h);
-                        symbols
-                            .handler_modules
-                            .insert(&h.name.name, &unit.file.module);
+                        let k = key(h as *const HandlerDecl as usize, &h.name.name);
+                        symbols.handlers.insert(k, h);
+                        symbols.handler_modules.insert(k, &unit.file.module);
                     }
                     Item::Params(g) => {
                         symbols.param_groups.insert(&g.name.name, g);
@@ -124,10 +202,10 @@ impl<'p> Symbols<'p> {
                     // [platform-type] A platform type is opaque the same way:
                     // a name with no Salvo representation.
                     Item::Type(t) if t.intrinsic || t.platform => {
-                        symbols.intrinsic_types.insert(&t.name.name, t);
+                        symbols.intrinsic_types.insert(key(t as *const TypeDecl as usize, &t.name.name), t);
                     }
                     Item::Type(t) => {
-                        symbols.type_aliases.insert(&t.name.name, t);
+                        symbols.type_aliases.insert(key(t as *const TypeDecl as usize, &t.name.name), t);
                     }
                     Item::Import(_) => {}
                     // [qual-refn] A refinement declares no symbol of its

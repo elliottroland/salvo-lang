@@ -1301,3 +1301,118 @@ impl crate::CounterPlatform for HostCounter {
     }
 }
 "#;
+
+/// [type-identity] One type name in three modules — a program's own `Token`,
+/// two libraries' — with an effect named like std's `time.Clock`, an aliased
+/// import (`import lib.b.Token as BToken`), a union over one library's
+/// `Token`, a wire codec and auto equality on the other's, and an actor
+/// protocol over the program's own. Every stage after resolution knows which
+/// declaration each use means; same stdout on both backends.
+#[test]
+fn type_names_clash_across_modules_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("type_names_clash", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("type_clash");
+    fs::create_dir_all(dir.join("lib")).unwrap();
+    fs::write(dir.join("lib/a.sv"), r#"// A `Token` with a wire form and auto equality, and an effect named like
+// std's `time.Clock`.
+import net
+
+export struct Token : Hashed<self> by auto { id: Int }
+
+export effect Clock {
+    fn now() -> Long
+}
+
+export handler Fixed(at: Long) of Clock {
+    fn now() -> Long { return copy(at) }
+}
+
+export fn make_a() [] -> Token {
+    return Token { id: 1 }
+}
+
+export fn show_a(t: Token) [Clock] -> Str {
+    let back = decode<Token>(encode(copy(t)))!
+    let s: Set<Token> = {copy(t), back}
+    return "a.Token ${t.id}, set of ${size(s)}, at ${now()}"
+}
+"#).unwrap();
+    fs::write(dir.join("lib/b.sv"), r#"// A different `Token`: a fn field and a union over it.
+export struct Token { name: Str, f: (Int) -> Int }
+export struct Circle { r: Int }
+export type Shape = Token | Circle
+
+export fn make_b() [] -> Token {
+    return Token { name: "bee", f: x -> x + 1 }
+}
+
+export fn show_b(t: Token) [] -> Str {
+    let g = t.f
+    return "b.Token ${t.name} ${g(1)}"
+}
+
+export fn describe(s: Shape) [] -> Str {
+    when s {
+        is Token { return "a token named ${s.name}" }
+        is Circle { return "a circle of ${s.r}" }
+    }
+}
+"#).unwrap();
+    fs::write(dir.join("main.sv"), r#"import lib.a.make_a
+import lib.a.show_a
+import lib.a.Fixed
+import lib.b.Token as BToken
+import lib.b.Circle
+import lib.b.make_b
+import lib.b.show_b
+import lib.b.describe
+
+// This module's own `Token`, beside two imported ones.
+struct Token { label: Str }
+
+actor effect Counter {
+    send fn bump(t: Token) => !t
+    send fn total(out: Reply<Str>) => !out
+}
+
+handler Counting() of Counter {
+    mailbox { capacity: 4 }
+    seen: Str = ""
+    send fn bump(t: Token) => !t { seen = "${seen}${t.label}" }
+    send fn total(out: Reply<Str>) => !out { out.send(copy(seen)) }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    use Fixed(42L)
+    let mine = Token { label: "mine" }
+    println(mine.label)
+    println(show_a(make_a()))
+    let b: BToken = make_b()
+    println(b.name)
+    println(show_b(b))
+    println(describe(BToken { name: "two", f: x -> x }))
+    println(describe(Circle { r: 3 }))
+    let c = spawn Counting() on pool(1)
+    c.bump(Token { label: "x" })
+    c.bump(copy(mine))
+    let s = waitfor out: Reply<Str> { c.total(out) }
+    println(s)
+}
+"#).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "mine\na.Token 1, set of 1, at 42\nbee\nb.Token bee 2\na token named two\na circle of 3\nxmine\n",
+            "{backend}"
+        );
+    }
+    __stamp.verified();
+}

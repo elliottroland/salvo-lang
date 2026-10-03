@@ -141,6 +141,10 @@ fn reply_payload(ty: &Type) -> Option<&Type> {
 /// [platform-abi] The host-facing trait of an effect's platform handlers:
 /// `EPlatform` (`&mut self`), or `EPlatformSync` (`&self`) for `threadsafe`.
 fn platform_trait_name(effect: &str, threadsafe: bool) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(effect) {
+        return format!("{path}::{}", platform_trait_name(last, threadsafe));
+    }
     if threadsafe {
         format!("{effect}PlatformSync")
     } else {
@@ -151,6 +155,10 @@ fn platform_trait_name(effect: &str, threadsafe: bool) -> String {
 /// [platform-abi] The adapter of an effect (`__Platform_E<T>`) or of one
 /// platform handler (`__Platform_H`): generated, never host-facing.
 fn platform_adapter_name(name: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(name) {
+        return format!("{path}::{}", platform_adapter_name(last));
+    }
     format!("__Platform_{name}")
 }
 
@@ -171,7 +179,7 @@ fn emit_program_mode(
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
     let original_symbols = Symbols::collect(program);
     let resolution = salvo_core::resolve(program);
-    let checked = salvo_core::check_program(program, &resolution, &original_symbols);
+    let mut checked = salvo_core::check_program(program, &resolution, &original_symbols);
     // [effect-generic-decl] Emission reads the program with its effect-only
     // generics erased — `ActorGroup<E>` becomes `ActorGroup`, since an
     // `Addr<E>` is a scheduler index whatever `E` is — against the checker's
@@ -184,6 +192,8 @@ fn emit_program_mode(
     // address between the scopes and the symbol table, so both must point
     // into the same tree.
     let resolution = salvo_core::resolve(program);
+    // [type-identity] Written references, keyed by address: the erased copy's.
+    checked.type_ref_keys.extend(salvo_core::resolve::written_keys(program, &resolution, &symbols));
     // Only *errors* stop emission: a warning reports something the author
     // probably did not intend without rejecting the program
     // [diag-structured], which is what a suppressed refinement conflict
@@ -273,6 +283,8 @@ fn emit_program_mode(
     // [rs-handle] The same prefix per *file*, for items named by the
     // module that declares a fn — its handle bundles.
     let mut module_paths: HashMap<usize, String> = HashMap::new();
+    // [type-identity] The same prefix per module, for a clashing type name.
+    let mut module_prefixes: HashMap<ModulePath, String> = HashMap::new();
     for (file_idx, unit) in program.units().enumerate() {
         if !emitted_modules.contains(&unit.file.module) {
             continue;
@@ -286,9 +298,10 @@ fn emit_program_mode(
             }
         };
         module_paths.insert(file_idx, prefix.clone());
+        module_prefixes.insert(unit.file.module.clone(), prefix.clone());
         for item in &unit.ast.items {
             if let Item::Effect(e) = item {
-                effect_paths.insert(e.name.name.clone(), prefix.clone());
+                effect_paths.insert(symbols.key_or(e, &e.name.name).to_string(), prefix.clone());
             }
         }
     }
@@ -337,6 +350,7 @@ fn emit_program_mode(
         emitter.root_module = root_module;
         emitter.effect_paths = effect_paths.clone();
         emitter.module_paths = module_paths.clone();
+        emitter.module_prefixes = module_prefixes.clone();
         emitter.erased = erased.clone();
         emitter.abi_keep = if abi_full.contains(&unit.file.module) { None } else { closure.clone() };
         emitter.platform_effects = platform_effects.clone();
@@ -732,7 +746,8 @@ pub fn platform_skeletons(
     for unit in program.units() {
         for item in &unit.ast.items {
             if let Item::Effect(e) = item {
-                all_effect_module.insert(e.name.name.as_str(), &unit.file.module);
+                // [type-identity] By key: the face resolved to it.
+                all_effect_module.insert(symbols.key_or(e, &e.name.name), &unit.file.module);
             }
         }
     }
@@ -798,7 +813,7 @@ pub fn platform_skeletons(
             // [platform-handler] [effect-handler-multi] One face: the host
             // writes one class implementing one generated interface, and the
             // checker refuses a second.
-            let effect_path = type_base_name(&h.of[0])
+            let effect_path = type_key_name(&checked, &h.of[0])
                 .and_then(|name| all_effect_module.get(name))
                 .and_then(|m| path_to(m));
             match effect_path {
@@ -1231,7 +1246,27 @@ fn rc_fn_type(rendered: &str) -> String {
     format!("std::sync::Arc<dyn {inner} + Send + Sync>")
 }
 
+/// [type-identity] A clashing name renders under its module
+/// (`crate::lib_a::Clock`): the path and the name, or `None` for a bare one.
+fn split_path(name: &str) -> Option<(&str, &str)> {
+    let base_end = name.find('<').unwrap_or(name.len());
+    let i = name[..base_end].rfind("::")?;
+    Some((&name[..i], &name[i + 2..]))
+}
+
+/// [rs-handle] A dependency field's name fragment: the effect's own name,
+/// without the module path a clashing one renders with.
+fn dep_ident(base: &str) -> String {
+    let base_end = base.find('<').unwrap_or(base.len());
+    let start = base[..base_end].rfind("::").map_or(0, |i| i + 2);
+    sanitize_ident(&base[start..])
+}
+
 fn rs_ident(name: &str) -> String {
+    // [type-identity] A key is declared and spelled under the name it was
+    // written as; its module path, where one is needed, comes from the
+    // caller (`type_path`, `effect_path`).
+    let name = salvo_core::typekey::plain(name);
     let flat = if name.contains('.') {
         name.replace('.', "")
     } else {
@@ -1514,6 +1549,8 @@ struct Emitter<'p> {
     effect_paths: HashMap<String, String>,
     /// [rs-handle] File index → crate path prefix of its module.
     module_paths: HashMap<usize, String>,
+    /// [type-identity] Each emitted module's path prefix (`crate::lib_b::`).
+    module_prefixes: HashMap<ModulePath, String>,
     /// [effect-generic-decl] The declarations whose generics are erased at
     /// emission; an instance of one renders without its arguments.
     erased: salvo_core::Erased,
@@ -2298,6 +2335,7 @@ impl<'p> Emitter<'p> {
             union_sizes: BTreeSet::new(),
             effect_paths: HashMap::new(),
             module_paths: HashMap::new(),
+            module_prefixes: HashMap::new(),
             erased: salvo_core::Erased::default(),
             needs_wire: false,
             ret_is_unit: false,
@@ -2808,7 +2846,7 @@ impl<'p> Emitter<'p> {
     /// The base effect name and rendered type arguments of a handler's
     /// `of` type (an erased effect's instance is monomorphic).
     fn face_parts(&mut self, face: &Type) -> Option<(String, Vec<String>)> {
-        let base = type_base_name(face)?.to_string();
+        let base = type_key_name(self.checked, face)?.to_string();
         if self.erased.is_erased(&base) {
             return Some((base, Vec::new()));
         }
@@ -3689,7 +3727,7 @@ impl<'p> Emitter<'p> {
             if !self.effect_paths.contains_key(&e.name.name) {
                 continue;
             }
-            let proto = self.effect_path(&e.name.name, &protocol_const_name(&e.name.name));
+            let proto = self.effect_path(self.symbols.key_or(e, &e.name.name), &protocol_const_name(&e.name.name));
             entries.push(format!("(\"{}\".to_string(), {proto}.to_string())", e.name.name));
         }
         if entries.is_empty() {
@@ -4076,7 +4114,7 @@ impl<'p> Emitter<'p> {
 
     fn host_handler_impl(&mut self, h: &HandlerDecl, effect_path: &str, own_path: &str) -> String {
         let of = self.emit_type(&h.of[0]);
-        let Some(effect) = type_base_name(&h.of[0])
+        let Some(effect) = type_key_name(self.checked, &h.of[0])
             .and_then(|n| self.symbols.effects.get(n))
             .copied()
         else {
@@ -4404,7 +4442,7 @@ impl<'p> Emitter<'p> {
         let Some(Type::Named { base, .. }) = h.of.first() else {
             return String::new();
         };
-        let effect = base.name.name.clone();
+        let effect = self.checked.written_key(base).to_string();
         let module = self.program.files[self.file_idx].module.clone();
         // Only with the implementation present (or in a host project, where it
         // is the root's to supply): a handler nobody uses needs no host file,
@@ -4512,7 +4550,7 @@ impl<'p> Emitter<'p> {
             for (base, args) in &deps {
                 let ty = self.dep_handle_type(base, args);
                 field_types.push_str(&ty);
-                out.push_str(&format!("    __dep_{}: {ty},\n", sanitize_ident(base)));
+                out.push_str(&format!("    __dep_{}: {ty},\n", dep_ident(base)));
             }
         }
         // [effect-handler-generics] A type parameter no field mentions is an
@@ -4598,7 +4636,7 @@ impl<'p> Emitter<'p> {
         if handle_dep {
             for (base, args) in &deps {
                 let ty = self.dep_handle_type(base, args);
-                ctor_params.push(format!("__dep_{}: {ty}", sanitize_ident(base)));
+                ctor_params.push(format!("__dep_{}: {ty}", dep_ident(base)));
             }
         }
         out.push_str(&format!("    pub fn new({}) -> Self {{\n", ctor_params.join(", ")));
@@ -4639,7 +4677,7 @@ impl<'p> Emitter<'p> {
         // [effect-handle] The captured dependency handles.
         if handle_dep {
             for (base, _) in &deps {
-                out.push_str(&format!("            __dep_{},\n", sanitize_ident(base)));
+                out.push_str(&format!("            __dep_{},\n", dep_ident(base)));
             }
         }
         // [rs-actor] `None` until an activation writes it: an instance that
@@ -4792,15 +4830,17 @@ impl<'p> Emitter<'p> {
         let dispatchers: Vec<(String, String, String)> = faces
             .iter()
             .map(|e| {
+                // [type-identity] Paths by the effect's key, names by its own.
+                let effect_key = self.symbols.key_or(*e, &e.name.name).to_string();
                 let effect_name = e.name.name.clone();
                 let msg = msg_enum_name(&effect_name);
-                let msg_path = self.effect_path(&effect_name, &msg);
+                let msg_path = self.effect_path(&effect_key, &msg);
                 let trait_item = if stateful {
                     stateful_trait_name(&effect_name)
                 } else {
                     stateless_trait_name(&effect_name)
                 };
-                let trait_path = self.effect_path(&effect_name, &trait_item);
+                let trait_path = self.effect_path(&effect_key, &trait_item);
                 let dispatch = if single {
                     "__dispatch".to_string()
                 } else {
@@ -5054,8 +5094,9 @@ impl<'p> Emitter<'p> {
                 if self.checked.protocol_hashes.contains_key(&effect.name.name)
                     && self.effect_has_wire_form(effect)
                 {
-                    let msg_path = self.effect_path(&effect.name.name, &msg_enum_name(&effect.name.name));
-                    let proto = self.effect_path(&effect.name.name, &protocol_const_name(&effect.name.name));
+                    let effect_key = self.symbols.key_or(*effect, &effect.name.name).to_string();
+                    let msg_path = self.effect_path(&effect_key, &msg_enum_name(&effect.name.name));
+                    let proto = self.effect_path(&effect_key, &protocol_const_name(&effect.name.name));
                     arms.push_str(&format!(
                         "        if proto == {proto} {{\n            \
                          return crate::wire::salvo_decode::<{msg_path}>(payload)\n                \
@@ -5092,7 +5133,7 @@ impl<'p> Emitter<'p> {
             Type::Named { base, .. } => self
                 .symbols
                 .effects
-                .get(base.name.name.as_str())
+                .get(self.checked.written_key(base))
                 .is_some_and(|e| e.is_actor),
             _ => false,
         })
@@ -5156,7 +5197,7 @@ impl<'p> Emitter<'p> {
     /// the handler-keyed `__Priv_H` enum. Empty for a mixed handler, whose
     /// servant owns every send member through `__Msg_H` [mixed-handler].
     fn private_members(&mut self, h: &HandlerDecl) -> Vec<&'p FnDecl> {
-        let Some(decl) = self.symbols.handlers.get(h.name.name.as_str()).copied() else {
+        let Some(decl) = self.symbols.handlers.get(self.symbols.key_or(h, &h.name.name)).copied() else {
             return Vec::new();
         };
         let mut out = Vec::new();
@@ -5215,12 +5256,14 @@ impl<'p> Emitter<'p> {
     /// why this needs no filtering: every entry is a dependency, and the
     /// checker has already refused `use` and `Throw` there.
     fn handler_dep_effects(&mut self, h: &HandlerDecl) -> Vec<(String, Vec<String>)> {
-        let refs: Vec<TypeRef> = h
+        // The declaration's own nodes, not copies: a written reference is
+        // resolved by its address [type-identity].
+        let refs: Vec<&TypeRef> = h
             .effects
             .iter()
             .flatten()
             .filter_map(|e| match e {
-                EffectRef::Effect(r) | EffectRef::AnyEffect(r) => Some(r.clone()),
+                EffectRef::Effect(r) | EffectRef::AnyEffect(r) => Some(r),
                 EffectRef::Use(_) => None,
                 // [actor-spawn-effect] A capability, not an effect type: no
                 // handler parameter is threaded for it.
@@ -5229,13 +5272,17 @@ impl<'p> Emitter<'p> {
             .collect();
         refs.iter()
             .map(|r| {
+                // [type-identity] The effect the written name resolved to,
+                // as it renders.
+                let key = self.checked.written_key(r).to_string();
+                let base = self.type_path(&key);
                 // [effect-generic-decl] An erased effect's instance is
                 // monomorphic in the output.
-                if self.erased.is_erased(&r.name.name) {
-                    return (r.name.name.clone(), Vec::new());
+                if self.erased.is_erased(&key) {
+                    return (base, Vec::new());
                 }
                 let args: Vec<String> = r.args.iter().map(|a| self.emit_type(a)).collect();
-                (r.name.name.clone(), args)
+                (base, args)
             })
             .collect()
     }
@@ -5249,7 +5296,7 @@ impl<'p> Emitter<'p> {
         // [effect-handler-multi] One face, like a platform handler's: the
         // members are the backend's, and the checker refuses a second.
         let of = self.emit_type(&h.of[0]);
-        let Some(effect) = type_base_name(&h.of[0])
+        let Some(effect) = type_key_name(self.checked, &h.of[0])
             .and_then(|n| self.symbols.effects.get(n))
             .copied()
         else {
@@ -5339,7 +5386,7 @@ impl<'p> Emitter<'p> {
     fn handler_faces(&mut self, h: &HandlerDecl) -> Vec<&'p EffectDecl> {
         h.of
             .iter()
-            .filter_map(|of| type_base_name(of))
+            .filter_map(|of| type_key_name(self.checked, of))
             .filter_map(|n| self.symbols.effects.get(n).copied())
             .collect()
     }
@@ -5754,7 +5801,7 @@ impl<'p> Emitter<'p> {
             // handler's own state usable beside it.
             if matches!(style, FnStyle::HandlerMember(_)) && self.handler_is_handle_dep(h) {
                 for (base, args) in self.handler_dep_effects(h) {
-                    let var = format!("self.__dep_{}", sanitize_ident(&base));
+                    let var = format!("self.__dep_{}", dep_ident(&base));
                     self.effect_env.push(EffectEntry {
                         ty: None,
                         key: trait_type(&base, &args),
@@ -6942,7 +6989,8 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_named_type(&mut self, qualifiers: &[TypeRef], base: &TypeRef) -> String {
-        let name = base.name.name.clone();
+        // [type-identity] The declaration the written name resolved to.
+        let name = self.checked.written_key(base).to_string();
         // [type-canbe-mut] `Mut` erases here: on Rust, mutability lives in
         // the binding, not the type [rs-borrows], so `Mut List<T>` and
         // `List<T>` render identically and the deduction-driven parameter
@@ -6952,7 +7000,9 @@ impl<'p> Emitter<'p> {
         self.emit_type_ref_named(&name, &args)
     }
     fn emit_type_ref(&mut self, r: &TypeRef) -> String {
-        self.emit_type_ref_named(&r.name.name, &r.args)
+        // [type-identity] The declaration the written name resolved to.
+        let key = self.checked.written_key(r).to_string();
+        self.emit_type_ref_named(&key, &r.args)
     }
 
     /// [effect-generic-decl] The type arguments to render for a named type:
@@ -7066,7 +7116,7 @@ impl<'p> Emitter<'p> {
         // [platform-type] The host's own type, re-exported where it is
         // declared: the name passes through like a struct's.
         if self.symbols.intrinsic_types.get(name).is_some_and(|t| t.platform) {
-            return format!("{}{args}", rs_ident(name));
+            return format!("{}{args}", self.type_path(name));
         }
         if self.symbols.intrinsic_types.contains_key(name) {
             self.error(format!(
@@ -7075,7 +7125,50 @@ impl<'p> Emitter<'p> {
             return format!("{}{args}", rs_ident(name));
         }
         // Structs, generics, effects, and unknown names pass through.
-        format!("{}{args}", rs_ident(name))
+        format!("{}{args}", self.type_path(name))
+    }
+
+    /// [type-identity] How a declared type is spelled: its name, or — when
+    /// another module declares the name too — its full path, since the glob
+    /// imports of the two would be ambiguous.
+    /// [type-identity] The key a rendered type name stands for: the inverse
+    /// of [type_path].
+    fn rendered_key(&self, rendered: &str) -> String {
+        let Some((path, last)) = split_path(rendered) else {
+            return rendered.to_string();
+        };
+        let path = format!("{path}::");
+        self.symbols
+            .key_modules
+            .iter()
+            .find(|(k, m)| {
+                rs_ident(k) == last && self.module_prefixes.get(**m).is_some_and(|p| *p == path)
+            })
+            .map(|(k, _)| k.to_string())
+            .unwrap_or_else(|| rendered.to_string())
+    }
+
+    fn type_path(&self, key: &str) -> String {
+        let plain = rs_ident(salvo_core::typekey::plain(key));
+        if !self.symbols.clashes(key) {
+            return plain;
+        }
+        // A declaration of the module being emitted shadows every glob import
+        // of the name, so its own name is enough — but an effect's handle has
+        // always been named through its module's path.
+        let own = self.program.units().nth(self.file_idx).map(|u| &u.file.module);
+        if self.symbols.key_modules.get(key).copied() == own && !self.symbols.effects.contains_key(key) {
+            return plain;
+        }
+        match self
+            .symbols
+            .key_modules
+            .get(key)
+            .and_then(|m| self.module_prefixes.get(*m))
+        {
+            Some(prefix) => format!("{prefix}{plain}"),
+            None => plain,
+        }
     }
 
     /// Unions lower to the enum encoding [rs-union-enums]: `None` arms
@@ -8077,7 +8170,7 @@ impl<'p> Emitter<'p> {
         if !qualifiers.is_empty() || !base.args.is_empty() {
             return false;
         }
-        if let Some(alias) = self.symbols.type_aliases.get(base.name.name.as_str()) {
+        if let Some(alias) = self.symbols.type_aliases.get(self.checked.written_key(base)) {
             if let Some(target) = &(*alias).alias.clone() {
                 return self.is_copy_ast_type(target);
             }
@@ -8094,12 +8187,20 @@ impl<'p> Emitter<'p> {
 /// [protocol-hash] The constant holding a protocol's canonical hash:
 /// `__PROTO_Counter`, beside the message enum.
 fn protocol_const_name(effect: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(effect) {
+        return format!("{path}::{}", protocol_const_name(last));
+    }
     format!("__PROTO_{}", rs_ident(effect))
 }
 
 /// [actor-use-addr] The forwarding stub of a protocol: `__Stub_Counter`, the
 /// effect implemented by sending to an addr.
 fn stub_struct_name(effect: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(effect) {
+        return format!("{path}::{}", stub_struct_name(last));
+    }
     format!("__Stub_{}", rs_ident(effect))
 }
 
@@ -8118,24 +8219,40 @@ fn trait_type(name: &str, args: &[String]) -> String {
 /// reader of the output sees — and the two traits handlers implement are
 /// the mangled names (`__Stateless_Random`, `__Stateful_Random`).
 fn monitor_struct_name(effect: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(effect) {
+        return format!("{path}::{}", monitor_struct_name(last));
+    }
     rs_ident(effect)
 }
 
 /// [rs-handle] The trait a **stateless** handler implements: the effect's
 /// members with `&self` receivers, shared through an `Arc` with no lock.
 fn stateless_trait_name(effect: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(effect) {
+        return format!("{path}::{}", stateless_trait_name(last));
+    }
     format!("__Stateless_{}", rs_ident(effect))
 }
 
 /// [rs-handle] The trait a **stateful** handler implements: the effect's
 /// members with `&mut self` receivers, reached through the handle's lock.
 fn stateful_trait_name(effect: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(effect) {
+        return format!("{path}::{}", stateful_trait_name(last));
+    }
     format!("__Stateful_{}", rs_ident(effect))
 }
 
 /// [actor-private-send] The handler-keyed enum of a handler's private send
 /// members: `__Priv_Gathering`.
 fn private_enum_name(handler: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(handler) {
+        return format!("{path}::{}", private_enum_name(last));
+    }
     format!("__Priv_{}", rs_ident(handler))
 }
 
@@ -8156,12 +8273,20 @@ enum ContTarget<'p> {
 /// `__Fac_CyclicRandom`, the servant's addr plus the constructor parameters
 /// plus the sync member bodies — per *handler*, since the bodies are its.
 fn facade_struct_name(handler: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(handler) {
+        return format!("{path}::{}", facade_struct_name(last));
+    }
     format!("__Fac_{}", rs_ident(handler))
 }
 
 /// [rs-actor] The message enum of a protocol: `__Msg_Counter`. Named after
 /// the *effect*, since that is what a sender knows [actor-types].
 fn msg_enum_name(effect: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(effect) {
+        return format!("{path}::{}", msg_enum_name(last));
+    }
     format!("__Msg_{}", rs_ident(effect))
 }
 
@@ -8169,6 +8294,10 @@ fn msg_enum_name(effect: &str) -> String {
 /// `__Cont_Counter`. Beside the message enum and named the same way — a
 /// continuation is a member invocation waiting for its last argument.
 fn cont_enum_name(effect: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(effect) {
+        return format!("{path}::{}", cont_enum_name(last));
+    }
     format!("__Cont_{}", rs_ident(effect))
 }
 
@@ -8207,12 +8336,20 @@ fn msg_variant_name(member: &str) -> String {
 /// `__DECODE_Counting`, `Option<MsgDecoder>` — a free item, since a generic
 /// dependent body could not name an associated const without its parameters.
 fn actor_decode_const_name(handler: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(handler) {
+        return format!("{path}::{}", actor_decode_const_name(last));
+    }
     format!("__DECODE_{}", rs_ident(handler))
 }
 
 /// [rs-actor] The generated body a spawn boxes: `__Actor_Counting`, wrapping
 /// the handler instance and dispatching messages onto its members.
 fn actor_struct_name(handler: &str) -> String {
+    // [type-identity] A path a clashing name renders with stays in front.
+    if let Some((path, last)) = split_path(handler) {
+        return format!("{path}::{}", actor_struct_name(last));
+    }
     format!("__Actor_{}", rs_ident(handler))
 }
 
@@ -9140,7 +9277,7 @@ impl<'p> Emitter<'p> {
                 return "todo!()".to_string();
             }
         };
-        let Some(decl) = self.symbols.handlers.get(handler_name.as_str()).copied() else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler_name)).copied() else {
             self.error(format!("unknown handler `{handler_name}` in `spawn`"));
             return "todo!()".to_string();
         };
@@ -9157,7 +9294,7 @@ impl<'p> Emitter<'p> {
         // dependencies, sendable state) and refused the `on` clause.
         let plain_faces = !decl.of.is_empty()
             && decl.of.iter().all(|of| {
-                type_base_name(of).is_some_and(|n| {
+                type_key_name(self.checked, of).is_some_and(|n| {
                     self.symbols
                         .effects
                         .get(n)
@@ -9443,7 +9580,7 @@ impl<'p> Emitter<'p> {
             _ => None,
         };
         if let Some((name, args)) = named {
-            if let Some(decl) = self.symbols.handlers.get(name.as_str()).copied() {
+            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name)).copied() {
                 let arg_code: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
                 let ctor = self.handler_ctor_path(&name, decl);
                 let mk = if self.handler_is_stateful(decl) { "locked" } else { "shared" };
@@ -9454,7 +9591,7 @@ impl<'p> Emitter<'p> {
         if self
             .symbols
             .effects
-            .get(dep.0.as_str())
+            .get(self.rendered_key(&dep.0).as_str())
             .is_some_and(|e| !e.is_actor)
         {
             return Some(addr_code);
@@ -9606,7 +9743,7 @@ impl<'p> Emitter<'p> {
         h.fns.iter().any(|f| f.is_send)
             && !h.of.is_empty()
             && h.of.iter().all(|of| {
-                type_base_name(of).is_some_and(|n| {
+                type_key_name(self.checked, of).is_some_and(|n| {
                     self.symbols.effects.get(n).is_some_and(|e| !e.is_actor)
                 })
             })
@@ -9844,7 +9981,7 @@ impl<'p> Emitter<'p> {
             .get(&(self.file_idx, span))
             .cloned()
             .unwrap_or(handler_name);
-        let Some(decl) = self.symbols.handlers.get(handler_name.as_str()) else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler_name)) else {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
         };
@@ -10094,7 +10231,7 @@ impl<'p> Emitter<'p> {
             _ => None,
         };
         if let Some((name, args)) = named {
-            if let Some(decl) = self.symbols.handlers.get(name.as_str()).copied() {
+            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name)).copied() {
                 let arg_code: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
                 let ctor = self.handler_ctor_path(&name, decl);
                 let inner = format!("{ctor}::new({})", arg_code.join(", "));
@@ -10149,10 +10286,12 @@ impl<'p> Emitter<'p> {
     /// module that declared it — named through `crate::`, because a `use` may
     /// sit in any module and nothing imports the host mount.
     fn handler_ctor_path(&mut self, name: &str, decl: &HandlerDecl) -> String {
+        // [type-identity] The handler the written name resolved to.
+        let key = self.symbols.key_or(decl, name).to_string();
         if !decl.platform {
-            return rs_ident(name);
+            return self.type_path(&key);
         }
-        match self.symbols.handler_modules.get(name) {
+        match self.symbols.handler_modules.get(key.as_str()) {
             Some(module) => {
                 self.platform_hosts.insert((*module).clone());
                 let module = (*module).clone();
@@ -12736,7 +12875,7 @@ impl<'p> Emitter<'p> {
             self.error("internal: a self-send outside a handler member");
             return "todo!()".to_string();
         };
-        let Some(decl) = self.symbols.handlers.get(handler.as_str()).copied() else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler)).copied() else {
             self.error(format!("internal: no handler `{handler}` for a self-send"));
             return "todo!()".to_string();
         };
@@ -12826,7 +12965,7 @@ impl<'p> Emitter<'p> {
     /// being emitted — the enclosing handler, since a mint is lexical.
     fn current_cont_type(&mut self) -> Option<String> {
         let name = self.current_handler.clone()?;
-        let h = self.symbols.handlers.get(name.as_str()).copied()?;
+        let h = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name)).copied()?;
         self.handler_cont_type(h)
     }
 
@@ -14703,8 +14842,9 @@ impl<'p> Emitter<'p> {
         fields: &[StructLitField],
         _span: Span,
     ) -> String {
+        // [type-identity] The declaration the written name resolved to.
         let type_name = match ty {
-            Some(Type::Named { base, .. }) => Some(base.name.name.clone()),
+            Some(Type::Named { base, .. }) => Some(self.checked.written_key(base).to_string()),
             Some(other) => Some(format!("{:?}", other.span())),
             None => None,
         };
@@ -14802,7 +14942,7 @@ impl<'p> Emitter<'p> {
                         }
                     }
                 }
-                format!("{} {{ {} }}", rs_ident(&name), named_args.join(", "))
+                format!("{} {{ {} }}", self.type_path(&name), named_args.join(", "))
             }
             1 => {
                 // `P {...base, f: v}` -> `P { f: v, ..base.clone() }`
@@ -17624,6 +17764,9 @@ impl<'p> Emitter<'p> {
 
     /// The environment key an unchecked effect-member call looks up.
     fn member_dispatch_key(&mut self, effect: &str, type_args: &[Type]) -> String {
+        // [type-identity] The environment is keyed by the rendered type.
+        let effect = self.type_path(effect);
+        let effect = effect.as_str();
         if type_args.is_empty() {
             return effect.to_string();
         }
@@ -17862,6 +18005,17 @@ fn is_fn_group(ty: &Type) -> bool {
     )
 }
 
+/// [type-identity] [`type_base_name`] for a reference to a declaration:
+/// the key the written name resolved to.
+fn type_key_name<'a>(checked: &'a salvo_core::Checked, ty: &'a Type) -> Option<&'a str> {
+    match ty {
+        Type::Named { base, .. } => Some(checked.written_key(base)),
+        Type::Nullable { inner, .. } => type_key_name(checked, inner),
+        Type::QualifiedGroup { base, .. } => type_key_name(checked, base),
+        _ => type_base_name(ty),
+    }
+}
+
 fn type_base_name(ty: &Type) -> Option<&str> {
     match ty {
         Type::Named { base, .. } => Some(base.name.name.as_str()),
@@ -17996,6 +18150,13 @@ fn ty_is_concrete(ty: &Ty) -> bool {
 /// A parameter-ish name derived from a rendered effect type
 /// (`Random<i32>` -> `random_i32`).
 fn effect_param_name(effect_ty: &str) -> String {
+    // [type-identity] A clashing effect renders with its module path; the
+    // variable is named after the effect alone.
+    let base_end = effect_ty.find('<').unwrap_or(effect_ty.len());
+    let effect_ty = match effect_ty[..base_end].rfind("::") {
+        Some(i) => &effect_ty[i + 2..],
+        None => effect_ty,
+    };
     let mut out = String::new();
     for c in effect_ty.chars() {
         match c {

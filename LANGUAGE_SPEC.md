@@ -7699,11 +7699,10 @@ between endpoints and delivers what arrives into the scheduler.
   activation carrying a `Fault`, or named on stderr), owed-token accounting
   and `on_idle`, outside sources (`external_begin`/`end`), the deadlock
   report and the main-pool wedge report — the same texts the hosts print.
-  Host types: `Dyn` (an erased value), `RtBody` (an activation,
-  `activate(b, msg) -> RtRan`), `RtSlot<T>` (a cell a linear value is taken
-  from and put back into through `Mut`); the runtime's private names carry
-  an `Rt` prefix so a program's own `Token` cannot shadow them (ROADMAP 0c
-  item 8).
+  Host types: `Dyn` (an erased value), `Body` (an activation,
+  `activate(b, msg) -> Ran`), `Slot<T>` (a cell a linear value is taken
+  from and put back into through `Mut`). A program's own `Token` or `Body`
+  is a different type from the runtime's [type-identity].
   * **The cutover** (2026-10-03): generated code runs on this scheduler.
     Each backend's `scheduler.*` keeps the entry points generated code calls,
     as shims onto the core, plus the routing layer (proxies, credits, frames
@@ -7933,6 +7932,32 @@ between endpoints and delivers what arrives into the scheduler.
   * Kinds are per-namespace (struct/effect/handler/qualifier/type
     alias/opaque type): same-name declarations of different kinds do
     not collide.
+* [type-identity] **A type is its declaration, not its name** (user decision
+  2026-10-03, option A): two modules may declare one name, and a program may
+  use both so long as it never brings them into one scope unrenamed. Every
+  struct, effect, alias, intrinsic or platform type and handler has a
+  **key** (`typekey`): its name when no other module declares the name, and
+  `Name§module` for every declaration of a clashing name but the first —
+  std's come first, so std keeps its plain names, which the emitters and the
+  hosts name directly. `Ty::Named` carries the key of the declaration the
+  resolver chose, the program-wide tables in `Symbols` are keyed by it, and
+  a written name is resolved in the scope of **the file that wrote it**
+  (`Resolution::type_ref_files`), not of the file where it is lowered — a
+  callee's signature, a field, an alias body. So `import lib.b.Token as
+  BToken` is `lib.b`'s `Token` wherever it flows, and a `Token` from one
+  module is refused where another's is expected.
+  * A key never reaches a user: diagnostics print the written name.
+  * The emitters render a clashing name with its module's path (Rust
+    `crate::lib_b::Token`, Kotlin `salvo.lib.b.Token`; Kotlin leaves a
+    module's own declaration bare, since it shadows star imports) and name
+    everything derived from it (`__Mon_E`, `__Msg_E`, a dependency field)
+    after the written name.
+  * An emitter finds a written reference's key by its address
+    (`Checked::type_ref_keys`), by its span for a copy, and a name written
+    in an expression (`use H()`) through the file's visible names
+    (`Checked::visible_keys`).
+  * A `by auto` stamp reads the stamping module's own declaration of a name
+    first [comptime-instantiate].
 * [mod-used-only] Only modules used by the program are transpiled. Roots are
   the user modules declaring `fn main` (all user modules for a library compile
   without one), and from there a module is reached **two ways** (user decision

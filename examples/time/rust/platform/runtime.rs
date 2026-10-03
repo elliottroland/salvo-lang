@@ -72,16 +72,16 @@ pub fn drop_dyn(d: Dyn) {
     drop(d);
 }
 
-// [runtime-sched] `linear platform type RtBody`: what an activation runs.
-pub struct RtBody {
+// [runtime-sched] `linear platform type Body`: what an activation runs.
+pub struct Body {
     pub f: Box<dyn FnMut(i32, i64, Dyn) + Send>,
 }
 
-pub fn body_of(f: Box<dyn FnMut(i32, i64, Dyn) + Send + 'static>) -> RtBody {
-    RtBody { f }
+pub fn body_of(f: Box<dyn FnMut(i32, i64, Dyn) + Send + 'static>) -> Body {
+    Body { f }
 }
 
-pub fn activate(mut b: RtBody, kind: i32, slot: i64, msg: Dyn) -> crate::runtime::RtRan {
+pub fn activate(mut b: Body, kind: i32, slot: i64, msg: Dyn) -> crate::runtime::Ran {
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (b.f)(kind, slot, msg)));
     let fault = outcome.err().map(|p| {
         p.downcast_ref::<&str>()
@@ -89,10 +89,10 @@ pub fn activate(mut b: RtBody, kind: i32, slot: i64, msg: Dyn) -> crate::runtime
             .or_else(|| p.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "fault".to_string())
     });
-    crate::runtime::RtRan { body: b, fault }
+    crate::runtime::Ran { body: b, fault }
 }
 
-pub fn drop_body(b: RtBody) {
+pub fn drop_body(b: Body) {
     drop(b);
 }
 
@@ -110,28 +110,28 @@ pub fn exit_process(code: i32) -> ! {
     std::process::exit(code)
 }
 
-// [runtime-sched] `linear platform type RtSlot<T>`: a cell of at most one value.
-pub struct RtSlot<T: Send + 'static> {
+// [runtime-sched] `linear platform type Slot<T>`: a cell of at most one value.
+pub struct Slot<T: Send + 'static> {
     v: Option<T>,
 }
 
-pub fn slot_of<T: Send + 'static>(v: T) -> RtSlot<T> {
-    RtSlot { v: Some(v) }
+pub fn slot_of<T: Send + 'static>(v: T) -> Slot<T> {
+    Slot { v: Some(v) }
 }
 
-pub fn slot_empty<T: Send + 'static>() -> RtSlot<T> {
-    RtSlot { v: None }
+pub fn slot_empty<T: Send + 'static>() -> Slot<T> {
+    Slot { v: None }
 }
 
-pub fn slot_take<T: Send + 'static>(s: &mut RtSlot<T>) -> Option<T> {
+pub fn slot_take<T: Send + 'static>(s: &mut Slot<T>) -> Option<T> {
     s.v.take()
 }
 
-pub fn slot_put<T: Send + 'static>(s: &mut RtSlot<T>, v: T) {
+pub fn slot_put<T: Send + 'static>(s: &mut Slot<T>, v: T) {
     s.v = Some(v);
 }
 
-pub fn drop_slot<T: Send + 'static>(s: RtSlot<T>) {
+pub fn drop_slot<T: Send + 'static>(s: Slot<T>) {
     drop(s);
 }
 

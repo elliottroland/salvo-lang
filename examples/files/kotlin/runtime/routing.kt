@@ -12,9 +12,9 @@ import salvo.core.string.*
 import salvo.runtime.*
 
 // [mod-use] The module's `use` #0, bound on first use.
-private val __moduleUse0: RtRouteTable by lazy {
-    val rt_route_table: RtRouteTable = __Mon_RtRouteTable(RtRoutes().also { it.init() })
-    rt_route_table
+private val __moduleUse0: RouteTable by lazy {
+    val route_table: RouteTable = __Mon_RouteTable(Routes().also { it.init() })
+    route_table
 }
 
 fun decodeMessagePlatform(addr: Int, proto: String, payload: salvo.SalvoBytes): salvo.platform.runtime.Dyn? {
@@ -41,7 +41,7 @@ fun wireOutPlatform(from: Long, to: salvo.SalvoBytes, frame: salvo.SalvoBytes) {
     return salvo.platform.runtime.routing.wireOut(from, to, frame)
 }
 
-data class RtMsgFrame(
+data class MsgFrame(
     val to: Long,
     val actor: Long,
     val bits: Long,
@@ -50,8 +50,8 @@ data class RtMsgFrame(
     val payload: salvo.SalvoBytes,
 )
 
-object __Codec_RtMsgFrame : salvo.WireCodec<RtMsgFrame> {
-    override fun enc(v: RtMsgFrame, out: salvo.WireOut) {
+object __Codec_MsgFrame : salvo.WireCodec<MsgFrame> {
+    override fun enc(v: MsgFrame, out: salvo.WireOut) {
         salvo.LongCodec.enc(v.to, out)
         salvo.LongCodec.enc(v.actor, out)
         salvo.LongCodec.enc(v.bits, out)
@@ -59,10 +59,10 @@ object __Codec_RtMsgFrame : salvo.WireCodec<RtMsgFrame> {
         salvo.StrCodec.enc(v.proto, out)
         salvo.BytesCodec.enc(v.payload, out)
     }
-    override fun dec(inp: salvo.WireIn): RtMsgFrame = RtMsgFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.StrCodec.dec(inp), salvo.BytesCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): MsgFrame = MsgFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.StrCodec.dec(inp), salvo.BytesCodec.dec(inp))
 }
 
-data class RtAnswerFrame(
+data class AnswerFrame(
     val to: Long,
     val kind: Int,
     val id: Long,
@@ -71,8 +71,8 @@ data class RtAnswerFrame(
     val payload: salvo.SalvoBytes,
 )
 
-object __Codec_RtAnswerFrame : salvo.WireCodec<RtAnswerFrame> {
-    override fun enc(v: RtAnswerFrame, out: salvo.WireOut) {
+object __Codec_AnswerFrame : salvo.WireCodec<AnswerFrame> {
+    override fun enc(v: AnswerFrame, out: salvo.WireOut) {
         salvo.LongCodec.enc(v.to, out)
         salvo.IntCodec.enc(v.kind, out)
         salvo.LongCodec.enc(v.id, out)
@@ -80,10 +80,10 @@ object __Codec_RtAnswerFrame : salvo.WireCodec<RtAnswerFrame> {
         salvo.LongCodec.enc(v.bits, out)
         salvo.BytesCodec.enc(v.payload, out)
     }
-    override fun dec(inp: salvo.WireIn): RtAnswerFrame = RtAnswerFrame(salvo.LongCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.BytesCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): AnswerFrame = AnswerFrame(salvo.LongCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.BytesCodec.dec(inp))
 }
 
-data class RtGrantFrame(
+data class GrantFrame(
     val to: Long,
     val host: Long,
     val actor: Long,
@@ -91,67 +91,67 @@ data class RtGrantFrame(
     val n: Int,
 )
 
-object __Codec_RtGrantFrame : salvo.WireCodec<RtGrantFrame> {
-    override fun enc(v: RtGrantFrame, out: salvo.WireOut) {
+object __Codec_GrantFrame : salvo.WireCodec<GrantFrame> {
+    override fun enc(v: GrantFrame, out: salvo.WireOut) {
         salvo.LongCodec.enc(v.to, out)
         salvo.LongCodec.enc(v.host, out)
         salvo.LongCodec.enc(v.actor, out)
         salvo.LongCodec.enc(v.bits, out)
         salvo.IntCodec.enc(v.n, out)
     }
-    override fun dec(inp: salvo.WireIn): RtGrantFrame = RtGrantFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): GrantFrame = GrantFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-data class RtOpenFrame(
+data class OpenFrame(
     val to: Long,
     val actor: Long,
     val bits: Long,
     val from: Long,
 )
 
-object __Codec_RtOpenFrame : salvo.WireCodec<RtOpenFrame> {
-    override fun enc(v: RtOpenFrame, out: salvo.WireOut) {
+object __Codec_OpenFrame : salvo.WireCodec<OpenFrame> {
+    override fun enc(v: OpenFrame, out: salvo.WireOut) {
         salvo.LongCodec.enc(v.to, out)
         salvo.LongCodec.enc(v.actor, out)
         salvo.LongCodec.enc(v.bits, out)
         salvo.LongCodec.enc(v.from, out)
     }
-    override fun dec(inp: salvo.WireIn): RtOpenFrame = RtOpenFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): OpenFrame = OpenFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp))
 }
 
-data class RtControlFrame(
+data class ControlFrame(
     val to: Long,
     val from: Long,
     val channel: String,
     val payload: salvo.SalvoBytes,
 )
 
-object __Codec_RtControlFrame : salvo.WireCodec<RtControlFrame> {
-    override fun enc(v: RtControlFrame, out: salvo.WireOut) {
+object __Codec_ControlFrame : salvo.WireCodec<ControlFrame> {
+    override fun enc(v: ControlFrame, out: salvo.WireOut) {
         salvo.LongCodec.enc(v.to, out)
         salvo.LongCodec.enc(v.from, out)
         salvo.StrCodec.enc(v.channel, out)
         salvo.BytesCodec.enc(v.payload, out)
     }
-    override fun dec(inp: salvo.WireIn): RtControlFrame = RtControlFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.StrCodec.dec(inp), salvo.BytesCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): ControlFrame = ControlFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.StrCodec.dec(inp), salvo.BytesCodec.dec(inp))
 }
 
-data class RtRemoteRef(
+data class RemoteRef(
     val node: Long,
     val actor: Long,
     val bits: Long,
 )
 
-object __Codec_RtRemoteRef : salvo.WireCodec<RtRemoteRef> {
-    override fun enc(v: RtRemoteRef, out: salvo.WireOut) {
+object __Codec_RemoteRef : salvo.WireCodec<RemoteRef> {
+    override fun enc(v: RemoteRef, out: salvo.WireOut) {
         salvo.LongCodec.enc(v.node, out)
         salvo.LongCodec.enc(v.actor, out)
         salvo.LongCodec.enc(v.bits, out)
     }
-    override fun dec(inp: salvo.WireIn): RtRemoteRef = RtRemoteRef(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): RemoteRef = RemoteRef(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp))
 }
 
-data class RtReplyParts(
+data class ReplyParts(
     val node: Long,
     val kind: Int,
     val id: Long,
@@ -159,123 +159,123 @@ data class RtReplyParts(
     val bits: Long,
 )
 
-object __Codec_RtReplyParts : salvo.WireCodec<RtReplyParts> {
-    override fun enc(v: RtReplyParts, out: salvo.WireOut) {
+object __Codec_ReplyParts : salvo.WireCodec<ReplyParts> {
+    override fun enc(v: ReplyParts, out: salvo.WireOut) {
         salvo.LongCodec.enc(v.node, out)
         salvo.IntCodec.enc(v.kind, out)
         salvo.LongCodec.enc(v.id, out)
         salvo.LongCodec.enc(v.slot, out)
         salvo.LongCodec.enc(v.bits, out)
     }
-    override fun dec(inp: salvo.WireIn): RtReplyParts = RtReplyParts(salvo.LongCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): ReplyParts = ReplyParts(salvo.LongCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp))
 }
 
-data class RtControlKey(
+data class ControlKey(
     val node: Long,
     val channel: String,
 )
 
-object __Codec_RtControlKey : salvo.WireCodec<RtControlKey> {
-    override fun enc(v: RtControlKey, out: salvo.WireOut) {
+object __Codec_ControlKey : salvo.WireCodec<ControlKey> {
+    override fun enc(v: ControlKey, out: salvo.WireOut) {
         salvo.LongCodec.enc(v.node, out)
         salvo.StrCodec.enc(v.channel, out)
     }
-    override fun dec(inp: salvo.WireIn): RtControlKey = RtControlKey(salvo.LongCodec.dec(inp), salvo.StrCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): ControlKey = ControlKey(salvo.LongCodec.dec(inp), salvo.StrCodec.dec(inp))
 }
 
-data class RtParked(
+data class Parked(
     val from: Long,
     val to: Long,
     val frame: salvo.SalvoBytes,
 )
 
-object __Codec_RtParked : salvo.WireCodec<RtParked> {
-    override fun enc(v: RtParked, out: salvo.WireOut) {
+object __Codec_Parked : salvo.WireCodec<Parked> {
+    override fun enc(v: Parked, out: salvo.WireOut) {
         salvo.LongCodec.enc(v.from, out)
         salvo.LongCodec.enc(v.to, out)
         salvo.BytesCodec.enc(v.frame, out)
     }
-    override fun dec(inp: salvo.WireIn): RtParked = RtParked(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.BytesCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Parked = Parked(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.BytesCodec.dec(inp))
 }
 
-data class RtStaged(
+data class Staged(
     val from: Long,
     val to: salvo.SalvoBytes,
     val frame: salvo.SalvoBytes,
 )
 
-object __Codec_RtStaged : salvo.WireCodec<RtStaged> {
-    override fun enc(v: RtStaged, out: salvo.WireOut) {
+object __Codec_Staged : salvo.WireCodec<Staged> {
+    override fun enc(v: Staged, out: salvo.WireOut) {
         salvo.LongCodec.enc(v.from, out)
         salvo.BytesCodec.enc(v.to, out)
         salvo.BytesCodec.enc(v.frame, out)
     }
-    override fun dec(inp: salvo.WireIn): RtStaged = RtStaged(salvo.LongCodec.dec(inp), salvo.BytesCodec.dec(inp), salvo.BytesCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Staged = Staged(salvo.LongCodec.dec(inp), salvo.BytesCodec.dec(inp), salvo.BytesCodec.dec(inp))
 }
 
-data class RtExportedTask(
+data class ExportedTask(
     val pool: Int,
-    val body: salvo.platform.runtime.RtBody,
+    val body: salvo.platform.runtime.Body,
 )
 
-fun dropExportedTask(t: RtExportedTask) {
+fun dropExportedTask(t: ExportedTask) {
     val __destructured1 = t
     val pool = __destructured1.pool
     val body = __destructured1.body
     dropBodyPlatform(body)
 }
 
-data class RtFound(
+data class Found(
     val idx: Int,
 )
 
-object __Codec_RtFound : salvo.WireCodec<RtFound> {
-    override fun enc(v: RtFound, out: salvo.WireOut) {
+object __Codec_Found : salvo.WireCodec<Found> {
+    override fun enc(v: Found, out: salvo.WireOut) {
         salvo.IntCodec.enc(v.idx, out)
     }
-    override fun dec(inp: salvo.WireIn): RtFound = RtFound(salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Found = Found(salvo.IntCodec.dec(inp))
 }
 
-class RtMakeProxy
+class MakeProxy
 
-object __Codec_RtMakeProxy : salvo.WireCodec<RtMakeProxy> {
-    override fun enc(v: RtMakeProxy, out: salvo.WireOut) {
+object __Codec_MakeProxy : salvo.WireCodec<MakeProxy> {
+    override fun enc(v: MakeProxy, out: salvo.WireOut) {
     }
-    override fun dec(inp: salvo.WireIn): RtMakeProxy = RtMakeProxy()
+    override fun dec(inp: salvo.WireIn): MakeProxy = MakeProxy()
 }
 
-class RtMakeDead
+class MakeDead
 
-object __Codec_RtMakeDead : salvo.WireCodec<RtMakeDead> {
-    override fun enc(v: RtMakeDead, out: salvo.WireOut) {
+object __Codec_MakeDead : salvo.WireCodec<MakeDead> {
+    override fun enc(v: MakeDead, out: salvo.WireOut) {
     }
-    override fun dec(inp: salvo.WireIn): RtMakeDead = RtMakeDead()
+    override fun dec(inp: salvo.WireIn): MakeDead = MakeDead()
 }
 
-interface RtRouteTable {
+interface RouteTable {
     fun nodeOfPool(pool: Int): Long
     fun adoptPool(pool: Int, node: Long)
     fun addNode(): Long
     fun hosts(node: Long): Boolean
-    fun identityOf(addr: Int, pool: Int): RtRemoteRef
-    fun findImport(r: RtRemoteRef, here: Long): Union3<RtFound, RtMakeProxy, RtMakeDead>
-    fun registerProxy(r: RtRemoteRef, idx: Int, here: Long): Int
+    fun identityOf(addr: Int, pool: Int): RemoteRef
+    fun findImport(r: RemoteRef, here: Long): Union3<Found, MakeProxy, MakeDead>
+    fun registerProxy(r: RemoteRef, idx: Int, here: Long): Int
     fun registerDead(idx: Int): Int
     fun isProxy(addr: Int): Boolean
-    fun proxyRef(addr: Int): RtRemoteRef?
+    fun proxyRef(addr: Int): RemoteRef?
     fun takeCredit(addr: Int, me: salvo.platform.runtime.Parker): Int
     fun stage(from: Long, to: Long, frame: salvo.SalvoBytes)
     fun grant(addr: Int, pool: Int, from: Long, n: Int)
-    fun takeOutbox(): MutableList<RtStaged>
+    fun takeOutbox(): MutableList<Staged>
     fun addRoute(node: Long, at: salvo.SalvoBytes)
     fun setOutbound(node: Long)
     fun hasOutbound(node: Long): Boolean
     fun accepts(to: Long, actor: Long, claimed: Long): Boolean
     fun received(idx: Int)
-    fun credited(r: RtRemoteRef, to: Long, n: Int): Boolean
+    fun credited(r: RemoteRef, to: Long, n: Int): Boolean
     fun held(idx: Int): Int
-    fun putTask(key: Long, t: RtExportedTask)
-    fun takeTask(key: Long): RtExportedTask?
+    fun putTask(key: Long, t: ExportedTask)
+    fun takeTask(key: Long): ExportedTask?
     fun watchChannel(node: Long, channel: String, sink: Int)
     fun channelSink(node: Long, channel: String): Int
     fun setProtocols(table: List<Pair<String, String>>)
@@ -286,10 +286,10 @@ interface RtRouteTable {
     fun creditsOf(addr: Int): Int?
 }
 
-class __Mon_RtRouteTable(
-    private val inner: RtRouteTable,
+class __Mon_RouteTable(
+    private val inner: RouteTable,
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
-) : RtRouteTable {
+) : RouteTable {
     override fun nodeOfPool(pool: Int): Long {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
@@ -310,17 +310,17 @@ class __Mon_RtRouteTable(
         lock.lock()
         try { return inner.hosts(node) } finally { lock.unlock() }
     }
-    override fun identityOf(addr: Int, pool: Int): RtRemoteRef {
+    override fun identityOf(addr: Int, pool: Int): RemoteRef {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.identityOf(addr, pool) } finally { lock.unlock() }
     }
-    override fun findImport(r: RtRemoteRef, here: Long): Union3<RtFound, RtMakeProxy, RtMakeDead> {
+    override fun findImport(r: RemoteRef, here: Long): Union3<Found, MakeProxy, MakeDead> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.findImport(r, here) } finally { lock.unlock() }
     }
-    override fun registerProxy(r: RtRemoteRef, idx: Int, here: Long): Int {
+    override fun registerProxy(r: RemoteRef, idx: Int, here: Long): Int {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.registerProxy(r, idx, here) } finally { lock.unlock() }
@@ -335,7 +335,7 @@ class __Mon_RtRouteTable(
         lock.lock()
         try { return inner.isProxy(addr) } finally { lock.unlock() }
     }
-    override fun proxyRef(addr: Int): RtRemoteRef? {
+    override fun proxyRef(addr: Int): RemoteRef? {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.proxyRef(addr) } finally { lock.unlock() }
@@ -355,7 +355,7 @@ class __Mon_RtRouteTable(
         lock.lock()
         try { inner.grant(addr, pool, from, n) } finally { lock.unlock() }
     }
-    override fun takeOutbox(): MutableList<RtStaged> {
+    override fun takeOutbox(): MutableList<Staged> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.takeOutbox() } finally { lock.unlock() }
@@ -385,7 +385,7 @@ class __Mon_RtRouteTable(
         lock.lock()
         try { inner.received(idx) } finally { lock.unlock() }
     }
-    override fun credited(r: RtRemoteRef, to: Long, n: Int): Boolean {
+    override fun credited(r: RemoteRef, to: Long, n: Int): Boolean {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.credited(r, to, n) } finally { lock.unlock() }
@@ -395,12 +395,12 @@ class __Mon_RtRouteTable(
         lock.lock()
         try { return inner.held(idx) } finally { lock.unlock() }
     }
-    override fun putTask(key: Long, t: RtExportedTask) {
+    override fun putTask(key: Long, t: ExportedTask) {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.putTask(key, t) } finally { lock.unlock() }
     }
-    override fun takeTask(key: Long): RtExportedTask? {
+    override fun takeTask(key: Long): ExportedTask? {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.takeTask(key) } finally { lock.unlock() }
@@ -447,22 +447,22 @@ class __Mon_RtRouteTable(
     }
 }
 
-class RtRoutes : RtRouteTable {
+class Routes : RouteTable {
     private var nodeId: Long = 0L
     private var hosted: MutableSet<Long> = linkedSetOf<Long>().also { __s -> __s.addAll(listOf()) }
     private var poolNode: MutableMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
     private var bits: MutableMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
-    private var remote: MutableMap<Int, RtRemoteRef> = linkedMapOf<Int, RtRemoteRef>().also { __m -> __m.putAll(listOf()) }
-    private var proxies: MutableMap<RtRemoteRef, Int> = salvo.SalvoHashMap<RtRemoteRef, Int>(::hash__4, ::eq__4).also { __m -> __m.putAll(listOf()) }
+    private var remote: MutableMap<Int, RemoteRef> = linkedMapOf<Int, RemoteRef>().also { __m -> __m.putAll(listOf()) }
+    private var proxies: MutableMap<RemoteRef, Int> = salvo.SalvoHashMap<RemoteRef, Int>(::hash__4, ::eq__4).also { __m -> __m.putAll(listOf()) }
     private var credits: MutableMap<Int, Int> = linkedMapOf<Int, Int>().also { __m -> __m.putAll(listOf()) }
     private var heldN: MutableMap<Int, Int> = linkedMapOf<Int, Int>().also { __m -> __m.putAll(listOf()) }
     private var routes: MutableMap<Long, salvo.SalvoBytes> = linkedMapOf<Long, salvo.SalvoBytes>().also { __m -> __m.putAll(listOf()) }
     private var outbound: MutableSet<Long> = linkedSetOf<Long>().also { __s -> __s.addAll(listOf()) }
-    private var parked: MutableList<RtParked> = mutableListOf<RtParked>()
-    private var outbox: MutableList<RtStaged> = mutableListOf<RtStaged>()
+    private var parked: MutableList<Parked> = mutableListOf<Parked>()
+    private var outbox: MutableList<Staged> = mutableListOf<Staged>()
     private var taskKeys: MutableList<Long> = mutableListOf<Long>()
-    private var tasks: MutableList<RtExportedTask> = mutableListOf<RtExportedTask>()
-    private var controls: MutableMap<RtControlKey, Int> = salvo.SalvoHashMap<RtControlKey, Int>(::hash__5, ::eq__5).also { __m -> __m.putAll(listOf()) }
+    private var tasks: MutableList<ExportedTask> = mutableListOf<ExportedTask>()
+    private var controls: MutableMap<ControlKey, Int> = salvo.SalvoHashMap<ControlKey, Int>(::hash__5, ::eq__5).also { __m -> __m.putAll(listOf()) }
     private var local: List<Pair<String, String>> = listOf<Pair<String, String>>()
     private var peers: MutableMap<Long, List<Pair<String, String>>> = linkedMapOf<Long, List<Pair<String, String>>>().also { __m -> __m.putAll(listOf()) }
     private var deadEntry: Int = -1
@@ -486,36 +486,36 @@ class RtRoutes : RtRouteTable {
         return hosted.contains(node)
     }
 
-    override fun identityOf(addr: Int, pool: Int): RtRemoteRef {
+    override fun identityOf(addr: Int, pool: Int): RemoteRef {
         return identityIn(remote, bits, poolNode, nodeId, addr, pool)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun findImport(r: RtRemoteRef, here: Long): Union3<RtFound, RtMakeProxy, RtMakeDead> {
+    override fun findImport(r: RemoteRef, here: Long): Union3<Found, MakeProxy, MakeDead> {
         if (r.node == here) {
             val idx = (r.actor).toInt()
             val b = bits[idx]
             if (!remote.containsKey(idx) && (b != null)) {
                 val known = b as Long
                 if (known == r.bits) {
-                    return Union3.U1<RtFound, RtMakeProxy, RtMakeDead>(RtFound(idx = idx))
+                    return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = idx))
                 }
             }
             if (deadEntry >= 0) {
-                return Union3.U1<RtFound, RtMakeProxy, RtMakeDead>(RtFound(idx = deadEntry))
+                return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = deadEntry))
             }
-            return Union3.U3<RtFound, RtMakeProxy, RtMakeDead>(RtMakeDead())
+            return Union3.U3<Found, MakeProxy, MakeDead>(MakeDead())
         }
         val p = proxies[r]
         if (p != null) {
             val idx = p as Int
-            return Union3.U1<RtFound, RtMakeProxy, RtMakeDead>(RtFound(idx = idx))
+            return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = idx))
         }
-        return Union3.U2<RtFound, RtMakeProxy, RtMakeDead>(RtMakeProxy())
+        return Union3.U2<Found, MakeProxy, MakeDead>(MakeProxy())
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun registerProxy(r: RtRemoteRef, idx: Int, here: Long): Int {
+    override fun registerProxy(r: RemoteRef, idx: Int, here: Long): Int {
         val existing = proxies[r]
         if (existing != null) {
             val e = existing as Int
@@ -524,7 +524,7 @@ class RtRoutes : RtRouteTable {
         remote.put(idx, r)
         proxies.put(r, idx)
         credits.put(idx, 0)
-        val frame = salvo.salvoEncode(Union5.U4<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>(RtOpenFrame(to = r.node, actor = r.actor, bits = r.bits, from = here)), salvo.Union5Codec(__Codec_RtMsgFrame, __Codec_RtAnswerFrame, __Codec_RtGrantFrame, __Codec_RtOpenFrame, __Codec_RtControlFrame))
+        val frame = salvo.salvoEncode(Union5.U4<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(OpenFrame(to = r.node, actor = r.actor, bits = r.bits, from = here)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
         stageIn(routes, outbound, outbox, parked, here, r.node, frame)
         return idx
     }
@@ -542,10 +542,10 @@ class RtRoutes : RtRouteTable {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun proxyRef(addr: Int): RtRemoteRef? {
+    override fun proxyRef(addr: Int): RemoteRef? {
         val r = remote[addr]
         if (r != null) {
-            val found = r as RtRemoteRef
+            val found = r as RemoteRef
             return found
         }
         return null
@@ -574,12 +574,12 @@ class RtRoutes : RtRouteTable {
     override fun grant(addr: Int, pool: Int, from: Long, n: Int) {
         heldN.put(addr, heldIn(heldN, addr) + n)
         val me = identityIn(remote, bits, poolNode, nodeId, addr, pool)
-        val frame = salvo.salvoEncode(Union5.U3<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>(RtGrantFrame(to = from, host = me.node, actor = me.actor, bits = me.bits, n = n)), salvo.Union5Codec(__Codec_RtMsgFrame, __Codec_RtAnswerFrame, __Codec_RtGrantFrame, __Codec_RtOpenFrame, __Codec_RtControlFrame))
+        val frame = salvo.salvoEncode(Union5.U3<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(GrantFrame(to = from, host = me.node, actor = me.actor, bits = me.bits, n = n)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
         stageIn(routes, outbound, outbox, parked, me.node, from, frame)
     }
 
-    override fun takeOutbox(): MutableList<RtStaged> {
-        val out: MutableList<RtStaged> = mutableListOf<RtStaged>()
+    override fun takeOutbox(): MutableList<Staged> {
+        val out: MutableList<Staged> = mutableListOf<Staged>()
         while (outbox.size > 0) {
             out.add(((outbox).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:281:22")))
         }
@@ -625,7 +625,7 @@ class RtRoutes : RtRouteTable {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun credited(r: RtRemoteRef, to: Long, n: Int): Boolean {
+    override fun credited(r: RemoteRef, to: Long, n: Int): Boolean {
         if (!hosted.contains(to)) {
             return false
         }
@@ -655,12 +655,12 @@ class RtRoutes : RtRouteTable {
         return heldIn(heldN, idx)
     }
 
-    override fun putTask(key: Long, t: RtExportedTask) {
+    override fun putTask(key: Long, t: ExportedTask) {
         taskKeys.add(key)
         tasks.add(t)
     }
 
-    override fun takeTask(key: Long): RtExportedTask? {
+    override fun takeTask(key: Long): ExportedTask? {
         var i = 0
         while (i < taskKeys.size) {
             if ((taskKeys.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:358:16")) == key) {
@@ -673,12 +673,12 @@ class RtRoutes : RtRouteTable {
     }
 
     override fun watchChannel(node: Long, channel: String, sink: Int) {
-        controls.put(RtControlKey(node = node, channel = channel), sink)
+        controls.put(ControlKey(node = node, channel = channel), sink)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun channelSink(node: Long, channel: String): Int {
-        val s = controls[RtControlKey(node = node, channel = channel)]
+        val s = controls[ControlKey(node = node, channel = channel)]
         if (s != null) {
             val sink = s as Int
             return sink
@@ -721,7 +721,7 @@ class RtRoutes : RtRouteTable {
         for (idx in remote.keys.toMutableList()) {
             val r = remote[idx]
             if (r != null) {
-                val found = r as RtRemoteRef
+                val found = r as RemoteRef
                 if (found.node == node) {
                     gone.add(idx)
                 }
@@ -748,8 +748,8 @@ class RtRoutes : RtRouteTable {
     }
 }
 
-sealed class __Priv_RtRoutes {
-    object Init : __Priv_RtRoutes()
+sealed class __Priv_Routes {
+    object Init : __Priv_Routes()
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
@@ -773,21 +773,21 @@ fun heldIn(heldN: Map<Int, Int>, idx: Int): Int {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun identityIn(remote: Map<Int, RtRemoteRef>, bits: MutableMap<Int, Long>, poolNode: Map<Int, Long>, nodeId: Long, addr: Int, pool: Int): RtRemoteRef {
+fun identityIn(remote: Map<Int, RemoteRef>, bits: MutableMap<Int, Long>, poolNode: Map<Int, Long>, nodeId: Long, addr: Int, pool: Int): RemoteRef {
     val r = remote[addr]
     if (r != null) {
-        val found = r as RtRemoteRef
+        val found = r as RemoteRef
         return found
     }
     val n = nodeIn(poolNode, nodeId, pool)
     val b = bits[addr]
     if (b != null) {
         val known = b as Long
-        return RtRemoteRef(node = n, actor = (addr).toLong(), bits = known)
+        return RemoteRef(node = n, actor = (addr).toLong(), bits = known)
     }
     val minted = identityBits()
     bits.put(addr, minted)
-    return RtRemoteRef(node = n, actor = (addr).toLong(), bits = minted)
+    return RemoteRef(node = n, actor = (addr).toLong(), bits = minted)
 }
 
 fun wakeSenders(waiters: MutableList<salvo.platform.runtime.Parker>) {
@@ -797,20 +797,20 @@ fun wakeSenders(waiters: MutableList<salvo.platform.runtime.Parker>) {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun stageIn(routes: Map<Long, salvo.SalvoBytes>, outbound: Set<Long>, outbox: MutableList<RtStaged>, parked: MutableList<RtParked>, from: Long, to: Long, frame: salvo.SalvoBytes) {
+fun stageIn(routes: Map<Long, salvo.SalvoBytes>, outbound: Set<Long>, outbox: MutableList<Staged>, parked: MutableList<Parked>, from: Long, to: Long, frame: salvo.SalvoBytes) {
     val ep = routes[to]
     if (ep != null) {
         val at = ep as salvo.SalvoBytes
         if (outbound.contains(from)) {
-            outbox.add(RtStaged(from = from, to = salvo.SalvoBytes(at), frame = frame))
+            outbox.add(Staged(from = from, to = salvo.SalvoBytes(at), frame = frame))
             return
         }
     }
-    parked.add(RtParked(from = from, to = to, frame = frame))
+    parked.add(Parked(from = from, to = to, frame = frame))
 }
 
-fun restage(routes: Map<Long, salvo.SalvoBytes>, outbound: Set<Long>, outbox: MutableList<RtStaged>, parked: MutableList<RtParked>) {
-    val waiting: MutableList<RtParked> = mutableListOf<RtParked>()
+fun restage(routes: Map<Long, salvo.SalvoBytes>, outbound: Set<Long>, outbox: MutableList<Staged>, parked: MutableList<Parked>) {
+    val waiting: MutableList<Parked> = mutableListOf<Parked>()
     while (parked.size > 0) {
         waiting.add(((parked).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:493:22")))
     }
@@ -845,7 +845,7 @@ fun poolAt(node: Long, n: Int): Int {
     return p
 }
 
-fun identity(addr: Int): RtRemoteRef {
+fun identity(addr: Int): RemoteRef {
     return __moduleUse0.identityOf(addr, actorPool(addr))
 }
 
@@ -861,11 +861,11 @@ fun sameActor(a: Int, b: Int): Boolean {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun importAddr(node: Long, actor: Long, bits: Long): Int {
-    val r = RtRemoteRef(node = node, actor = actor, bits = bits)
+    val r = RemoteRef(node = node, actor = actor, bits = bits)
     val here = hereNode()
     val found = __moduleUse0.findImport(r, here)
     if (found is Union3.U1<*, *, *>) {
-        val f = found.value as RtFound
+        val f = found.value as Found
         return f.idx
     }
     val idx = spawnInert()
@@ -894,7 +894,7 @@ fun sendRemote(addr: Int, proto: String, payload: salvo.SalvoBytes) {
         val got = __moduleUse0.takeCredit(addr, thisParkerPlatform())
         if (got == 1) {
             val from = hereNode()
-            val frame = salvo.salvoEncode(Union5.U1<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>(RtMsgFrame(to = r.node, actor = r.actor, bits = r.bits, from = from, proto = proto, payload = payload)), salvo.Union5Codec(__Codec_RtMsgFrame, __Codec_RtAnswerFrame, __Codec_RtGrantFrame, __Codec_RtOpenFrame, __Codec_RtControlFrame))
+            val frame = salvo.salvoEncode(Union5.U1<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(MsgFrame(to = r.node, actor = r.actor, bits = r.bits, from = from, proto = proto, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
             __moduleUse0.stage(from, r.node, frame)
             flush()
             return
@@ -909,15 +909,15 @@ fun sendRemote(addr: Int, proto: String, payload: salvo.SalvoBytes) {
     }
 }
 
-fun answerRemote(t: RtReplyParts, payload: salvo.SalvoBytes) {
+fun answerRemote(t: ReplyParts, payload: salvo.SalvoBytes) {
     val from = hereNode()
-    val frame = salvo.salvoEncode(Union5.U2<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>(RtAnswerFrame(to = t.node, kind = t.kind, id = t.id, slot = t.slot, bits = t.bits, payload = payload)), salvo.Union5Codec(__Codec_RtMsgFrame, __Codec_RtAnswerFrame, __Codec_RtGrantFrame, __Codec_RtOpenFrame, __Codec_RtControlFrame))
+    val frame = salvo.salvoEncode(Union5.U2<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(AnswerFrame(to = t.node, kind = t.kind, id = t.id, slot = t.slot, bits = t.bits, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
     __moduleUse0.stage(from, t.node, frame)
     flush()
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun exportReply(e: RtExported): RtReplyParts {
+fun exportReply(e: Exported): ReplyParts {
     val __destructured2 = e
     val kind = __destructured2.kind
     val id = __destructured2.id
@@ -925,20 +925,20 @@ fun exportReply(e: RtExported): RtReplyParts {
     val body = __destructured2.body
     if (kind == 2) {
         if (body != null) {
-            val b = body as salvo.platform.runtime.RtBody
-            __moduleUse0.putTask(slot, RtExportedTask(pool = id, body = b))
+            val b = body as salvo.platform.runtime.Body
+            __moduleUse0.putTask(slot, ExportedTask(pool = id, body = b))
         }
-        return RtReplyParts(node = __moduleUse0.nodeOfPool(id), kind = 2, id = slot, slot = slot, bits = 0L)
+        return ReplyParts(node = __moduleUse0.nodeOfPool(id), kind = 2, id = slot, slot = slot, bits = 0L)
     }
     if (body != null) {
-        val b = body as salvo.platform.runtime.RtBody
+        val b = body as salvo.platform.runtime.Body
         dropBodyPlatform(b)
     }
     if (kind == 1) {
-        return RtReplyParts(node = __moduleUse0.nodeOfPool(waiterPool(id)), kind = 1, id = (id).toLong(), slot = slot, bits = 0L)
+        return ReplyParts(node = __moduleUse0.nodeOfPool(waiterPool(id)), kind = 1, id = (id).toLong(), slot = slot, bits = 0L)
     }
     val me = identity(id)
-    return RtReplyParts(node = me.node, kind = 0, id = me.actor, slot = slot, bits = me.bits)
+    return ReplyParts(node = me.node, kind = 0, id = me.actor, slot = slot, bits = me.bits)
 }
 
 fun creditBack(addr: Int, pool: Int, from: Long) {
@@ -983,13 +983,13 @@ fun watchControl(channel: String, sink: Int) {
 
 fun sendControl(to: Long, channel: String, payload: salvo.SalvoBytes) {
     val from = hereNode()
-    val frame = salvo.salvoEncode(Union5.U5<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>(RtControlFrame(to = to, from = from, channel = channel, payload = payload)), salvo.Union5Codec(__Codec_RtMsgFrame, __Codec_RtAnswerFrame, __Codec_RtGrantFrame, __Codec_RtOpenFrame, __Codec_RtControlFrame))
+    val frame = salvo.salvoEncode(Union5.U5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(ControlFrame(to = to, from = from, channel = channel, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
     __moduleUse0.stage(from, to, frame)
     flush()
 }
 
 fun controlFrame(channel: String, payload: salvo.SalvoBytes): salvo.SalvoBytes {
-    return salvo.salvoEncode(Union5.U5<RtMsgFrame, RtAnswerFrame, RtGrantFrame, RtOpenFrame, RtControlFrame>(RtControlFrame(to = 0L, from = hereNode(), channel = channel, payload = payload)), salvo.Union5Codec(__Codec_RtMsgFrame, __Codec_RtAnswerFrame, __Codec_RtGrantFrame, __Codec_RtOpenFrame, __Codec_RtControlFrame))
+    return salvo.salvoEncode(Union5.U5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(ControlFrame(to = 0L, from = hereNode(), channel = channel, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
 }
 
 fun nodeLeft(node: Long) {
@@ -1016,9 +1016,9 @@ fun peerProtocol(node: Long, protocol: String): String? {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun deliver(data: salvo.SalvoBytes): Boolean {
-    val f = salvo.salvoDecode(data, salvo.Union5Codec(__Codec_RtMsgFrame, __Codec_RtAnswerFrame, __Codec_RtGrantFrame, __Codec_RtOpenFrame, __Codec_RtControlFrame))
+    val f = salvo.salvoDecode(data, salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
     if (f is Union5.U1<*, *, *, *, *>) {
-        val m = f?.value as RtMsgFrame
+        val m = f?.value as MsgFrame
         if (!__moduleUse0.accepts(m.to, m.actor, m.bits)) {
             return false
         }
@@ -1033,15 +1033,15 @@ fun deliver(data: salvo.SalvoBytes): Boolean {
         return false
     }
     if (f is Union5.U2<*, *, *, *, *>) {
-        val a = f?.value as RtAnswerFrame
+        val a = f?.value as AnswerFrame
         return deliverAnswer(a)
     }
     if (f is Union5.U3<*, *, *, *, *>) {
-        val g = f?.value as RtGrantFrame
-        return __moduleUse0.credited(RtRemoteRef(node = g.host, actor = g.actor, bits = g.bits), g.to, g.n)
+        val g = f?.value as GrantFrame
+        return __moduleUse0.credited(RemoteRef(node = g.host, actor = g.actor, bits = g.bits), g.to, g.n)
     }
     if (f is Union5.U4<*, *, *, *, *>) {
-        val o = f?.value as RtOpenFrame
+        val o = f?.value as OpenFrame
         if (!__moduleUse0.accepts(o.to, o.actor, o.bits)) {
             return false
         }
@@ -1055,7 +1055,7 @@ fun deliver(data: salvo.SalvoBytes): Boolean {
         return true
     }
     if (f is Union5.U5<*, *, *, *, *>) {
-        val c = f?.value as RtControlFrame
+        val c = f?.value as ControlFrame
         var node = c.to
         if (node == (0).toLong()) {
             node = hereNode()
@@ -1079,7 +1079,7 @@ fun deliver(data: salvo.SalvoBytes): Boolean {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun deliverAnswer(a: RtAnswerFrame): Boolean {
+fun deliverAnswer(a: AnswerFrame): Boolean {
     if (!__moduleUse0.hosts(a.to)) {
         return false
     }
@@ -1102,7 +1102,7 @@ fun deliverAnswer(a: RtAnswerFrame): Boolean {
     }
     val t = __moduleUse0.takeTask(a.id)
     if (t != null) {
-        val task = t as RtExportedTask
+        val task = t as ExportedTask
         val v = decodeTaskAnswerPlatform(a.id, salvo.SalvoBytes(a.payload))
         val __destructured3 = task
         val pool = __destructured3.pool
@@ -1117,7 +1117,7 @@ fun deliverAnswer(a: RtAnswerFrame): Boolean {
     return false
 }
 
-fun hash__4(value: RtRemoteRef): Long {
+fun hash__4(value: RemoteRef): Long {
     var h = 17L
     h = ((h) * 31L + ((value.node).hashCode().toLong()))
     h = ((h) * 31L + ((value.actor).hashCode().toLong()))
@@ -1125,7 +1125,7 @@ fun hash__4(value: RtRemoteRef): Long {
     return h
 }
 
-fun eq__4(a: RtRemoteRef, b: RtRemoteRef): Boolean {
+fun eq__4(a: RemoteRef, b: RemoteRef): Boolean {
     if (!((a.node) == (b.node))) {
         return false
     }
@@ -1138,14 +1138,14 @@ fun eq__4(a: RtRemoteRef, b: RtRemoteRef): Boolean {
     return true
 }
 
-fun hash__5(value: RtControlKey): Long {
+fun hash__5(value: ControlKey): Long {
     var h = 17L
     h = ((h) * 31L + ((value.node).hashCode().toLong()))
     h = ((h) * 31L + ((value.channel).hashCode().toLong()))
     return h
 }
 
-fun eq__5(a: RtControlKey, b: RtControlKey): Boolean {
+fun eq__5(a: ControlKey, b: ControlKey): Boolean {
     if (!((a.node) == (b.node))) {
         return false
     }

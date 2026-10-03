@@ -100,14 +100,14 @@ export platform fn drop_dyn(d: Dyn) [] -> None => !d
 // table, or the thread running it — and moved between them, which is how
 // one actor never runs twice at once. [kind] is 0 for a message and 1 for
 // an answer to the continuation parked at [slot].
-export linear platform type RtBody
-platform fn body_of(f: (kind: Int, slot: Long, value: Dyn) -> None) [] -> RtBody
+export linear platform type Body
+platform fn body_of(f: (kind: Int, slot: Long, value: Dyn) -> None) [] -> Body
 =>[f] !value => !f
 // Runs one activation of [b] inside the fault boundary, handing the body
 // back with `None` or with the fault that ended the activation.
-platform fn activate(b: RtBody, kind: Int, slot: Long, value: Dyn) [] -> RtRan
+platform fn activate(b: Body, kind: Int, slot: Long, value: Dyn) [] -> Ran
 => !b, !kind, !slot, !value
-export platform fn drop_body(b: RtBody) [] -> None => !b
+export platform fn drop_body(b: Body) [] -> None => !b
 
 // [remote-backpressure] Grants node [from] one credit for actor [addr], on
 // [pool]: a GRANT frame, staged by the routing service and sent once the
@@ -122,12 +122,12 @@ platform fn flush_frames() [] -> None
 // recovered from (a deadlock, a wedged main pool).
 platform fn exit_process(code: Int) [] -> Never => code
 
-linear struct RtRan {
-    body: RtBody,
+linear struct Ran {
+    body: Body,
     fault: Str?
 }
 
-fn drop_ran(r: RtRan) [] -> None => !r {
+fn drop_ran(r: Ran) [] -> None => !r {
     let {body, fault} = r
     drop_body(body)
 }
@@ -135,12 +135,12 @@ fn drop_ran(r: RtRan) [] -> None => !r {
 // A cell holding at most one linear value, taken out and put back through a
 // `Mut` handle: how a body leaves the table for an activation and returns,
 // and where a waiter's answer waits for it.
-linear platform type RtSlot<T canbe linear> canbe Mut
-platform fn slot_of<T canbe linear>(v: T) [] -> Mut RtSlot<T> => !v
-platform fn slot_empty<T canbe linear>() [] -> Mut RtSlot<T>
-platform fn slot_take<T canbe linear>(s: Mut RtSlot<T>) [] -> T? => s: Mut
-platform fn slot_put<T canbe linear>(s: Mut RtSlot<T>, v: T) [] -> None => s: Mut, !v
-platform fn drop_slot<T canbe linear>(s: RtSlot<T>) [] -> None => !s
+linear platform type Slot<T canbe linear> canbe Mut
+platform fn slot_of<T canbe linear>(v: T) [] -> Mut Slot<T> => !v
+platform fn slot_empty<T canbe linear>() [] -> Mut Slot<T>
+platform fn slot_take<T canbe linear>(s: Mut Slot<T>) [] -> T? => s: Mut
+platform fn slot_put<T canbe linear>(s: Mut Slot<T>, v: T) [] -> None => s: Mut, !v
+platform fn drop_slot<T canbe linear>(s: Slot<T>) [] -> None => !s
 
 // Where the calling thread is: the pool it works for (what an `on`-less
 // spawn or mint inherits) and the actor whose activation it is inside, or
@@ -172,25 +172,25 @@ fn task_frame() [] -> Int {
 // [remote-backpressure] [from] is the node a message came over the wire
 // from (-1 for a local send), which is granted a credit back when it is
 // dequeued.
-linear struct RtDelivered { msg: Dyn, from: Long }
-linear struct RtAnswered { slot: Long, value: Dyn }
-struct RtReported { reason: Str }
-type RtEntry = RtDelivered | RtAnswered | RtReported
+linear struct Delivered { msg: Dyn, from: Long }
+linear struct Answered { slot: Long, value: Dyn }
+struct Reported { reason: Str }
+type Entry = Delivered | Answered | Reported
 
-fn drop_delivered(d: RtDelivered) [] -> None => !d {
+fn drop_delivered(d: Delivered) [] -> None => !d {
     let {msg, from} = d
     drop_dyn(msg)
 }
 
-fn drop_answered(a: RtAnswered) [] -> None => !a {
+fn drop_answered(a: Answered) [] -> None => !a {
     let {slot, value} = a
     drop_dyn(value)
 }
 
-fn drop_entry(e: RtEntry) [] -> None => !e {
-    if e is RtDelivered d {
+fn drop_entry(e: Entry) [] -> None => !e {
+    if e is Delivered d {
         drop_delivered(d)
-    } elif e is RtAnswered a {
+    } elif e is Answered a {
         drop_answered(a)
     } else {
         discard(e)
@@ -198,11 +198,11 @@ fn drop_entry(e: RtEntry) [] -> None => !e {
 }
 
 // One actor, as the table keeps it.
-linear struct RtActorRec canbe Mut {
-    body: Mut RtSlot<RtBody>,
+linear struct ActorRec canbe Mut {
+    body: Mut Slot<Body>,
     pool: Int,
     bound: Int,
-    queue: Mut Deque<RtEntry>,
+    queue: Mut Deque<Entry>,
     // Beside each entry: the slot it answers, or -1 — what the gate reads
     // without touching the entries themselves.
     slots: Mut Deque<Long>,
@@ -217,7 +217,7 @@ linear struct RtActorRec canbe Mut {
     // Senders parked on a full mailbox, woken one per dequeue.
     blocked: Mut List<Parker>,
     // [actor-watch] Tokens to answer with an `Exit` when it dies.
-    watchers: Mut List<RtToken>,
+    watchers: Mut List<Token>,
     // [actor-on-idle] Tokens aimed at it that nobody has answered.
     owed: Int,
     // On its pool's ready queue.
@@ -227,7 +227,7 @@ linear struct RtActorRec canbe Mut {
     proxy: Bool
 }
 
-fn drop_actor_rec(a: RtActorRec) [] -> None => !a {
+fn drop_actor_rec(a: ActorRec) [] -> None => !a {
     let {body, pool, bound, queue, slots, user_len, gate, running, dead, exit_reason, blocked, watchers, owed, ready, proxy} = a
     drop_slot(body)
     drain(queue, e -> drop_entry(e))
@@ -235,9 +235,9 @@ fn drop_actor_rec(a: RtActorRec) [] -> None => !a {
 }
 
 // A frame waiting in `await_answer`, and the answer once it arrives.
-linear struct RtWaiterRec canbe Mut {
+linear struct WaiterRec canbe Mut {
     pool: Int,
-    value: Mut RtSlot<Dyn>,
+    value: Mut Slot<Dyn>,
     filled: Bool,
     parker: Parker?,
     // While the frame waits: what kind of frame it is (1 an activation or a
@@ -247,24 +247,24 @@ linear struct RtWaiterRec canbe Mut {
     waiting_actor: Int
 }
 
-fn drop_waiter_rec(w: RtWaiterRec) [] -> None => !w {
+fn drop_waiter_rec(w: WaiterRec) [] -> None => !w {
     let {pool, value, filled, parker, waiting, waiting_actor} = w
     drop_slot(value)
 }
 
 // A task whose answer has arrived: its body and the answer, ready to run.
-linear struct RtTaskRun { body: RtBody, value: Dyn }
+linear struct TaskRun { body: Body, value: Dyn }
 
-fn drop_task_run(t: RtTaskRun) [] -> None => !t {
+fn drop_task_run(t: TaskRun) [] -> None => !t {
     let {body, value} = t
     drop_body(body)
     drop_dyn(value)
 }
 
-linear struct RtPoolRec canbe Mut {
+linear struct PoolRec canbe Mut {
     // The parkers of its threads with nothing to do.
     idle: Mut List<Parker>,
-    tasks: Mut Deque<RtTaskRun>,
+    tasks: Mut Deque<TaskRun>,
     // Actors with an entry they may be activated for, in the order they
     // became so: what a thread looking for work takes from, instead of
     // scanning the table. An entry may be stale (the actor since ran or
@@ -277,7 +277,7 @@ linear struct RtPoolRec canbe Mut {
     owed: Int
 }
 
-fn drop_pool_rec(p: RtPoolRec) [] -> None => !p {
+fn drop_pool_rec(p: PoolRec) [] -> None => !p {
     let {idle, tasks, ready, sink, owed} = p
     drain(tasks, t -> drop_task_run(t))
 }
@@ -285,12 +285,12 @@ fn drop_pool_rec(p: RtPoolRec) [] -> None => !p {
 // [actor-replyto] Where an answer goes: an actor's parked continuation, a
 // waiting frame, or a task — whose body travels inside the token until the
 // answer schedules it [task-mint].
-struct RtToActor { addr: Int }
-struct RtToWaiter { wid: Int }
-linear struct RtToTask { pool: Int, body: RtBody }
-type RtTarget = RtToActor | RtToWaiter | RtToTask
+struct ToActor { addr: Int }
+struct ToWaiter { wid: Int }
+linear struct ToTask { pool: Int, body: Body }
+type Target = ToActor | ToWaiter | ToTask
 
-fn drop_to_task(t: RtToTask) [] -> None => !t {
+fn drop_to_task(t: ToTask) [] -> None => !t {
     let {pool, body} = t
     drop_body(body)
 }
@@ -298,91 +298,91 @@ fn drop_to_task(t: RtToTask) [] -> None => !t {
 // [actor-replyto] A one-shot answer channel. Linear: answered exactly once.
 // [tracked] says whether it still counts as owed [actor-on-idle]: a token the
 // scheduler holds itself (a watch, an idle hook) does not.
-export linear struct RtToken {
-    target: RtTarget,
+export linear struct Token {
+    target: Target,
     slot: Long,
     tracked: Bool
 }
 
 // Answers a token nobody will read, so its obligation ends.
-fn drop_token(t: RtToken) [] -> None => !t {
+fn drop_token(t: Token) [] -> None => !t {
     answer(t, erase(0))
 }
 
 // What a waiter's mint hands back: the token to give away, and the waiter
 // to wait on.
-export linear struct RtWaiterMint {
-    token: RtToken,
+export linear struct WaiterMint {
+    token: Token,
     wid: Int
 }
 
-fn drop_waiter_mint(m: RtWaiterMint) [] -> None => !m {
+fn drop_waiter_mint(m: WaiterMint) [] -> None => !m {
     let {token, wid} = m
     drop_token(token)
 }
 
 // What a thread with work to do runs: an actor's activation or a task.
-linear struct RtRunActor { addr: Int, pool: Int, kind: Int, slot: Long, value: Dyn, body: RtBody }
-linear struct RtRunTask { pool: Int, body: RtBody, value: Dyn }
-type RtWork = RtRunActor | RtRunTask
+linear struct RunActor { addr: Int, pool: Int, kind: Int, slot: Long, value: Dyn, body: Body }
+linear struct RunTask { pool: Int, body: Body, value: Dyn }
+type Work = RunActor | RunTask
 
-fn drop_run_actor(a: RtRunActor) [] -> None => !a {
+fn drop_run_actor(a: RunActor) [] -> None => !a {
     let {addr, pool, kind, slot, value, body} = a
     drop_dyn(value)
     drop_body(body)
 }
 
-fn drop_run_task(t: RtRunTask) [] -> None => !t {
+fn drop_run_task(t: RunTask) [] -> None => !t {
     let {pool, body, value} = t
     drop_body(body)
     drop_dyn(value)
 }
 
-struct RtSent {}
-struct RtDead {}
-linear struct RtFull { msg: Dyn }
-linear struct RtRemote { msg: Dyn }
+struct Sent {}
+struct Dead {}
+linear struct Full { msg: Dyn }
+linear struct Remote { msg: Dyn }
 
-fn drop_remote(r: RtRemote) [] -> None => !r {
+fn drop_remote(r: Remote) [] -> None => !r {
     let {msg} = r
     drop_dyn(msg)
 }
 
-fn drop_full(f: RtFull) [] -> None => !f {
+fn drop_full(f: Full) [] -> None => !f {
     let {msg} = f
     drop_dyn(msg)
 }
 
 // [actor-on-idle] A registered quiescence hook: the pool it reports on, and
 // the token its `Idle` answers.
-linear struct RtIdleHook { pool: Int, token: RtToken }
+linear struct IdleHook { pool: Int, token: Token }
 
-fn drop_idle_hook(h: RtIdleHook) [] -> None => !h {
+fn drop_idle_hook(h: IdleHook) [] -> None => !h {
     let {pool, token} = h
     drop_token(token)
 }
 
 // What one step of a wait found: the answer, work to run meanwhile, nothing
 // (its parker is recorded: sleep), or the deadlock report.
-linear struct RtGot { value: Dyn }
-struct RtSleep {}
+linear struct Got { value: Dyn }
+struct Sleep {}
 // Something changed under the lock (a hook fired): look again before
 // sleeping, since the change may be this waiter's own answer.
-struct RtAgain {}
-struct RtStuck { report: Str }
-type RtWaitStep = RtGot | RtRunActor | RtRunTask | RtSleep | RtAgain | RtStuck
+struct Again {}
+struct Stuck { report: Str }
+type WaitStep = Got | RunActor | RunTask | Sleep | Again | Stuck
 
-fn drop_got(g: RtGot) [] -> None => !g {
+fn drop_got(g: Got) [] -> None => !g {
     let {value} = g
     drop_dyn(value)
 }
 
 effect SchedTable {
     fn new_pool(sink: Int) -> Int => !sink
-    fn new_actor(pool: Int, bound: Int, body: RtBody) -> Int => !pool, !bound, !body
-    // Enqueues a message: `RtSent`, `RtDead` (dropped), or `RtFull` — the message
+    fn new_actor(pool: Int, bound: Int, body: Body) -> Int => !pool, !bound, !body
+    // Enqueues a message: `Sent`, `Dead` (dropped), or `Full` — the message
     // comes back and [waiter] is recorded to be woken by the next dequeue.
-    fn enqueue(addr: Int, msg: Dyn, waiter: Parker) -> RtSent | RtDead | RtFull | RtRemote => !addr, !msg, !waiter
+    fn enqueue(addr: Int, msg: Dyn, waiter: Parker) -> Sent | Dead | Full | Remote => !addr, !msg, !waiter
     fn set_proxy(addr: Int) -> None => !addr
     // [addr-routable] A message that came over the wire from [from]: past
     // nothing — its room was granted as a credit — and granted back when
@@ -391,24 +391,24 @@ effect SchedTable {
     // [node-exit] The actor dies of [reason] without an activation: a proxy
     // of an actor on a node that left.
     fn kill(addr: Int, reason: Str) -> None => !addr, !reason
-    fn mint_actor(addr: Int, gated: Bool) -> RtToken => !addr, !gated
-    fn mint_task(pool: Int, body: RtBody) -> RtToken => !pool, !body
-    fn mint_waiter(pool: Int) -> RtWaiterMint => !pool
+    fn mint_actor(addr: Int, gated: Bool) -> Token => !addr, !gated
+    fn mint_task(pool: Int, body: Body) -> Token => !pool, !body
+    fn mint_waiter(pool: Int) -> WaiterMint => !pool
     // Delivers an answer: never blocks (an answer's room is reserved), and a
     // no-op to the dead.
-    fn deliver(t: RtToken, value: Dyn) -> None => !t, !value
-    fn watch_actor(addr: Int, t: RtToken) -> None => !addr, !t
-    fn idle_hook(pool: Int, t: RtToken) -> None => !pool, !t
+    fn deliver(t: Token, value: Dyn) -> None => !t, !value
+    fn watch_actor(addr: Int, t: Token) -> None => !addr, !t
+    fn idle_hook(pool: Int, t: Token) -> None => !pool, !t
     // The next work on [pool]; `None` having recorded [idle] to be woken
     // when work arrives there.
-    fn next_work(pool: Int, idle: Parker) -> RtWork? => !pool, !idle
+    fn next_work(pool: Int, idle: Parker) -> Work? => !pool, !idle
     // One step of waiting on [wid] from a frame of kind [frame] (1 an
     // activation or task, 2 main's thread) inside [own], serving [pool].
-    fn wait_step(wid: Int, pool: Int, own: Int, frame: Int, me: Parker) -> RtWaitStep
+    fn wait_step(wid: Int, pool: Int, own: Int, frame: Int, me: Parker) -> WaitStep
     => !wid, !pool, !own, !frame, !me
     // An activation finished: the body goes back, or the actor dies of
     // [fault].
-    fn finish(addr: Int, body: RtBody, fault: Str?) -> None => !addr, !body, !fault
+    fn finish(addr: Int, body: Body, fault: Str?) -> None => !addr, !body, !fault
     fn task_done(pool: Int, fault: Str?) -> None => !pool, !fault
     fn pool_of_actor(addr: Int) -> Int => addr
     fn pool_of_waiter(wid: Int) -> Int => wid
@@ -421,10 +421,10 @@ effect SchedTable {
 }
 
 handler Scheduler() of SchedTable {
-    actors: Mut List<Mut RtActorRec> = mut_list_of()
-    waiters: Mut List<Mut RtWaiterRec> = mut_list_of()
-    pools: Mut List<Mut RtPoolRec> = mut_list_of()
-    idle_hooks: Mut List<RtIdleHook> = mut_list_of()
+    actors: Mut List<Mut ActorRec> = mut_list_of()
+    waiters: Mut List<Mut WaiterRec> = mut_list_of()
+    pools: Mut List<Mut PoolRec> = mut_list_of()
+    idle_hooks: Mut List<IdleHook> = mut_list_of()
     next_slot: Long = 0
     // Frames running — activations and tasks — and, of those, the ones
     // parked in a wait; how deep main's own thread is in a wait; outside
@@ -436,16 +436,16 @@ handler Scheduler() of SchedTable {
 
     // [main-pool] Pool 0 exists from the start and belongs to `main`.
     init {
-        add(pools, Mut RtPoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: -1, owed: 0 })
+        add(pools, Mut PoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: -1, owed: 0 })
     }
 
     fn new_pool(sink: Int) -> Int => !sink {
-        add(pools, Mut RtPoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: sink, owed: 0 })
+        add(pools, Mut PoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: sink, owed: 0 })
         return size(pools) - 1
     }
 
-    fn new_actor(pool: Int, bound: Int, body: RtBody) -> Int => !pool, !bound, !body {
-        add(actors, Mut RtActorRec {
+    fn new_actor(pool: Int, bound: Int, body: Body) -> Int => !pool, !bound, !body {
+        add(actors, Mut ActorRec {
             body: slot_of(body), pool: pool, bound: bound, queue: mut_deque_of(), slots: mut_deque_of(),
             user_len: 0, gate: None, running: false, dead: false, exit_reason: "",
             blocked: mut_list_of(), watchers: mut_list_of(), owed: 0, ready: false, proxy: false
@@ -453,24 +453,24 @@ handler Scheduler() of SchedTable {
         return size(actors) - 1
     }
 
-    fn enqueue(addr: Int, msg: Dyn, waiter: Parker) -> RtSent | RtDead | RtFull | RtRemote => !addr, !msg, !waiter {
+    fn enqueue(addr: Int, msg: Dyn, waiter: Parker) -> Sent | Dead | Full | Remote => !addr, !msg, !waiter {
         if addr < 0 || addr >= size(actors) {
             drop_dyn(msg)
-            return RtDead {}
+            return Dead {}
         }
         let a = get(actors, addr)!
         if a.dead {
             drop_dyn(msg)
-            return RtDead {}
+            return Dead {}
         }
         if a.proxy {
-            return RtRemote { msg: msg }
+            return Remote { msg: msg }
         }
         if a.user_len >= a.bound {
             add(a.blocked, waiter)
-            return RtFull { msg: msg }
+            return Full { msg: msg }
         }
-        let e: RtEntry = RtDelivered { msg: msg, from: to_long(-1) }
+        let e: Entry = Delivered { msg: msg, from: to_long(-1) }
         add_last(a.queue, e)
         add_last(a.slots, to_long(-1))
         a.user_len = a.user_len + 1
@@ -478,7 +478,7 @@ handler Scheduler() of SchedTable {
             let pool = copy(a.pool)
             wake_pool(pools, pool)
         }
-        return RtSent {}
+        return Sent {}
     }
 
     fn enqueue_remote(addr: Int, msg: Dyn, from: Long) -> Bool => !addr, !msg, !from {
@@ -491,7 +491,7 @@ handler Scheduler() of SchedTable {
             drop_dyn(msg)
             return false
         }
-        let e: RtEntry = RtDelivered { msg: msg, from: from }
+        let e: Entry = Delivered { msg: msg, from: from }
         add_last(a.queue, e)
         add_last(a.slots, to_long(-1))
         a.user_len = a.user_len + 1
@@ -512,17 +512,17 @@ handler Scheduler() of SchedTable {
         while remove_first(a.blocked) is Parker b {
             unpark(b)
         }
-        let watchers: Mut List<RtToken> = mut_list_of()
-        while remove_first(a.watchers) is RtToken t {
+        let watchers: Mut List<Token> = mut_list_of()
+        while remove_first(a.watchers) is Token t {
             add(watchers, t)
         }
-        while remove_first(watchers) is RtToken t {
+        while remove_first(watchers) is Token t {
             deliver_to(actors, waiters, pools, t, erase(Exit { reason: copy(reason) }))
         }
         drain(watchers, t -> drop_token(t))
     }
 
-    fn mint_actor(addr: Int, gated: Bool) -> RtToken => !addr, !gated {
+    fn mint_actor(addr: Int, gated: Bool) -> Token => !addr, !gated {
         next_slot = next_slot + 1
         let slot = copy(next_slot)
         let a = get(actors, addr)!
@@ -530,33 +530,33 @@ handler Scheduler() of SchedTable {
             a.gate = copy(slot)
         }
         a.owed = a.owed + 1
-        return RtToken { target: RtToActor { addr: addr }, slot: slot, tracked: true }
+        return Token { target: ToActor { addr: addr }, slot: slot, tracked: true }
     }
 
-    fn mint_task(pool: Int, body: RtBody) -> RtToken => !pool, !body {
+    fn mint_task(pool: Int, body: Body) -> Token => !pool, !body {
         next_slot = next_slot + 1
         let p = get(pools, pool)!
         p.owed = p.owed + 1
-        return RtToken { target: RtToTask { pool: pool, body: body }, slot: copy(next_slot), tracked: true }
+        return Token { target: ToTask { pool: pool, body: body }, slot: copy(next_slot), tracked: true }
     }
 
-    fn mint_waiter(pool: Int) -> RtWaiterMint => !pool {
+    fn mint_waiter(pool: Int) -> WaiterMint => !pool {
         let p = get(pools, pool)!
         p.owed = p.owed + 1
-        add(waiters, Mut RtWaiterRec {
+        add(waiters, Mut WaiterRec {
             pool: pool, value: slot_empty(), filled: false, parker: None, waiting: 0, waiting_actor: -1
         })
         let wid = size(waiters) - 1
         next_slot = next_slot + 1
-        let t = RtToken { target: RtToWaiter { wid: copy(wid) }, slot: copy(next_slot), tracked: true }
-        return RtWaiterMint { token: t, wid: wid }
+        let t = Token { target: ToWaiter { wid: copy(wid) }, slot: copy(next_slot), tracked: true }
+        return WaiterMint { token: t, wid: wid }
     }
 
-    fn deliver(t: RtToken, value: Dyn) -> None => !t, !value {
+    fn deliver(t: Token, value: Dyn) -> None => !t, !value {
         deliver_to(actors, waiters, pools, t, value)
     }
 
-    fn watch_actor(addr: Int, t: RtToken) -> None => !addr, !t {
+    fn watch_actor(addr: Int, t: Token) -> None => !addr, !t {
         let watch = untrack(actors, waiters, pools, t)
         let a = get(actors, addr)!
         if a.dead {
@@ -567,13 +567,13 @@ handler Scheduler() of SchedTable {
         add(a.watchers, watch)
     }
 
-    fn idle_hook(pool: Int, t: RtToken) -> None => !pool, !t {
+    fn idle_hook(pool: Int, t: Token) -> None => !pool, !t {
         let hook = untrack(actors, waiters, pools, t)
-        add(idle_hooks, RtIdleHook { pool: pool, token: hook })
+        add(idle_hooks, IdleHook { pool: pool, token: hook })
         wake_all_pools(pools)
     }
 
-    fn next_work(pool: Int, idle: Parker) -> RtWork? => !pool, !idle {
+    fn next_work(pool: Int, idle: Parker) -> Work? => !pool, !idle {
         let w = take_work(actors, pools, copy(pool), -1)
         if w is None {
             let p = get(pools, pool)!
@@ -594,7 +594,7 @@ handler Scheduler() of SchedTable {
         return w
     }
 
-    fn wait_step(wid: Int, pool: Int, own: Int, frame: Int, me: Parker) -> RtWaitStep
+    fn wait_step(wid: Int, pool: Int, own: Int, frame: Int, me: Parker) -> WaitStep
     => !wid, !pool, !own, !frame, !me {
         let w = get(waiters, wid)!
         // [waitfor-pump] Booked once, on the first step: an activation or a
@@ -623,14 +623,14 @@ handler Scheduler() of SchedTable {
             // This thread may have been woken for work, and leaves with its
             // answer instead: the wake is passed on.
             wake_pool(pools, copy(pool))
-            return RtGot { value: v }
+            return Got { value: v }
         }
         let work = take_work(actors, pools, copy(pool), copy(own))
-        if work is RtRunActor ra {
+        if work is RunActor ra {
             active = active + 1
             return ra
         }
-        if work is RtRunTask rt {
+        if work is RunTask rt {
             active = active + 1
             return rt
         }
@@ -639,19 +639,19 @@ handler Scheduler() of SchedTable {
         let q = quiet(actors, waiters, pools, externals)
         if !(size(idle_hooks) == 0) && active == 0 && q {
             fire_idle(actors, waiters, pools, idle_hooks)
-            return RtAgain {}
+            return Again {}
         }
         if active == parked_frames && main_waits > 0 && q {
-            return RtStuck { report: deadlock_report(actors, waiters, own) }
+            return Stuck { report: deadlock_report(actors, waiters, own) }
         }
         let parked = get(waiters, wid)!
         parked.parker = copy(me)
         let p = get(pools, pool)!
         add(p.idle, me)
-        return RtSleep {}
+        return Sleep {}
     }
 
-    fn finish(addr: Int, body: RtBody, fault: Str?) -> None => !addr, !body, !fault {
+    fn finish(addr: Int, body: Body, fault: Str?) -> None => !addr, !body, !fault {
         active = active - 1
         let a = get(actors, addr)!
         a.running = false
@@ -678,8 +678,8 @@ handler Scheduler() of SchedTable {
             unpark(b)
         }
         let pool = copy(a.pool)
-        let watchers: Mut List<RtToken> = mut_list_of()
-        while remove_first(a.watchers) is RtToken t {
+        let watchers: Mut List<Token> = mut_list_of()
+        while remove_first(a.watchers) is Token t {
             add(watchers, t)
         }
         // [pool-fault-sink] The net under supervision: a death nobody was
@@ -687,7 +687,7 @@ handler Scheduler() of SchedTable {
         if size(watchers) == 0 {
             report_fault(actors, pools, copy(pool), copy(reason))
         }
-        while remove_first(watchers) is RtToken t {
+        while remove_first(watchers) is Token t {
             deliver_to(actors, waiters, pools, t, erase(Exit { reason: copy(reason) }))
         }
         drain(watchers, t -> drop_token(t))
@@ -738,24 +738,24 @@ handler Scheduler() of SchedTable {
 
 // [actor-on-idle] A token the scheduler takes over (a watch, an idle hook):
 // no longer counted as owed by the program, since the scheduler answers it.
-fn untrack(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRec>, pools: Mut List<Mut RtPoolRec>, t: RtToken) [] -> RtToken
+fn untrack(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>, t: Token) [] -> Token
 => actors: Mut, waiters: Mut, pools: Mut, !t {
     let {target, slot, tracked} = t
     if tracked {
         release(actors, waiters, pools, target)
     }
-    return RtToken { target: target, slot: slot, tracked: false }
+    return Token { target: target, slot: slot, tracked: false }
 }
 
 // [actor-on-idle] One owed token fewer, against whatever it was owed by.
-fn release(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRec>, pools: Mut List<Mut RtPoolRec>, target: RtTarget) [] -> None
+fn release(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>, target: Target) [] -> None
 => actors: Mut, waiters: Mut, pools: Mut, target {
-    if target is RtToActor to {
+    if target is ToActor to {
         let a = get(actors, to.addr)!
         if a.owed > 0 {
             a.owed = a.owed - 1
         }
-    } elif target is RtToWaiter tw {
+    } elif target is ToWaiter tw {
         let pool = copy(get(waiters, tw.wid)!.pool)
         let p = get(pools, pool)!
         if p.owed > 0 {
@@ -770,27 +770,27 @@ fn release(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRec>,
 }
 
 // [actor-replyto] An answer, to wherever its token was aimed.
-fn deliver_to(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRec>, pools: Mut List<Mut RtPoolRec>,
-    t: RtToken, value: Dyn) [] -> None
+fn deliver_to(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>,
+    t: Token, value: Dyn) [] -> None
     => actors: Mut, waiters: Mut, pools: Mut, !t, !value {
     let {target, slot, tracked} = t
     if tracked {
         release(actors, waiters, pools, target)
     }
-    if target is RtToActor to {
+    if target is ToActor to {
         let a = get(actors, to.addr)!
         if a.dead {
             drop_dyn(value)
             return
         }
         add_last(a.slots, copy(slot))
-        let e: RtEntry = RtAnswered { slot: slot, value: value }
+        let e: Entry = Answered { slot: slot, value: value }
         add_last(a.queue, e)
         if mark_ready(a, pools, copy(to.addr)) {
             let pool = copy(a.pool)
             wake_pool(pools, pool)
         }
-    } elif target is RtToWaiter tw {
+    } elif target is ToWaiter tw {
         let w = get(waiters, tw.wid)!
         slot_put(w.value, value)
         w.filled = true
@@ -800,7 +800,7 @@ fn deliver_to(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRe
     } else {
         let {pool, body} = target
         let p = get(pools, pool)!
-        add_last(p.tasks, RtTaskRun { body: body, value: value })
+        add_last(p.tasks, TaskRun { body: body, value: value })
         wake_pool(pools, copy(pool))
     }
 }
@@ -808,13 +808,13 @@ fn deliver_to(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRe
 // [pool-fault-sink] An uncaught fault on [pool]: a report to its sink when it
 // has a live one — enqueued past the bound, since a fault report must not
 // block the faulting thread — or the named report on stderr.
-fn report_fault(actors: Mut List<Mut RtActorRec>, pools: Mut List<Mut RtPoolRec>, pool: Int, reason: Str) [] -> None
+fn report_fault(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, pool: Int, reason: Str) [] -> None
 => actors: Mut, pools: Mut, !pool, !reason {
     let sink = copy(get(pools, pool)!.sink)
     if sink >= 0 {
         let s = get(actors, sink)!
         if !s.dead {
-            let e: RtEntry = RtReported { reason: reason }
+            let e: Entry = Reported { reason: reason }
             add_last(s.queue, e)
             add_last(s.slots, to_long(-1))
             if mark_ready(s, pools, copy(sink)) {
@@ -831,7 +831,7 @@ fn report_fault(actors: Mut List<Mut RtActorRec>, pools: Mut List<Mut RtPoolRec>
 // deliverable entry, no pool a ready task, no outside source is open, and no
 // waiting frame has an answer sitting in its slot (its pickup is the waiting
 // thread itself, one instant away).
-fn quiet(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRec>, pools: Mut List<Mut RtPoolRec>, externals: Int) [] -> Bool
+fn quiet(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>, externals: Int) [] -> Bool
 => actors, waiters, pools, externals {
     if externals > 0 {
         return false
@@ -857,9 +857,9 @@ fn quiet(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRec>, p
 // [actor-on-idle] Fires every registered hook — quiescence is a property of
 // the whole scheduler, so they all see it together — each with what its pool
 // is still owed.
-fn fire_idle(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRec>, pools: Mut List<Mut RtPoolRec>, hooks: Mut List<RtIdleHook>) [] -> None
+fn fire_idle(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>, hooks: Mut List<IdleHook>) [] -> None
 => actors: Mut, waiters: Mut, pools: Mut, hooks: Mut {
-    while remove_first(hooks) is RtIdleHook h {
+    while remove_first(hooks) is IdleHook h {
         let {pool, token} = h
         let gates = 0
         let tokens = copy(get(pools, pool)!.owed)
@@ -878,7 +878,7 @@ fn fire_idle(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRec
 // [waitfor-pump] The deadlock report: nothing can run while [own] (or main)
 // waits, naming the two ways a mailbox comes to be unservable — an actor
 // parked in a wait, and a gated actor.
-fn deadlock_report(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRec>, own: Int) [] -> Str
+fn deadlock_report(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, own: Int) [] -> Str
 => actors, waiters, own {
     let occupied: Mut List<Str> = mut_list_of()
     for w in waiters {
@@ -909,13 +909,13 @@ fn deadlock_report(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWai
 // [waitfor-pump] The next work on [pool]: a ready task first, then the first
 // actor with a deliverable entry — honouring its gate — other than
 // [exclude], whose own activation is the one waiting.
-fn take_work(actors: Mut List<Mut RtActorRec>, pools: Mut List<Mut RtPoolRec>, pool: Int, exclude: Int) [] -> RtWork?
+fn take_work(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, pool: Int, exclude: Int) [] -> Work?
 => actors: Mut, pools: Mut, !pool, !exclude {
     let p = get(pools, pool)!
     let task = remove_first(p.tasks)
-    if task is RtTaskRun t {
+    if task is TaskRun t {
         let {body, value} = t
-        return RtRunTask { pool: pool, body: body, value: value }
+        return RunTask { pool: pool, body: body, value: value }
     }
     while remove_first(p.ready) is Int i {
         let a = get(actors, i)!
@@ -937,7 +937,7 @@ fn take_work(actors: Mut List<Mut RtActorRec>, pools: Mut List<Mut RtPoolRec>, p
 // Queues actor [a] (at [addr]) on its pool's ready queue when it has an
 // entry it may be activated for and is neither running nor dead; answers
 // whether it was queued now, which is when a thread should be woken for it.
-fn mark_ready(a: Mut RtActorRec, pools: Mut List<Mut RtPoolRec>, addr: Int) [] -> Bool => a: Mut, pools: Mut, !addr {
+fn mark_ready(a: Mut ActorRec, pools: Mut List<Mut PoolRec>, addr: Int) [] -> Bool => a: Mut, pools: Mut, !addr {
     if a.ready || a.running || a.dead {
         return false
     }
@@ -953,8 +953,8 @@ fn mark_ready(a: Mut RtActorRec, pools: Mut List<Mut RtPoolRec>, addr: Int) [] -
 // The work an entry taken from actor [a] (at [addr]) makes: a message wakes
 // one blocked sender; an answer to the gate opens it; a report is kind 2,
 // carrying the fault's reason (the body builds its protocol's message).
-fn work_of(a: Mut RtActorRec, addr: Int, e: RtEntry, body: RtBody) [] -> RtWork? => a: Mut, !addr, !e, !body {
-    if e is RtDelivered d {
+fn work_of(a: Mut ActorRec, addr: Int, e: Entry, body: Body) [] -> Work? => a: Mut, !addr, !e, !body {
+    if e is Delivered d {
         a.user_len = a.user_len - 1
         let woken = remove_first(a.blocked)
         if woken is Parker b {
@@ -966,10 +966,10 @@ fn work_of(a: Mut RtActorRec, addr: Int, e: RtEntry, body: RtBody) [] -> RtWork?
         if from >= 0 {
             granted(copy(addr), copy(a.pool), from)
         }
-        return RtRunActor { addr: addr, pool: copy(a.pool), kind: 0, slot: 0, value: msg, body: body }
+        return RunActor { addr: addr, pool: copy(a.pool), kind: 0, slot: 0, value: msg, body: body }
     }
-    if e is RtReported r {
-        return RtRunActor { addr: addr, pool: copy(a.pool), kind: 2, slot: 0, value: erase(copy(r.reason)), body: body }
+    if e is Reported r {
+        return RunActor { addr: addr, pool: copy(a.pool), kind: 2, slot: 0, value: erase(copy(r.reason)), body: body }
     }
     let {slot, value} = e
     let opens = false
@@ -979,7 +979,7 @@ fn work_of(a: Mut RtActorRec, addr: Int, e: RtEntry, body: RtBody) [] -> RtWork?
     if opens {
         a.gate = None
     }
-    return RtRunActor { addr: addr, pool: copy(a.pool), kind: 1, slot: slot, value: value, body: body }
+    return RunActor { addr: addr, pool: copy(a.pool), kind: 1, slot: slot, value: value, body: body }
 }
 
 // The index of the entry that may be delivered next: the head, or — while
@@ -1007,7 +1007,7 @@ fn deliverable(slots: Deque<Long>, gate: Long?) [] -> Int? => slots, gate {
 // again. A thread that finds nothing records itself idle under the lock, and
 // a woken waiting frame that leaves with its answer instead passes the wake
 // on, so work is never left with every thread asleep.
-fn wake_pool(pools: Mut List<Mut RtPoolRec>, pool: Int) [] -> None => pools: Mut, !pool {
+fn wake_pool(pools: Mut List<Mut PoolRec>, pool: Int) [] -> None => pools: Mut, !pool {
     let p = get(pools, pool)!
     if remove_first(p.idle) is Parker w {
         unpark(w)
@@ -1015,7 +1015,7 @@ fn wake_pool(pools: Mut List<Mut RtPoolRec>, pool: Int) [] -> None => pools: Mut
 }
 
 // Wakes every idle thread of [pool].
-fn wake_every(pools: Mut List<Mut RtPoolRec>, pool: Int) [] -> None => pools: Mut, !pool {
+fn wake_every(pools: Mut List<Mut PoolRec>, pool: Int) [] -> None => pools: Mut, !pool {
     let p = get(pools, pool)!
     while remove_first(p.idle) is Parker w {
         unpark(w)
@@ -1024,7 +1024,7 @@ fn wake_every(pools: Mut List<Mut RtPoolRec>, pool: Int) [] -> None => pools: Mu
 
 // [waitfor-pump] Wakes every frame parked in a wait, to look at the
 // scheduler again.
-fn wake_waiters(waiters: Mut List<Mut RtWaiterRec>) [] -> None => waiters: Mut {
+fn wake_waiters(waiters: Mut List<Mut WaiterRec>) [] -> None => waiters: Mut {
     for w in waiters {
         if w.waiting > 0 && w.parker is Parker p {
             unpark(copy(p))
@@ -1034,7 +1034,7 @@ fn wake_waiters(waiters: Mut List<Mut RtWaiterRec>) [] -> None => waiters: Mut {
 
 // Wakes every idle thread of every pool: something global changed (a death,
 // a hook, an outside source), which any of them may have to look at.
-fn wake_all_pools(pools: Mut List<Mut RtPoolRec>) [] -> None => pools: Mut {
+fn wake_all_pools(pools: Mut List<Mut PoolRec>) [] -> None => pools: Mut {
     let i = 0
     while i < size(pools) {
         wake_every(pools, copy(i))
@@ -1059,7 +1059,7 @@ export fn new_pool_of(n: Int, sink: Int) [] -> Int => n, !sink {
 }
 
 // [runtime-sched] An actor on [pool] whose mailbox holds [bound] messages.
-export fn spawn_body(pool: Int, bound: Int, body: RtBody) [] -> Int => !pool, !bound, !body {
+export fn spawn_body(pool: Int, bound: Int, body: Body) [] -> Int => !pool, !bound, !body {
     return new_actor(pool, bound, body)
 }
 
@@ -1077,7 +1077,7 @@ export fn send_dyn(addr: Int, msg: Dyn) [] -> None => !addr, !msg {
 // caller to encode and route.
 export fn send_or_back(addr: Int, msg: Dyn) [] -> Dyn? => !addr, !msg {
     let r = enqueue(copy(addr), msg, this_parker())
-    while r is RtFull full {
+    while r is Full full {
         // [main-pool] Blocking here would be a guaranteed wedge: the only
         // thread that could drain a main-pool mailbox is main, sending.
         if here_pool() == main_pool() && here_actor() == no_frame() && pool_of_actor(copy(addr)) == main_pool() {
@@ -1088,14 +1088,14 @@ export fn send_or_back(addr: Int, msg: Dyn) [] -> Dyn? => !addr, !msg {
         let {msg: back} = full
         r = enqueue(copy(addr), back, this_parker())
     }
-    // The loop leaves only on `RtSent`, `RtDead` or `RtRemote`; the checker
-    // does not narrow past a `while`, so the `RtFull` case is spelled, and
+    // The loop leaves only on `Sent`, `Dead` or `Remote`; the checker
+    // does not narrow past a `while`, so the `Full` case is spelled, and
     // unreachable.
-    if r is RtFull full {
+    if r is Full full {
         drop_full(full)
         return None
     }
-    if r is RtRemote remote {
+    if r is Remote remote {
         let {msg: back} = remote
         return back
     }
@@ -1109,34 +1109,34 @@ export fn mark_proxy(addr: Int) [] -> None => !addr {
 
 // [actor-replyto] A token answering [addr]'s continuation; [gated], the
 // actor serves nothing else until it is answered.
-export fn mint(addr: Int, gated: Bool) [] -> RtToken => !addr, !gated {
+export fn mint(addr: Int, gated: Bool) [] -> Token => !addr, !gated {
     return mint_actor(addr, gated)
 }
 
 // [task-mint] A token whose answer schedules [body] on [pool].
-export fn mint_task_on(pool: Int, body: RtBody) [] -> RtToken => !pool, !body {
+export fn mint_task_on(pool: Int, body: Body) [] -> Token => !pool, !body {
     return mint_task(pool, body)
 }
 
 // [actor-waitfor] A token answering a frame that will wait for it.
-export fn waiter() [] -> RtWaiterMint {
+export fn waiter() [] -> WaiterMint {
     return mint_waiter(here_pool())
 }
 
 // [actor-replyto] Answers [t] with [value].
-export fn answer(t: RtToken, value: Dyn) [] -> None => !t, !value {
+export fn answer(t: Token, value: Dyn) [] -> None => !t, !value {
     deliver(t, value)
 }
 
 // [actor-watch] Answers [t] with an `Exit` when [addr] dies — at once if it
 // already has.
-export fn watch(addr: Int, t: RtToken) [] -> None => !addr, !t {
+export fn watch(addr: Int, t: Token) [] -> None => !addr, !t {
     watch_actor(addr, t)
 }
 
 // [actor-on-idle] Answers [t] with an `Idle` the moment nothing anywhere can
 // run, reporting what [pool] is still owed.
-export fn on_idle(pool: Int, t: RtToken) [] -> None => !pool, !t {
+export fn on_idle(pool: Int, t: Token) [] -> None => !pool, !t {
     idle_hook(pool, t)
 }
 
@@ -1159,18 +1159,18 @@ export fn await_answer(wid: Int) [] -> Dyn => !wid {
     let frame = if own == no_frame() { 2 } else { 1 }
     while true {
         let step = wait_step(copy(wid), copy(pool), copy(own), copy(frame), this_parker())
-        if step is RtGot g {
+        if step is Got g {
             let {value} = g
             return value
         }
-        if step is RtRunActor ra {
+        if step is RunActor ra {
             run_actor(ra)
-        } elif step is RtRunTask rt {
+        } elif step is RunTask rt {
             run_task(rt)
-        } elif step is RtStuck s {
+        } elif step is Stuck s {
             report(copy(s.report))
             exit_process(1)
-        } elif step is RtSleep {
+        } elif step is Sleep {
             park(this_parker())
         }
     }
@@ -1178,7 +1178,7 @@ export fn await_answer(wid: Int) [] -> Dyn => !wid {
     return unerase(erase(0))
 }
 
-fn run_actor(ra: RtRunActor) [] -> None => !ra {
+fn run_actor(ra: RunActor) [] -> None => !ra {
     flush_frames()
     let {addr, pool, kind, slot, value, body} = ra
     let saved_pool = here_pool()
@@ -1190,7 +1190,7 @@ fn run_actor(ra: RtRunActor) [] -> None => !ra {
     finish(addr, back, fault)
 }
 
-fn run_task(rt: RtRunTask) [] -> None => !rt {
+fn run_task(rt: RunTask) [] -> None => !rt {
     let {pool, body, value} = rt
     let saved_pool = here_pool()
     let saved_actor = here_actor()
@@ -1207,9 +1207,9 @@ fn serve_pool(pool: Int) [] -> None => !pool {
     set_here(copy(pool), no_frame())
     while true {
         let w = next_work(copy(pool), this_parker())
-        if w is RtRunActor ra {
+        if w is RunActor ra {
             run_actor(ra)
-        } elif w is RtRunTask rt {
+        } elif w is RunTask rt {
             run_task(rt)
         } else {
             park(this_parker())
@@ -1221,45 +1221,45 @@ fn serve_pool(pool: Int) [] -> None => !pool {
 
 // A token for actor [addr]'s continuation at [slot], decoded off the wire:
 // owed on the node that minted it, so not tracked here.
-export fn token_to_actor(addr: Int, slot: Long) [] -> RtToken => !addr, !slot {
-    return RtToken { target: RtToActor { addr: addr }, slot: slot, tracked: false }
+export fn token_to_actor(addr: Int, slot: Long) [] -> Token => !addr, !slot {
+    return Token { target: ToActor { addr: addr }, slot: slot, tracked: false }
 }
 
 // The same for a waiter.
-export fn token_to_waiter(wid: Int, slot: Long) [] -> RtToken => !wid, !slot {
-    return RtToken { target: RtToWaiter { wid: wid }, slot: slot, tracked: false }
+export fn token_to_waiter(wid: Int, slot: Long) [] -> Token => !wid, !slot {
+    return Token { target: ToWaiter { wid: wid }, slot: slot, tracked: false }
 }
 
 // [addr-routable] What a token is, for its wire form: kind (0 an actor, 1 a
 // waiter, 2 a task), the actor or waiter index, and the slot. A task's body
 // comes out with it — the routing layer keeps it until the answer returns.
-export linear struct RtExported {
+export linear struct Exported {
     kind: Int,
     id: Int,
     slot: Long,
-    body: RtBody?
+    body: Body?
 }
 
-export fn export_token(t: RtToken) [] -> RtExported => !t {
+export fn export_token(t: Token) [] -> Exported => !t {
     let {target, slot, tracked} = t
-    if target is RtToTask tt {
+    if target is ToTask tt {
         let {pool, body} = tt
-        return RtExported { kind: 2, id: pool, slot: slot, body: body }
+        return Exported { kind: 2, id: pool, slot: slot, body: body }
     }
     let kind = 0
     let id = 0
-    if target is RtToActor to {
+    if target is ToActor to {
         id = copy(to.addr)
-    } elif target is RtToWaiter tw {
+    } elif target is ToWaiter tw {
         kind = 1
         id = copy(tw.wid)
     }
-    return RtExported { kind: kind, id: id, slot: slot, body: None }
+    return Exported { kind: kind, id: id, slot: slot, body: None }
 }
 
-fn drop_exported(e: RtExported) [] -> None => !e {
+fn drop_exported(e: Exported) [] -> None => !e {
     let {kind, id, slot, body} = e
-    if body is RtBody b {
+    if body is Body b {
         drop_body(b)
     }
 }

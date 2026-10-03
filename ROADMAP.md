@@ -73,8 +73,8 @@ types and fns) 8 (`Parker`), 9
 11d (the local scheduler core, and the cutover: both hosts' schedulers are
 now shims onto it, with routing still on host-side tables; all four
 benchmarks within the 1.5× budget on both backends) and 11e (routing in
-Salvo, the service `runtime.routing`). Next: module-aware type tables (0c
-item 8), then step 12.
+Salvo, the service `runtime.routing`); type identity by declaration
+[type-identity] is done too. Next: step 12.
 When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
@@ -149,31 +149,22 @@ a correct program from building. std works around the first by naming.
    `if`/`else` instead.
 7. ✅ Closed 2026-10-02: a narrowed linear union arm handed on clones on Rust
    (now moved, [rs-linear-move]).
-8. **(core, both backends) Type tables are keyed by bare name.** A program's
-   own `struct Token` and the runtime module's private `Token` share
-   `Symbols.structs`, so whichever registers last answers every lookup: the
-   wire predicate and Rust's derives then judged the runtime's `Token` by the
-   user's fields, and a codec for a type with no wire form was emitted
-   (refused by both host compilers). `struct_has_wire_form` now takes the
-   declaration, and the runtime's private types carry an `Rt` prefix
-   (`RtToken`, `RtBody`, …) until lookups are module-aware. Repro: any actor
-   program declaring `struct Token { id: Int }` before the prefix.
-   **Plan** (user decision 2026-10-03, after the routing port): the language
-   already allows one name in several modules (docs/language/Modules.md), and
-   the resolver already knows which declaration each reference means; the
-   tables after it do not ask. Key `Symbols`' type tables (structs, aliases,
-   platform and intrinsic types) by declaration identity, (module, name),
-   have every type reference carry the declaration the resolver chose, and
-   move the ~40 by-name lookups in the checker, both emitters and the wire
-   predicate onto it. Private std function names, which still share the
-   mangling space with user code (why `work` became `serve_pool`), get the
-   same treatment. Then drop the `Rt` prefix.
+8. **Private std function names share the mangling space with user code**
+   (the function half of the clash work; types are done, [type-identity]):
+   a private runtime `fn work` collided with a program's in emitted names,
+   which is why it became `serve_pool`. Calls already resolve by
+   declaration (`call_fn`); the emitted name of an overload should be keyed
+   the same way.
 9. **An `is` binding is not in scope later in its own `&&` chain on Rust**:
    `if b is Long known && known == x { … }` emits `(b.is_some()) && known ==
    x` (E0425). Kotlin is right. `std/runtime/routing.sv` nests the test.
 10. **A `Map` whose values are linear does not build on Rust**: the empty
    literal lowers to `SalvoMap::from_entries`, which needs `Clone`. The
    routing service keeps exported tasks in two index-aligned lists instead.
+11. **A struct's fn-typed field with a named parameter does not build on
+   Rust**: `struct Tok { f: (x: Int) -> Int }` and `Tok { f: x -> x + 1 }`
+   emit the lambda with a reference parameter (`|x| *x + 1`) for an
+   `Arc<dyn Fn(i32) -> i32>` field (E0614). Unnamed (`(Int) -> Int`) works.
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 

@@ -1227,7 +1227,8 @@ impl fmt::Display for Ty {
                 }
             }
             Ty::Named { name, args } => {
-                write!(f, "{name}")?;
+                // [type-identity] A key is shown as the name it was written as.
+                write!(f, "{}", crate::typekey::plain(name))?;
                 fmt_args(f, args)
             }
             Ty::Qualified { quals, base } => {

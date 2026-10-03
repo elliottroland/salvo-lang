@@ -16,7 +16,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::platform_runtime::{RtBody, Dyn};
+use crate::platform_runtime::{Body, Dyn};
 
 /// A message payload: any sendable value. The checker owns sendability
 /// statically; the runtime is untyped.
@@ -126,8 +126,8 @@ pub fn salvo_spawn(pool: usize, bound: usize, actor: Box<dyn SalvoActor>, decode
 /// The core's body for a generated actor: kind 0 a message, 1 an answer
 /// (raw bytes decoded by the actor first), 2 a fault report for a pool's
 /// sink, built into its message by the sink's builder.
-fn body_of_actor(mut actor: Box<dyn SalvoActor>) -> RtBody {
-    RtBody {
+fn body_of_actor(mut actor: Box<dyn SalvoActor>) -> Body {
+    Body {
         f: Box::new(move |kind: i32, slot: i64, value: Dyn| {
             let ctx = SalvoCtx { addr: crate::platform_runtime::here_actor() as usize };
             match kind {
@@ -175,7 +175,7 @@ pub fn salvo_mint_gated(addr: usize) -> (SalvoReply, u64) {
 /// [task-mint] A token whose answer schedules `body` on `pool`.
 pub fn salvo_mint_task(pool: usize, body: TaskBody, decode: ReplyDecoder) -> SalvoReply {
     let mut once = Some(body);
-    let b = RtBody {
+    let b = Body {
         f: Box::new(move |_kind: i32, _slot: i64, value: Dyn| {
             if let Some(f) = once.take() {
                 f(value.v);
@@ -233,16 +233,16 @@ pub struct SalvoReply {
 }
 
 enum ReplyInner {
-    Local(Option<crate::runtime::RtToken>),
-    Remote(crate::runtime_routing::RtReplyParts),
+    Local(Option<crate::runtime::Token>),
+    Remote(crate::runtime_routing::ReplyParts),
 }
 
 impl SalvoReply {
-    fn local(t: crate::runtime::RtToken, decode: Option<ReplyDecoder>) -> Self {
+    fn local(t: crate::runtime::Token, decode: Option<ReplyDecoder>) -> Self {
         SalvoReply { inner: Mutex::new(ReplyInner::Local(Some(t))), check: None, decode }
     }
 
-    fn take_local(&self) -> Option<crate::runtime::RtToken> {
+    fn take_local(&self) -> Option<crate::runtime::Token> {
         match &mut *self.inner.lock().unwrap() {
             ReplyInner::Local(t) => t.take(),
             ReplyInner::Remote(_) => None,
@@ -480,13 +480,13 @@ pub fn salvo_reply_wire<T: crate::wire::__Wire + Any + Send>(reply: SalvoReply, 
 
 /// [addr-routable] The wire form of a reply token. Exporting a task moves
 /// its body into the routing service until its answer returns.
-fn salvo_reply_export(reply: &SalvoReply) -> crate::runtime_routing::RtReplyParts {
+fn salvo_reply_export(reply: &SalvoReply) -> crate::runtime_routing::ReplyParts {
     let mut inner = reply.inner.lock().unwrap();
     match &mut *inner {
         ReplyInner::Remote(parts) => parts.clone(),
         ReplyInner::Local(t) => {
             let Some(t) = t.take() else {
-                return crate::runtime_routing::RtReplyParts { node: 0, kind: 0, id: 0, slot: 0, bits: 0 };
+                return crate::runtime_routing::ReplyParts { node: 0, kind: 0, id: 0, slot: 0, bits: 0 };
             };
             let parts = crate::runtime_routing::export_reply(crate::runtime::export_token(t));
             if parts.kind == 2 {
@@ -501,7 +501,7 @@ fn salvo_reply_export(reply: &SalvoReply) -> crate::runtime_routing::RtReplyPart
 
 /// [addr-routable] A reply token decoded from the wire: the original when it
 /// names a target on this node, a remote token otherwise.
-fn salvo_reply_import(parts: crate::runtime_routing::RtReplyParts) -> SalvoReply {
+fn salvo_reply_import(parts: crate::runtime_routing::ReplyParts) -> SalvoReply {
     let here = crate::runtime_routing::here_node();
     let inner = if parts.node == here && parts.kind == 0 {
         ReplyInner::Local(Some(crate::runtime::token_to_actor(parts.id as i32, parts.slot)))
@@ -602,6 +602,6 @@ impl crate::wire::__Wire for SalvoReply {
         let id = r.u64()? as i64;
         let slot = r.u64()? as i64;
         let bits = r.u64()? as i64;
-        Some(salvo_reply_import(crate::runtime_routing::RtReplyParts { node, kind, id, slot, bits }))
+        Some(salvo_reply_import(crate::runtime_routing::ReplyParts { node, kind, id, slot, bits }))
     }
 }

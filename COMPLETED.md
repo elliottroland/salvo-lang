@@ -135,6 +135,41 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**A type is its declaration, not its name (2026-10-03; user decision, option
+A) [type-identity].** Two modules may now declare one type name and a
+program may use both: the resolver always knew which declaration a written
+name meant, and every stage after it now asks. What it took:
+- **Keys.** Every type, effect, alias, intrinsic or platform type and
+  handler has a key — its name, or `Name§module` for every declaration of a
+  clashing name but the first (std first, so std keeps its plain names).
+  `Ty::Named` carries keys and `Symbols`' tables are keyed by them;
+  `Symbols::key_of` takes the declaration (a `TypeDeclaration` bound, after
+  the address of a `&&EffectDecl` was passed instead of the declaration's).
+- **Where a name is written decides what it means.** `lower_base_ref` and
+  `lower_effect_ref` resolve a written name in the scope of the file that
+  wrote it, by the `TypeRef`'s address (`Resolution::type_ref_files`, over a
+  new read-only `visit.rs` generated from `visit_mut.rs`): a callee's
+  signature lowered at a call in another file used to resolve its `Token` to
+  the caller's. Alias bodies are lowered from the declaration's own node, not
+  a copy.
+- **About 40 checker lookups** moved from the file scope to the keyed tables
+  where the name came from a type value, and a few written-name comparisons
+  (the same-file discharger rule) compare written names.
+- **Emitters** render a clashing name with its module path, derive
+  identifiers from the written name, resolve written references by address
+  (or span, for the copies the effect-generic erasure makes) and names in
+  expressions (`use H()`) through each file's visible keys.
+- **`by auto`** stamps read the stamping module's own declaration first.
+- **`import a.T as U` works for types**: it used to be refused ("expected
+  `U`, found `T`").
+- The runtime's private types dropped their `Rt` prefix (`Token`, `Body`,
+  `Slot`, …), and the new test (a program's own `Token` beside two
+  libraries', an effect named like `time.Clock`, an alias, a union, a codec,
+  auto equality and an actor) runs on both backends.
+Left open: private *function* names (ROADMAP 0c item 8). Found on the way: a
+fn field with a named parameter does not build on Rust (0c item 11).
+**1680 tests**, 5m44 fresh.
+
 **Routing in Salvo (2026-10-03; RUNTIME.md §11.5 slice 11e).** The service
 `runtime.routing` (`std/runtime/routing.sv`) now holds what the hosts' routing
 layers did: node identities and virtual nodes, proxies and the shared dead
@@ -21135,6 +21170,10 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Do not benchmark right after the suite** (2026-10-03): the machine stays
+  loaded for a minute or more, and ping-pong read 1,140 ms where it reads
+  430 a minute later.
 
 - **Benchmark only on a quiet machine, and check for leftovers first**
   (2026-10-03). `tmp/limit.sh` kills the command it runs, not that command's

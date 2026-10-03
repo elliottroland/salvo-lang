@@ -182,6 +182,12 @@ pub struct Resolution<'p> {
     /// the declaration's address: a handler's dependency list is written in
     /// *its* file and resolves there, whatever file binds it.
     pub handler_files: HashMap<usize, usize>,
+    /// [type-identity] The file every written type reference is in, by its
+    /// address (`type_ref_files`).
+    pub type_ref_files: HashMap<usize, usize>,
+    /// [type-identity] The file every struct, type and effect is declared
+    /// in, by the declaration's address.
+    pub decl_files: HashMap<usize, usize>,
     /// Whole-program declaration index: name -> (declaring module,
     /// importable item). For most declarations the item is the name
     /// itself; for effect members it is the owning *effect* (importing
@@ -945,10 +951,23 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     }
 
     let mut handler_files: HashMap<usize, usize> = HashMap::new();
+    let mut decl_files: HashMap<usize, usize> = HashMap::new();
     for (file_idx, ast) in program.modules.iter().enumerate() {
         for item in &ast.items {
-            if let Item::Handler(h) = item {
-                handler_files.insert(h as *const HandlerDecl as usize, file_idx);
+            match item {
+                Item::Handler(h) => {
+                    handler_files.insert(h as *const HandlerDecl as usize, file_idx);
+                }
+                Item::Struct(d) => {
+                    decl_files.insert(d as *const StructDecl as usize, file_idx);
+                }
+                Item::Effect(d) => {
+                    decl_files.insert(d as *const EffectDecl as usize, file_idx);
+                }
+                Item::Type(d) => {
+                    decl_files.insert(d as *const salvo_syntax::ast::TypeDecl as usize, file_idx);
+                }
+                _ => {}
             }
         }
     }
@@ -956,6 +975,8 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     Resolution {
         scopes,
         handler_files,
+        type_ref_files: type_ref_files(program),
+        decl_files,
         declared_in,
         private_in,
         attached,
@@ -1739,6 +1760,170 @@ fn mentions_type(ty: &salvo_syntax::ast::Type, name: &str) -> bool {
         T::Fn { params, ret, .. } => {
             params.iter().any(|p| mentions_type(p, name))
                 || mentions_type(ret, name)
+        }
+    }
+}
+
+/// [type-identity] The file every written type reference is in, by the
+/// reference's address: a type is resolved in the scope of the file that
+/// wrote it, wherever it is lowered (a callee's signature is lowered at
+/// every call).
+pub fn type_ref_files(program: &Program) -> HashMap<usize, usize> {
+    let mut out = HashMap::new();
+    for_each_type_ref(program, &mut |file, t| {
+        out.insert(t as *const salvo_syntax::ast::TypeRef as usize, file);
+    });
+    out
+}
+
+/// [type-identity] The key of the declaration a written name resolves to
+/// in [scope] (through an import alias too), or `None` when it names no
+/// declaration there.
+pub fn key_in<'p>(symbols: &crate::program::Symbols<'p>, scope: &ModuleScope<'p>, name: &str) -> Option<&'p str> {
+    let addr = scope
+        .structs
+        .get(name)
+        .map(|d| *d as *const StructDecl as usize)
+        .or_else(|| scope.effects.get(name).map(|d| *d as *const EffectDecl as usize))
+        .or_else(|| scope.opaque_types.get(name).map(|d| *d as *const salvo_syntax::ast::TypeDecl as usize))
+        .or_else(|| scope.type_aliases.get(name).map(|d| *d as *const salvo_syntax::ast::TypeDecl as usize))
+        .or_else(|| scope.handlers.get(name).map(|d| *d as *const HandlerDecl as usize))?;
+    symbols.decl_keys.get(&addr).copied()
+}
+
+/// [type-identity] Every written type reference whose declaration's key is
+/// not the name written — a clashing name, or an alias — by the
+/// reference's address: what an emitter rendering a written type reads.
+pub fn written_keys<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &crate::program::Symbols<'p>,
+) -> HashMap<usize, String> {
+    let mut out = HashMap::new();
+    for_each_type_ref(program, &mut |file, t| {
+        let name = t.name.name.as_str();
+        if let Some(key) = key_in(symbols, &resolution.scopes[file], name) {
+            if key != name {
+                out.insert(t as *const salvo_syntax::ast::TypeRef as usize, key.to_string());
+            }
+        }
+    });
+    out
+}
+
+/// [type-identity] The same, by the reference's span and written name: what
+/// a *copy* of a reference is found by (an emitter clones types freely).
+/// Every reference at one span with one name resolves alike in practice;
+/// where two do not, the entry is dropped rather than guessed.
+pub fn written_keys_by_span<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &crate::program::Symbols<'p>,
+) -> HashMap<(u32, u32, String), String> {
+    let mut out: HashMap<(u32, u32, String), Option<String>> = HashMap::new();
+    for_each_type_ref(program, &mut |file, t| {
+        let name = t.name.name.as_str();
+        let key = key_in(symbols, &resolution.scopes[file], name).unwrap_or(name).to_string();
+        let at = (t.name.span.start, t.name.span.end, name.to_string());
+        match out.get(&at) {
+            None => {
+                out.insert(at, Some(key));
+            }
+            Some(Some(k)) if *k == key => {}
+            Some(_) => {
+                out.insert(at, None);
+            }
+        }
+    });
+    out.into_iter()
+        .filter_map(|(at, k)| k.filter(|k| *k != at.2).map(|k| (at, k)))
+        .collect()
+}
+
+fn for_each_type_ref(program: &Program, f: &mut dyn FnMut(usize, &salvo_syntax::ast::TypeRef)) {
+    use salvo_syntax::visit::{self as v, Visitor};
+    struct Collect<'m> {
+        file: usize,
+        f: &'m mut dyn FnMut(usize, &salvo_syntax::ast::TypeRef),
+    }
+    impl Visitor for Collect<'_> {
+        fn visit_type_ref(&mut self, t: &salvo_syntax::ast::TypeRef) {
+            (self.f)(self.file, t);
+        }
+    }
+    let out = f;
+    for (file, ast) in program.modules.iter().enumerate() {
+        let mut c = Collect { file, f: &mut *out };
+        for u in &ast.uses {
+            v::walk_expr(&mut c, &u.handler);
+        }
+        for item in &ast.items {
+            match item {
+                Item::Fn(f) => v::walk_fn(&mut c, f),
+                Item::Struct(s) => {
+                    for f in &s.fields {
+                        v::walk_field_decl(&mut c, f);
+                    }
+                    for f in &s.fns {
+                        v::walk_fn(&mut c, f);
+                    }
+                    for q in &s.auto_qualifiers {
+                        v::walk_type_ref(&mut c, q);
+                    }
+                }
+                Item::Effect(e) => {
+                    for r in &e.prereqs {
+                        v::walk_effect_ref(&mut c, r);
+                    }
+                    for f in &e.fns {
+                        v::walk_fn(&mut c, f);
+                    }
+                }
+                Item::Handler(h) => {
+                    for p in &h.params {
+                        v::walk_type(&mut c, &p.ty);
+                    }
+                    for r in h.effects.iter().flatten() {
+                        v::walk_effect_ref(&mut c, r);
+                    }
+                    for t in &h.of {
+                        v::walk_type(&mut c, t);
+                    }
+                    if let Some(f) = &h.init {
+                        v::walk_fn(&mut c, f);
+                    }
+                    if let Some(m) = &h.mailbox {
+                        v::walk_expr(&mut c, m);
+                    }
+                    for f in &h.state {
+                        v::walk_field_decl(&mut c, f);
+                    }
+                    for f in &h.fns {
+                        v::walk_fn(&mut c, f);
+                    }
+                }
+                Item::Type(t) => {
+                    if let Some(a) = &t.alias {
+                        v::walk_type(&mut c, a);
+                    }
+                }
+                Item::Qualifier(q) => {
+                    v::walk_type(&mut c, &q.of);
+                    for f in &q.field_overrides {
+                        v::walk_field_decl(&mut c, f);
+                    }
+                    for f in &q.fns {
+                        v::walk_fn(&mut c, f);
+                    }
+                }
+                Item::Params(g) => {
+                    for f in &g.fns {
+                        v::walk_fn(&mut c, f);
+                    }
+                }
+                Item::Test(t) => v::walk_block(&mut c, &t.body),
+                _ => {}
+            }
         }
     }
 }
