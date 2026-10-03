@@ -242,9 +242,10 @@ fn main() [use] {
   in state, `watch` each other die, and a topology whose actors could wait for
   one another is reported *before* it runs — tasks included, since a task's
   sends count against whoever minted it. A fault nobody was watching reaches
-  the pool's sink (`pool(n, sink)`), or is named on stderr. The scheduler is a library in each
-  backend's runtime — no runtime baked into your code, and identical behaviour
-  on both.
+  the pool's sink (`pool(n, sink)`), or is named on stderr. The scheduler is written once, in Salvo,
+  as std's `runtime` module over a small host layer, so the behaviour is
+  identical on both backends; an actor test (`test actor "…"`) runs it on one
+  thread with virtual time and a seed.
 - **Across machines**: the network enters at the **actor group**, never at the
   spawn. Every actor is spawned by the node that hosts it; what crosses the
   wire is addresses and messages, in a canonical encoding Salvo owns — a

@@ -412,10 +412,18 @@ Questions:
 
 ### D11. Platform types and fn values — decided 2026-10-02
 
-Opaque `platform type`s in three kinds, and effect-free fn values lent for
-the call, as RUNTIME.md §12 sets out; the rules are LANGUAGE_SPEC.md's
-[platform-type] and [platform-fn-value]. Generic platform types are still
-to come (RUNTIME.md E1).
+Opaque `platform type`s in three kinds (plain, `threadsafe`, `linear` with
+`canbe Mut`), and effect-free fn values lent for the call; the rules are
+LANGUAGE_SPEC.md's [platform-type] and [platform-fn-value]. Built 2026-10-02,
+with what the runtime port added on top:
+
+- **Generic platform types and fns** [platform-generic]: type parameters are
+  opaque to the host (`Slot<T>`, `erase<T>`/`unerase<T>` over `Dyn`), so the
+  host code is one generic function per backend.
+- **Kept fn values** [runtime-kept-fn]: a platform fn of std's runtime modules
+  may take a fn value owned, to keep or run on another thread
+  (`start_thread`, `guarded`, `body_of`). Everywhere else a fn value is lent.
+- **Never-returning members** (`exit_process`, `not_ours`) answer `Never`.
 
 ## What goes away
 

@@ -54,32 +54,12 @@ targets and the output they print, three of them consuming the first dependency
 
 ## The sequence
 
-### 0 — The runtime in Salvo (decided 2026-10-01/02, in progress)
+### 0 — The runtime in Salvo: done (2026-10-03)
 
-The scheduler, routing and the host stream table are written once in Salvo
-over a small `RuntimeHost` platform handler, instead of twice by hand
-(`scheduler.kt` 1,994 lines, `scheduler.rs` 2,720). **[RUNTIME.md](RUNTIME.md)
-is the working document**: the survey, every decision (D1–D11, platform types
-in §12, the language expansions E1–E10 in §11.2), and the order of work in
-**§11.5**, which is this item's sequence — take the next step there. Done so
-far: steps 1 (the benchmark baseline), 2 (forged identities), 3 (the
-stream table in its own runtime file), 4 (the group protocol in `net.sv`)
-5 (`std/runtime.sv` as std's own module; platform `Never`) and 6
-(`Deque`) 7 (platform types, fn values at the boundary) 7b (generic platform
-types and fns) 8 (`Parker`), 9
-(monitor re-entry traps on Kotlin) and the first half of 10 (module-level
-`use` in the runtime module, `RuntimeHost`) 11a (deadlines in Salvo), 11b
-(`start_thread`, `guarded`), 11c (projections of linear elements) and the
-11d (the local scheduler core, and the cutover: both hosts' schedulers are
-now shims onto it, with routing still on host-side tables; all four
-benchmarks within the 1.5× budget on both backends) and 11e (routing in
-Salvo, the service `runtime.routing`); type identity by declaration
-[type-identity] is done too, and step 12 (routes wait on their view,
-`route_any`/`RouteSelector`). step 13 (a `Dedicated` pool's thread ends with its actor) and step 14 (the
-stream table in Salvo, `runtime.streams`) and step 15 (the virtual runtime,
-under `test actor`). Next: step 16 (docs).
-When the sequence completes, RUNTIME.md
-shrinks to what is still open, as ABI.md does.
+Built: see COMPLETED.md's decision log and [RUNTIME.md](RUNTIME.md), now a
+design record. Left: step 17 of RUNTIME.md §11.5 (optional: the other
+collections onto generic platform types), and the items below that the port
+recorded (0c, 0d, 0e, the `test actor` follow-ups).
 
 ### 0b — Three slow tests (recorded 2026-10-02, to investigate)
 
@@ -185,6 +165,12 @@ a correct program from building. std works around the first by naming.
    checks, and emits `for a in &*actors`, which rustc refuses. Either the
    checker refuses it or the emitter iterates mutably. Workaround: index with
    `get(actors, i)!`.
+15. **The Kotlin emitter's output draws kotlinc warnings**, now hidden from
+   `run` and `test` by `-nowarn`: an unnecessary safe call on a narrowed union
+   arm (`w?.value as RunActor`, in `runtime.kt` and `runtime/routing.kt`), a
+   redundant `.toString()` on a `Str` passed to `ToStr`, and a redundant
+   `else` in an exhaustive `when`. Repro: `salvo test --backend kotlin --src
+   std` before 2026-10-03, or compile any program with plain `kotlinc`.
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 

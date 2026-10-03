@@ -289,6 +289,10 @@ impl Backend for KotlinBackend {
         let mut args: Vec<&OsStr> = sources.iter().map(|p| p.as_os_str()).collect();
         args.push(OsStr::new("-d"));
         args.push(classes.as_os_str());
+        // [kt-run] The program is generated: a warning about it is the
+        // compiler's to fix, not the user's to read. The emitter's own tests
+        // still see them.
+        args.push(OsStr::new("-nowarn"));
         let jar_cp;
         if !jars.is_empty() {
             jar_cp = std::env::join_paths(jars.iter().cloned())

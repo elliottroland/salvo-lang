@@ -1278,7 +1278,7 @@ export fn new_pool_of(n: Int, sink: Int) [] -> Int => n, !sink {
     return start_pool(n, sink, false)
 }
 
-// [pool-retire] A `Dedicated` pool: one thread, which returns once its
+// [pool-retire] [waitfor-dedicated] A `Dedicated` pool: one thread, which returns once its
 // actors are dead and nothing is left to run there.
 export fn new_dedicated_pool() [] -> Int {
     return start_pool(1, -1, true)

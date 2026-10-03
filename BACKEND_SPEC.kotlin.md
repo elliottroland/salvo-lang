@@ -1027,6 +1027,9 @@ nothing but the monitor.
   and compile with the rest.
   * The classes directory is dot-prefixed so a target nested in the source
     tree stays invisible to source discovery [mod-ignore].
+  * `-nowarn` (2026-10-03): a warning about generated code is the
+    compiler's to fix, so `run` and `test` do not show kotlinc's. The ones
+    still emitted are ROADMAP 0c item 15.
   * **The entry class is named after the *file*, not the function.** Kotlin
     puts a file's top-level declarations in a facade class named for the
     file: module `other` is emitted as `other.kt` in package
@@ -1065,9 +1068,21 @@ nothing but the monitor.
   end-to-end test, and a change to one reviews as code rather than as a diff
   of escaped text. The test's module list is what makes it complete rather
   than a sample, so a new runtime module belongs there the moment it exists.
-  Six exist: `throwsignal.kt` ([kt-throw-signal]), `compare.kt`, `bytes.kt`
-  ([kt-bytes]), `scheduler.kt` ([kt-actor]), `keyed.kt` ([kt-keyed]) and
-  `hosttime.kt`.
+  They are `throwsignal.kt` ([kt-throw-signal]), `compare.kt`, `bytes.kt`
+  ([kt-bytes]), `keyed.kt` ([kt-keyed]), `hosttime.kt`, `wire.kt`, and the
+  runtime's two shims, `scheduler.kt` ([kt-actor]) and `hoststreams.kt`
+  ([stream-table]).
+* [kt-runtime-host] **The scheduler itself is Salvo** (2026-10-03,
+  [runtime-sched]): std's `runtime` module and its services, emitted like any
+  module. What Kotlin writes by hand is in std's platform root:
+  `std/platform/runtime.kt` (`HostRuntime`, `Parker` over its own
+  `AtomicBoolean` token and `LockSupport`, daemon threads, the fault boundary,
+  `Dyn`/`Body`/`Slot`, the `here` thread-local) and
+  `std/platform/runtime/{routing,streams}.kt` (frame codecs, `HostIn` over an
+  `InputStream`). `scheduler.kt` is the entry points generated code calls
+  (`SalvoSched.spawn`, `send`, `mint`, …) as calls into the core, plus the
+  registry of proxies (`ConcurrentHashMap`s) the wire codecs read; about 380
+  lines, from 1,994 before the port.
 * [kt-keyed] [cmp-carry] `keyed.kt` holds `SalvoHashMap`/`SalvoHashSet`, the
   insertion-ordered hash containers keyed by a **pair of functions**
   (`hashOf: (K) -> Long`, `eqOf: (K, K) -> Boolean`): entries live in a list in

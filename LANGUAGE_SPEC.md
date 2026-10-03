@@ -4450,13 +4450,12 @@ docs/language/ remains the source of truth for everything that does.
   one function per member, exactly the handler that `use` binds
   synchronously. The same handler is bindable both ways — the binding
   changes where the body runs and nothing about the code that calls it.
-  * The substrate is a **library in each backend's runtime files**
-    (`runtime/scheduler.rs`, `runtime/scheduler.kt`), not a runtime baked
-    into emitted code: run-to-completion activations on pools, one
-    arrival-order queue per actor with an explicit bound, replies with
-    reserved capacity, the gate, death as a faulted activation, and the
-    idle-with-parked-gates report. Built 2026-09-15, with identical
-    behaviour asserted on both backends.
+  * The substrate is **std's `runtime` module, written once in Salvo**
+    [runtime-sched] (built 2026-09-15 as a library in each backend's runtime
+    files; ported 2026-10-03), not a runtime baked into emitted code:
+    run-to-completion activations on pools, one arrival-order queue per actor
+    with an explicit bound, replies with reserved capacity, the gate, death as
+    a faulted activation, and the idle-with-parked-gates report.
   * An actor **is a region**, so sendability and region-escape are one
     check (user, 2026-09-10, confirmed 2026-09-15). **Handlers never cross
     into a spawn — construction does** [actor-spawn-expr].
@@ -5954,6 +5953,11 @@ between endpoints and delivers what arrives into the scheduler.
   remote member's load (step ⑤) — and answers `None` for a local actor.
   Delivery is **at most once, in order per (sender, receiver) pair**: the
   transport's guarantee, and nothing more.
+* [node-exit] **A node that leaves takes its proxies with it**: the routing
+  service forgets the node's route and kills each proxy of an actor there
+  with the reason that the node left, so a send to one is the silent no-op
+  and each watch of one is answered with an `Exit`, as for a local death
+  [actor-watch].
 * [node-group] **Membership of nodes is one actor effect whose handlers are
   the mechanisms** (step ④, user decision 2026-09-26, after a separate
   `NodeDiscovery` effect collapsed twice: its `authoritative()` flag was a
@@ -7707,10 +7711,14 @@ between endpoints and delivers what arrives into the scheduler.
   the argument becomes a `move` closure, so a capture that is not `Send`, or
   is used after the call, is rustc's refusal — the runtime is std's, and that
   is the check of last resort there; Kotlin needs nothing.
-* [runtime-sched] **The scheduler, in Salvo, in progress** (RUNTIME.md §11.5
-  step 11): built in the core beside the backends' own and driven by
-  `std/runtime.test.sv` until it covers theirs, then the emitters switch.
-  So far: the `Scheduler` monitor (an actor table of `linear struct
+* [runtime-sched] **The scheduler is Salvo** (RUNTIME.md §11.5, steps 1–15,
+  complete 2026-10-03): the core `std/runtime.sv`, its services under
+  `std/runtime/` (`timers`, `routing`, `streams`), and the host's part —
+  `RuntimeHost` [runtime-host], the platform types and fns in
+  `std/platform/runtime.{rs,kt}` and `std/platform/runtime/*` — is the whole
+  of it. Each backend's `runtime/scheduler.*` is the entry points generated
+  code calls, as shims onto the core, plus the host's registry of proxies.
+  Driven by `std/runtime.test.sv`. The pieces: the `Scheduler` monitor (an actor table of `linear struct
   ActorRec canbe Mut` records, each with a `Slot<Body>` and a `Mut
   Deque<Dyn>` mailbox), pools of worker threads that park when idle, send
   with back-pressure (a sender parks on a full mailbox, woken by the next
@@ -7735,8 +7743,9 @@ between endpoints and delivers what arrives into the scheduler.
   is a different type from the runtime's [type-identity].
   * **The cutover** (2026-10-03): generated code runs on this scheduler.
     Each backend's `scheduler.*` keeps the entry points generated code calls,
-    as shims onto the core, plus the routing layer (proxies, credits, frames
-    0–4) on tables of its own; the core calls back `granted(addr, from)` when
+    as shims onto the core; the routing layer (proxies, credits, frames)
+    moved to the service `runtime.routing` the same day [addr-routable].
+    The core calls back `granted(addr, from)` when
     a message that came over the wire leaves a mailbox and `flush_frames()`
     before an activation. A watch is answered with `core.actor`'s `Exit` and
     an idle hook with its `Idle`, built by the core. The runtime module is
@@ -7770,9 +7779,14 @@ between endpoints and delivers what arrives into the scheduler.
 * [runtime-host] **`RuntimeHost` is what only the host can do**, one effect
   with a `threadsafe platform handler HostRuntime` per backend in std's
   platform root, bound by the runtime module's `use HostRuntime()`
-  [mod-use] (RUNTIME.md §11.3). Members so far: `secure_bits` (OS entropy:
-  `/dev/urandom` on Rust, `SecureRandom` on Kotlin [addr-capability]) and
-  `report`. Filled in as the port needs it.
+  [mod-use] (RUNTIME.md §11.3). Its members: `secure_bits` (OS entropy:
+  `/dev/urandom` on Rust, `SecureRandom` on Kotlin [addr-capability]),
+  `report` (a line on stderr) and `mono_nanos` (the monotonic clock). What
+  else the runtime needs from the host is a platform type or fn of its own
+  module: `Parker`, `start_thread`, `guarded`, `Dyn`, `Body`, `Slot`, the
+  `here` thread-local, `exit_process`, and the services' `HostIn`/`HostOut`
+  and frame codecs. On the virtual runtime [test-actor] the clock and the
+  random bits come from the scheduler instead.
 * [runtime-parker] **`runtime.Parker` is one thread's park/unpark token**
   (user decision 2026-10-02, RUNTIME.md E3), a `threadsafe platform type`
   with `this_parker()`, `park(p)`, `park_nanos(p, n)` and `unpark(p)`,
@@ -8179,7 +8193,8 @@ replaced the working document TESTING.md).
   without its quotes (user decision 2026-09-23). The report is one line per
   test — `ok` green with its milliseconds, `FAILED` red with the failure
   indented under it — then a blank line and a count. Output from the code under
-  test is passed through, never swallowed.
+  test is passed through, never swallowed. Under `backend = "*"` the suite runs
+  once per backend, each report headed by the backend's name (`rust:`).
 * [test-filter] `salvo test --src DIR [--backend B] [FILTER] [--list]
   [--target DIR] [--clean-target before|both]`.
   `FILTER` is a plain substring of the id, so one word selects a module, a

@@ -135,6 +135,29 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The runtime port is complete (2026-10-03; RUNTIME.md §11.5 step 16, the
+docs pass).** LANGUAGE_SPEC's [actor-kind] and [runtime-sched] now say the
+scheduler is std's Salvo `runtime` module rather than a library per backend;
+[runtime-host] lists what the host still supplies; [node-exit], cited in code
+and never written down, is a rule now. The backend specs gained
+[rs-runtime-host] and [kt-runtime-host] (what each backend writes by hand, and
+the line counts: Rust 2,720 → about 590, Kotlin 1,994 → about 380). ABI.md D11
+records generic platform code, kept fn values and `Never` members. README's
+actor paragraph says the scheduler is written once. RUNTIME.md stays as a
+design record, since about 50 comments and spec entries cite its sections,
+with a status head saying what is built and where the open items went
+(ROADMAP 0c, 0d, 0e, the `test actor` follow-ups, optional step 17); ROADMAP
+item 0 is closed. User decision the same day: `ManualTime` stays for now.
+
+**A quiet `salvo test --src std` (2026-10-03, user report).** Three kinds of
+noise, all fixed: std's manifest runs both backends, which now head their
+reports (`rust:`, `kotlin:`); the harness imported `core`'s annexes, which are
+visible anyway, and drew a redundant-import warning per annex; kotlinc's
+warnings about generated code reached the user (now `-nowarn`; the warnings
+themselves are ROADMAP 0c item 15); and two runtime tests let an actor die
+unwatched, so the named report reached stderr (they now watch it, and check
+the `Exit`).
+
 **Actor tests and the virtual runtime (2026-10-03; RUNTIME.md §11.5 step
 15) [test-kind] [test-actor].** User decisions: the kind is written before the
 name with its arguments, `test actor(ARGS) "…"`, and `test property(ARGS)

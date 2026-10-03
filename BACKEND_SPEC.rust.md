@@ -1744,6 +1744,18 @@ facts worth knowing") and keeps the history ("One shape for effects").
     into user output, where a warning is noise the user cannot fix.
   * The test's list of modules is what makes it complete rather than a
     sample, so a new runtime module belongs there the moment it exists.
+* [rs-runtime-host] **The scheduler itself is Salvo** (2026-10-03,
+  [runtime-sched]): std's `runtime` module and its services, emitted like any
+  module. What Rust writes by hand is in std's platform root:
+  `std/platform/runtime.rs` (`HostRuntime`, `Parker` over
+  `std::thread::park`, daemon threads, the fault boundary over
+  `catch_unwind`, `Dyn` as `Box<dyn Any + Send>`, `Body`, `Slot`, the `here`
+  thread-local) and `std/platform/runtime/{routing,streams}.rs` (frame
+  codecs, `HostIn` over `Box<dyn Read + Send>`). `runtime/scheduler.rs` is
+  the entry points generated code calls (`salvo_spawn`, `salvo_send`,
+  `SalvoReply`, …) as calls into the core, plus `scheduler::registry()`, the
+  proxies the wire codecs read; about 590 lines, from 2,720 before the port.
+  `runtime/hoststreams.rs` is host code's entry points into the stream table.
 * [rs-deque] [col-deque] `Deque<T>` and `Mut Deque<T>` are
   `std::collections::VecDeque<T>`; the surface is `push_back`/`push_front`,
   `pop_front`/`pop_back`, `remove`, `get`/`front`/`back`, `len() as i32`.
@@ -1901,7 +1913,7 @@ facts worth knowing") and keeps the history ("One shape for effects").
     `hoststreams.rs`, which ships wherever the scheduler or the wire does.
     `scheduler.rs` is a shim onto the runtime module's core (2026-10-03) and
     holds the `Addr`/`Reply` codecs, so `wire.rs` stands alone; the runtime
-    tests compile it inside the actors example's generated tree.
+    tests compile it inside the files example's generated tree.
 * [rs-time] [time-timer] **Deadlines are the runtime module's**, in Salvo
   (2026-10-02): the scheduler has no timer thread, and `HostRuntime.mono_nanos`
   reads `crate::hosttime::salvo_mono_nanos()`, the timeline `tick()` reports.

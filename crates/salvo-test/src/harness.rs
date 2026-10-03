@@ -57,8 +57,10 @@ pub fn harness_source(tests: &[TestCase]) -> String {
     );
     // One import per annex module: the synthesized test fns are exported from
     // the annex they were written in [test-run].
+    // `core`'s annexes are visible without one, like `core` itself.
     let mut annexes: Vec<String> = tests
         .iter()
+        .filter(|t| t.tested.0.first().map(String::as_str) != Some("core"))
         .map(|t| format!("{}.test", t.tested))
         .collect();
     annexes.sort();

@@ -898,6 +898,14 @@ fn test(
                 return ExitCode::FAILURE;
             }
         };
+        // [test-report] Under `backend = "*"` the suite runs once per
+        // backend, and each report says whose it is.
+        if inputs.backends.len() > 1 {
+            if name != &inputs.backends[0] {
+                println!();
+            }
+            println!("{name}:");
+        }
         let code = test_one(backend, &inputs, filter, list, target, clean);
         if code != ExitCode::SUCCESS {
             worst = code;

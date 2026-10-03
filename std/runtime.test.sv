@@ -93,11 +93,17 @@ test "an actor that faults dies and later sends are dropped" {
         let _n: Int = unerase(msg)
         unpark(copy(waker))
     }))
+    // Watched, so the death is answered here rather than reported.
+    let w = waiter()
+    let {token, wid} = w
+    watch(copy(fragile), token)
     send_dyn(copy(fragile), erase(1))
     send_dyn(copy(fragile), erase(2))
     send_dyn(fragile, erase(3))
     send_dyn(sturdy, erase(4))
     park(me)
+    let exit: Exit = unerase(await_answer(wid))
+    expect(exit.reason.contains("value is absent"), "the fault is the reason")
     expect(true, "the pool kept working after a death")
 }
 
@@ -272,7 +278,11 @@ test "a dedicated pool retires when its actor dies" {
         let xs: List<Int> = []
         let _boom = get(xs, 0)!
     }))
+    let w = waiter()
+    let {token, wid} = w
+    watch(copy(doomed), token)
     send_dyn(doomed, erase(1))
+    let _exit: Exit = unerase(await_answer(wid))
     let me = this_parker()
     let tries = 0
     while retired_worker_count() == before && tries < 200 {

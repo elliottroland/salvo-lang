@@ -1,11 +1,26 @@
-# The scheduler runtime in Salvo — survey and plan
+# The scheduler runtime in Salvo — design record
 
-Working document (survey of 2026-10-01, read-only session). It answers the
-ROADMAP item "How much of the scheduler runtime could be Salvo" (Recorded, not
-scheduled): what the two hand-written schedulers contain today, which parts
-can become one Salvo module over a small set of private intrinsics, what the
-language and compiler would need for that, and in what order to do it.
-Nothing here is decided. The items marked **DECISION** are the user's call.
+**Status (2026-10-03): built.** The scheduler, routing, the deadline wheel and
+the host stream table are std's `runtime` module and its services
+(`std/runtime.sv`, `std/runtime/{timers,routing,streams}.sv`), written once in
+Salvo over a small host layer in std's platform root. Each backend's
+`runtime/scheduler.*` is entry-point shims plus a proxy registry (Rust about
+590 lines from 2,720; Kotlin about 380 from 1,994), and actor tests run the
+same scheduler on a virtual runtime [test-actor]. The rules are
+LANGUAGE_SPEC.md's ([runtime-sched], [runtime-host], [mod-use],
+[platform-type], [stream-table], [test-actor], …) and the backend specs'
+([rs-runtime-host], [kt-runtime-host]); the record of each step is
+COMPLETED.md's decision log.
+
+**What is still open** is in ROADMAP.md: 0c (checker and emitter limits the
+port worked around), 0d (shrinking the platform surface: `Slot`, `Dyn`,
+`here`), 0e (deferred wakes), the `test actor` follow-ups, and §11.5 step 17
+below (the other collections onto generic platform types, optional).
+
+The rest of this file is the survey and design as they were worked out
+(2026-10-01 to 2026-10-03), kept because the code and the specs cite its
+sections. It is not maintained: where it and the specs disagree, the specs
+are right.
 
 **User guidance (2026-10-01):** module-private declarations in the runtime
 module may behave differently from Salvo elsewhere. The runtime is what all
