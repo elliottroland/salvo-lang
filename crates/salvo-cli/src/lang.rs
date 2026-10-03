@@ -96,6 +96,13 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.control.salvo",
         "the comptime refusal",
     ),
+    // [assert-fn] `assert!(…)` and `unreachable!(…)`: the bang forms that
+    // trap, highlighted as control flow like `refuse!`.
+    (
+        "\\\\b(?:assert|unreachable)(?=!)",
+        "keyword.control.salvo",
+        "the trapping assertions",
+    ),
     // `mailbox { capacity: n }`: the handler's queue slot, named before a block.
     (
         "\\\\bmailbox(?=\\\\s*\\\\{)",

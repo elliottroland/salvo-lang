@@ -147,6 +147,11 @@
           "match": "\\brefuse(?=!)"
         },
         {
+          "comment": "the trapping assertions — a keyword by position, not a reserved word",
+          "name": "keyword.control.salvo",
+          "match": "\\b(?:assert|unreachable)(?=!)"
+        },
+        {
           "comment": "the mailbox slot of a handler — a keyword by position, not a reserved word",
           "name": "keyword.declaration.salvo",
           "match": "\\bmailbox(?=\\s*\\{)"

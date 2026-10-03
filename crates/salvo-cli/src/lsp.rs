@@ -24,11 +24,12 @@ use lsp_types::notification::{
     Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    CodeActionRequest, GotoDefinition, HoverRequest, Request as _,
+    CodeActionRequest, Completion, GotoDefinition, HoverRequest, Request as _,
 };
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
-    CodeActionProviderCapability, Diagnostic, DiagnosticSeverity,
+    CodeActionProviderCapability, CompletionItem, CompletionItemKind, CompletionOptions,
+    CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
     HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
@@ -73,6 +74,12 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         definition_provider: Some(OneOf::Left(true)),
         // Quickfixes adding suggested imports [diag-import-suggest].
         code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+        // [lsp-completion] Functions in scope, and after a `.` the ones the
+        // receiver can be the first argument of.
+        completion_provider: Some(CompletionOptions {
+            trigger_characters: Some(vec![".".to_string()]),
+            ..Default::default()
+        }),
         ..Default::default()
     })?;
     let init_params: InitializeParams =
@@ -148,6 +155,11 @@ impl Server<'_> {
                 let result = self.goto_definition(&params);
                 self.respond(Response::new_ok(req.id, result))?;
             }
+            Completion::METHOD => {
+                let params: CompletionParams = serde_json::from_value(req.params)?;
+                let result = self.completion(&params);
+                self.respond(Response::new_ok(req.id, result))?;
+            }
             CodeActionRequest::METHOD => {
                 let params: CodeActionParams = serde_json::from_value(req.params)?;
                 let result = self.code_actions(&params);
@@ -209,6 +221,10 @@ impl Server<'_> {
     /// project's source root, or the workspace root when no manifest is
     /// above it.
     fn analyze_for(&self, path: &Path) -> Option<Analysis> {
+        // [lsp-std-source] A copy of the embedded std opened for reading.
+        if is_embedded_std_copy(path) {
+            return None;
+        }
         match analyze_for_document(path, &self.root, &self.overlay) {
             Ok(analysis) => Some(analysis),
             Err(err) => {
@@ -427,8 +443,9 @@ impl Server<'_> {
             };
             let docs = docs::render(&ast.docs, &scope);
             let origin = self.module_origin(&analysis, module_file, file_idx);
+            let exports = module_exports_section(ast, module_file, file_idx);
             return Some(markdown_hover(
-                docs::hover_markdown(&format!("module {module}"), &[docs, origin]),
+                docs::hover_markdown(&format!("module {module}"), &[docs, exports, origin]),
                 view.range(span),
             ));
         }
@@ -696,8 +713,9 @@ impl Server<'_> {
     }
 
     /// Where a span of the analysis is, as a document: the file's own URI —
-    /// the one an open document was opened under. `None` for the embedded
-    /// std, which is not on disk.
+    /// the one an open document was opened under. A file of the embedded std
+    /// is written to a read-only copy on disk first [lsp-std-source], so
+    /// navigation and doc links reach it too.
     ///
     /// A file's `name` resolves against the analysis's source root
     /// [manifest-discovery], which is the workspace root only when no
@@ -705,7 +723,9 @@ impl Server<'_> {
     fn site_location(&self, analysis: &Analysis, file: usize, span: Span) -> Option<(Url, Range)> {
         let target = analysis.program.files.get(file)?;
         if target.is_std && !target.is_shadow {
-            return None;
+            let path = embedded_std_copy(&target.name, &target.content)?;
+            let uri = Url::from_file_path(&path).ok()?;
+            return Some((uri, span_to_range(&target.content, span)));
         }
         let (content, span) = (&target.content, span);
         let path = analysis.root.join(&target.name);
@@ -1074,6 +1094,77 @@ impl Server<'_> {
         Some(GotoDefinitionResponse::Scalar(Location { uri, range }))
     }
 
+    /// [lsp-completion] Completion at a position: every function the file can
+    /// call; after `receiver.`, only those whose first parameter the receiver
+    /// fills [fn-dot] — matched by the receiver's type name — then those
+    /// taking any type, ranked after.
+    ///
+    /// The buffer is analysed with the word being typed and its dot removed,
+    /// so a half-written call still parses and the receiver has a type.
+    fn completion(&self, params: &CompletionParams) -> Option<CompletionResponse> {
+        let doc = &params.text_document_position;
+        let path = file_path(&doc.text_document.uri)?;
+        let text = match self.overlay.get(&path) {
+            Some(t) => t.clone(),
+            None => std::fs::read_to_string(&path).ok()?,
+        };
+        let cursor = position_to_offset(&text, doc.position) as usize;
+        let bytes = text.as_bytes();
+        let mut word = cursor.min(bytes.len());
+        while word > 0 && (bytes[word - 1].is_ascii_alphanumeric() || bytes[word - 1] == b'_') {
+            word -= 1;
+        }
+        let dot = word > 0 && bytes[word - 1] == b'.';
+        let patched = if dot {
+            format!("{}{}", &text[..word - 1], &text[cursor.min(text.len())..])
+        } else {
+            format!("{}{}", &text[..word], &text[cursor.min(text.len())..])
+        };
+        let mut overlay = self.overlay.clone();
+        overlay.insert(path.clone(), patched);
+        let analysis = analyze_for_document(&path, &self.root, &overlay).ok()?;
+        let checked = analysis.checked.as_ref()?;
+        let view = doc_view(&analysis, &path)?;
+        let fns = analysis.completions.get(view.file)?;
+        // The receiver: the smallest typed expression ending at the dot.
+        let receiver: Option<String> = if dot {
+            let end = (word - 1) as u32;
+            checked
+                .expr_ty
+                .iter()
+                .filter(|((file, span), ty)| *file == view.file && span.end == end && !matches!(ty, Ty::Unknown))
+                .min_by_key(|((_, span), _)| span.len())
+                .and_then(|(_, ty)| receiver_name(ty))
+        } else {
+            None
+        };
+        let mut items: Vec<CompletionItem> = Vec::new();
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        for f in fns {
+            let rank = if dot {
+                match (&receiver, &f.receiver) {
+                    (Some(r), Some(p)) if r == p => "0",
+                    (_, _) if f.generic_receiver => "1",
+                    _ => continue,
+                }
+            } else {
+                "0"
+            };
+            let detail = fn_signature(&analysis.program, checked, f.key).unwrap_or_default();
+            if !seen.insert((f.name.clone(), detail.clone())) {
+                continue;
+            }
+            items.push(CompletionItem {
+                label: f.name.clone(),
+                kind: Some(CompletionItemKind::FUNCTION),
+                detail: Some(detail),
+                sort_text: Some(format!("{rank}{}", f.name)),
+                ..Default::default()
+            });
+        }
+        Some(CompletionResponse::Array(items))
+    }
+
     /// Quickfix code actions for the import suggestions carried on
     /// diagnostics [diag-import-suggest]: one "Add `import …`" action per
     /// suggested path, inserting the import line after the file's last
@@ -1131,6 +1222,49 @@ impl Server<'_> {
 
 /// Where a new `import` line goes: after the last existing top-level
 /// import, or at the very top of the file [diag-import-suggest].
+/// [lsp-completion] The type name a receiver of type [ty] matches a first
+/// parameter by: the base, without qualifiers or a module key.
+fn receiver_name(ty: &Ty) -> Option<String> {
+    match ty {
+        Ty::Named { name, .. } => Some(name.split('§').next().unwrap_or(name).to_string()),
+        Ty::Qualified { base, .. } => receiver_name(base),
+        Ty::Lit(lit) => Some(lit.base().to_string()),
+        _ => None,
+    }
+}
+
+/// [lsp-std-source] The embedded std's file `name` as a read-only file on
+/// disk, for an editor to open: under the system's temporary directory, in a
+/// directory per compiler version, rewritten only when its content differs.
+/// `None` when it cannot be written.
+fn embedded_std_copy(name: &str, content: &str) -> Option<PathBuf> {
+    let dir = std::env::temp_dir().join(format!("salvo-std-{}", env!("CARGO_PKG_VERSION")));
+    let path = dir.join(name);
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(content) {
+        std::fs::create_dir_all(path.parent()?).ok()?;
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let mut perms = meta.permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            perms.set_readonly(false);
+            let _ = std::fs::set_permissions(&path, perms);
+        }
+        std::fs::write(&path, content).ok()?;
+        let mut perms = std::fs::metadata(&path).ok()?.permissions();
+        perms.set_readonly(true);
+        let _ = std::fs::set_permissions(&path, perms);
+    }
+    Some(path)
+}
+
+/// Whether [path] is one of [`embedded_std_copy`]'s files, which belong to no
+/// project and are not analysed as one.
+fn is_embedded_std_copy(path: &Path) -> bool {
+    let base = std::env::temp_dir();
+    let base = base.canonicalize().unwrap_or(base);
+    let dir = base.join(format!("salvo-std-{}", env!("CARGO_PKG_VERSION")));
+    path.starts_with(&dir)
+}
+
 fn import_insert_position(content: &str) -> Position {
     let mut line = 0u32;
     for (i, text) in content.lines().enumerate() {
@@ -1481,6 +1615,63 @@ fn module_at(
         return Some((span, module));
     }
     None
+}
+
+/// [doc-module] How many of a module's functions its hover lists before
+/// counting the rest.
+const MODULE_HOVER_FNS: usize = 20;
+
+/// [doc-module] What a module offers, for its hover: the first
+/// [`MODULE_HOVER_FNS`] functions a file `here` can call (its exports, or
+/// every function when `here` is the module's own file), one signature per
+/// name, then a count of the rest; and its exported types by name.
+fn module_exports_section(
+    ast: &salvo_syntax::ast::Module,
+    module_file: usize,
+    here: usize,
+) -> Option<String> {
+    let all = module_file == here;
+    let mut fns: Vec<String> = Vec::new();
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut types: Vec<&str> = Vec::new();
+    for item in &ast.items {
+        match item {
+            Item::Fn(f) if (f.exported || all) && !f.name.name.starts_with("__") => {
+                if seen.insert(f.name.name.as_str()) {
+                    fns.push(fn_decl_signature(f, None));
+                }
+            }
+            Item::Struct(s) if s.exported || all => types.push(&s.name.name),
+            Item::Effect(e) if e.exported || all => types.push(&e.name.name),
+            Item::Handler(h) if h.exported || all => types.push(&h.name.name),
+            Item::Type(t) if t.exported || all => types.push(&t.name.name),
+            _ => {}
+        }
+    }
+    if fns.is_empty() && types.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    if !fns.is_empty() {
+        let shown: Vec<&String> = fns.iter().take(MODULE_HOVER_FNS).collect();
+        out.push_str("**Functions**\n\n```salvo\n");
+        for sig in &shown {
+            out.push_str(sig);
+            out.push('\n');
+        }
+        out.push_str("```");
+        if fns.len() > shown.len() {
+            out.push_str(&format!("\n\nand {} more", fns.len() - shown.len()));
+        }
+    }
+    if !types.is_empty() {
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        let names: Vec<String> = types.iter().map(|t| format!("`{t}`")).collect();
+        out.push_str(&format!("**Types**: {}", names.join(", ")));
+    }
+    Some(out)
 }
 
 /// [doc-qualifies-body] The *condition* a predicate qualifier holds under,

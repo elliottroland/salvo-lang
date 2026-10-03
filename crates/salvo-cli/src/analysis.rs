@@ -50,6 +50,22 @@ pub struct Analysis {
     /// fn` bodies, recorded by the expansion — the checker never sees those
     /// bodies, so this is their only source.
     pub comptime_hovers: Vec<salvo_core::CompHover>,
+    /// [lsp-completion] Per file (aligned with `program.files`): every free
+    /// fn visible there, for completion.
+    pub completions: Vec<Vec<CompletionFn>>,
+}
+
+/// [lsp-completion] One function a file can call, as completion offers it.
+#[derive(Clone, Debug)]
+pub struct CompletionFn {
+    pub name: String,
+    pub key: salvo_core::FnKey,
+    /// The base type name of the first parameter, which dot-notation's
+    /// receiver fills [fn-dot]; `None` when it has none or it is one of the
+    /// fn's own type parameters.
+    pub receiver: Option<String>,
+    /// The first parameter is a type parameter: any receiver fits.
+    pub generic_receiver: bool,
 }
 
 /// Parses, resolves, and type-checks `src` (plus the embedded std).
@@ -191,10 +207,11 @@ fn analyze_project(
     // still resolves for other files), but their own resolution/checker
     // diagnostics are dropped: recovered ASTs cascade nonsense, and the
     // parse errors are the actionable signal there.
-    let (checked, overloads) = {
+    let (checked, overloads, completions) = {
         let symbols = Symbols::collect(&program);
         let resolution = salvo_core::resolve(&program);
         let overloads = overload_index(&resolution);
+        let completions = completion_index(&resolution);
         // `check_program` folds resolution errors into its own.
         let mut checked = salvo_core::check_program(&program, &resolution, &symbols);
         checked.errors.retain(|d| !parse_broken.contains(&d.file));
@@ -202,7 +219,7 @@ fn analyze_project(
         // [platform-root] Platform declarations need a platform root.
         let backends = project.as_ref().map(salvo_core::required_backends).unwrap_or_else(|| vec!["rust"]);
         diagnostics.extend(salvo_core::platform_root_required(&program, project.as_ref(), &backends));
-        (Some(checked), overloads)
+        (Some(checked), overloads, completions)
     };
 
     Ok(Analysis {
@@ -214,7 +231,40 @@ fn analyze_project(
         io_errors,
         overloads,
         comptime_hovers,
+        completions,
     })
+}
+
+/// [lsp-completion] The per-file index of callable fns, read off the
+/// resolver's scopes; generated names (`__…`) are left out.
+fn completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<CompletionFn>> {
+    use salvo_syntax::ast::Type;
+    resolution
+        .scopes
+        .iter()
+        .map(|scope| {
+            let mut out: Vec<CompletionFn> = Vec::new();
+            for (name, entries) in &scope.fns {
+                if name.starts_with("__") {
+                    continue;
+                }
+                for e in entries {
+                    let generics: Vec<&str> = e.decl.generics.iter().map(|g| g.name.as_str()).collect();
+                    let (receiver, generic_receiver) = match e.decl.params.iter().find(|p| !p.implicit) {
+                        Some(p) => match &p.ty {
+                            Type::Named { base, .. } if generics.contains(&base.name.name.as_str()) => (None, true),
+                            Type::Named { base, .. } => (Some(base.name.name.clone()), false),
+                            _ => (None, false),
+                        },
+                        None => (None, false),
+                    };
+                    out.push(CompletionFn { name: name.to_string(), key: e.key, receiver, generic_receiver });
+                }
+            }
+            out.sort_by(|a, b| a.name.cmp(&b.name));
+            out
+        })
+        .collect()
 }
 
 /// [lsp-hover-overloads] The per-file "names with more than one declaration"

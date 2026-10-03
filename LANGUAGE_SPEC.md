@@ -8889,6 +8889,9 @@ replaced the working document TESTING.md).
   * Carried on the AST as `Module.docs: Vec<String>`, lines stripped as for
     [doc-comment]; the parser decides it before parsing the first item
     (`Parser::module_docs`), from the first token's line.
+  * **A module's hover lists what it offers** (2026-10-03, user request):
+    its first 20 exported functions, one signature per name, then "and N
+    more", and its exported types by name; in its own file, everything.
   * **Shown wherever a module is named** [cli-lsp]: the module part of an
     `import` line — all of a whole-module import [mod-import-module], the
     segments before the item of a named one, *as one name* however many
@@ -9093,6 +9096,14 @@ replaced the working document TESTING.md).
     parameters, handler state fields, `let` patterns and `is`/`for`
     bindings all record their type in `Checked::expr_ty` at their own
     name span, so hover answers on the declaration and not only on uses.
+* [lsp-completion] **`textDocument/completion` offers functions**
+  (2026-10-03, user request): with no `.` before the word, every free fn the
+  file can call; after `receiver.`, those whose first parameter's type name is
+  the receiver's [fn-dot], then those whose first parameter is a type
+  parameter, ranked after. The buffer is analysed with the word and its dot
+  removed, so a half-written call parses; the receiver is the smallest typed
+  expression ending at the dot. `.` is a trigger character. Not yet: effect
+  members, locals, fields, keywords.
 * [lsp-definition] `textDocument/definition` jumps from a name to its
   declaration's *identifier*. Fn names resolve through
   `Checked::fn_refs` (overload-precise, so a call site lands on the
@@ -9107,8 +9118,11 @@ replaced the working document TESTING.md).
     refines the field, it does not replace the declaration.
   * The smallest name span containing the cursor wins; a type-alias use
     jumps to the alias declaration, not through to its target.
-  * Declarations in the embedded std have no on-disk URI and yield no
-    location.
+  * [lsp-std-source] **A declaration in the embedded std navigates to a
+    read-only copy on disk** (2026-10-03, user request): the file is written
+    under the system's temporary directory (`salvo-std-<version>/<name>`),
+    rewritten when its content differs, and analysed as no project when
+    opened. Doc links into std use the same copy.
   * A location's path is the file's name joined to the **analysis's**
     source root [manifest-discovery] — the project's `src` — not the
     workspace root (a defect until 2026-09-30: in a project whose `src` is

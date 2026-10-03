@@ -135,6 +135,16 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Editor support from the noticeboard TODOs (2026-10-03, user request).**
+`salvo-noticeboard`'s `disk.sv` listed what got in the way: a module's hover
+now lists its first 20 functions and its types [doc-module]; go-to-definition
+into the embedded std opens a read-only copy on disk [lsp-std-source], where it
+used to do nothing; completion offers the functions in scope, and after a `.`
+those the receiver can be the first argument of [lsp-completion]; `assert!` and
+`unreachable!` highlight as control keywords like `refuse!`. Two TODOs needed
+nothing: a handler member's `-> None` may already be left off (an *effect*
+member must still write it, by rule, having no body to infer from).
+
 **The runtime port is complete (2026-10-03; runtime step 16, the
 docs pass).** LANGUAGE_SPEC's [actor-kind] and [runtime-sched] now say the
 scheduler is std's Salvo `runtime` module rather than a library per backend;

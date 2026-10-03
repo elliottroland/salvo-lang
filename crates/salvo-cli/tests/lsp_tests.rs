@@ -1825,6 +1825,9 @@ fn main() [Console] {
     assert!(value.contains("Shapes for the shop."), "{value}");
     assert!(!value.contains("Labels"), "the fn's docs are not the module's: {value}");
     assert!(value.contains("In `shop/shapes.sv`."), "{value}");
+    // [doc-module] And what it offers.
+    assert!(value.contains("**Functions**"), "{value}");
+    assert!(value.contains("fn label(n: Int)"), "{value}");
     let value = hover(&mut lsp, 32, &uri, 1, 13);
     assert!(value.starts_with("```salvo\nmodule shop.shapes\n```"), "{value}");
 
@@ -1833,6 +1836,16 @@ fn main() [Console] {
     let value = hover(&mut lsp, 33, &uri, 2, 8);
     assert!(value.starts_with("```salvo\nmodule time\n```"), "{value}");
     assert!(value.contains("The standard library."), "{value}");
+    // [doc-module] The first functions, then a count of the rest.
+    assert!(value.contains("fn seconds("), "{value}");
+    assert!(value.contains(" more"), "{value}");
+    assert!(value.contains("**Types**: "), "{value}");
+    // [lsp-std-source] An embedded std module is reachable on disk.
+    let location = definition(&mut lsp, 39, &uri, 2, 8);
+    let std_uri = location["uri"].as_str().unwrap().to_string();
+    assert!(std_uri.ends_with("/time.sv"), "{location}");
+    let std_path = std_uri.trim_start_matches("file://");
+    assert!(std::fs::read_to_string(std_path).unwrap().contains("struct Duration"), "{std_path}");
 
     // An `@module` selector, written as a suffix [mod-suffix]: the full path.
     let value = hover(&mut lsp, 34, &uri, 11, 20);
@@ -1898,6 +1911,81 @@ fn definitions_resolve_against_the_projects_source_root() {
     assert_eq!(location["uri"].as_str().unwrap(), uri, "{location}");
     assert_eq!(location["range"]["start"], json!({"line": 0, "character": 7}), "{location}");
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+/// [lsp-completion] Completion offers the functions in scope; after
+/// `receiver.`, the ones whose first parameter the receiver fills, before
+/// those taking any type, and none taking something else.
+#[test]
+fn completion_offers_functions_and_dot_receivers() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "\
+fn shout(s: Str) -> Str {
+    return to_upper(s)
+}
+
+fn main() [Console] {
+    let name = \"salvo\"
+    let n = 3
+    println(name.)
+    sh
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let complete = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> Vec<(String, String)> {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": line, "character": character}
+                }
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        response["result"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no completion list: {response}"))
+            .iter()
+            .map(|i| (i["label"].as_str().unwrap().to_string(), i["sortText"].as_str().unwrap_or("").to_string()))
+            .collect()
+    };
+    // After `name.`: Str's functions, the program's own included.
+    let items = complete(&mut lsp, 2, 7, 17);
+    let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
+    assert!(labels.contains(&"shout"), "{labels:?}");
+    assert!(labels.contains(&"to_upper"), "{labels:?}");
+    assert!(labels.contains(&"trim"), "{labels:?}");
+    assert!(!labels.contains(&"main"), "{labels:?}");
+    assert!(!labels.contains(&"push_heap"), "{labels:?}");
+    let rank = |l: &str| items.iter().find(|(x, _)| x == l).map(|(_, r)| r.clone()).unwrap();
+    assert!(rank("trim") < rank("copy"), "a Str fn ranks before a generic one");
+    // A bare word: everything in scope.
+    let items = complete(&mut lsp, 3, 8, 6);
+    let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
+    assert!(labels.contains(&"shout") && labels.contains(&"main") && labels.contains(&"println"), "{labels:?}");
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
     expect_response(&lsp.rx, 99);
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().expect("failed to wait for salvo lsp");
