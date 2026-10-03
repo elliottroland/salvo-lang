@@ -12,6 +12,11 @@ import salvo.core.result.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
+import salvo.runtime.streams.*
+
+fun freshHandle__2(): Long {
+    return freshHandle()
+}
 
 // Factories for the host: one per arm of the union [platform-factory].
 object StreamErrors {

@@ -4151,18 +4151,26 @@ Conventions:
     errors), `threadsafe platform handler HostRawStreams`, and `DefaultStreams
     [RawStreams] of Streams`, which wraps failures in `Checked<StreamError>`
     and discharges the tokens in Salvo.
-* [stream-table] **One host stream table per process**, in each backend's
-  runtime (`hoststreams.rs` / `hoststreams.kt`, shipped beside the scheduler
-  whose handle counter it draws from; named so it cannot collide with a
-  program's own `streams` module [backend-companion]):
-  `salvo_stream_register_in/out` (Rust) and `SalvoStreams.registerIn/Out`
-  (Kotlin) take a source description and an `io::Read`/`InputStream` (or the
-  write side), answer a handle from [stream-handle], and `HostRawStreams`
-  reads and writes the entries — line splitting, strict UTF-8, and a
-  consumed-byte `position` that counts read-ahead only once handed out. The
-  table is locked to find an entry and each entry has its own lock, so a slow
-  read of one stream never blocks another. `HostRawFs` registers what it
-  opens; it holds no state of its own any more.
+* [stream-table] **One host stream table per process, in Salvo** (moved
+  2026-10-03, RUNTIME.md §11.5 step 14): the runtime service
+  `runtime.streams` keeps the table — handle to entry, with the trap for a
+  handle another provider minted [stream-provider] — and the read-ahead
+  buffer, line splitting on `\n` and `\r\n`, the consumed-byte `position`
+  (read-ahead counts only once handed out), failure recording (a failed read
+  reports the end and the close reports why; writes likewise at flush and
+  close) and strict UTF-8. An operation **checks the entry out**, works with
+  no lock held, and checks it back in, so a slow read of one stream never
+  blocks another. The host supplies `linear platform type HostIn`/`HostOut`
+  and five leaf fns (read a chunk, write, flush, close, a stream over bytes).
+  `stream.host`'s `HostRawStreams` is an ordinary Salvo handler over it, and
+  `raw_receive` reads on a runtime thread, answering through a task.
+  `stream.fresh_handle` is Salvo too. Host code's entry points stay
+  (`hoststreams.rs`/`.kt`, shipped wherever `runtime.streams` is):
+  `salvo_stream_register_in/out` / `SalvoStreams.registerIn/Out` take a
+  source and an `io::Read`/`InputStream` (or the write side) and answer a
+  handle, and `salvo_stream_take_in` / `SalvoStreams.takeIn` take a stream
+  out for host code to read itself (the S3 glue's upload), read-ahead first.
+  `HostRawFs` registers what it opens.
 * [stream-receive] **`Streams.receive(s, reply: Reply<Received>)` reads
   without blocking** (§4b step 3d, 2026-09-29): it consumes the stream and the
   answer hands it back — `Received = Ok Packet | End | Err

@@ -1199,8 +1199,11 @@ keeps both backends passing the full suite.
     any more (first case: a `Dedicated` pool whose one actor is dead and
     whose queues are empty) is marked retired, its workers are unparked,
     see the flag and return, which ends their threads.
-14. **The stream table** onto `HostIn`/`HostOut` and the Salvo table in the
-    runtime module (§3.4).
+14. ✅ **The stream table** onto `HostIn`/`HostOut` and the Salvo table,
+    built 2026-10-03 as the service `runtime.streams` (§3.4) [stream-table]:
+    `std/platform/stream/host.{rs,kt}` (about 190 lines each) are gone, and
+    `hoststreams.{rs,kt}` shrank to host code's entry points (register, take
+    out for an upload, the handle counter).
 
 **After the port:**
 

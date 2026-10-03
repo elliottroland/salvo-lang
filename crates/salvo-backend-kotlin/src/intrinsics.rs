@@ -178,7 +178,6 @@ pub fn fn_call(
         // time surface, matching `time.rs` number for number.
         ("monotonic_nanos", None) => "salvo.SalvoTime.monoNanos()".to_string(),
         // [stream-handle] One counter for every stream table in the process.
-        ("fresh_handle", None) => "salvo.SalvoStreams.freshHandle()".to_string(),
         ("epoch_nanos", None) => "salvo.SalvoTime.epochNanos()".to_string(),
         // core.list ------------------------------------------------------
         // The element type is spelled out: `listOf()` with no arguments

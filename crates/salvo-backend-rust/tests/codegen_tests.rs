@@ -10007,11 +10007,12 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
         "the platform handler's struct is the host's:\n{host}"
     );
     let stream_host = file("stream/host.rs");
-    for expected in ["fn raw_close_read(&self, handle: i64)", "pub struct DefaultStreams"] {
+    // [stream-table] `HostRawStreams` is Salvo over the runtime's table.
+    for expected in ["fn raw_close_read(&self, handle: i64)", "pub struct DefaultStreams", "pub struct HostRawStreams"] {
         assert!(stream_host.contains(expected), "expected `{expected}` in:\n{stream_host}");
     }
     // std ships the host files, and they travel into the output.
-    for rel in ["platform/fs/host.rs", "platform/stream/host.rs"] {
+    for rel in ["platform/fs/host.rs", "platform/runtime/streams.rs"] {
         assert!(
             files.iter().any(|f| f.rel_path == std::path::Path::new(rel)),
             "expected std's host companion {rel} to be emitted"

@@ -81,7 +81,7 @@ impl crate::fs::__Stateful_Fs for MemFs {
         if content.is_none() {
             return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path.clone() }))));
         }
-        let mut handle = crate::hoststreams::salvo_fresh_handle();
+        let mut handle = fresh_handle__2();
         self.reads.insert(handle.clone(), MemRead { source: path.clone(), data: content.unwrap().clone(), at: 0, failed: false });
         return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(InStream { handle: handle.clone() }));
     }
@@ -99,13 +99,13 @@ impl crate::fs::__Stateful_Fs for MemFs {
         if at > end {
             at = end;
         }
-        let mut handle = crate::hoststreams::salvo_fresh_handle();
+        let mut handle = fresh_handle__2();
         self.reads.insert(handle.clone(), MemRead { source: path.clone(), data: content.unwrap().clone(), at: at, failed: false });
         return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(InStream { handle: handle.clone() }));
     }
 
     fn open_write(&mut self, path: &String) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut handle = crate::hoststreams::salvo_fresh_handle();
+        let mut handle = fresh_handle__2();
         let mut empty = Vec::<u8>::new();
         self.writes.insert(handle.clone(), MemWrite { path: path.clone(), buffer: empty });
         return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(OutStream { handle: handle.clone() }));
@@ -118,7 +118,7 @@ impl crate::fs::__Stateful_Fs for MemFs {
         } else {
             start.extend_from_slice(&existing.unwrap().clone()[..]);
         }
-        let mut handle = crate::hoststreams::salvo_fresh_handle();
+        let mut handle = fresh_handle__2();
         self.writes.insert(handle.clone(), MemWrite { path: path.clone(), buffer: start });
         return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(OutStream { handle: handle.clone() }));
     }
@@ -279,7 +279,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
     }
 
     fn from_bytes(&mut self, data: Vec<u8>) -> InStream {
-        let mut handle = crate::hoststreams::salvo_fresh_handle();
+        let mut handle = fresh_handle__2();
         self.reads.insert(handle.clone(), MemRead { source: "<bytes>".to_string(), data: data, at: 0, failed: false });
         return InStream { handle: handle.clone() };
     }

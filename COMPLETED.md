@@ -135,6 +135,23 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The host stream table in Salvo (2026-10-03; RUNTIME.md §11.5 step 14)
+[stream-table].** The runtime service `runtime.streams` now keeps the table,
+the read-ahead and line splitting, positions, failure recording and strict
+decoding; the host supplies `HostIn`/`HostOut` and five leaf fns. An operation
+checks its entry out and back in, so no lock is held across a host read.
+`stream.host`'s `HostRawStreams` became an ordinary Salvo handler, and
+`raw_receive` reads on a runtime thread and answers through a task
+(`chunk_received`). `std/platform/stream/host.{rs,kt}` are deleted;
+`hoststreams.{rs,kt}` keep only host code's entry points, unchanged for
+`HostRawFs` and the S3 glue. `stream.fresh_handle` is no longer an
+intrinsic. What fell out: the Kotlin struct-literal path did not qualify a
+clashing name (`Fault` here and in `core.actor`) — fixed; a handler and an
+effect of one name clash in Kotlin output (ROADMAP 0c item 13); a host project
+carries `runtime.streams` whenever the program reaches it. The runtime tests'
+host-module compile checks now run in the `files` example's tree, which has
+the stream table. **1680 tests.**
+
 **A `Dedicated` pool's thread ends with its actor (2026-10-03; RUNTIME.md
 §11.5 step 13) [pool-retire].** `thread()` now makes a pool the core knows is
 dedicated; when its actors are all dead, its task queue is empty and no token

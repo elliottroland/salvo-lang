@@ -41,7 +41,7 @@ export platform fn unpark(p: Parker) [] -> None => p
 // the fn value and runs it elsewhere — the runtime's privilege, since a fn
 // value is otherwise only lent for a call [platform-fn-value]. Nothing waits
 // for the thread to finish; the scheduler stops one by state, not by handle.
-platform fn start_thread(body: once () -> None) [] -> None => !body
+export platform fn start_thread(body: once () -> None) [] -> None => !body
 
 // [runtime-kept-fn] Runs [body] inside a fault boundary: `None` when it
 // returned, or the host's account of the fault that ended it. What an

@@ -231,6 +231,10 @@ fn emit_program_mode(
         Some(m) if abi && reachable.contains(m) => salvo_core::runtime_closure(program, &resolution, &checked),
         _ => HashSet::new(),
     };
+    let mut abi_full = abi_full;
+    if abi {
+        abi_full.extend(salvo_core::streams_closure(program, &resolution, &checked, &reachable));
+    }
     let abi_modules: HashSet<&ModulePath> = program
         .units()
         .filter(|u| {
@@ -391,8 +395,15 @@ fn emit_program_mode(
     // [stream-table] The host stream table ships wherever the wire does, as
     // it did when the wire named the scheduler: std's stream handlers reach
     // it without a Salvo-level edge.
-    let needs_hoststreams = needs_scheduler || needs_wire;
-    let needs_time = needs_time || needs_hoststreams;
+    // [stream-table] Host code's entry points into the stream table ship
+    // wherever the table (the Salvo service `runtime.streams`) does.
+    let needs_hoststreams = program.units().any(|u| {
+        u.file.is_std
+            && u.file.module.0 == ["runtime", "streams"]
+            && emitted_modules.contains(&u.file.module)
+            && (!abi || abi_full.contains(&u.file.module))
+    });
+    let needs_time = needs_time || needs_scheduler || needs_wire;
     // [runtime-sched] The scheduler shims onto the Salvo core: a build that
     // ships one without the other would not compile, so it is refused here
     // by name [backend-never-wrong].

@@ -54,7 +54,7 @@ pub use platform::{
 };
 pub use program::{Program, Symbols};
 pub use erase::{erase_effect_generics, erased_generics, Erased};
-pub use reach::{reachable_modules, routing_module, runtime_closure, runtime_module};
+pub use reach::{reachable_modules, routing_module, runtime_closure, runtime_module, streams_closure};
 pub use wire::{
     approx_ty, effect_has_wire_form, protocol_canonical, protocol_hash, struct_has_wire_form,
     wire_blocker, WireBlock,

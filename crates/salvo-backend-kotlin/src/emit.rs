@@ -151,6 +151,10 @@ fn emit_program_mode(
         Some(m) if abi && reachable.contains(m) => salvo_core::runtime_closure(program, &resolution, &checked),
         _ => HashSet::new(),
     };
+    let mut abi_full = abi_full;
+    if abi {
+        abi_full.extend(salvo_core::streams_closure(program, &resolution, &checked, &reachable));
+    }
     let in_abi = |u: &salvo_core::program::Unit| {
         (abi_full.contains(&u.file.module) && module_produces_code(u.ast)) || closure.as_ref().is_some_and(|c| {
             u.ast.items.iter().any(|i| abi_item_name(i).is_some_and(|n| c.contains(n)))
@@ -277,8 +281,15 @@ fn emit_program_mode(
     // [stream-table] The host stream table ships wherever the wire does, as
     // it did when the wire named the scheduler: std's stream handlers reach
     // it without a Salvo-level edge.
-    let needs_hoststreams = needs_scheduler || needs_wire;
-    let needs_time = needs_time || needs_hoststreams;
+    // [stream-table] Host code's entry points into the stream table ship
+    // wherever the table (the Salvo service `runtime.streams`) does.
+    let needs_hoststreams = program.units().any(|u| {
+        u.file.is_std
+            && u.file.module.0 == ["runtime", "streams"]
+            && emitted_modules.contains(&u.file.module)
+            && (!abi || abi_full.contains(&u.file.module))
+    });
+    let needs_time = needs_time || needs_scheduler || needs_wire;
     // [runtime-sched] The scheduler shims onto the Salvo core: a build that
     // ships one without the other would not compile, so it is refused here
     // by name [backend-never-wrong].
@@ -8578,8 +8589,17 @@ impl<'p> Emitter<'p> {
         fields: &[StructLitField],
         _span: salvo_syntax::Span,
     ) -> String {
+        // [type-identity] The declaration the written name resolved to, by
+        // its spelling here (a clashing name is package-qualified).
         let type_name = match ty {
-            Some(Type::Named { base, .. }) => Some(base.name.name.clone()),
+            Some(Type::Named { base, .. }) => {
+                let key = self.checked.written_key(base).to_string();
+                if self.symbols.clashes(&key) {
+                    Some(self.type_path(&key))
+                } else {
+                    Some(base.name.name.clone())
+                }
+            }
             Some(other) => Some(format!("{:?}", other.span())),
             None => None,
         };

@@ -51,12 +51,16 @@ pub mod core_string;
 pub mod runtime;
 #[path = "runtime/routing.sv.rs"]
 pub mod runtime_routing;
+#[path = "runtime/streams.sv.rs"]
+pub mod runtime_streams;
 #[path = "stream.sv.rs"]
 pub mod stream;
 #[path = "time.sv.rs"]
 pub mod time;
 #[path = "salvo/platform/runtime/routing.sv.rs"]
 pub mod platform_runtime_routing;
+#[path = "salvo/platform/runtime/streams.sv.rs"]
+pub mod platform_runtime_streams;
 #[path = "salvo/platform/runtime.sv.rs"]
 pub mod platform_runtime;
 #[path = "aws/s3/host.rs"]

@@ -12,6 +12,7 @@ use crate::core_map::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::runtime_streams::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct InStream {

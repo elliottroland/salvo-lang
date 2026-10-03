@@ -12338,7 +12338,8 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
         "the platform handler's class is the host's:\n{host}"
     );
     let stream_host = file("stream/host.kt");
-    for expected in ["interface RawStreams {", "fun rawCloseRead(handle: Long)", "class DefaultStreams("] {
+    // [stream-table] `HostRawStreams` is Salvo over the runtime's table.
+    for expected in ["interface RawStreams {", "fun rawCloseRead(handle: Long)", "class DefaultStreams(", "class HostRawStreams"] {
         assert!(stream_host.contains(expected), "expected `{expected}` in:\n{stream_host}");
     }
     // The `use` site constructs the shipped host class through its package.
@@ -12348,7 +12349,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
         "expected the shipped host class at the `use` site, got:\n{main}"
     );
     // std ships the host files, and they travel into the output.
-    for rel in ["platform/fs/host.kt", "platform/stream/host.kt"] {
+    for rel in ["platform/fs/host.kt", "platform/runtime/streams.kt"] {
         assert!(
             files.iter().any(|f| f.rel_path == std::path::Path::new(rel)),
             "expected std's host companion {rel} to be emitted"

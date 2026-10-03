@@ -6,6 +6,7 @@
 // host class.
 
 import stream
+import runtime.streams
 
 // ===== the raw seam =====
 
@@ -74,11 +75,182 @@ send fn host_received(reply: Reply<Received>, handle: Long, got: Ok Bytes | End 
     }
 }
 
-// The one implementation of `RawStreams`: a host class per backend, shipped
-// with std [platform-handler]. `threadsafe` [threadsafe-platform]: the table
-// is the whole process's, locked per stream by the host, so the compiler
-// shares the instance with no lock of its own.
-export threadsafe platform handler HostRawStreams of RawStreams
+// The one implementation of `RawStreams`, in Salvo over the runtime's
+// stream table (`runtime.streams`, [stream-table]): each member checks the
+// stream out, works on it with no lock held, and checks it back in. Stateless,
+// so the compiler shares it with no lock.
+export handler HostRawStreams() of RawStreams {
+    fn raw_read_line(handle: Long) -> Str | None {
+        return next_line(handle)
+    }
+
+    fn raw_read_all(handle: Long) -> Ok Str | Err StreamError {
+        let e = checkout_in(copy(handle))
+        let r = read_all(e)
+        let source = copy(e.source)
+        if r.fault is Fault f {
+            checkin_in(handle, e)
+            return err(kind(source, f))
+        }
+        let text = decode(e, r.data)
+        checkin_in(handle, e)
+        if text is Str t {
+            return ok(t)
+        }
+        return err(kind(source, Fault { utf8: true, message: "" }))
+    }
+
+    fn raw_read_bytes(handle: Long, max: Int) -> Ok Bytes | Err StreamError {
+        let e = checkout_in(copy(handle))
+        let r = read_up_to(e, max)
+        let source = copy(e.source)
+        checkin_in(handle, e)
+        if r.fault is Fault f {
+            return err(kind(source, f))
+        }
+        return ok(r.data)
+    }
+
+    fn raw_read_to_bytes(handle: Long, buf: Mut Bytes, max: Int) -> Ok Int | Err StreamError => buf: Mut {
+        let e = checkout_in(copy(handle))
+        let r = read_up_to(e, max)
+        let source = copy(e.source)
+        checkin_in(handle, e)
+        if r.fault is Fault f {
+            return err(kind(source, f))
+        }
+        append(buf, r.data)
+        return ok(size(r.data))
+    }
+
+    fn raw_read_to_str(handle: Long, buf: Mut Str) -> Ok Long | Err StreamError => buf: Mut {
+        let e = checkout_in(copy(handle))
+        let r = read_all(e)
+        let source = copy(e.source)
+        if r.fault is Fault f {
+            checkin_in(handle, e)
+            return err(kind(source, f))
+        }
+        let count = to_long(size(r.data))
+        let text = decode(e, r.data)
+        checkin_in(handle, e)
+        if text is Str t {
+            append(buf, t)
+            return ok(count)
+        }
+        return err(kind(source, Fault { utf8: true, message: "" }))
+    }
+
+    fn raw_read_line_to_str(handle: Long, buf: Mut Str) -> Bool => buf: Mut {
+        let line = next_line(handle)
+        if line is Str t {
+            append(buf, t)
+            return true
+        }
+        return false
+    }
+
+    fn raw_read_position(handle: Long) -> Long {
+        let e = checkout_in(copy(handle))
+        let at = copy(e.position)
+        checkin_in(handle, e)
+        return at
+    }
+
+    fn raw_close_read(handle: Long) -> Ok None | Err StreamError {
+        let e = checkout_in(copy(handle))
+        let source = copy(e.source)
+        let failed = close_in(handle, e)
+        if failed is Fault f {
+            return err(kind(source, f))
+        }
+        return ok(None)
+    }
+
+    fn raw_write(handle: Long, text: Str) -> Long => text {
+        let e = checkout_out(copy(handle))
+        let n = write(e, to_bytes(text))
+        checkin_out(handle, e)
+        return n
+    }
+
+    fn raw_write_bytes(handle: Long, data: Bytes) -> Long => data {
+        let e = checkout_out(copy(handle))
+        let n = write(e, data)
+        checkin_out(handle, e)
+        return n
+    }
+
+    fn raw_write_position(handle: Long) -> Long {
+        let e = checkout_out(copy(handle))
+        let at = copy(e.position)
+        checkin_out(handle, e)
+        return at
+    }
+
+    fn raw_flush(handle: Long) -> Ok None | Err StreamError {
+        let e = checkout_out(copy(handle))
+        let source = copy(e.source)
+        let failed = flush(e)
+        checkin_out(handle, e)
+        if failed is Fault f {
+            return err(kind(source, f))
+        }
+        return ok(None)
+    }
+
+    fn raw_close_write(handle: Long) -> Ok None | Err StreamError {
+        let e = checkout_out(copy(handle))
+        let source = copy(e.source)
+        let failed = close_out(handle, e)
+        if failed is Fault f {
+            return err(kind(source, f))
+        }
+        return ok(None)
+    }
+
+    // [stream-receive] The read runs on a thread of the runtime's, and its
+    // chunk comes back as a task that turns it into this protocol's answer.
+    fn raw_receive(handle: Long, reply: Reply<Ok Bytes | End | Err StreamError>) -> None => !reply {
+        receive(handle, replyto chunk_received(reply))
+    }
+
+    fn raw_from_bytes(data: Bytes) -> Long => !data {
+        return register_bytes(data)
+    }
+}
+
+// [stream-receive] A chunk from the runtime's reader, as `raw_receive`'s
+// answer.
+send fn chunk_received(reply: Reply<Ok Bytes | End | Err StreamError>, c: Chunk) => !reply, !c {
+    if c.fault is Fault f {
+        send(reply, err(kind(copy(c.source), f)))
+    } elif c.end {
+        send(reply, End {})
+    } else {
+        send(reply, ok(copy(c.data)))
+    }
+}
+
+// The next line, decoded strictly; `None` at the end or after a failure.
+fn next_line(handle: Long) [] -> Str? => !handle {
+    let e = checkout_in(copy(handle))
+    let r = read_line(e)
+    let text: Str? = None
+    if !r.end && r.fault is None {
+        text = decode(e, r.data)
+    }
+    checkin_in(handle, e)
+    return text
+}
+
+// A recorded failure as `stream.StreamError`.
+fn kind(source: Str, f: Fault) [] -> StreamError => !source, f {
+    if f.utf8 {
+        return InvalidUtf8 { source: source }
+    }
+    return StreamFailed { source: source, message: copy(f.message) }
+}
 
 // `Streams` over the host's table: wraps each failure in `Checked` and
 // discharges each token, delegating the work downwards.

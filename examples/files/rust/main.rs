@@ -49,6 +49,8 @@ pub mod fs_restricted;
 pub mod runtime;
 #[path = "runtime/routing.rs"]
 pub mod runtime_routing;
+#[path = "runtime/streams.rs"]
+pub mod runtime_streams;
 #[path = "stream.rs"]
 pub mod stream;
 #[path = "stream/host.rs"]
@@ -57,10 +59,10 @@ pub mod stream_host;
 pub mod platform_fs_host;
 #[path = "platform/runtime/routing.rs"]
 pub mod platform_runtime_routing;
+#[path = "platform/runtime/streams.rs"]
+pub mod platform_runtime_streams;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
-#[path = "platform/stream/host.rs"]
-pub mod platform_stream_host;
 
 use crate::core_bytes::*;
 use crate::core_checked::*;
@@ -423,7 +425,7 @@ pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console,
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string())]);
     let console = crate::core_console::Console::shared(StdOutConsole::new());
-    let raw_streams = crate::stream_host::RawStreams::shared(crate::stream_host::__Platform_HostRawStreams::new());
+    let raw_streams = crate::stream_host::RawStreams::shared(HostRawStreams::new());
     let streams = crate::stream::Streams::shared(DefaultStreams::new(raw_streams.clone()));
     let raw_fs = crate::fs_host::RawFs::locked(crate::fs_host::__Platform_HostRawFs::new());
     let fs = crate::fs::Fs::shared(DefaultFs::new(raw_fs.clone(), streams.clone()));

@@ -50,7 +50,7 @@ fn compile_runtime_module(file: &str) {
     // [runtime-sched] The scheduler shims onto the Salvo core
     // (`std/runtime.sv`), and the wire and the stream table name the
     // scheduler, so those three compile only inside a generated program:
-    // they are checked in the actors example's output, with the current
+    // they are checked in the files example's output, with the current
     // sources put in place, and must add no warning of their own.
     if file == "scheduler.rs" || file == "wire.rs" || file == "hoststreams.rs" {
         compile_in_example(file, &rustc.version);
@@ -96,10 +96,10 @@ fn compile_runtime_module(file: &str) {
     stamp.verified();
 }
 
-/// [runtime-sched] Compiles the actors example's generated tree with the
+/// [runtime-sched] Compiles the files example's generated tree with the
 /// current runtime sources in place, and asserts no warning names `file`.
 fn compile_in_example(file: &str, version: &str) {
-    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/actors/rust");
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/files/rust");
     let sources: Vec<String> = ["scheduler.rs", "wire.rs", "hoststreams.rs", "hosttime.rs"]
         .iter()
         .map(|f| runtime_source(f))
@@ -126,7 +126,7 @@ fn compile_in_example(file: &str, version: &str) {
         .output()
         .expect("failed to run rustc");
     let noise = String::from_utf8_lossy(&out.stderr);
-    assert!(out.status.success(), "rustc rejected the actors example with runtime/{file}:\n{noise}");
+    assert!(out.status.success(), "rustc rejected the files example with runtime/{file}:\n{noise}");
     assert!(
         !noise.contains(&format!("/{file}:")),
         "runtime/{file} compiles with warnings, which would land in user output:\n{noise}"

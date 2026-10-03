@@ -23,11 +23,15 @@
 //
 // Not part of `core`, so it arrives by asking: `import stream`.
 
+import runtime.streams
+
 // [stream-handle] A handle for a new stream, unique in this process: every
 // stream table — the host's and the in-memory ones alike — draws from this one
 // counter, so a handle handed to the wrong table is *unknown* there, never
-// another stream's.
-export intrinsic fn fresh_handle() [] -> Long
+// another stream's. The counter is the runtime's stream table's.
+export fn fresh_handle() [] -> Long {
+    return fresh_handle@runtime.streams()
+}
 
 // ===== errors =====
 

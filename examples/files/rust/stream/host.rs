@@ -1,10 +1,15 @@
 use crate::core_actor::*;
 use crate::core_bytes::*;
 use crate::core_checked::*;
+use crate::core_deque::*;
 use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_map::*;
 use crate::core_result::*;
+use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::runtime_streams::*;
 use crate::stream::*;
 use crate::unions::*;
 
@@ -167,175 +172,6 @@ impl RawStreams {
     }
 }
 
-/// The adapter a `use` of a platform handler of `RawStreams` constructs [platform-abi].
-pub struct __Platform_RawStreams<T>(pub T);
-
-/// What a `threadsafe platform handler` of `RawStreams` implements [platform-abi].
-pub trait RawStreamsPlatformSync: Send + Sync {
-    fn raw_read_line(&self, handle: i64) -> Option<String>;
-    fn raw_read_all(&self, handle: i64) -> Union2<String, Union2<InvalidUtf8, StreamFailed>>;
-    fn raw_read_bytes(&self, handle: i64, max: i32) -> Union2<Vec<u8>, Union2<InvalidUtf8, StreamFailed>>;
-    fn raw_read_to_bytes(&self, handle: i64, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Union2<InvalidUtf8, StreamFailed>>;
-    fn raw_read_to_str(&self, handle: i64, buf: &mut String) -> Union2<i64, Union2<InvalidUtf8, StreamFailed>>;
-    fn raw_read_line_to_str(&self, handle: i64, buf: &mut String) -> bool;
-    fn raw_read_position(&self, handle: i64) -> i64;
-    fn raw_close_read(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>>;
-    fn raw_write(&self, handle: i64, text: &String) -> i64;
-    fn raw_write_bytes(&self, handle: i64, data: &Vec<u8>) -> i64;
-    fn raw_write_position(&self, handle: i64) -> i64;
-    fn raw_flush(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>>;
-    fn raw_close_write(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>>;
-    fn raw_receive(&self, handle: i64, reply: crate::scheduler::SalvoReply);
-    fn raw_from_bytes(&self, data: Vec<u8>) -> i64;
-}
-
-impl<T: RawStreamsPlatformSync> __Stateless_RawStreams for __Platform_RawStreams<T> {
-    fn raw_read_line(&self, handle: i64) -> Option<String> {
-        self.0.raw_read_line(handle)
-    }
-    fn raw_read_all(&self, handle: i64) -> Union2<String, Union2<InvalidUtf8, StreamFailed>> {
-        self.0.raw_read_all(handle)
-    }
-    fn raw_read_bytes(&self, handle: i64, max: i32) -> Union2<Vec<u8>, Union2<InvalidUtf8, StreamFailed>> {
-        self.0.raw_read_bytes(handle, max)
-    }
-    fn raw_read_to_bytes(&self, handle: i64, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Union2<InvalidUtf8, StreamFailed>> {
-        self.0.raw_read_to_bytes(handle, buf, max)
-    }
-    fn raw_read_to_str(&self, handle: i64, buf: &mut String) -> Union2<i64, Union2<InvalidUtf8, StreamFailed>> {
-        self.0.raw_read_to_str(handle, buf)
-    }
-    fn raw_read_line_to_str(&self, handle: i64, buf: &mut String) -> bool {
-        self.0.raw_read_line_to_str(handle, buf)
-    }
-    fn raw_read_position(&self, handle: i64) -> i64 {
-        self.0.raw_read_position(handle)
-    }
-    fn raw_close_read(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
-        self.0.raw_close_read(handle)
-    }
-    fn raw_write(&self, handle: i64, text: &String) -> i64 {
-        self.0.raw_write(handle, text)
-    }
-    fn raw_write_bytes(&self, handle: i64, data: &Vec<u8>) -> i64 {
-        self.0.raw_write_bytes(handle, data)
-    }
-    fn raw_write_position(&self, handle: i64) -> i64 {
-        self.0.raw_write_position(handle)
-    }
-    fn raw_flush(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
-        self.0.raw_flush(handle)
-    }
-    fn raw_close_write(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
-        self.0.raw_close_write(handle)
-    }
-    fn raw_receive(&self, handle: i64, reply: crate::scheduler::SalvoReply) {
-        self.0.raw_receive(handle, reply)
-    }
-    fn raw_from_bytes(&self, data: Vec<u8>) -> i64 {
-        self.0.raw_from_bytes(data)
-    }
-}
-
-/// Factories for the host: one per arm of the union [platform-factory].
-pub struct RawReadAll;
-
-impl RawReadAll {
-    pub fn ok(value: String) -> Union2<String, Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U1(value)
-    }
-    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<String, Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U2(value)
-    }
-}
-
-/// Factories for the host: one per arm of the union [platform-factory].
-pub struct RawReadBytes;
-
-impl RawReadBytes {
-    pub fn ok(value: Vec<u8>) -> Union2<Vec<u8>, Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U1(value)
-    }
-    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<Vec<u8>, Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U2(value)
-    }
-}
-
-/// Factories for the host: one per arm of the union [platform-factory].
-pub struct RawReadToBytes;
-
-impl RawReadToBytes {
-    pub fn ok(value: i32) -> Union2<i32, Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U1(value)
-    }
-    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<i32, Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U2(value)
-    }
-}
-
-/// Factories for the host: one per arm of the union [platform-factory].
-pub struct RawReadToStr;
-
-impl RawReadToStr {
-    pub fn ok(value: i64) -> Union2<i64, Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U1(value)
-    }
-    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<i64, Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U2(value)
-    }
-}
-
-/// Factories for the host: one per arm of the union [platform-factory].
-pub struct RawCloseRead;
-
-impl RawCloseRead {
-    pub fn ok(value: ()) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U1(value)
-    }
-    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U2(value)
-    }
-}
-
-/// Factories for the host: one per arm of the union [platform-factory].
-pub struct RawFlush;
-
-impl RawFlush {
-    pub fn ok(value: ()) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U1(value)
-    }
-    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U2(value)
-    }
-}
-
-/// Factories for the host: one per arm of the union [platform-factory].
-pub struct RawCloseWrite;
-
-impl RawCloseWrite {
-    pub fn ok(value: ()) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U1(value)
-    }
-    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union2::U2(value)
-    }
-}
-
-/// Factories for the host: one per arm of the union [platform-factory].
-pub struct RawReceive;
-
-impl RawReceive {
-    pub fn ok(value: Vec<u8>) -> Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union3::U1(value)
-    }
-    pub fn end(value: End) -> Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union3::U2(value)
-    }
-    pub fn err(value: Union2<InvalidUtf8, StreamFailed>) -> Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>> {
-        crate::unions::Union3::U3(value)
-    }
-}
-
 pub fn host_received(reply: crate::scheduler::SalvoReply, handle: i64, got: Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>) {
     match got {
         Union3::U1(_) => {
@@ -350,12 +186,194 @@ pub fn host_received(reply: crate::scheduler::SalvoReply, handle: i64, got: Unio
     }
 }
 
-pub type __Platform_HostRawStreams = crate::stream_host::__Platform_RawStreams<crate::platform_stream_host::HostRawStreams>;
+#[derive(Clone)]
+pub struct HostRawStreams {
+}
 
-impl __Platform_HostRawStreams {
+impl HostRawStreams {
     pub fn new() -> Self {
-        crate::stream_host::__Platform_RawStreams(crate::platform_stream_host::HostRawStreams::new())
+        Self {
+        }
     }
+}
+
+impl crate::stream_host::__Stateless_RawStreams for HostRawStreams {
+
+    fn raw_read_line(&self, handle: i64) -> Option<String> {
+        return next_line(handle);
+    }
+
+    fn raw_read_all(&self, handle: i64) -> Union2<String, Union2<InvalidUtf8, StreamFailed>> {
+        let mut e = checkout_in(handle.clone());
+        let mut r = read_all(&mut e);
+        let mut source = e.source.clone();
+        if r.fault.is_some() {
+            let mut f = r.fault.as_ref().unwrap().clone();
+            checkin_in(handle, e);
+            return Union2::<String, Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &f)));
+        }
+        let mut text = decode(&mut e, &r.data);
+        checkin_in(handle, e);
+        if text.is_some() {
+            let mut t = text.as_ref().unwrap().clone();
+            return Union2::<String, Union2<InvalidUtf8, StreamFailed>>::U1(ok(t));
+        }
+        return Union2::<String, Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &(crate::runtime_streams::Fault { utf8: true, message: "".to_string() }))));
+    }
+
+    fn raw_read_bytes(&self, handle: i64, max: i32) -> Union2<Vec<u8>, Union2<InvalidUtf8, StreamFailed>> {
+        let mut e = checkout_in(handle.clone());
+        let mut r = read_up_to(&mut e, max);
+        let mut source = e.source.clone();
+        checkin_in(handle, e);
+        if r.fault.is_some() {
+            let mut f = r.fault.as_ref().unwrap().clone();
+            return Union2::<Vec<u8>, Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &f)));
+        }
+        return Union2::<Vec<u8>, Union2<InvalidUtf8, StreamFailed>>::U1(ok(r.data.clone()));
+    }
+
+    fn raw_read_to_bytes(&self, handle: i64, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Union2<InvalidUtf8, StreamFailed>> {
+        let mut e = checkout_in(handle.clone());
+        let mut r = read_up_to(&mut e, max);
+        let mut source = e.source.clone();
+        checkin_in(handle, e);
+        if r.fault.is_some() {
+            let mut f = r.fault.as_ref().unwrap().clone();
+            return Union2::<i32, Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &f)));
+        }
+        buf.extend_from_slice(&r.data[..]);
+        return Union2::<i32, Union2<InvalidUtf8, StreamFailed>>::U1(ok((r.data.len() as i32)));
+    }
+
+    fn raw_read_to_str(&self, handle: i64, buf: &mut String) -> Union2<i64, Union2<InvalidUtf8, StreamFailed>> {
+        let mut e = checkout_in(handle.clone());
+        let mut r = read_all(&mut e);
+        let mut source = e.source.clone();
+        if r.fault.is_some() {
+            let mut f = r.fault.as_ref().unwrap().clone();
+            checkin_in(handle, e);
+            return Union2::<i64, Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &f)));
+        }
+        let mut count = (((r.data.len() as i32)) as i64);
+        let mut text = decode(&mut e, &r.data);
+        checkin_in(handle, e);
+        if text.is_some() {
+            let mut t = text.as_ref().unwrap().clone();
+            buf.push_str(&t[..]);
+            return Union2::<i64, Union2<InvalidUtf8, StreamFailed>>::U1(ok(count));
+        }
+        return Union2::<i64, Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &(crate::runtime_streams::Fault { utf8: true, message: "".to_string() }))));
+    }
+
+    fn raw_read_line_to_str(&self, handle: i64, buf: &mut String) -> bool {
+        let mut line = next_line(handle);
+        if line.is_some() {
+            let mut t = line.as_ref().unwrap().clone();
+            buf.push_str(&t[..]);
+            return true;
+        }
+        return false;
+    }
+
+    fn raw_read_position(&self, handle: i64) -> i64 {
+        let mut e = checkout_in(handle.clone());
+        let mut at = e.position;
+        checkin_in(handle, e);
+        return at;
+    }
+
+    fn raw_close_read(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        let mut e = checkout_in(handle.clone());
+        let mut source = e.source.clone();
+        let mut failed = close_in(handle, e);
+        if failed.is_some() {
+            let mut f = failed.as_ref().unwrap().clone();
+            return Union2::<(), Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &f)));
+        }
+        return Union2::<(), Union2<InvalidUtf8, StreamFailed>>::U1(ok(()));
+    }
+
+    fn raw_write(&self, handle: i64, text: &String) -> i64 {
+        let mut e = checkout_out(handle.clone());
+        let mut n = write(&mut e, &(text.as_bytes().to_vec()));
+        checkin_out(handle, e);
+        return n;
+    }
+
+    fn raw_write_bytes(&self, handle: i64, data: &Vec<u8>) -> i64 {
+        let mut e = checkout_out(handle.clone());
+        let mut n = write(&mut e, data);
+        checkin_out(handle, e);
+        return n;
+    }
+
+    fn raw_write_position(&self, handle: i64) -> i64 {
+        let mut e = checkout_out(handle.clone());
+        let mut at = e.position;
+        checkin_out(handle, e);
+        return at;
+    }
+
+    fn raw_flush(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        let mut e = checkout_out(handle.clone());
+        let mut source = e.source.clone();
+        let mut failed = flush__2(&mut e);
+        checkin_out(handle, e);
+        if failed.is_some() {
+            let mut f = failed.as_ref().unwrap().clone();
+            return Union2::<(), Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &f)));
+        }
+        return Union2::<(), Union2<InvalidUtf8, StreamFailed>>::U1(ok(()));
+    }
+
+    fn raw_close_write(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
+        let mut e = checkout_out(handle.clone());
+        let mut source = e.source.clone();
+        let mut failed = close_out(handle, e);
+        if failed.is_some() {
+            let mut f = failed.as_ref().unwrap().clone();
+            return Union2::<(), Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &f)));
+        }
+        return Union2::<(), Union2<InvalidUtf8, StreamFailed>>::U1(ok(()));
+    }
+
+    fn raw_receive(&self, handle: i64, reply: crate::scheduler::SalvoReply) {
+        receive(handle, ({ let __c0 = reply; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), Box::new(move |__v| chunk_received(__c0, *__v.downcast::<Chunk>().expect("the awaited answer"))), (|__b: &[u8]| crate::wire::salvo_decode::<Chunk>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))) }));
+    }
+
+    fn raw_from_bytes(&self, data: Vec<u8>) -> i64 {
+        return register_bytes(data);
+    }
+}
+
+pub fn chunk_received(reply: crate::scheduler::SalvoReply, c: Chunk) {
+    if c.fault.is_some() {
+        let mut f = c.fault.as_ref().unwrap().clone();
+        crate::scheduler::salvo_reply_wire::<Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>>(reply, Union3::<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>::U3(err(kind(c.source.clone(), &f))));
+    } else if c.end {
+        crate::scheduler::salvo_reply_wire::<Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>>(reply, Union3::<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>::U2(End {  }));
+    } else {
+        crate::scheduler::salvo_reply_wire::<Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>>(reply, Union3::<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>::U1(ok(c.data.clone())));
+    }
+}
+
+pub fn next_line(handle: i64) -> Option<String> {
+    let mut e = checkout_in(handle.clone());
+    let mut r = read_line(&mut e);
+    let mut text: Option<String> = None;
+    if !r.end && (r.fault.is_none()) {
+        text = decode(&mut e, &r.data);
+    }
+    checkin_in(handle, e);
+    return text;
+}
+
+pub fn kind(source: String, f: &crate::runtime_streams::Fault) -> Union2<InvalidUtf8, StreamFailed> {
+    if f.utf8 {
+        return Union2::<InvalidUtf8, StreamFailed>::U1(InvalidUtf8 { source: source });
+    }
+    return Union2::<InvalidUtf8, StreamFailed>::U2(StreamFailed { source: source, message: f.message.clone() });
 }
 
 #[derive(Clone)]

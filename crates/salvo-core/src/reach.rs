@@ -112,6 +112,24 @@ pub fn runtime_closure<'p>(
     reachable_from(program, resolution, checked, roots, false)
 }
 
+/// [stream-table] [platform-abi] The runtime's stream table service and what
+/// it reaches, when the program reaches it: what a host project carries in
+/// full beside the host code's entry points into it.
+pub fn streams_closure<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    checked: &crate::check::Checked,
+    reachable: &HashSet<&'p ModulePath>,
+) -> HashSet<&'p ModulePath> {
+    let Some(m) = program.units().find(|u| u.file.is_std && u.file.module.0 == ["runtime", "streams"]).map(|u| &u.file.module) else {
+        return HashSet::new();
+    };
+    if !reachable.contains(m) {
+        return HashSet::new();
+    }
+    reachable_from(program, resolution, checked, vec![m], false)
+}
+
 fn reachable_from<'p>(
     program: &'p Program,
     resolution: &Resolution<'p>,

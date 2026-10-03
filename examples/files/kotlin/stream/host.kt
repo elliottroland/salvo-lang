@@ -4,9 +4,14 @@ import salvo.*
 import salvo.core.actor.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
+import salvo.core.deque.*
+import salvo.core.list.*
+import salvo.core.map.*
 import salvo.core.result.*
+import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
+import salvo.runtime.streams.*
 import salvo.stream.*
 
 interface RawStreams {
@@ -108,92 +113,6 @@ class __Mon_RawStreams(
     }
 }
 
-// The interface a `platform handler` of `RawStreams` implements [platform-abi].
-interface RawStreamsPlatform {
-    fun rawReadLine(handle: Long): String?
-    fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>>
-    fun rawReadBytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>>
-    fun rawReadToBytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>>
-    fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>>
-    fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean
-    fun rawReadPosition(handle: Long): Long
-    fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
-    fun rawWrite(handle: Long, text: String): Long
-    fun rawWriteBytes(handle: Long, data: salvo.SalvoBytes): Long
-    fun rawWritePosition(handle: Long): Long
-    fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
-    fun rawCloseWrite(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
-    fun rawReceive(handle: Long, reply: salvo.SalvoReply)
-    fun rawFromBytes(data: salvo.SalvoBytes): Long
-}
-
-open class __Platform_RawStreams(private val impl: RawStreamsPlatform) : RawStreams {
-    override fun rawReadLine(handle: Long): String? = impl.rawReadLine(handle)
-    override fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>> = impl.rawReadAll(handle)
-    override fun rawReadBytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> = impl.rawReadBytes(handle, max)
-    override fun rawReadToBytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>> = impl.rawReadToBytes(handle, buf, max)
-    override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>> = impl.rawReadToStr(handle, buf)
-    override fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean = impl.rawReadLineToStr(handle, buf)
-    override fun rawReadPosition(handle: Long): Long = impl.rawReadPosition(handle)
-    override fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = impl.rawCloseRead(handle)
-    override fun rawWrite(handle: Long, text: String): Long = impl.rawWrite(handle, text)
-    override fun rawWriteBytes(handle: Long, data: salvo.SalvoBytes): Long = impl.rawWriteBytes(handle, data)
-    override fun rawWritePosition(handle: Long): Long = impl.rawWritePosition(handle)
-    override fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = impl.rawFlush(handle)
-    override fun rawCloseWrite(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = impl.rawCloseWrite(handle)
-    override fun rawReceive(handle: Long, reply: salvo.SalvoReply) = impl.rawReceive(handle, reply)
-    override fun rawFromBytes(data: salvo.SalvoBytes): Long = impl.rawFromBytes(data)
-}
-
-// Factories for the host: one per arm of the union [platform-factory].
-object RawReadAll {
-    fun ok(value: String): Union2<String, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
-    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<String, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
-}
-
-// Factories for the host: one per arm of the union [platform-factory].
-object RawReadBytes {
-    fun ok(value: salvo.SalvoBytes): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
-    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
-}
-
-// Factories for the host: one per arm of the union [platform-factory].
-object RawReadToBytes {
-    fun ok(value: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
-    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<Int, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
-}
-
-// Factories for the host: one per arm of the union [platform-factory].
-object RawReadToStr {
-    fun ok(value: Long): Union2<Long, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
-    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<Long, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
-}
-
-// Factories for the host: one per arm of the union [platform-factory].
-object RawCloseRead {
-    fun ok(value: Unit): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
-    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
-}
-
-// Factories for the host: one per arm of the union [platform-factory].
-object RawFlush {
-    fun ok(value: Unit): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
-    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
-}
-
-// Factories for the host: one per arm of the union [platform-factory].
-object RawCloseWrite {
-    fun ok(value: Unit): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U1(value)
-    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> = salvo.Union2.U2(value)
-}
-
-// Factories for the host: one per arm of the union [platform-factory].
-object RawReceive {
-    fun ok(value: salvo.SalvoBytes): Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>> = salvo.Union3.U1(value)
-    fun end(value: End): Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>> = salvo.Union3.U2(value)
-    fun err(value: Union2<InvalidUtf8, StreamFailed>): Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>> = salvo.Union3.U3(value)
-}
-
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun hostReceived(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>) {
     when (got) {
@@ -209,7 +128,193 @@ fun hostReceived(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.SalvoB
     }
 }
 
-class __Platform_HostRawStreams() : salvo.stream.host.__Platform_RawStreams(salvo.platform.stream.host.HostRawStreams())
+class HostRawStreams : RawStreams {
+
+    override fun rawReadLine(handle: Long): String? {
+        return nextLine(handle)
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    override fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>> {
+        val e = checkoutIn(handle)
+        val r = readAll(e)
+        val source = e.source
+        if (r.fault != null) {
+            val f = r.fault as salvo.runtime.streams.Fault
+            checkinIn(handle, e)
+            return Union2.U2<String, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, f)))
+        }
+        val text = decode(e, r.data)
+        checkinIn(handle, e)
+        if (text != null) {
+            val t = text as String
+            return Union2.U1<String, Union2<InvalidUtf8, StreamFailed>>(ok(t))
+        }
+        return Union2.U2<String, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, salvo.runtime.streams.Fault(utf8 = true, message = ""))))
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    override fun rawReadBytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> {
+        val e = checkoutIn(handle)
+        val r = readUpTo(e, max)
+        val source = e.source
+        checkinIn(handle, e)
+        if (r.fault != null) {
+            val f = r.fault as salvo.runtime.streams.Fault
+            return Union2.U2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, f)))
+        }
+        return Union2.U1<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>>(ok(r.data))
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    override fun rawReadToBytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>> {
+        val e = checkoutIn(handle)
+        val r = readUpTo(e, max)
+        val source = e.source
+        checkinIn(handle, e)
+        if (r.fault != null) {
+            val f = r.fault as salvo.runtime.streams.Fault
+            return Union2.U2<Int, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, f)))
+        }
+        buf.append(r.data)
+        return Union2.U1<Int, Union2<InvalidUtf8, StreamFailed>>(ok(r.data.size))
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>> {
+        val e = checkoutIn(handle)
+        val r = readAll(e)
+        val source = e.source
+        if (r.fault != null) {
+            val f = r.fault as salvo.runtime.streams.Fault
+            checkinIn(handle, e)
+            return Union2.U2<Long, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, f)))
+        }
+        val count = (r.data.size).toLong()
+        val text = decode(e, r.data)
+        checkinIn(handle, e)
+        if (text != null) {
+            val t = text as String
+            buf.append(t)
+            return Union2.U1<Long, Union2<InvalidUtf8, StreamFailed>>(ok(count))
+        }
+        return Union2.U2<Long, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, salvo.runtime.streams.Fault(utf8 = true, message = ""))))
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    override fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean {
+        val line = nextLine(handle)
+        if (line != null) {
+            val t = line as String
+            buf.append(t)
+            return true
+        }
+        return false
+    }
+
+    override fun rawReadPosition(handle: Long): Long {
+        val e = checkoutIn(handle)
+        val at = e.position
+        checkinIn(handle, e)
+        return at
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    override fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
+        val e = checkoutIn(handle)
+        val source = e.source
+        val failed = closeIn(handle, e)
+        if (failed != null) {
+            val f = failed as salvo.runtime.streams.Fault
+            return Union2.U2<Unit, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, f)))
+        }
+        return Union2.U1<Unit, Union2<InvalidUtf8, StreamFailed>>(ok(Unit))
+    }
+
+    override fun rawWrite(handle: Long, text: String): Long {
+        val e = checkoutOut(handle)
+        val n = write(e, salvo.SalvoBytes.ofUtf8(text))
+        checkinOut(handle, e)
+        return n
+    }
+
+    override fun rawWriteBytes(handle: Long, data: salvo.SalvoBytes): Long {
+        val e = checkoutOut(handle)
+        val n = write(e, data)
+        checkinOut(handle, e)
+        return n
+    }
+
+    override fun rawWritePosition(handle: Long): Long {
+        val e = checkoutOut(handle)
+        val at = e.position
+        checkinOut(handle, e)
+        return at
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    override fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
+        val e = checkoutOut(handle)
+        val source = e.source
+        val failed = flush__2(e)
+        checkinOut(handle, e)
+        if (failed != null) {
+            val f = failed as salvo.runtime.streams.Fault
+            return Union2.U2<Unit, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, f)))
+        }
+        return Union2.U1<Unit, Union2<InvalidUtf8, StreamFailed>>(ok(Unit))
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    override fun rawCloseWrite(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
+        val e = checkoutOut(handle)
+        val source = e.source
+        val failed = closeOut(handle, e)
+        if (failed != null) {
+            val f = failed as salvo.runtime.streams.Fault
+            return Union2.U2<Unit, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, f)))
+        }
+        return Union2.U1<Unit, Union2<InvalidUtf8, StreamFailed>>(ok(Unit))
+    }
+
+    override fun rawReceive(handle: Long, reply: salvo.SalvoReply) {
+        receive(handle, run { val __c0 = reply; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Chunk) }) { __v -> chunkReceived(__c0, __v as Chunk) } })
+    }
+
+    override fun rawFromBytes(data: salvo.SalvoBytes): Long {
+        return registerBytes(data)
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun chunkReceived(reply: salvo.SalvoReply, c: Chunk) {
+    if (c.fault != null) {
+        val f = c.fault as salvo.runtime.streams.Fault
+        salvo.SalvoSched.replyWire(reply, Union3.U3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>(err(kind(c.source, f))), salvo.Union3Codec(salvo.BytesCodec, __Codec_End, salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed)))
+    } else if (c.end) {
+        salvo.SalvoSched.replyWire(reply, Union3.U2<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>(End()), salvo.Union3Codec(salvo.BytesCodec, __Codec_End, salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed)))
+    } else {
+        salvo.SalvoSched.replyWire(reply, Union3.U1<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>(ok(salvo.SalvoBytes(c.data))), salvo.Union3Codec(salvo.BytesCodec, __Codec_End, salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed)))
+    }
+}
+
+fun nextLine(handle: Long): String? {
+    val e = checkoutIn(handle)
+    val r = readLine(e)
+    var text: String? = null
+    if (!r.end && (r.fault == null)) {
+        text = decode(e, r.data)
+    }
+    checkinIn(handle, e)
+    return text
+}
+
+fun kind(source: String, f: salvo.runtime.streams.Fault): Union2<InvalidUtf8, StreamFailed> {
+    if (f.utf8) {
+        return Union2.U1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source))
+    }
+    return Union2.U2<InvalidUtf8, StreamFailed>(StreamFailed(source = source, message = f.message))
+}
 
 class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
 

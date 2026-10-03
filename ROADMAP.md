@@ -75,8 +75,9 @@ now shims onto it, with routing still on host-side tables; all four
 benchmarks within the 1.5× budget on both backends) and 11e (routing in
 Salvo, the service `runtime.routing`); type identity by declaration
 [type-identity] is done too, and step 12 (routes wait on their view,
-`route_any`/`RouteSelector`). and step 13 (a `Dedicated` pool's thread ends with its actor). Next: step
-14 (the stream table in Salvo).
+`route_any`/`RouteSelector`). step 13 (a `Dedicated` pool's thread ends with its actor) and step 14 (the
+stream table in Salvo, `runtime.streams`). Next: step 15 (the virtual
+runtime).
 When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
@@ -173,6 +174,12 @@ a correct program from building. std works around the first by naming.
    `Duration` emits `Duration { … }` there (E0422). `net`'s
    `default_route_config()` builds `RouteConfig {}` in its own module
    instead.
+13. **A handler and a type of one name clash in Kotlin output**: Salvo keeps
+   handlers and types in separate namespaces, but the Kotlin classes share a
+   package's star-import space, so `runtime.streams`' handler `Streams`
+   beside `stream`'s effect `Streams` was ambiguous to kotlinc. The handler
+   was renamed (`HostStreamTable`); [type-identity] tracks the two
+   namespaces separately, so the emitter should qualify across them too.
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 

@@ -30,10 +30,10 @@ fn runtime_source(file: &str) -> String {
 
 /// [runtime-sched] The scheduler shims onto the Salvo core
 /// (`std/runtime.sv`), so it compiles only beside a generated runtime: the
-/// actors example's checked-in output, without its `main.kt`, with the
+/// files example's checked-in output, without its `main.kt`, with the
 /// current runtime sources put in place. Answers every source file written.
 fn example_sources(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/actors/kotlin");
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/files/kotlin");
     let mut out = Vec::new();
     copy_kt(&example, dir, &example, &mut out);
     for file in ["scheduler.kt", "wire.kt", "hoststreams.kt", "hosttime.kt", "bytes.kt"] {
@@ -59,7 +59,7 @@ fn copy_kt(from: &std::path::Path, to: &std::path::Path, root: &std::path::Path,
 /// The checked-in generated runtime a driver compiles against: part of the
 /// cache key, so a change to the core re-runs the cases.
 fn example_runtime() -> Vec<u8> {
-    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/actors/kotlin");
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/files/kotlin");
     std::fs::read(example.join("runtime.kt")).unwrap_or_default()
 }
 

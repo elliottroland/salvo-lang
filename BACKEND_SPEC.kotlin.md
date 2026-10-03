@@ -889,7 +889,7 @@ nothing but the monitor.
   | `struct S { f: T }` | `data class S(val f: T)` with the field names in camel case [kt-camel]; a dot-name `A.B` is `A.B`, nested in an `object` [kt-nested-dot-name]; a keyword is back-quoted |
   | `Checked<T>` | `salvo.core.checked.Checked(value)` |
   | `Reply<T>` parameter | `salvo.SalvoReply`; `.hosted()` answers the host reply whose `send(v)` may run on any thread, exactly once [platform-reply] |
-  | `InStream` / `OutStream` | `salvo.stream.InStream(handle: Long)`; the table (`hoststreams.kt`) is `SalvoStreams.registerIn/registerOut`, `inStream/outStream`, `takeIn/takeOut`, over `SalvoIn`/`SalvoOut`, whose failures are `SalvoFaultException` [stream-table] |
+  | `InStream` / `OutStream` | `salvo.stream.InStream(handle: Long)`; the table is Salvo (`runtime.streams`); host code reaches it through `hoststreams.kt`'s `SalvoStreams.registerIn/registerOut` and `takeIn` (a `SalvoIn` reader whose failures are `SalvoFaultException`) [stream-table] |
   | `platform handler H(p: T) of E` | `class H(p: T) : EPlatform`, every member `override`n [kt-platform-handler] |
 
 * [kt-abi] [platform-abi] **The Kotlin host project** is `emit_abi`: the

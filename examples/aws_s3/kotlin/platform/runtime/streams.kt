@@ -1,0 +1,66 @@
+// Host implementation of the platform declarations of Salvo module
+// `runtime.streams`: the host stream objects and the leaf operations on them
+// (RUNTIME.md §3.4). The table, buffering, positions and failure recording
+// are Salvo. Written by hand, against the generated `streams.sv.kt`.
+package salvo.platform.runtime.streams
+
+/** `linear platform type HostIn canbe Mut`: a host stream to read. */
+class HostIn(val input: java.io.InputStream)
+
+/** `linear platform type HostOut canbe Mut`: a host stream to write. */
+class HostOut(val output: java.io.OutputStream)
+
+private fun message(e: Exception): String = e.message ?: e.toString()
+
+fun hostRead(h: HostIn, max: Int): salvo.runtime.streams.HostRead {
+    val scratch = ByteArray(if (max < 0) 0 else max)
+    return try {
+        val n = if (scratch.isEmpty()) 0 else h.input.read(scratch, 0, scratch.size)
+        val got = if (n <= 0) ByteArray(0) else scratch.copyOf(n)
+        salvo.runtime.streams.HostRead(salvo.SalvoBytes(got), null)
+    } catch (e: Exception) {
+        salvo.runtime.streams.HostRead(salvo.SalvoBytes(), message(e))
+    }
+}
+
+fun hostCloseIn(h: HostIn) {
+    try {
+        h.input.close()
+    } catch (e: Exception) {
+    }
+}
+
+fun hostWrite(h: HostOut, data: salvo.SalvoBytes): String? =
+    try {
+        h.output.write(data.toByteArray())
+        null
+    } catch (e: Exception) {
+        message(e)
+    }
+
+fun hostFlush(h: HostOut): String? =
+    try {
+        h.output.flush()
+        null
+    } catch (e: Exception) {
+        message(e)
+    }
+
+fun hostCloseOut(h: HostOut): String? {
+    val flushed = hostFlush(h)
+    return try {
+        h.output.close()
+        flushed
+    } catch (e: Exception) {
+        flushed ?: message(e)
+    }
+}
+
+fun hostBytesIn(data: salvo.SalvoBytes): HostIn = HostIn(java.io.ByteArrayInputStream(data.toByteArray()))
+
+/** [stream-provider] A handle the table never minted. */
+fun notOurs(handle: Long): Nothing =
+    throw IllegalStateException(
+        "salvo: stream handle $handle is not the host's: a stream belongs to the provider " +
+            "that minted it [stream-provider]",
+    )
