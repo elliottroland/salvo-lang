@@ -83,6 +83,20 @@ pub fn runtime_module(program: &Program) -> Option<&ModulePath> {
         .map(|u| &u.file.module)
 }
 
+/// [runtime-sched] The routing service (`std/runtime/routing.sv`), which the
+/// host's scheduler shims call: it ships wherever the runtime does.
+pub fn routing_module(program: &Program) -> Option<&ModulePath> {
+    program
+        .units()
+        .find(|u| {
+            u.file.is_std
+                && u.file.module.0.len() == 2
+                && u.file.module.0[0] == crate::resolve::STD_INTERNAL
+                && u.file.module.0[1] == "routing"
+        })
+        .map(|u| &u.file.module)
+}
+
 /// [runtime-sched] [platform-abi] The runtime module and every module it
 /// reaches: what a host project emits in full beside the scheduler, which
 /// calls into it.
@@ -91,10 +105,11 @@ pub fn runtime_closure<'p>(
     resolution: &Resolution<'p>,
     checked: &crate::check::Checked,
 ) -> HashSet<&'p ModulePath> {
-    match runtime_module(program) {
-        Some(m) => reachable_from(program, resolution, checked, vec![m], false),
-        None => HashSet::new(),
+    let roots: Vec<&ModulePath> = runtime_module(program).into_iter().chain(routing_module(program)).collect();
+    if roots.is_empty() {
+        return HashSet::new();
     }
+    reachable_from(program, resolution, checked, roots, false)
 }
 
 fn reachable_from<'p>(
@@ -157,9 +172,18 @@ fn reachable_from<'p>(
                     .any(|w| code.contains(w))
             })
     });
-    match runtime_module {
-        Some(m) if uses_actors && !reachable.contains(m) => queue.push(m),
-        _ => break,
+    // The routing service ships with the runtime however the runtime was
+    // reached: the host's shims call both.
+    let Some(m) = runtime_module else { break };
+    if uses_actors || reachable.contains(m) {
+        for needed in std::iter::once(m).chain(routing_module(program)) {
+            if !reachable.contains(needed) {
+                queue.push(needed);
+            }
+        }
+    }
+    if queue.is_empty() {
+        break;
     }
     }
     reachable

@@ -4,6 +4,7 @@
 // salvo-abi 1 023a4214a13ba612
 package salvo.core.sorted
 
+import salvo.core.bytes.*
 import salvo.core.deque.*
 import salvo.core.list.*
 import salvo.core.map.*

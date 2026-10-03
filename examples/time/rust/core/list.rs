@@ -1,4 +1,5 @@
 use crate::collections::*;
+use crate::core_bytes::*;
 use crate::core_checked::*;
 use crate::core_deque::*;
 use crate::core_iterator::*;

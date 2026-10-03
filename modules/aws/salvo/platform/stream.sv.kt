@@ -5,6 +5,7 @@
 package salvo.stream
 
 import salvo.core.actor.*
+import salvo.core.bytes.*
 import salvo.core.checked.*
 import salvo.core.deque.*
 import salvo.core.iterator.*

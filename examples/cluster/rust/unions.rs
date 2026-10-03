@@ -264,6 +264,134 @@ where
     }
 }
 
+impl<T1: crate::wire::__Wire, T2: crate::wire::__Wire, T3: crate::wire::__Wire, T4: crate::wire::__Wire, T5: crate::wire::__Wire> crate::wire::__Wire for Union5<T1, T2, T3, T4, T5> {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            Union5::U1(v) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(v, out);
+            }
+            Union5::U2(v) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(v, out);
+            }
+            Union5::U3(v) => {
+                out.push(2);
+                crate::wire::__Wire::__enc(v, out);
+            }
+            Union5::U4(v) => {
+                out.push(3);
+                crate::wire::__Wire::__enc(v, out);
+            }
+            Union5::U5(v) => {
+                out.push(4);
+                crate::wire::__Wire::__enc(v, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(Union5::U1(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(Union5::U2(crate::wire::__Wire::__dec(r)?)),
+            2 => Some(Union5::U3(crate::wire::__Wire::__dec(r)?)),
+            3 => Some(Union5::U4(crate::wire::__Wire::__dec(r)?)),
+            4 => Some(Union5::U5(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Union5<T1, T2, T3, T4, T5> {
+    U1(T1),
+    U2(T2),
+    U3(T3),
+    U4(T4),
+    U5(T5),
+}
+
+impl<T1, T2, T3, T4, T5> Union5<T1, T2, T3, T4, T5> {
+    pub fn u1(&self) -> &T1 {
+        match self {
+            Union5::U1(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u1_mut(&mut self) -> &mut T1 {
+        match self {
+            Union5::U1(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u2(&self) -> &T2 {
+        match self {
+            Union5::U2(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u2_mut(&mut self) -> &mut T2 {
+        match self {
+            Union5::U2(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u3(&self) -> &T3 {
+        match self {
+            Union5::U3(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u3_mut(&mut self) -> &mut T3 {
+        match self {
+            Union5::U3(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u4(&self) -> &T4 {
+        match self {
+            Union5::U4(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u4_mut(&mut self) -> &mut T4 {
+        match self {
+            Union5::U4(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u5(&self) -> &T5 {
+        match self {
+            Union5::U5(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u5_mut(&mut self) -> &mut T5 {
+        match self {
+            Union5::U5(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+}
+
+impl<T1, T2, T3, T4, T5> std::fmt::Display for Union5<T1, T2, T3, T4, T5>
+where
+    T1: std::fmt::Display,
+    T2: std::fmt::Display,
+    T3: std::fmt::Display,
+    T4: std::fmt::Display,
+    T5: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Union5::U1(v) => write!(f, "{}", v),
+            Union5::U2(v) => write!(f, "{}", v),
+            Union5::U3(v) => write!(f, "{}", v),
+            Union5::U4(v) => write!(f, "{}", v),
+            Union5::U5(v) => write!(f, "{}", v),
+        }
+    }
+}
+
 impl<T1: crate::wire::__Wire, T2: crate::wire::__Wire, T3: crate::wire::__Wire, T4: crate::wire::__Wire, T5: crate::wire::__Wire, T6: crate::wire::__Wire> crate::wire::__Wire for Union6<T1, T2, T3, T4, T5, T6> {
     fn __enc(&self, out: &mut Vec<u8>) {
         match self {

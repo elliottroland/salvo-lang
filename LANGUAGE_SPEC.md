@@ -5842,6 +5842,22 @@ between endpoints and delivers what arrives into the scheduler.
   addr never learns which. The same `send`/`waitfor`/`replyto` code runs
   unchanged. `Addr<E>` has a wire form exactly when `E` has one (a proxy is
   only good for sends that can be framed), `Reply<T>` when `T` has one.
+  * **The routing is the service `runtime.routing`** [runtime-layers]
+    (2026-10-03, RUNTIME.md §11.5 step 11): identities, proxies, credits,
+    routes and the frames, written once in Salvo. Frames are one union,
+    `RtMsgFrame | RtAnswerFrame | RtGrantFrame | RtOpenFrame |
+    RtControlFrame`, in the canonical encoding [wire-format] (D4), so no
+    hand-written frame code is left in either host. An actor's capability
+    bits are minted the first time its identity is asked for, which is the
+    first time its addr leaves its node; an identity claiming bits for an
+    actor that never left is the shared dead entry. The core marks a proxy's
+    entry, so a send to it is handed back to the typed send, which encodes it
+    and passes it on; a local send never consults the routing table. What
+    stays with each host is what only generated code knows, reached through
+    the service's platform fns: each actor's message decoder, each waiting
+    frame's and exported task's answer decoder, each control sink's message
+    builder, and each node's outbound hook. The route-stub views and
+    `key_hash` stay host-side until step 12.
   * **`NodeId`** (2026-09-27) is the identity of a node as a Salvo struct
     (`struct NodeId : Hashed<self> by auto { id: Long }`), answered by
     `this_node()`/`new_node()`/`node_of(addr)` and taken by `pool_at`,

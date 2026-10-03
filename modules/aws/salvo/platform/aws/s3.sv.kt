@@ -7,6 +7,7 @@ package salvo.aws.s3
 import salvo.*
 import salvo.aws.*
 import salvo.core.actor.*
+import salvo.core.bytes.*
 import salvo.core.checked.*
 import salvo.core.list.*
 import salvo.core.map.*

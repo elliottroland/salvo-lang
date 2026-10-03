@@ -8791,7 +8791,18 @@ impl<'p> Emitter<'p> {
         // checker has already refused a type with no wire form at this call.
         if f.intrinsic && matches!(f.name.name.as_str(), "encode" | "decode") && args.len() == 1 {
             self.needs_wire = true;
-            let target: Option<Ty> = if f.name.name == "encode" {
+            // An explicit type argument wins for `encode` too: the argument
+            // may be coerced to it (`encode<Frame>(Grant { … })` encodes the
+            // union, tag included).
+            let explicit = self
+                .checked
+                .call_type_args
+                .get(&(self.file_idx, span))
+                .and_then(|tys| tys.first().cloned())
+                .filter(ty_is_concrete);
+            let target: Option<Ty> = if f.name.name == "encode" && explicit.is_some() {
+                explicit
+            } else if f.name.name == "encode" {
                 self.checked
                     .expr_ty
                     .get(&(self.file_idx, args[0].span()))

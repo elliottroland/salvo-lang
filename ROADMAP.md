@@ -72,8 +72,9 @@ types and fns) 8 (`Parker`), 9
 (`start_thread`, `guarded`), 11c (projections of linear elements) and the
 11d (the local scheduler core, and the cutover: both hosts' schedulers are
 now shims onto it, with routing still on host-side tables; all four
-benchmarks within the 1.5× budget on both backends). Next in 11: routing,
-then module-aware type tables (0c item 8).
+benchmarks within the 1.5× budget on both backends) and 11e (routing in
+Salvo, the service `runtime.routing`). Next: module-aware type tables (0c
+item 8), then step 12.
 When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
@@ -167,6 +168,12 @@ a correct program from building. std works around the first by naming.
    predicate onto it. Private std function names, which still share the
    mangling space with user code (why `work` became `serve_pool`), get the
    same treatment. Then drop the `Rt` prefix.
+9. **An `is` binding is not in scope later in its own `&&` chain on Rust**:
+   `if b is Long known && known == x { … }` emits `(b.is_some()) && known ==
+   x` (E0425). Kotlin is right. `std/runtime/routing.sv` nests the test.
+10. **A `Map` whose values are linear does not build on Rust**: the empty
+   literal lowers to `SalvoMap::from_entries`, which needs `Clone`. The
+   routing service keeps exported tasks in two index-aligned lists instead.
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 

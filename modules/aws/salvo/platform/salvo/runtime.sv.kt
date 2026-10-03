@@ -95,9 +95,9 @@ fun dropBody(b: RtBody) {}
 
 // [remote-backpressure] The routing layer's: a GRANT staged for the next
 // flush, and the flush.
-fun granted(addr: Int, from: Long) = salvo.SalvoSched.granted(addr, from)
+fun granted(addr: Int, pool: Int, from: Long) = salvo.runtime.routing.creditBack(addr, pool, from)
 
-fun flushFrames() = salvo.SalvoSched.flushFrames()
+fun flushFrames() = salvo.runtime.routing.flush()
 
 fun exitProcess(code: Int): Nothing = kotlin.system.exitProcess(code)
 

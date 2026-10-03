@@ -94,25 +94,26 @@ export linear platform type Dyn
 export platform fn erase<T canbe linear>(v: T) [] -> Dyn => !v
 export platform fn unerase<T canbe linear>(d: Dyn) [] -> T => !d
 // Drops an erased value nobody is owed anything for: a message to the dead.
-platform fn drop_dyn(d: Dyn) [] -> None => !d
+export platform fn drop_dyn(d: Dyn) [] -> None => !d
 
 // An actor's body: what its activations run. Owned by one holder — the
 // table, or the thread running it — and moved between them, which is how
 // one actor never runs twice at once. [kind] is 0 for a message and 1 for
 // an answer to the continuation parked at [slot].
-linear platform type RtBody
+export linear platform type RtBody
 platform fn body_of(f: (kind: Int, slot: Long, value: Dyn) -> None) [] -> RtBody
 =>[f] !value => !f
 // Runs one activation of [b] inside the fault boundary, handing the body
 // back with `None` or with the fault that ended the activation.
 platform fn activate(b: RtBody, kind: Int, slot: Long, value: Dyn) [] -> RtRan
 => !b, !kind, !slot, !value
-platform fn drop_body(b: RtBody) [] -> None => !b
+export platform fn drop_body(b: RtBody) [] -> None => !b
 
-// [remote-backpressure] Grants node [from] one credit for actor [addr]: a
-// GRANT frame, staged by the routing layer and sent once the scheduler's
-// lock is released (`flush_frames`).
-platform fn granted(addr: Int, from: Long) [] -> None => addr, from
+// [remote-backpressure] Grants node [from] one credit for actor [addr], on
+// [pool]: a GRANT frame, staged by the routing service and sent once the
+// scheduler's lock is released (`flush_frames`). Called with the lock held,
+// so it must not call back into the scheduler.
+platform fn granted(addr: Int, pool: Int, from: Long) [] -> None => addr, pool, from
 
 // Sends the frames the routing layer staged under the scheduler's lock.
 platform fn flush_frames() [] -> None
@@ -220,11 +221,14 @@ linear struct RtActorRec canbe Mut {
     // [actor-on-idle] Tokens aimed at it that nobody has answered.
     owed: Int,
     // On its pool's ready queue.
-    ready: Bool
+    ready: Bool,
+    // [addr-routable] A proxy of an actor on another node: a send to it is
+    // handed back, to be encoded and routed.
+    proxy: Bool
 }
 
 fn drop_actor_rec(a: RtActorRec) [] -> None => !a {
-    let {body, pool, bound, queue, slots, user_len, gate, running, dead, exit_reason, blocked, watchers, owed, ready} = a
+    let {body, pool, bound, queue, slots, user_len, gate, running, dead, exit_reason, blocked, watchers, owed, ready, proxy} = a
     drop_slot(body)
     drain(queue, e -> drop_entry(e))
     drain(watchers, t -> drop_token(t))
@@ -337,6 +341,12 @@ fn drop_run_task(t: RtRunTask) [] -> None => !t {
 struct RtSent {}
 struct RtDead {}
 linear struct RtFull { msg: Dyn }
+linear struct RtRemote { msg: Dyn }
+
+fn drop_remote(r: RtRemote) [] -> None => !r {
+    let {msg} = r
+    drop_dyn(msg)
+}
 
 fn drop_full(f: RtFull) [] -> None => !f {
     let {msg} = f
@@ -372,7 +382,8 @@ effect SchedTable {
     fn new_actor(pool: Int, bound: Int, body: RtBody) -> Int => !pool, !bound, !body
     // Enqueues a message: `RtSent`, `RtDead` (dropped), or `RtFull` — the message
     // comes back and [waiter] is recorded to be woken by the next dequeue.
-    fn enqueue(addr: Int, msg: Dyn, waiter: Parker) -> RtSent | RtDead | RtFull => !addr, !msg, !waiter
+    fn enqueue(addr: Int, msg: Dyn, waiter: Parker) -> RtSent | RtDead | RtFull | RtRemote => !addr, !msg, !waiter
+    fn set_proxy(addr: Int) -> None => !addr
     // [addr-routable] A message that came over the wire from [from]: past
     // nothing — its room was granted as a credit — and granted back when
     // dequeued. `false` for an unknown or dead actor (the message dropped).
@@ -400,6 +411,7 @@ effect SchedTable {
     fn finish(addr: Int, body: RtBody, fault: Str?) -> None => !addr, !body, !fault
     fn task_done(pool: Int, fault: Str?) -> None => !pool, !fault
     fn pool_of_actor(addr: Int) -> Int => addr
+    fn pool_of_waiter(wid: Int) -> Int => wid
     fn external(delta: Int) -> None => !delta
     // [remote-backpressure] Room left in [addr]'s mailbox, and messages
     // queued there.
@@ -436,12 +448,12 @@ handler Scheduler() of SchedTable {
         add(actors, Mut RtActorRec {
             body: slot_of(body), pool: pool, bound: bound, queue: mut_deque_of(), slots: mut_deque_of(),
             user_len: 0, gate: None, running: false, dead: false, exit_reason: "",
-            blocked: mut_list_of(), watchers: mut_list_of(), owed: 0, ready: false
+            blocked: mut_list_of(), watchers: mut_list_of(), owed: 0, ready: false, proxy: false
         })
         return size(actors) - 1
     }
 
-    fn enqueue(addr: Int, msg: Dyn, waiter: Parker) -> RtSent | RtDead | RtFull => !addr, !msg, !waiter {
+    fn enqueue(addr: Int, msg: Dyn, waiter: Parker) -> RtSent | RtDead | RtFull | RtRemote => !addr, !msg, !waiter {
         if addr < 0 || addr >= size(actors) {
             drop_dyn(msg)
             return RtDead {}
@@ -450,6 +462,9 @@ handler Scheduler() of SchedTable {
         if a.dead {
             drop_dyn(msg)
             return RtDead {}
+        }
+        if a.proxy {
+            return RtRemote { msg: msg }
         }
         if a.user_len >= a.bound {
             add(a.blocked, waiter)
@@ -688,6 +703,15 @@ handler Scheduler() of SchedTable {
 
     fn pool_of_actor(addr: Int) -> Int => addr {
         return copy(get(actors, addr)!.pool)
+    }
+
+    fn set_proxy(addr: Int) -> None => !addr {
+        let a = get(actors, addr)!
+        a.proxy = true
+    }
+
+    fn pool_of_waiter(wid: Int) -> Int => wid {
+        return copy(get(waiters, wid)!.pool)
     }
 
     fn room(addr: Int) -> Int => addr {
@@ -940,7 +964,7 @@ fn work_of(a: Mut RtActorRec, addr: Int, e: RtEntry, body: RtBody) [] -> RtWork?
         // [remote-backpressure] A remote sender's message left the queue:
         // that node gets one credit back for this actor.
         if from >= 0 {
-            granted(copy(addr), from)
+            granted(copy(addr), copy(a.pool), from)
         }
         return RtRunActor { addr: addr, pool: copy(a.pool), kind: 0, slot: 0, value: msg, body: body }
     }
@@ -1040,8 +1064,18 @@ export fn spawn_body(pool: Int, bound: Int, body: RtBody) [] -> Int => !pool, !b
 }
 
 // [runtime-sched] Sends [msg] to [addr], waiting while its mailbox is full;
-// a send to the dead is the silent no-op.
+// a send to the dead is the silent no-op, and so is an untyped send to a
+// proxy, which has no encoding to route.
 export fn send_dyn(addr: Int, msg: Dyn) [] -> None => !addr, !msg {
+    let back = send_or_back(addr, msg)
+    if back is Dyn d {
+        drop_dyn(d)
+    }
+}
+
+// [addr-routable] The same, but a send to a proxy hands [msg] back, for the
+// caller to encode and route.
+export fn send_or_back(addr: Int, msg: Dyn) [] -> Dyn? => !addr, !msg {
     let r = enqueue(copy(addr), msg, this_parker())
     while r is RtFull full {
         // [main-pool] Blocking here would be a guaranteed wedge: the only
@@ -1054,11 +1088,23 @@ export fn send_dyn(addr: Int, msg: Dyn) [] -> None => !addr, !msg {
         let {msg: back} = full
         r = enqueue(copy(addr), back, this_parker())
     }
-    // The loop leaves only on `RtSent` or `RtDead`; the checker does not narrow
-    // past a `while`, so the `RtFull` case is spelled, and unreachable.
+    // The loop leaves only on `RtSent`, `RtDead` or `RtRemote`; the checker
+    // does not narrow past a `while`, so the `RtFull` case is spelled, and
+    // unreachable.
     if r is RtFull full {
         drop_full(full)
+        return None
     }
+    if r is RtRemote remote {
+        let {msg: back} = remote
+        return back
+    }
+    return None
+}
+
+// [addr-routable] Marks [addr] a proxy: sends to it are handed back.
+export fn mark_proxy(addr: Int) [] -> None => !addr {
+    set_proxy(addr)
 }
 
 // [actor-replyto] A token answering [addr]'s continuation; [gated], the
@@ -1251,4 +1297,20 @@ export fn mailbox_dead(addr: Int) [] -> Bool => addr {
 // [addr-capability] Fresh capability bits, for an identity the host mints.
 export fn identity_bits() [] -> Long {
     return fresh_bits()
+}
+
+// [addr-routable] The pool actor [addr] runs on.
+export fn actor_pool(addr: Int) [] -> Int => addr {
+    return pool_of_actor(addr)
+}
+
+// [addr-routable] The pool waiting frame [wid] waits on.
+export fn waiter_pool(wid: Int) [] -> Int => wid {
+    return pool_of_waiter(wid)
+}
+
+// [addr-routable] An actor that does nothing with what it is sent: the
+// table entry a proxy, or the shared dead entry, stands on.
+export fn spawn_inert() [] -> Int {
+    return spawn_body(0, 0, body_of((kind, slot, value) -> drop_dyn(value)))
 }

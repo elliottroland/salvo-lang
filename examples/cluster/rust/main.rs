@@ -45,12 +45,16 @@ pub mod core_string;
 pub mod net;
 #[path = "runtime.rs"]
 pub mod runtime;
+#[path = "runtime/routing.rs"]
+pub mod runtime_routing;
 #[path = "runtime/timers.rs"]
 pub mod runtime_timers;
 #[path = "time.rs"]
 pub mod time;
 #[path = "platform/net.rs"]
 pub mod platform_net;
+#[path = "platform/runtime/routing.rs"]
+pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
 

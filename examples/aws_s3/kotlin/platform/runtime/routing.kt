@@ -1,0 +1,39 @@
+// Host implementation of the platform declarations of Salvo module
+// `runtime.routing`: what only the generated code knows — each actor's
+// message decoder, each waiting frame's and exported task's answer decoder,
+// each control sink's message builder, and each node's outbound hook — read
+// from what the scheduler's shims registered (`scheduler.kt`). Written by
+// hand, against the generated `routing.sv.kt`.
+package salvo.platform.runtime.routing
+
+import salvo.SalvoBytes
+import salvo.SalvoSched
+import salvo.platform.runtime.Dyn
+
+private fun decoded(r: Pair<Boolean, Any?>): Dyn? = if (r.first) Dyn(r.second) else null
+
+fun decodeMessage(addr: Int, proto: String, payload: SalvoBytes): Dyn? {
+    val d = SalvoSched.decoders[addr] ?: return null
+    return decoded(d(proto, payload.toByteArray()))
+}
+
+fun decodeWaiterAnswer(wid: Int, payload: SalvoBytes): Dyn? {
+    val d = SalvoSched.waiterDecoders[wid] ?: return null
+    return decoded(d(payload.toByteArray()))
+}
+
+fun decodeTaskAnswer(key: Long, payload: SalvoBytes): Dyn? {
+    val d = SalvoSched.taskDecoders.remove(key) ?: return null
+    return decoded(d(payload.toByteArray()))
+}
+
+fun rawAnswer(payload: SalvoBytes): Dyn = SalvoSched.rawAnswer(payload.toByteArray())
+
+fun controlMessage(sink: Int, from: Long, payload: SalvoBytes): Dyn? {
+    val build = SalvoSched.controls[sink] ?: return null
+    return Dyn(build(from, payload.toByteArray()))
+}
+
+fun wireOut(from: Long, to: SalvoBytes, frame: SalvoBytes) {
+    SalvoSched.wires[from]?.invoke(to.toByteArray(), frame.toByteArray())
+}

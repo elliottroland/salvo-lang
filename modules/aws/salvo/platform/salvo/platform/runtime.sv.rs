@@ -102,12 +102,12 @@ pub fn drop_body(b: RtBody) {
 
 // [remote-backpressure] The routing layer's: a GRANT staged for the next
 // flush, and the flush.
-pub fn granted(addr: i32, from: i64) {
-    crate::scheduler::salvo_granted(addr as usize, from as u64);
+pub fn granted(addr: i32, pool: i32, from: i64) {
+    crate::runtime_routing::credit_back(addr, pool, from);
 }
 
 pub fn flush_frames() {
-    crate::scheduler::salvo_flush_frames();
+    crate::runtime_routing::flush();
 }
 
 pub fn exit_process(code: i32) -> ! {

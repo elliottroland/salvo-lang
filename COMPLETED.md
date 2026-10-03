@@ -135,6 +135,32 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Routing in Salvo (2026-10-03; RUNTIME.md §11.5 slice 11e).** The service
+`runtime.routing` (`std/runtime/routing.sv`) now holds what the hosts' routing
+layers did: node identities and virtual nodes, proxies and the shared dead
+entry, credits, routes and the frames waiting for one, protocol tables,
+control channels and exported tasks. The frames are one Salvo union in the
+canonical encoding (D4), so both hosts' hand-written frame encoders and
+decoders are gone. The hosts keep a registry of what only generated code
+knows (message, answer and task decoders, control builders, outbound hooks),
+read through six platform fns. Rust's `scheduler.rs` is now about 600 lines,
+Kotlin's about 390 (2,720 and 1,994 before the port). Generated code and the
+emitters' lowerings are unchanged. What fell out:
+- **The proxy check moved into the core.** Asking the routing table on every
+  typed send looked like a regression; it was not (the machine was loaded by
+  two hung test programs from an earlier session), but a lock per send is
+  avoidable: the core marks a proxy's entry and hands a send to it back to
+  the typed send, which encodes it.
+- **Capability bits are minted lazily**, the first time an actor's identity
+  is asked for: a spawn no longer touches the routing table.
+- **Kotlin's `encode<T>(v)` ignored an explicit type argument** and took the
+  codec from the argument's own type, so `encode<RtFrame>(RtGrantFrame {…})`
+  passed a struct codec for a union value (refused by kotlinc). Fixed.
+- Two Rust emitter gaps worked around in the service (ROADMAP 0c items 9,
+  10): an `is` binding later in its own `&&` chain, and a map of linear
+  values.
+**1679 tests**, 5m27 fresh.
+
 **The Salvo scheduler within the benchmark budget (2026-10-03; RUNTIME.md
 §11.5 slice 11d).** All four benchmarks within D6's 1.5× on both backends
 (numbers in RUNTIME.md 11d; Kotlin ping-pong the closest at 1.38×). What it

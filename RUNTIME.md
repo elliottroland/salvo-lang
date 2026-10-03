@@ -1158,8 +1158,18 @@ keeps both backends passing the full suite.
     ping-pong to about 290 / 300 ms and was reverted (ROADMAP 0e). A
     benchmark taken while anything else runs is worthless:
     the first numbers after the cutover (ping-pong 1,078 / 1,713 ms) were
-    taken with six hung test programs still running. Next: routing into
-    Salvo.
+    taken with six hung test programs still running.
+11e. ✅ **Routing in Salvo**, 2026-10-03: the service `runtime.routing`
+    (`std/runtime/routing.sv`, about 830 lines) holds identities, proxies,
+    credits, routes and the frames, one canonical-encoded union (D4). The
+    hosts keep the registries of what only generated code knows (decoders,
+    control builders, outbound hooks), behind six platform fns of the
+    service; `scheduler.rs` is now about 600 lines and `scheduler.kt` about
+    390 (from 2,720 and 1,994 before the port). Benchmarks within budget
+    (Rust ping-pong 445 ms, Kotlin 497 ms; Kotlin tasks at its 56 ms limit,
+    noisy). Left host-side: the route-stub views and `key_hash` (step 12),
+    and the `net` intrinsics that take an `Addr<E>` (`credits`, `pending`,
+    `node_of`, `eq`), which need E7 to become Salvo.
 11. **The scheduler in Salvo**: the local scheduler and routing together,
     `RuntimeHost` as the platform handler, actor bodies as E10 values moved
     in and out, payloads as `Dyn`, tasks as closures, waiting through

@@ -70,6 +70,35 @@ class Union4Codec<T1, T2, T3, T4>(private val c1: WireCodec<T1>, private val c2:
         }
 }
 
+sealed interface Union5<out T1, out T2, out T3, out T4, out T5> {
+    val value: Any?
+    data class U1<out T1, out T2, out T3, out T4, out T5>(override val value: T1) : Union5<T1, T2, T3, T4, T5>
+    data class U2<out T1, out T2, out T3, out T4, out T5>(override val value: T2) : Union5<T1, T2, T3, T4, T5>
+    data class U3<out T1, out T2, out T3, out T4, out T5>(override val value: T3) : Union5<T1, T2, T3, T4, T5>
+    data class U4<out T1, out T2, out T3, out T4, out T5>(override val value: T4) : Union5<T1, T2, T3, T4, T5>
+    data class U5<out T1, out T2, out T3, out T4, out T5>(override val value: T5) : Union5<T1, T2, T3, T4, T5>
+}
+
+class Union5Codec<T1, T2, T3, T4, T5>(private val c1: WireCodec<T1>, private val c2: WireCodec<T2>, private val c3: WireCodec<T3>, private val c4: WireCodec<T4>, private val c5: WireCodec<T5>) : WireCodec<Union5<T1, T2, T3, T4, T5>> {
+    override fun enc(v: Union5<T1, T2, T3, T4, T5>, out: WireOut) {
+        when (v) {
+            is Union5.U1 -> { out.u8(0); c1.enc(v.value, out) }
+            is Union5.U2 -> { out.u8(1); c2.enc(v.value, out) }
+            is Union5.U3 -> { out.u8(2); c3.enc(v.value, out) }
+            is Union5.U4 -> { out.u8(3); c4.enc(v.value, out) }
+            is Union5.U5 -> { out.u8(4); c5.enc(v.value, out) }
+        }
+    }
+    override fun dec(inp: WireIn): Union5<T1, T2, T3, T4, T5> = when (inp.u8()) {
+            0 -> Union5.U1(c1.dec(inp))
+            1 -> Union5.U2(c2.dec(inp))
+            2 -> Union5.U3(c3.dec(inp))
+            3 -> Union5.U4(c4.dec(inp))
+            4 -> Union5.U5(c5.dec(inp))
+            else -> throw WireError()
+        }
+}
+
 sealed interface Union6<out T1, out T2, out T3, out T4, out T5, out T6> {
     val value: Any?
     data class U1<out T1, out T2, out T3, out T4, out T5, out T6>(override val value: T1) : Union6<T1, T2, T3, T4, T5, T6>

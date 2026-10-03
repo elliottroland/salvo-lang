@@ -45,6 +45,10 @@ pub mod core_sorted;
 pub mod core_string;
 #[path = "runtime.rs"]
 pub mod runtime;
+#[path = "runtime/routing.rs"]
+pub mod runtime_routing;
+#[path = "platform/runtime/routing.rs"]
+pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
 

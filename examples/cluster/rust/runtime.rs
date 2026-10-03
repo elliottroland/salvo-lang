@@ -190,8 +190,8 @@ pub fn drop_body_platform(b: RtBody) {
     crate::platform_runtime::drop_body(b)
 }
 
-pub fn granted_platform(addr: i32, from: i64) {
-    crate::platform_runtime::granted(addr, from)
+pub fn granted_platform(addr: i32, pool: i32, from: i64) {
+    crate::platform_runtime::granted(addr, pool, from)
 }
 
 pub fn flush_frames_platform() {
@@ -360,6 +360,7 @@ pub struct RtActorRec {
     pub watchers: Vec<RtToken>,
     pub owed: i32,
     pub ready: bool,
+    pub proxy: bool,
 }
 
 impl std::fmt::Debug for RtActorRec {
@@ -379,6 +380,7 @@ impl std::fmt::Debug for RtActorRec {
             .field("watchers", &"<fn>")
             .field("owed", &self.owed)
             .field("ready", &self.ready)
+            .field("proxy", &self.proxy)
             .finish()
     }
 }
@@ -399,6 +401,7 @@ pub fn drop_actor_rec(a: RtActorRec) {
     let mut watchers = __destructured4.watchers;
     let mut owed = __destructured4.owed;
     let mut ready = __destructured4.ready;
+    let mut proxy = __destructured4.proxy;
     drop_slot_platform(body);
     queue.into_iter().for_each(|e| drop_entry(e));
     watchers.into_iter().for_each(|t| drop_token(t));
@@ -689,9 +692,28 @@ impl std::fmt::Debug for RtFull {
     }
 }
 
-pub fn drop_full(f: RtFull) {
-    let __destructured12 = f;
+
+pub struct RtRemote {
+    pub msg: Dyn,
+}
+
+impl std::fmt::Debug for RtRemote {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RtRemote")
+            .field("msg", &"<fn>")
+            .finish()
+    }
+}
+
+pub fn drop_remote(r: RtRemote) {
+    let __destructured12 = r;
     let mut msg = __destructured12.msg;
+    drop_dyn_platform(msg);
+}
+
+pub fn drop_full(f: RtFull) {
+    let __destructured13 = f;
+    let mut msg = __destructured13.msg;
     drop_dyn_platform(msg);
 }
 
@@ -711,9 +733,9 @@ impl std::fmt::Debug for RtIdleHook {
 }
 
 pub fn drop_idle_hook(h: RtIdleHook) {
-    let __destructured13 = h;
-    let mut pool = __destructured13.pool;
-    let mut token = __destructured13.token;
+    let __destructured14 = h;
+    let mut pool = __destructured14.pool;
+    let mut token = __destructured14.token;
     drop_token(token);
 }
 
@@ -773,15 +795,16 @@ impl crate::wire::__Wire for RtStuck {
 }
 
 pub fn drop_got(g: RtGot) {
-    let __destructured14 = g;
-    let mut value = __destructured14.value;
+    let __destructured15 = g;
+    let mut value = __destructured15.value;
     drop_dyn_platform(value);
 }
 
 pub trait __Stateless_SchedTable: Send + Sync {
     fn new_pool(&self, sink: i32) -> i32;
     fn new_actor(&self, pool: i32, bound: i32, body: RtBody) -> i32;
-    fn enqueue(&self, addr: i32, msg: Dyn, waiter: Parker) -> Union3<RtSent, RtDead, RtFull>;
+    fn enqueue(&self, addr: i32, msg: Dyn, waiter: Parker) -> Union4<RtSent, RtDead, RtFull, RtRemote>;
+    fn set_proxy(&self, addr: i32);
     fn enqueue_remote(&self, addr: i32, msg: Dyn, from: i64) -> bool;
     fn kill(&self, addr: i32, reason: String);
     fn mint_actor(&self, addr: i32, gated: bool) -> RtToken;
@@ -795,6 +818,7 @@ pub trait __Stateless_SchedTable: Send + Sync {
     fn finish(&self, addr: i32, body: RtBody, fault: Option<String>);
     fn task_done(&self, pool: i32, fault: Option<String>);
     fn pool_of_actor(&self, addr: i32) -> i32;
+    fn pool_of_waiter(&self, wid: i32) -> i32;
     fn external(&self, delta: i32);
     fn room(&self, addr: i32) -> i32;
     fn is_dead(&self, addr: i32) -> bool;
@@ -804,7 +828,8 @@ pub trait __Stateless_SchedTable: Send + Sync {
 pub trait __Stateful_SchedTable: Send {
     fn new_pool(&mut self, sink: i32) -> i32;
     fn new_actor(&mut self, pool: i32, bound: i32, body: RtBody) -> i32;
-    fn enqueue(&mut self, addr: i32, msg: Dyn, waiter: Parker) -> Union3<RtSent, RtDead, RtFull>;
+    fn enqueue(&mut self, addr: i32, msg: Dyn, waiter: Parker) -> Union4<RtSent, RtDead, RtFull, RtRemote>;
+    fn set_proxy(&mut self, addr: i32);
     fn enqueue_remote(&mut self, addr: i32, msg: Dyn, from: i64) -> bool;
     fn kill(&mut self, addr: i32, reason: String);
     fn mint_actor(&mut self, addr: i32, gated: bool) -> RtToken;
@@ -818,6 +843,7 @@ pub trait __Stateful_SchedTable: Send {
     fn finish(&mut self, addr: i32, body: RtBody, fault: Option<String>);
     fn task_done(&mut self, pool: i32, fault: Option<String>);
     fn pool_of_actor(&mut self, addr: i32) -> i32;
+    fn pool_of_waiter(&mut self, wid: i32) -> i32;
     fn external(&mut self, delta: i32);
     fn room(&mut self, addr: i32) -> i32;
     fn is_dead(&mut self, addr: i32) -> bool;
@@ -867,10 +893,16 @@ impl SchedTable {
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().new_actor(pool, bound, body),
         }
     }
-    pub fn enqueue(&self, addr: i32, msg: Dyn, waiter: Parker) -> Union3<RtSent, RtDead, RtFull> {
+    pub fn enqueue(&self, addr: i32, msg: Dyn, waiter: Parker) -> Union4<RtSent, RtDead, RtFull, RtRemote> {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.enqueue(addr, msg, waiter),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().enqueue(addr, msg, waiter),
+        }
+    }
+    pub fn set_proxy(&self, addr: i32) {
+        match &self.inner {
+            __Inner_SchedTable::Shared(h) => h.set_proxy(addr),
+            __Inner_SchedTable::Locked(h) => h.lock().unwrap().set_proxy(addr),
         }
     }
     pub fn enqueue_remote(&self, addr: i32, msg: Dyn, from: i64) -> bool {
@@ -951,6 +983,12 @@ impl SchedTable {
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().pool_of_actor(addr),
         }
     }
+    pub fn pool_of_waiter(&self, wid: i32) -> i32 {
+        match &self.inner {
+            __Inner_SchedTable::Shared(h) => h.pool_of_waiter(wid),
+            __Inner_SchedTable::Locked(h) => h.lock().unwrap().pool_of_waiter(wid),
+        }
+    }
     pub fn external(&self, delta: i32) {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.external(delta),
@@ -1013,24 +1051,27 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     }
 
     fn new_actor(&mut self, pool: i32, bound: i32, body: RtBody) -> i32 {
-        self.actors.push(RtActorRec { body: slot_of_platform(body), pool: pool, bound: bound, queue: std::collections::VecDeque::<Union3<RtDelivered, RtAnswered, RtReported>>::new(), slots: std::collections::VecDeque::<i64>::new(), user_len: 0, gate: None, running: false, dead: false, exit_reason: "".to_string(), blocked: vec![], watchers: vec![], owed: 0, ready: false });
+        self.actors.push(RtActorRec { body: slot_of_platform(body), pool: pool, bound: bound, queue: std::collections::VecDeque::<Union3<RtDelivered, RtAnswered, RtReported>>::new(), slots: std::collections::VecDeque::<i64>::new(), user_len: 0, gate: None, running: false, dead: false, exit_reason: "".to_string(), blocked: vec![], watchers: vec![], owed: 0, ready: false, proxy: false });
         return (self.actors.len() as i32) - 1;
     }
 
-    fn enqueue(&mut self, addr: i32, msg: Dyn, waiter: Parker) -> Union3<RtSent, RtDead, RtFull> {
+    fn enqueue(&mut self, addr: i32, msg: Dyn, waiter: Parker) -> Union4<RtSent, RtDead, RtFull, RtRemote> {
         if addr < 0 || addr >= (self.actors.len() as i32) {
             drop_dyn_platform(msg);
-            return Union3::<RtSent, RtDead, RtFull>::U2(RtDead {  });
+            return Union4::<RtSent, RtDead, RtFull, RtRemote>::U2(RtDead {  });
         }
         let __h0 = (addr) as usize;
-        self.actors.get(__h0).expect("salvo: value is absent at runtime:449:17");
+        self.actors.get(__h0).expect("salvo: value is absent at runtime:461:17");
         if self.actors[__h0].dead {
             drop_dyn_platform(msg);
-            return Union3::<RtSent, RtDead, RtFull>::U2(RtDead {  });
+            return Union4::<RtSent, RtDead, RtFull, RtRemote>::U2(RtDead {  });
+        }
+        if self.actors[__h0].proxy {
+            return Union4::<RtSent, RtDead, RtFull, RtRemote>::U4(RtRemote { msg: msg });
         }
         if self.actors[__h0].user_len >= self.actors[__h0].bound {
             self.actors[__h0].blocked.push(waiter);
-            return Union3::<RtSent, RtDead, RtFull>::U3(RtFull { msg: msg });
+            return Union4::<RtSent, RtDead, RtFull, RtRemote>::U3(RtFull { msg: msg });
         }
         let mut e: Union3<RtDelivered, RtAnswered, RtReported> = Union3::<RtDelivered, RtAnswered, RtReported>::U1(RtDelivered { msg: msg, from: ((-1) as i64) });
         self.actors[__h0].queue.push_back(e);
@@ -1040,7 +1081,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             let mut pool = self.actors[__h0].pool;
             wake_pool(&mut self.pools, pool);
         }
-        return Union3::<RtSent, RtDead, RtFull>::U1(RtSent {  });
+        return Union4::<RtSent, RtDead, RtFull, RtRemote>::U1(RtSent {  });
     }
 
     fn enqueue_remote(&mut self, addr: i32, msg: Dyn, from: i64) -> bool {
@@ -1049,7 +1090,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             return false;
         }
         let __h1 = (addr) as usize;
-        self.actors.get(__h1).expect("salvo: value is absent at runtime:474:17");
+        self.actors.get(__h1).expect("salvo: value is absent at runtime:489:17");
         if self.actors[__h1].dead {
             drop_dyn_platform(msg);
             return false;
@@ -1067,7 +1108,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
 
     fn kill(&mut self, addr: i32, reason: String) {
         let __h2 = (addr) as usize;
-        self.actors.get(__h2).expect("salvo: value is absent at runtime:491:17");
+        self.actors.get(__h2).expect("salvo: value is absent at runtime:506:17");
         if self.actors[__h2].dead {
             return;
         }
@@ -1105,7 +1146,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         self.next_slot = self.next_slot + ((1) as i64);
         let mut slot = self.next_slot.clone();
         let __h3 = (addr) as usize;
-        self.actors.get(__h3).expect("salvo: value is absent at runtime:513:17");
+        self.actors.get(__h3).expect("salvo: value is absent at runtime:528:17");
         if gated {
             self.actors[__h3].gate = Some(slot.clone());
         }
@@ -1116,14 +1157,14 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     fn mint_task(&mut self, pool: i32, body: RtBody) -> RtToken {
         self.next_slot = self.next_slot + ((1) as i64);
         let __h4 = (pool) as usize;
-        self.pools.get(__h4).expect("salvo: value is absent at runtime:523:17");
+        self.pools.get(__h4).expect("salvo: value is absent at runtime:538:17");
         self.pools[__h4].owed = self.pools[__h4].owed + 1;
         return RtToken { target: Union3::<RtToActor, RtToWaiter, RtToTask>::U3(RtToTask { pool: pool, body: body }), slot: self.next_slot.clone(), tracked: true };
     }
 
     fn mint_waiter(&mut self, pool: i32) -> RtWaiterMint {
         let __h5 = (pool) as usize;
-        self.pools.get(__h5).expect("salvo: value is absent at runtime:529:17");
+        self.pools.get(__h5).expect("salvo: value is absent at runtime:544:17");
         self.pools[__h5].owed = self.pools[__h5].owed + 1;
         self.waiters.push(RtWaiterRec { pool: pool, value: slot_empty_platform(), filled: false, parker: None, waiting: 0, waiting_actor: -1 });
         let mut wid = (self.waiters.len() as i32) - 1;
@@ -1139,7 +1180,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     fn watch_actor(&mut self, addr: i32, t: RtToken) {
         let mut watch = untrack(&mut self.actors, &mut self.waiters, &mut self.pools, t);
         let __h6 = (addr) as usize;
-        self.actors.get(__h6).expect("salvo: value is absent at runtime:546:17");
+        self.actors.get(__h6).expect("salvo: value is absent at runtime:561:17");
         if self.actors[__h6].dead {
             let mut reason = self.actors[__h6].exit_reason.clone();
             deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, watch, erase_platform(Exit { reason: reason }));
@@ -1158,7 +1199,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         let mut w = take_work(&mut self.actors, &mut self.pools, pool.clone(), -1);
         if w.is_none() {
             let __h7 = (pool) as usize;
-            self.pools.get(__h7).expect("salvo: value is absent at runtime:564:21");
+            self.pools.get(__h7).expect("salvo: value is absent at runtime:579:21");
             self.pools[__h7].idle.push(idle);
             if self.active == self.parked_frames && quiet(&mut self.actors, &mut self.waiters, &mut self.pools, self.externals) {
                 if !((self.idle_hooks.len() as i32) == 0) && self.active == 0 {
@@ -1174,7 +1215,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
 
     fn wait_step(&mut self, wid: i32, pool: i32, own: i32, frame: i32, me: Parker) -> Union6<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck> {
         let __h8 = (wid) as usize;
-        self.waiters.get(__h8).expect("salvo: value is absent at runtime:584:17");
+        self.waiters.get(__h8).expect("salvo: value is absent at runtime:599:17");
         if self.waiters[__h8].waiting == 0 {
             self.waiters[__h8].waiting = frame.clone();
             self.waiters[__h8].waiting_actor = own.clone();
@@ -1219,10 +1260,10 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             return Union6::<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck>::U6(RtStuck { report: deadlock_report(&mut self.actors, &mut self.waiters, own) });
         }
         let __h9 = (wid) as usize;
-        self.waiters.get(__h9).expect("salvo: value is absent at runtime:632:22");
+        self.waiters.get(__h9).expect("salvo: value is absent at runtime:647:22");
         self.waiters[__h9].parker = Some(me.clone());
         let __h10 = (pool) as usize;
-        self.pools.get(__h10).expect("salvo: value is absent at runtime:634:17");
+        self.pools.get(__h10).expect("salvo: value is absent at runtime:649:17");
         self.pools[__h10].idle.push(me);
         return Union6::<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck>::U4(RtSleep {  });
     }
@@ -1230,7 +1271,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     fn finish(&mut self, addr: i32, body: RtBody, fault: Option<String>) {
         self.active = self.active - 1;
         let __h11 = (addr) as usize;
-        self.actors.get(__h11).expect("salvo: value is absent at runtime:641:17");
+        self.actors.get(__h11).expect("salvo: value is absent at runtime:656:17");
         self.actors[__h11].running = false;
         if fault.is_none() {
             slot_put_platform(&mut self.actors[__h11].body, body);
@@ -1244,7 +1285,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         self.actors[__h11].gate = None;
         self.actors[__h11].user_len = 0;
         while ((self.actors[__h11].queue.len() as i32) > 0) {
-            drop_entry(self.actors[__h11].queue.pop_front().expect("salvo: value is absent at runtime:657:24"));
+            drop_entry(self.actors[__h11].queue.pop_front().expect("salvo: value is absent at runtime:672:24"));
         }
         while ((self.actors[__h11].slots.len() as i32) > 0) {
             let mut _s = self.actors[__h11].slots.pop_front();
@@ -1291,7 +1332,17 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     }
 
     fn pool_of_actor(&mut self, addr: i32) -> i32 {
-        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:690:21").pool;
+        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:705:21").pool;
+    }
+
+    fn set_proxy(&mut self, addr: i32) {
+        let __h12 = (addr) as usize;
+        self.actors.get(__h12).expect("salvo: value is absent at runtime:709:17");
+        self.actors[__h12].proxy = true;
+    }
+
+    fn pool_of_waiter(&mut self, wid: i32) -> i32 {
+        return self.waiters.get((wid) as i64 as usize).expect("salvo: value is absent at runtime:714:21").pool;
     }
 
     fn room(&mut self, addr: i32) -> i32 {
@@ -1300,11 +1351,11 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     }
 
     fn is_dead(&mut self, addr: i32) -> bool {
-        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:699:21").dead;
+        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:723:21").dead;
     }
 
     fn queued(&mut self, addr: i32) -> i32 {
-        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:703:21").user_len;
+        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:727:21").user_len;
     }
 
     fn external(&mut self, delta: i32) {
@@ -1328,10 +1379,10 @@ pub enum __Priv_Scheduler {
 }
 
 pub fn untrack(actors: &mut Vec<RtActorRec>, waiters: &mut Vec<RtWaiterRec>, pools: &mut Vec<RtPoolRec>, t: RtToken) -> RtToken {
-    let __destructured15 = t;
-    let mut target = __destructured15.target;
-    let mut slot = __destructured15.slot;
-    let mut tracked = __destructured15.tracked;
+    let __destructured16 = t;
+    let mut target = __destructured16.target;
+    let mut slot = __destructured16.slot;
+    let mut tracked = __destructured16.tracked;
     if tracked {
         release(actors, waiters, pools, &target);
     }
@@ -1341,83 +1392,83 @@ pub fn untrack(actors: &mut Vec<RtActorRec>, waiters: &mut Vec<RtWaiterRec>, poo
 pub fn release(actors: &mut Vec<RtActorRec>, waiters: &mut Vec<RtWaiterRec>, pools: &mut Vec<RtPoolRec>, target: &Union3<RtToActor, RtToWaiter, RtToTask>) {
     if matches!(target, Union3::U1(_)) {
         let mut to = target.u1().clone();
-        let __h12 = (to.addr) as usize;
-        actors.get(__h12).expect("salvo: value is absent at runtime:730:17");
-        if actors[__h12].owed > 0 {
-            actors[__h12].owed = actors[__h12].owed - 1;
+        let __h13 = (to.addr) as usize;
+        actors.get(__h13).expect("salvo: value is absent at runtime:754:17");
+        if actors[__h13].owed > 0 {
+            actors[__h13].owed = actors[__h13].owed - 1;
         }
     } else if matches!(target, Union3::U2(_)) {
         let mut tw = target.u2().clone();
-        let mut pool = waiters.get((tw.wid) as i64 as usize).expect("salvo: value is absent at runtime:735:25").pool;
-        let __h13 = (pool) as usize;
-        pools.get(__h13).expect("salvo: value is absent at runtime:736:17");
-        if pools[__h13].owed > 0 {
-            pools[__h13].owed = pools[__h13].owed - 1;
-        }
-    } else {
-        let __h14 = (target.u3().clone().pool) as usize;
-        pools.get(__h14).expect("salvo: value is absent at runtime:741:17");
+        let mut pool = waiters.get((tw.wid) as i64 as usize).expect("salvo: value is absent at runtime:759:25").pool;
+        let __h14 = (pool) as usize;
+        pools.get(__h14).expect("salvo: value is absent at runtime:760:17");
         if pools[__h14].owed > 0 {
             pools[__h14].owed = pools[__h14].owed - 1;
+        }
+    } else {
+        let __h15 = (target.u3().clone().pool) as usize;
+        pools.get(__h15).expect("salvo: value is absent at runtime:765:17");
+        if pools[__h15].owed > 0 {
+            pools[__h15].owed = pools[__h15].owed - 1;
         }
     }
 }
 
 pub fn deliver_to(actors: &mut Vec<RtActorRec>, waiters: &mut Vec<RtWaiterRec>, pools: &mut Vec<RtPoolRec>, t: RtToken, value: Dyn) {
-    let __destructured16 = t;
-    let mut target = __destructured16.target;
-    let mut slot = __destructured16.slot;
-    let mut tracked = __destructured16.tracked;
+    let __destructured17 = t;
+    let mut target = __destructured17.target;
+    let mut slot = __destructured17.slot;
+    let mut tracked = __destructured17.tracked;
     if tracked {
         release(actors, waiters, pools, &target);
     }
     if matches!(target, Union3::U1(_)) {
         let mut to = target.u1().clone();
-        let __h15 = (to.addr) as usize;
-        actors.get(__h15).expect("salvo: value is absent at runtime:757:17");
-        if actors[__h15].dead {
+        let __h16 = (to.addr) as usize;
+        actors.get(__h16).expect("salvo: value is absent at runtime:781:17");
+        if actors[__h16].dead {
             drop_dyn_platform(value);
             return;
         }
-        actors[__h15].slots.push_back(slot.clone());
+        actors[__h16].slots.push_back(slot.clone());
         let mut e: Union3<RtDelivered, RtAnswered, RtReported> = Union3::<RtDelivered, RtAnswered, RtReported>::U2(RtAnswered { slot: slot, value: value });
-        actors[__h15].queue.push_back(e);
-        if mark_ready(&mut actors[__h15], pools, to.addr) {
-            let mut pool = actors[__h15].pool;
+        actors[__h16].queue.push_back(e);
+        if mark_ready(&mut actors[__h16], pools, to.addr) {
+            let mut pool = actors[__h16].pool;
             wake_pool(pools, pool);
         }
     } else if matches!(target, Union3::U2(_)) {
         let mut tw = target.u2().clone();
-        let __h16 = (tw.wid) as usize;
-        waiters.get(__h16).expect("salvo: value is absent at runtime:770:17");
-        slot_put_platform(&mut waiters[__h16].value, value);
-        waiters[__h16].filled = true;
-        if waiters[__h16].parker.is_some() {
-            let mut p = waiters[__h16].parker.as_ref().unwrap().clone();
+        let __h17 = (tw.wid) as usize;
+        waiters.get(__h17).expect("salvo: value is absent at runtime:794:17");
+        slot_put_platform(&mut waiters[__h17].value, value);
+        waiters[__h17].filled = true;
+        if waiters[__h17].parker.is_some() {
+            let mut p = waiters[__h17].parker.as_ref().unwrap().clone();
             unpark_platform(&(p.clone()));
         }
     } else {
-        let __destructured17 = (match target { Union3::U3(__v) => __v, _ => unreachable!() });
-        let mut pool = __destructured17.pool;
-        let mut body = __destructured17.body;
-        let __h17 = (pool) as usize;
-        pools.get(__h17).expect("salvo: value is absent at runtime:778:17");
-        pools[__h17].tasks.push_back(RtTaskRun { body: body, value: value });
+        let __destructured18 = (match target { Union3::U3(__v) => __v, _ => unreachable!() });
+        let mut pool = __destructured18.pool;
+        let mut body = __destructured18.body;
+        let __h18 = (pool) as usize;
+        pools.get(__h18).expect("salvo: value is absent at runtime:802:17");
+        pools[__h18].tasks.push_back(RtTaskRun { body: body, value: value });
         wake_pool(pools, pool.clone());
     }
 }
 
 pub fn report_fault(actors: &mut Vec<RtActorRec>, pools: &mut Vec<RtPoolRec>, pool: i32, reason: String) {
-    let mut sink = pools.get((pool) as i64 as usize).expect("salvo: value is absent at runtime:789:21").sink;
+    let mut sink = pools.get((pool) as i64 as usize).expect("salvo: value is absent at runtime:813:21").sink;
     if sink >= 0 {
-        let __h18 = (sink) as usize;
-        actors.get(__h18).expect("salvo: value is absent at runtime:791:17");
-        if !actors[__h18].dead {
+        let __h19 = (sink) as usize;
+        actors.get(__h19).expect("salvo: value is absent at runtime:815:17");
+        if !actors[__h19].dead {
             let mut e: Union3<RtDelivered, RtAnswered, RtReported> = Union3::<RtDelivered, RtAnswered, RtReported>::U3(RtReported { reason: reason });
-            actors[__h18].queue.push_back(e);
-            actors[__h18].slots.push_back(((-1) as i64));
-            if mark_ready(&mut actors[__h18], pools, sink.clone()) {
-                let mut sink_pool = actors[__h18].pool;
+            actors[__h19].queue.push_back(e);
+            actors[__h19].slots.push_back(((-1) as i64));
+            if mark_ready(&mut actors[__h19], pools, sink.clone()) {
+                let mut sink_pool = actors[__h19].pool;
                 wake_pool(pools, sink_pool);
             }
             return;
@@ -1455,11 +1506,11 @@ pub fn fire_idle(actors: &mut Vec<RtActorRec>, waiters: &mut Vec<RtWaiterRec>, p
             break;
         }
         let mut h = __is7.unwrap();
-        let __destructured18 = h;
-        let mut pool = __destructured18.pool;
-        let mut token = __destructured18.token;
+        let __destructured19 = h;
+        let mut pool = __destructured19.pool;
+        let mut token = __destructured19.token;
         let mut gates = 0;
-        let mut tokens = pools.get((pool) as i64 as usize).expect("salvo: value is absent at runtime:841:27").owed;
+        let mut tokens = pools.get((pool) as i64 as usize).expect("salvo: value is absent at runtime:865:27").owed;
         for a in &*actors {
             if a.pool == pool {
                 tokens = tokens + a.owed;
@@ -1508,34 +1559,34 @@ pub fn deadlock_report(actors: &mut Vec<RtActorRec>, waiters: &mut Vec<RtWaiterR
 }
 
 pub fn take_work(actors: &mut Vec<RtActorRec>, pools: &mut Vec<RtPoolRec>, pool: i32, exclude: i32) -> Option<Union2<RtRunActor, RtRunTask>> {
-    let __h19 = (pool) as usize;
-    pools.get(__h19).expect("salvo: value is absent at runtime:890:13");
-    let mut task = pools[__h19].tasks.pop_front();
+    let __h20 = (pool) as usize;
+    pools.get(__h20).expect("salvo: value is absent at runtime:914:13");
+    let mut task = pools[__h20].tasks.pop_front();
     if task.is_some() {
         let mut t = task.unwrap();
-        let __destructured19 = t;
-        let mut body = __destructured19.body;
-        let mut value = __destructured19.value;
+        let __destructured20 = t;
+        let mut body = __destructured20.body;
+        let mut value = __destructured20.value;
         return Some(Union2::<RtRunActor, RtRunTask>::U2(RtRunTask { pool: pool, body: body, value: value }));
     }
     loop {
-        let mut __is8 = pools[__h19].ready.pop_front();
+        let mut __is8 = pools[__h20].ready.pop_front();
         if !(__is8.is_some()) {
             break;
         }
         let mut i = __is8.unwrap();
-        let __h20 = (i) as usize;
-        actors.get(__h20).expect("salvo: value is absent at runtime:897:17");
-        actors[__h20].ready = false;
-        if i != exclude && !actors[__h20].running && !actors[__h20].dead {
-            let mut at = deliverable(&actors[__h20].slots, &actors[__h20].gate);
+        let __h21 = (i) as usize;
+        actors.get(__h21).expect("salvo: value is absent at runtime:921:17");
+        actors[__h21].ready = false;
+        if i != exclude && !actors[__h21].running && !actors[__h21].dead {
+            let mut at = deliverable(&actors[__h21].slots, &actors[__h21].gate);
             if at.is_some() {
                 let mut k = at.unwrap();
-                let mut _slot = actors[__h20].slots.remove((k.clone()) as i64 as usize);
-                let mut e = actors[__h20].queue.remove((k) as i64 as usize).expect("salvo: value is absent at runtime:903:25");
-                actors[__h20].running = true;
-                let mut body = slot_take_platform(&mut actors[__h20].body).expect("salvo: value is absent at runtime:905:28");
-                return work_of(&mut actors[__h20], i.clone(), e, body);
+                let mut _slot = actors[__h21].slots.remove((k.clone()) as i64 as usize);
+                let mut e = actors[__h21].queue.remove((k) as i64 as usize).expect("salvo: value is absent at runtime:927:25");
+                actors[__h21].running = true;
+                let mut body = slot_take_platform(&mut actors[__h21].body).expect("salvo: value is absent at runtime:929:28");
+                return work_of(&mut actors[__h21], i.clone(), e, body);
             }
         }
     }
@@ -1550,9 +1601,9 @@ pub fn mark_ready(a: &mut RtActorRec, pools: &mut Vec<RtPoolRec>, addr: i32) -> 
         return false;
     }
     a.ready = true;
-    let __h21 = (a.pool) as usize;
-    pools.get(__h21).expect("salvo: value is absent at runtime:924:13");
-    pools[__h21].ready.push_back(addr);
+    let __h22 = (a.pool) as usize;
+    pools.get(__h22).expect("salvo: value is absent at runtime:948:13");
+    pools[__h22].ready.push_back(addr);
     return true;
 }
 
@@ -1565,11 +1616,11 @@ pub fn work_of(a: &mut RtActorRec, addr: i32, e: Union3<RtDelivered, RtAnswered,
             let mut b = woken.as_ref().unwrap().clone();
             unpark_platform(&b);
         }
-        let __destructured20 = d;
-        let mut msg = __destructured20.msg;
-        let mut from = __destructured20.from;
+        let __destructured21 = d;
+        let mut msg = __destructured21.msg;
+        let mut from = __destructured21.from;
         if from >= ((0) as i64) {
-            granted_platform(addr.clone(), from);
+            granted_platform(addr.clone(), a.pool, from);
         }
         return Some(Union2::<RtRunActor, RtRunTask>::U1(RtRunActor { addr: addr, pool: a.pool, kind: 0, slot: 0i64, value: msg, body: body }));
     }
@@ -1577,9 +1628,9 @@ pub fn work_of(a: &mut RtActorRec, addr: i32, e: Union3<RtDelivered, RtAnswered,
         let mut r = e.u3().clone();
         return Some(Union2::<RtRunActor, RtRunTask>::U1(RtRunActor { addr: addr, pool: a.pool, kind: 2, slot: 0i64, value: erase_platform(r.reason.clone()), body: body }));
     }
-    let __destructured21 = (match e { Union3::U2(__v) => __v, _ => unreachable!() });
-    let mut slot = __destructured21.slot;
-    let mut value = __destructured21.value;
+    let __destructured22 = (match e { Union3::U2(__v) => __v, _ => unreachable!() });
+    let mut slot = __destructured22.slot;
+    let mut value = __destructured22.value;
     let mut opens = false;
     if a.gate.is_some() {
         let mut g = a.gate.unwrap();
@@ -1600,7 +1651,7 @@ pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) 
     }
     let mut i = 0;
     while i < (slots.len() as i32) {
-        if *slots.get((i) as i64 as usize).expect("salvo: value is absent at runtime:972:12") == gate.unwrap() {
+        if *slots.get((i) as i64 as usize).expect("salvo: value is absent at runtime:996:12") == gate.unwrap() {
             return Some(i.clone());
         }
         i = i + 1;
@@ -1609,9 +1660,9 @@ pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) 
 }
 
 pub fn wake_pool(pools: &mut Vec<RtPoolRec>, pool: i32) {
-    let __h22 = (pool) as usize;
-    pools.get(__h22).expect("salvo: value is absent at runtime:987:13");
-    let mut __is9 = pools[__h22].idle.salvo_remove_first();
+    let __h23 = (pool) as usize;
+    pools.get(__h23).expect("salvo: value is absent at runtime:1011:13");
+    let mut __is9 = pools[__h23].idle.salvo_remove_first();
     if __is9.is_some() {
         let mut w = __is9.as_ref().unwrap().clone();
         unpark_platform(&w);
@@ -1619,10 +1670,10 @@ pub fn wake_pool(pools: &mut Vec<RtPoolRec>, pool: i32) {
 }
 
 pub fn wake_every(pools: &mut Vec<RtPoolRec>, pool: i32) {
-    let __h23 = (pool) as usize;
-    pools.get(__h23).expect("salvo: value is absent at runtime:995:13");
+    let __h24 = (pool) as usize;
+    pools.get(__h24).expect("salvo: value is absent at runtime:1019:13");
     loop {
-        let mut __is10 = pools[__h23].idle.salvo_remove_first();
+        let mut __is10 = pools[__h24].idle.salvo_remove_first();
         if !(__is10.is_some()) {
             break;
         }
@@ -1665,22 +1716,42 @@ pub fn spawn_body(pool: i32, bound: i32, body: RtBody) -> i32 {
 }
 
 pub fn send_dyn(addr: i32, msg: Dyn) {
+    let mut back = send_or_back(addr, msg);
+    if back.is_some() {
+        let mut d = back.unwrap();
+        drop_dyn_platform(d);
+    }
+}
+
+pub fn send_or_back(addr: i32, msg: Dyn) -> Option<Dyn> {
     let mut r = __module_use_1().enqueue(addr.clone(), msg, this_parker_platform());
-    while matches!(r, Union3::U3(_)) {
-        let mut full = match r { Union3::U3(__v) => __v, _ => unreachable!() };
+    while matches!(r, Union4::U3(_)) {
+        let mut full = match r { Union4::U3(__v) => __v, _ => unreachable!() };
         if here_pool_platform() == main_pool() && here_actor_platform() == no_frame() && __module_use_1().pool_of_actor(addr.clone()) == main_pool() {
             __module_use_0().report(&(format!("salvo: deadlock: the main pool's actor {} has a full mailbox and the only thread that could drain it is the one sending: the main pool has one worker, `main` itself, and it serves work only inside a `waitfor` — send fewer messages before waiting, raise the handler's `mailbox` capacity, or place the actor on a pool of its own", addr)));
             exit_process_platform(1);
         }
         park_platform(&(this_parker_platform()));
-        let __destructured22 = full;
-        let mut back = __destructured22.msg;
+        let __destructured23 = full;
+        let mut back = __destructured23.msg;
         r = __module_use_1().enqueue(addr.clone(), back, this_parker_platform());
     }
-    if matches!(r, Union3::U3(_)) {
-        let mut full = match r { Union3::U3(__v) => __v, _ => unreachable!() };
+    if matches!(r, Union4::U3(_)) {
+        let mut full = match r { Union4::U3(__v) => __v, _ => unreachable!() };
         drop_full(full);
+        return None;
     }
+    if matches!(r, Union4::U4(_)) {
+        let mut remote = match r { Union4::U4(__v) => __v, _ => unreachable!() };
+        let __destructured24 = remote;
+        let mut back = __destructured24.msg;
+        return Some(back);
+    }
+    return None;
+}
+
+pub fn mark_proxy(addr: i32) {
+    __module_use_1().set_proxy(addr);
 }
 
 pub fn mint(addr: i32, gated: bool) -> RtToken {
@@ -1727,8 +1798,8 @@ pub fn await_answer(wid: i32) -> Dyn {
         let mut step = __module_use_1().wait_step(wid.clone(), pool.clone(), own.clone(), frame.clone(), this_parker_platform());
         if matches!(step, Union6::U1(_)) {
             let mut g = match step { Union6::U1(__v) => __v, _ => unreachable!() };
-            let __destructured23 = g;
-            let mut value = __destructured23.value;
+            let __destructured25 = g;
+            let mut value = __destructured25.value;
             return value;
         }
         if matches!(step, Union6::U2(_)) {
@@ -1750,37 +1821,37 @@ pub fn await_answer(wid: i32) -> Dyn {
 
 pub fn run_actor(ra: RtRunActor) {
     flush_frames_platform();
-    let __destructured24 = ra;
-    let mut addr = __destructured24.addr;
-    let mut pool = __destructured24.pool;
-    let mut kind = __destructured24.kind;
-    let mut slot = __destructured24.slot;
-    let mut value = __destructured24.value;
-    let mut body = __destructured24.body;
+    let __destructured26 = ra;
+    let mut addr = __destructured26.addr;
+    let mut pool = __destructured26.pool;
+    let mut kind = __destructured26.kind;
+    let mut slot = __destructured26.slot;
+    let mut value = __destructured26.value;
+    let mut body = __destructured26.body;
     let mut saved_pool = here_pool_platform();
     let mut saved_actor = here_actor_platform();
     set_here_platform(pool, addr.clone());
     let mut ran = activate_platform(body, kind, slot, value);
     set_here_platform(saved_pool, saved_actor);
-    let __destructured25 = ran;
-    let mut back = __destructured25.body;
-    let mut fault = __destructured25.fault;
+    let __destructured27 = ran;
+    let mut back = __destructured27.body;
+    let mut fault = __destructured27.fault;
     __module_use_1().finish(addr, back, fault);
 }
 
 pub fn run_task(rt: RtRunTask) {
-    let __destructured26 = rt;
-    let mut pool = __destructured26.pool;
-    let mut body = __destructured26.body;
-    let mut value = __destructured26.value;
+    let __destructured28 = rt;
+    let mut pool = __destructured28.pool;
+    let mut body = __destructured28.body;
+    let mut value = __destructured28.value;
     let mut saved_pool = here_pool_platform();
     let mut saved_actor = here_actor_platform();
     set_here_platform(pool.clone(), task_frame());
     let mut ran = activate_platform(body, 1, 0i64, value);
     set_here_platform(saved_pool, saved_actor);
-    let __destructured27 = ran;
-    let mut done = __destructured27.body;
-    let mut fault = __destructured27.fault;
+    let __destructured29 = ran;
+    let mut done = __destructured29.body;
+    let mut fault = __destructured29.fault;
     drop_body_platform(done);
     __module_use_1().task_done(pool, fault);
 }
@@ -1829,15 +1900,15 @@ impl std::fmt::Debug for RtExported {
 }
 
 pub fn export_token(t: RtToken) -> RtExported {
-    let __destructured28 = t;
-    let mut target = __destructured28.target;
-    let mut slot = __destructured28.slot;
-    let mut tracked = __destructured28.tracked;
+    let __destructured30 = t;
+    let mut target = __destructured30.target;
+    let mut slot = __destructured30.slot;
+    let mut tracked = __destructured30.tracked;
     if matches!(target, Union3::U3(_)) {
         let mut tt = match target { Union3::U3(__v) => __v, _ => unreachable!() };
-        let __destructured29 = tt;
-        let mut pool = __destructured29.pool;
-        let mut body = __destructured29.body;
+        let __destructured31 = tt;
+        let mut pool = __destructured31.pool;
+        let mut body = __destructured31.body;
         return RtExported { kind: 2, id: pool, slot: slot, body: Some(body) };
     }
     let mut kind = 0;
@@ -1854,11 +1925,11 @@ pub fn export_token(t: RtToken) -> RtExported {
 }
 
 pub fn drop_exported(e: RtExported) {
-    let __destructured30 = e;
-    let mut kind = __destructured30.kind;
-    let mut id = __destructured30.id;
-    let mut slot = __destructured30.slot;
-    let mut body = __destructured30.body;
+    let __destructured32 = e;
+    let mut kind = __destructured32.kind;
+    let mut id = __destructured32.id;
+    let mut slot = __destructured32.slot;
+    let mut body = __destructured32.body;
     if body.is_some() {
         let mut b = body.unwrap();
         drop_body_platform(b);
@@ -1891,4 +1962,16 @@ pub fn mailbox_dead(addr: i32) -> bool {
 
 pub fn identity_bits() -> i64 {
     return fresh_bits();
+}
+
+pub fn actor_pool(addr: i32) -> i32 {
+    return __module_use_1().pool_of_actor(addr);
+}
+
+pub fn waiter_pool(wid: i32) -> i32 {
+    return __module_use_1().pool_of_waiter(wid);
+}
+
+pub fn spawn_inert() -> i32 {
+    return spawn_body(0, 0, body_of_platform(Box::new(move |kind, slot, value| drop_dyn_platform(value))));
 }

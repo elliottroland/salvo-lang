@@ -5,6 +5,7 @@
 package salvo.core.map
 
 import salvo.*
+import salvo.core.bytes.*
 import salvo.core.deque.*
 import salvo.core.iterator.*
 import salvo.core.list.*

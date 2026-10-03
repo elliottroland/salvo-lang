@@ -15,6 +15,8 @@ pub mod hosttime;
 pub mod wire;
 #[path = "core/actor.rs"]
 pub mod core_actor;
+#[path = "core/bytes.rs"]
+pub mod core_bytes;
 #[path = "core/checked.rs"]
 pub mod core_checked;
 #[path = "core/console.rs"]
@@ -35,10 +37,14 @@ pub mod core_sorted;
 pub mod core_string;
 #[path = "runtime.rs"]
 pub mod runtime;
+#[path = "runtime/routing.rs"]
+pub mod runtime_routing;
 #[path = "runtime/timers.rs"]
 pub mod runtime_timers;
 #[path = "time.rs"]
 pub mod time;
+#[path = "platform/runtime/routing.rs"]
+pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
 

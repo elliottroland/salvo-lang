@@ -29,6 +29,8 @@ pub mod aws_sqs;
 pub mod aws_sqs_host;
 #[path = "core/actor.sv.rs"]
 pub mod core_actor;
+#[path = "core/bytes.sv.rs"]
+pub mod core_bytes;
 #[path = "core/checked.sv.rs"]
 pub mod core_checked;
 #[path = "core/deque.sv.rs"]
@@ -47,10 +49,14 @@ pub mod core_sorted;
 pub mod core_string;
 #[path = "runtime.sv.rs"]
 pub mod runtime;
+#[path = "runtime/routing.sv.rs"]
+pub mod runtime_routing;
 #[path = "stream.sv.rs"]
 pub mod stream;
 #[path = "time.sv.rs"]
 pub mod time;
+#[path = "salvo/platform/runtime/routing.sv.rs"]
+pub mod platform_runtime_routing;
 #[path = "salvo/platform/runtime.sv.rs"]
 pub mod platform_runtime;
 #[path = "aws/s3/host.rs"]

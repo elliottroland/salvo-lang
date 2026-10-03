@@ -1,6 +1,7 @@
 package salvo.core.string
 
 import salvo.*
+import salvo.core.bytes.*
 import salvo.core.deque.*
 import salvo.core.iterator.*
 import salvo.core.list.*

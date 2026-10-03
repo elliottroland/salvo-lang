@@ -47,12 +47,16 @@ pub mod fs_mem;
 pub mod fs_restricted;
 #[path = "runtime.rs"]
 pub mod runtime;
+#[path = "runtime/routing.rs"]
+pub mod runtime_routing;
 #[path = "stream.rs"]
 pub mod stream;
 #[path = "stream/host.rs"]
 pub mod stream_host;
 #[path = "platform/fs/host.rs"]
 pub mod platform_fs_host;
+#[path = "platform/runtime/routing.rs"]
+pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
 #[path = "platform/stream/host.rs"]

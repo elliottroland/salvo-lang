@@ -117,12 +117,12 @@ pub fn main() {
     let mut a = Point { x: 1, y: 2 };
     let mut b = Point { x: 1, y: 2 };
     let mut c = Point { x: 1, y: 9 };
-    let mut same = eq__7(&a, &b);
+    let mut same = eq__9(&a, &b);
     let mut before = cmp__5(&a, &c) < 0;
     println(&console, &(format!("4. equal {}, ordered {}", same, before)));
     let mut n1 = Note { text: "same".to_string() };
     let mut n2 = Note { text: "same".to_string() };
-    let mut notes_equal = eq__8(&n1, &n2);
+    let mut notes_equal = eq__10(&n1, &n2);
     println(&console, &(format!("4. plain struct equality {}", notes_equal)));
     let mut squares = (0..(4)).map(|i| i * i).collect::<Vec<_>>();
     println(&console, &(format!("5. generated {}", format!("[{}]", squares.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
@@ -182,14 +182,14 @@ pub fn cmp__5(a: &Point, b: &Point) -> i32 {
     return 0;
 }
 
-pub fn hash__7(value: &Point) -> i64 {
+pub fn hash__9(value: &Point) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.x), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.y), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__7(a: &Point, b: &Point) -> bool {
+pub fn eq__9(a: &Point, b: &Point) -> bool {
     if !((a.x) == (b.x)) {
         return false;
     }
@@ -199,7 +199,7 @@ pub fn eq__7(a: &Point, b: &Point) -> bool {
     return true;
 }
 
-pub fn eq__8(a: &Note, b: &Note) -> bool {
+pub fn eq__10(a: &Note, b: &Note) -> bool {
     if !(&a.text[..] == &b.text[..]) {
         return false;
     }
