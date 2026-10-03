@@ -487,7 +487,7 @@ impl SourceSet {
                     let ext = if pf.backend == "kotlin" { "kt" } else { "rs" };
                     // [platform-abi] A generated file (`<m>.sv.kt`, the ABI
                     // and interface files) is for the host project's tooling
-                    // only: the build generates its own (ABI.md D4).
+                    // only: the build generates its own (ABI D4).
                     if !pf.generated && ext == native_ext {
                         let out = Self::platform_output_path(&pf.module, ext);
                         self.add_companion(out, pf.module, content, true);

@@ -1,5 +1,5 @@
 // `runtime.streams`: the process's host stream table, a service on the
-// runtime's core [runtime-layers] (RUNTIME.md §3.4, §11.5 step 14).
+// runtime's core [runtime-layers] (the runtime record).
 //
 // Every host producer — a file `HostRawFs` opened, a body a network client
 // received, a buffer — registers a host stream here and gets a handle back,

@@ -2289,7 +2289,7 @@ impl<K: fmt::Display, V: fmt::Display> fmt::Display for SalvoSortedMap<K, V> {
 // [platform-check] [rs-platform-check] Collecting into a Salvo collection under
 // the canonical identity — the host's own hash and equality, or its `Ord` —
 // which is what host code builds a result with: `iter.collect::<SalvoSet<_>>()`
-// (ABI.md D10 C1, C2). A collection keyed by a Salvo-defined identity is
+// (ABI D10 C1, C2). A collection keyed by a Salvo-defined identity is
 // refused at the boundary, so these are the only ones a host builds.
 impl<T: Clone + Send + 'static + std::hash::Hash + PartialEq> FromIterator<T> for SalvoSet<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {

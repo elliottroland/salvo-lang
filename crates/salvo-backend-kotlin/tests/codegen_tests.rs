@@ -336,7 +336,7 @@ fn unions_emit_sealed_wrappers() {
     assert!(unions.content.contains("sealed interface Union2"));
     assert!(unions.content.contains("sealed interface Union3"));
     // [kt-union-wrappers] The arms nest in the interface: `Union2.U1`, as
-    // Rust's `Union2::U1` (user decision 2026-10-01, ABI.md D5).
+    // Rust's `Union2::U1` (user decision 2026-10-01, ABI D5).
     assert!(
         unions.content.contains(
             "sealed interface Union2<out T1, out T2> {\n    val value: Any?\n    \

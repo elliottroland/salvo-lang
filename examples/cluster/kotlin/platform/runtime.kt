@@ -1,5 +1,5 @@
 // Host implementation of the platform declarations of Salvo module `runtime`:
-// the primitives only the host can provide (RUNTIME.md §11.3). Written by
+// the primitives only the host can provide (the runtime record). Written by
 // hand, against the generated `runtime.sv.kt`.
 package salvo.platform.runtime
 

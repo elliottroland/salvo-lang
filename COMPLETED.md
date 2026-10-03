@@ -135,15 +135,15 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**The runtime port is complete (2026-10-03; RUNTIME.md §11.5 step 16, the
+**The runtime port is complete (2026-10-03; runtime step 16, the
 docs pass).** LANGUAGE_SPEC's [actor-kind] and [runtime-sched] now say the
 scheduler is std's Salvo `runtime` module rather than a library per backend;
 [runtime-host] lists what the host still supplies; [node-exit], cited in code
 and never written down, is a rule now. The backend specs gained
 [rs-runtime-host] and [kt-runtime-host] (what each backend writes by hand, and
-the line counts: Rust 2,720 → about 590, Kotlin 1,994 → about 380). ABI.md D11
+the line counts: Rust 2,720 → about 590, Kotlin 1,994 → about 380). ABI D11
 records generic platform code, kept fn values and `Never` members. README's
-actor paragraph says the scheduler is written once. RUNTIME.md stays as a
+actor paragraph says the scheduler is written once. the runtime record stays as a
 design record, since about 50 comments and spec entries cite its sections,
 with a status head saying what is built and where the open items went
 (ROADMAP 0c, 0d, 0e, the `test actor` follow-ups, optional step 17); ROADMAP
@@ -158,7 +158,7 @@ themselves are ROADMAP 0c item 15); and two runtime tests let an actor die
 unwatched, so the named report reached stderr (they now watch it, and check
 the `Exit`).
 
-**Actor tests and the virtual runtime (2026-10-03; RUNTIME.md §11.5 step
+**Actor tests and the virtual runtime (2026-10-03; runtime steps step
 15) [test-kind] [test-actor].** User decisions: the kind is written before the
 name with its arguments, `test actor(ARGS) "…"`, and `test property(ARGS)
 "…"` comes later; option (a) of the step-15 question (a new kind, rather than
@@ -182,7 +182,7 @@ tests), a seed test in `std/runtime.test.sv`, the CLI test
 test. Gotcha: `for x in list` with `x.field = …` emits an immutable borrow on
 Rust (the checker accepts it); index with `get(list, i)!`.
 
-**The host stream table in Salvo (2026-10-03; RUNTIME.md §11.5 step 14)
+**The host stream table in Salvo (2026-10-03; runtime step 14)
 [stream-table].** The runtime service `runtime.streams` now keeps the table,
 the read-ahead and line splitting, positions, failure recording and strict
 decoding; the host supplies `HostIn`/`HostOut` and five leaf fns. An operation
@@ -199,7 +199,7 @@ carries `runtime.streams` whenever the program reaches it. The runtime tests'
 host-module compile checks now run in the `files` example's tree, which has
 the stream table. **1680 tests.**
 
-**A `Dedicated` pool's thread ends with its actor (2026-10-03; RUNTIME.md
+**A `Dedicated` pool's thread ends with its actor (2026-10-03; the runtime record
 §11.5 step 13) [pool-retire].** `thread()` now makes a pool the core knows is
 dedicated; when its actors are all dead, its task queue is empty and no token
 is owed to work there, the core marks it retired and wakes its thread, which
@@ -208,7 +208,7 @@ test (on both backends) kills a dedicated pool's one actor and waits for its
 worker to return. **1680 tests** (std's runtime tests run as one), 5m29 fresh.
 
 **Routes wait on their view; `route_any` and `RouteSelector` (2026-10-03;
-user decisions; RUNTIME.md §11.5 step 12).** `use route(group)` became `use
+user decisions; runtime step 12).** `use route(group)` became `use
 route_any(group[, RouteConfig { first_wait, max_wait }])`, `Pick<E>` became
 `RouteSelector<E>`, and the view types `RouteView<E>`/`RouteMember<E>`. The
 selector works in two phases (option B, of two the user weighed): `changed`
@@ -266,7 +266,7 @@ Left open: private *function* names (ROADMAP 0c item 8). Found on the way: a
 fn field with a named parameter does not build on Rust (0c item 11).
 **1680 tests**, 5m44 fresh.
 
-**Routing in Salvo (2026-10-03; RUNTIME.md §11.5 slice 11e).** The service
+**Routing in Salvo (2026-10-03; runtime step 11 slice 11e).** The service
 `runtime.routing` (`std/runtime/routing.sv`) now holds what the hosts' routing
 layers did: node identities and virtual nodes, proxies and the shared dead
 entry, credits, routes and the frames waiting for one, protocol tables,
@@ -292,9 +292,9 @@ emitters' lowerings are unchanged. What fell out:
   values.
 **1679 tests**, 5m27 fresh.
 
-**The Salvo scheduler within the benchmark budget (2026-10-03; RUNTIME.md
+**The Salvo scheduler within the benchmark budget (2026-10-03; the runtime record
 §11.5 slice 11d).** All four benchmarks within D6's 1.5× on both backends
-(numbers in RUNTIME.md 11d; Kotlin ping-pong the closest at 1.38×). What it
+(numbers in the runtime record 11d; Kotlin ping-pong the closest at 1.38×). What it
 took: a ready queue per pool, so finding work no longer scans the actor table
 (fan-out had been 10⁸ checks); one thread woken per item; the pool carried in the activation record instead of a
 second monitor call; Kotlin's `__Mon_E` on a `ReentrantLock` with
@@ -319,7 +319,7 @@ What fell out:
   are ROADMAP 0e, for a design session.
 **1679 tests**, 5m05 fresh.
 
-**Generated code runs on the Salvo scheduler (2026-10-03; RUNTIME.md §11.5
+**Generated code runs on the Salvo scheduler (2026-10-03; runtime steps
 slice 11d, the cutover).** Both hosts' `scheduler.*` are now shims onto
 `std/runtime.sv`'s core, keeping every entry point the emitters call, so no
 emitter lowering changed; the routing layer (proxies, credits, frames 0–4)
@@ -351,11 +351,11 @@ took and what fell out:
 - The host-only behaviour tests (`runtime_tests.rs` on both backends) compile
   against the actors example's generated runtime, and read the core's
   `Exit`/`Idle` where they used to build their own.
-- **Over budget**: ping-pong and tasks are 2.7–6.8× the baseline (RUNTIME.md
+- **Over budget**: ping-pong and tasks are 2.7–6.8× the baseline (the runtime record
   11d has the numbers), against D6's 1.5×; the next work.
 **1679 tests**, 5m21 fresh.
 
-**The local scheduler core in Salvo, third part (2026-10-03; RUNTIME.md §11.5
+**The local scheduler core in Salvo, third part (2026-10-03; runtime steps
 slice 11d).** Watches, the fault sink (an unwatched death reaches the pool's
 sink as a kind-2 activation carrying a `Fault`, or the named report),
 owed-token accounting with `untrack` for tokens the scheduler holds itself,
@@ -371,7 +371,7 @@ test`, which nothing bounded: `std_tests_pass` now kills the run after 240 s
 and fails naming the hang (pipes drained on threads so the limit can be
 watched). **1679 tests** (three more std tests).
 
-**The local scheduler core in Salvo, second part (2026-10-02; RUNTIME.md
+**The local scheduler core in Salvo, second part (2026-10-02; the runtime record
 §11.5 slice 11d).** Answers and waits: a linear `Token` aimed at an actor's
 parked continuation (gated or not), at a waiting frame, or at a task whose
 body travels in the token; mailboxes of `Delivered | Answered` entries with a
@@ -392,7 +392,7 @@ and two checker shapes the code works around rather than fixes — an
 element is not reachable after an `is` test (the gate reads a parallel deque
 of slots instead). **1679 tests** (four more std tests).
 
-**The local scheduler core in Salvo, first part (2026-10-02; RUNTIME.md
+**The local scheduler core in Salvo, first part (2026-10-02; the runtime record
 §11.5 slice 11d).** In `std/runtime.sv`, beside the hosts' schedulers: a
 `Scheduler` monitor bound at module level holding the actor table (`linear
 struct ActorRec canbe Mut` records reached by `get(actors, i)!`), pools whose
@@ -417,7 +417,7 @@ four-message mailbox arrive in order; a faulting actor dies, later sends to
 it are dropped, and its pool keeps working. **1679 tests** (two more std
 tests).
 
-**Projections of linear elements (user decision 2026-10-02; RUNTIME.md
+**Projections of linear elements (user decision 2026-10-02; the runtime record
 §11.5 slice 11c).** A spike of the runtime's actor table — a monitor holding
 `Mut List<Mut Actor>` of `linear struct Actor canbe Mut` records with a
 `Mut Deque` of linear entries — checked in every respect but one: `get`/`at`/
@@ -433,7 +433,7 @@ cannot be consumed or copied, and its container still owes). The spiked table
 runs identically on both backends. **1679 tests.**
 
 **Kept fn values for the runtime: `start_thread` and `guarded` (2026-10-02;
-RUNTIME.md §11.5 slice 11b).** A platform fn of the runtime's modules that
+runtime step 11 slice 11b).** A platform fn of the runtime's modules that
 consumes a fn-typed parameter takes it owned [runtime-kept-fn]: on Rust a
 `Box<dyn FnOnce + Send + 'static>`, with the argument emitted as a boxed
 `move` closure (`keeps_fn_param`, `kept_fn_param_ty`); Kotlin unchanged. The
@@ -444,7 +444,7 @@ worker loop and activation need now all exist: parking, threads, the fault
 boundary, module-level state. **1678 tests** (two more std tests).
 
 **The runtime as a core and its services (user decision 2026-10-02;
-RUNTIME.md §5.4).** Prompted by the user's question of how a wheel written as
+the runtime record).** Prompted by the user's question of how a wheel written as
 an actor fits a scheduler written in Salvo: it is a client of the scheduler,
 not part of it, so the dependency is one-way — but only by convention while
 both lived in `std/runtime.sv`, whose rules said the module could not use
@@ -453,7 +453,7 @@ the core exports what it needs (`Parker` and its fns, `now_nanos`), and the
 checker refuses the core importing a service [runtime-layers]. New test
 `the_runtime_core_does_not_import_its_services`. **1678 tests.**
 
-**Deadlines in Salvo (2026-10-02; RUNTIME.md §11.5 slice 11a).** The first
+**Deadlines in Salvo (2026-10-02; runtime step 11 slice 11a).** The first
 piece of a host scheduler written once: `std/runtime.sv` keeps deadlines in a
 `Deadlines` monitor and serves them with a wheel — an actor on a dedicated
 thread, both bound by module-level `use` (`use Wheeling() on thread()`, the
@@ -474,7 +474,7 @@ ms (baseline 58 / 102, within the 1.5× budget). Scheduler sizes: Kotlin
 1,556 lines, Rust 2,075. **1677 tests.**
 
 **Module-level `use` in the runtime module, and `RuntimeHost` (user decision
-2026-10-02; RUNTIME.md §11.5 step 10, E4).** `Module.uses` holds top-level
+2026-10-02; runtime step 10, E4).** `Module.uses` holds top-level
 `use H()` lines; the checker refuses one outside std's `runtime`
 [mod-use], checks the rest as a `use` in an empty body, and starts every
 function of the module with the bound effects outermost in its environment
@@ -487,7 +487,7 @@ entropy, `report`) are implemented in `std/platform/runtime.{rs,kt}`
 Every module's AST snapshot gains `uses: []`. New test
 `a_module_level_use_is_the_runtime_module_s_alone`. **1677 tests.**
 
-**Monitor re-entry traps on Kotlin (2026-10-02; RUNTIME.md §11.5 step 9).**
+**Monitor re-entry traps on Kotlin (2026-10-02; runtime step 9).**
 Each `__Mon_E` member now checks `Thread.holdsLock(inner)` and traps before
 entering a monitor the thread already holds [kt-monitor-reentry]: the same
 program deadlocks on Rust, so this closes the one way the reentrant JVM
@@ -495,7 +495,7 @@ monitor could make a mistake pass on Kotlin only. No program in the
 repository reaches it (the availability rule prevents it); the golden
 snapshots change by the check. **1676 tests.**
 
-**`Parker` (2026-10-02; RUNTIME.md §11.5 step 8, E3).** The runtime module's
+**`Parker` (2026-10-02; runtime step 8, E3).** The runtime module's
 first declarations: `threadsafe platform type Parker` and four platform fns
 [runtime-parker], implemented by hand in `std/platform/runtime.{rs,kt}` over
 `std::thread::{park, park_timeout, Thread::unpark}` and `LockSupport`, and
@@ -507,7 +507,7 @@ embedded companion a shadowing module replaces (it had never been hit, as no
 std test reached a platform file before). And the test harness needed leave
 to import `runtime.test` under [mod-std-internal]. **1676 tests** (three more std tests, run inside `std_tests_pass`).
 
-**Generic platform types and fns (2026-10-02; RUNTIME.md E1).** A platform
+**Generic platform types and fns (2026-10-02; runtime E1).** A platform
 type or platform fn may have type parameters, opaque to the host
 [platform-generic]: Rust bounds them `Send + 'static` and never `Clone` (so a
 linear `T` fits), Kotlin plainly; the skeletons carry them (a Rust struct as a
@@ -522,7 +522,7 @@ ROADMAP 0c item 5; the Kotlin skeleton's wrapper-name rewrite missed
 `generic_platform_types_and_fns_run_on_both_backends`. **1676 tests.**
 
 **Platform types and fn values at the boundary (user decisions 2026-10-02;
-RUNTIME.md §11.5 step 7, §12, E2/E5).** `platform type Name` — plain,
+runtime step 7, §12, E2/E5).** `platform type Name` — plain,
 `threadsafe`, or `linear` (the only kind that may be `canbe Mut`) — is an
 opaque handle to the host's class or struct of the same name [platform-type]:
 parsed into `TypeDecl` with `platform`/`threadsafe` flags and `noremote` set,
@@ -546,7 +546,7 @@ recorded: `f(f(x))` is E0499 on Rust (ROADMAP 0c item 4). New tests
 `rustc_runs_effect_members_taking_fn_values` with its Kotlin case.
 **1675 tests.**
 
-**`Deque` (user decision 2026-10-02; RUNTIME.md §11.5 step 6, D3).** std's
+**`Deque` (user decision 2026-10-02; runtime step 6, D3).** std's
 double-ended queue, `core.deque`, as an intrinsic beside `List` [col-deque]:
 the surface the user approved (both-ends add and remove, `get`/`first`/
 `last`, `remove_at`, `drain`, iteration and `reversed`, `deque_by`,
@@ -564,7 +564,7 @@ renumbering earlier collections caused). The generic platform types and
 platform types). New std tests `std/core/deque.test.sv` (seven, both
 backends). **1670 tests.**
 
-**std's own module, and platform `Never` (2026-10-02; RUNTIME.md §11.5
+**std's own module, and platform `Never` (2026-10-02; runtime steps
 step 5, E8 and E6).** `std/runtime.sv` is the module the scheduler will be
 written in; std's files may import it and a program may not, refused at the
 import [mod-std-internal] — the path is the marker, no syntax. A platform fn
@@ -577,7 +577,7 @@ effect's own trait and forwards the host's `!`. New tests
 `the_runtime_module_is_std_s_own` and
 `a_platform_member_answering_never_cannot_return`. **1670 tests.**
 
-**The group protocol in `net.sv` (2026-10-02; RUNTIME.md §11.5 step 4, D5).**
+**The group protocol in `net.sv` (2026-10-02; runtime step 4, D5).**
 The node-group handshake, introductions, departures and actor-group member
 sharing moved out of both schedulers into Salvo. The runtime now carries one
 CONTROL frame kind (4: to, from, channel, payload — `to` 0 for a HELLO,
@@ -603,7 +603,7 @@ item 0c (a re-declared local inheriting a loop's move decision, which
 effect named `Box`). Scheduler sizes: Kotlin 1,994 → 1,640 lines, Rust
 2,720 → 2,160. **1668 tests.**
 
-**The host stream table in its own runtime file (2026-10-02; RUNTIME.md
+**The host stream table in its own runtime file (2026-10-02; the runtime record
 §11.5 step 3).** `SalvoIn`/`SalvoOut` and the table moved out of
 `scheduler.rs`/`scheduler.kt` into `hoststreams.rs`/`hoststreams.kt`, emitted
 and mounted whenever the scheduler is (it draws from the scheduler's handle
@@ -615,7 +615,7 @@ check refused it [backend-companion], which is the `hosttime` lesson again —
 a runtime file needs a name no program would choose. Also recorded with this
 commit: ROADMAP item 0b, the three slow tests (user request). **1668 tests.**
 
-**Forged identities share one dead entry (2026-10-02; RUNTIME.md §11.5
+**Forged identities share one dead entry (2026-10-02; runtime steps
 step 2).** `importAddr` answered a fresh dead entry for every identity of
 this node that failed the bits check, so a peer sending forged addrs could
 grow the actor table without bound. Both runtimes now make that entry once
@@ -625,8 +625,8 @@ and answer it for every forged or stale identity (`Sched.dead_entry` /
 `forged-identities-share-one-dead-entry` case (Kotlin). **1668 tests.**
 
 **The runtime in Salvo: the plan, and the benchmark baseline (user
-decisions 2026-10-01/02; RUNTIME.md).** The user asked how much of the two
-hand-written schedulers could be one Salvo module. The survey (RUNTIME.md §2)
+decisions 2026-10-01/02; the runtime record).** The user asked how much of the two
+hand-written schedulers could be one Salvo module. The survey (the runtime record)
 found about 90% is bookkeeping that can be Salvo, and six defects in today's
 runtimes, all now scheduled in the work (D7): waiter and actor tables that
 never shrink, a dead entry minted per forged identity, weaker capability bits
@@ -638,7 +638,7 @@ because each intrinsic is something a new backend must implement, so the
 host part is a `RuntimeHost` platform handler; **platform types** join the
 ABI as opaque handles in three kinds (plain, `threadsafe`, `linear` — only
 the linear kind may be `canbe Mut`), with generic platform types and fns and
-fn values at the boundary (RUNTIME.md §12); waiting is a `Parker` platform
+fn values at the boundary (the runtime record); waiting is a `Parker` platform
 type rather than `wait until` in monitors; the scheduler is reached through a
 **module-level `use`, allowed in the runtime module only**; actor bodies keep
 today's move-out model as an owned mutable fn value, since the closure-per-
@@ -650,10 +650,10 @@ with the seed as an input), the harness writing one program per mode (D11).
 Built with it: the benchmark baseline the port must stay within 1.5× of (D6)
 — `bench/scheduler/` (ping-pong 10⁶, fan-out 1,000 actors × 100, a chain of
 10⁵ tasks, 10⁴ timers) and `tools/bench-scheduler.sh`, with the medians in
-RUNTIME.md §11.5. The ROADMAP's "Recorded" entry became sequence item 0.
+runtime steps. The ROADMAP's "Recorded" entry became sequence item 0.
 
 **Sets and maps at the boundary, and a steadier `net-node-groups` (2026-10-01;
-ABI.md D10 C1, C2).** The checker refuses a result keyed by a Salvo-defined
+ABI D10 C1, C2).** The checker refuses a result keyed by a Salvo-defined
 identity, written or filled by name from a hand-written `hash`/`eq`/`cmp`
 (`keyed_canonically`; an intrinsic or `by auto` identity is canonical), and
 plans a `Shape` node for every set or map. Kotlin's canonical ordering became
@@ -676,12 +676,12 @@ average of 92 all converged. New tests
 `a_collection_keyed_by_a_salvo_identity_is_refused_at_the_boundary`. **1667
 tests.**
 
-**A platform fn may not return a borrow (2026-10-01; ABI.md D10 C5).** The
+**A platform fn may not return a borrow (2026-10-01; ABI D10 C5).** The
 checker refuses a `proj` anywhere in a platform fn's result type; a
 platform-handled member's was already refused when emitted. Checker test
 `a_platform_fn_returning_a_borrow_is_refused`. **1665 tests.**
 
-**ABI stamps and the dependency check (2026-10-01; ABI.md step 12).** D9 (b)
+**ABI stamps and the dependency check (2026-10-01; the ABI decisions step 12).** D9 (b)
 built: `abi::abi_stamp` hashes an owner's platform signatures and what they
 reach in a canonical rendering, and every generated file of a host project
 carries `salvo-abi <ABI_REVISION> <hash>`. After emitting, `compile`, `run`
@@ -695,7 +695,7 @@ companions, says so without a second analysis. The run test with a
 platform-handled dependency now generates its host project first. New test
 `a_dependencys_host_project_is_checked_before_its_code`. **1664 tests.**
 
-**The aws glue builds its answers with factories (2026-10-01; ABI.md step
+**The aws glue builds its answers with factories (2026-10-01; the ABI decisions step
 11).** The generator now writes `CreateQueue.ok(…)` and
 `CreateQueue.err(Checked(SqsFailures.sqsError(…)))` (Rust `CreateQueue::ok`,
 `SqsFailure::sqs_error`) instead of counting arms; it mirrors the compiler's
@@ -703,7 +703,7 @@ naming (`factorySnake`, `upperCamel`) so the names agree. Reads of unions
 (`when` over a credentials union) stay positional, since factories only build.
 Both SDK compiles pass. **1663 tests.**
 
-**Factories at the platform boundary (2026-10-01; ABI.md step 8c).** D5
+**Factories at the platform boundary (2026-10-01; the ABI decisions step 8c).** D5
 built: the checker plans, for every named union any module's platform
 signatures reach and for each platform fn's or platform-handled member's
 anonymous result or reply union, one factory per runtime arm
@@ -720,7 +720,7 @@ just the project's, because std's implementation files compile in every
 build that reaches them. The boundary test now builds its unions with
 factories on both backends. **1663 tests.**
 
-**Checks at the platform boundary (2026-10-01; ABI.md step 8b).** D7 and D10
+**Checks at the platform boundary (2026-10-01; the ABI decisions step 8b).** D7 and D10
 C3 built: the checker plans, per platform fn result, platform-handled effect
 member result and `Reply<T>` parameter, what a host value must be checked for
 (`abi::BoundaryCheck`: closed literals, state qualifiers by `qualifies`,
@@ -734,11 +734,11 @@ project's adapters carry no checks, since they would pull in qualifier code
 the closure does not reach. Nothing in std or aws triggers a check today
 (their literal unions are open, their qualifiers provenance), so the new CLI
 test `the_boundary_checks_what_the_host_returns` covers each node on both
-backends, with failures for a result and a host-sent reply. Left (ABI.md):
+backends, with failures for a result and a host-sent reply. Left (the ABI decisions):
 D10 C1, C2 and C5. Found and recorded: `net-node-groups` flaked again under
 load despite the bounded poll. **1663 tests.**
 
-**Platform handlers behind a host interface and an adapter (2026-10-01; ABI.md
+**Platform handlers behind a host interface and an adapter (2026-10-01; the ABI decisions
 step 8a).** Under D7 and D8, the host no longer implements the program's own
 effect interface. Beside an effect some platform handler implements, the
 compiler now emits the interface the host implements (`EPlatform`, and on
@@ -760,7 +760,7 @@ project); `platform_effects` counts only reachable modules in a build.
 Generic effects and borrowing members are refused for platform handlers
 (codegen errors). **1660 tests.**
 
-**The host project in each platform root (2026-10-01, user decisions; ABI.md
+**The host project in each platform root (2026-10-01, user decisions; the ABI decisions
 steps 6–7).** The user chose D4 option (a) for now, declarations only, and had
 two items recorded on ROADMAP: (b), the whole program in the root, and an
 evaluation of how much of the ~2000-line schedulers could be Salvo. Every
@@ -799,7 +799,7 @@ their root alone; aws's glue passes `cargo check` and Gradle `compileKotlin`
 `the_host_project_compiles_on_its_own` and
 `the_checked_in_host_projects_are_current_and_compile`. **1660 tests.**
 
-**Platform templates removed (2026-10-01, user decisions; ABI.md step 5b).**
+**Platform templates removed (2026-10-01, user decisions; the ABI decisions step 5b).**
 Templates went because they made the reader hold two languages at once and
 left the host's tooling unusable; this step removes them ahead of the
 generated ABI files, so the `*.sv.kt` / `*.sv.rs` names are free before
@@ -815,7 +815,7 @@ server's template support (all built 2026-09-30). [host-splice] is a
 tombstone. Built in their place: a **`platform fn` compiles to a wrapper**,
 `shoutPlatform` / `shout_platform`, whose body calls the implementation by its
 real name in the module's implementation file (`salvo.platform.<m>.shout` /
-`crate::platform_<m>::shout`), the seam where ABI.md's boundary checks will
+`crate::platform_<m>::shout`), the seam where the ABI decisions's boundary checks will
 go; `salvo platform generate` writes **implementation skeletons** for platform
 fns (the wrapper's own signature under the real name, so the two cannot
 disagree) beside the handler classes it already wrote; a platform fn is
@@ -833,9 +833,9 @@ both backends; the generate tests check implementation files; an LSP test
 keeps the source-root definition fix covered. **1658 tests.**
 
 **Kotlin union arms as `UnionN.Uk`, tuples as `TupleN` (2026-10-01, user
-decisions; ABI.md step 5).** A union arm is now nested in its sealed interface,
+decisions; the ABI decisions step 5).** A union arm is now nested in its sealed interface,
 `Union2.U1(x)` — Rust's `Union2::U1` — instead of a top-level `U2_1(x)`
-([kt-union-wrappers], ABI.md D5), and the generated tuple classes past
+([kt-union-wrappers], ABI D5), and the generated tuple classes past
 `Triple` are `TupleN` instead of `SalvoTupleN` ([kt-tuple-class], D10;
 `Pair`/`Triple` kept, and the `SalvoTuple` marker interface the comparison
 runtime uses keeps its name). Each nested arm keeps the union's full parameter
@@ -847,8 +847,8 @@ programs compile and run unchanged; the 14 examples' `kotlin/` trees
 regenerated. Tests: the unions test asserts the nested shape and the absence
 of `U2_1`; expected strings updated in seven codegen tests.
 
-**Kotlin in camel case (2026-10-01, user decision; ABI.md step 4).** All
-generated Kotlin now names Salvo values the Kotlin way ([kt-camel], ABI.md D6):
+**Kotlin in camel case (2026-10-01, user decision; the ABI decisions step 4).** All
+generated Kotlin now names Salvo values the Kotlin way ([kt-camel], ABI D6):
 `kt_ident` maps through `salvo_core::case::camel` (an `_` before a lowercase
 letter dropped, the letter uppercased; types, `__`-prefixed compiler names and
 overload suffixes untouched), so fns, members, parameters, fields and locals
@@ -869,9 +869,9 @@ in `case.rs` (the mapping, and clashes found per scope and nowhere else);
 Kotlin goldens re-accepted and the expected strings in eleven codegen tests
 updated. **1672 tests.**
 
-**`platform fn` (2026-10-01, user decision; ABI.md step 3).** A top-level fn
+**`platform fn` (2026-10-01, user decision; the ABI decisions step 3).** A top-level fn
 the host implements is now declared `platform fn name(…) -> T` ([platform-fn],
-ABI.md D1) instead of being recognised by its missing body. A bodiless fn
+ABI D1) instead of being recognised by its missing body. A bodiless fn
 without the modifier is a parse error naming `platform fn`; a `platform fn`
 with a body, or with `threadsafe`, is refused; `FnDecl.platform` carries it.
 The checker reports a platform fn no template implements, and — per D5 — two
@@ -887,7 +887,7 @@ bodiless error, a body refused, `threadsafe` refused) and a checker test (no
 overloading between platform fns, sharing a name with an ordinary fn allowed).
 **1670 tests.**
 
-**Platform effects removed (2026-10-01, user decision; ABI.md step 2).** The
+**Platform effects removed (2026-10-01, user decision; the ABI decisions step 2).** The
 first step of the platform ABI sequence. `platform effect` — an effect the host
 implemented wholly, whose instance a host-owned `main` handed to the generated
 entry point (`salvoMain` / `salvo_main`) — is no longer the language:
@@ -20014,6 +20014,1113 @@ nothing" at the type level rather than by convention.
 ### S-IO — streams, then the filesystem
 
 **Deferred by decision** — see ROADMAP.md.
+
+## Design record: the runtime in Salvo (the runtime record, retired 2026-10-03)
+
+the runtime record was the working document for writing the scheduler, routing, the
+deadline wheel and the host stream table once in Salvo (2026-10-01 to
+2026-10-03). The work is done; each step's record is in the decision log, and
+the rules are LANGUAGE_SPEC.md's ([runtime-sched], [runtime-host],
+[runtime-layers], [mod-use], [mod-std-internal], [runtime-parker],
+[runtime-kept-fn], [platform-type], [platform-generic], [platform-fn-value],
+[stream-table], [pool-retire], [test-kind], [test-actor]) and the backend
+specs' ([rs-runtime-host], [kt-runtime-host]). What it left open moved to
+ROADMAP.md item 0. This section keeps the decisions and the reasoning that is
+not in the specs; code cites them as "runtime Dn", "runtime En" and "runtime
+step n". The survey of the hand-written schedulers (2,720 lines of Rust,
+1,994 of Kotlin), the first intrinsic-based plan it superseded, and its cost
+estimates are not kept: the code they describe is gone. A section number
+(§n) inside the quoted text refers to the retired document.
+
+**User guidance (2026-10-01):** module-private declarations in the runtime
+module may behave differently from Salvo elsewhere. The runtime is what all
+Salvo code runs on, `main` included, so it is expected to contain exceptions
+such as starting threads explicitly and handling locks. A privilege that is
+private to the runtime module therefore needs no language decision. Only
+what becomes visible outside it does.
+
+
+### Results
+
+- Rust's `scheduler.rs` went from 2,720 lines to about 590, Kotlin's
+  `scheduler.kt` from 1,994 to about 380: entry-point shims and a proxy
+  registry. The host's runtime code is `std/platform/runtime.{rs,kt}` and
+  `std/platform/runtime/{routing,streams}.{rs,kt}`.
+- Benchmarks (runtime D6, `bench/scheduler`, `tools/bench-scheduler.sh`):
+  the budget was 1.5× the pre-port numbers on each backend. Quiet-machine
+  numbers after the port, in ms, with the budget:
+
+  | | ping-pong | fan-out | tasks | timers |
+  |---|---|---|---|---|
+  | Rust | 412 | 76 | 20 | 39 |
+  | Kotlin | 505 | 128 | 51 | 48 |
+  | Budget (Rust / Kotlin) | 603 / 551 | 317 / 533 | 44 / 56 | 87 / 153 |
+
+  A benchmark comparison is only reliable against a build of the previous
+  commit run alternately: the machine's noise is larger than most changes.
+
+### The steps (runtime step n), as built
+
+1. Benchmarks (D6). 2. Forged identities share one dead entry. 3. The host
+stream table in its own runtime file. 4. The group protocol (frames 4–9) into
+`std/net.sv` (D5). 5. E8 (std's own module) and E6 (`Never` platform members).
+6. `Deque`, an intrinsic beside `List` (D3). 7. E2 (fn values at the platform
+boundary) and E5 (platform types); 7b E1 (generic platform types and fns).
+8. E3, `Parker`. 9. Monitor re-entry agrees on both backends. 10. E4
+(module-level `use`, runtime module only) and `RuntimeHost`. 11. The port:
+11a deadlines, 11b kept fn values (`start_thread`, `guarded`), 11c projections
+of linear elements, 11d the local scheduler core and the cutover, 11e routing
+(`runtime.routing`, frames as canonical-encoded values, D4). 12. Routes wait
+on their view (`route_any`, `RouteSelector`). 13. Pools retire
+([pool-retire]). 14. The stream table in Salvo (`runtime.streams`). 15. The
+virtual runtime under `test actor` (D11). 16. Docs, and this retirement.
+17. Optional, open: the other collections onto generic platform types.
+
+Not built as planned: **E7** (`Addr`, `Reply`, `Pool` as Salvo types) and the
+intrinsic-to-Salvo half of **E8** (`core.actor`'s and `net`'s intrinsics
+becoming Salvo calls into the runtime) are ROADMAP item 0; **E10** (owned
+mutable fn values) was met by the `Body` platform type over `body_of`,
+emitter-generated only; **E9** was rejected (below); `std.test`'s
+`trapped_by` and the runtime's `guarded` are still two primitives.
+
+### 10. Decisions for the user
+
+- **D1 (G4). Decided 2026-10-02: pure constants only, for now.** The runtime
+  half is superseded by E4: the scheduler and `RuntimeHost` are reached
+  through module-level `use` bindings, so the runtime needs no constants.
+  Run-time-initialised constants are not part of the language.
+- **D2 (G2).** Settled by the user guidance while the move-out operation
+  stays private to the runtime. A decision only if it is wanted as public
+  std API.
+- **D3 (§4.2). Decided 2026-10-01: `Deque`.** Whether it is an intrinsic
+  over the host deque or a generic platform type is now open under §11 (D10).
+- **D4 (G9). Decided 2026-10-02: yes.** Frames become canonical-encoded
+  Salvo values; done in the port (§11.5 step 11).
+- **D5 (§3.3). Decided 2026-10-02: yes.** The group protocol moves to
+  `net.sv` before the port (§11.5 step 4).
+- **D6. Decided 2026-10-02:** the four benchmarks of §8 on both backends,
+  and the port stays within 1.5× of today's numbers on each.
+- **D7 (§2.3). Decided 2026-10-02:** every finding is part of this work,
+  ordered by the author; §11.5 places each one.
+- **D8 (§4.1). Decided 2026-10-01: add platform types** (`platform type
+  HostIn`, an opaque host class a Salvo program holds but cannot look
+  inside).
+- **D9 (§4.1). Answered 2026-10-01: not worth it as posed.** Splitting a few
+  cold primitives into platform fns while the rest stay intrinsics is not
+  the goal. The user's goal is the opposite: as few intrinsics as possible,
+  because each is something a new backend must implement. §11 is the plan
+  under that goal.
+- **D10 (§11).** Which of the language expansions E1–E10 to take. The user
+  is generally happy with all of them (2026-10-01); E9 is now rejected for
+  actors in favour of E10 (§11.6). E3 is the `Parker` platform type
+  (decided 2026-10-02), with `wait until` in monitors kept as a possible
+  user-facing feature.
+- **D11 (§11.7). Decided 2026-10-02.** The **test kind** chooses the
+  runtime: an actor test kind and `proptest` set up the virtual runtime
+  before running, and plain `test` stays threaded. The harness writes **one
+  synthesized program per mode**, with a fresh `Sched` per virtual test.
+  `proptest` **generates the seed** as an input, so a failing interleaving
+  shrinks and replays like a failing value.
+
+
+### 11. Platform code instead of intrinsics (user direction, 2026-10-01)
+
+**The goal.** Every intrinsic type or function is something a new backend
+has to understand and lower inside its emitter. A platform handler is
+different: its requirements are stated as a generated host interface, and a
+backend meets them with an ordinary host file in std's platform root. So the
+aim is a `Runtime` *platform handler* that supplies what only the host can
+do, behind a host interface, with the scheduler written in Salvo on top and
+as few intrinsics as possible. The effect is there to give the host part an
+interface, not to make the runtime reachable as an effect by programs.
+
+Sections 4–7 assumed the opposite (intrinsics everywhere), so this section
+supersedes §4's table where they differ.
+
+
+#### 11.2 The expansions
+
+Each is listed with what else it would be good for, since the point is to
+grow the language in ways that pay off outside the runtime too.
+
+- **E1. Generic platform types and functions.** The host writes generic code
+  over an opaque type parameter that it can only store and move: Kotlin
+  `class Deque<T>`, Rust `struct Deque<T>` with the bounds the emitter
+  always adds (`T: Send + 'static`). Elsewhere: host-backed containers and
+  caches, typed SDK wrappers. With E1, `Deque` and even the existing
+  collections could be platform types in std rather than intrinsics, which
+  would be the largest single cut in what a new backend's emitter must
+  know. The lock *could* be done this way too, but its `state(h)` returns
+  a borrow, against C5, which is why the state is a monitor and waiting is a
+  `Parker` (E3) instead.
+- **E2. Function values in platform signatures**, for effect-free fn types
+  (`() -> None`, `once (Bytes) -> None`). The host receives its own closure
+  type (`() -> Unit`, `Box<dyn FnOnce() + Send>`). Captured handles travel
+  inside the closure, so the host never supplies an effect. Elsewhere:
+  callbacks into SDKs, event listeners, a host executor. This one expansion
+  makes `start_thread` and `guarded(f: once () -> None) -> Str?` ordinary
+  members of the runtime's platform handler.
+- **E3. Waiting, by a `Parker` platform type — revised 2026-10-02 (user:
+  "I like the Parker idea").** The scheduler sleeps until another thread
+  changes the state in five places: a worker with nothing to run, a sender
+  on a full mailbox, a `waitfor` frame, the timer thread (until the
+  earliest deadline), and a remote send with no credits. A monitor
+  [monitor-handler] gives mutual exclusion but cannot sleep. The danger in
+  sleeping is the **lost wakeup**: if the state changes between "nothing to
+  do" and going to sleep, the wakeup arrives before anyone sleeps.
+  - **Chosen: a non-generic platform type**, needing no language change
+    beyond platform types (D8):
+
+    ```
+    platform type Parker
+    //   park(p)                      sleep until unparked
+    //   park_until(p, nanos: Long)   the same, or until the deadline
+    //   unpark(p)                    wake it
+    // Rust: std::thread::park / Thread::unpark
+    // Kotlin: java.util.concurrent.locks.LockSupport
+    ```
+
+    Both hosts give `unpark` a token: an `unpark` that arrives before the
+    `park` makes the next `park` return at once, which closes the
+    lost-wakeup window without holding a lock while sleeping. A wait is
+    then: a member of the scheduler monitor checks the condition and, if it
+    cannot proceed, records the caller's parker in the state and returns;
+    the caller parks outside the lock; every member that changes the state
+    unparks the recorded parkers (today's `signalAll`); the caller calls
+    the member again, in a loop that also absorbs spurious wakeups. The
+    Salvo side needs a few helpers for registering and waking, and each
+    state change must remember to wake. A test that every member ends in a
+    wake is cheap to add.
+  - **Not taken for the runtime: `wait until <condition>` in monitor
+    members**, lowered as a condition-variable wait on the monitor's lock.
+    More concise, and useful to users (bounded buffers, latches), but it is a
+    language feature: checker and both emitters, the deadlock graph
+    [actor-deadlock-cycle] learning that a waiting member does not hold the
+    lock, and condition variables in every backend's monitor lowering. Kept
+    as a possible user-facing feature, independent of the runtime.
+- **E4. A module-level binding.** `use` at module scope: bound once,
+  lazily, on first use, and available to every function in the module
+  without being declared.
+
+  ```
+  // std/runtime.sv
+  use HostRuntime()          // the platform handler: threads, guarded, here, …
+  use Scheduler()            // the monitor holding Sched
+
+  fn send(addr: Int, msg: Dyn) [] -> None => !msg { … }   // performs both, declares neither
+  ```
+
+  - **Why it is needed.** One scheduler serves the whole process, and these
+    sites must reach it without being handed it: operations declared `[]`
+    (`send(reply, v)`, a send on an actor stub, `Addr` equality); generated
+    code at `waitfor` and `replyto` sites in arbitrary functions (the
+    `[waitfor]` capability is deleted); the `Addr` codec deep inside a
+    generated `decode`; host threads (a platform handler completing a hosted
+    reply from an SDK thread, the TCP reader's `externalBegin`/`End`); and
+    the runtime's own calls to `RuntimeHost`.
+  - **Why the alternatives fall short.** Carrying a runtime reference in
+    every `Addr` and `Reply` covers sends, replies and host threads, makes
+    each addr copy an `Arc` clone on Rust, and still leaves `waitfor` sites
+    and decoders out. Putting it in the thread-local beside `Here` misses
+    foreign host threads. Threading it through `[spawn]` covers spawns only.
+    Today's `static STATE: OnceLock` / `object SalvoSched` is the honest
+    model of a process-wide fact, and the language has to say it somewhere.
+  - **Why `use` and not a constant.** What is bound is handlers, the
+    `Scheduler` monitor and the `RuntimeHost` platform handler, and effects
+    are not data [effect-not-data], so a module constant cannot hold them.
+  - **Semantics.** Bound at first use, for the life of the process. Visible
+    to the module's own functions only, never to importers. The bound
+    handler must be shareable across threads: a monitor, a stateless
+    handler, or a `threadsafe` platform handler. The initializer may read
+    configuration set by the entry point before first use, which is what
+    keeps a virtual runtime possible (§11.7).
+  - **Limited to the runtime module (user decision 2026-10-02).** A
+    module-level `use` anywhere else is an error. Widening it later is a
+    separate decision, because elsewhere it would be hidden state by
+    another name.
+- **E5. Platform types** (D8, decided), including **linear** ones, so a
+  platform type can carry an obligation the checker enforces (a host reply,
+  for example).
+- **E6. Platform members that return `Never`**, for `exit_with`. Small.
+- **E7. `Addr<E>`, `Reply<T>` and `Pool` as Salvo types** in `core.actor`
+  instead of intrinsic types: `Addr<E>` a struct over an index, with `E` as
+  a phantom parameter; `Reply<T>` a linear struct; `Pool` a struct
+  over an index. Host code still sees them through the generated ABI types
+  (ABI D4). Needs phantom type parameters to be accepted, which I have not
+  checked.
+- **E8. A std-internal module**: `std/runtime.sv` exports to the rest of std
+  but cannot be imported by programs. With it, `core.actor`'s `pool`,
+  `thread`, `watch`, `on_idle` and `send`, `time`'s `fire_after` and `net`'s
+  private intrinsics become ordinary Salvo functions calling the runtime,
+  instead of intrinsics whose lowering calls it. That is 38 intrinsic
+  declarations today (10 in `core.actor`, 25 in `net`, 3 in `time`), most of
+  which would stop being intrinsics. Small, and it needs no decision while
+  only std can use it.
+- **E9. Closures instead of erasure — revised 2026-10-01: rejected for
+  actors, kept for tasks.** The first version had the mailbox hold
+  `once () -> None` thunks that capture the message and the actor's state.
+  Worked through (§11.6), that has two problems. Rust can only let several
+  queued thunks share one actor's state behind a runtime-checked lock, which
+  costs four atomic operations per message plus cache-line traffic between
+  the sending and running cores. And a sender holds only an `Addr<E>`, not
+  the handler, so it cannot build a thunk over the handler's state without
+  a per-actor closure inside every addr. What survives:
+  - **Tasks** are closures already (`TaskBody` is a `FnOnce`) and own their
+    captures, so a task continuation stays `once (T) -> None` with no
+    sharing and no lock.
+  - **Actors** keep today's ownership model: the runtime *moves* the body
+    out of the table for an activation and back afterwards, which proves
+    exclusivity with no extra cost. Two things make that platform code
+    rather than intrinsics:
+    - **E10. An owned, mutable fn value**: a fn type whose value is moved,
+      never copied, and may mutate its captures (Rust
+      `Box<dyn FnMut(Entry) + Send>`, Kotlin `(Entry) -> Unit`). The
+      emitter lowers each actor handler to one such value at the spawn; the
+      runtime holds it in a `Body?` field, takes it, calls it and puts it
+      back. Only generated code creates one at first, so the checker rule
+      for writing one in Salvo can wait.
+    - **`Dyn` as a generic platform type** (E1): `platform type Dyn` with
+      generic platform fns `erase<T>`/`unerase<T>` (Rust
+      `fn erase<T: Any + Send>(v: T) -> Dyn`, a downcast back; Kotlin a
+      cast). Message payloads and replies aimed at actors stay erased
+      exactly as today.
+  - The fault boundary is one platform member, `guarded(f: once () -> None)
+    -> Str?`, either way.
+
+
+#### 11.6 Why the per-actor lock appears, and why it is avoidable
+
+Rust lets a value be mutated through `&mut` only when the compiler can see
+that nothing else can reach it at the same time. Exclusivity can be shown
+two ways: by *moving* the value, so only one owner exists, or by *locking*
+it, so a runtime check stands in for the proof. Moving is free; locking
+costs atomic operations. The scheduler guarantees that one actor's
+activations never overlap [actor-kind], but that is a fact about the
+scheduler's logic, which the Rust compiler cannot see. So the question is
+which of the two the design lets Rust use.
+
+**Today: the body is moved.** The sender knows only the protocol
+(`Addr<Counter>`), so a message is data:
+
+```rust
+salvo_send(addr, Box::new(__Msg_Counter::Bump(n)));     // one allocation
+```
+
+and the worker moves the body out of the table for the activation:
+
+```rust
+let mut body = s.actors[addr].body.take().unwrap();     // move out, under the scheduler lock
+drop(s);                                                // release the scheduler lock
+body.handle(&ctx, msg);    // a dyn call; inside, `msg.downcast::<__Msg_Counter>()`
+                           // compares one type id
+s = lock.lock().unwrap();
+s.actors[addr].body = Some(body);                       // move back
+```
+
+The scheduler lock is taken anyway, and it is what orders memory between the
+worker that ran the last activation and the one that runs the next. Proving
+exclusivity costs nothing on top.
+
+**The rejected thunk design: the state is shared.** If the mailbox holds
+closures that each capture the actor's state, several of them can be
+queued at once, each holding the state. That is sharing, so Rust needs a
+reference-counted pointer and a lock:
+
+```rust
+let state = Arc::new(Mutex::new(Counting::new()));      // at the spawn
+
+// per message:
+let st = Arc::clone(&state);                            // atomic increment
+let thunk: Box<dyn FnOnce() + Send> = Box::new(move || {
+    st.lock().unwrap().bump(n);                         // atomic compare-and-swap, then a release store
+});                                                     // `st` dropped after the run: atomic decrement
+```
+
+That is four atomic operations per message that today's code does not do.
+Uncontended, each is roughly 5–20 ns depending on the CPU. The larger cost
+is the cache line: the reference counts live in the same allocation as the
+lock and the state, so a sender on one core increments a count on the
+actor's line, and the worker on another core then has to pull that line
+back. On a pool that is the normal case, and a cross-core line transfer is
+on the order of 50–100 ns. Against today's per-message cost (an allocation
+and free, the shared scheduler lock taken twice, a `notify_all`), I would
+expect this to add something like 10–30% to a ping-pong round trip. That
+is a guess until the §8 benchmarks run.
+
+The design also has a gap of its own: the sender holds only an `Addr<E>`, so
+it has no handle on the handler's state to capture. Closing that would need
+a per-actor delivery closure carried inside every addr (making each addr
+copy an `Arc` clone too), or erasing the message anyway.
+
+**The plan instead: keep the move, without intrinsics.** The actor body
+becomes an owned, mutable fn value (E10), which the runtime moves exactly as
+it moves the trait object today:
+
+```rust
+// emitted at the spawn: the closure owns the handler state
+let mut h = Counting::new();
+let body: Box<dyn FnMut(Entry) + Send> = Box::new(move |e| match e {
+    Entry::Delivered(m) => match unerase::<__Msg_Counter>(m) {
+        __Msg_Counter::Bump(n) => h.bump(n),
+        __Msg_Counter::Total(out) => h.total(out),
+    },
+    Entry::Answered(slot, v) => h.resume(slot, v),
+});
+```
+
+The machine code is the same as today's: one allocation per message, a type-id
+compare, an indirect call, and no extra atomics. What changes is where it is
+defined: `Box<dyn FnMut>` is the host's ordinary closure type rather than a
+runtime trait, and `Dyn` with `erase`/`unerase` is a generic platform type
+(E1) rather than an intrinsic.
+
+Two remaining Rust details:
+
+- **A fault inside an activation.** Today a panicking body is lost with
+  the unwind, and the actor is marked dead. The closure behaves the same:
+  `guarded` catches the panic, the `Box` is dropped, and the actor is dead.
+  There is no lock to poison.
+- **Kotlin** has none of this. The JVM needs no proof of exclusivity, and
+  the scheduler's lock already orders memory between consecutive
+  activations, so Kotlin lowers E10 to a plain `(Entry) -> Unit`.
+
+
+#### 11.7 A virtual runtime for tests, under a module-level binding
+
+A module-level `use` (E4) does not rule out a virtual runtime for tests:
+single-threaded, deterministic, with time advanced by the scheduler rather
+than by the clock. It does decide where the swap happens.
+
+**The swap point is the layer under the scheduler, chosen at start-up.**
+The Salvo `Scheduler` already has most of what a virtual runtime needs. A
+`waitfor` serves its own pool while it waits, so a frame running on main can
+drive work. The scheduler already knows when nothing can run ([actor-on-idle],
+the deadlock report). So a virtual runtime is the same Salvo scheduler in a
+different mode over a different host:
+
+- **No worker threads.** `pool(n)` records the pool but starts nothing, and
+  main's thread serves every pool while it waits.
+- **Virtual time.** When nothing is runnable and a deadline is pending, the
+  scheduler moves its clock to the earliest deadline and fires it, instead
+  of sleeping. `monotonic_nanos` answers the virtual clock. This is the
+  "scheduler-owned virtual time" upgrade the ROADMAP records, and it would
+  make the hand-written `ManualTime` fake and the six-line test clock
+  unnecessary.
+- **Seeded randomness.** `secure_bits` answers from a seed, so addr bits
+  and anything derived from them repeat run to run.
+- **Parking means deadlock.** With one thread, a `park` can never be woken
+  by anyone, so reaching one is reported as the deadlock instead.
+
+The order the scheduler picks work in is already deterministic (actors in
+index order, tasks before activations, insertion-ordered maps and sets), so
+nothing extra is needed for repeatable interleavings.
+
+In code, the binding's initializer picks the host from configuration the
+entry point sets before first use:
+
+```
+use runtime_host()         // HostRuntime() or VirtualHost(seed), per the start-up setting
+use Scheduler()
+```
+
+This is why E4's semantics must let the initializer read start-up
+configuration. A module-level binding fixed at compile time would leave a
+virtual runtime only as a separate build of the program.
+
+**Per-test isolation is easier in the virtual mode than in the threaded
+one.** `salvo test` runs a suite in one process today, and the threaded
+scheduler is a process-wide static, so actors from one test are still
+there in the next. A threaded runtime cannot safely be reset between tests,
+because worker threads may still be inside it. The virtual runtime has no
+threads, so between tests the harness can replace the whole `Sched` state
+with a fresh one (a `reset` member of the monitor), and each test starts
+from an empty scheduler.
+
+**What a virtual test cannot use:** platform handlers that run threads of
+their own (`HostTcpTransport`, a real SDK client), since their work arrives
+from outside the virtual clock. The `Mem*` fakes (`MemTransport`, `MemFs`)
+are what such a test uses, and they are Salvo already. In virtual mode,
+`externalBegin` can report that a host thread was opened, rather than let
+the test lose determinism silently.
+
+Who chooses the mode, and how, is open: a `salvo test` flag, a manifest
+setting, or a per-test annotation. That is part of D11.
+
+**The test kind chooses (user, 2026-10-02).** `test` is the only kind
+today, but `proptest` and a kind for testing actors are planned, and a test
+kind can set the runtime up before its body runs. So the mode needs no flag
+or setting of its own:
+
+- an **actor test** runs on the virtual runtime with a fresh scheduler;
+- a **`proptest`** runs on it too and generates the seed as one more input
+  (user, 2026-10-02), so a failing interleaving shrinks and replays like a
+  failing value;
+- a plain **`test`** keeps the threaded runtime, as today.
+
+One consequence for the harness. It runs a suite as one synthesized program
+in one process (docs/language/Testing.md, "The runner works by writing a
+Salvo program"), and the module-level binding is bound once per process.
+After a plain test has started worker threads, the process cannot switch to
+the virtual runtime safely, since those threads may still be inside the
+threaded scheduler. Options:
+
+- (a) **One program per mode.** The harness already writes the program, so
+  it writes two: one for the threaded tests and one for the virtual ones,
+  with a fresh `Sched` per virtual test. **Chosen (user, 2026-10-02).**
+- (b) **Virtual runs first.** Every virtual test runs before any threaded
+  one in a single program. This works, but it couples the report's order to
+  the runtime mode.
+- (c) **Every test virtual unless it asks otherwise.** This makes the
+  threaded runtime the exception in tests, which may be right eventually,
+  but changes what today's plain tests exercise.
+
+A related precedent: `std.test` already has a private fault boundary,
+`intrinsic fn trapped_by(body: () -> Str?) [] -> Str?`, which is how the
+harness catches a trap. It has the same shape as the runtime's `guarded`
+(§11.2, E10), so the two should be one primitive, and under §11 a
+`RuntimeHost` member that `std.test` calls rather than an intrinsic of its
+own.
+
+
+### 12. Platform types (decided 2026-10-02)
+
+The user agreed the whole proposal on 2026-10-02, including `Deque` staying
+an intrinsic and `canbe Mut` only on linear platform types. Design for D8. When agreed, the rules move to the ABI record and LANGUAGE_SPEC.md (a
+`[platform-type]` rule); this section then shrinks to a pointer. Scope as
+the user set it: platform types do **not** replace the intrinsic types that
+`canbe Mut` (`List`, `Map`, `Set`, the sorted collections, `Str`, `Bytes`),
+which need special handling in emission. They are designed to cover what
+the runtime needs, and anything else that is intrinsic today only because
+the host has to provide it.
+
+#### 12.1 What the runtime needs from them
+
+| Type | What it is | Kind (§12.2) |
+|---|---|---|
+| `Parker` | one thread's park/unpark token, recorded in the scheduler state while its owner sleeps | threadsafe handle |
+| `Dyn` | an erased payload, made by `erase<T>` and taken apart by `unerase<T>` | linear, generic fns over it |
+| `HostIn`, `HostOut` | a host stream object under the Salvo stream table (§3.4) | linear, `canbe Mut` |
+
+Beyond the runtime, the obvious customer is a handle to a host object a
+platform handler's caller holds: an SDK client, a connection, a native
+buffer.
+
+#### 12.2 The proposal
+
+- **P1. A platform type is an opaque handle.** Salvo sees a name, type
+  parameters and modifiers, never contents. Declared `platform type Name<T>`
+  (`export` to export it), implemented by a host class or struct of the
+  **same name** in the module's implementation file [platform-tree]. The
+  program refers to the host's type directly; there is no adapter around a
+  value.
+- **P2. Three kinds, by modifier**, because copying has to mean one thing:
+  - **plain** (`platform type Client`): copying a value shares the host
+    object, as every Kotlin reference does. Rust requires `Clone` and
+    expects it to be cheap (an `Arc` inside). No `Mut`: a mutation the host
+    makes inside the object is not a Salvo mutation, so the parameter is
+    plain.
+  - **`threadsafe`** (`threadsafe platform type Parker`): a plain handle
+    that may be used from several threads *at the same time*. Rust adds
+    `Sync`. The same word and the same trust as `threadsafe platform
+    handler` [threadsafe-platform].
+  - **`linear`** (`linear platform type HostIn`): exactly-once, never
+    copied, consumed by a platform fn that says `=> !s` [linear-obligation].
+    Rust does not require `Clone`. Because a linear value has one owner,
+    it **may** declare `canbe Mut`, and a `Mut HostIn` parameter lowers to
+    `&mut HostIn` on Rust, which is how a read that advances the host
+    stream is written without interior mutability. `canbe Mut` on a
+    non-linear platform type is refused: with copies sharing one object, a
+    `Mut` permission would not mean what it means for a struct.
+- **P3. Every platform type is sendable and `noremote`.** Sendable, so it
+  can sit in actor state, a message or a `Reply<T>` [actor-sendable]; Rust
+  requires `Send`. `noremote` is implied, since a host object has no wire
+  form [noremote]; using one where a value crosses the wire is the existing
+  error.
+- **P4. Operations are platform fns and platform handler members.** No
+  member syntax on the type: constructors and operations are ordinary
+  `platform fn`s taking or answering it, reached with dot notation like any
+  fn (`p.unpark()` is `unpark(p)`). Equality, hashing, ordering and `to_str`
+  exist only when declared as platform fns, since comparison is a
+  capability [op-equality] [cmp-groups]. `by auto` is refused, as for
+  intrinsic types: there are no fields to stamp over [comptime-fields].
+- **P5. Generic parameters are opaque to the host (E1).** `platform type
+  Box<T canbe linear>` and `platform fn erase<T canbe linear>(v: T) -> Dyn`:
+  the host may store, move and hand back a `T`, nothing more. Rust gets
+  `T: Send + 'static` on every parameter, always and nothing else (which
+  also gives `Any`, which is what `unerase` downcasts with). Kotlin gets a
+  plain type parameter.
+- **P6. Nothing to check at the boundary** [platform-check]: a
+  platform-type value is opaque, so the wrappers pass it through. What a
+  generic platform fn answers as a `T` is checked as the `T` it is at the
+  call site, which is what the wrappers already do for a concrete type.
+- **P7. Borrowed results stay refused** (ABI D10 C5). The runtime needs
+  none: `Parker` and `Dyn` answer owned values, and the stream calls answer
+  `Bytes`. The narrow relaxation worth keeping in mind for later is a
+  result `proj(p)` where `p` is the only borrowed parameter, since Rust's
+  lifetime elision then needs no annotation.
+- **P8. The ABI files.** `salvo platform generate` writes a skeleton for a
+  platform type into the implementation file (Kotlin `class Parker`, Rust
+  `pub struct Parker` with the derives P2 requires). The interface file
+  states the contract the host compiler can check: on Rust a static
+  assertion per type (`Send`, plus `Clone` for plain and threadsafe, plus
+  `Sync` for threadsafe), so a wrong host type is a host compile error
+  rather than a mystery in generated code. On Kotlin the contract is
+  documented, as `threadsafe` is today. A program reaching a platform type
+  whose implementation is missing is the existing codegen error naming
+  `salvo platform generate`.
+- **P9. Available to customers**, like platform fns and handlers. The
+  runtime is the first user, not the only one.
+
+#### 12.3 What this means for the sequence
+
+- **`Deque` stays an intrinsic.** It is a collection: it needs `canbe Mut`
+  with value semantics (a `copy` is a new deque, not a shared one), the
+  element-conditional linearity of [linear-container], and borrowed access
+  for iteration and peeking, which P2 and P7 rule out. It belongs with `List`
+  and gets the same special handling. §11.5 step 6 changes from "`Deque` as
+  a platform type" to "`Deque` as an intrinsic beside `List`"; E1 is still
+  needed for `Dyn`. The runtime's queue operations that inspect an entry in
+  place (the gate's search by slot) use `Deque`'s own iteration.
+- **`Addr`, `Reply` and `Pool`** become Salvo types (E7), not platform
+  types: they have no host part, and Salvo types are cheaper for a new
+  backend than either.
+- **The intrinsic handlers** `StdOutConsole` and `DefaultRandom` are not
+  types, but they are the same kind of leftover: once platform handlers in
+  std are routine, both can become platform handlers. Not part of this
+  work.
+
+#### 12.4 Two weak spots
+
+- **`unerase` on Kotlin cannot check its type argument.** A generic Kotlin
+  function sees `T` erased, so `unerase<T>` is an unchecked cast, and a
+  mismatch surfaces later as a `ClassCastException` where the value is used,
+  not at the `unerase`. Rust's `downcast` fails at the `unerase` itself. In
+  the runtime a mismatch is a compiler bug either way; making Kotlin's
+  check exact would need a type token passed alongside, which generated code
+  could supply if it ever matters.
+- **Rust `Clone` "must be cheap" is a contract**, not something the
+  compiler can check. A host type that deep-copies on `Clone` is correct
+  but slow wherever Salvo copies a handle.
+
+#### 2.3 Divergences and defects found during the survey
+
+None of these is fixed here. They are recorded because a single Salvo
+implementation removes the first three by construction, and the rest should go
+on the ROADMAP whether or not the port happens.
+
+1. **A host reply dropped unsent is reported on Rust only** (`impl Drop for
+   SalvoHostReply`). Documented as best-effort (user decision 2026-09-29), and
+   it stays host-specific after a port, since only Rust has a drop.
+2. **Addr capability bits differ in strength.** Kotlin draws them from
+   `SecureRandom`; Rust's `random_u64` hashes a counter under `RandomState`,
+   and its comment says "not a cryptographic RNG". [addr-capability] is the
+   same rule on both backends with different guarantees.
+3. **Lock reentrance differs.** Kotlin's `ReentrantLock` lets a thread that
+   already holds the lock take it again; Rust's `Mutex` deadlocks. Today's code
+   is careful never to do it (COMPLETED.md's "Codecs must run with the
+   scheduler lock released"), but the difference is latent: a mistake hangs
+   Rust and passes on Kotlin.
+4. **The waiter table never shrinks.** Every `waitfor` adds a `WaiterState`
+   that is never removed, on both backends, so a long-running loop around a
+   `waitfor` grows without bound. The actor table also keeps every dead
+   actor.
+5. **A forged identity grows the actor table.** `importAddr` answers a new
+   dead entry (`deadEntry()` / `dead_entry`) for each identity that fails the
+   bits check, so a peer sending forged addrs can grow the table without
+   limit.
+6. **The route stub busy-waits.** When a pick answers `None`, the stub calls
+   `parkBriefly` (a 1 ms sleep) and asks again.
+7. **Pools and their threads are never released.** Neither the language nor
+   the runtime has a way to retire a pool, so every worker thread lives until
+   the process ends. This matters most for `thread()`: each dedicated actor
+   gets a thread of its own, and when the actor dies the thread stays parked
+   on the condition variable forever. A program that keeps creating
+   dedicated actors and losing them leaks one thread each time. The fix is a
+   cooperative stop (§4, "Why threads need no stop or handle"): retire a
+   pool once nothing can be placed on it any more, for example once a
+   `Dedicated` pool's only actor is dead and its task queue is empty.
+
+
+Status of the findings: items 2, 3, 5, 6 and 7 are fixed (OS entropy on both
+backends; monitor re-entry; one shared dead entry; `route_any` waits on its
+view; [pool-retire]). Item 1 stays by design. Item 4, the waiter table that
+never shrinks, is open: ROADMAP item 0.
+
+## Design record: the platform ABI (the ABI record, retired 2026-10-03)
+
+the ABI record was the working document for replacing platform templates with a
+generated ABI (2026-10-01 to 2026-10-02): the host project in each platform
+root, interface files with adapters, wrappers and factories, and
+implementation files the host developer owns. Every step was built; the
+rules are LANGUAGE_SPEC.md's ([platform-abi], [platform-fn],
+[platform-tree], [platform-check], [platform-factory], [platform-stamp],
+[platform-type], [platform-fn-value], [name-camel]) and the backend specs'
+host-ABI tables. This section keeps the reasoning and the decisions, which
+code cites as "ABI Dn". The build sequence (14 steps, all done on
+2026-10-01) is in the decision log.
+
+### Why
+
+Platform templates (`<m>.sv.kt` / `.sv.rs`, [host-splice], built 2026-09-30)
+put Salvo inside host code. Reading the aws glue written that way, the user
+found two problems:
+
+1. **Two languages at once.** Every line mixes Kotlin or Rust with Salvo in
+   backticks, so the reader has to switch constantly.
+2. **No host tooling.** A template is not a Kotlin or Rust file to the host's
+   compiler, IDE or linter, so none of them can help.
+
+The approach before templates, hand-written host files (`<m>.kt` / `<m>.rs`),
+avoided both but had a problem of its own: the files float free. They refer to
+types (`Union7<…>`, `U7_1(…)`, `salvo.core.checked.Checked`) that exist only in
+the compiler's output, so the host's tooling cannot see them and a change in
+emission breaks them silently until the next build. `std/platform/fs/host.kt`
+shows it:
+
+```kotlin
+private typealias Kind = Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory,
+    PathEscapes, IoError, Streaming>
+
+private fun notFound(path: String): Kind = U7_1(NotFound(path))
+```
+
+Now that the manifest names a platform root per backend ([platform-root]), the
+compiler knows where host code lives, so it can **generate the types host code
+needs next to it**. The implementation then compiles against real files in
+its own tree, with full host tooling, and refers to nothing that appears only
+at build time.
+
+### The proposal (user, 2026-10-01)
+
+Three kinds of file per backend, all under the backend's platform root:
+
+1. **The ABI**: the types every platform implementation may use, reachable as
+   `salvo.X`, and the same types the compiled program uses at run time
+   (unions, tuples, `Checked`, `Reply`, streams, `Bytes`, the collections). It
+   is generated and freely regenerated, never edited, and named `*.sv.kt` /
+   `*.sv.rs` to say so.
+2. **The platform interface file**: one per Salvo module that declares
+   `platform fn`s or `platform handler`s. It holds:
+   - the interface each handler implements;
+   - for each fn, a wrapper the compiled program calls, which calls the
+     implementation and does any validation or translation needed, for example
+     checking that a `Str` returned for `"A" | "B" | Other Str` is one of the
+     literals, or wrapping it as `Other`;
+   - the Salvo structs that appear in those signatures.
+
+   It is generated and freely regenerated (`*.sv.kt` / `*.sv.rs`). Its wrappers
+   are not for host code, so they carry mangled names (perhaps a `_platform`
+   suffix), leaving the real names to the implementation.
+3. **The platform implementation file**: mirrors the interface file, imports
+   the ABI, and is the host developer's. It is written once if missing and
+   never regenerated.
+
+Also decided in the same message:
+
+- **Platform effects go.** Only `platform fn` and `platform handler` remain
+  until a need for platform effects appears. No shipped source uses one:
+  `std`, the examples and `modules/aws` use platform handlers only, and the
+  effects are exercised by tests alone.
+- **Templates go**, with everything built for them.
+- **Union naming** is to be revisited.
+- **Kotlin names** should follow Kotlin's camel case rather than Salvo's snake
+  case.
+
+### Decisions and open questions
+
+Each item says whether it is **decided** (with the date) or still a
+**DECISION**, which is the user's call.
+
+#### D1. `platform fn` as syntax — decided 2026-10-01
+
+`platform fn name(…) -> T`, a modifier like `platform handler`'s. A bodiless
+`fn` without it stays an error, so every interop point can be found by
+searching for one word.
+
+#### D2. A host project in each platform root — decided 2026-10-01
+
+Each platform root holds a generated, regenerated host project, so the host
+tools open it as an ordinary project: `build.gradle.kts` +
+`settings.gradle.kts` for Kotlin (the ABI and interface files as sources, the
+resolved `[kotlin] artifacts` as dependencies), `Cargo.toml` for Rust. The
+generated files are checked in, so a checkout opens in an IDE before the first
+build.
+
+Built 2026-10-01 (steps 6–7): the runtime under `<root>/salvo/*.sv.<ext>`,
+a module's declarations at `<root>/<module path>.sv.<ext>`, implementation
+files at `<root>/<module path>.<ext>`, the project files at the top. The
+build does not consume the project (D4). On Rust the root is a library crate
+whose `lib.sv.rs` mounts every file at the path the build gives it, so
+`crate::…` agrees between the two.
+
+#### D3. Every build regenerates — decided 2026-10-01
+
+`compile`, `run` and `test` generate the ABI and interface files for their own
+output anyway, so they also rewrite the copies in the platform root. An error
+in the host code then appears both in the build and in the platform project.
+`analyze` and the language server do not write files.
+
+#### D4. One definition of each type — decided 2026-10-01: (a)
+
+The problem, by example. `fs.sv` declares the types and `fs/host.sv` the
+platform handler that uses them:
+
+```
+// fs.sv
+export struct NotFound { path: Str }
+export type FsError = NotFound | PermissionDenied | …
+
+// fs/host.sv
+export platform handler HostRawFs of RawFs     // members return `… | FsError`
+```
+
+Today `NotFound` is defined once, in the emitted `fs.kt` (`package salvo.fs`,
+`data class NotFound(val path: String)` plus its wire codec and comparisons),
+inside the build output. The implementation file in the platform root needs
+`NotFound` to compile, but the build output does not exist when the IDE opens
+the root, and it is not part of the host project anyway.
+
+So the definition has to be somewhere the host project can see, and **only
+there**: if the platform root defines `salvo.fs.NotFound` and the emitted
+`fs.kt` does too, Kotlin reports a redeclaration (both are `package salvo.fs`),
+and Rust has two unrelated types. "Defined in the generated host tree" means:
+
+- the platform root gets a generated file holding `data class NotFound(…)`,
+  with everything the emitter attaches to it (codec, `equals`/`compareTo`,
+  Rust derives and trait impls);
+- the emitted `fs.kt` / `fs.rs` leaves it out, and the rest of the program
+  uses the platform root's definition (Kotlin: same package, so no import
+  changes; Rust: the emitted `fs` module re-exports it, `pub use
+  <host crate>::fs::NotFound;`).
+
+Rust adds a constraint: with the host project as a separate crate, the emitted
+crate may not implement foreign traits (`Hash`, `Clone`) for a type defined
+there (the orphan rule), so the derives and impls must be generated with the
+definition, never added later by the emitted code.
+
+The open choices:
+- (a) **The closure of the platform signatures moves**: `NotFound`, the other
+  arms of `FsError`, every struct their fields name, and so on. Everything
+  else stays in the emitted modules.
+- (b) **Every type definition moves** into the platform root's generated
+  files, so the split is "types in the host tree, code in the output". It is
+  simpler to state and never needs a closure computed, but every program with
+  a platform root carries all its types there.
+
+Also open: which generated file holds a moved type. The proposal puts the
+structs "in the platform interface file", but `NotFound` belongs to `fs`,
+which declares nothing platform. A per-declaring-module types file
+(`<root>/fs.sv.kt` for module `fs`) keeps one file per Salvo module.
+
+**Decided: (a)**, with the user's framing (2026-10-01): **no `*.sv.kt` /
+`*.sv.rs` file in a platform root is taken into the build output as it is.**
+They exist so the host project compiles and its tooling works. The build
+generates its own copies, and in the output every type is in the one crate (or
+the one Kotlin compilation), so the platform project may "pretend" that is
+already the case. The duplicate-definition problem above therefore does not
+arise in the output, and the emitted modules need no re-exports. What remains
+is that the platform project's generated files define the closure of the
+platform signatures, with the same names, packages and derives the output
+uses, so code written against them compiles unchanged in the build. A types
+file per declaring module (`<root>/fs.sv.kt` for module `fs`) holds them.
+
+**Recorded alternative** (user, 2026-10-01; ROADMAP "Recorded, not
+scheduled"): generate the *whole* emitted program into the root as `*.sv.*`,
+so the host project is the build's compilation exactly and no closure is
+computed. Not taken for now: it carries every function body into the root.
+
+#### D5. Union naming — decided 2026-10-01
+
+Decided:
+- **Positional unions stay** in the ABI, written clearly: Kotlin moves from
+  `Union7<…>` with top-level arms `U7_1` to arms nested in the union,
+  `Union7.U1(…)`, which Rust already has (`Union7::U1`). This is a rename in
+  all generated Kotlin, not only the ABI.
+- **The interface file adds factory functions** as a convenience at the
+  boundary (`FsError.notFound(path)` or similar), so Salvo's own
+  representation keeps its flexibility.
+- **Factories are namespaced, and compose** (2026-10-01): a named union's
+  factories hang off its type (`FsError.notFound(…)`); the anonymous union of a
+  signature gets an object named after the fn or member (`ReadToStr.ok(…)`).
+  Both apply at once when one union nests a named one: `Ok Str | Err FsError`
+  is built as `ReadToStr.err(FsError.notFound(path))`. Each module is its own
+  Kotlin package and Rust module, so two interface files cannot collide.
+- **Two platform fns may not overload each other** (2026-10-01), which keeps
+  each fn's factory object unique. A platform fn may still share its name with
+  ordinary Salvo fns.
+
+**The remaining cases — decided 2026-10-01.** A factory exists per runtime
+arm [union-arm-identity]:
+
+| Arm | Factory (Kotlin; Rust in snake case) |
+|---|---|
+| a struct `NotFound` | `notFound(value: NotFound)`: **always the struct**, never its fields, so a struct gaining a field breaks only the code that builds it |
+| a qualified arm `Ok Int`, `Err E` | named after the **outermost qualifier**: `ok(n)`, `err(e)`, as Salvo's own constructors are |
+| a base type `Int`, `Str`, `List<T>` | `int(…)`, `str(…)`, `list(…)` |
+| literals with their base (`"STANDARD" \| "GLACIER" \| Other Str`) | **one `str(value)`**, checked at the boundary (D7): the check is what tells a listed literal from an `Other` value, so per-literal factories add nothing |
+| `None` | no factory: the host writes `null` / `None` |
+| two arms that would get one name (`List<Int> \| List<Str>`) | **no factory** for those arms, and a note in the generated file; the positional `UnionN.Uk` always exists |
+
+Also decided:
+- **`Checked` gets no special treatment.** It is an ordinary Salvo struct, so
+  `Err Checked<SqsFailure>` is built as `GetQueueUrl.err(Checked(failure))`.
+- **A named union's factories on Kotlin live in a plural object,
+  `FsErrors.notFound(…)`** (option (a) below). The user asked whether
+  `FsError` could instead be a sealed interface extending `Union7`. Checked
+  with kotlinc on 2026-10-01: it cannot. Kotlin allows a subtype of a sealed
+  interface only in the sealed interface's package, and `Union7` is in package
+  `salvo` while `FsError` would be in `salvo.fs`. Even in the same package, a
+  `Union7.U1` value is not an `FsError` (the cast fails at run time), so every
+  value Salvo builds would need per-name arm classes, which is the per-name
+  representation D5 set aside.
+
+The options weighed for the Kotlin factory home were:
+- (a) an object with another name, `FsErrors.notFound(…)` — chosen;
+- (b) extensions on the union's companion, `fun Union7.Companion.notFound(…)`:
+  `FsError.notFound(…)` works through the alias, but the function appears on
+  every 7-arm union and two named unions in one package with a same-named arm
+  clash on the JVM signature;
+- (c) top-level functions, `fsErrorNotFound(…)`.
+Rust needs none of this: `impl FsError { pub fn not_found(…) }` on the alias
+is an inherent impl on a local type.
+
+Also checked on 2026-10-01: Kotlin accepts the nested-arm shape
+`sealed interface Union2<out A, out B> { data class U1<A>(val value: A) :
+Union2<A, Nothing> … }`, so `Union2.U1(x)` needs no type arguments at the use
+site.
+
+#### D6. Kotlin camel case everywhere — decided 2026-10-01
+
+All generated Kotlin uses Kotlin's conventions, not only the ABI: camel case
+for functions, members, parameters, fields and locals (`read_to_str` →
+`readToStr`, `data_type` → `dataType`). Rust stays snake case. The aim is
+that a Salvo project can switch target language without its host code looking
+foreign in either.
+
+**Two Salvo names that map to one Kotlin name are an error in all Salvo code**,
+on every backend, so a project's validity does not depend on its target. To be
+loosened later if it proves painful. Left for implementation: the scope of a
+clash (one module, a struct's fields, an effect's members, one fn's locals) and
+how std's intrinsics and the runtime's own names map.
+
+#### D7. What the wrappers check — decided 2026-10-01
+
+Decided: a wrapper validates what Salvo's type promises but the host type
+cannot express. Literal unions: a returned base value must be a listed
+literal, or becomes `Other` when the union is open; otherwise it is a fault
+naming the declaration.
+
+**Platform handlers — decided 2026-10-01.** A handler is called through its
+effect's interface, so there is no fn call to wrap. The interface file
+generates an **adapter**: a class (Kotlin) or
+struct (Rust) that implements the effect's Salvo-side interface, holds the
+implementation, forwards each member call, and validates the result. The
+`use` site constructs the adapter, which constructs the implementation with
+the handler's arguments.
+
+The values that need checking are the ones that cross **from host to Salvo**:
+
+| Crossing | Direction | Check needed |
+|---|---|---|
+| handler constructor arguments | Salvo → host | none (already Salvo values) |
+| member arguments | Salvo → host | none |
+| member return values | host → Salvo | yes, in the adapter |
+| a `Reply<T>` sent from host code, possibly later and on another thread | host → Salvo | yes, but no call returns: the check has to sit in the host-facing reply handed out by `hosted()`, typed and validating on `send` |
+| a callback the host calls back into Salvo, if one is ever allowed | host → Salvo | its arguments |
+
+**Qualifiers — decided 2026-10-01:**
+- a **state** qualifier (one with a `qualifies`) is checked by running its
+  `qualifies`;
+- a **provenance** qualifier is trusted;
+- a **constructive** qualifier is trusted when declared in the same module as
+  the platform declaration, as its constructors are, and refused in the
+  signature otherwise. There is no way to prove to the compiler that it
+  applies.
+
+**A failed check panics** (Rust) or **throws** (Kotlin), the way Kotlin
+throws a `NullPointerException` at a Java value that broke its nullability
+(2026-10-01). On a reply sent from host code, it fails on the host's thread,
+in `send`.
+
+#### D8. A platform handler declares arguments, not state — decided 2026-10-01
+
+A `platform handler` keeps its constructor parameters (`platform handler
+HostCounter(start: Int) of Counter`) and declares no Salvo state; the
+implementation class owns its fields. Declaring state is an error, as before
+templates. For
+
+```
+platform fn shout(g: Greeting) -> Str
+platform handler HostCounter(start: Int) of Counter
+```
+
+the Kotlin implementation would look like (names not final):
+
+```kotlin
+// <root>/main.kt — implementation, the developer's
+package salvo.platform.main
+import salvo.main.*
+fun shout(g: Greeting): String = if (g.loud) g.text.uppercase() else g.text
+class HostCounter(start: Int) : CounterPlatform {
+    private var at = start
+    override fun next(step: Int): Int { at += step; return at }
+}
+```
+
+The `threadsafe` contract and `Reply` keep their rules ([threadsafe-platform],
+[platform-reply]), now visible in the generated interface: Rust's `&self` or
+`&mut self` trait, documentation on the Kotlin one. A Rust member's parameters
+follow [rs-borrows] (`&T`, `&mut T`, `T`).
+
+#### D9. std and dependencies — decided 2026-10-01
+
+Decided: std's host files become implementation files over generated
+interfaces, written by hand like a customer's, with std's generated files in
+std's root. A dependency runs its own `salvo platform generate` and checks in
+the generated files, so it builds as its author tested it.
+
+**ABI compatibility — decided 2026-10-01: (b)**, an ABI stamp.
+The consumer may build with a different compiler, whose ABI or interface
+files differ from the ones the dependency's implementation was written
+against. Options:
+
+- (a) **The consumer's build regenerates the dependency's ABI and interface
+  files into its own output** and compiles the dependency's implementation
+  files against them. That is what D3 already does for the project, so an
+  incompatibility is a host compile error. That error is accurate, but it
+  points into the dependency's code without saying why.
+- (b) (a) plus an **ABI version** in every generated file's header (the
+  compiler's ABI revision, plus a hash of the module's platform signatures,
+  like [protocol-hash] for actor protocols). A mismatch with the dependency's
+  checked-in copy is reported first: "dependency `aws` was generated for ABI
+  N, this compiler is M; regenerate it".
+- (c) Refuse to build a dependency whose checked-in files differ from what this
+  compiler generates, without trying to compile.
+
+Recommendation: (b). The build stays correct as in (a), and the stamp turns
+the confusing case into a message that names the cause.
+
+#### D10. Tuples and collections at the boundary — decided 2026-10-01
+
+Decided (user, 2026-10-01): C1 runtime types, with the ABI conveniences
+below; C2 identity-keyed collections refused, sorted ones under the default
+ordering allowed through ABI constructors; C3 elements checked, **with a
+warning on the platform declaration** naming the cost (a walk of the returned
+value) wherever a check has to look inside a collection; C4 a documented
+contract; C5 borrowed results refused; C6 Kotlin keeps `Pair`/`Triple` and
+renames `SalvoTupleN` to `TupleN` (all generated Kotlin, not only the ABI).
+
+The analysis as it was put:
+
+What the program uses today ([kt-host-abi], [rs-host-abi]):
+
+| Salvo | Kotlin | Rust |
+|---|---|---|
+| `(A, B)`, `(A, B, C)`, larger | `Pair`, `Triple`, `SalvoTupleN` | native tuples |
+| `List<T>` / `Mut List<T>` | `List<T>` / `MutableList<T>` | `Vec<T>` (`&mut Vec<T>` when kept `Mut`) |
+| `Bytes` | `salvo.SalvoBytes` | `Vec<u8>` |
+| `Map`, `Set` (the host's own hash and equality) | `LinkedHashMap` / `LinkedHashSet` as `Map` / `Set` | `SalvoMap` / `SalvoSet`, built with `from_entries::<HostHash, HostEq, _>` |
+| `Map`, `Set` keyed by a Salvo identity ([cmp-carry]) | `SalvoHashMap` / `SalvoHashSet` over a pair of functions | `SalvoMap` / `SalvoSet` over generated markers |
+| `SortedMap`, `SortedSet` | `java.util.TreeMap` / `TreeSet`, typed `java.util.SortedMap` / `SortedSet`, always built with a `Comparator` (even under the canonical ordering: `String.compareTo` is UTF-16 order where Salvo's is code-point order) | `SalvoSortedMap` / `SalvoSortedSet` (runtime `collections.rs`): a boxed store over a `BTreeMap`, built with `new::<C>()` for an ordering marker `C` |
+
+Questions:
+
+- **C1. Runtime types or host-idiomatic ones.** Exposing the program's own
+  representation costs nothing at the boundary; converting to `HashMap`,
+  `java.util.*` and the like costs a copy per crossing. Recommendation:
+  expose the runtime types, and make them pleasant to build in the ABI. Rust:
+  `FromIterator` and `From<Vec<_>>` on `SalvoMap` / `SalvoSet`, so `.collect()`
+  works. Kotlin: `Map` and `Set` are interfaces, so a host could return a
+  `HashMap`, whose order would make the program's output differ between
+  backends. The wrapper would copy a returned map or set that is not
+  insertion-ordered into one.
+- **C2. Identity-keyed and sorted collections.** A host cannot easily build a
+  container keyed by a Salvo hash or ordering, because it would need to supply
+  that identity. Recommendation: refuse them in platform signatures for now.
+  Sorted collections under the canonical ordering are allowed, but they still
+  need Salvo's ordering, not the host's: a Kotlin `TreeSet<String>` with
+  natural ordering sorts differently from Salvo. So the ABI provides the
+  constructors, a `TreeSet` built with Salvo's canonical `Comparator` (Kotlin)
+  and `SalvoSortedSet::new::<HostOrd>()` with `FromIterator` (Rust), and the
+  Kotlin wrapper checks that a returned sorted collection uses that
+  comparator, copying it otherwise.
+- **C3. Checking elements.** By D7, a `List<"A" | "B">` or a `List<NonEmpty
+  Str>` returned by the host needs every element checked, which is one walk of
+  the value. Recommendation: walk, consistent with D7. The cost is
+  proportional to what the host returned.
+- **C4. Aliasing.** A Kotlin host receiving a `Mut List<T>` gets the
+  program's own `MutableList` and could keep it after the call returns. A host
+  returning a list could keep mutating it after Salvo has it. Rust's borrows
+  rule out the first, and ownership the second. Options: a documented
+  contract (like `threadsafe`, trusted on Kotlin), or a defensive copy in the
+  Kotlin wrapper. Recommendation: the contract, since a copy changes the cost
+  of every crossing.
+- **C5. Borrowed results.** A platform fn whose result borrows from a
+  parameter (`holds proj(p)`) would need Rust lifetimes in the interface.
+  Recommendation: refuse it in platform signatures for now.
+- **C6. Tuple names on Kotlin.** `Pair` and `Triple`, then `SalvoTuple4`
+  upwards. Keep these, or name every arity alike (`Tuple2`…), the way unions
+  are `UnionN`? The first is what Kotlin code expects for the common sizes.
+
+#### D11. Platform types and fn values — decided 2026-10-02
+
+Opaque `platform type`s in three kinds (plain, `threadsafe`, `linear` with
+`canbe Mut`), and effect-free fn values lent for the call; the rules are
+LANGUAGE_SPEC.md's [platform-type] and [platform-fn-value]. Built 2026-10-02,
+with what the runtime port added on top:
+
+- **Generic platform types and fns** [platform-generic]: type parameters are
+  opaque to the host (`Slot<T>`, `erase<T>`/`unerase<T>` over `Dyn`), so the
+  host code is one generic function per backend.
+- **Kept fn values** [runtime-kept-fn]: a platform fn of std's runtime modules
+  may take a fn value owned, to keep or run on another thread
+  (`start_thread`, `guarded`, `body_of`). Everywhere else a fn value is lent.
+- **Never-returning members** (`exit_process`, `not_ours`) answer `Never`.
+
+### What goes away
+
+Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
+
+- **Platform effects**: syntax, checker rules, both emitters' interfaces and
+  host-owned `main` ([platform-effect], [platform-tree]'s entry rules), and
+  the tests that use them (about 60 sites across 9 test files).
+- **Platform templates**: `salvo_core::template`, `Hole` and the marker
+  lexer/parser, `check_host_blocks`, both emitters' `render_host`,
+  `HandlerDecl.{spliced, host, host_fields}`, `FnDecl.host`, the template
+  grammars and the language server's template support (built 2026-09-30),
+  place ascription, the `[host-splice]` rule, and the template parts of
+  `salvo platform generate`.
+- **The aws generator's template output.** It writes implementation files
+  instead, so this cannot be removed before that port is done.
+
+
+### Decision log
+
+- 2026-10-01 (user): replace platform templates with a generated ABI,
+  interface and implementation files; drop platform effects for now; revisit
+  union naming and Kotlin case.
+- 2026-10-01 (user): D1 `platform fn`; D2 a generated host project per root;
+  D3 every build regenerates the root's files; D5 positional unions kept with
+  Kotlin `UnionN.Uk`, factory functions in the interface file, namespaced so
+  they cannot collide; D6 camel case in all generated Kotlin, a name clash an
+  error in all Salvo code; D7 wrappers validate literal unions; D8 platform
+  handlers take arguments, not state; D9 std hand-writes implementations over
+  generated interfaces, a dependency checks in its own generated files.
+- 2026-10-01 (user): D4 (a), with the platform root's generated files never
+  copied into the output; D5 factories compose (`ReadToStr.err(FsError.…)`),
+  and two platform fns may not overload each other; D7 adapters for platform
+  handlers, state qualifiers checked, provenance trusted, constructive trusted
+  from the same module and refused otherwise, a failed check a panic or
+  exception; D9 an ABI stamp.
+- 2026-10-01 (user): D10 decided (runtime types; identity-keyed collections
+  refused; element checks with a cost warning on the declaration; aliasing by
+  contract; borrowed results refused; `TupleN` replaces `SalvoTupleN`, `Pair`
+  and `Triple` kept).
+- 2026-10-01 (user): D5's remaining cases: a struct arm's factory takes the
+  struct; literal arms get one checked `str(value)`; arms that would share a
+  name get no factory; `Checked` is an ordinary struct; Kotlin named-union
+  factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
+  extend `Union7` from another package.
 
 ## Test inventory (all green: 1679; the platform-effect tests were removed 2026-10-01)
 

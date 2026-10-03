@@ -816,11 +816,11 @@ pub struct Checked {
     /// could not be resolved (an error at its return).
     pub iter_returns: HashMap<FnKey, Ty>,
     /// [platform-check] What crosses from host to Salvo and needs checking
-    /// (ABI.md D7): keyed by a platform fn's name span (its result), an
+    /// (ABI D7): keyed by a platform fn's name span (its result), an
     /// effect member's name span (its result, for a platform-handled effect),
     /// or a `Reply<T>` parameter's name span (the value the host sends).
     pub boundary_checks: HashMap<Key, crate::abi::BoundaryCheck>,
-    /// [platform-factory] The factories of each union a host builds (ABI.md
+    /// [platform-factory] The factories of each union a host builds (the ABI decisions
     /// D5): keyed by a type alias's name span (a named union reached from a
     /// platform signature), a platform fn's or platform-handled member's name
     /// span (its result), or a `Reply<T>` parameter's name span.
@@ -1427,7 +1427,7 @@ fn check_once<'p>(
 /// lowering anywhere. The error names the one interop path customer code
 /// does have.
 /// [mod-use] A module-level `use` is the runtime module's privilege (user
-/// decision 2026-10-02, RUNTIME.md E4): anywhere else it would be hidden
+/// decision 2026-10-02, runtime E4): anywhere else it would be hidden
 /// state by another name.
 fn check_module_uses(program: &Program, out: &mut Checked) {
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
@@ -2555,7 +2555,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [platform-factory] The factories of `ty` when it is a runtime union of two
-    /// or more value arms (ABI.md D5), recorded under `key`: one per arm, named
+    /// or more value arms (ABI D5), recorded under `key`: one per arm, named
     /// by `abi::factory_name`; a base's literals share one checked factory; a
     /// name two arms would share gets none.
     fn plan_factories(&mut self, ty: &Ty, key: Span) {
@@ -2883,7 +2883,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.module_avails = std::mem::replace(&mut self.effect_env, saved_env);
         }
         // [name-camel] Names the Kotlin backend would spell alike are an
-        // error on every backend (user decision 2026-10-01, ABI.md D6).
+        // error on every backend (user decision 2026-10-01, ABI D6).
         for (span, msg) in crate::case::module_clashes(module) {
             self.error(span, msg);
         }
@@ -2910,7 +2910,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // implicits, no effect list beyond `[]`.
                     if f.platform {
                         // [platform-generic] Type parameters are allowed
-                        // (RUNTIME.md E1): opaque to the host, which may only
+                        // (runtime E1): opaque to the host, which may only
                         // store, move and hand one back.
                         let why = if f.params.iter().any(|p| p.implicit) {
                             Some("may not take implicit parameters: the host has nothing to resolve them from")
@@ -2924,7 +2924,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                     // [platform-fn] Two platform fns may not overload each
-                    // other (user decision 2026-10-01, ABI.md D5): each has a
+                    // other (user decision 2026-10-01, ABI D5): each has a
                     // namespace of its own at the boundary. One may share its
                     // name with ordinary fns.
                     if f.platform {
@@ -4343,7 +4343,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// The effect is an ordinary Salvo one and only this *handler* is the
     /// host's, so it registers with `use` like any other [platform-tree].
     /// [platform-type] What a platform type may declare: no type parameters
-    /// yet (generic platform types are a later step, RUNTIME.md E1), no
+    /// yet (generic platform types are a later step, runtime E1), no
     /// slots, no obligations (it has no fields to stamp over, and its
     /// comparisons are platform fns), and `canbe Mut` only when linear — with
     /// copies sharing one host object, a `Mut` permission on a copyable
@@ -4391,7 +4391,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [platform-handler] Its members are the host's: a member written with
         // a Salvo body is refused, and so is Salvo state — the implementation
-        // class owns its fields (user decision 2026-10-01, ABI.md D8).
+        // class owns its fields (user decision 2026-10-01, ABI D8).
         if let Some(f) = h.fns.iter().find(|f| f.body.is_some()) {
             self.error(
                 f.name.span,

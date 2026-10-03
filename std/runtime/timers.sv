@@ -1,6 +1,6 @@
 // `runtime.timers`: the deadline wheel, a service built on the runtime's core
 // [runtime-layers] — an actor on a dedicated thread, which the core never
-// calls (RUNTIME.md §5.4).
+// calls (the runtime record).
 
 import runtime
 import time.Fired

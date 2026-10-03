@@ -129,7 +129,7 @@ pub trait Backend {
     }
 
     /// [platform-abi] The generated files of a platform root's **host
-    /// project** (ABI.md D2, D4): the declarations the platform surface
+    /// project** (ABI D2, D4): the declarations the platform surface
     /// reaches, the runtime they need, and the project files (a Gradle build,
     /// a `Cargo.toml` and crate root) that let the host's own tools open the
     /// root — as `(path relative to the root, contents)` pairs. Regenerated

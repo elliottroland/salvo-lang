@@ -3,7 +3,7 @@
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
 // Host implementation of the platform declarations of Salvo module `runtime`:
-// the primitives only the host can provide (RUNTIME.md §11.3). Written by
+// the primitives only the host can provide (the runtime record). Written by
 // hand, against the generated `runtime.sv.rs`.
 
 use crate::runtime::*;

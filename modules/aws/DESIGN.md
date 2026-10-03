@@ -189,12 +189,12 @@ the decisions — worth a second look:
 
 ### Rebuilt: the glue as plain implementation files again (2026-10-01)
 
-Platform templates were removed (ABI.md), so the generator is back at its
+Platform templates were removed (the ABI decisions), so the generator is back at its
 pre-splice shape (`883b8e9`): it writes `platform/aws/<svc>/host.{kt,rs}`,
 plain host code that names what the emitters produce. Two spellings changed
 since: Kotlin names are camel case ([kt-camel]) and union arms are nested
 (`Union2.U1`). The drift test checks both against the real SDKs. The ABI work
-in ABI.md (generated interface files with factories and adapters) is what will
+in the ABI decisions (generated interface files with factories and adapters) is what will
 let this code stop spelling emitted names.
 
 ### Rebuilt: the glue as platform templates (2026-09-30, superseded 2026-10-01)

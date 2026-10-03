@@ -1092,7 +1092,7 @@ fn a_plain_handler_is_not_a_platform_handler() {
 /// [platform-fn] [decl-body] A bodiless top-level fn is a `platform fn`: the
 /// modifier parses and sets the flag; without it the missing body is an
 /// error naming the modifier; with it, a body is an error (user decision
-/// 2026-10-01, ABI.md D1).
+/// 2026-10-01, ABI D1).
 #[test]
 fn platform_fn_parses_and_a_bare_bodiless_fn_is_refused() {
     let (module, diagnostics) = salvo_syntax::parse_module("export platform fn chars(s: Str) [] -> Char[] => s\n");

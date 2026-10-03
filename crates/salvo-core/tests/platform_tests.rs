@@ -247,7 +247,7 @@ fn a_platform_handler_with_a_body_is_rejected() {
 }
 
 /// [platform-handler] A platform handler declares parameters, not state:
-/// its implementation class owns its fields (user decision 2026-10-01, ABI.md
+/// its implementation class owns its fields (user decision 2026-10-01, the ABI decisions
 /// D8).
 #[test]
 fn a_platform_handler_with_state_is_refused() {
@@ -296,7 +296,7 @@ fn a_generic_platform_handler_is_rejected() {
 
 /// [platform-check] A constructive qualifier — no `qualifies`, so nothing can
 /// prove it of a host value — is trusted when the platform declaration sits in
-/// its module, as its constructors are, and refused from another (ABI.md D7).
+/// its module, as its constructors are, and refused from another (ABI D7).
 #[test]
 fn a_constructive_qualifier_from_another_module_is_refused_at_the_boundary() {
     let lib = "export qualifier Clean of Str\n";

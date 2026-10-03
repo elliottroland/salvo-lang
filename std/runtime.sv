@@ -1,17 +1,18 @@
 // `runtime`: the scheduler every Salvo program runs on, `main` included —
 // written once in Salvo over a small platform handler, instead of twice by
-// hand in each backend (RUNTIME.md).
+// hand in each backend (COMPLETED.md, "Design record: the runtime in Salvo").
 //
 // This module is **std's own** [mod-std-internal]: the rest of std imports
 // it, a program cannot. Its private declarations are also where the language
 // makes the exceptions a runtime needs — starting threads, holding locks,
 // catching faults — that Salvo code elsewhere cannot (user guidance
-// 2026-10-01). It is filled in step by step (RUNTIME.md §11.5); until the
-// port, the schedulers are still the backends' `scheduler.rs`/`scheduler.kt`.
+// 2026-10-01). The services built on it are the modules under
+// `std/runtime/` [runtime-layers]; each backend's `scheduler.rs`/
+// `scheduler.kt` is the entry points generated code calls, onto this.
 
 // [runtime-parker] One thread's park/unpark token: how a scheduler thread
 // with nothing to do sleeps until another thread changes the state it is
-// waiting on (RUNTIME.md §11.2 E3, user decision 2026-10-02). Both hosts give
+// waiting on (runtime E3, user decision 2026-10-02). Both hosts give
 // `unpark` a **token**: an `unpark` that arrives before the `park` makes the
 // next `park` return at once, so recording a parker in the scheduler's state
 // and parking outside its lock loses no wakeup. A park may also return with
@@ -51,7 +52,7 @@ platform fn guarded(body: once () -> None) [] -> Str? => !body
 // ===== the host [runtime-host] =====
 //
 // What only the host can do, behind one interface the backends implement in
-// std's platform root (RUNTIME.md §11.3): a new backend writes this handler
+// std's platform root (the runtime record): a new backend writes this handler
 // and the scheduler above it is Salvo. Filled in as the port needs it.
 effect RuntimeHost {
     // [addr-capability] A fresh value an outsider cannot guess: OS entropy.
@@ -88,11 +89,9 @@ export fn now_nanos() [] -> Long {
     return mono_nanos()
 }
 
-// ===== the scheduler (in progress) [runtime-sched] =====
+// ===== the scheduler [runtime-sched] =====
 //
-// The scheduler, written once (RUNTIME.md §11.5 step 11). Built beside the
-// backends' own while it grows, driven by `std/runtime.test.sv`; the emitters
-// switch to it when it covers what theirs does.
+// The scheduler, written once, and driven by `std/runtime.test.sv`.
 
 // ---- host types
 

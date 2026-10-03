@@ -28,7 +28,7 @@ pub struct Module {
     /// [mod-use] Module-level `use H()` bindings: bound once, on first use,
     /// for the life of the process, and visible to every function of the
     /// module without being declared. Allowed in std's runtime module only
-    /// (user decision 2026-10-02, RUNTIME.md E4); empty everywhere else.
+    /// (user decision 2026-10-02, runtime E4); empty everywhere else.
     pub uses: Vec<ModuleUse>,
 }
 
@@ -857,7 +857,7 @@ pub struct FnDecl {
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
     /// [platform-fn] `platform fn name(…) -> T`: a top-level fn the **host**
-    /// implements in the target language (user decision 2026-10-01, ABI.md
+    /// implements in the target language (user decision 2026-10-01, the ABI decisions
     /// D1). Always bodiless; a bodiless top-level fn without it is an error,
     /// so every interop point is one searchable word.
     pub platform: bool,

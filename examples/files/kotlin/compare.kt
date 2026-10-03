@@ -97,7 +97,7 @@ fun <K, V> salvoSortedMapOf(vararg entries: Pair<K, V>): java.util.TreeMap<K, V>
     java.util.TreeMap<K, V>(SalvoCanonicalOrder).also { m -> entries.forEach { m[it.first] = it.second } }
 
 // [platform-check] What an adapter applies to a set or map the host returns
-// (ABI.md D10 C1, C2): the same value when it already keeps Salvo's order, a
+// (ABI D10 C1, C2): the same value when it already keeps Salvo's order, a
 // copy that does otherwise.
 fun <T> __salvoInsertionOrdered(s: Set<T>): Set<T> =
     if (s.size <= 1 || s is java.util.LinkedHashSet<*>) s else java.util.LinkedHashSet(s)

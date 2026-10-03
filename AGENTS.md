@@ -54,7 +54,6 @@ which rules are in play and where they live in the code*.
 | `BACKEND_SPEC.kotlin.md` | Kotlin interpretation of the rules + `kt-` rules | Only when working on the Kotlin backend (`salvo-backend-kotlin`, `std/**/*.kotlin.sv`) |
 | `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `std/**/*.rust.sv`) |
 | `ROADMAP.md` | What is left, as one sequence: steps, open defects, decisions, and the parked tail | Always |
-| `ABI.md` | The platform ABI redesign in progress: proposal, open decisions, build sequence | When working on platform handlers, platform fns or host code |
 | `COMPLETED.md` | The record: decision log, milestone history, abandoned options, closed defects, test inventory, gotchas | Always |
 | `AGENTS.md` | This file — how to work on the repo | Always |
 | `examples/README.md` | The worked examples: layout, how to regenerate them, and the conventions they must keep | When adding or touching an example, or when a language change invalidates one |
@@ -75,6 +74,11 @@ new gotcha):
   reasoning is worth keeping. Add newly discovered leftovers and any defect you
   reproduced but did not fix (with its repro). A decision the user has now made
   stops being a **DECISION** and becomes a plan.
+- **A finished project's working document is retired** (user rule,
+  2026-10-03): when a design document (RUNTIME.md and ABI.md were
+  the first) has done its job, what is still open moves to ROADMAP.md, the record and reasoning
+  to COMPLETED.md (a "Design record" section), and the rules its comments
+  cited to LANGUAGE_SPEC.md and the backend specs; then the file is deleted.
 - **Do not leave an item in both.** An entry that is still open belongs in
   ROADMAP.md only; the moment it lands, its record belongs in COMPLETED.md
   only, with a one-line pointer left behind if a reader would otherwise look

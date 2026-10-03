@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the scheduler benchmarks (bench/scheduler, RUNTIME.md §8) on both
+# Runs the scheduler benchmarks (bench/scheduler, the runtime record) on both
 # backends, built for speed: `rustc -O` for Rust, `kotlinc` + `kotlin` for
 # Kotlin. Prints each backend's four numbers. Scratch output goes to tmp/.
 #

@@ -1,5 +1,5 @@
 // `runtime.routing`: addrs and answers across nodes, a service on the
-// runtime's core [runtime-layers] (RUNTIME.md §11.5 step 11). It keeps who is
+// runtime's core [runtime-layers] (runtime step 11). It keeps who is
 // where — the node every pool belongs to, the capability bits of every actor
 // whose addr has left its node, the proxies standing for actors elsewhere and
 // the credits each holds — and turns a send to a proxy, an answer to a token

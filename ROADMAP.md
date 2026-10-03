@@ -56,10 +56,36 @@ targets and the output they print, three of them consuming the first dependency
 
 ### 0 — The runtime in Salvo: done (2026-10-03)
 
-Built: see COMPLETED.md's decision log and [RUNTIME.md](RUNTIME.md), now a
-design record. Left: step 17 of RUNTIME.md §11.5 (optional: the other
-collections onto generic platform types), and the items below that the port
-recorded (0c, 0d, 0e, the `test actor` follow-ups).
+Built: see COMPLETED.md's decision log and its "Design record: the runtime in
+Salvo" (the runtime record, retired 2026-10-03). What is left, besides 0c, 0d, 0e
+and the `test actor` follow-ups recorded below:
+
+1. **The waiter table never shrinks** (runtime finding 4, a defect): every
+   `waitfor` adds a `WaiterRec` to the scheduler that is never removed, so a
+   long-running loop around a `waitfor` grows the table without bound. Fix:
+   reuse a waiter's index once its wait has ended and its token is spent (a
+   free list), or key waiters in a map. Dead actors keep their record by
+   design, since a stale addr must keep meaning the dead actor.
+2. **The actor, net and time intrinsics as Salvo** (runtime E8's second
+   half): `core.actor` still declares 8 intrinsics (`pool`, `thread`,
+   `watch`, `on_idle`, `send`, …), `net` 26 and `time` 1, each lowered by the
+   emitters to a call of the scheduler shims. With the runtime in Salvo they
+   can be ordinary Salvo functions calling `runtime`, so a new backend
+   lowers none of them.
+3. **`Addr<E>`, `Reply<T>` and `Pool` as Salvo types** (runtime E7): a
+   struct over an index with `E` phantom, a linear struct, a struct over an
+   index. Needs phantom type parameters accepted (unchecked), and the
+   generated ABI types keep host code's view of them.
+4. **`std.test`'s `trapped_by` and the runtime's `guarded` as one
+   primitive**, a `RuntimeHost` member `std.test` calls.
+5. **`StdOutConsole` and `DefaultRandom` as platform handlers** rather than
+   intrinsic handlers.
+6. **Kotlin's `unerase<T>` cannot check `T`** (erased generics): a mismatch
+   surfaces as a `ClassCastException` where the value is used. In the
+   runtime a mismatch is a compiler bug either way; an exact check would need
+   a type token generated code could pass.
+7. **Optional: the other collections onto generic platform types** (runtime
+   step 17).
 
 ### 0b — Three slow tests (recorded 2026-10-02, to investigate)
 
@@ -93,8 +119,8 @@ schedule its parts.
 
 ### 0c — Rust emitter defects and gaps (found 2026-10-02, not fixed)
 
-Found while moving the group protocol into `std/net.sv` (RUNTIME.md §11.5
-step 4). Each is refused by rustc, so none is silently wrong, but each stops
+Found while moving the group protocol into `std/net.sv` (runtime step
+4). Each is refused by rustc, so none is silently wrong, but each stops
 a correct program from building. std works around the first by naming.
 
 1. **A second `let` of one name in a fn, after a loop that declared it,
@@ -175,7 +201,7 @@ a correct program from building. std works around the first by naming.
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 
 The user's aim is that a new backend implements as little host code as
-possible (RUNTIME.md §11). Some of the runtime's platform declarations are
+possible (runtime record, COMPLETED.md). Some of the runtime's platform declarations are
 stand-ins for language features Salvo lacks rather than things only a host
 can do; each is a candidate to become Salvo. Kept as they are for now (user
 decision 2026-10-02), to be revisited once the port lands. First candidates:
@@ -617,7 +643,8 @@ platform roots; (5) DynamoDB.
 ✅ **The platform ABI** (user direction 2026-10-01; complete the same day,
 COMPLETED.md): generated host projects, interfaces, adapters, boundary
 checks, factories and stamps beside hand-written implementation files. The
-design and its decisions (D1–D10) are in [ABI.md](ABI.md). **Next: DynamoDB.**
+design and its decisions (D1–D11) are COMPLETED.md's "Design record: the
+platform ABI" (the ABI decisions, retired 2026-10-03). **Next: DynamoDB.**
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
@@ -1053,7 +1080,7 @@ backends**.
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
 
-- **The whole program in the host project** (user, 2026-10-01; ABI.md D4).
+- **The whole program in the host project** (user, 2026-10-01; ABI D4).
   The alternative to generating only the declarations the platform surface
   reaches: write the entire emitted program into the platform root as
   `*.sv.*`, so the host project is exactly the build's compilation. No
@@ -1183,7 +1210,7 @@ several are "revisit only if a customer appears".
 - **Intersection types (DECISION)** — whether `Addr<A & B>`-style types join the
   language; recorded 2026-09-17 when the tuple form shipped instead.
 - **`platform type`** and **`platform effect`** — deferred by decision (the
-  second removed 2026-10-01); `platform handler` and, per ABI.md, `platform fn`
+  second removed 2026-10-01); `platform handler` and, per the ABI decisions, `platform fn`
   are the whole interop surface until a need arises.
 - **`const` bindings** — announced (user intent 2026-09-19), not designed. Its
   first customer is recorded: the shareable-handler taxonomy's rung 1 keys on "no
@@ -1322,7 +1349,7 @@ several are "revisit only if a customer appears".
   timers keep their state across actor tests (the routing table, the stream
   table), which a test using `MemTransport` could notice; `test property`
   will generate the seed. `std.test`'s `trapped_by` and the runtime's
-  `guarded` are still two primitives (RUNTIME.md §11.7).
+  `guarded` are still two primitives (item 0, point 4).
 - **The parked-obligation gap in the deadlock graph**: an actor gated on a token a
   *task* must discharge has a wait-for edge pointing at no effect node.
 - **Array elements never narrow**, **deduction inference does not track

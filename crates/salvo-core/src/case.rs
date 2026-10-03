@@ -2,7 +2,7 @@
 //! that keeps it unambiguous.
 //!
 //! Generated Kotlin follows Kotlin's conventions (user decision 2026-10-01,
-//! ABI.md D6): `read_to_str` is `readToStr`, `data_type` is `dataType`. The
+//! ABI D6): `read_to_str` is `readToStr`, `data_type` is `dataType`. The
 //! mapping is defined here, beside the checker, because two Salvo names that
 //! map to one camel-case name are an error in **all** Salvo code — a
 //! project's validity must not depend on the backend it builds for — and the

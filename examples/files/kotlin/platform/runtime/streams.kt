@@ -1,6 +1,6 @@
 // Host implementation of the platform declarations of Salvo module
 // `runtime.streams`: the host stream objects and the leaf operations on them
-// (RUNTIME.md §3.4). The table, buffering, positions and failure recording
+// (the runtime record). The table, buffering, positions and failure recording
 // are Salvo. Written by hand, against the generated `streams.sv.kt`.
 package salvo.platform.runtime.streams
 

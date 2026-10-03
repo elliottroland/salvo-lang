@@ -1300,7 +1300,7 @@ fn platform_generate(
     ExitCode::SUCCESS
 }
 
-/// [platform-stamp] A dependency checks in its own host project (ABI.md D9), and
+/// [platform-stamp] A dependency checks in its own host project (ABI D9), and
 /// its implementation files were written against it. Before building them,
 /// its stamps are compared with what this compiler computes for its platform
 /// signatures: a different ABI revision, a changed signature, or no generated
@@ -1398,7 +1398,7 @@ fn check_dependency_stamps(
 }
 
 /// [platform-abi] Rewrites the generated files of this backend's platform root
-/// — the host project the root's implementation files compile in (ABI.md D2,
+/// — the host project the root's implementation files compile in (ABI D2,
 /// D3) — and removes generated files the program no longer produces. Only the
 /// project's own root: a dependency's generated files are its own (D9), and
 /// std's are written when std itself is built. Nothing when the project has

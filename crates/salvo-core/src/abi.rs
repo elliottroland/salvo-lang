@@ -1,6 +1,6 @@
 //! [platform-abi] What the host project of a platform root needs to see: the
 //! declarations reached from the project's platform signatures (user decision
-//! 2026-10-01, ABI.md D4 (a)).
+//! 2026-10-01, ABI D4 (a)).
 //!
 //! An implementation file compiles in the host project against generated
 //! declaration files — the same definitions the build emits, with nothing
@@ -168,7 +168,7 @@ impl Walk<'_, '_> {
 
 /// [platform-abi] [platform-check] What an adapter or a platform fn's wrapper
 /// checks of one value crossing from host to Salvo (user decisions
-/// 2026-10-01, ABI.md D7, D10 C3): exactly what the Salvo type promises and
+/// 2026-10-01, ABI D7, D10 C3): exactly what the Salvo type promises and
 /// the host type cannot say. Computed by the checker over the *runtime*
 /// shape ([union-arm-identity]: a base's literals are one arm), so both
 /// backends render the same plan; a value that needs no check has no plan.
@@ -270,7 +270,7 @@ impl BoundaryCheck {
 }
 
 /// [platform-factory] One factory of a union at the boundary (user decisions
-/// 2026-10-01, ABI.md D5): builds runtime arm `arm` from a `param`.
+/// 2026-10-01, ABI D5): builds runtime arm `arm` from a `param`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Factory {
     /// Snake case; each backend spells it in its own case.
@@ -352,11 +352,11 @@ pub fn upper_camel(name: &str) -> String {
 /// [platform-stamp] The ABI revision: what the generated files of a platform
 /// root may rely on about this compiler's emission. Bumped by hand when a
 /// change to the generated declarations, interfaces, adapters or factories
-/// would break implementation files written against the old ones (ABI.md D9).
+/// would break implementation files written against the old ones (ABI D9).
 pub const ABI_REVISION: u32 = 1;
 
 /// [platform-stamp] The stamp every generated file of a platform root carries
-/// (ABI.md D9 (b)): `salvo-abi <revision> <signature hash>`, the hash over the
+/// (ABI D9 (b)): `salvo-abi <revision> <signature hash>`, the hash over the
 /// owner's platform signatures and everything they reach, in a canonical
 /// rendering (source spacing and positions do not count). `owner` is the
 /// project (`None`) or a dependency by name. `None` when the owner declares

@@ -1460,7 +1460,7 @@ fn generated_files(root: &Path) -> Vec<(String, Vec<u8>)> {
 
 /// [platform-abi] The host projects checked in beside std's and aws's
 /// implementation files are what the compiler generates now (a dependency
-/// checks in its own, ABI.md D9), and aws's implementation files compile
+/// checks in its own, ABI D9), and aws's implementation files compile
 /// against them alone — `cargo check` on the root's `Cargo.toml`, Gradle's
 /// `compileKotlin` on its `build.gradle.kts` — which is the setup an IDE
 /// opening the root gets. Skips the compiles, saying so, when the SDKs or
@@ -1525,7 +1525,7 @@ fn the_checked_in_host_projects_are_current_and_compile() {
 }
 
 /// [platform-check] The adapters and wrappers check what the host hands
-/// back (ABI.md D7, D10 C3): a closed literal union, a literal field of a
+/// back (ABI D7, D10 C3): a closed literal union, a literal field of a
 /// struct inside a list (element by element, which warns), a state qualifier
 /// (`NonEmpty`, by running its `qualifies`), a literal arm of a positional
 /// union, and a `Reply<T>` the host completes from its own thread — the hosts
@@ -1678,7 +1678,7 @@ fn main() [use] {
 }
 
 /// [platform-stamp] A dependency checks in its host project, stamped with the
-/// ABI revision and a hash of its platform signatures (ABI.md D9 (b)); a build
+/// ABI revision and a hash of its platform signatures (ABI D9 (b)); a build
 /// that compiles the dependency's implementation files compares the stamps
 /// first and names what to do: no host project, signatures changed since it
 /// was generated, or another ABI revision. A build that does not reach the

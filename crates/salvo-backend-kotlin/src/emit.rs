@@ -89,7 +89,7 @@ pub fn emit_program_reporting(
 /// them but with no functions, handlers or qualifiers, and the runtime files
 /// they need. Paths are relative to the root: a module's declarations at
 /// `<module path>.sv.kt`, the runtime under `salvo/`. Never read by the build
-/// (ABI.md D4).
+/// (ABI D4).
 pub fn emit_abi(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
     emit_program_mode(program, true).map(|(files, _)| files)
 }
@@ -2829,7 +2829,7 @@ impl<'p> Emitter<'p> {
     }
 
     /// [platform-factory] [kt-platform-factory] The factory objects an item
-    /// carries (ABI.md D5): a named union's `object FsErrors`, a platform fn's
+    /// carries (ABI D5): a named union's `object FsErrors`, a platform fn's
     /// or a platform-handled member's `object ReadToStr` (the result's and the
     /// `Reply<T>` payload's factories together).
     fn emit_item_factories(&mut self, item: &Item) -> String {
@@ -3763,7 +3763,7 @@ impl<'p> Emitter<'p> {
     /// parameters; handler methods (`override fun`) do not.
     fn emit_fn_inner(&mut self, f: &FnDecl, kw: &str, indent: usize, top_level: bool) -> String {
         // [platform-fn] A platform fn is a wrapper the program calls, which
-        // calls the implementation in the host package (ABI.md: the wrapper is
+        // calls the implementation in the host package (the ABI decisions: the wrapper is
         // `nameFnPlatform`, the implementation has the real name).
         let empty = Block { stmts: Vec::new(), span: f.span };
         let Some(body) = f.body.as_ref().or(f.platform.then_some(&empty)) else {

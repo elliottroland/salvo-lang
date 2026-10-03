@@ -1488,7 +1488,7 @@ facts worth knowing") and keeps the history ("One shape for effects").
   gains `non_upper_case_globals` for the free `__DECODE_*`/`__PROTO_*`
   constants of erased generics. Runtime: `salvo_pending(addr)` (queue depth
   locally, `granted` on a proxy; GRANT decrements it). [node-group] The
-  group protocols are std's (2026-10-02, RUNTIME.md §3.3): the runtime
+  group protocols are std's (2026-10-02, the runtime record): the runtime
   carries them as CONTROL frames (kind 4: to, from, channel, payload) to
   `Sched.controls[(node, channel)]`, registered by `salvo_watch_control`
   with a `ControlOf = fn(u64, Vec<u8>) -> SalvoMsg` builder, and keeps only

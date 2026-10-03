@@ -177,7 +177,7 @@ Conventions:
 * [type-tuple] [kt-tuple-class] Tuples of size 2/3 map to `Pair`/`Triple` —
   Kotlin's own, so a tuple keeps interoperating with the standard library — and
   every larger arity maps to a **generated data class**, `TupleN` (named
-  `SalvoTupleN` until 2026-10-01, ABI.md D10),
+  `SalvoTupleN` until 2026-10-01, ABI D10),
   declared once per program in `tuples.kt` beside the union wrappers
   (2026-09-18; they used to be a codegen error).
   * A `data class` is what makes it a tuple rather than an object: structural
@@ -242,7 +242,7 @@ Conventions:
 ## Structs and variables
 
 * [kt-camel] [name-camel] **Every Salvo value name is written in camel case**
-  (user decision 2026-10-01, ABI.md D6): fns, effect and handler members,
+  (user decision 2026-10-01, ABI D6): fns, effect and handler members,
   parameters, struct fields, locals and bindings — `read_to_str` is
   `readToStr`, `data_type` is `dataType` — so generated Kotlin reads as
   Kotlin and host code written against it does too. One function does it,
@@ -316,7 +316,7 @@ Conventions:
   with the arms **nested** in it, `data class Ui<out T1..TN>(override val
   value: Ti) : UnionN<T1..TN>`, generated for every size the program uses.
   An arm is named `UnionN.Ui` — `Union2.U1(x)` — as Rust's is `Union2::U1`
-  (user decision 2026-10-01, ABI.md D5; until then arms were top-level
+  (user decision 2026-10-01, ABI D5; until then arms were top-level
   `UN_i`). Each arm keeps the union's full parameter list, so a site that
   spelled the arguments out still does.
 * [union-arm-identity] Arm indices from the checker map 1:1 onto the
@@ -780,7 +780,7 @@ nothing but the monitor.
   `Thread.holdsLock` until 2026-10-03, when the runtime's scheduler became a
   monitor: `holdsLock` was a third of its cost): a JVM monitor is reentrant and Rust's `Mutex` is
   not, so a re-entry through the handle would deadlock on Rust and pass here
-  (2026-10-02, RUNTIME.md §2.3 item 4). The availability rule keeps programs
+  (2026-10-02, runtime finding 4). The availability rule keeps programs
   from reaching it; the check is what makes a mistake fail the same way on
   both backends, which matters once the scheduler is a monitor (step 11).
 * [kt-mod-use] [mod-use] A module-level `use` is `private val

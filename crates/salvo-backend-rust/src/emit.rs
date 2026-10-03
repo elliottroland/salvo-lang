@@ -114,7 +114,7 @@ pub fn emit_program_reporting(
 /// other module under its build mod name, each implementation file as
 /// `platform_<module>` — so an implementation file's `crate::…` paths resolve
 /// alike in both. Paths are relative to the platform root; the runtime is
-/// under `salvo/`. Never read by the build (ABI.md D4).
+/// under `salvo/`. Never read by the build (ABI D4).
 pub fn emit_abi(
     program: &Program,
     entry: Option<&ModulePath>,
@@ -2777,7 +2777,7 @@ impl<'p> Emitter<'p> {
     /// one when the lazy pair was removed (2026-09-10); a program still may.
     /// [runtime-kept-fn] Whether `p` is a fn value the host keeps past the
     /// call: a consumed (`=> !f`) fn-typed parameter of a platform fn of the
-    /// runtime's own modules — the runtime's privilege (RUNTIME.md §11.2,
+    /// runtime's own modules — the runtime's privilege (runtime E10,
     /// E2's "host-kept thread body"); everywhere else a fn value is lent.
     fn keeps_fn_param(&self, f: &FnDecl, p: &Param) -> bool {
         if !f.platform || !(matches!(p.ty, Type::Fn { .. }) || is_once_fn_type(&p.ty)) {
@@ -4339,7 +4339,7 @@ impl<'p> Emitter<'p> {
     }
 
     /// [platform-factory] [rs-platform-factory] The factories an item carries
-    /// (ABI.md D5): `impl FsError { pub fn not_found(…) }` on a named union,
+    /// (ABI D5): `impl FsError { pub fn not_found(…) }` on a named union,
     /// `pub struct ReadToStr;` with an `impl` for a platform fn's or a
     /// platform-handled member's (the result's and the `Reply<T>` payload's
     /// together).

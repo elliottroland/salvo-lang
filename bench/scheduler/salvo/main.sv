@@ -1,4 +1,4 @@
-// The scheduler benchmarks (RUNTIME.md §8, D6): four workloads, each timed on
+// The scheduler benchmarks (the runtime record, D6): four workloads, each timed on
 // the monotonic clock and printed as milliseconds. Run with
 // `tools/bench-scheduler.sh`, which builds both backends optimised and prints
 // the numbers side by side. Not part of the test suite: the output is timing.
