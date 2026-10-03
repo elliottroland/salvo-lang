@@ -12,7 +12,7 @@ pub fn iter__3<T: Clone>(d: &std::collections::VecDeque<T>) -> DequeYield<'_, T>
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct DequeYield<'s, T: Clone + 'static> {
+pub struct DequeYield<'s, T: Clone> {
     pub items: &'s std::collections::VecDeque<T>,
     pub at: i32,
 }
@@ -27,7 +27,7 @@ pub fn next__3<'s, T: Clone>(p: &mut DequeYield<'s, T>) -> Union2<&'s T, Finishe
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_reversed_Deque<'s, T: Clone + 'static> {
+pub struct __Iter_reversed_Deque<'s, T: Clone> {
     pub d: &'s std::collections::VecDeque<T>,
     pub at: i32,
 }

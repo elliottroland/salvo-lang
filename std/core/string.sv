@@ -59,12 +59,30 @@ export fn next(p: Mut StrYield) [] -> Emitted Char | Finished => p: Mut {
 }
 
 // Splits [str] around every occurrence of [sep]. An empty [str] yields one
-// (empty) part; a [sep] that never occurs yields [str] whole.
-export intrinsic fn split(str: Str, sep: Str) [] -> List<Str> => str, sep
+// (empty) part; a [sep] that never occurs yields [str] whole. The parts are a
+// list of your own to change [str-mut-results].
+export intrinsic fn split(str: Str, sep: Str) [] -> Mut List<Str> => str, sep
 
 // The index of the first occurrence of [needle] in [str], or `None` when it
 // does not occur. No `-1` sentinel: absence is `None` [type-nullable].
 export intrinsic fn index_of(str: Str, needle: Str) [] -> Int? => str, needle
+
+// [str-search] The index of the first occurrence of [needle] at or after
+// [from], or `None`. A [from] below 0 searches from the start.
+export intrinsic fn index_of(str: Str, needle: Str, from: Int) [] -> Int? => str, needle, from
+
+// [str-search] The index of the last occurrence of [needle] in [str], or
+// `None`.
+export intrinsic fn last_index_of(str: Str, needle: Str) [] -> Int? => str, needle
+
+// [str-search] [str] with every occurrence of [from] replaced by [to].
+export intrinsic fn replace(str: Str, from: Str, to: Str) [] -> Str => str, from, to
+
+// [str] without leading whitespace
+export intrinsic fn trim_start(str: Str) [] -> Str => str
+
+// [str] without trailing whitespace
+export intrinsic fn trim_end(str: Str) [] -> Str => str
 
 // Whether [needle] occurs anywhere in [str]
 export intrinsic fn contains(str: Str, needle: Str) [] -> Bool => str, needle
@@ -144,3 +162,59 @@ export intrinsic fn set(str: Mut Str, index: Int, chr: Char) [] -> Bool
 
 // Removes every character from [str]
 export intrinsic fn clear(str: Mut Str) [] -> None => str: Mut
+
+// ===== the string surface written in Salvo [str-salvo] =====
+
+// [str-salvo] Whether [str] has no characters.
+export fn is_empty(str: Str) [] -> Bool => str {
+    return size(str) == 0
+}
+
+// [str-salvo] [str] written [n] times over; empty for `n <= 0`.
+export fn repeat(str: Str, n: Int) [] -> Str => str, n {
+    let out = mut_str()
+    let i = 0
+    while i < n {
+        append(out, str)
+        i = i + 1
+    }
+    return out
+}
+
+// [str-salvo] The lines of [str]: split at `\n`, with a `\r` before it
+// dropped, and no empty last line for a trailing newline [str-mut-results].
+export fn lines(str: Str) [] -> Mut List<Str> => str {
+    let parts = split(str, "\n")
+    if size(parts) > 1 && ends_with(str, "\n") {
+        let _end = remove_back(parts, 1)
+    }
+    let out = mut_list_of<Str>()
+    for p in parts {
+        add(out, trim_suffix(p, "\r"))
+    }
+    return out
+}
+
+// [str-salvo] [str] split at the first [sep]: what comes before and after
+// it, or `None` when [sep] does not occur.
+export fn split_once(str: Str, sep: Str) [] -> (Str, Str)? => str, sep {
+    let at = index_of(str, sep)
+    if at is Int i {
+        let before = substr(str, 0, copy(i)) ?: ""
+        let after = substr(str, i + size(sep), size(str)) ?: ""
+        return (before, after)
+    }
+    return None
+}
+
+// [str-salvo] [str] split at the last [sep], or `None` when it does not
+// occur — `split_last(path, "/")` is a path's directory and name.
+export fn split_last(str: Str, sep: Str) [] -> (Str, Str)? => str, sep {
+    let at = last_index_of(str, sep)
+    if at is Int i {
+        let before = substr(str, 0, copy(i)) ?: ""
+        let after = substr(str, i + size(sep), size(str)) ?: ""
+        return (before, after)
+    }
+    return None
+}

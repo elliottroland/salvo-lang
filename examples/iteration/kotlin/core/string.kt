@@ -17,7 +17,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__14(p: StrYield): Union2<Char, Finished> {
+fun next__18(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return Union2.U2<Char, Finished>(finished())
@@ -44,5 +44,55 @@ fun SpanOf_qualifies(span: Span, str: String): Boolean {
 }
 
 fun substr(str: String, at: Span): String {
-    return (run { val __s = str; val __i = at.start; val __j = at.end; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null } ?: throw AssertionError("salvo: value is absent at core.string:116:12"))
+    return (run { val __s = str; val __i = at.start; val __j = at.end; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null } ?: throw AssertionError("salvo: value is absent at core.string:134:12"))
+}
+
+fun isEmpty__2(str: String): Boolean {
+    return str.length == 0
+}
+
+fun repeat(str: String, n: Int): String {
+    val out = StringBuilder()
+    var i = 0
+    while (i < n) {
+        out.append(str)
+        i = i + 1
+    }
+    return out.toString()
+}
+
+fun lines(str: String): MutableList<String> {
+    val parts = str.split("\n").toMutableList()
+    if (parts.size > 1 && str.endsWith("\n")) {
+        val _end = removeBack(parts, 1)
+    }
+    val out = mutableListOf<String>()
+    for (p in parts) {
+        out.add(p.removeSuffix("\r"))
+    }
+    return out
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun splitOnce(str: String, sep: String): Pair<String, String>? {
+    val at = str.indexOf(sep).takeIf { it >= 0 }
+    if (at != null) {
+        val i = at as Int
+        val before = (run { val __s = str; val __i = 0; val __j = i; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null } ?: "")
+        val after = (run { val __s = str; val __i = i + sep.length; val __j = str.length; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null } ?: "")
+        return Pair(before, after)
+    }
+    return null
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun splitLast(str: String, sep: String): Pair<String, String>? {
+    val at = str.lastIndexOf(sep).takeIf { it >= 0 }
+    if (at != null) {
+        val i = at as Int
+        val before = (run { val __s = str; val __i = 0; val __j = i; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null } ?: "")
+        val after = (run { val __s = str; val __i = i + sep.length; val __j = str.length; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null } ?: "")
+        return Pair(before, after)
+    }
+    return null
 }

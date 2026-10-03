@@ -11110,7 +11110,7 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
     // more (the refinement-types sequence, step 0, 2026-09-23), and when
     // `core.deque` brought two more (2026-10-02).
     assert!(
-        src.contains("next__19(console, __loop"),
+        src.contains("next__23(console, __loop"),
         "expected the handler threaded into the drive:\n{src}"
     );
 }

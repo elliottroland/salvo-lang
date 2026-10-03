@@ -119,7 +119,7 @@ fun main() {
     println(console, "6. distinct ${unique.joinToString(", ", "[", "]")} of ${countUnique(unique)}")
     var __loop1_pass = iter__6(vowels)
     while (true) {
-        val __loop1_step = next__13(__loop1_pass)
+        val __loop1_step = next__17(__loop1_pass)
         if (__loop1_step !is Union2.U1<*, *>) { break }
         val v = __loop1_step.value as String
         console.print(v)

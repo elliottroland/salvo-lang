@@ -33,6 +33,8 @@ pub mod core_map;
 pub mod core_range;
 #[path = "core/result.rs"]
 pub mod core_result;
+#[path = "core/seq.rs"]
+pub mod core_seq;
 #[path = "core/set.rs"]
 pub mod core_set;
 #[path = "core/sorted.rs"]
@@ -65,6 +67,7 @@ use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
 use crate::core_range::*;
+use crate::core_seq::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
@@ -1526,7 +1529,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
     println(console, &(format!("  apple and pear on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:225:50")[..] == &shards.get((1) as i64 as usize).expect("salvo: value is absent at main:225:67")[..]))));
 }
 
-pub fn count(search: &crate::Search, word: String) -> i32 {
+pub fn count__2(search: &crate::Search, word: String) -> i32 {
     return {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
@@ -1828,7 +1831,7 @@ pub fn main() {
     shop(&console, stock);
     println(&console, &("scatter:".to_string()));
     let search = crate::Search::shared(Scattering::new(index.clone(), ({ let __h = Gathering::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Gathering::new(__h)), __DECODE_Gathering); __a })));
-    println(&console, &(format!("  salvo: {}, actors: {}, none: {}", count(&search, "salvo".to_string()), count(&search, "actors".to_string()), count(&search, "none".to_string()))));
+    println(&console, &(format!("  salvo: {}, actors: {}, none: {}", count__2(&search, "salvo".to_string()), count__2(&search, "actors".to_string()), count__2(&search, "none".to_string()))));
     println(&console, &("hedge:".to_string()));
     let lookup = crate::Lookup::shared(Hedging::new(looks.clone(), ({ let __h = Racing::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, Box::new(__Actor_Racing::new(__h)), __DECODE_Racing); __a })));
     println(&console, &(format!("  {}", find(&lookup, "k1".to_string()))));

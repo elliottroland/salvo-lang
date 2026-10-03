@@ -135,6 +135,32 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Lists, strings and lazy adaptors (2026-10-03, user request).** From the
+user's list and `salvo-noticeboard`'s TODOs: on lists `remove_front`,
+`remove_back`, `remove_front_while`, `remove_back_while`, `insert_at`,
+`sub_list`, `find_first`, `find_last`, `partition`, and beside them `last`,
+`is_empty`, `index_of`, `last_index_of`, `contains`, `any`, `all`, `count`,
+`reverse` [col-salvo]; on strings `index_of` from an offset, `last_index_of`,
+`replace`, `trim_start`, `trim_end`, `is_empty`, `repeat`, `lines`,
+`split_once`, `split_last`, and `split` answering `Mut List<Str>`
+[str-mut-results]; and the lazy `take`, `take_while`, `skip`, `skip_while`
+and `collect` [seq-lazy]. Everything on lists is Salvo over two new
+intrinsics, `insert_at` and `remove_range`; the string searches are
+intrinsics, the rest Salvo. Decisions made here, open to revision: the
+`remove_*` family answers what it removed; `sub_list` and `partition` copy
+(a list of borrows cannot be answered from a generic fn on Rust, and a tuple
+cannot hold borrows); the iterator collector is `collect`, not `to_list`. What
+fell out: on Rust a struct's type parameters lost their `'static` bound and a
+kept callback gained `Send + Sync` [rs-lazy-adaptor], which is what lets a lazy
+adaptor sit over a pass that borrows a list; two defects recorded rather than
+fixed, ROADMAP 0c items 16 (Kotlin calls a local fn value by a top-level fn's
+mangled name) and 17 (a module's own fn does not beat a generic import of the
+same name, which is why there is no `count(it)`). New tests: 9 in
+`core/list.test.sv`, 5 in `core/string.test.sv`, and `core/seq.test.sv` (5).
+A user program's own `count`, `contains`, `reverse`, … is now mangled on Rust
+(`count__2`) since core declares one too; two codegen tests were updated for
+that and for the shifted `next__N`.
+
 **Editor support from the noticeboard TODOs (2026-10-03, user request).**
 `salvo-noticeboard`'s `disk.sv` listed what got in the way: a module's hover
 now lists its first 20 functions and its types [doc-module]; go-to-definition

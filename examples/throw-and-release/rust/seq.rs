@@ -32,6 +32,11 @@ pub trait SalvoTake<T> {
     fn salvo_remove_first(&mut self) -> Option<T>;
     /// `remove_at(list, i)`: the element at `i`, moved out.
     fn salvo_remove_at(&mut self, index: i32) -> Option<T>;
+    /// [col-insert] `insert_at(list, i, x)`: `x` back when `i` is outside
+    /// `0..=len`.
+    fn salvo_insert_at(&mut self, index: i32, elem: T) -> Option<T>;
+    /// [col-remove-range] `remove_range(list, from, to)`, clamped.
+    fn salvo_remove_range(&mut self, from: i32, to: i32) -> Vec<T>;
 }
 
 impl<T> SalvoTake<T> for Vec<T> {
@@ -53,6 +58,21 @@ impl<T> SalvoTake<T> for Vec<T> {
         } else {
             None
         }
+    }
+
+    fn salvo_insert_at(&mut self, index: i32, elem: T) -> Option<T> {
+        if index < 0 || index as usize > self.len() {
+            return Some(elem);
+        }
+        self.insert(index as usize, elem);
+        None
+    }
+
+    fn salvo_remove_range(&mut self, from: i32, to: i32) -> Vec<T> {
+        let len = self.len() as i64;
+        let from = (from as i64).clamp(0, len) as usize;
+        let to = (to as i64).clamp(from as i64, len) as usize;
+        self.drain(from..to).collect()
     }
 }
 

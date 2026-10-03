@@ -1,4 +1,5 @@
 use crate::collections::*;
+use crate::core_actor::*;
 use crate::core_bytes::*;
 use crate::core_checked::*;
 use crate::core_deque::*;
@@ -51,7 +52,164 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 }
 
 pub fn first<T: Clone>(list: &Vec<T>) -> &T {
-    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:259:12");
+    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:273:12");
+}
+
+pub fn last<T: Clone>(list: &Vec<T>) -> Option<&T> {
+    return list.get(((list.len() as i32) - 1) as i64 as usize);
+}
+
+pub fn is_empty<T: Clone>(list: &Vec<T>) -> bool {
+    return (list.len() as i32) == 0;
+}
+
+pub fn remove_front<T: Clone>(list: &mut Vec<T>, n: i32) -> Vec<T> {
+    return list.salvo_remove_range(0, n);
+}
+
+pub fn remove_back<T: Clone>(list: &mut Vec<T>, n: i32) -> Vec<T> {
+    let mut at = (list.len() as i32) - n;
+    if at < 0 {
+        at = 0;
+    }
+    return list.salvo_remove_range(at, (list.len() as i32));
+}
+
+pub fn remove_front_while<T: Clone>(list: &mut Vec<T>, keep: &mut impl FnMut(&T) -> bool) -> Vec<T> {
+    let mut n = 0;
+    while n < (list.len() as i32) && keep(&(list.get((n) as i64 as usize).expect("salvo: value is absent at core.list:316:34"))) {
+        n = n + 1;
+    }
+    return list.salvo_remove_range(0, n);
+}
+
+pub fn remove_back_while<T: Clone>(list: &mut Vec<T>, keep: &mut impl FnMut(&T) -> bool) -> Vec<T> {
+    let mut at = (list.len() as i32);
+    while at > 0 && keep(&(list.get((at - 1) as i64 as usize).expect("salvo: value is absent at core.list:328:26"))) {
+        at = at - 1;
+    }
+    return list.salvo_remove_range(at, (list.len() as i32));
+}
+
+pub fn sub_list<T: Clone>(list: &Vec<T>, from: i32, to: i32, copy: &mut dyn FnMut(&T) -> T) -> Vec<T> {
+    let mut out = vec![];
+    let mut i = from;
+    if i < 0 {
+        i = 0;
+    }
+    while i < to && i < (list.len() as i32) {
+        out.push(copy(&list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:346:23")));
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn find_first<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> Option<i32> {
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        if pick(&(list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:356:17"))) {
+            return Some(i);
+        }
+        i = i + 1;
+    }
+    return None;
+}
+
+pub fn find_last<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> Option<i32> {
+    let mut i = (list.len() as i32) - 1;
+    while i >= 0 {
+        if pick(&(list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:368:17"))) {
+            return Some(i);
+        }
+        i = i - 1;
+    }
+    return None;
+}
+
+pub fn index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        if eq(&list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:380:15"), elem) {
+            return Some(i);
+        }
+        i = i + 1;
+    }
+    return None;
+}
+
+pub fn last_index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
+    let mut i = (list.len() as i32) - 1;
+    while i >= 0 {
+        if eq(&list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:392:15"), elem) {
+            return Some(i);
+        }
+        i = i - 1;
+    }
+    return None;
+}
+
+pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        if eq(&list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:404:15"), elem) {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+pub fn any<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> bool {
+    return !(find_first(list, pick).is_none());
+}
+
+pub fn all<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> bool {
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        if !pick(&(list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:421:18"))) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+pub fn count<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> i32 {
+    let mut n = 0;
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        if pick(&(list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:434:17"))) {
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    return n;
+}
+
+pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool, copy: &mut dyn FnMut(&T) -> T) -> (Vec<T>, Vec<T>) {
+    let mut yes = vec![];
+    let mut no = vec![];
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        let mut x = list.get((i) as i64 as usize).unwrap();
+        if pick(x) {
+            yes.push(copy(x));
+        } else {
+            no.push(copy(x));
+        }
+        i = i + 1;
+    }
+    return (yes, no);
+}
+
+pub fn reverse<T: Clone>(list: &mut Vec<T>) {
+    let mut i = 0;
+    let mut j = (list.len() as i32) - 1;
+    while i < j {
+        ignore({ let __i = (i.clone()) as i64 as usize; let __j = (j.clone()) as i64 as usize; Checked { value: if __i < list.len() && __j < list.len() { list.swap(__i, __j); true } else { false } } });
+        i = i + 1;
+        j = j - 1;
+    }
 }
 
 pub fn iter__4<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
@@ -59,7 +217,7 @@ pub fn iter__4<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListYield<'s, T: Clone + 'static> {
+pub struct ListYield<'s, T: Clone> {
     pub items: &'s Vec<T>,
     pub at: i32,
 }
@@ -74,7 +232,7 @@ pub fn next__5<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_reversed_List<'s, T: Clone + 'static> {
+pub struct __Iter_reversed_List<'s, T: Clone> {
     pub list: &'s Vec<T>,
     pub at: i32,
 }
@@ -93,7 +251,7 @@ pub fn next__6<'s, T: Clone>(__p: &mut __Iter_reversed_List<'s, T>) -> Union2<&'
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_indices_List<'s, T: Clone + 'static> {
+pub struct __Iter_indices_List<'s, T: Clone> {
     pub list: &'s Vec<T>,
     pub at: i32,
 }
@@ -112,7 +270,7 @@ pub fn next__7<T: Clone>(__p: &mut __Iter_indices_List<'_, T>) -> Union2<i32, Fi
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_rev_indices_List<'s, T: Clone + 'static> {
+pub struct __Iter_rev_indices_List<'s, T: Clone> {
     pub list: &'s Vec<T>,
     pub at: i32,
 }
@@ -131,13 +289,13 @@ pub fn next__8<T: Clone>(__p: &mut __Iter_rev_indices_List<'_, T>) -> Union2<i32
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Enumerated<'s, T: Clone + 'static> {
+pub struct Enumerated<'s, T: Clone> {
     pub index: i32,
     pub elem: &'s T,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_enumerate_List<'s, T: Clone + 'static> {
+pub struct __Iter_enumerate_List<'s, T: Clone> {
     pub list: &'s Vec<T>,
     pub at: i32,
 }
@@ -157,7 +315,7 @@ pub fn next__9<'a, T: Clone>(__p: &mut __Iter_enumerate_List<'a, T>) -> Union2<E
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_enumerate_rev_List<'s, T: Clone + 'static> {
+pub struct __Iter_enumerate_rev_List<'s, T: Clone> {
     pub list: &'s Vec<T>,
     pub at: i32,
 }

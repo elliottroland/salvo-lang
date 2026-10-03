@@ -9,7 +9,7 @@ pub fn iter<T: Clone>(array: &Vec<T>) -> ArrayYield<'_, T> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ArrayYield<'s, T: Clone + 'static> {
+pub struct ArrayYield<'s, T: Clone> {
     pub items: &'s Vec<T>,
     pub at: i32,
 }

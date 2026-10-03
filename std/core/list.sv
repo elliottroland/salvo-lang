@@ -169,6 +169,20 @@ export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => 
 export intrinsic fn remove_at<T canbe linear>(list: Mut List<T>, index: Int) [] -> T?
 => list: Mut, index
 
+// [col-insert] Puts [elem] at [index], shifting the elements from there on
+// up by one; [index] may be the size, which appends. Out of range (below 0 or
+// past the size), nothing moves and [elem] is **handed back**, so a list of
+// obligations cannot lose one [linear-container].
+export intrinsic fn insert_at<T canbe linear>(list: Mut List<T>, index: Int, elem: T) [] -> T?
+=> list: Mut, index, !elem
+
+// [col-remove-range] Takes the elements at indices [from] up to (not
+// including) [to] out of the list, in order, and answers them. The range is
+// clamped to the list, so an out-of-range bound removes what there is: the
+// primitive the `remove_front`/`remove_back` family is written over.
+export intrinsic fn remove_range<T canbe linear>(list: Mut List<T>, from: Int, to: Int) [] -> Mut List<T>
+=> list: Mut, from, to
+
 // [linear-container] Exchanges the elements at [i] and [j]. **Total**: no value
 // enters the list and none leaves it, which is what makes it the one positional
 // write a list of obligations can have — nothing can be dropped by it.
@@ -261,6 +275,200 @@ export fn first<T canbe linear>(list: NonEmpty List<T>) [] -> proj(list) T => li
 
 // Returns the number of elements in the list
 export intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list
+
+// ===== the list surface written in Salvo [col-salvo] =====
+//
+// Everything below is ordinary Salvo over the intrinsics above (`get`, `size`,
+// `add`, `insert_at`, `remove_range`), so a new backend implements none of it.
+
+// [col-salvo] The last element, or `None` for an empty list.
+export fn last<T canbe linear>(list: List<T>) [] -> proj(list) T? => list {
+    return get(list, size(list) - 1)
+}
+
+// [col-salvo] Whether the list has no elements.
+export fn is_empty<T canbe linear>(list: List<T>) [] -> Bool => list {
+    return size(list) == 0
+}
+
+// [col-salvo] Takes the first [n] elements out of the list and answers them, in
+// order — all of them when there are fewer.
+export fn remove_front<T canbe linear>(list: Mut List<T>, n: Int) [] -> Mut List<T> => list: Mut, n {
+    return remove_range(list, 0, n)
+}
+
+// [col-salvo] Takes the last [n] elements out of the list and answers them, in
+// order — all of them when there are fewer.
+export fn remove_back<T canbe linear>(list: Mut List<T>, n: Int) [] -> Mut List<T> => list: Mut, n {
+    let at = size(list) - n
+    if at < 0 {
+        at = 0
+    }
+    return remove_range(list, at, size(list))
+}
+
+// [col-salvo] Takes elements off the front while [keep] accepts them, and
+// answers them in order: the list is left starting at the first one it
+// refused.
+export fn remove_front_while<T canbe linear>(list: Mut List<T>, keep: (x: T) -> Bool) [] -> Mut List<T>
+=> list: Mut, keep {
+    let n = 0
+    while n < size(list) && keep(get(list, n)!) {
+        n = n + 1
+    }
+    return remove_range(list, 0, n)
+}
+
+// [col-salvo] Takes elements off the back while [keep] accepts them, and
+// answers them in list order: the list is left ending at the last one it
+// refused.
+export fn remove_back_while<T canbe linear>(list: Mut List<T>, keep: (x: T) -> Bool) [] -> Mut List<T>
+=> list: Mut, keep {
+    let at = size(list)
+    while at > 0 && keep(get(list, at - 1)!) {
+        at = at - 1
+    }
+    return remove_range(list, at, size(list))
+}
+
+// [col-salvo] A copy of the elements at [from] up to (not including) [to],
+// clamped to the list. A copy rather than a view: a list of borrows cannot be
+// answered from a generic fn on the Rust backend yet, and a slice type, which
+// is what a view would really be, does not exist.
+export fn sub_list<T>(list: List<T>, from: Int, to: Int, ?copy: (v: T) -> T) [] -> Mut List<T>
+=> list, from, to {
+    let out = mut_list_of<T>()
+    let i = from
+    if i < 0 {
+        i = 0
+    }
+    while i < to && i < size(list) {
+        add(out, copy(get(list, i)!))
+        i = i + 1
+    }
+    return out
+}
+
+// [col-salvo] The index of the first element [pick] accepts, or `None`.
+export fn find_first<T>(list: List<T>, pick: (x: T) -> Bool) [] -> (+Idx(list) Int)? => list, pick {
+    let i = 0
+    while i < size(list) {
+        if pick(get(list, i)!) {
+            return i
+        }
+        i = i + 1
+    }
+    return None
+}
+
+// [col-salvo] The index of the last element [pick] accepts, or `None`.
+export fn find_last<T>(list: List<T>, pick: (x: T) -> Bool) [] -> (+Idx(list) Int)? => list, pick {
+    let i = size(list) - 1
+    while i >= 0 {
+        if pick(get(list, i)!) {
+            return i
+        }
+        i = i - 1
+    }
+    return None
+}
+
+// [col-salvo] The index of the first element equal to [elem], or `None`.
+export fn index_of<T>(list: List<T>, elem: T, ?Eq<T>) [] -> (+Idx(list) Int)? => list, elem {
+    let i = 0
+    while i < size(list) {
+        if eq(get(list, i)!, elem) {
+            return i
+        }
+        i = i + 1
+    }
+    return None
+}
+
+// [col-salvo] The index of the last element equal to [elem], or `None`.
+export fn last_index_of<T>(list: List<T>, elem: T, ?Eq<T>) [] -> (+Idx(list) Int)? => list, elem {
+    let i = size(list) - 1
+    while i >= 0 {
+        if eq(get(list, i)!, elem) {
+            return i
+        }
+        i = i - 1
+    }
+    return None
+}
+
+// [col-salvo] Whether some element equals [elem].
+export fn contains<T>(list: List<T>, elem: T, ?Eq<T>) [] -> Bool => list, elem {
+    let i = 0
+    while i < size(list) {
+        if eq(get(list, i)!, elem) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// [col-salvo] Whether [pick] accepts some element.
+export fn any<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Bool => list, pick {
+    return !(find_first(list, pick) is None)
+}
+
+// [col-salvo] Whether [pick] accepts every element (true for an empty list).
+export fn all<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Bool => list, pick {
+    let i = 0
+    while i < size(list) {
+        if !pick(get(list, i)!) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// [col-salvo] How many elements [pick] accepts.
+export fn count<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Int => list, pick {
+    let n = 0
+    let i = 0
+    while i < size(list) {
+        if pick(get(list, i)!) {
+            n = n + 1
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// [col-salvo] Splits the list in two by [pick]: the elements it accepts, then
+// the rest, each in order. Copies the elements, as [filter_to] does, since a
+// tuple cannot hold borrows.
+export fn partition<T>(list: List<T>, pick: (x: T) -> Bool, ?copy: (v: T) -> T) [] -> (Mut List<T>, Mut List<T>)
+=> list, pick {
+    let yes = mut_list_of<T>()
+    let no = mut_list_of<T>()
+    let i = 0
+    while i < size(list) {
+        let x = get(list, i)!
+        if pick(x) {
+            add(yes, copy(x))
+        } else {
+            add(no, copy(x))
+        }
+        i = i + 1
+    }
+    return (yes, no)
+}
+
+// [col-salvo] Reverses the list in place.
+export fn reverse<T canbe linear>(list: Mut List<T>) [] -> None => list: Mut {
+    let i = 0
+    let j = size(list) - 1
+    while i < j {
+        ignore(swap(list, copy(i), copy(j)))
+        i = i + 1
+        j = j - 1
+    }
+}
 
 // [iter-mint] A fresh iterator over the list, which is what `for x in iter(xs)`
 // and every combinator walks. The iterator **borrows** the list — it is a view

@@ -1,6 +1,7 @@
 package salvo.core.list
 
 import salvo.*
+import salvo.core.actor.*
 import salvo.core.array.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
@@ -47,7 +48,164 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 }
 
 fun<T> first(list: List<T>): T {
-    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:259:12"))
+    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:273:12"))
+}
+
+fun<T> last(list: List<T>): T? {
+    return list.getOrNull(list.size - 1)
+}
+
+fun<T> isEmpty(list: List<T>): Boolean {
+    return list.size == 0
+}
+
+fun<T> removeFront(list: MutableList<T>, n: Int): MutableList<T> {
+    return (list).let { __l -> val __f = (0).coerceIn(0, __l.size); val __t = (n).coerceIn(__f, __l.size); val __r = __l.subList(__f, __t).toMutableList(); __l.subList(__f, __t).clear(); __r }
+}
+
+fun<T> removeBack(list: MutableList<T>, n: Int): MutableList<T> {
+    var at = list.size - n
+    if (at < 0) {
+        at = 0
+    }
+    return (list).let { __l -> val __f = (at).coerceIn(0, __l.size); val __t = (list.size).coerceIn(__f, __l.size); val __r = __l.subList(__f, __t).toMutableList(); __l.subList(__f, __t).clear(); __r }
+}
+
+fun<T> removeFrontWhile(list: MutableList<T>, keep: (T) -> Boolean): MutableList<T> {
+    var n = 0
+    while (n < list.size && keep((list.getOrNull(n) ?: throw AssertionError("salvo: value is absent at core.list:316:34")))) {
+        n = n + 1
+    }
+    return (list).let { __l -> val __f = (0).coerceIn(0, __l.size); val __t = (n).coerceIn(__f, __l.size); val __r = __l.subList(__f, __t).toMutableList(); __l.subList(__f, __t).clear(); __r }
+}
+
+fun<T> removeBackWhile(list: MutableList<T>, keep: (T) -> Boolean): MutableList<T> {
+    var at = list.size
+    while (at > 0 && keep((list.getOrNull(at - 1) ?: throw AssertionError("salvo: value is absent at core.list:328:26")))) {
+        at = at - 1
+    }
+    return (list).let { __l -> val __f = (at).coerceIn(0, __l.size); val __t = (list.size).coerceIn(__f, __l.size); val __r = __l.subList(__f, __t).toMutableList(); __l.subList(__f, __t).clear(); __r }
+}
+
+fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): MutableList<T> {
+    val out = mutableListOf<T>()
+    var i = from
+    if (i < 0) {
+        i = 0
+    }
+    while (i < to && i < list.size) {
+        out.add(copy((list.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.list:346:23"))))
+        i = i + 1
+    }
+    return out
+}
+
+fun<T> findFirst(list: List<T>, pick: (T) -> Boolean): Int? {
+    var i = 0
+    while (i < list.size) {
+        if (pick((list.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.list:356:17")))) {
+            return i
+        }
+        i = i + 1
+    }
+    return null
+}
+
+fun<T> findLast(list: List<T>, pick: (T) -> Boolean): Int? {
+    var i = list.size - 1
+    while (i >= 0) {
+        if (pick((list.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.list:368:17")))) {
+            return i
+        }
+        i = i - 1
+    }
+    return null
+}
+
+fun<T> indexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
+    var i = 0
+    while (i < list.size) {
+        if (eq((list.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.list:380:15")), elem)) {
+            return i
+        }
+        i = i + 1
+    }
+    return null
+}
+
+fun<T> lastIndexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
+    var i = list.size - 1
+    while (i >= 0) {
+        if (eq((list.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.list:392:15")), elem)) {
+            return i
+        }
+        i = i - 1
+    }
+    return null
+}
+
+fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
+    var i = 0
+    while (i < list.size) {
+        if (eq((list.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.list:404:15")), elem)) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun<T> any(list: List<T>, pick: (T) -> Boolean): Boolean {
+    return !(findFirst(list, pick) == null)
+}
+
+fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
+    var i = 0
+    while (i < list.size) {
+        if (!pick((list.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.list:421:18")))) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
+    var n = 0
+    var i = 0
+    while (i < list.size) {
+        if (pick((list.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.list:434:17")))) {
+            n = n + 1
+        }
+        i = i + 1
+    }
+    return n
+}
+
+fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): Pair<MutableList<T>, MutableList<T>> {
+    val yes = mutableListOf<T>()
+    val no = mutableListOf<T>()
+    var i = 0
+    while (i < list.size) {
+        val x = (list.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.list:451:17"))
+        if (pick(x)) {
+            yes.add(copy(x))
+        } else {
+            no.add(copy(x))
+        }
+        i = i + 1
+    }
+    return Pair(yes, no)
+}
+
+fun<T> reverse(list: MutableList<T>) {
+    var i = 0
+    var j = list.size - 1
+    while (i < j) {
+        ignore(Checked((list).let { __l -> (i).let { __i -> (j).let { __j -> if (__i >= 0 && __i < __l.size && __j >= 0 && __j < __l.size) { val __t = __l[__i]; __l[__i] = __l[__j]; __l[__j] = __t; true } else false } } }))
+        i = i + 1
+        j = j - 1
+    }
 }
 
 fun<T> iter__4(list: List<T>): ListYield<T> {

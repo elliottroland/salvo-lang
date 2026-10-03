@@ -417,6 +417,9 @@ pub fn fn_call(
         // [rs-borrows].
         ("remove_first", Some("List")) => format!("{}.salvo_remove_first()", a(0)),
         ("remove_at", Some("List")) => format!("{}.salvo_remove_at({})", a(0), a(1)),
+        // [col-insert] [col-remove-range]
+        ("insert_at", Some("List")) => format!("{}.salvo_insert_at({}, {})", a(0), a(1), a(2)),
+        ("remove_range", Some("List")) => format!("{}.salvo_remove_range({}, {})", a(0), a(1), a(2)),
         // [col-bounds] `Vec::swap` panics out of range, and the answer has to be
         // a `Bool` instead — so the bounds are tested here. A negative `i32`
         // becomes a huge `usize`, which the length test rejects, so one
@@ -704,6 +707,24 @@ pub fn fn_call(
         ),
         // In *characters*, like every other index here — `find` answers in
         // bytes, so the prefix is re-counted.
+        // [str-search] Indices in characters, as above: `from` is turned into
+        // a byte offset to search from, and the answers back into characters.
+        ("index_of", Some("Str")) if args.len() == 3 => format!(
+            "{{ let __s = &{}[..]; let __n = &{}[..]; let __f = ({}).max(0) as usize; \
+             let __b = __s.char_indices().nth(__f).map(|(__b, _)| __b).unwrap_or(__s.len()); \
+             if __f > __s.chars().count() {{ None }} else {{ __s[__b..].find(__n).map(|__k| __s[..__b + __k].chars().count() as i32) }} }}",
+            a(0),
+            a(1),
+            a(2)
+        ),
+        ("last_index_of", Some("Str")) => format!(
+            "{{ let __s = &{}[..]; __s.rfind(&{}[..]).map(|__b| __s[..__b].chars().count() as i32) }}",
+            a(0),
+            a(1)
+        ),
+        ("replace", Some("Str")) => format!("{}.replace(&{}[..], &{}[..])", a(0), a(1), a(2)),
+        ("trim_start", Some("Str")) => format!("{}.trim_start().to_string()", a(0)),
+        ("trim_end", Some("Str")) => format!("{}.trim_end().to_string()", a(0)),
         ("index_of", Some("Str")) => format!(
             "{{ let __s = &{}[..]; __s.find(&{}[..]).map(|__b| __s[..__b].chars().count() as i32) }}",
             a(0),

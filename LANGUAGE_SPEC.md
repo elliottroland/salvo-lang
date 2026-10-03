@@ -830,6 +830,33 @@ Conventions:
   rather than elements, and the idiom that pierces generic opacity for
   mutable lends. std ships the canonical `at` for a list (`get` under the
   group's name). Rust renders such a position as a **locator** [rs-loc].
+* [col-salvo] **Most of the list surface is Salvo** (2026-10-03, user
+  request): over the intrinsics `get`, `size`, `add`, `swap`, and two new
+  ones, `core.list` writes `last`, `is_empty`, `remove_front(list, n)` /
+  `remove_back(list, n)` and `remove_front_while(list, keep)` /
+  `remove_back_while(list, keep)` (each answering the removed elements as a
+  `Mut List<T>`, in list order, and `canbe linear`), `sub_list(list, from, to)`
+  (a clamped copy, by `?copy`: a list of borrows cannot be answered from a
+  generic fn on Rust yet, and there is no slice type), `find_first` /
+  `find_last` (an index carrying `Idx(list)`), `index_of` / `last_index_of` /
+  `contains` (by `?Eq<T>`), `any`, `all`, `count(list, pick)`, `partition`
+  (two copied lists, since a tuple cannot hold borrows) and `reverse` (in
+  place). A new backend implements none of them.
+  * [col-insert] `insert_at(list, index, elem) -> T?`: `index` may be the
+    size (append); out of range, nothing moves and `elem` comes back, so a
+    list of obligations cannot lose one.
+  * [col-remove-range] `remove_range(list, from, to) -> Mut List<T>`: the
+    elements in `[from, to)`, clamped to the list, moved out in order.
+* [str-mut-results] **A list made from a string is the caller's own**:
+  `split` and `lines` answer `Mut List<Str>` (2026-10-03, user request).
+* [str-search] `index_of(str, needle, from)` (from an offset, below 0 the
+  start), `last_index_of(str, needle)`, `replace(str, from, to)`,
+  `trim_start`, `trim_end`: intrinsics, since each is one host call. Indices
+  count characters on Rust, as `index_of`'s always did.
+* [str-salvo] Written in Salvo over those: `is_empty`, `repeat(str, n)`,
+  `lines(str)` (split at `\n`, a `\r` before it dropped, no empty last line
+  for a trailing newline), and `split_once(str, sep)` / `split_last(str, sep)`
+  (`(before, after)?`, at the first or last `sep`).
 * [col-span] `core.string` declares `struct Span { start: Int, end: Int }`
   — a struct, not a tuple, because a qualifier cannot apply to a tuple
   [qual-union-arm] — and `qualifier SpanOf(str: Str) of Span`
@@ -2619,6 +2646,17 @@ Conventions:
   * An **effectful** `next` is a codegen error for now: its handlers would
     have to be threaded into every turn of the loop, which is phase I4
     [backend-never-wrong].
+* [seq-lazy] **Lazy adaptors** (2026-10-03, user request): `take(it, n)`,
+  `take_while(it, keep)`, `skip(it, n)` and `skip_while(it, skip)` answer an
+  iterator over another, and nothing runs until it is driven, so an endless
+  source costs nothing and a `break` stops it. Each is a struct (`Take<It,
+  T>`, …) holding the source iterator and the source's `next`, kept as a fn
+  field from the `?Yield<It, T>` implicit, plus its own state; its `next`
+  pulls one element at a time. `collect(it)` drives one to its end as a list
+  (a view of a borrowing source's elements, as `filter`'s is; named
+  `collect` because a generic `to_list(it)` made every container's own
+  `to_list` ambiguous). `map` and `filter` are still eager. Rust:
+  [rs-lazy-adaptor].
 * [seq-iterator] std's sequence functions (`map`, `filter`, `reduce`) take their
   subject as an **iterator** and reach its `next` through a `?Yield<It, T>`
   spread [implicit-group] — the group std declares for iteration — so any

@@ -235,6 +235,27 @@ std's `range` is the pattern in one file: an `iter fn range(start, end, step)`
 and two overloads, `fn range(start: Int, end: Int) -> iter Int` and `fn
 range(end: Int) -> iter Int`, each delegating to it.
 
+## Iterators over iterators: `take`, `skip`
+
+`take(it, n)`, `take_while(it, keep)`, `skip(it, n)` and `skip_while(it, skip)` each answer an iterator over another one. Nothing runs until the result is driven, and each step pulls one element from the source, so they work on a source that never ends:
+
+```
+iter fn naturals(n: Int) -> Emitted Int | Finished {
+    state {
+        at: Int = n
+    }
+    let v = at.copy()
+    at = at + 1
+    return emitted(v)
+}
+
+for x in take(skip(naturals(1), 2), 3) {   // 3, 4, 5
+    println("${x}")
+}
+```
+
+`collect(it)` drives an iterator to its end and answers its elements as a list. Each adaptor is an ordinary iterator struct holding its source and the source's `next`, the same thing you would write by hand.
+
 ## There is no iterator *type*
 
 Every iterator struct is its own type, so two producers have unrelated types,

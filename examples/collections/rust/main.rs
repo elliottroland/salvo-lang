@@ -155,7 +155,7 @@ pub fn main() {
     let mut unique = deduped.iter().cloned().collect::<Vec<_>>();
     println(&console, &(format!("6. distinct {} of {}", format!("[{}]", unique.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")), count_unique(&unique))));
     let mut __loop1_pass = iter__6(&vowels);
-    while let Union2::U1(mut v) = next__13(&mut __loop1_pass) {
+    while let Union2::U1(mut v) = next__17(&mut __loop1_pass) {
         console.print(&v);
     }
     println(&console, &("".to_string()));

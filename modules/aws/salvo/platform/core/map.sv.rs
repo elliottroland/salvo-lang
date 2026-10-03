@@ -25,7 +25,7 @@ pub fn iter__5<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct MapKeyYield<K: Clone + 'static> {
+pub struct MapKeyYield<K: Clone> {
     pub items: Vec<K>,
     pub at: i32,
 }

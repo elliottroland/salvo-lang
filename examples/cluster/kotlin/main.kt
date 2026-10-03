@@ -8,6 +8,7 @@ import salvo.core.deque.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.range.*
+import salvo.core.seq.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
@@ -886,7 +887,7 @@ fun checkout(inventory: Inventory, console: Console, skus: List<String>) {
             inventory.reserve(sku, 1, out)
             salvo.SalvoSched.awaitReply(__wid) as String
         }
-        val parts = answer.split(":")
+        val parts = answer.split(":").toMutableList()
         shards.add((parts.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:220:26")))
         println(console, "  $sku: ${(parts.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:221:30"))} reserved on its shard so far")
     }
@@ -895,7 +896,7 @@ fun checkout(inventory: Inventory, console: Console, skus: List<String>) {
     println(console, "  apple and pear on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:225:50"))) == ((shards.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:225:67"))))}")
 }
 
-fun count(search: Search, word: String): Int {
+fun count__2(search: Search, word: String): Int {
     return run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
@@ -1111,7 +1112,7 @@ fun main() {
     shop(console, stock)
     println(console, "scatter:")
     val search: Search = Scattering(index, run { val __h = Gathering(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Gathering(__h), __Actor_Gathering.__DECODE); __a })
-    println(console, "  salvo: ${count(search, "salvo")}, actors: ${count(search, "actors")}, none: ${count(search, "none")}")
+    println(console, "  salvo: ${count__2(search, "salvo")}, actors: ${count__2(search, "actors")}, none: ${count__2(search, "none")}")
     println(console, "hedge:")
     val lookup: Lookup = Hedging(looks, run { val __h = Racing(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Racing(__h), __Actor_Racing.__DECODE); __a })
     println(console, "  ${find(lookup, "k1")}")

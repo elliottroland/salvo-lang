@@ -8,6 +8,7 @@ use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
 use crate::core_result::*;
+use crate::core_seq::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;

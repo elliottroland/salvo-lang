@@ -285,6 +285,15 @@ Conventions:
   rather than evaluated; any other `None`-typed value runs for its effects
   first.
 * [type-tuple] Tuples map to native Rust tuples (any size).
+* [rs-lazy-adaptor] [seq-lazy] **A struct over an iterator** (2026-10-03):
+  a struct's type parameters carry `Clone` but not `'static`, since a lazy
+  adaptor is instantiated at a pass that borrows its source
+  (`Take<ListYield<'s, T>, &T>`); a fn field's callback is `'static` by its
+  own bound, which is all the struct needs. A fn that hands back such a struct
+  takes its callbacks owned as `impl Fn(…) + Send + Sync + 'static` (the
+  `Arc<dyn Fn + Send + Sync>` field's bounds), and that includes the fns an
+  implicit group spreads (`?Yield<It, T>`'s `next`), so `owns_callbacks`
+  counts a fn with implicit groups too.
 * [rs-fn-field] A **function in a struct field** is an `Rc<dyn Fn…>`
   (roadmap R5, 2026-09-08 — it was a codegen error until then, while Kotlin
   accepted the same source: a live backend divergence, now closed). The

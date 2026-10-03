@@ -4,6 +4,7 @@ use crate::core_bytes::*;
 use crate::core_deque::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
+use crate::core_seq::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
@@ -22,7 +23,7 @@ pub fn iter__5<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct MapKeyYield<K: Clone + 'static> {
+pub struct MapKeyYield<K: Clone> {
     pub items: Vec<K>,
     pub at: i32,
 }

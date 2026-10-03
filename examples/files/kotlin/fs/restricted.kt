@@ -17,7 +17,7 @@ fun fsResolve(root: String, path: String): String? {
     if (path.startsWith("/")) {
         return null
     }
-    val segs = path.split("/")
+    val segs = path.split("/").toMutableList()
     val kept: MutableList<String> = mutableListOf<String>()
     var skip = 0
     var i = segs.size - 1

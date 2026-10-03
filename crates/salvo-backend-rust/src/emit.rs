@@ -1254,6 +1254,7 @@ fn rc_fn_type(rendered: &str) -> String {
     // `Rc<dyn impl Fn(..)>` ("expected a trait, found type").
     let inner = rendered.strip_prefix("impl ").unwrap_or(rendered);
     let inner = inner.strip_suffix(" + 'static").unwrap_or(inner);
+    let inner = inner.strip_suffix(" + Send + Sync").unwrap_or(inner);
     format!("std::sync::Arc<dyn {inner} + Send + Sync>")
 }
 
@@ -2801,7 +2802,9 @@ impl<'p> Emitter<'p> {
         let Some(decl) = self.fn_by_key(key) else {
             return false;
         };
-        if !decl.params.iter().any(|p| matches!(p.ty, Type::Fn { .. })) {
+        // [rs-lazy-adaptor] An implicit group spreads fn parameters too: a
+        // lazy adaptor keeps its source's `next`.
+        if !decl.params.iter().any(|p| matches!(p.ty, Type::Fn { .. })) && decl.implicit_groups.is_empty() {
             return false;
         }
         let Some(ret) = decl.return_type.as_ref().and_then(type_base_name) else {
@@ -3001,7 +3004,13 @@ impl<'p> Emitter<'p> {
 
     fn emit_struct(&mut self, s: &StructDecl) -> String {
         let saved = self.enter_generics(&s.generics);
-        let mut generics = self.emit_generic_params(&s.generics);
+        // [rs-lazy-adaptor] No `'static` on a struct's type parameters: a
+        // struct over an iterator (a lazy adaptor) is instantiated at a pass
+        // borrowing its source, `ListYield<'s, T>`. A fn field's callback is
+        // `'static` by its own bound, which is all the struct needs.
+        let mut generics = self
+            .emit_generic_params(&s.generics)
+            .replace(": Clone + 'static", ": Clone");
         // [rs-proj-struct] A pass borrowing its source carries the source's
         // lifetime: `pub struct ListYield<'s, T> { pub items: &'s Vec<T>, … }`.
         let borrowing = self.borrowing_structs.contains(&s.name.name);
@@ -3256,7 +3265,7 @@ impl<'p> Emitter<'p> {
                 "<{}>",
                 s.generics
                     .iter()
-                    .map(|g| format!("{}: Clone + 'static + std::fmt::Debug", g.name))
+                    .map(|g| format!("{}: Clone + std::fmt::Debug", g.name))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -6122,7 +6131,8 @@ impl<'p> Emitter<'p> {
             // written fn-typed parameter gets.
             if self.in_iterator_fn {
                 let rendered = self.owned_fn_ty(&imp.ty);
-                let owned = format!("{rendered} + 'static");
+                // [rs-lazy-adaptor] As a written callback parameter's.
+                let owned = format!("{rendered} + Send + Sync + 'static");
                 self.bindings.insert(imp.name.clone(), BindKind::Owned);
                 params.push(format!("{}: {owned}", rs_ident(&imp.name)));
                 continue;
@@ -6943,8 +6953,10 @@ impl<'p> Emitter<'p> {
                 // how many times the iterator was consumed — which is
                 // exactly the divergence [fn-effects] rules out for
                 // effects.
+                // [rs-lazy-adaptor] `Send + Sync` too: a callback kept in a
+                // struct field is an `Arc<dyn Fn + Send + Sync>` [rs-fn-field].
                 if self.in_iterator_fn {
-                    return format!("impl Fn({}){ret} + 'static", all.join(", "));
+                    return format!("impl Fn({}){ret} + Send + Sync + 'static", all.join(", "));
                 }
                 format!("impl FnMut({}){ret}", all.join(", "))
             }
@@ -16077,7 +16089,7 @@ impl<'p> Emitter<'p> {
                     f.name.name.as_str(),
                     // [linear-container] `remove_first`/`remove_at` are methods
                     // on the same generated trait file.
-                    "map" | "filter" | "reduce" | "remove_first" | "remove_at"
+                    "map" | "filter" | "reduce" | "remove_first" | "remove_at" | "insert_at" | "remove_range"
                 )
             {
                 self.needs_seq = true;

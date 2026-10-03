@@ -183,3 +183,84 @@ test "an out-of-range swap answers false, and the answer cannot be dropped" {
     ignore(swap(xs, 0, 1))
     expect_eq(to_str(xs), "[2, 1]")
 }
+
+// ===== [col-salvo] the Salvo-written surface =====
+
+// An index or -1, for comparing: `?:` cannot widen an `Idx` claim yet.
+fn found(i: Int?) [] -> Int {
+    if i is Int {
+        return i
+    }
+    return -1
+}
+
+test "remove_front and remove_back take n elements in order" {
+    let xs = mut_list_of(1, 2, 3, 4, 5)
+    let front = remove_front(xs, 2)
+    let back = remove_back(xs, 2)
+    expect_eq(to_str(front), "[1, 2]")
+    expect_eq(to_str(back), "[4, 5]")
+    expect_eq(to_str(xs), "[3]")
+    expect_eq(to_str(remove_back(xs, 9)), "[3]")
+    expect_eq(size(xs), 0)
+}
+
+test "the while forms stop at the first refusal" {
+    let xs = mut_list_of(1, 2, 7, 3, 8, 9)
+    let small = remove_front_while(xs, (x: Int) -> x < 5)
+    let big = remove_back_while(xs, (x: Int) -> x > 5)
+    expect_eq(to_str(small), "[1, 2]")
+    expect_eq(to_str(big), "[8, 9]")
+    expect_eq(to_str(xs), "[7, 3]")
+}
+
+test "insert_at shifts up, and hands the element back out of range" {
+    let xs = mut_list_of("a", "c")
+    expect(insert_at(xs, 1, "b") is None, "inserted inside")
+    expect(insert_at(xs, 3, "d") is None, "the size appends")
+    let back = insert_at(xs, 9, "z")
+    expect_eq(to_str(xs), "[a, b, c, d]")
+    expect(back is Str, "out of range comes back")
+}
+
+test "sub_list views a clamped range" {
+    let xs = list_of(1, 2, 3, 4)
+    expect_eq(to_str(sub_list(xs, 1, 3)), "[2, 3]")
+    expect_eq(to_str(sub_list(xs, -2, 99)), "[1, 2, 3, 4]")
+    expect_eq(size(sub_list(xs, 3, 1)), 0)
+}
+
+test "find_first and find_last answer indices" {
+    let xs = list_of(5, 8, 3, 8, 1)
+    let first = find_first(xs, (x: Int) -> x == 8)
+    let last = find_last(xs, (x: Int) -> x == 8)
+    expect_eq(found(first), 1)
+    expect_eq(found(last), 3)
+    expect(find_first(xs, (x: Int) -> x > 100) is None, "no match")
+}
+
+test "index_of, last_index_of and contains compare by eq" {
+    let xs = list_of("a", "b", "a")
+    expect_eq(found(index_of(xs, "a")), 0)
+    expect_eq(found(last_index_of(xs, "a")), 2)
+    expect(contains(xs, "b"), "contains b")
+    expect(!contains(xs, "z"), "lacks z")
+}
+
+test "partition splits in order" {
+    let xs = list_of(1, 2, 3, 4, 5, 6)
+    let (even, odd) = partition(xs, (x: Int) -> x % 2 == 0)
+    expect_eq(to_str(even), "[2, 4, 6]")
+    expect_eq(to_str(odd), "[1, 3, 5]")
+}
+
+test "any, all, count, last, is_empty and reverse" {
+    let xs = mut_list_of(1, 2, 3)
+    expect(any(xs, (x: Int) -> x == 2), "any")
+    expect(all(xs, (x: Int) -> x > 0), "all")
+    expect_eq(count(xs, (x: Int) -> x > 1), 2)
+    expect_eq(last(xs) ?: 0, 3)
+    expect(!is_empty(xs), "not empty")
+    reverse(xs)
+    expect_eq(to_str(xs), "[3, 2, 1]")
+}

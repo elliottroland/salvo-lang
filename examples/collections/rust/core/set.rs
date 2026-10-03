@@ -11,7 +11,7 @@ pub fn iter__6<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct SetYield<T: Clone + 'static> {
+pub struct SetYield<T: Clone> {
     pub items: Vec<T>,
     pub at: i32,
 }
@@ -29,7 +29,7 @@ impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetYield<
     }
 }
 
-pub fn next__13<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next__17<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());

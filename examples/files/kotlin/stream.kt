@@ -236,11 +236,11 @@ data class Lines(
     var s: InStream,
 )
 
-fun lines(s: InStream): Lines {
+fun lines__2(s: InStream): Lines {
     return Lines(s = s)
 }
 
-fun next__15(streams: Streams, p: Lines): Union2<String, Finished> {
+fun next__19(streams: Streams, p: Lines): Union2<String, Finished> {
     val line = streams.readLine(p.s)
     when {
         line != null -> {
@@ -266,7 +266,7 @@ fun chunks(s: InStream, size: Int): Chunks {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun next__16(streams: Streams, p: Chunks): Union2<salvo.SalvoBytes, Finished> {
+fun next__20(streams: Streams, p: Chunks): Union2<salvo.SalvoBytes, Finished> {
     val got = streams.readBytes(p.s, p.size)
     if (got is Union2.U2<*, *>) {
         ignore((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))

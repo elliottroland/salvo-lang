@@ -222,7 +222,7 @@ fun openLines(fs: Fs, streams: Streams, path: String): Union2<Lines, Checked<Uni
     if (opened is Union2.U2<*, *>) {
         return Union2.U2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
-    return Union2.U1<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(lines((opened.value as InStream))))
+    return Union2.U1<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(lines__2((opened.value as InStream))))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
@@ -262,10 +262,10 @@ fun readLines(fs: Fs, streams: Streams, path: String): Union2<List<String>, Chec
     if (opened is Union2.U2<*, *>) {
         return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
-    val p = lines((opened.value as InStream))
+    val p = lines__2((opened.value as InStream))
     val out: MutableList<String> = mutableListOf<String>()
     while (true) {
-        val __loop1_step = next__15(streams, p)
+        val __loop1_step = next__19(streams, p)
         if (__loop1_step !is Union2.U1<String, Finished>) { break }
         val line = __loop1_step.value
         out.add(line)

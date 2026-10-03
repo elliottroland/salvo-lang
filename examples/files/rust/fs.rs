@@ -326,7 +326,7 @@ pub fn open_lines(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &S
     if matches!(opened, Union2::U2(_)) {
         return Union2::<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2((match opened { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
-    return Union2::<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(lines((match opened { Union2::U1(__v) => __v, _ => unreachable!() }))));
+    return Union2::<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(lines__2((match opened { Union2::U1(__v) => __v, _ => unreachable!() }))));
 }
 
 pub fn open_chunks(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &String, size: i32) -> Union2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
@@ -363,9 +363,9 @@ pub fn read_lines(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &S
     if matches!(opened, Union2::U2(_)) {
         return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2((match opened { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
-    let mut p = lines((match opened { Union2::U1(__v) => __v, _ => unreachable!() }));
+    let mut p = lines__2((match opened { Union2::U1(__v) => __v, _ => unreachable!() }));
     let mut out: Vec<String> = vec![];
-    while let Union2::U1(mut line) = next__15(streams, &mut p) {
+    while let Union2::U1(mut line) = next__19(streams, &mut p) {
         out.push(line);
     }
     let mut closed = close__2(streams, p);

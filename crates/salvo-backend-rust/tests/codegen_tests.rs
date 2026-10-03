@@ -1560,7 +1560,8 @@ fn fn_type_contracts_emit_modes() {
         main.content
     );
     assert!(
-        main.content.contains("count(&__a0)") || main.content.contains("count(__a0)"),
+        // `count` may be mangled (`count__3`): core declares one too.
+        ["count(&__a0)", "count(__a0)", "count__2(&__a0)", "count__2(__a0)"].iter().any(|c| main.content.contains(c)),
         "adapter expected:\n{}",
         main.content
     );
@@ -7660,9 +7661,10 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
     // refinement-types sequence, step 0, 2026-09-23), and again when
     // `indices`/`rev_indices` and `enumerate`/`enumerate_rev` became separate
     // `iter fn`s (the iterator redesign, 2026-09-27), and again when
-    // `core.deque` brought its pass and `reversed` (2026-10-02).
+    // `core.deque` brought its pass and `reversed` (2026-10-02), and again
+    // when `core.seq`'s lazy adaptors brought four (2026-10-03).
     assert!(
-        main.contains("next__19(&console, &mut __loop"),
+        main.contains("next__23(&console, &mut __loop"),
         "expected the handler threaded into the drive:\n{main}"
     );
 }
@@ -12095,7 +12097,8 @@ fn an_opaque_returning_slot_ties_one_lifetime() {
         .expect("main.rs");
     let text = &main.content;
     assert!(
-        text.contains("pub fn count<'c, C: Clone, K: Clone, It: Clone, T: Clone>(c: &'c C, k: &'c K, iter: &mut dyn FnMut(&'c C, &'c K) -> It"),
+        // `count` is mangled when core declares one too.
+        text.contains("<'c, C: Clone, K: Clone, It: Clone, T: Clone>(c: &'c C, k: &'c K, iter: &mut dyn FnMut(&'c C, &'c K) -> It"),
         "both parameters share one lifetime with the slot's:\n{text}"
     );
     assert!(

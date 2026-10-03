@@ -320,11 +320,11 @@ pub struct Lines {
     pub s: InStream,
 }
 
-pub fn lines(s: InStream) -> Lines {
+pub fn lines__2(s: InStream) -> Lines {
     return Lines { s: s };
 }
 
-pub fn next__15(streams: &crate::stream::Streams, p: &mut Lines) -> Union2<String, Finished> {
+pub fn next__19(streams: &crate::stream::Streams, p: &mut Lines) -> Union2<String, Finished> {
     let mut line = streams.read_line(&p.s);
     match line {
         Some(_) => {
@@ -350,7 +350,7 @@ pub fn chunks(s: InStream, size: i32) -> Chunks {
     return Chunks { s: s, size: size };
 }
 
-pub fn next__16(streams: &crate::stream::Streams, p: &mut Chunks) -> Union2<Vec<u8>, Finished> {
+pub fn next__20(streams: &crate::stream::Streams, p: &mut Chunks) -> Union2<Vec<u8>, Finished> {
     let mut got = streams.read_bytes(&p.s, p.size);
     if matches!(got, Union2::U2(_)) {
         ignore((match got { Union2::U2(__v) => __v, _ => unreachable!() }));

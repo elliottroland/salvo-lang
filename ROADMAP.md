@@ -197,6 +197,17 @@ a correct program from building. std works around the first by naming.
    redundant `.toString()` on a `Str` passed to `ToStr`, and a redundant
    `else` in an exhaustive `when`. Repro: `salvo test --backend kotlin --src
    std` before 2026-10-03, or compile any program with plain `kotlinc`.
+16. **Kotlin calls a local fn value by a top-level fn's mangled name**: in a
+   fn where `let skip = t.skip` binds a fn value and `skip` is also a
+   top-level fn of the module (mangled `skip__2`), `skip(x)` is emitted as
+   `skip__2(x)`. Repro: `core.seq`'s `SkipWhile` next, written with
+   `let skip = t.skip`, failed kotlinc with "unresolved reference 'skip__2'".
+17. **A module's own fn does not beat a generic import of the same name**:
+   with `fn tally<T>(xs: List<T>)` in `main` and an imported `fn
+   tally<It>(it: Mut It)`, `tally(mut_list_of(1, 2))` is reported ambiguous,
+   where [fn-overload-scope] says the more specific scope wins first. Repro:
+   two files, `main.sv` importing `lib.gen`. Found adding a generic
+   `count(it)` to `core.seq` (dropped for it).
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 

@@ -33,3 +33,52 @@ test "an unproven range still answers the optional" {
     let s = "salvo"
     expect(substr(s, 2, 9) is None, "the range is not in the string")
 }
+
+// ===== [str-search] [str-salvo] [str-mut-results] =====
+
+// An index or -1, for comparing.
+fn at(i: Int?) [] -> Int {
+    if i is Int {
+        return i
+    }
+    return -1
+}
+
+test "index_of from an offset, and last_index_of" {
+    let s = "a/b/c"
+    expect_eq(at(index_of(s, "/", 2)), 3)
+    expect_eq(at(index_of(s, "/", 4)), -1)
+    expect_eq(at(last_index_of(s, "/")), 3)
+    expect_eq(at(last_index_of(s, "x")), -1)
+}
+
+test "split answers a list of your own" {
+    let parts = split("a/b/c", "/")
+    let _name = remove_back(parts, 1)
+    expect_eq(join(parts, "/"), "a/b")
+}
+
+test "replace, the one-sided trims, repeat and is_empty" {
+    expect_eq(replace("a-b-c", "-", "+"), "a+b+c")
+    expect_eq(trim_start("  x "), "x ")
+    expect_eq(trim_end("  x "), "  x")
+    expect_eq(repeat("ab", 3), "ababab")
+    expect(is_empty(""), "empty")
+    expect(!is_empty(" "), "a space is a character")
+}
+
+test "lines drops a carriage return and the empty last line" {
+    let ls = lines("one\r\ntwo\nthree\n")
+    expect_eq(join(ls, "|"), "one|two|three")
+}
+
+test "split_once and split_last" {
+    let p = split_last("/var/data/board.db", "/")
+    if p is None {
+        throw(Failure { message: "no slash found" })
+    }
+    let (dir, name) = p
+    expect_eq(dir, "/var/data")
+    expect_eq(name, "board.db")
+    expect(split_once("abc", "/") is None, "no separator")
+}

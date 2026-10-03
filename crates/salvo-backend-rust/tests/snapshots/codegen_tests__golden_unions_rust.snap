@@ -6,7 +6,7 @@ expression: combined
 use crate::core_iterator::*;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Checked<T: Clone + 'static> {
+pub struct Checked<T: Clone> {
     pub value: T,
 }
 
@@ -180,7 +180,164 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 }
 
 pub fn first<T: Clone>(list: &Vec<T>) -> &T {
-    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:259:12");
+    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:273:12");
+}
+
+pub fn last<T: Clone>(list: &Vec<T>) -> Option<&T> {
+    return list.get(((list.len() as i32) - 1) as i64 as usize);
+}
+
+pub fn is_empty<T: Clone>(list: &Vec<T>) -> bool {
+    return (list.len() as i32) == 0;
+}
+
+pub fn remove_front<T: Clone>(list: &mut Vec<T>, n: i32) -> Vec<T> {
+    return list.salvo_remove_range(0, n);
+}
+
+pub fn remove_back<T: Clone>(list: &mut Vec<T>, n: i32) -> Vec<T> {
+    let mut at = (list.len() as i32) - n;
+    if at < 0 {
+        at = 0;
+    }
+    return list.salvo_remove_range(at, (list.len() as i32));
+}
+
+pub fn remove_front_while<T: Clone>(list: &mut Vec<T>, keep: &mut impl FnMut(&T) -> bool) -> Vec<T> {
+    let mut n = 0;
+    while n < (list.len() as i32) && keep(&(list.get((n) as i64 as usize).expect("salvo: value is absent at core.list:316:34"))) {
+        n = n + 1;
+    }
+    return list.salvo_remove_range(0, n);
+}
+
+pub fn remove_back_while<T: Clone>(list: &mut Vec<T>, keep: &mut impl FnMut(&T) -> bool) -> Vec<T> {
+    let mut at = (list.len() as i32);
+    while at > 0 && keep(&(list.get((at - 1) as i64 as usize).expect("salvo: value is absent at core.list:328:26"))) {
+        at = at - 1;
+    }
+    return list.salvo_remove_range(at, (list.len() as i32));
+}
+
+pub fn sub_list<T: Clone>(list: &Vec<T>, from: i32, to: i32, copy: &mut dyn FnMut(&T) -> T) -> Vec<T> {
+    let mut out = vec![];
+    let mut i = from;
+    if i < 0 {
+        i = 0;
+    }
+    while i < to && i < (list.len() as i32) {
+        out.push(copy(&list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:346:23")));
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn find_first<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> Option<i32> {
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        if pick(&(list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:356:17"))) {
+            return Some(i);
+        }
+        i = i + 1;
+    }
+    return None;
+}
+
+pub fn find_last<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> Option<i32> {
+    let mut i = (list.len() as i32) - 1;
+    while i >= 0 {
+        if pick(&(list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:368:17"))) {
+            return Some(i);
+        }
+        i = i - 1;
+    }
+    return None;
+}
+
+pub fn index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        if eq(&list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:380:15"), elem) {
+            return Some(i);
+        }
+        i = i + 1;
+    }
+    return None;
+}
+
+pub fn last_index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
+    let mut i = (list.len() as i32) - 1;
+    while i >= 0 {
+        if eq(&list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:392:15"), elem) {
+            return Some(i);
+        }
+        i = i - 1;
+    }
+    return None;
+}
+
+pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        if eq(&list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:404:15"), elem) {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+pub fn any<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> bool {
+    return !(find_first(list, pick).is_none());
+}
+
+pub fn all<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> bool {
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        if !pick(&(list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:421:18"))) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+pub fn count<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> i32 {
+    let mut n = 0;
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        if pick(&(list.get((i) as i64 as usize).expect("salvo: value is absent at core.list:434:17"))) {
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    return n;
+}
+
+pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool, copy: &mut dyn FnMut(&T) -> T) -> (Vec<T>, Vec<T>) {
+    let mut yes = vec![];
+    let mut no = vec![];
+    let mut i = 0;
+    while i < (list.len() as i32) {
+        let mut x = list.get((i) as i64 as usize).unwrap();
+        if pick(x) {
+            yes.push(copy(x));
+        } else {
+            no.push(copy(x));
+        }
+        i = i + 1;
+    }
+    return (yes, no);
+}
+
+pub fn reverse<T: Clone>(list: &mut Vec<T>) {
+    let mut i = 0;
+    let mut j = (list.len() as i32) - 1;
+    while i < j {
+        ignore({ let __i = (i.clone()) as i64 as usize; let __j = (j.clone()) as i64 as usize; Checked { value: if __i < list.len() && __j < list.len() { list.swap(__i, __j); true } else { false } } });
+        i = i + 1;
+        j = j - 1;
+    }
 }
 
 pub fn iter__4<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
@@ -188,7 +345,7 @@ pub fn iter__4<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListYield<'s, T: Clone + 'static> {
+pub struct ListYield<'s, T: Clone> {
     pub items: &'s Vec<T>,
     pub at: i32,
 }
@@ -203,7 +360,7 @@ pub fn next__5<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_reversed_List<'s, T: Clone + 'static> {
+pub struct __Iter_reversed_List<'s, T: Clone> {
     pub list: &'s Vec<T>,
     pub at: i32,
 }
@@ -222,7 +379,7 @@ pub fn next__6<'s, T: Clone>(__p: &mut __Iter_reversed_List<'s, T>) -> Union2<&'
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_indices_List<'s, T: Clone + 'static> {
+pub struct __Iter_indices_List<'s, T: Clone> {
     pub list: &'s Vec<T>,
     pub at: i32,
 }
@@ -241,7 +398,7 @@ pub fn next__7<T: Clone>(__p: &mut __Iter_indices_List<'_, T>) -> Union2<i32, Fi
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_rev_indices_List<'s, T: Clone + 'static> {
+pub struct __Iter_rev_indices_List<'s, T: Clone> {
     pub list: &'s Vec<T>,
     pub at: i32,
 }
@@ -260,13 +417,13 @@ pub fn next__8<T: Clone>(__p: &mut __Iter_rev_indices_List<'_, T>) -> Union2<i32
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Enumerated<'s, T: Clone + 'static> {
+pub struct Enumerated<'s, T: Clone> {
     pub index: i32,
     pub elem: &'s T,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_enumerate_List<'s, T: Clone + 'static> {
+pub struct __Iter_enumerate_List<'s, T: Clone> {
     pub list: &'s Vec<T>,
     pub at: i32,
 }
@@ -286,7 +443,7 @@ pub fn next__9<'a, T: Clone>(__p: &mut __Iter_enumerate_List<'a, T>) -> Union2<E
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_enumerate_rev_List<'s, T: Clone + 'static> {
+pub struct __Iter_enumerate_rev_List<'s, T: Clone> {
     pub list: &'s Vec<T>,
     pub at: i32,
 }
@@ -343,7 +500,7 @@ pub fn iter__5<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct MapKeyYield<K: Clone + 'static> {
+pub struct MapKeyYield<K: Clone> {
     pub items: Vec<K>,
     pub at: i32,
 }
@@ -399,7 +556,7 @@ pub fn iter__6<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct SetYield<T: Clone + 'static> {
+pub struct SetYield<T: Clone> {
     pub items: Vec<T>,
     pub at: i32,
 }
@@ -417,7 +574,7 @@ impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetYield<
     }
 }
 
-pub fn next__13<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next__17<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());
@@ -488,7 +645,7 @@ pub struct StrYield<'s> {
     pub at: i32,
 }
 
-pub fn next__14(p: &mut StrYield<'_>) -> Union2<char, Finished> {
+pub fn next__18(p: &mut StrYield<'_>) -> Union2<char, Finished> {
     let mut chr = p.text.chars().nth((p.at) as i64 as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
@@ -521,7 +678,55 @@ pub fn SpanOf_qualifies(span: &Span, str: &String) -> bool {
 }
 
 pub fn substr(str: &String, at: &Span) -> String {
-    return { let __s = &str[..]; let __i = at.start; let __j = at.end; let __n = __s.chars().count() as i32; if __i >= 0 && __j >= __i && __j <= __n { Some(__s.chars().skip(__i as usize).take((__j - __i) as usize).collect::<String>()) } else { None } }.expect("salvo: value is absent at core.string:116:12");
+    return { let __s = &str[..]; let __i = at.start; let __j = at.end; let __n = __s.chars().count() as i32; if __i >= 0 && __j >= __i && __j <= __n { Some(__s.chars().skip(__i as usize).take((__j - __i) as usize).collect::<String>()) } else { None } }.expect("salvo: value is absent at core.string:134:12");
+}
+
+pub fn is_empty__2(str: &String) -> bool {
+    return (str.chars().count() as i32) == 0;
+}
+
+pub fn repeat(str: &String, n: i32) -> String {
+    let mut out = String::new();
+    let mut i = 0;
+    while i < n {
+        out.push_str(&str[..]);
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn lines(str: &String) -> Vec<String> {
+    let mut parts = str.split(&"\n".to_string()[..]).map(|__p| __p.to_string()).collect::<Vec<String>>();
+    if ((parts.len() as i32) > 1 && str.ends_with(&"\n".to_string()[..])) {
+        let mut _end = remove_back(&mut parts, 1);
+    }
+    let mut out = vec![];
+    for p in &parts {
+        out.push({ let __s = &p[..]; __s.strip_suffix(&"\r".to_string()[..]).unwrap_or(__s).to_string() });
+    }
+    return out;
+}
+
+pub fn split_once(str: &String, sep: &String) -> Option<(String, String)> {
+    let mut at = { let __s = &str[..]; __s.find(&sep[..]).map(|__b| __s[..__b].chars().count() as i32) };
+    if at.is_some() {
+        let mut i = at.unwrap();
+        let mut before = { let __pick1 = { let __s = &str[..]; let __i = 0; let __j = i.clone(); let __n = __s.chars().count() as i32; if __i >= 0 && __j >= __i && __j <= __n { Some(__s.chars().skip(__i as usize).take((__j - __i) as usize).collect::<String>()) } else { None } }; if __pick1.is_some() { __pick1.as_ref().unwrap().clone() } else { "".to_string() } };
+        let mut after = { let __pick2 = { let __s = &str[..]; let __i = i + (sep.chars().count() as i32); let __j = (str.chars().count() as i32); let __n = __s.chars().count() as i32; if __i >= 0 && __j >= __i && __j <= __n { Some(__s.chars().skip(__i as usize).take((__j - __i) as usize).collect::<String>()) } else { None } }; if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { "".to_string() } };
+        return Some((before, after));
+    }
+    return None;
+}
+
+pub fn split_last(str: &String, sep: &String) -> Option<(String, String)> {
+    let mut at = { let __s = &str[..]; __s.rfind(&sep[..]).map(|__b| __s[..__b].chars().count() as i32) };
+    if at.is_some() {
+        let mut i = at.unwrap();
+        let mut before = { let __pick3 = { let __s = &str[..]; let __i = 0; let __j = i.clone(); let __n = __s.chars().count() as i32; if __i >= 0 && __j >= __i && __j <= __n { Some(__s.chars().skip(__i as usize).take((__j - __i) as usize).collect::<String>()) } else { None } }; if __pick3.is_some() { __pick3.as_ref().unwrap().clone() } else { "".to_string() } };
+        let mut after = { let __pick4 = { let __s = &str[..]; let __i = i + (sep.chars().count() as i32); let __j = (str.chars().count() as i32); let __n = __s.chars().count() as i32; if __i >= 0 && __j >= __i && __j <= __n { Some(__s.chars().skip(__i as usize).take((__j - __i) as usize).collect::<String>()) } else { None } }; if __pick4.is_some() { __pick4.as_ref().unwrap().clone() } else { "".to_string() } };
+        return Some((before, after));
+    }
+    return None;
 }
 
 // ===== main.rs =====
@@ -1035,6 +1240,11 @@ pub trait SalvoTake<T> {
     fn salvo_remove_first(&mut self) -> Option<T>;
     /// `remove_at(list, i)`: the element at `i`, moved out.
     fn salvo_remove_at(&mut self, index: i32) -> Option<T>;
+    /// [col-insert] `insert_at(list, i, x)`: `x` back when `i` is outside
+    /// `0..=len`.
+    fn salvo_insert_at(&mut self, index: i32, elem: T) -> Option<T>;
+    /// [col-remove-range] `remove_range(list, from, to)`, clamped.
+    fn salvo_remove_range(&mut self, from: i32, to: i32) -> Vec<T>;
 }
 
 impl<T> SalvoTake<T> for Vec<T> {
@@ -1056,6 +1266,21 @@ impl<T> SalvoTake<T> for Vec<T> {
         } else {
             None
         }
+    }
+
+    fn salvo_insert_at(&mut self, index: i32, elem: T) -> Option<T> {
+        if index < 0 || index as usize > self.len() {
+            return Some(elem);
+        }
+        self.insert(index as usize, elem);
+        None
+    }
+
+    fn salvo_remove_range(&mut self, from: i32, to: i32) -> Vec<T> {
+        let len = self.len() as i64;
+        let from = (from as i64).clamp(0, len) as usize;
+        let to = (to as i64).clamp(from as i64, len) as usize;
+        self.drain(from..to).collect()
     }
 }
 

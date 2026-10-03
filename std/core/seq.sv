@@ -10,11 +10,9 @@
 // compiler. The `List` fast paths at the bottom keep the short spelling for
 // the common case.
 //
-// **Eager**: `map` and `filter` return a `Mut List<U>`. Nothing here is lazy —
-// the lazy pair was removed 2026-09-10 (user decision) and laziness is
-// reconsidered after concurrency lands; see ROADMAP.md. A *composed* iterator is
-// still perfectly writable by hand, since an iterator is only a struct with a
-// `next` [iter-protocol].
+// **Eager**: `map` and `filter` return a `Mut List<U>`. The lazy adaptors at
+// the bottom (`take`, `take_while`, `skip`, `skip_while`) answer iterators
+// [seq-lazy]: each is an ordinary struct with a `next` [iter-protocol].
 //
 //
 // Driving is an ordinary `for`: the `?Yield<It, T>` spread is the declaration
@@ -117,4 +115,139 @@ export fn filter_to<D, It, T>(
 // [linear-generics], which is exactly the protection — `drop` never
 // discharges an obligation.
 export fn drop<T>(value: T) [] -> None => !value {
+}
+
+// ===== lazy adaptors [seq-lazy] =====
+//
+// Each is an iterator over another: a struct holding the source iterator and
+// the source's `next` (the `?Yield` implicit, kept as a fn field), whose own
+// `next` pulls from the source one element at a time. Nothing runs until the
+// adaptor is driven, so an endless source costs nothing until then, and a
+// `break` stops the source too. The source is moved into the adaptor; one
+// over a list's `iter` borrows the list, as the pass itself does.
+
+// [seq-lazy] The first [n] elements of the source.
+export struct Take<It, T> : Yield<self, T> canbe Mut {
+    src: It,
+    step: (s: Mut It) -> Emitted T | Finished,
+    left: Int
+}
+
+export fn next<It, T>(t: Mut Take<It, T>) [] -> Emitted T | Finished => t: Mut {
+    if t.left <= 0 {
+        return finished()
+    }
+    t.left = t.left - 1
+    let step = t.step
+    return step(t.src)
+}
+
+// [seq-lazy] An iterator over the first [n] elements of [it].
+export fn take<It, T>(it: It, n: Int, ?Yield<It, T>) [] -> Mut Take<It, T> => !it, !n {
+    return Mut Take<It, T> { src: it, step: copy(next), left: n }
+}
+
+// [seq-lazy] The source's elements while a predicate accepts them.
+export struct TakeWhile<It, T> : Yield<self, T> canbe Mut {
+    src: It,
+    step: (s: Mut It) -> Emitted T | Finished,
+    keep: (x: T) -> Bool,
+    done: Bool
+}
+
+export fn next<It, T>(t: Mut TakeWhile<It, T>) [] -> Emitted T | Finished => t: Mut {
+    if t.done {
+        return finished()
+    }
+    let step = t.step
+    let x = step(t.src)
+    if x is Finished {
+        t.done = true
+        return finished()
+    }
+    let keep = t.keep
+    if keep(x) {
+        return emitted(x)
+    }
+    t.done = true
+    return finished()
+}
+
+// [seq-lazy] An iterator over the elements of [it] up to the first one
+// [keep] refuses (which is consumed from the source and not emitted).
+export fn take_while<It, T>(it: It, keep: (x: T) -> Bool, ?Yield<It, T>) [] -> Mut TakeWhile<It, T>
+=> !it, !keep {
+    return Mut TakeWhile<It, T> { src: it, step: copy(next), keep: keep, done: false }
+}
+
+// [seq-lazy] The source's elements after the first few.
+export struct Skip<It, T> : Yield<self, T> canbe Mut {
+    src: It,
+    step: (s: Mut It) -> Emitted T | Finished,
+    left: Int
+}
+
+export fn next<It, T>(t: Mut Skip<It, T>) [] -> Emitted T | Finished => t: Mut {
+    let step = t.step
+    while t.left > 0 {
+        t.left = t.left - 1
+        let x = step(t.src)
+        if x is Finished {
+            return finished()
+        }
+    }
+    return step(t.src)
+}
+
+// [seq-lazy] An iterator over the elements of [it] after its first [n].
+export fn skip<It, T>(it: It, n: Int, ?Yield<It, T>) [] -> Mut Skip<It, T> => !it, !n {
+    return Mut Skip<It, T> { src: it, step: copy(next), left: n }
+}
+
+// [seq-lazy] The source's elements from the first one a predicate refuses.
+export struct SkipWhile<It, T> : Yield<self, T> canbe Mut {
+    src: It,
+    step: (s: Mut It) -> Emitted T | Finished,
+    skip: (x: T) -> Bool,
+    started: Bool
+}
+
+export fn next<It, T>(t: Mut SkipWhile<It, T>) [] -> Emitted T | Finished => t: Mut {
+    let step = t.step
+    if t.started {
+        return step(t.src)
+    }
+    // Not named `skip`: on Kotlin a local fn value of a top-level fn's name
+    // is called as the fn (ROADMAP 0c item 16).
+    let passing = t.skip
+    while true {
+        let x = step(t.src)
+        if x is Finished {
+            return finished()
+        }
+        if !passing(x) {
+            t.started = true
+            return emitted(x)
+        }
+    }
+    return finished()
+}
+
+// [seq-lazy] An iterator over the elements of [it] from the first one [skip]
+// refuses.
+export fn skip_while<It, T>(it: It, skip: (x: T) -> Bool, ?Yield<It, T>) [] -> Mut SkipWhile<It, T>
+=> !it, !skip {
+    return Mut SkipWhile<It, T> { src: it, step: copy(next), skip: skip, started: false }
+}
+
+// [seq-lazy] Drives [it] to its end, answering its elements as a list — a
+// view of a borrowing source's elements, as [filter]'s answer is. Named
+// `collect` rather than `to_list`: a generic subject would make every
+// container's own `to_list` ambiguous.
+export fn collect<It, T>(it: Mut It, ?Yield<It, T>) [] -> Mut List<proj T> holds proj(it) => it: Mut {
+    let out = mut_list_of<proj T>()
+    for x in it {
+        add(out, x)
+    }
+    return out
 }

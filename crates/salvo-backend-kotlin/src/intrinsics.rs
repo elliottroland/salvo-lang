@@ -268,6 +268,23 @@ pub fn fn_call(
             "({}).let {{ __l -> if (__l.isEmpty()) null else __l.removeAt(0) }}",
             a(0)
         ),
+        // [col-insert] The element back when the index is outside 0..=size.
+        ("insert_at", Some("List")) => format!(
+            "({}).let {{ __l -> ({}).let {{ __i -> ({}).let {{ __e -> \
+             if (__i >= 0 && __i <= __l.size) {{ __l.add(__i, __e); null }} else __e }} }} }}",
+            a(0),
+            a(1),
+            a(2)
+        ),
+        // [col-remove-range] Clamped to the list.
+        ("remove_range", Some("List")) => format!(
+            "({}).let {{ __l -> val __f = ({}).coerceIn(0, __l.size); \
+             val __t = ({}).coerceIn(__f, __l.size); \
+             val __r = __l.subList(__f, __t).toMutableList(); __l.subList(__f, __t).clear(); __r }}",
+            a(0),
+            a(1),
+            a(2)
+        ),
         ("remove_at", Some("List")) => format!(
             "({}).let {{ __l -> ({}).let {{ __i -> \
              if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null }} }}",
@@ -543,7 +560,21 @@ pub fn fn_call(
             format!("{}.toByteArray(Charsets.UTF_8).size.toLong()", a(0))
         }
         ("char_at", Some("Str")) => format!("{}.getOrNull({})", a(0), a(1)),
-        ("split", Some("Str")) => format!("{}.split({})", a(0), a(1)),
+        // [str-mut-results] A list of the caller's own.
+        ("split", Some("Str")) => format!("{}.split({}).toMutableList()", a(0), a(1)),
+        // [str-search]
+        ("index_of", Some("Str")) if args.len() == 3 => format!(
+            "{}.indexOf({}, ({}).coerceAtLeast(0)).takeIf {{ it >= 0 }}",
+            a(0),
+            a(1),
+            a(2)
+        ),
+        ("last_index_of", Some("Str")) => {
+            format!("{}.lastIndexOf({}).takeIf {{ it >= 0 }}", a(0), a(1))
+        }
+        ("replace", Some("Str")) => format!("{}.replace({}, {})", a(0), a(1), a(2)),
+        ("trim_start", Some("Str")) => format!("{}.trimStart()", a(0)),
+        ("trim_end", Some("Str")) => format!("{}.trimEnd()", a(0)),
         // No `-1` sentinel: absence is `null` [type-nullable].
         ("index_of", Some("Str")) => {
             format!("{}.indexOf({}).takeIf {{ it >= 0 }}", a(0), a(1))
