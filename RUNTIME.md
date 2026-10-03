@@ -1144,20 +1144,19 @@ keeps both backends passing the full suite.
 
     | | ping-pong 10⁶ | fan-out | tasks 10⁵ | timers 10⁴ |
     |---|---|---|---|---|
-    | Rust | 295 ms | 145 ms | 23 ms | 40 ms |
-    | Kotlin | 307 ms | 142 ms | 53 ms | 49 ms |
+    | Rust | 451 ms | 139 ms | 26 ms | 35 ms |
+    | Kotlin | 506 ms | 140 ms | 50 ms | 53 ms |
     | budget (1.5×) | 603 / 551 ms | 317 / 533 ms | 44 / 56 ms | 87 / 153 ms |
 
-    Kotlin tasks is the closest, at 1.43× its baseline (a cold run: the JIT
-    has not warmed up; steady state is about 315 ns a task, under the old
-    370). What it took: a ready queue per pool instead of a scan of the actor
-    table per activation; a send from an activation to its own pool defers
-    its wake to the activation's end (the finishing thread takes the work
-    itself, instead of racing a woken one for it); one thread woken per item;
+    Kotlin ping-pong is the closest, at 1.38× its baseline, then Kotlin tasks
+    at 1.35× (a cold run). What it took: a ready queue per pool instead of a
+    scan of the actor table per activation; one thread woken per item;
     the Kotlin monitor on a `ReentrantLock` (`Thread.holdsLock` was a third
     of the scheduler's time); and Kotlin's `Parker` on a token of its own,
     since a `ReentrantLock` parks through the same `LockSupport` permit and
-    ate unparks. A benchmark taken while anything else runs is worthless:
+    ate unparks. A deferred wake for sends to the sender's own pool brought
+    ping-pong to about 290 / 300 ms and was reverted (ROADMAP 0e). A
+    benchmark taken while anything else runs is worthless:
     the first numbers after the cutover (ping-pong 1,078 / 1,713 ms) were
     taken with six hung test programs still running. Next: routing into
     Salvo.

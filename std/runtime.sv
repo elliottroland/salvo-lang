@@ -270,14 +270,11 @@ linear struct RtPoolRec canbe Mut {
     // [pool-fault-sink] The actor its uncaught faults go to, or -1.
     sink: Int,
     // [actor-on-idle] Tokens owed to work here that belongs to no actor.
-    owed: Int,
-    // Work made runnable here by activations on this pool, whose wakes wait
-    // for the activation to finish.
-    deferred: Int
+    owed: Int
 }
 
 fn drop_pool_rec(p: RtPoolRec) [] -> None => !p {
-    let {idle, tasks, ready, sink, owed, deferred} = p
+    let {idle, tasks, ready, sink, owed} = p
     drain(tasks, t -> drop_task_run(t))
 }
 
@@ -427,11 +424,11 @@ handler Scheduler() of SchedTable {
 
     // [main-pool] Pool 0 exists from the start and belongs to `main`.
     init {
-        add(pools, Mut RtPoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: -1, owed: 0, deferred: 0 })
+        add(pools, Mut RtPoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: -1, owed: 0 })
     }
 
     fn new_pool(sink: Int) -> Int => !sink {
-        add(pools, Mut RtPoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: sink, owed: 0, deferred: 0 })
+        add(pools, Mut RtPoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: sink, owed: 0 })
         return size(pools) - 1
     }
 
@@ -464,7 +461,7 @@ handler Scheduler() of SchedTable {
         a.user_len = a.user_len + 1
         if mark_ready(a, pools, copy(addr)) {
             let pool = copy(a.pool)
-            wake_for(pools, pool)
+            wake_pool(pools, pool)
         }
         return RtSent {}
     }
@@ -645,22 +642,9 @@ handler Scheduler() of SchedTable {
         a.running = false
         if fault is None {
             slot_put(a.body, body)
-            let again = mark_ready(a, pools, copy(addr))
-            // The finishing thread looks for work again at once and takes
-            // one item itself; the rest made runnable during the activation
-            // (deferred by `wake_for`), and this actor's own next entry,
-            // wake one thread each now.
-            let pool = copy(a.pool)
-            let p = get(pools, pool)!
-            let extra = copy(p.deferred) - 1
-            if again {
-                extra = extra + 1
-            }
-            p.deferred = 0
-            while extra > 0 {
-                wake_pool(pools, copy(pool))
-                extra = extra - 1
-            }
+            // The actor's own next entry, which could not run while it did:
+            // the finishing thread looks for work again at once and takes it.
+            let _again = mark_ready(a, pools, copy(addr))
             return
         }
         drop_body(body)
@@ -780,7 +764,7 @@ fn deliver_to(actors: Mut List<Mut RtActorRec>, waiters: Mut List<Mut RtWaiterRe
         add_last(a.queue, e)
         if mark_ready(a, pools, copy(to.addr)) {
             let pool = copy(a.pool)
-            wake_for(pools, pool)
+            wake_pool(pools, pool)
         }
     } elif target is RtToWaiter tw {
         let w = get(waiters, tw.wid)!
@@ -1012,18 +996,6 @@ fn wake_every(pools: Mut List<Mut RtPoolRec>, pool: Int) [] -> None => pools: Mu
     while remove_first(p.idle) is Parker w {
         unpark(w)
     }
-}
-
-// Wakes [pool]'s idle threads for new work there — unless the calling
-// thread is an activation on that pool, which looks for work the moment it
-// finishes: the wake waits for that, so the two do not race for one item.
-fn wake_for(pools: Mut List<Mut RtPoolRec>, pool: Int) [] -> None => pools: Mut, !pool {
-    if here_pool() == pool && here_actor() >= 0 {
-        let p = get(pools, pool)!
-        p.deferred = p.deferred + 1
-        return
-    }
-    wake_pool(pools, pool)
 }
 
 // [waitfor-pump] Wakes every frame parked in a wait, to look at the

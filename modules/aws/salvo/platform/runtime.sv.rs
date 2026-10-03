@@ -470,7 +470,6 @@ pub struct RtPoolRec {
     pub ready: std::collections::VecDeque<i32>,
     pub sink: i32,
     pub owed: i32,
-    pub deferred: i32,
 }
 
 impl std::fmt::Debug for RtPoolRec {
@@ -481,7 +480,6 @@ impl std::fmt::Debug for RtPoolRec {
             .field("ready", &self.ready)
             .field("sink", &self.sink)
             .field("owed", &self.owed)
-            .field("deferred", &self.deferred)
             .finish()
     }
 }
@@ -493,7 +491,6 @@ pub fn drop_pool_rec(p: RtPoolRec) {
     let mut ready = __destructured7.ready;
     let mut sink = __destructured7.sink;
     let mut owed = __destructured7.owed;
-    let mut deferred = __destructured7.deferred;
     tasks.into_iter().for_each(|t| drop_task_run(t));
 }
 
@@ -1013,7 +1010,7 @@ impl Scheduler {
 impl crate::runtime::__Stateful_SchedTable for Scheduler {
 
     fn new_pool(&mut self, sink: i32) -> i32 {
-        self.pools.push(RtPoolRec { idle: vec![], tasks: std::collections::VecDeque::<RtTaskRun>::new(), ready: std::collections::VecDeque::<i32>::new(), sink: sink, owed: 0, deferred: 0 });
+        self.pools.push(RtPoolRec { idle: vec![], tasks: std::collections::VecDeque::<RtTaskRun>::new(), ready: std::collections::VecDeque::<i32>::new(), sink: sink, owed: 0 });
         return (self.pools.len() as i32) - 1;
     }
 
@@ -1028,7 +1025,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             return Union3::<RtSent, RtDead, RtFull>::U2(RtDead {  });
         }
         let __h0 = (addr) as usize;
-        self.actors.get(__h0).expect("salvo: value is absent at runtime:452:17");
+        self.actors.get(__h0).expect("salvo: value is absent at runtime:449:17");
         if self.actors[__h0].dead {
             drop_dyn_platform(msg);
             return Union3::<RtSent, RtDead, RtFull>::U2(RtDead {  });
@@ -1043,7 +1040,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         self.actors[__h0].user_len = self.actors[__h0].user_len + 1;
         if mark_ready(&mut self.actors[__h0], &mut self.pools, addr.clone()) {
             let mut pool = self.actors[__h0].pool;
-            wake_for(&mut self.pools, pool);
+            wake_pool(&mut self.pools, pool);
         }
         return Union3::<RtSent, RtDead, RtFull>::U1(RtSent {  });
     }
@@ -1054,7 +1051,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             return false;
         }
         let __h1 = (addr) as usize;
-        self.actors.get(__h1).expect("salvo: value is absent at runtime:477:17");
+        self.actors.get(__h1).expect("salvo: value is absent at runtime:474:17");
         if self.actors[__h1].dead {
             drop_dyn_platform(msg);
             return false;
@@ -1072,7 +1069,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
 
     fn kill(&mut self, addr: i32, reason: String) {
         let __h2 = (addr) as usize;
-        self.actors.get(__h2).expect("salvo: value is absent at runtime:494:17");
+        self.actors.get(__h2).expect("salvo: value is absent at runtime:491:17");
         if self.actors[__h2].dead {
             return;
         }
@@ -1110,7 +1107,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         self.next_slot = self.next_slot + ((1) as i64);
         let mut slot = self.next_slot.clone();
         let __h3 = (addr) as usize;
-        self.actors.get(__h3).expect("salvo: value is absent at runtime:516:17");
+        self.actors.get(__h3).expect("salvo: value is absent at runtime:513:17");
         if gated {
             self.actors[__h3].gate = Some(slot.clone());
         }
@@ -1121,14 +1118,14 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     fn mint_task(&mut self, pool: i32, body: RtBody) -> RtToken {
         self.next_slot = self.next_slot + ((1) as i64);
         let __h4 = (pool) as usize;
-        self.pools.get(__h4).expect("salvo: value is absent at runtime:526:17");
+        self.pools.get(__h4).expect("salvo: value is absent at runtime:523:17");
         self.pools[__h4].owed = self.pools[__h4].owed + 1;
         return RtToken { target: Union3::<RtToActor, RtToWaiter, RtToTask>::U3(RtToTask { pool: pool, body: body }), slot: self.next_slot.clone(), tracked: true };
     }
 
     fn mint_waiter(&mut self, pool: i32) -> RtWaiterMint {
         let __h5 = (pool) as usize;
-        self.pools.get(__h5).expect("salvo: value is absent at runtime:532:17");
+        self.pools.get(__h5).expect("salvo: value is absent at runtime:529:17");
         self.pools[__h5].owed = self.pools[__h5].owed + 1;
         self.waiters.push(RtWaiterRec { pool: pool, value: slot_empty_platform(), filled: false, parker: None, waiting: 0, waiting_actor: -1 });
         let mut wid = (self.waiters.len() as i32) - 1;
@@ -1144,7 +1141,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     fn watch_actor(&mut self, addr: i32, t: RtToken) {
         let mut watch = untrack(&mut self.actors, &mut self.waiters, &mut self.pools, t);
         let __h6 = (addr) as usize;
-        self.actors.get(__h6).expect("salvo: value is absent at runtime:549:17");
+        self.actors.get(__h6).expect("salvo: value is absent at runtime:546:17");
         if self.actors[__h6].dead {
             let mut reason = self.actors[__h6].exit_reason.clone();
             deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, watch, erase_platform(Exit { reason: reason }));
@@ -1163,7 +1160,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         let mut w = take_work(&mut self.actors, &mut self.pools, pool.clone(), -1);
         if w.is_none() {
             let __h7 = (pool) as usize;
-            self.pools.get(__h7).expect("salvo: value is absent at runtime:567:21");
+            self.pools.get(__h7).expect("salvo: value is absent at runtime:564:21");
             self.pools[__h7].idle.push(idle);
             if self.active == self.parked_frames && quiet(&mut self.actors, &mut self.waiters, &mut self.pools, self.externals) {
                 if !((self.idle_hooks.len() as i32) == 0) && self.active == 0 {
@@ -1179,7 +1176,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
 
     fn wait_step(&mut self, wid: i32, pool: i32, own: i32, frame: i32, me: Parker) -> Union6<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck> {
         let __h8 = (wid) as usize;
-        self.waiters.get(__h8).expect("salvo: value is absent at runtime:587:17");
+        self.waiters.get(__h8).expect("salvo: value is absent at runtime:584:17");
         if self.waiters[__h8].waiting == 0 {
             self.waiters[__h8].waiting = frame.clone();
             self.waiters[__h8].waiting_actor = own.clone();
@@ -1224,10 +1221,10 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             return Union6::<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck>::U6(RtStuck { report: deadlock_report(&mut self.actors, &mut self.waiters, own) });
         }
         let __h9 = (wid) as usize;
-        self.waiters.get(__h9).expect("salvo: value is absent at runtime:635:22");
+        self.waiters.get(__h9).expect("salvo: value is absent at runtime:632:22");
         self.waiters[__h9].parker = Some(me.clone());
         let __h10 = (pool) as usize;
-        self.pools.get(__h10).expect("salvo: value is absent at runtime:637:17");
+        self.pools.get(__h10).expect("salvo: value is absent at runtime:634:17");
         self.pools[__h10].idle.push(me);
         return Union6::<RtGot, RtRunActor, RtRunTask, RtSleep, RtAgain, RtStuck>::U4(RtSleep {  });
     }
@@ -1235,23 +1232,11 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     fn finish(&mut self, addr: i32, body: RtBody, fault: Option<String>) {
         self.active = self.active - 1;
         let __h11 = (addr) as usize;
-        self.actors.get(__h11).expect("salvo: value is absent at runtime:644:17");
+        self.actors.get(__h11).expect("salvo: value is absent at runtime:641:17");
         self.actors[__h11].running = false;
         if fault.is_none() {
             slot_put_platform(&mut self.actors[__h11].body, body);
-            let mut again = mark_ready(&mut self.actors[__h11], &mut self.pools, addr.clone());
-            let mut pool = self.actors[__h11].pool;
-            let __h12 = (pool) as usize;
-            self.pools.get(__h12).expect("salvo: value is absent at runtime:654:21");
-            let mut extra = self.pools[__h12].deferred - 1;
-            if again {
-                extra = extra + 1;
-            }
-            self.pools[__h12].deferred = 0;
-            while extra > 0 {
-                wake_pool(&mut self.pools, pool.clone());
-                extra = extra - 1;
-            }
+            let mut _again = mark_ready(&mut self.actors[__h11], &mut self.pools, addr.clone());
             return;
         }
         drop_body_platform(body);
@@ -1261,7 +1246,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         self.actors[__h11].gate = None;
         self.actors[__h11].user_len = 0;
         while ((self.actors[__h11].queue.len() as i32) > 0) {
-            drop_entry(self.actors[__h11].queue.pop_front().expect("salvo: value is absent at runtime:673:24"));
+            drop_entry(self.actors[__h11].queue.pop_front().expect("salvo: value is absent at runtime:657:24"));
         }
         while ((self.actors[__h11].slots.len() as i32) > 0) {
             let mut _s = self.actors[__h11].slots.pop_front();
@@ -1308,7 +1293,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     }
 
     fn pool_of_actor(&mut self, addr: i32) -> i32 {
-        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:706:21").pool;
+        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:690:21").pool;
     }
 
     fn room(&mut self, addr: i32) -> i32 {
@@ -1317,11 +1302,11 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     }
 
     fn is_dead(&mut self, addr: i32) -> bool {
-        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:715:21").dead;
+        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:699:21").dead;
     }
 
     fn queued(&mut self, addr: i32) -> i32 {
-        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:719:21").user_len;
+        return self.actors.get((addr) as i64 as usize).expect("salvo: value is absent at runtime:703:21").user_len;
     }
 
     fn external(&mut self, delta: i32) {
@@ -1336,7 +1321,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
 impl Scheduler {
 
     fn init(&mut self) {
-        self.pools.push(RtPoolRec { idle: vec![], tasks: std::collections::VecDeque::<RtTaskRun>::new(), ready: std::collections::VecDeque::<i32>::new(), sink: -1, owed: 0, deferred: 0 });
+        self.pools.push(RtPoolRec { idle: vec![], tasks: std::collections::VecDeque::<RtTaskRun>::new(), ready: std::collections::VecDeque::<i32>::new(), sink: -1, owed: 0 });
     }
 }
 
@@ -1358,24 +1343,24 @@ pub fn untrack(actors: &mut Vec<RtActorRec>, waiters: &mut Vec<RtWaiterRec>, poo
 pub fn release(actors: &mut Vec<RtActorRec>, waiters: &mut Vec<RtWaiterRec>, pools: &mut Vec<RtPoolRec>, target: &Union3<RtToActor, RtToWaiter, RtToTask>) {
     if matches!(target, Union3::U1(_)) {
         let mut to = target.u1().clone();
-        let __h13 = (to.addr) as usize;
-        actors.get(__h13).expect("salvo: value is absent at runtime:746:17");
-        if actors[__h13].owed > 0 {
-            actors[__h13].owed = actors[__h13].owed - 1;
+        let __h12 = (to.addr) as usize;
+        actors.get(__h12).expect("salvo: value is absent at runtime:730:17");
+        if actors[__h12].owed > 0 {
+            actors[__h12].owed = actors[__h12].owed - 1;
         }
     } else if matches!(target, Union3::U2(_)) {
         let mut tw = target.u2().clone();
-        let mut pool = waiters.get((tw.wid) as i64 as usize).expect("salvo: value is absent at runtime:751:25").pool;
-        let __h14 = (pool) as usize;
-        pools.get(__h14).expect("salvo: value is absent at runtime:752:17");
-        if pools[__h14].owed > 0 {
-            pools[__h14].owed = pools[__h14].owed - 1;
+        let mut pool = waiters.get((tw.wid) as i64 as usize).expect("salvo: value is absent at runtime:735:25").pool;
+        let __h13 = (pool) as usize;
+        pools.get(__h13).expect("salvo: value is absent at runtime:736:17");
+        if pools[__h13].owed > 0 {
+            pools[__h13].owed = pools[__h13].owed - 1;
         }
     } else {
-        let __h15 = (target.u3().clone().pool) as usize;
-        pools.get(__h15).expect("salvo: value is absent at runtime:757:17");
-        if pools[__h15].owed > 0 {
-            pools[__h15].owed = pools[__h15].owed - 1;
+        let __h14 = (target.u3().clone().pool) as usize;
+        pools.get(__h14).expect("salvo: value is absent at runtime:741:17");
+        if pools[__h14].owed > 0 {
+            pools[__h14].owed = pools[__h14].owed - 1;
         }
     }
 }
@@ -1390,51 +1375,51 @@ pub fn deliver_to(actors: &mut Vec<RtActorRec>, waiters: &mut Vec<RtWaiterRec>, 
     }
     if matches!(target, Union3::U1(_)) {
         let mut to = target.u1().clone();
-        let __h16 = (to.addr) as usize;
-        actors.get(__h16).expect("salvo: value is absent at runtime:773:17");
-        if actors[__h16].dead {
+        let __h15 = (to.addr) as usize;
+        actors.get(__h15).expect("salvo: value is absent at runtime:757:17");
+        if actors[__h15].dead {
             drop_dyn_platform(value);
             return;
         }
-        actors[__h16].slots.push_back(slot.clone());
+        actors[__h15].slots.push_back(slot.clone());
         let mut e: Union3<RtDelivered, RtAnswered, RtReported> = Union3::<RtDelivered, RtAnswered, RtReported>::U2(RtAnswered { slot: slot, value: value });
-        actors[__h16].queue.push_back(e);
-        if mark_ready(&mut actors[__h16], pools, to.addr) {
-            let mut pool = actors[__h16].pool;
-            wake_for(pools, pool);
+        actors[__h15].queue.push_back(e);
+        if mark_ready(&mut actors[__h15], pools, to.addr) {
+            let mut pool = actors[__h15].pool;
+            wake_pool(pools, pool);
         }
     } else if matches!(target, Union3::U2(_)) {
         let mut tw = target.u2().clone();
-        let __h17 = (tw.wid) as usize;
-        waiters.get(__h17).expect("salvo: value is absent at runtime:786:17");
-        slot_put_platform(&mut waiters[__h17].value, value);
-        waiters[__h17].filled = true;
-        if waiters[__h17].parker.is_some() {
-            let mut p = waiters[__h17].parker.as_ref().unwrap().clone();
+        let __h16 = (tw.wid) as usize;
+        waiters.get(__h16).expect("salvo: value is absent at runtime:770:17");
+        slot_put_platform(&mut waiters[__h16].value, value);
+        waiters[__h16].filled = true;
+        if waiters[__h16].parker.is_some() {
+            let mut p = waiters[__h16].parker.as_ref().unwrap().clone();
             unpark_platform(&(p.clone()));
         }
     } else {
         let __destructured17 = (match target { Union3::U3(__v) => __v, _ => unreachable!() });
         let mut pool = __destructured17.pool;
         let mut body = __destructured17.body;
-        let __h18 = (pool) as usize;
-        pools.get(__h18).expect("salvo: value is absent at runtime:794:17");
-        pools[__h18].tasks.push_back(RtTaskRun { body: body, value: value });
+        let __h17 = (pool) as usize;
+        pools.get(__h17).expect("salvo: value is absent at runtime:778:17");
+        pools[__h17].tasks.push_back(RtTaskRun { body: body, value: value });
         wake_pool(pools, pool.clone());
     }
 }
 
 pub fn report_fault(actors: &mut Vec<RtActorRec>, pools: &mut Vec<RtPoolRec>, pool: i32, reason: String) {
-    let mut sink = pools.get((pool) as i64 as usize).expect("salvo: value is absent at runtime:805:21").sink;
+    let mut sink = pools.get((pool) as i64 as usize).expect("salvo: value is absent at runtime:789:21").sink;
     if sink >= 0 {
-        let __h19 = (sink) as usize;
-        actors.get(__h19).expect("salvo: value is absent at runtime:807:17");
-        if !actors[__h19].dead {
+        let __h18 = (sink) as usize;
+        actors.get(__h18).expect("salvo: value is absent at runtime:791:17");
+        if !actors[__h18].dead {
             let mut e: Union3<RtDelivered, RtAnswered, RtReported> = Union3::<RtDelivered, RtAnswered, RtReported>::U3(RtReported { reason: reason });
-            actors[__h19].queue.push_back(e);
-            actors[__h19].slots.push_back(((-1) as i64));
-            if mark_ready(&mut actors[__h19], pools, sink.clone()) {
-                let mut sink_pool = actors[__h19].pool;
+            actors[__h18].queue.push_back(e);
+            actors[__h18].slots.push_back(((-1) as i64));
+            if mark_ready(&mut actors[__h18], pools, sink.clone()) {
+                let mut sink_pool = actors[__h18].pool;
                 wake_pool(pools, sink_pool);
             }
             return;
@@ -1476,7 +1461,7 @@ pub fn fire_idle(actors: &mut Vec<RtActorRec>, waiters: &mut Vec<RtWaiterRec>, p
         let mut pool = __destructured18.pool;
         let mut token = __destructured18.token;
         let mut gates = 0;
-        let mut tokens = pools.get((pool) as i64 as usize).expect("salvo: value is absent at runtime:857:27").owed;
+        let mut tokens = pools.get((pool) as i64 as usize).expect("salvo: value is absent at runtime:841:27").owed;
         for a in &*actors {
             if a.pool == pool {
                 tokens = tokens + a.owed;
@@ -1525,9 +1510,9 @@ pub fn deadlock_report(actors: &mut Vec<RtActorRec>, waiters: &mut Vec<RtWaiterR
 }
 
 pub fn take_work(actors: &mut Vec<RtActorRec>, pools: &mut Vec<RtPoolRec>, pool: i32, exclude: i32) -> Option<Union2<RtRunActor, RtRunTask>> {
-    let __h20 = (pool) as usize;
-    pools.get(__h20).expect("salvo: value is absent at runtime:906:13");
-    let mut task = pools[__h20].tasks.pop_front();
+    let __h19 = (pool) as usize;
+    pools.get(__h19).expect("salvo: value is absent at runtime:890:13");
+    let mut task = pools[__h19].tasks.pop_front();
     if task.is_some() {
         let mut t = task.unwrap();
         let __destructured19 = t;
@@ -1536,23 +1521,23 @@ pub fn take_work(actors: &mut Vec<RtActorRec>, pools: &mut Vec<RtPoolRec>, pool:
         return Some(Union2::<RtRunActor, RtRunTask>::U2(RtRunTask { pool: pool, body: body, value: value }));
     }
     loop {
-        let mut __is8 = pools[__h20].ready.pop_front();
+        let mut __is8 = pools[__h19].ready.pop_front();
         if !(__is8.is_some()) {
             break;
         }
         let mut i = __is8.unwrap();
-        let __h21 = (i) as usize;
-        actors.get(__h21).expect("salvo: value is absent at runtime:913:17");
-        actors[__h21].ready = false;
-        if i != exclude && !actors[__h21].running && !actors[__h21].dead {
-            let mut at = deliverable(&actors[__h21].slots, &actors[__h21].gate);
+        let __h20 = (i) as usize;
+        actors.get(__h20).expect("salvo: value is absent at runtime:897:17");
+        actors[__h20].ready = false;
+        if i != exclude && !actors[__h20].running && !actors[__h20].dead {
+            let mut at = deliverable(&actors[__h20].slots, &actors[__h20].gate);
             if at.is_some() {
                 let mut k = at.unwrap();
-                let mut _slot = actors[__h21].slots.remove((k.clone()) as i64 as usize);
-                let mut e = actors[__h21].queue.remove((k) as i64 as usize).expect("salvo: value is absent at runtime:919:25");
-                actors[__h21].running = true;
-                let mut body = slot_take_platform(&mut actors[__h21].body).expect("salvo: value is absent at runtime:921:28");
-                return work_of(&mut actors[__h21], i.clone(), e, body);
+                let mut _slot = actors[__h20].slots.remove((k.clone()) as i64 as usize);
+                let mut e = actors[__h20].queue.remove((k) as i64 as usize).expect("salvo: value is absent at runtime:903:25");
+                actors[__h20].running = true;
+                let mut body = slot_take_platform(&mut actors[__h20].body).expect("salvo: value is absent at runtime:905:28");
+                return work_of(&mut actors[__h20], i.clone(), e, body);
             }
         }
     }
@@ -1567,9 +1552,9 @@ pub fn mark_ready(a: &mut RtActorRec, pools: &mut Vec<RtPoolRec>, addr: i32) -> 
         return false;
     }
     a.ready = true;
-    let __h22 = (a.pool) as usize;
-    pools.get(__h22).expect("salvo: value is absent at runtime:940:13");
-    pools[__h22].ready.push_back(addr);
+    let __h21 = (a.pool) as usize;
+    pools.get(__h21).expect("salvo: value is absent at runtime:924:13");
+    pools[__h21].ready.push_back(addr);
     return true;
 }
 
@@ -1617,7 +1602,7 @@ pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) 
     }
     let mut i = 0;
     while i < (slots.len() as i32) {
-        if *slots.get((i) as i64 as usize).expect("salvo: value is absent at runtime:988:12") == gate.unwrap() {
+        if *slots.get((i) as i64 as usize).expect("salvo: value is absent at runtime:972:12") == gate.unwrap() {
             return Some(i.clone());
         }
         i = i + 1;
@@ -1626,9 +1611,9 @@ pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) 
 }
 
 pub fn wake_pool(pools: &mut Vec<RtPoolRec>, pool: i32) {
-    let __h23 = (pool) as usize;
-    pools.get(__h23).expect("salvo: value is absent at runtime:1003:13");
-    let mut __is9 = pools[__h23].idle.salvo_remove_first();
+    let __h22 = (pool) as usize;
+    pools.get(__h22).expect("salvo: value is absent at runtime:987:13");
+    let mut __is9 = pools[__h22].idle.salvo_remove_first();
     if __is9.is_some() {
         let mut w = __is9.as_ref().unwrap().clone();
         unpark_platform(&w);
@@ -1636,26 +1621,16 @@ pub fn wake_pool(pools: &mut Vec<RtPoolRec>, pool: i32) {
 }
 
 pub fn wake_every(pools: &mut Vec<RtPoolRec>, pool: i32) {
-    let __h24 = (pool) as usize;
-    pools.get(__h24).expect("salvo: value is absent at runtime:1011:13");
+    let __h23 = (pool) as usize;
+    pools.get(__h23).expect("salvo: value is absent at runtime:995:13");
     loop {
-        let mut __is10 = pools[__h24].idle.salvo_remove_first();
+        let mut __is10 = pools[__h23].idle.salvo_remove_first();
         if !(__is10.is_some()) {
             break;
         }
         let mut w = __is10.as_ref().unwrap().clone();
         unpark_platform(&w);
     }
-}
-
-pub fn wake_for(pools: &mut Vec<RtPoolRec>, pool: i32) {
-    if here_pool_platform() == pool && here_actor_platform() >= 0 {
-        let __h25 = (pool) as usize;
-        pools.get(__h25).expect("salvo: value is absent at runtime:1022:17");
-        pools[__h25].deferred = pools[__h25].deferred + 1;
-        return;
-    }
-    wake_pool(pools, pool);
 }
 
 pub fn wake_waiters(waiters: &mut Vec<RtWaiterRec>) {

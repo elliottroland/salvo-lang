@@ -137,12 +137,9 @@ invariant).
 
 **The Salvo scheduler within the benchmark budget (2026-10-03; RUNTIME.md
 §11.5 slice 11d).** All four benchmarks within D6's 1.5× on both backends
-(numbers in RUNTIME.md 11d; Rust ping-pong 295 ms against a 402 ms baseline,
-Kotlin tasks the closest at 1.43×). What it took: a ready queue per pool, so
-finding work no longer scans the actor table (fan-out had been 10⁸ checks);
-one thread woken per item, and none for a send from an activation to its own
-pool, whose finishing thread takes the work itself — the wake races were most
-of ping-pong's cost; the pool carried in the activation record instead of a
+(numbers in RUNTIME.md 11d; Kotlin ping-pong the closest at 1.38×). What it
+took: a ready queue per pool, so finding work no longer scans the actor table
+(fan-out had been 10⁸ checks); one thread woken per item; the pool carried in the activation record instead of a
 second monitor call; Kotlin's `__Mon_E` on a `ReentrantLock` with
 `isHeldByCurrentThread` instead of `synchronized` with `Thread.holdsLock`, a
 third of the scheduler's time (a multi-face handler's wrappers share one lock).
@@ -155,9 +152,14 @@ What fell out:
   the cutover were taken with six hung test programs still running (a time
   limit that killed `sh` and not its child); on a quiet machine the same
   binary was within budget for Rust already. Gotcha recorded.
-- The trade-off of the deferred wake: an activation that sends to its own
-  pool and then blocks outside a wait holds that work until it returns
-  ([runtime-sched] states it).
+- **Deferred wakes, reverted (user decision 2026-10-03).** Deferring the wake
+  of a send to the sender's own pool until the sending activation finished
+  took ping-pong from about 450 to 290 ms (Rust) and 500 to 300 ms (Kotlin),
+  but made an actor's scheduling depend on the pool it was placed on, which
+  is decided elsewhere: an activation that sends and then blocks in a host
+  call holds the work back. The user chose immediate wakes for now; the idea
+  and the suggested fix (flush deferred wakes before every platform call)
+  are ROADMAP 0e, for a design session.
 **1679 tests**, 5m05 fresh.
 
 **Generated code runs on the Salvo scheduler (2026-10-03; RUNTIME.md §11.5

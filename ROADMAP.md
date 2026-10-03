@@ -72,7 +72,8 @@ types and fns) 8 (`Parker`), 9
 (`start_thread`, `guarded`), 11c (projections of linear elements) and the
 11d (the local scheduler core, and the cutover: both hosts' schedulers are
 now shims onto it, with routing still on host-side tables; all four
-benchmarks within the 1.5× budget on both backends). Next in 11: routing.
+benchmarks within the 1.5× budget on both backends). Next in 11: routing,
+then module-aware type tables (0c item 8).
 When the sequence completes, RUNTIME.md
 shrinks to what is still open, as ABI.md does.
 
@@ -156,6 +157,16 @@ a correct program from building. std works around the first by naming.
    declaration, and the runtime's private types carry an `Rt` prefix
    (`RtToken`, `RtBody`, …) until lookups are module-aware. Repro: any actor
    program declaring `struct Token { id: Int }` before the prefix.
+   **Plan** (user decision 2026-10-03, after the routing port): the language
+   already allows one name in several modules (docs/language/Modules.md), and
+   the resolver already knows which declaration each reference means; the
+   tables after it do not ask. Key `Symbols`' type tables (structs, aliases,
+   platform and intrinsic types) by declaration identity, (module, name),
+   have every type reference carry the declaration the resolver chose, and
+   move the ~40 by-name lookups in the checker, both emitters and the wire
+   predicate onto it. Private std function names, which still share the
+   mangling space with user code (why `work` became `serve_pool`), get the
+   same treatment. Then drop the `Rt` prefix.
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 
@@ -177,6 +188,42 @@ decision 2026-10-02), to be revisited once the port lands. First candidates:
 
 Genuinely the host's, for contrast: `Dyn`'s erasure and downcast, `Parker`,
 `start_thread`, `guarded`, `secure_bits`, the clock.
+
+### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
+
+**What it is.** When a message makes an actor runnable, the scheduler unparks
+an idle worker of the actor's pool (an *immediate* wake, today's behaviour).
+A *deferred* wake skips that when the sender is itself an activation on the
+same pool: the enqueue only counts the item, and when the activation
+finishes, its own thread takes one item and wakes one idle worker for each
+further one. Measured 2026-10-03 on ping-pong (two actors on one 2-thread
+pool, 10⁶ round trips): Rust about 450 → 290 ms, Kotlin about 500 → 300 ms.
+With immediate wakes the sender's thread and the woken one race for the one
+item, so every message tends to cross threads and pay a park and an unpark.
+Fan-out from one actor keeps its parallelism (the wakes happen at the
+activation's end).
+
+**The cost.** An activation that sends to its own pool and then blocks
+outside a `waitfor` (a slow synchronous platform call) holds that work until
+it returns, though a worker is idle; and if it blocks on something only that
+work would produce, through host code, it hangs. Salvo code cannot build that
+cycle, since its waits go through `waitfor`, which serves the pool.
+
+**Why it was not taken** (user decision 2026-10-03): the scheduling an actor
+gets would then depend on which pool it was placed on, which is decided
+elsewhere (`spawn … on p`), so the semantics would be hidden from the actor's
+implementation. Built, measured, and reverted to immediate wakes.
+
+**The suggestion to evaluate:** deferred wakes, flushed before blocking. The
+emitter knows every call to a platform fn or platform handler member; inside
+an activation it emits a `flush_wakes()` before each (a no-op when nothing is
+deferred), so pure Salvo work keeps the gain and a host call never holds work
+back. Open questions for the session: whether a hidden scheduling difference
+remains (an activation spinning in pure Salvo for a long time still delays
+the work), whether the rule can be stated so an actor author can reason about
+it, and the alternative of Go-style timed affinity (wake at once, but a woken
+thread leaves the item alone for a few microseconds so its sender can take
+it).
 
 ### 1 — ✅ The std reorganisation (complete 2026-09-26)
 

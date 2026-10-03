@@ -7702,12 +7702,12 @@ between endpoints and delivers what arrives into the scheduler.
   * **Finding work** (2026-10-03): each pool keeps a ready queue of actors
     with an entry they may be activated for, in the order they became so; a
     taker drops a stale entry, and an actor is queued again when it next has
-    something to run. One idle thread is woken per new item. A send or an
-    answer from an activation to an actor on the activation's own pool does
-    not wake anyone: the finishing thread takes one item itself and wakes one
-    thread for each further item the activation made. So an activation that
-    sends to its own pool and then blocks outside a wait (a slow host call)
-    holds that work until it returns; a wait serves the pool, as always.
+    something to run. One idle thread is woken per new item, at once, from
+    wherever the item was made (user decision 2026-10-03: deferring the wake
+    of a send to the sender's own pool was measured and reverted, since an
+    actor's scheduling would then depend on a placement decided elsewhere;
+    ROADMAP 0e). An actor's own next entry, which could not run while it
+    did, is taken by the thread that ran it.
 * [mod-use] **A module-level `use H()` binds an effect for every function of
   its module**, without any of them declaring it (user decision 2026-10-02,
   RUNTIME.md E4): bound once, on first use, for the life of the process, and
