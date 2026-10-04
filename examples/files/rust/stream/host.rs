@@ -242,8 +242,8 @@ impl crate::stream_host::__Stateless_RawStreams for HostRawStreams {
             let mut f = r.fault.as_ref().unwrap().clone();
             return Union2::<i32, Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &f)));
         }
-        append_platform(buf, &r.data);
-        return Union2::<i32, Union2<InvalidUtf8, StreamFailed>>::U1(ok(size_platform(&r.data)));
+        crate::core_bytes::append_platform(buf, &r.data);
+        return Union2::<i32, Union2<InvalidUtf8, StreamFailed>>::U1(ok(crate::core_bytes::size_platform(&r.data)));
     }
 
     fn raw_read_to_str(&self, handle: i64, buf: &mut String) -> Union2<i64, Union2<InvalidUtf8, StreamFailed>> {
@@ -255,12 +255,12 @@ impl crate::stream_host::__Stateless_RawStreams for HostRawStreams {
             checkin_in(handle, e);
             return Union2::<i64, Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &f)));
         }
-        let mut count = ((size_platform(&r.data)) as i64);
+        let mut count = ((crate::core_bytes::size_platform(&r.data)) as i64);
         let mut text = decode(&mut e, &r.data);
         checkin_in(handle, e);
         if text.is_some() {
             let mut t = text.as_ref().unwrap().clone();
-            buf.push_str(&t[..]);
+            crate::core_string::append_platform(buf, &t);
             return Union2::<i64, Union2<InvalidUtf8, StreamFailed>>::U1(ok(count));
         }
         return Union2::<i64, Union2<InvalidUtf8, StreamFailed>>::U2(err(kind(source, &(crate::runtime_streams::Fault { utf8: true, message: "".to_string() }))));
@@ -270,7 +270,7 @@ impl crate::stream_host::__Stateless_RawStreams for HostRawStreams {
         let mut line = next_line(handle);
         if line.is_some() {
             let mut t = line.as_ref().unwrap().clone();
-            buf.push_str(&t[..]);
+            crate::core_string::append_platform(buf, &t);
             return true;
         }
         return false;
@@ -296,7 +296,7 @@ impl crate::stream_host::__Stateless_RawStreams for HostRawStreams {
 
     fn raw_write(&self, handle: i64, text: &String) -> i64 {
         let mut e = checkout_out(handle.clone());
-        let mut n = write(&mut e, &(to_bytes_platform(text)));
+        let mut n = write(&mut e, &(crate::core_bytes::to_bytes_platform(text)));
         checkin_out(handle, e);
         return n;
     }

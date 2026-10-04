@@ -13,10 +13,10 @@ use crate::stream::*;
 use crate::unions::*;
 
 pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
-    if path.starts_with(&"/".to_string()[..]) {
+    if crate::core_string::starts_with_platform(path, &("/".to_string())) {
         return None;
     }
-    let mut segs = path.split(&"/".to_string()[..]).map(|__p| __p.to_string()).collect::<Vec<String>>();
+    let mut segs = crate::core_string::split_platform(path, &("/".to_string()));
     let mut kept: Vec<String> = vec![];
     let mut skip = 0;
     let mut i = (segs.len() as i32) - 1;
@@ -25,7 +25,7 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
         if seg.clone() == "..".to_string() {
             skip = skip + 1;
         } else {
-            if ((seg.chars().count() as i32) == 0 || seg.clone() == ".".to_string()) {
+            if crate::core_string::size_platform(seg) == 0 || seg.clone() == ".".to_string() {
             } else {
                 if skip > 0 {
                     skip = skip - 1;
@@ -45,8 +45,8 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
         parts.push(kept.get((j) as i64 as usize).expect("salvo: value is absent at fs.restricted:58:24").clone());
         j = j - 1;
     }
-    let mut rel = parts.join(&"/".to_string()[..]);
-    if ((rel.chars().count() as i32) == 0) {
+    let mut rel = crate::core_string::join_platform(&parts, &("/".to_string()));
+    if crate::core_string::size_platform(&rel) == 0 {
         return Some(root.clone());
     }
     return Some(format!("{}/{}", root.clone(), rel));

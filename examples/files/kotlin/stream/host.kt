@@ -19,8 +19,8 @@ interface RawStreams {
     fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>>
     fun rawReadBytes(handle: Long, max: Int): Union2<salvo.platform.core.bytes.Bytes, Union2<InvalidUtf8, StreamFailed>>
     fun rawReadToBytes(handle: Long, buf: salvo.platform.core.bytes.MutBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>>
-    fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>>
-    fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean
+    fun rawReadToStr(handle: Long, buf: salvo.platform.core.string.MutStr): Union2<Long, Union2<InvalidUtf8, StreamFailed>>
+    fun rawReadLineToStr(handle: Long, buf: salvo.platform.core.string.MutStr): Boolean
     fun rawReadPosition(handle: Long): Long
     fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>>
     fun rawWrite(handle: Long, text: String): Long
@@ -56,12 +56,12 @@ class __Mon_RawStreams(
         lock.lock()
         try { return inner.rawReadToBytes(handle, buf, max) } finally { lock.unlock() }
     }
-    override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>> {
+    override fun rawReadToStr(handle: Long, buf: salvo.platform.core.string.MutStr): Union2<Long, Union2<InvalidUtf8, StreamFailed>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.rawReadToStr(handle, buf) } finally { lock.unlock() }
     }
-    override fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean {
+    override fun rawReadLineToStr(handle: Long, buf: salvo.platform.core.string.MutStr): Boolean {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.rawReadLineToStr(handle, buf) } finally { lock.unlock() }
@@ -181,7 +181,7 @@ class HostRawStreams : RawStreams {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>> {
+    override fun rawReadToStr(handle: Long, buf: salvo.platform.core.string.MutStr): Union2<Long, Union2<InvalidUtf8, StreamFailed>> {
         val e = checkoutIn(handle)
         val r = readAll(e)
         val source = e.source
@@ -195,18 +195,18 @@ class HostRawStreams : RawStreams {
         checkinIn(handle, e)
         if (text != null) {
             val t = text as String
-            buf.append(t)
+            appendPlatform(buf, t)
             return Union2.U1<Long, Union2<InvalidUtf8, StreamFailed>>(ok(count))
         }
         return Union2.U2<Long, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, salvo.runtime.streams.Fault(utf8 = true, message = ""))))
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean {
+    override fun rawReadLineToStr(handle: Long, buf: salvo.platform.core.string.MutStr): Boolean {
         val line = nextLine(handle)
         if (line != null) {
             val t = line as String
-            buf.append(t)
+            appendPlatform(buf, t)
             return true
         }
         return false
@@ -363,7 +363,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : salvo.stream.St
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun readTo__2(s: InStream, buf: salvo.platform.core.string.MutStr): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawReadToStr(s.handle, buf)
         when (r) {
             is Union2.U1<*, *> -> {
@@ -375,7 +375,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : salvo.stream.St
         }
     }
 
-    override fun readLineTo(s: InStream, buf: StringBuilder): Boolean {
+    override fun readLineTo(s: InStream, buf: salvo.platform.core.string.MutStr): Boolean {
         return __dep_RawStreams.rawReadLineToStr(s.handle, buf)
     }
 

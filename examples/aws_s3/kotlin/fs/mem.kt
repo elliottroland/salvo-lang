@@ -124,12 +124,12 @@ class MemFs : Fs, salvo.stream.Streams {
         val names: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
         val prefix = "$path/"
         for (key in files.keys) {
-            if (key.startsWith(prefix)) {
-                val rest = key.removePrefix(prefix)
-                val cut = rest.indexOf("/").takeIf { it >= 0 }
+            if (startsWithPlatform(key, prefix)) {
+                val rest = trimPrefixPlatform(key, prefix)
+                val cut = indexOfPlatform(rest, "/")
                 var name = rest
                 if (cut != null) {
-                    val head = run { val __s = rest; val __i = 0; val __j = cut; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null }
+                    val head = substrPlatform(rest, 0, cut)
                     if (head != null) {
                         name = head
                     }
@@ -191,21 +191,21 @@ class MemFs : Fs, salvo.stream.Streams {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun readTo__2(s: InStream, buf: salvo.platform.core.string.MutStr): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val got = memReadAll(reads, s.handle)
         if (got is Union2.U2<*, *>) {
             return Union2.U2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
         val text: String = (got.value as String)
-        buf.append(text)
-        return Union2.U1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(text.toByteArray(Charsets.UTF_8).size.toLong()))
+        appendPlatform(buf, text)
+        return Union2.U1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(byteSizePlatform(text)))
     }
 
-    override fun readLineTo(s: InStream, buf: StringBuilder): Boolean {
+    override fun readLineTo(s: InStream, buf: salvo.platform.core.string.MutStr): Boolean {
         val line = memReadLine(reads, s.handle)
         when {
             line != null -> {
-                buf.append(line)
+                appendPlatform(buf, line)
                 return true
             }
             else -> {
@@ -291,7 +291,7 @@ class MemFs : Fs, salvo.stream.Streams {
 fun fsHasChildren(files: Map<String, salvo.platform.core.bytes.Bytes>, path: String): Boolean {
     val prefix = "$path/"
     for (key in files.keys) {
-        if (key.startsWith(prefix)) {
+        if (startsWithPlatform(key, prefix)) {
             return true
         }
     }
@@ -358,7 +358,7 @@ fun memReadLine(reads: MutableMap<Long, MemRead>, handle: Long): String? {
         return null
     }
     reads.put(handle, MemRead(source = open.source, data = bytes, at = nextAt, failed = false))
-    return text.removeSuffix("\r")
+    return trimSuffixPlatform(text, "\r")
 }
 
 fun memReadAll(reads: MutableMap<Long, MemRead>, handle: Long): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>> {

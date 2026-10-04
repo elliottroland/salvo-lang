@@ -317,7 +317,7 @@ pub fn drop_exported_task(t: ExportedTask) {
     let __destructured1 = t;
     let mut pool = __destructured1.pool;
     let mut body = __destructured1.body;
-    drop_body_platform(body);
+    crate::runtime::drop_body_platform(body);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -712,7 +712,7 @@ pub fn bump_in(versions: &mut SalvoMap<i32, i64>, waiters: &mut Vec<ViewWaiter>,
     while i < (waiters.len() as i32) {
         if waiters.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:171:12").group == group {
             let mut w = waiters.salvo_remove_at(i.clone()).expect("salvo: value is absent at runtime.routing:172:21");
-            unpark_platform(&(w.parker.clone()));
+            crate::runtime::unpark_platform(&(w.parker.clone()));
         } else {
             i = i + 1;
         }
@@ -1145,7 +1145,7 @@ pub fn identity_in(remote: &SalvoMap<i32, RemoteRef>, bits: &mut SalvoMap<i32, i
 
 pub fn wake_senders(waiters: &mut Vec<Parker>) {
     while ((waiters.len() as i32) > 0) {
-        unpark_platform(&(waiters.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:554:16")));
+        crate::runtime::unpark_platform(&(waiters.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:554:16")));
     }
 }
 
@@ -1242,7 +1242,7 @@ pub fn send_remote(addr: i32, proto: String, payload: Bytes) {
         return;
     }
     loop {
-        let mut got = __module_use_0().take_credit(addr.clone(), this_parker_platform());
+        let mut got = __module_use_0().take_credit(addr.clone(), crate::runtime::this_parker_platform());
         if got == 1 {
             let mut from = here_node();
             let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U1(MsgFrame { to: r.as_ref().unwrap().clone().node, actor: r.as_ref().unwrap().clone().actor, bits: r.as_ref().unwrap().clone().bits, from: from.clone(), proto: proto, payload: payload }));
@@ -1253,7 +1253,7 @@ pub fn send_remote(addr: i32, proto: String, payload: Bytes) {
         if got < 0 || mailbox_dead(addr.clone()) {
             return;
         }
-        park_platform(&(this_parker_platform()));
+        crate::runtime::park_platform(&(crate::runtime::this_parker_platform()));
         if mailbox_dead(addr.clone()) {
             return;
         }
@@ -1282,7 +1282,7 @@ pub fn export_reply(e: Exported) -> ReplyParts {
     }
     if body.is_some() {
         let mut b = body.unwrap();
-        drop_body_platform(b);
+        crate::runtime::drop_body_platform(b);
     }
     if kind == 1 {
         return ReplyParts { node: __module_use_0().node_of_pool(waiter_pool(id.clone())), kind: 1, id: ((id) as i64), slot: slot, bits: 0i64 };
@@ -1460,7 +1460,7 @@ pub fn deliver_answer(a: &AnswerFrame) -> bool {
             answer(mint_task_on(pool, body), value);
             return true;
         }
-        drop_body_platform(body);
+        crate::runtime::drop_body_platform(body);
     }
     return false;
 }
@@ -1505,12 +1505,12 @@ pub fn view_refresh(group: i32) {
 }
 
 pub fn view_wait(group: i32, seen: i64, nanos: i64) {
-    let mut me = this_parker_platform();
+    let mut me = crate::runtime::this_parker_platform();
     let mut id = __module_use_0().add_view_waiter(group, seen, me.clone());
     if id < ((0) as i64) {
         return;
     }
-    park_nanos_platform(&me, nanos);
+    crate::runtime::park_nanos_platform(&me, nanos);
     __module_use_0().drop_view_waiter(id);
 }
 

@@ -29,14 +29,14 @@ fun toStr__4(p: Path): String {
 }
 
 fun isAbsolute(p: Path): Boolean {
-    return p.text.startsWith("/")
+    return startsWithPlatform(p.text, "/")
 }
 
 fun join__2(p: Path, child: String): Path {
-    if (child.startsWith("/") || isEmpty__2(p.text)) {
+    if (startsWithPlatform(child, "/") || isEmpty__2(p.text)) {
         return path(child)
     }
-    if (p.text.endsWith("/")) {
+    if (endsWithPlatform(p.text, "/")) {
         return path("${p.text}$child")
     }
     return path("${p.text}/$child")
@@ -54,7 +54,7 @@ fun parent(p: Path): Path? {
     }
     val (dir, _name) = cut
     if (isEmpty__2(dir)) {
-        if (text.startsWith("/") && text.length > 1) {
+        if (startsWithPlatform(text, "/") && sizePlatform(text) > 1) {
             return path("/")
         }
         return null
@@ -136,7 +136,7 @@ fun withExtension(p: Path, ext: String): Path {
 
 fun segments(p: Path): MutableList<String> {
     val out = mutableListOf<String>()
-    for (part in p.text.split("/").toMutableList()) {
+    for (part in splitPlatform(p.text, "/")) {
         if (!isEmpty__2(part)) {
             out.add(part)
         }
@@ -146,8 +146,8 @@ fun segments(p: Path): MutableList<String> {
 
 fun trimTrailingSlashes(text: String): String {
     var t = text
-    while (t.length > 1 && t.endsWith("/")) {
-        t = t.removeSuffix("/")
+    while (sizePlatform(t) > 1 && endsWithPlatform(t, "/")) {
+        t = trimSuffixPlatform(t, "/")
     }
     return t
 }

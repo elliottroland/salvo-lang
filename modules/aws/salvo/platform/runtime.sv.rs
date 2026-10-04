@@ -1895,15 +1895,15 @@ pub fn deadlock_report(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>,
     };
     let mut clauses: Vec<String> = vec![];
     if ((occupied.len() as i32) > 0) {
-        clauses.push(format!("parked in a wait: {}", occupied.join(&", ".to_string()[..])));
+        clauses.push(format!("parked in a wait: {}", crate::core_string::join_platform(&occupied, &(", ".to_string()))));
     }
     if ((gated.len() as i32) > 0) {
-        clauses.push(format!("parked gates: {}", gated.join(&", ".to_string()[..])));
+        clauses.push(format!("parked gates: {}", crate::core_string::join_platform(&gated, &(", ".to_string()))));
     }
     let mut detail = if ((clauses.len() as i32) == 0) {
         "".to_string()
     } else {
-        format!(" ({})", clauses.join(&"; ".to_string()[..]))
+        format!(" ({})", crate::core_string::join_platform(&clauses, &("; ".to_string())))
     };
     return format!("salvo: deadlock: nothing can run while {} waits{}", who, detail);
 }

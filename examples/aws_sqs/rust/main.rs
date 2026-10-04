@@ -49,6 +49,8 @@ pub mod runtime_routing;
 pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/string.rs"]
+pub mod platform_core_string;
 #[path = "platform/runtime/routing.rs"]
 pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]

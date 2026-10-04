@@ -29,6 +29,8 @@ pub mod core_sorted;
 pub mod core_string;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/string.rs"]
+pub mod platform_core_string;
 
 use crate::collections::*;
 use crate::core_console::*;

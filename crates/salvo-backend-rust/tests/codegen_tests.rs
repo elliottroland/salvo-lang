@@ -7056,32 +7056,17 @@ fn mut_str_is_a_plain_string() {
     // the flow analysis, so an owned `vec![pa]` would move a variable the
     // checker still considers live.
     assert!(
-        main.contains(r#"let mut x = [&pa[..]].concat();"#),
+        main.contains(r#"let mut x = mut_str(vec![pa.clone()]);"#),
         "unexpected:\n{main}"
     );
-    // Characters, not bytes — `find` answers in bytes, so the prefix is
-    // re-counted.
+    // [platform-value-type] The operations are std's host code
+    // (`std/platform/core/string.rs`), called through their wrappers; a
+    // `Mut Str` goes as `&mut`.
     assert!(
-        main.contains("__s.find(&ll[..]).map(|__b| __s[..__b].chars().count() as i32)"),
+        main.contains("crate::core_string::index_of_platform(&hay, &ll)"),
         "unexpected:\n{main}"
     );
-    // [rs-mut-str] `set` goes through the generated trait: method syntax
-    // auto-refs an owned local and a `&mut String` parameter alike.
-    assert!(main.contains("b.salvo_set(0, 'H')"), "unexpected:\n{main}");
-    assert!(
-        main.contains("use crate::strings::*;"),
-        "unexpected:\n{main}"
-    );
-    let support = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "strings.rs")
-        .expect("strings.rs emitted");
-    assert!(
-        support.content.contains("pub trait SalvoStr")
-            && support.content.contains("impl SalvoStr for String"),
-        "unexpected:\n{}",
-        support.content
-    );
+    assert!(main.contains("crate::core_string::set_platform(&mut b, 0, 'H')"), "unexpected:\n{main}");
     // The support file is only generated when something needs it.
     let plain = generate(&[("main.sv", "export fn main() {\n}\n")]);
     assert!(
@@ -7124,7 +7109,7 @@ export fn main() [use] {
     // [fn-variadic], so a lone spread reaches the purely variadic intrinsics —
     // which is where this lowering lives anyway.
     assert!(
-        main.contains("let mut sb = parts.concat();")
+        main.contains("let mut sb = mut_str(parts.clone());")
             && main.contains("parts.iter().cloned()"),
         "unexpected:\n{main}"
     );
@@ -7171,11 +7156,11 @@ fn rustc_compiles_and_runs_mut_str_places() {
     // A `Mut Str` parameter is a `&mut String`, and the helper is reached by
     // method syntax on it.
     assert!(
-        main.contains("pub fn grow(s: &mut String)") && main.contains("s.salvo_set(0, 'G')"),
+        main.contains("pub fn grow(s: &mut String)") && main.contains("crate::core_string::set_platform(s, 0, 'G')"),
         "unexpected:\n{main}"
     );
     assert!(
-        main.contains("buf.text.salvo_set(0, 'I')"),
+        main.contains("crate::core_string::set_platform(&mut buf.text, 0, 'I')"),
         "unexpected:\n{main}"
     );
     run_rust_files(&files, "mut-str-places", "grown 5\nIn-struct!\n");
@@ -13952,7 +13937,7 @@ fn an_intrinsic_argument_takes_the_intrinsics_own_mode() {
     // A kept parameter: the unwrap's `&String` goes straight into the template.
     assert!(
         main.contains(
-            "if maybe.as_ref().expect(\"salvo: value is absent at main:5:17\").contains("
+            "if crate::core_string::contains_platform(maybe.as_ref().expect(\"salvo: value is absent at main:5:17\"), "
         ),
         "a kept intrinsic argument cloned:\n{main}"
     );
@@ -14020,7 +14005,7 @@ fn a_narrowed_read_borrows_unless_the_position_owns() {
     // A kept intrinsic parameter and a kept declared one: the unwrap's `&String`
     // stands as the argument — no clone, and no `&` in front of it either.
     assert!(
-        main.contains("(name.as_ref().unwrap().chars().count() as i32)"),
+        main.contains("crate::core_string::size_platform(name.as_ref().unwrap())"),
         "a narrowed intrinsic argument cloned:\n{main}"
     );
     assert!(

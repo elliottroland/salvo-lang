@@ -95,7 +95,7 @@ impl crate::fs::__Stateful_Fs for MemFs {
         if at < 0 {
             at = 0;
         }
-        let mut end = size_platform(content.unwrap());
+        let mut end = crate::core_bytes::size_platform(content.unwrap());
         if at > end {
             at = end;
         }
@@ -116,7 +116,7 @@ impl crate::fs::__Stateful_Fs for MemFs {
         let mut start = mut_bytes(vec![]);
         if existing.is_none() {
         } else {
-            append_platform(&mut start, existing.unwrap());
+            crate::core_bytes::append_platform(&mut start, existing.unwrap());
         }
         let mut handle = fresh_handle__2();
         self.writes.insert(handle.clone(), MemWrite { path: path.clone(), buffer: start });
@@ -138,7 +138,7 @@ impl crate::fs::__Stateful_Fs for MemFs {
             }
             return Union2::<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path.clone() }))));
         }
-        return Union2::<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(FileInfo { size: ((size_platform(content.unwrap())) as i64), is_dir: false }));
+        return Union2::<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(FileInfo { size: ((crate::core_bytes::size_platform(content.unwrap())) as i64), is_dir: false }));
     }
 
     fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
@@ -151,12 +151,12 @@ impl crate::fs::__Stateful_Fs for MemFs {
         let mut names: SalvoSet<String> = SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]);
         let mut prefix = format!("{}/", path.clone());
         for mut key in self.files.clone().keys().cloned().collect::<Vec<_>>() {
-            if key.starts_with(&prefix[..]) {
-                let mut rest = { let __s = &key[..]; __s.strip_prefix(&prefix[..]).unwrap_or(__s).to_string() };
-                let mut cut = { let __s = &rest[..]; __s.find(&"/".to_string()[..]).map(|__b| __s[..__b].chars().count() as i32) };
+            if crate::core_string::starts_with_platform(&key, &prefix) {
+                let mut rest = crate::core_string::trim_prefix_platform(&key, &prefix);
+                let mut cut = crate::core_string::index_of_platform(&rest, &("/".to_string()));
                 let mut name = rest.clone();
                 if cut.is_some() {
-                    let mut head = { let __s = &rest[..]; let __i = 0; let __j = cut.unwrap(); let __n = __s.chars().count() as i32; if __i >= 0 && __j >= __i && __j <= __n { Some(__s.chars().skip(__i as usize).take((__j - __i) as usize).collect::<String>()) } else { None } };
+                    let mut head = crate::core_string::substr_platform(&rest, 0, cut.unwrap());
                     if head.is_some() {
                         name = head.as_ref().unwrap().clone();
                     }
@@ -215,8 +215,8 @@ impl crate::stream::__Stateful_Streams for MemFs {
             return Union2::<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         let mut data: Bytes = got.u1().clone();
-        append_platform(buf, &data);
-        return Union2::<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(size_platform(&data)));
+        crate::core_bytes::append_platform(buf, &data);
+        return Union2::<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(crate::core_bytes::size_platform(&data)));
     }
 
     fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>> {
@@ -225,15 +225,15 @@ impl crate::stream::__Stateful_Streams for MemFs {
             return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         let mut text: String = got.u1().clone();
-        buf.push_str(&text[..]);
-        return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok((text.len() as i64)));
+        crate::core_string::append_platform(buf, &text);
+        return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(crate::core_string::byte_size_platform(&text)));
     }
 
     fn read_line_to(&mut self, s: &InStream, buf: &mut String) -> bool {
         let mut line = mem_read_line(&mut self.reads, s.handle);
         match line {
             Some(_) => {
-                buf.push_str(&line.as_ref().unwrap()[..]);
+                crate::core_string::append_platform(buf, line.as_ref().unwrap());
                 return true;
             }
             None => {
@@ -269,7 +269,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
             return;
         }
         let mut data: Bytes = got.u1().clone();
-        if size_platform(&data) == 0 {
+        if crate::core_bytes::size_platform(&data) == 0 {
             self.reads.remove(&s.handle);
             drop(s);
             (reply).send(std::boxed::Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(End {  })));
@@ -285,11 +285,11 @@ impl crate::stream::__Stateful_Streams for MemFs {
     }
 
     fn write(&mut self, s: &OutStream, text: &String) -> i64 {
-        return mem_append(&mut self.writes, s.handle, &(to_bytes_platform(text)));
+        return mem_append(&mut self.writes, s.handle, &(crate::core_bytes::to_bytes_platform(text)));
     }
 
     fn write_line(&mut self, s: &OutStream, text: &String) -> i64 {
-        return mem_append(&mut self.writes, s.handle, &(to_bytes_platform(&(format!("{}\n", text.clone())))));
+        return mem_append(&mut self.writes, s.handle, &(crate::core_bytes::to_bytes_platform(&(format!("{}\n", text.clone())))));
     }
 
     fn write_bytes(&mut self, s: &OutStream, data: &Bytes) -> i64 {
@@ -297,7 +297,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
     }
 
     fn position__2(&mut self, s: &OutStream) -> i64 {
-        return ((size_platform(&mem_write_state(&self.writes, s.handle).buffer)) as i64);
+        return ((crate::core_bytes::size_platform(&mem_write_state(&self.writes, s.handle).buffer)) as i64);
     }
 
     fn flush(&mut self, s: &OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
@@ -318,7 +318,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
 pub fn fs_has_children(files: &SalvoMap<String, Bytes>, path: &String) -> bool {
     let mut prefix = format!("{}/", path.clone());
     for mut key in files.clone().keys().cloned().collect::<Vec<_>>() {
-        if key.starts_with(&prefix[..]) {
+        if crate::core_string::starts_with_platform(&key, &prefix) {
             return true;
         }
     }
@@ -326,10 +326,10 @@ pub fn fs_has_children(files: &SalvoMap<String, Bytes>, path: &String) -> bool {
 }
 
 pub fn mem_find_newline(data: &Bytes, from: i32) -> i32 {
-    let mut end = size_platform(data);
+    let mut end = crate::core_bytes::size_platform(data);
     let mut i = from;
     while i < end {
-        if (((get_platform(data, i).expect("salvo: value is absent at fs.mem:311:19")) as i32) == 10) {
+        if (((crate::core_bytes::get_platform(data, i).expect("salvo: value is absent at fs.mem:311:19")) as i32) == 10) {
             return i;
         }
         i = i + 1;
@@ -340,10 +340,10 @@ pub fn mem_find_newline(data: &Bytes, from: i32) -> i32 {
 pub fn mem_append(writes: &mut SalvoMap<i64, MemWrite>, handle: i64, data: &Bytes) -> i64 {
     let mut open = mem_write_state(writes, handle);
     let mut grown = mut_bytes(vec![open.buffer.clone()]);
-    append_platform(&mut grown, data);
+    crate::core_bytes::append_platform(&mut grown, data);
     let mut buffer: Bytes = grown;
     writes.insert(handle.clone(), MemWrite { path: open.path.clone(), buffer: buffer });
-    return ((size_platform(data)) as i64);
+    return ((crate::core_bytes::size_platform(data)) as i64);
 }
 
 pub fn mem_read_state(reads: &SalvoMap<i64, MemRead>, handle: i64) -> MemRead {
@@ -369,23 +369,23 @@ pub fn mem_read_line(reads: &mut SalvoMap<i64, MemRead>, handle: i64) -> Option<
     }
     let mut at = &open.at;
     let mut bytes: Bytes = open.data.clone();
-    let mut end = size_platform(&bytes);
+    let mut end = crate::core_bytes::size_platform(&bytes);
     if *at >= end {
         return None;
     }
     let mut stop = mem_find_newline(&bytes, *at);
-    let mut line = slice_platform(&bytes, *at, stop).expect("salvo: value is absent at fs.mem:370:16");
+    let mut line = crate::core_bytes::slice_platform(&bytes, *at, stop).expect("salvo: value is absent at fs.mem:370:16");
     let mut next_at = stop;
     if stop < end {
         next_at = stop + 1;
     }
-    let mut text = str_of_bytes_platform(&line);
+    let mut text = crate::core_bytes::str_of_bytes_platform(&line);
     if text.is_none() {
         reads.insert(handle.clone(), MemRead { source: open.source.clone(), data: bytes, at: next_at, failed: true });
         return None;
     }
     reads.insert(handle.clone(), MemRead { source: open.source.clone(), data: bytes, at: next_at, failed: false });
-    return Some({ let __s = &text.as_ref().unwrap()[..]; __s.strip_suffix(&"\r".to_string()[..]).unwrap_or(__s).to_string() });
+    return Some(crate::core_string::trim_suffix_platform(text.as_ref().unwrap(), &("\r".to_string())));
 }
 
 pub fn mem_read_all(reads: &mut SalvoMap<i64, MemRead>, handle: i64) -> Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>> {
@@ -395,9 +395,9 @@ pub fn mem_read_all(reads: &mut SalvoMap<i64, MemRead>, handle: i64) -> Union2<S
         return Union2::<String, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(err(checked(Union2::<InvalidUtf8, StreamFailed>::U1(InvalidUtf8 { source: source }))));
     }
     let mut bytes: Bytes = open.data.clone();
-    let mut end = size_platform(&bytes);
-    let mut rest = slice_platform(&bytes, open.at, end).expect("salvo: value is absent at fs.mem:394:16");
-    let mut text = str_of_bytes_platform(&rest);
+    let mut end = crate::core_bytes::size_platform(&bytes);
+    let mut rest = crate::core_bytes::slice_platform(&bytes, open.at, end).expect("salvo: value is absent at fs.mem:394:16");
+    let mut text = crate::core_bytes::str_of_bytes_platform(&rest);
     if text.is_none() {
         reads.insert(handle.clone(), MemRead { source: source.clone(), data: bytes, at: end, failed: true });
         return Union2::<String, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(err(checked(Union2::<InvalidUtf8, StreamFailed>::U1(InvalidUtf8 { source: source.clone() }))));
@@ -417,11 +417,11 @@ pub fn mem_read_bytes(reads: &mut SalvoMap<i64, MemRead>, handle: i64, max: i32)
     if max < 0 {
         stop = open.at;
     }
-    let mut end = size_platform(&bytes);
+    let mut end = crate::core_bytes::size_platform(&bytes);
     if stop > end {
         stop = end;
     }
-    let mut taken = slice_platform(&bytes, open.at, stop).expect("salvo: value is absent at fs.mem:420:17");
+    let mut taken = crate::core_bytes::slice_platform(&bytes, open.at, stop).expect("salvo: value is absent at fs.mem:420:17");
     reads.insert(handle.clone(), MemRead { source: source.clone(), data: bytes, at: stop, failed: false });
     return Union2::<Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(taken));
 }

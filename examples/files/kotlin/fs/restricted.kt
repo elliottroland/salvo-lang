@@ -14,10 +14,10 @@ import salvo.fs.*
 import salvo.stream.*
 
 fun fsResolve(root: String, path: String): String? {
-    if (path.startsWith("/")) {
+    if (startsWithPlatform(path, "/")) {
         return null
     }
-    val segs = path.split("/").toMutableList()
+    val segs = splitPlatform(path, "/")
     val kept: MutableList<String> = mutableListOf<String>()
     var skip = 0
     var i = segs.size - 1
@@ -26,7 +26,7 @@ fun fsResolve(root: String, path: String): String? {
         if (seg == "..") {
             skip = skip + 1
         } else {
-            if (seg.length == 0 || seg == ".") {
+            if (sizePlatform(seg) == 0 || seg == ".") {
             } else {
                 if (skip > 0) {
                     skip = skip - 1
@@ -46,8 +46,8 @@ fun fsResolve(root: String, path: String): String? {
         parts.add((kept.getOrNull(j) ?: throw AssertionError("salvo: value is absent at fs.restricted:58:24")))
         j = j - 1
     }
-    val rel = parts.joinToString("/")
-    if (rel.length == 0) {
+    val rel = joinPlatform(parts, "/")
+    if (sizePlatform(rel) == 0) {
         return root
     }
     return "$root/$rel"

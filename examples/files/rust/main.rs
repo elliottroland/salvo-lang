@@ -61,6 +61,8 @@ pub mod stream_host;
 pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/string.rs"]
+pub mod platform_core_string;
 #[path = "platform/fs/host.rs"]
 pub mod platform_fs_host;
 #[path = "platform/runtime/routing.rs"]
@@ -125,7 +127,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
     let mut text = read_to_str(fs, streams, &("notes.txt".to_string()));
     match text {
         Union2::U1(_) => {
-            println(console, &(format!("read back {} bytes", (text.u1().len() as i64))));
+            println(console, &(format!("read back {} bytes", crate::core_string::byte_size_platform(text.u1()))));
         }
         Union2::U2(_) => {
             println(console, &(format!("read failed: {}", kind_name(&(detach((match text { Union2::U2(__v) => __v, _ => unreachable!() })))))));
@@ -209,7 +211,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             let mut head = streams.read_bytes(&s, 3);
             match head {
                 Union2::U1(_) => {
-                    println(console, &(format!("first three: {} = {}", to_str_platform(&head.u1().clone()), to_hex_platform(head.u1()))));
+                    println(console, &(format!("first three: {} = {}", crate::core_bytes::to_str_platform(&head.u1().clone()), crate::core_bytes::to_hex_platform(head.u1()))));
                 }
                 Union2::U2(_) => {
                     println(console, &(format!("byte read failed: {}", kind_name__2(&(detach((match head { Union2::U2(__v) => __v, _ => unreachable!() })))))));
@@ -269,7 +271,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             let mut moved = 0;
             let mut reading = true;
             while reading {
-                clear_platform(&mut buf);
+                crate::core_bytes::clear_platform(&mut buf);
                 let mut got = streams.read_to(&s, &mut buf, 4);
                 match got {
                     Union2::U1(_) => {
@@ -301,14 +303,14 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
     match lined {
         Union2::U1(_) => {
             let mut s: InStream = lined.u1().clone();
-            let mut line = String::new();
+            let mut line = mut_str(vec![]);
             let mut longest = 0;
             let mut reading = true;
             while reading {
-                line.clear();
+                crate::core_string::clear_platform(&mut line);
                 if streams.read_line_to(&s, &mut line) {
-                    if ((line.chars().count() as i32) > longest) {
-                        longest = (line.chars().count() as i32);
+                    if crate::core_string::size_platform(&line) > longest {
+                        longest = crate::core_string::size_platform(&line);
                     }
                 } else {
                     reading = false;
@@ -330,7 +332,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             let mut p = ch.u1().clone();
             let mut seen = 0;
             while let Union2::U1(mut chunk) = next__22(streams, &mut p) {
-                seen = seen + size_platform(&chunk);
+                seen = seen + crate::core_bytes::size_platform(&chunk);
             }
             println(console, &(format!("chunks saw {} bytes", seen)));
             let mut done = close__3(streams, p);
@@ -354,7 +356,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
     let mut whole = read_to_bytes(fs, streams, &("raw.bin".to_string()));
     match whole {
         Union2::U1(_) => {
-            println(console, &(format!("raw.bin is {} bytes: {}", size_platform(whole.u1()), to_hex_platform(whole.u1()))));
+            println(console, &(format!("raw.bin is {} bytes: {}", crate::core_bytes::size_platform(whole.u1()), crate::core_bytes::to_hex_platform(whole.u1()))));
         }
         Union2::U2(_) => {
             println(console, &(format!("byte read failed: {}", kind_name(&(detach((match whole { Union2::U2(__v) => __v, _ => unreachable!() })))))));

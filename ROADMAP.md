@@ -79,7 +79,12 @@ and the `test actor` follow-ups recorded below:
 7. **Every collection as a platform type** — in progress: the mechanism
    and `Bytes` are built [platform-value-type] (2026-10-04, convention (c):
    the host names the mutable kind `Mut<Name>`, Kotlin provides `copy`).
-   Next `Str`, `List`, `Deque`, `Set`, `Map`, the sorted pair. Lost with
+   `Str` too (its type still renders natively, `String`/`StringBuilder`,
+   which the host types alias). Next `List`, `Deque`, `Set`, `Map`, the
+   sorted pair — whose accessors answer a borrow (`get -> (proj(list) T)?`),
+   which the platform boundary refuses today (P7); the plan is to lift that
+   for std's own platform fns only, a result `proj(p)` of the one borrowed
+   parameter `p`, so customer code's boundary is unchanged. Lost with
    `Bytes` and to be won back generally: the native `for` over a buffer
    (now the `BytesYield` pass). (User decision 2026-10-04,
    replacing runtime step 17 and widening §12's scope, which had kept the

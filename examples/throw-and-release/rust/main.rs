@@ -31,6 +31,8 @@ pub mod core_string;
 pub mod throw;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/string.rs"]
+pub mod platform_core_string;
 
 use crate::core_console::*;
 use crate::core_iterator::*;
@@ -71,7 +73,7 @@ pub fn close__4(console: &crate::core_console::Console, handle: FileHandle) {
 }
 
 pub fn read_size(console: &crate::core_console::Console, name: String, want: i32) -> i32 {
-    let mut there_is = (name.chars().count() as i32);
+    let mut there_is = crate::core_string::size_platform(&name);
     let mut handle = open_file(console, name);
     if want > there_is {
         println(console, &("1. asked for more than there is".to_string()));
@@ -83,7 +85,7 @@ pub fn read_size(console: &crate::core_console::Console, name: String, want: i32
 }
 
 pub fn parse_port(text: &String) -> ControlFlow<String, i32> {
-    let mut n = text.parse::<i32>().ok();
+    let mut n = crate::core_string::parse_int_platform(text);
     if n.is_none() {
         return ControlFlow::Break(format!("not a number: {}", text.clone()));
     }
@@ -107,12 +109,12 @@ pub fn port_from_file(console: &crate::core_console::Console, name: String, text
 }
 
 pub fn strict_port(text: &String) -> ControlFlow<Union2<String, i32>, i32> {
-    if ((text.chars().count() as i32) == 0) {
+    if crate::core_string::size_platform(text) == 0 {
         return ControlFlow::Break(Union2::<String, i32>::U1("empty".to_string()));
     }
-    let mut n = text.parse::<i32>().ok();
+    let mut n = crate::core_string::parse_int_platform(text);
     if n.is_none() {
-        return ControlFlow::Break(Union2::<String, i32>::U2((text.chars().count() as i32)));
+        return ControlFlow::Break(Union2::<String, i32>::U2(crate::core_string::size_platform(text)));
     }
     return ControlFlow::Continue(n.unwrap());
 }

@@ -10,15 +10,27 @@
 // than a widening [str-drop-mut] — so the surface is declared once, on
 // `Str`, and the three mutators at the bottom are the only functions that
 // take a `Mut Str`.
-export intrinsic type Str canbe Mut
+// [platform-value-type] A value platform type (ROADMAP 0.7): the host
+// implements it in `std/platform/core/string.{rs,kt}`, and names the mutable
+// kind `MutStr`.
+export platform type Str canbe Mut
 
 // Builds a mutable string from [parts] (concatenated in order). A string
 // *literal* is a `Str`, never a `Mut Str`: mutability is asked for here,
 // mirroring [mut_list_of].
-export intrinsic fn mut_str(...parts: Str[]) [] -> Mut Str => parts
+export fn mut_str(...parts: Str[]) [] -> Mut Str => parts {
+    let out = empty_str()
+    for part in parts {
+        append(out, part)
+    }
+    return out
+}
+
+// An empty string to build: what [mut_str] starts from.
+platform fn empty_str() [] -> Mut Str
 
 // Returns the number of characters in the string
-export intrinsic fn size(str: Str) [] -> Int => str
+export platform fn size(str: Str) [] -> Int => str
 
 // The number of **bytes** [str] takes in UTF-8 — the unit every byte offset in
 // the filesystem surface is counted in [fs-token]: `write` answers one,
@@ -26,11 +38,11 @@ export intrinsic fn size(str: Str) [] -> Int => str
 // name from [size], which counts characters, because the two differ the
 // moment a string leaves ASCII and confusing them silently corrupts an
 // offset.
-export intrinsic fn byte_size(str: Str) [] -> Long => str
+export platform fn byte_size(str: Str) [] -> Long => str
 
 // Returns the character at the given index, or null if it is beyond the length
 // of the string.
-export intrinsic fn char_at(str: Str, index: Int) [] -> Char? => str, index
+export platform fn char_at(str: Str, index: Int) [] -> Char? => str, index
 
 // [iter-mint] A fresh iterator over the characters of [str], in order — which is
 // what makes every sequence function work on strings.
@@ -61,52 +73,56 @@ export fn next(p: Mut StrYield) [] -> Emitted Char | Finished => p: Mut {
 // Splits [str] around every occurrence of [sep]. An empty [str] yields one
 // (empty) part; a [sep] that never occurs yields [str] whole. The parts are a
 // list of your own to change [str-mut-results].
-export intrinsic fn split(str: Str, sep: Str) [] -> Mut List<Str> => str, sep
+export platform fn split(str: Str, sep: Str) [] -> Mut List<Str> => str, sep
 
 // The index of the first occurrence of [needle] in [str], or `None` when it
 // does not occur. No `-1` sentinel: absence is `None` [type-nullable].
-export intrinsic fn index_of(str: Str, needle: Str) [] -> Int? => str, needle
+export platform fn index_of(str: Str, needle: Str) [] -> Int? => str, needle
 
 // [str-search] The index of the first occurrence of [needle] at or after
 // [from], or `None`. A [from] below 0 searches from the start.
-export intrinsic fn index_of(str: Str, needle: Str, from: Int) [] -> Int? => str, needle, from
+export fn index_of(str: Str, needle: Str, from: Int) [] -> Int? => str, needle, from {
+    return index_of_from(str, needle, from)
+}
+
+platform fn index_of_from(str: Str, needle: Str, from: Int) [] -> Int? => str, needle, from
 
 // [str-search] The index of the last occurrence of [needle] in [str], or
 // `None`.
-export intrinsic fn last_index_of(str: Str, needle: Str) [] -> Int? => str, needle
+export platform fn last_index_of(str: Str, needle: Str) [] -> Int? => str, needle
 
 // [str-search] [str] with every occurrence of [from] replaced by [to].
-export intrinsic fn replace(str: Str, from: Str, to: Str) [] -> Str => str, from, to
+export platform fn replace(str: Str, from: Str, to: Str) [] -> Str => str, from, to
 
 // [str] without leading whitespace
-export intrinsic fn trim_start(str: Str) [] -> Str => str
+export platform fn trim_start(str: Str) [] -> Str => str
 
 // [str] without trailing whitespace
-export intrinsic fn trim_end(str: Str) [] -> Str => str
+export platform fn trim_end(str: Str) [] -> Str => str
 
 // Whether [needle] occurs anywhere in [str]
-export intrinsic fn contains(str: Str, needle: Str) [] -> Bool => str, needle
+export platform fn contains(str: Str, needle: Str) [] -> Bool => str, needle
 
 // Whether [str] begins with [prefix]
-export intrinsic fn starts_with(str: Str, prefix: Str) [] -> Bool => str, prefix
+export platform fn starts_with(str: Str, prefix: Str) [] -> Bool => str, prefix
 
 // Whether [str] ends with [suffix]
-export intrinsic fn ends_with(str: Str, suffix: Str) [] -> Bool => str, suffix
+export platform fn ends_with(str: Str, suffix: Str) [] -> Bool => str, suffix
 
 // [str] without leading and trailing whitespace
-export intrinsic fn trim(str: Str) [] -> Str => str
+export platform fn trim(str: Str) [] -> Str => str
 
 // [str] without a leading [prefix] — unchanged when it does not start with
 // one, so the caller needs no `starts_with` test first.
-export intrinsic fn trim_prefix(str: Str, prefix: Str) [] -> Str => str, prefix
+export platform fn trim_prefix(str: Str, prefix: Str) [] -> Str => str, prefix
 
 // [str] without a trailing [suffix] — unchanged when it does not end with
 // one.
-export intrinsic fn trim_suffix(str: Str, suffix: Str) [] -> Str => str, suffix
+export platform fn trim_suffix(str: Str, suffix: Str) [] -> Str => str, suffix
 
 // The characters of [str] from [start] (inclusive) to [end] (exclusive), or
 // `None` when that range does not lie within the string.
-export intrinsic fn substr(str: Str, start: Int, end: Int) [] -> Str? => str, start, end
+export platform fn substr(str: Str, start: Int, end: Int) [] -> Str? => str, start, end
 
 // [col-span] A half-open range into a sequence: [start] inclusive, [end]
 // exclusive. A **struct**, not a tuple — a qualifier cannot apply to a tuple
@@ -135,20 +151,20 @@ export fn substr(str: Str, at: SpanOf(str) Span) [] -> Str => str, at {
 }
 
 // [str] with every character in upper case
-export intrinsic fn to_upper(str: Str) [] -> Str => str
+export platform fn to_upper(str: Str) [] -> Str => str
 
 // [str] with every character in lower case
-export intrinsic fn to_lower(str: Str) [] -> Str => str
+export platform fn to_lower(str: Str) [] -> Str => str
 
 // [parts] concatenated with [sep] between them
-export intrinsic fn join(parts: List<Str>, sep: Str) [] -> Str => parts, sep
+export platform fn join(parts: List<Str>, sep: Str) [] -> Str => parts, sep
 
 // The integer [str] spells, or `None` when it does not spell one
-export intrinsic fn parse_int(str: Str) [] -> Int? => str
+export platform fn parse_int(str: Str) [] -> Int? => str
 
 // Appends [text] to [str]. The string is mutated, which is why its
 // surviving qualifiers are listed exhaustively [deduce-syntax].
-export intrinsic fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text
+export platform fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text
 
 // Replaces the character at [index] with [chr], and answers whether it did.
 // Out of range it writes nothing and answers `false` — the string is the
@@ -157,11 +173,11 @@ export intrinsic fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text
 // [col-bounds] Characters, not encoding units, like every other index into a
 // string; and the `Bool` is the report every out-of-range write in std makes
 // (user decision 2026-09-22).
-export intrinsic fn set(str: Mut Str, index: Int, chr: Char) [] -> Bool
+export platform fn set(str: Mut Str, index: Int, chr: Char) [] -> Bool
 => str: Mut, index, chr
 
 // Removes every character from [str]
-export intrinsic fn clear(str: Mut Str) [] -> None => str: Mut
+export platform fn clear(str: Mut Str) [] -> None => str: Mut
 
 // ===== the string surface written in Salvo [str-salvo] =====
 

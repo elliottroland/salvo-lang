@@ -8534,7 +8534,10 @@ replaced the working document TESTING.md).
     (deep), `Debug`, `PartialEq`, `Eq` and `Hash`, so a struct holding one
     still derives. A value type keeps its canonical wire form where the
     encoding defines one [wire-format] (`Bytes`); otherwise it is `noremote`.
-    `Bytes` is the first; the other collections follow.
+    `Bytes` and `Str` are built; the other collections follow. A platform
+    fn's Rust wrapper is called through its module's path
+    (`crate::core_string::size_platform`), since two modules' wrappers of
+    one name are ambiguous through glob imports.
   * **Always `noremote`** [noremote] — a host object has no wire form, and
     the wire predicate says so for a struct holding one — and
     sendable [actor-sendable] (Rust: `Send + 'static`), so a handle may sit

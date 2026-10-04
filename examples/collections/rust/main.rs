@@ -27,6 +27,8 @@ pub mod core_sorted;
 pub mod core_string;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/string.rs"]
+pub mod platform_core_string;
 
 use crate::collections::*;
 use crate::core_console::*;
@@ -74,7 +76,7 @@ impl crate::wire::__Wire for Note {
 }
 
 pub fn by_len(a: &String, b: &String) -> i32 {
-    return (Ord::cmp(&((a.chars().count() as i32)), &((b.chars().count() as i32))) as i32);
+    return (Ord::cmp(&(crate::core_string::size_platform(a)), &(crate::core_string::size_platform(b))) as i32);
 }
 
 pub fn count_unique(xs: &Vec<i32>) -> i32 {
@@ -129,7 +131,7 @@ pub fn main() {
     let mut deduped = SalvoSet::from_elements::<HostHash, HostEq, _>(primes.iter().cloned());
     println(&console, &(format!("5. to_set {}", deduped.to_string())));
     let mut words = vec!["alpha".to_string(), "be".to_string()];
-    let mut lengths = SalvoMap::from_entries::<HostHash, HostEq, _>(words.iter().map(|w| (w.clone(), (w.chars().count() as i32))));
+    let mut lengths = SalvoMap::from_entries::<HostHash, HostEq, _>(words.iter().map(|w| (w.clone(), crate::core_string::size_platform(w))));
     println(&console, &(format!("5. to_map with a rule {}", lengths.to_string())));
     let mut filled = vec!["ada".to_string(), "grace".to_string()];
     println(&console, &(format!("6. first is {}, no optional", first(&filled))));

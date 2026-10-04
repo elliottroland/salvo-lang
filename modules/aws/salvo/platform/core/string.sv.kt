@@ -13,6 +13,30 @@ import salvo.core.map.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 
+fun mutStr(parts: Array<String>): salvo.platform.core.string.MutStr {
+    val out = emptyStrPlatform()
+    for (part in parts) {
+        appendPlatform(out, part)
+    }
+    return out
+}
+
+fun emptyStrPlatform(): salvo.platform.core.string.MutStr {
+    return salvo.platform.core.string.emptyStr()
+}
+
+fun sizePlatform(str: String): Int {
+    return salvo.platform.core.string.size(str)
+}
+
+fun byteSizePlatform(str: String): Long {
+    return salvo.platform.core.string.byteSize(str)
+}
+
+fun charAtPlatform(str: String, index: Int): Char? {
+    return salvo.platform.core.string.charAt(str, index)
+}
+
 fun iter__9(str: String): StrYield {
     return StrYield(text = str, at = 0)
 }
@@ -23,12 +47,72 @@ data class StrYield(
 )
 
 fun next__20(p: StrYield): Union2<Char, Finished> {
-    val chr = p.text.getOrNull(p.at)
+    val chr = charAtPlatform(p.text, p.at)
     if (chr == null) {
         return Union2.U2<Char, Finished>(finished())
     }
     p.at = p.at + 1
     return Union2.U1<Char, Finished>(emitted(chr))
+}
+
+fun splitPlatform(str: String, sep: String): MutableList<String> {
+    return salvo.platform.core.string.split(str, sep)
+}
+
+fun indexOfPlatform(str: String, needle: String): Int? {
+    return salvo.platform.core.string.indexOf(str, needle)
+}
+
+fun indexOf__2(str: String, needle: String, from: Int): Int? {
+    return indexOfFromPlatform(str, needle, from)
+}
+
+fun indexOfFromPlatform(str: String, needle: String, from: Int): Int? {
+    return salvo.platform.core.string.indexOfFrom(str, needle, from)
+}
+
+fun lastIndexOfPlatform(str: String, needle: String): Int? {
+    return salvo.platform.core.string.lastIndexOf(str, needle)
+}
+
+fun replacePlatform(str: String, from: String, to: String): String {
+    return salvo.platform.core.string.replace(str, from, to)
+}
+
+fun trimStartPlatform(str: String): String {
+    return salvo.platform.core.string.trimStart(str)
+}
+
+fun trimEndPlatform(str: String): String {
+    return salvo.platform.core.string.trimEnd(str)
+}
+
+fun containsPlatform(str: String, needle: String): Boolean {
+    return salvo.platform.core.string.contains(str, needle)
+}
+
+fun startsWithPlatform(str: String, prefix: String): Boolean {
+    return salvo.platform.core.string.startsWith(str, prefix)
+}
+
+fun endsWithPlatform(str: String, suffix: String): Boolean {
+    return salvo.platform.core.string.endsWith(str, suffix)
+}
+
+fun trimPlatform(str: String): String {
+    return salvo.platform.core.string.trim(str)
+}
+
+fun trimPrefixPlatform(str: String, prefix: String): String {
+    return salvo.platform.core.string.trimPrefix(str, prefix)
+}
+
+fun trimSuffixPlatform(str: String, suffix: String): String {
+    return salvo.platform.core.string.trimSuffix(str, suffix)
+}
+
+fun substrPlatform(str: String, start: Int, end: Int): String? {
+    return salvo.platform.core.string.substr(str, start, end)
 }
 
 data class Span(
@@ -45,46 +129,74 @@ object __Codec_Span : salvo.WireCodec<Span> {
 }
 
 fun SpanOf_qualifies(span: Span, str: String): Boolean {
-    return span.start >= 0 && span.start <= span.end && span.end <= str.length
+    return span.start >= 0 && span.start <= span.end && span.end <= sizePlatform(str)
 }
 
 fun substr(str: String, at: Span): String {
-    return (run { val __s = str; val __i = at.start; val __j = at.end; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null } ?: throw AssertionError("salvo: value is absent at core.string:134:12"))
+    return (substrPlatform(str, at.start, at.end) ?: throw AssertionError("salvo: value is absent at core.string:150:12"))
+}
+
+fun toUpperPlatform(str: String): String {
+    return salvo.platform.core.string.toUpper(str)
+}
+
+fun toLowerPlatform(str: String): String {
+    return salvo.platform.core.string.toLower(str)
+}
+
+fun joinPlatform(parts: List<String>, sep: String): String {
+    return salvo.platform.core.string.join(parts, sep)
+}
+
+fun parseIntPlatform(str: String): Int? {
+    return salvo.platform.core.string.parseInt(str)
+}
+
+fun appendPlatform(str: salvo.platform.core.string.MutStr, text: String) {
+    return salvo.platform.core.string.append(str, text)
+}
+
+fun setPlatform(str: salvo.platform.core.string.MutStr, index: Int, chr: Char): Boolean {
+    return salvo.platform.core.string.set(str, index, chr)
+}
+
+fun clearPlatform(str: salvo.platform.core.string.MutStr) {
+    return salvo.platform.core.string.clear(str)
 }
 
 fun isEmpty__2(str: String): Boolean {
-    return str.length == 0
+    return sizePlatform(str) == 0
 }
 
 fun repeat(str: String, n: Int): String {
-    val out = StringBuilder()
+    val out = mutStr(arrayOf())
     var i = 0
     while (i < n) {
-        out.append(str)
+        appendPlatform(out, str)
         i = i + 1
     }
     return out.toString()
 }
 
 fun lines(str: String): MutableList<String> {
-    val parts = str.split("\n").toMutableList()
-    if (parts.size > 1 && str.endsWith("\n")) {
+    val parts = splitPlatform(str, "\n")
+    if (parts.size > 1 && endsWithPlatform(str, "\n")) {
         val _end = removeBack(parts, 1)
     }
     val out = mutableListOf<String>()
     for (p in parts) {
-        out.add(p.removeSuffix("\r"))
+        out.add(trimSuffixPlatform(p, "\r"))
     }
     return out
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun splitOnce(str: String, sep: String): Pair<String, String>? {
-    val at = str.indexOf(sep).takeIf { it >= 0 }
+    val at = indexOfPlatform(str, sep)
     if (at != null) {
         val i = at as Int
-        val before = (run { val __s = str; val __i = 0; val __j = i; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null } ?: "")
-        val after = (run { val __s = str; val __i = i + sep.length; val __j = str.length; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null } ?: "")
+        val before = (substrPlatform(str, 0, i) ?: "")
+        val after = (substrPlatform(str, i + sizePlatform(sep), sizePlatform(str)) ?: "")
         return Pair(before, after)
     }
     return null
@@ -92,11 +204,11 @@ fun splitOnce(str: String, sep: String): Pair<String, String>? {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun splitLast(str: String, sep: String): Pair<String, String>? {
-    val at = str.lastIndexOf(sep).takeIf { it >= 0 }
+    val at = lastIndexOfPlatform(str, sep)
     if (at != null) {
         val i = at as Int
-        val before = (run { val __s = str; val __i = 0; val __j = i; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null } ?: "")
-        val after = (run { val __s = str; val __i = i + sep.length; val __j = str.length; if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) else null } ?: "")
+        val before = (substrPlatform(str, 0, i) ?: "")
+        val after = (substrPlatform(str, i + sizePlatform(sep), sizePlatform(str)) ?: "")
         return Pair(before, after)
     }
     return null

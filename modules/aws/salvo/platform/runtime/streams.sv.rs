@@ -431,7 +431,7 @@ pub fn unbusy(busy: &mut Vec<i64>, waiting: &mut Vec<Parker>, handle: i64) {
         let mut _h = busy.salvo_remove_at(at);
     }
     while ((waiting.len() as i32) > 0) {
-        unpark_platform(&(waiting.salvo_remove_at(0).expect("salvo: value is absent at runtime.streams:224:16")));
+        crate::runtime::unpark_platform(&(waiting.salvo_remove_at(0).expect("salvo: value is absent at runtime.streams:224:16")));
     }
 }
 
@@ -457,7 +457,7 @@ pub fn register_bytes(data: Bytes) -> i64 {
 
 pub fn checkout_in(handle: i64) -> InEntry {
     loop {
-        let mut got = __module_use_0().take_in(handle.clone(), this_parker_platform());
+        let mut got = __module_use_0().take_in(handle.clone(), crate::runtime::this_parker_platform());
         if matches!(got, Union3::U1(_)) {
             let mut e = match got { Union3::U1(__v) => __v, _ => unreachable!() };
             return e;
@@ -465,14 +465,14 @@ pub fn checkout_in(handle: i64) -> InEntry {
         if matches!(got, Union3::U3(_)) {
             not_ours_platform(handle.clone());
         }
-        park_platform(&(this_parker_platform()));
+        crate::runtime::park_platform(&(crate::runtime::this_parker_platform()));
     }
     return checkout_in(handle);
 }
 
 pub fn checkout_out(handle: i64) -> OutEntry {
     loop {
-        let mut got = __module_use_0().take_out(handle.clone(), this_parker_platform());
+        let mut got = __module_use_0().take_out(handle.clone(), crate::runtime::this_parker_platform());
         if matches!(got, Union3::U1(_)) {
             let mut e = match got { Union3::U1(__v) => __v, _ => unreachable!() };
             return e;
@@ -480,7 +480,7 @@ pub fn checkout_out(handle: i64) -> OutEntry {
         if matches!(got, Union3::U3(_)) {
             not_ours_platform(handle.clone());
         }
-        park_platform(&(this_parker_platform()));
+        crate::runtime::park_platform(&(crate::runtime::this_parker_platform()));
     }
     return checkout_out(handle);
 }
@@ -536,9 +536,9 @@ pub fn record(e: &mut InEntry, message: String) -> Fault {
 }
 
 pub fn take_ahead(e: &mut InEntry, n: i32) -> Bytes {
-    let mut all = size_platform(&e.ahead);
-    let mut front = { let __pick1 = slice_platform(&e.ahead, 0, n.clone()); if __pick1.is_some() { __pick1.as_ref().unwrap().clone() } else { bytes_of(vec![]) } };
-    let mut rest = { let __pick2 = slice_platform(&e.ahead, n.clone(), all); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { bytes_of(vec![]) } };
+    let mut all = crate::core_bytes::size_platform(&e.ahead);
+    let mut front = { let __pick1 = crate::core_bytes::slice_platform(&e.ahead, 0, n.clone()); if __pick1.is_some() { __pick1.as_ref().unwrap().clone() } else { bytes_of(vec![]) } };
+    let mut rest = { let __pick2 = crate::core_bytes::slice_platform(&e.ahead, n.clone(), all); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { bytes_of(vec![]) } };
     e.ahead = mut_bytes(vec![rest.clone()]);
     e.position = e.position + ((n) as i64);
     return front;
@@ -572,29 +572,29 @@ pub fn read_line(e: &mut InEntry) -> Read {
         return Read { data: bytes_of(vec![]), end: true, fault: Some(f.clone()) };
     }
     loop {
-        let mut at = index_of_platform(&e.ahead, (((10) as i32) as u8));
+        let mut at = crate::core_bytes::index_of_platform(&e.ahead, (((10) as i32) as u8));
         if at.is_some() {
             let mut i = at.unwrap();
             let mut line = take_ahead(e, i + 1);
-            let mut n = size_platform(&line) - 1;
-            if n > 0 && ((get_platform(&line, n - 1).expect("salvo: value is absent at runtime.streams:362:32")) as i32) == 13 {
+            let mut n = crate::core_bytes::size_platform(&line) - 1;
+            if n > 0 && ((crate::core_bytes::get_platform(&line, n - 1).expect("salvo: value is absent at runtime.streams:362:32")) as i32) == 13 {
                 n = n - 1;
             }
-            return Read { data: { let __pick3 = slice_platform(&line, 0, n); if __pick3.is_some() { __pick3.as_ref().unwrap().clone() } else { bytes_of(vec![]) } }, end: false, fault: None };
+            return Read { data: { let __pick3 = crate::core_bytes::slice_platform(&line, 0, n); if __pick3.is_some() { __pick3.as_ref().unwrap().clone() } else { bytes_of(vec![]) } }, end: false, fault: None };
         }
         let mut got = host_read_platform(&mut e.host, 8192);
         if got.error.is_some() {
             let mut message = got.error.as_ref().unwrap().clone();
             return Read { data: bytes_of(vec![]), end: true, fault: Some(record(e, message.clone())) };
         }
-        if size_platform(&got.data) == 0 {
-            if size_platform(&e.ahead) == 0 {
+        if crate::core_bytes::size_platform(&got.data) == 0 {
+            if crate::core_bytes::size_platform(&e.ahead) == 0 {
                 return Read { data: bytes_of(vec![]), end: true, fault: None };
             }
-            let mut rest = take_ahead(e, size_platform(&e.ahead));
+            let mut rest = take_ahead(e, crate::core_bytes::size_platform(&e.ahead));
             return Read { data: rest, end: false, fault: None };
         }
-        append_platform(&mut e.ahead, &got.data);
+        crate::core_bytes::append_platform(&mut e.ahead, &got.data);
     }
     return read_line(e);
 }
@@ -604,18 +604,18 @@ pub fn read_all(e: &mut InEntry) -> Read {
         let mut f = e.failed.as_ref().unwrap().clone();
         return Read { data: bytes_of(vec![]), end: true, fault: Some(f.clone()) };
     }
-    let mut out = mut_bytes(vec![take_ahead(e, size_platform(&e.ahead))]);
+    let mut out = mut_bytes(vec![take_ahead(e, crate::core_bytes::size_platform(&e.ahead))]);
     loop {
         let mut got = host_read_platform(&mut e.host, 65536);
         if got.error.is_some() {
             let mut message = got.error.as_ref().unwrap().clone();
             return Read { data: bytes_of(vec![]), end: true, fault: Some(record(e, message.clone())) };
         }
-        if size_platform(&got.data) == 0 {
+        if crate::core_bytes::size_platform(&got.data) == 0 {
             return Read { data: out.clone(), end: true, fault: None };
         }
-        e.position = e.position + ((size_platform(&got.data)) as i64);
-        append_platform(&mut out, &got.data);
+        e.position = e.position + ((crate::core_bytes::size_platform(&got.data)) as i64);
+        crate::core_bytes::append_platform(&mut out, &got.data);
     }
     return read_all(e);
 }
@@ -628,10 +628,10 @@ pub fn read_up_to(e: &mut InEntry, max: i32) -> Read {
     if max <= 0 {
         return Read { data: bytes_of(vec![]), end: false, fault: None };
     }
-    if size_platform(&e.ahead) > 0 {
+    if crate::core_bytes::size_platform(&e.ahead) > 0 {
         let mut n = max.clone();
-        if size_platform(&e.ahead) < n {
-            n = size_platform(&e.ahead);
+        if crate::core_bytes::size_platform(&e.ahead) < n {
+            n = crate::core_bytes::size_platform(&e.ahead);
         }
         return Read { data: take_ahead(e, n), end: false, fault: None };
     }
@@ -640,12 +640,12 @@ pub fn read_up_to(e: &mut InEntry, max: i32) -> Read {
         let mut message = got.error.as_ref().unwrap().clone();
         return Read { data: bytes_of(vec![]), end: true, fault: Some(record(e, message.clone())) };
     }
-    e.position = e.position + ((size_platform(&got.data)) as i64);
-    return Read { data: got.data.clone(), end: size_platform(&got.data) == 0, fault: None };
+    e.position = e.position + ((crate::core_bytes::size_platform(&got.data)) as i64);
+    return Read { data: got.data.clone(), end: crate::core_bytes::size_platform(&got.data) == 0, fault: None };
 }
 
 pub fn decode(e: &mut InEntry, data: &Bytes) -> Option<String> {
-    let mut text = str_of_bytes_platform(data);
+    let mut text = crate::core_bytes::str_of_bytes_platform(data);
     if text.is_none() {
         e.failed = Some(Fault { utf8: true, message: "".to_string() });
     }
@@ -667,8 +667,8 @@ pub fn write(e: &mut OutEntry, data: &Bytes) -> i64 {
         record_out(e, message.clone());
         return 0i64;
     }
-    e.position = e.position + ((size_platform(data)) as i64);
-    return ((size_platform(data)) as i64);
+    e.position = e.position + ((crate::core_bytes::size_platform(data)) as i64);
+    return ((crate::core_bytes::size_platform(data)) as i64);
 }
 
 pub fn flush__2(e: &mut OutEntry) -> Option<Fault> {
@@ -714,7 +714,7 @@ pub fn receive(handle: i64, done: crate::scheduler::SalvoReply) {
 }
 
 pub fn start_reader(handle: i64) {
-    start_thread_platform(std::boxed::Box::new({ let mut handle = handle.clone(); move || {
+    crate::runtime::start_thread_platform(std::boxed::Box::new({ let mut handle = handle.clone(); move || {
     read_and_answer(handle.clone());
 } }));
 }

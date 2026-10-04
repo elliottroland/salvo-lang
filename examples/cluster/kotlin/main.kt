@@ -896,7 +896,7 @@ fun checkout(inventory: Inventory, console: Console, skus: List<String>) {
             inventory.reserve(sku, 1, out)
             salvo.SalvoSched.awaitReply(__wid) as String
         }
-        val parts = answer.split(":").toMutableList()
+        val parts = splitPlatform(answer, ":")
         shards.add((parts.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:220:26")))
         println(console, "  $sku: ${(parts.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:221:30"))} reserved on its shard so far")
     }

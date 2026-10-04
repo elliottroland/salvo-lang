@@ -311,7 +311,7 @@ impl Wheeling {
 impl crate::runtime_timers::__Stateless_Wheel for Wheeling {
 
     fn run(&self) {
-        __module_use_0().wheel_parker(this_parker_platform());
+        __module_use_0().wheel_parker(crate::runtime::this_parker_platform());
         loop {
             let mut now = now_nanos();
             let mut due = __module_use_0().take_due(now);
@@ -322,7 +322,7 @@ impl crate::runtime_timers::__Stateless_Wheel for Wheeling {
             }
             let mut wait = until.unwrap() - now_nanos();
             if wait > ((0) as i64) {
-                park_nanos_platform(&(this_parker_platform()), wait);
+                crate::runtime::park_nanos_platform(&(crate::runtime::this_parker_platform()), wait);
             }
         }
     }
@@ -384,13 +384,13 @@ pub fn after_nanos(delay: i64, done: crate::scheduler::SalvoReply) {
     }
     let mut p = __module_use_0().waker();
     if p.is_some() {
-        unpark_platform(p.as_ref().unwrap());
+        crate::runtime::unpark_platform(p.as_ref().unwrap());
     }
 }
 
 pub fn arm_clock() {
-    on_clock(mint_task_on(main_pool(), body_of_platform(std::boxed::Box::new(move |kind, slot, value| {
-    drop_dyn_platform(value);
+    on_clock(mint_task_on(main_pool(), crate::runtime::body_of_platform(std::boxed::Box::new(move |kind, slot, value| {
+    crate::runtime::drop_dyn_platform(value);
     advance();
 }))));
 }

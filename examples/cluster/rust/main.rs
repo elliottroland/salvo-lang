@@ -55,6 +55,8 @@ pub mod time;
 pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/string.rs"]
+pub mod platform_core_string;
 #[path = "platform/net.rs"]
 pub mod platform_net;
 #[path = "platform/runtime/routing.rs"]
@@ -1524,7 +1526,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
             inventory.reserve(sku.clone(), 1, out);
             *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
         };
-        let mut parts = answer.split(&":".to_string()[..]).map(|__p| __p.to_string()).collect::<Vec<String>>();
+        let mut parts = crate::core_string::split_platform(&answer, &(":".to_string()));
         shards.push(parts.get((0) as i64 as usize).expect("salvo: value is absent at main:220:26").clone());
         println(console, &(format!("  {}: {} reserved on its shard so far", sku.clone(), parts.get((1) as i64 as usize).expect("salvo: value is absent at main:221:30"))));
     }

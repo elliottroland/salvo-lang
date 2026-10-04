@@ -10425,14 +10425,14 @@ fn mut_str_lowers_to_a_string_builder() {
     // Construction is asked for; the parts are joined, which is also what
     // makes a `...spread` work [fn-variadic].
     assert!(
-        main.contains(r#"val b = StringBuilder(listOf("he", "llo").joinToString(""))"#),
+        main.contains(r#"val b = mutStr(arrayOf("he", "llo"))"#),
         "unexpected:\n{main}"
     );
     // [str-drop-mut] The conversion at a call argument, in interpolation,
     // and at an operator — a bare name takes the suffix without parens.
     assert!(main.contains("shout(b.toString())"), "unexpected:\n{main}");
     assert!(
-        main.contains("\"size: ${b.toString().length}\""),
+        main.contains("\"size: ${sizePlatform(b.toString())}\""),
         "unexpected:\n{main}"
     );
     assert!(
@@ -10449,9 +10449,8 @@ fn mut_str_lowers_to_a_string_builder() {
     // arguments, so a call argument is evaluated once. [col-bounds] The guard
     // answers `false` rather than falling through silently.
     assert!(
-        main.contains(
-            "if (__i >= 0 && __i < __s.length) { __s.setCharAt(__i, 'H'); true } else false"
-        ),
+        // [platform-value-type] Through std's host code now.
+        main.contains("setPlatform(b, 0, 'H')"),
         "unexpected:\n{main}"
     );
 }
@@ -10492,8 +10491,8 @@ export fn main() [use] {
     // take a *first* element now, which a spread may not supply
     // [fn-variadic], so a lone spread reaches the purely variadic intrinsics.
     assert!(
-        main.contains(r#"StringBuilder(listOf(*parts).joinToString(""))"#)
-            && main.contains("*parts"),
+        // [platform-value-type] `mut_str` is Salvo now; the spread is the array.
+        main.contains("val sb = mutStr(parts)"),
         "unexpected:\n{main}"
     );
     kotlin_case(files, "strings-spread", "ab 2\n")

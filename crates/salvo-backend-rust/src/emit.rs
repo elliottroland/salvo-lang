@@ -6707,7 +6707,22 @@ impl<'p> Emitter<'p> {
         // [platform-fn] The program calls the wrapper, `<name>_platform`; the
         // implementation keeps the real name (user decision 2026-10-01).
         if decl.platform {
-            return rs_ident(&format!("{}_platform", decl.name.name));
+            let wrapper = rs_ident(&format!("{}_platform", decl.name.name));
+            // Called by its module's path: two modules' wrappers of one name
+            // (`core.bytes`'s `size` and `core.string`'s) would be ambiguous
+            // through their glob imports.
+            let module = self
+                .key_of_fn(decl)
+                .filter(|k| k.file != self.file_idx)
+                .and_then(|k| self.program.files.get(k.file))
+                .map(|f| f.module.clone());
+            return match module {
+                Some(m) if Some(&m) != self.root_module => {
+                    let mangled = m.0.iter().map(|p| p.as_str()).collect::<Vec<_>>().join("_");
+                    format!("crate::{}::{wrapper}", rs_ident(&mangled))
+                }
+                _ => wrapper,
+            };
         }
         let name = decl.name.name.clone();
         let overloads: Vec<&FnDecl> = match self.symbols.fns.get(name.as_str()) {

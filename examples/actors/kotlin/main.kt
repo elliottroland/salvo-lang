@@ -516,7 +516,7 @@ fun main() {
         salvo.SalvoSched.sendWire(fragile, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
         salvo.SalvoSched.awaitReply(__wid) as Exit
     }
-    println(console, "5. it died with a reason: ${exit.reason.length > 0}")
+    println(console, "5. it died with a reason: ${sizePlatform(exit.reason) > 0}")
     salvo.SalvoSched.sendWire(fragile, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
     val counter2: Counter = __Mon_Counter(Counting())
     counter2.bump(4)

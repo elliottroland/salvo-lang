@@ -1671,7 +1671,7 @@ pub fn actor_group__2(name: String, nodes: usize, protocol: &mut dyn FnMut() -> 
     return group;
 }
 
-pub fn join(group: &usize, member: usize) {
+pub fn join__2(group: &usize, member: usize) {
     crate::scheduler::salvo_send_wire(group.clone(), crate::net::__Msg_ActorGroup::Join(member), crate::net::__PROTO_ActorGroup);
 }
 

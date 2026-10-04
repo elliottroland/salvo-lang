@@ -65,6 +65,8 @@ pub mod time;
 pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/string.rs"]
+pub mod platform_core_string;
 #[path = "platform/runtime/routing.rs"]
 pub mod platform_runtime_routing;
 #[path = "platform/runtime/streams.rs"]
@@ -183,7 +185,7 @@ pub fn round_trip(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::c
     let mut back = read_to_str(fs, streams, &("back.txt".to_string()));
     match back {
         Union2::U1(_) => {
-            println(console, &(format!("back.txt: {} bytes", (back.u1().chars().count() as i32))));
+            println(console, &(format!("back.txt: {} bytes", crate::core_string::size_platform(back.u1()))));
             console.print(back.u1());
         }
         Union2::U2(_) => {
@@ -224,7 +226,7 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
             return;
         }
         let mut data: Bytes = buf;
-        let mut tag = format!("\"{}\"", size_platform(&data));
+        let mut tag = format!("\"{}\"", crate::core_bytes::size_platform(&data));
         self.objects.insert(format!("{}/{}", bucket, key), data);
         crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U1(ok(PutObjectOutput { e_tag: Some(tag), expiration: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, server_side_encryption: None, version_id: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, ssekms_encryption_context: None, bucket_key_enabled: None, size: None, request_charged: None })));
     }
@@ -236,7 +238,7 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
             return;
         }
         let mut data: Bytes = found.unwrap().clone();
-        let mut length = ((size_platform(&data)) as i64);
+        let mut length = ((crate::core_bytes::size_platform(&data)) as i64);
         (reply).send(std::boxed::Box::new(Union2::<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>::U1(ok(GetObjectOutput { body: self.__dep_Streams.from_bytes(data), content_length: Some(length), delete_marker: None, accept_ranges: None, expiration: None, restore: None, last_modified: None, e_tag: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, missing_meta: None, version_id: None, cache_control: None, content_disposition: None, content_encoding: None, content_language: None, content_range: None, content_type: None, website_redirect_location: None, server_side_encryption: None, metadata: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, bucket_key_enabled: None, storage_class: None, request_charged: None, replication_status: None, parts_count: None, tag_count: None, object_lock_mode: None, object_lock_retain_until_date: None, object_lock_legal_hold_status: None, object_lock_event_hold: None, object_lock_event_hold_duration_days: None, object_lock_event_hold_duration_years: None }))));
     }
 }

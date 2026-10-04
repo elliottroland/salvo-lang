@@ -41,6 +41,8 @@ pub mod runtime_routing;
 pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/string.rs"]
+pub mod platform_core_string;
 #[path = "platform/runtime/routing.rs"]
 pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
@@ -873,7 +875,7 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(fragile, crate::__Msg_Fragile::Crash, crate::__PROTO_Fragile);
         *crate::scheduler::salvo_wait(__wid).downcast::<Exit>().expect("the awaited answer")
     };
-    println(&console, &(format!("5. it died with a reason: {}", (exit.reason.chars().count() as i32) > 0)));
+    println(&console, &(format!("5. it died with a reason: {}", crate::core_string::size_platform(&exit.reason) > 0)));
     crate::scheduler::salvo_send_wire(fragile, crate::__Msg_Fragile::Crash, crate::__PROTO_Fragile);
     let counter2 = crate::Counter::locked(Counting::new());
     counter2.bump(4);

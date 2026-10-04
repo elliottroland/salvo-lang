@@ -114,7 +114,7 @@ fun roundTrip(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, k
     val back = readToStr(fs, streams, "back.txt")
     when (back) {
         is Union2.U1<*, *> -> {
-            println(console, "back.txt: ${(back.value as String).length} bytes")
+            println(console, "back.txt: ${sizePlatform((back.value as String))} bytes")
             console.print((back.value as String))
         }
         is Union2.U2<*, *> -> {

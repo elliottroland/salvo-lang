@@ -33,21 +33,21 @@ pub fn to_str__5(p: &Path) -> String {
 }
 
 pub fn is_absolute(p: &Path) -> bool {
-    return p.text.starts_with(&"/".to_string()[..]);
+    return crate::core_string::starts_with_platform(&p.text, &("/".to_string()));
 }
 
-pub fn join__2(p: &Path, child: &String) -> Path {
-    if child.starts_with(&"/".to_string()[..]) || is_empty__2(&p.text) {
+pub fn join__3(p: &Path, child: &String) -> Path {
+    if crate::core_string::starts_with_platform(child, &("/".to_string())) || is_empty__2(&p.text) {
         return path(child);
     }
-    if p.text.ends_with(&"/".to_string()[..]) {
+    if crate::core_string::ends_with_platform(&p.text, &("/".to_string())) {
         return path(&(format!("{}{}", p.text.clone(), child.clone())));
     }
     return path(&(format!("{}/{}", p.text.clone(), child.clone())));
 }
 
-pub fn join__3(p: &Path, child: &Path) -> Path {
-    return join__2(p, &child.text);
+pub fn join__4(p: &Path, child: &Path) -> Path {
+    return join__3(p, &child.text);
 }
 
 pub fn parent(p: &Path) -> Option<Path> {
@@ -58,7 +58,7 @@ pub fn parent(p: &Path) -> Option<Path> {
     }
     let (mut dir, mut _name) = cut.as_ref().unwrap().clone();
     if is_empty__2(&dir) {
-        if text.starts_with(&"/".to_string()[..]) && (text.chars().count() as i32) > 1 {
+        if crate::core_string::starts_with_platform(&text, &("/".to_string())) && crate::core_string::size_platform(&text) > 1 {
             return Some(path(&("/".to_string())));
         }
         return None;
@@ -128,7 +128,7 @@ pub fn with_extension(p: &Path, ext: &String) -> Path {
         let mut up = parent(p);
         if up.is_some() {
             let mut dir = up.as_ref().unwrap().clone();
-            return join__2(&dir, &name);
+            return join__3(&dir, &name);
         }
         return path(&name);
     }
@@ -137,7 +137,7 @@ pub fn with_extension(p: &Path, ext: &String) -> Path {
 
 pub fn segments(p: &Path) -> Vec<String> {
     let mut out = vec![];
-    for mut part in p.text.split(&"/".to_string()[..]).map(|__p| __p.to_string()).collect::<Vec<String>>() {
+    for mut part in crate::core_string::split_platform(&p.text, &("/".to_string())) {
         if !is_empty__2(&part) {
             out.push(part.clone());
         }
@@ -147,8 +147,8 @@ pub fn segments(p: &Path) -> Vec<String> {
 
 pub fn trim_trailing_slashes(text: &String) -> String {
     let mut t = text.clone();
-    while ((t.chars().count() as i32) > 1 && t.ends_with(&"/".to_string()[..])) {
-        t = { let __s = &t[..]; __s.strip_suffix(&"/".to_string()[..]).unwrap_or(__s).to_string() };
+    while crate::core_string::size_platform(&t) > 1 && crate::core_string::ends_with_platform(&t, &("/".to_string())) {
+        t = crate::core_string::trim_suffix_platform(&t, &("/".to_string()));
     }
     return t;
 }

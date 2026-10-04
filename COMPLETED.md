@@ -135,6 +135,18 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`Str` as a value platform type (2026-10-04, ROADMAP 0.7).** `core.string`'s
+operations are std host code (`std/platform/core/string.{rs,kt}`); `mut_str`
+and `index_of(str, needle, from)` are Salvo (two platform fns may not overload
+each other, so the latter calls `index_of_from`). The type mappings stay, so
+`Str` still renders `String` and `Mut Str` Kotlin's `StringBuilder` — which
+the host types alias — and none of the emitter's `Str` handling (literals,
+interpolation, `&str` reads, the drop of `Mut`) changed. 25 lowerings per
+backend went, and Rust's `SalvoStr` helper trait. Found: two modules' platform
+wrappers of one name (`size_platform` in `core.bytes` and `core.string`)
+were ambiguous through glob imports on Rust; calls now go through the module
+path. Seven tests that pinned the old lowering text were updated.
+
 **Value platform types, and `Bytes` as the first (2026-10-04, ROADMAP 0.7).**
 User decision: convention (c) — a `canbe Mut` platform type's host names its
 mutable kind `Mut<Name>`, no new syntax. Built: the checker accepts a

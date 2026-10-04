@@ -1437,15 +1437,15 @@ fun deadlockReport(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec
     }
     val clauses: MutableList<String> = mutableListOf<String>()
     if (occupied.size > 0) {
-        clauses.add("parked in a wait: ${occupied.joinToString(", ")}")
+        clauses.add("parked in a wait: ${joinPlatform(occupied, ", ")}")
     }
     if (gated.size > 0) {
-        clauses.add("parked gates: ${gated.joinToString(", ")}")
+        clauses.add("parked gates: ${joinPlatform(gated, ", ")}")
     }
     val detail = if (clauses.size == 0) {
         ""
     } else {
-        " (${clauses.joinToString("; ")})"
+        " (${joinPlatform(clauses, "; ")})"
     }
     return "salvo: deadlock: nothing can run while $who waits$detail"
 }

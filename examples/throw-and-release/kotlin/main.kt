@@ -32,7 +32,7 @@ fun close__4(console: Console, handle: FileHandle) {
 }
 
 fun readSize(console: Console, name: String, want: Int): Int {
-    val thereIs = name.length
+    val thereIs = sizePlatform(name)
     val handle = openFile(console, name)
     if (want > thereIs) {
         println(console, "1. asked for more than there is")
@@ -44,7 +44,7 @@ fun readSize(console: Console, name: String, want: Int): Int {
 }
 
 fun parsePort(text: String): Int {
-    val n = text.toIntOrNull()
+    val n = parseIntPlatform(text)
     if (n == null) {
         throw ThrowSignal("not a number: $text", "Str")
     }
@@ -68,12 +68,12 @@ fun portFromFile(console: Console, name: String, text: String): Int {
 }
 
 fun strictPort(text: String): Int {
-    if (text.length == 0) {
+    if (sizePlatform(text) == 0) {
         throw ThrowSignal("empty", "Str")
     }
-    val n = text.toIntOrNull()
+    val n = parseIntPlatform(text)
     if (n == null) {
-        throw ThrowSignal(text.length, "Int")
+        throw ThrowSignal(sizePlatform(text), "Int")
     }
     return n
 }

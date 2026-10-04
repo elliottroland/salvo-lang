@@ -57,7 +57,7 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
     val text = readToStr(fs, streams, "notes.txt")
     when (text) {
         is Union2.U1<*, *> -> {
-            println(console, "read back ${(text.value as String).toByteArray(Charsets.UTF_8).size.toLong()} bytes")
+            println(console, "read back ${byteSizePlatform((text.value as String))} bytes")
         }
         is Union2.U2<*, *> -> {
             println(console, "read failed: ${kindName(detach((text.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
@@ -236,14 +236,14 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
     when (lined) {
         is Union2.U1<*, *> -> {
             val s: InStream = (lined.value as InStream)
-            val line = StringBuilder()
+            val line = mutStr(arrayOf())
             var longest = 0
             var reading = true
             while (reading) {
-                line.clear()
+                clearPlatform(line)
                 if (streams.readLineTo(s, line)) {
-                    if (line.toString().length > longest) {
-                        longest = line.toString().length
+                    if (sizePlatform(line.toString()) > longest) {
+                        longest = sizePlatform(line.toString())
                     }
                 } else {
                     reading = false

@@ -34,7 +34,7 @@ object __Codec_Note : salvo.WireCodec<Note> {
 }
 
 fun byLen(a: String, b: String): Int {
-    return (a.length).compareTo(b.length)
+    return (sizePlatform(a)).compareTo(sizePlatform(b))
 }
 
 fun countUnique(xs: List<Int>): Int {
@@ -90,7 +90,7 @@ fun main() {
     val deduped = linkedSetOf<Int>().also { __s -> __s.addAll(primes) }
     println(console, "5. to_set ${deduped.joinToString(", ", "{", "}")}")
     val words = listOf<String>("alpha", "be")
-    val lengths = linkedMapOf<String, Int>().also { __m -> words.map({ w -> Pair(w, w.length) }).forEach { __e -> __m.put(__e.first, __e.second) } }
+    val lengths = linkedMapOf<String, Int>().also { __m -> words.map({ w -> Pair(w, sizePlatform(w)) }).forEach { __e -> __m.put(__e.first, __e.second) } }
     println(console, "5. to_map with a rule ${lengths.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
     val filled = listOf<String>("ada", "grace")
     println(console, "6. first is ${first(filled)}, no optional")

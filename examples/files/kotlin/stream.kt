@@ -93,8 +93,8 @@ interface Streams {
     fun readAll(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun readBytes(s: InStream, max: Int): Union2<salvo.platform.core.bytes.Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun readTo(s: InStream, buf: salvo.platform.core.bytes.MutBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>
-    fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>
-    fun readLineTo(s: InStream, buf: StringBuilder): Boolean
+    fun readTo__2(s: InStream, buf: salvo.platform.core.string.MutStr): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>
+    fun readLineTo(s: InStream, buf: salvo.platform.core.string.MutStr): Boolean
     fun position(s: InStream): Long
     fun close(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun write(s: OutStream, text: String): Long
@@ -131,12 +131,12 @@ class __Mon_Streams(
         lock.lock()
         try { return inner.readTo(s, buf, max) } finally { lock.unlock() }
     }
-    override fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun readTo__2(s: InStream, buf: salvo.platform.core.string.MutStr): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.readTo__2(s, buf) } finally { lock.unlock() }
     }
-    override fun readLineTo(s: InStream, buf: StringBuilder): Boolean {
+    override fun readLineTo(s: InStream, buf: salvo.platform.core.string.MutStr): Boolean {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.readLineTo(s, buf) } finally { lock.unlock() }
