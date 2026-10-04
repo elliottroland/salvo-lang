@@ -27,13 +27,15 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
+#[path = "platform/core/console.rs"]
+pub mod platform_core_console;
 
 use crate::aws::*;
 use crate::core_console::*;
 use crate::core_iterator::*;
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let mut creds = ProfileCredentials { profile: "default".to_string(), path: "~/.aws/credentials".to_string() };
     println(&console, &(format!("profile: {}", creds.profile.clone())));
     println(&console, &(format!("path:    {}", creds.path.clone())));

@@ -43,7 +43,7 @@ fun countUnique(xs: List<Int>): Int {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    val console: Console = StdOutConsole()
+    val console: Console = salvo.core.console.__Platform_StdOutConsole()
     val primes = listOf<Int>(2, 3, 5, 7)
     val vowels = linkedSetOf<String>("a", "e", "i", "o", "u")
     val ages = linkedMapOf<String, Int>(("ada" to 36), ("grace" to 45))

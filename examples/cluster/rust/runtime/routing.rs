@@ -821,11 +821,9 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         if r.node == here {
             let mut idx = ((r.actor) as i32);
             let mut b = self.bits.get(&idx);
-            if !self.remote.contains_key(&idx) && (b.is_some()) {
+            if !self.remote.contains_key(&idx) && (b.is_some()) && { let mut known = *b.unwrap();  known == r.bits } {
                 let mut known = *b.unwrap();
-                if known == r.bits {
-                    return Union3::<Found, MakeProxy, MakeDead>::U1(Found { idx: idx });
-                }
+                return Union3::<Found, MakeProxy, MakeDead>::U1(Found { idx: idx });
             }
             if self.dead_entry >= 0 {
                 return Union3::<Found, MakeProxy, MakeDead>::U1(Found { idx: self.dead_entry.clone() });
@@ -904,7 +902,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     fn take_outbox(&mut self) -> Vec<Staged> {
         let mut out: Vec<Staged> = vec![];
         while ((self.outbox.len() as i32) > 0) {
-            out.push(self.outbox.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:329:22"));
+            out.push(self.outbox.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:327:22"));
         }
         return out;
     }
@@ -928,13 +926,10 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
             return false;
         }
         let mut idx = ((actor) as i32);
-        if self.remote.contains_key(&idx) {
-            return false;
-        }
         let mut b = self.bits.get(&idx);
-        if b.is_some() {
+        if !self.remote.contains_key(&idx) && (b.is_some()) && { let mut known = *b.unwrap();  known == claimed } {
             let mut known = *b.unwrap();
-            return known == claimed;
+            return true;
         }
         return false;
     }
@@ -984,7 +979,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     fn take_task(&mut self, key: i64) -> Option<ExportedTask> {
         let mut i = 0;
         while i < (self.task_keys.len() as i32) {
-            if *self.task_keys.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:406:16") == key {
+            if *self.task_keys.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:401:16") == key {
                 let mut _k = self.task_keys.salvo_remove_at(i.clone());
                 return self.tasks.salvo_remove_at(i);
             }
@@ -1083,7 +1078,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     fn drop_view_waiter(&mut self, id: i64) {
         let mut i = 0;
         while i < (self.view_waiters.len() as i32) {
-            if self.view_waiters.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:501:16").id == id {
+            if self.view_waiters.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:496:16").id == id {
                 let mut _w = self.view_waiters.salvo_remove_at(i.clone());
                 return;
             }
@@ -1151,7 +1146,7 @@ pub fn identity_in(remote: &SalvoMap<i32, RemoteRef>, bits: &mut SalvoMap<i32, i
 
 pub fn wake_senders(waiters: &mut Vec<Parker>) {
     while ((waiters.len() as i32) > 0) {
-        unpark_platform(&(waiters.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:559:16")));
+        unpark_platform(&(waiters.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:554:16")));
     }
 }
 
@@ -1170,7 +1165,7 @@ pub fn stage_in(routes: &SalvoMap<i64, Vec<u8>>, outbound: &SalvoSet<i64>, outbo
 pub fn restage(routes: &SalvoMap<i64, Vec<u8>>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>) {
     let mut waiting: Vec<Parked> = vec![];
     while ((parked.len() as i32) > 0) {
-        waiting.push(parked.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:582:22"));
+        waiting.push(parked.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:577:22"));
     }
     for mut p in waiting.clone() {
         stage_in(routes, outbound, outbox, parked, p.from, p.to, p.frame.clone());
@@ -1485,12 +1480,12 @@ pub fn view_members(group: i32) -> Vec<i32> {
         let mut best = 0;
         let mut i = 1;
         while i < (left.len() as i32) {
-            if before(&(identity(*left.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:942:37"))), &(identity(*left.get((best) as i64 as usize).expect("salvo: value is absent at runtime.routing:942:68")))) {
+            if before(&(identity(*left.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:937:37"))), &(identity(*left.get((best) as i64 as usize).expect("salvo: value is absent at runtime.routing:937:68")))) {
                 best = i.clone();
             }
             i = i + 1;
         }
-        out.push(left.salvo_remove_at(best).expect("salvo: value is absent at runtime.routing:947:18"));
+        out.push(left.salvo_remove_at(best).expect("salvo: value is absent at runtime.routing:942:18"));
     }
     return out.clone();
 }

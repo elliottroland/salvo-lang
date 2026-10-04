@@ -565,11 +565,9 @@ class Routes : RouteTable {
         if (r.node == here) {
             val idx = (r.actor).toInt()
             val b = bits[idx]
-            if (!remote.containsKey(idx) && (b != null)) {
+            if (!remote.containsKey(idx) && (b != null) && run { val known = b as Long; known == r.bits }) {
                 val known = b as Long
-                if (known == r.bits) {
-                    return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = idx))
-                }
+                return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = idx))
             }
             if (deadEntry >= 0) {
                 return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = deadEntry))
@@ -651,7 +649,7 @@ class Routes : RouteTable {
     override fun takeOutbox(): MutableList<Staged> {
         val out: MutableList<Staged> = mutableListOf<Staged>()
         while (outbox.size > 0) {
-            out.add(((outbox).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:329:22")))
+            out.add(((outbox).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:327:22")))
         }
         return out
     }
@@ -676,13 +674,10 @@ class Routes : RouteTable {
             return false
         }
         val idx = (actor).toInt()
-        if (remote.containsKey(idx)) {
-            return false
-        }
         val b = bits[idx]
-        if (b != null) {
+        if (!remote.containsKey(idx) && (b != null) && run { val known = b as Long; known == claimed }) {
             val known = b as Long
-            return known == claimed
+            return true
         }
         return false
     }
@@ -733,7 +728,7 @@ class Routes : RouteTable {
     override fun takeTask(key: Long): ExportedTask? {
         var i = 0
         while (i < taskKeys.size) {
-            if ((taskKeys.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:406:16")) == key) {
+            if ((taskKeys.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:401:16")) == key) {
                 val _k = (taskKeys).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
                 return (tasks).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
             }
@@ -836,7 +831,7 @@ class Routes : RouteTable {
     override fun dropViewWaiter(id: Long) {
         var i = 0
         while (i < viewWaiters.size) {
-            if ((viewWaiters.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:501:16")).id == id) {
+            if ((viewWaiters.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:496:16")).id == id) {
                 val _w = (viewWaiters).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
                 return
             }
@@ -905,7 +900,7 @@ fun identityIn(remote: Map<Int, RemoteRef>, bits: MutableMap<Int, Long>, poolNod
 
 fun wakeSenders(waiters: MutableList<salvo.platform.runtime.Parker>) {
     while (waiters.size > 0) {
-        unparkPlatform(((waiters).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:559:16")))
+        unparkPlatform(((waiters).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:554:16")))
     }
 }
 
@@ -925,7 +920,7 @@ fun stageIn(routes: Map<Long, salvo.SalvoBytes>, outbound: Set<Long>, outbox: Mu
 fun restage(routes: Map<Long, salvo.SalvoBytes>, outbound: Set<Long>, outbox: MutableList<Staged>, parked: MutableList<Parked>) {
     val waiting: MutableList<Parked> = mutableListOf<Parked>()
     while (parked.size > 0) {
-        waiting.add(((parked).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:582:22")))
+        waiting.add(((parked).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:577:22")))
     }
     for (p in waiting) {
         stageIn(routes, outbound, outbox, parked, p.from, p.to, salvo.SalvoBytes(p.frame))
@@ -1244,12 +1239,12 @@ fun viewMembers(group: Int): List<Int> {
         var best = 0
         var i = 1
         while (i < left.size) {
-            if (before(identity((left.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:942:37"))), identity((left.getOrNull(best) ?: throw AssertionError("salvo: value is absent at runtime.routing:942:68"))))) {
+            if (before(identity((left.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:937:37"))), identity((left.getOrNull(best) ?: throw AssertionError("salvo: value is absent at runtime.routing:937:68"))))) {
                 best = i
             }
             i = i + 1
         }
-        out.add(((left).let { __l -> (best).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:947:18")))
+        out.add(((left).let { __l -> (best).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:942:18")))
     }
     return out.toMutableList()
 }

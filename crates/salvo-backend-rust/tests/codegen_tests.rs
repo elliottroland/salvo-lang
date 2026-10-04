@@ -605,7 +605,7 @@ fn effects_lower_to_traits_and_mut_dyn_params() {
     // one `shared`, a stateful one `locked` [rs-handle].
     assert!(main
         .content
-        .contains("let console = crate::core_console::Console::shared(StdOutConsole::new());"));
+        .contains("let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());"));
     assert!(// [effect-handler-generics] The handler is constructed *at* a type — the
     // turbofish is written even where rustc could have inferred it, since a
     // stateless generic handler gives it nothing to infer from.

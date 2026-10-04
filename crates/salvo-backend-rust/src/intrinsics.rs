@@ -478,17 +478,6 @@ pub fn fn_call(
         //
         // A `panic = "abort"` profile would defeat this; the backend compiles
         // with rustc's default (unwind), and nothing here sets it.
-        ("trapped_by", _) => format!(
-            "{{ let __hook = std::panic::take_hook(); \
-               std::panic::set_hook(std::boxed::Box::new(|_| {{}})); \
-               let __r = std::panic::catch_unwind(std::panic::AssertUnwindSafe({})); \
-               std::panic::set_hook(__hook); \
-               match __r {{ Ok(__v) => __v, Err(__e) => Some( \
-                 __e.downcast_ref::<String>().cloned() \
-                   .or_else(|| __e.downcast_ref::<&str>().map(|s| s.to_string())) \
-                   .unwrap_or_else(|| \"a trap with no message\".to_string())) }} }}",
-            a(0)
-        ),
         // [col-deque] The deque surface over `VecDeque`. Indices are `i32`, so
         // a negative one becomes a huge `usize` and reads as out of range, as
         // a list's does [col-bounds].
@@ -901,24 +890,8 @@ pub fn type_name(name: &str) -> Option<&'static str> {
 ///
 /// Paths are absolute so the emitted file needs no `use` items.
 pub fn handler_member(handler: &str, member: &str, params: &[String]) -> Option<String> {
-    let p = |i: usize| params.get(i).map(String::as_str).unwrap_or("todo!()");
-    Some(match (handler, member) {
-        ("StdOutConsole", "print") => format!("print!(\"{{}}\", {})", p(0)),
-        // No external crates: a splitmix64-style hash of the current time.
-        // Not cryptographic — good enough for a default handler; seedable
-        // and reproducible generators belong in dedicated handlers.
-        ("DefaultRandom", "random") => "{
-    let mut x = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0x9E3779B97F4A7C15);
-    x = x.wrapping_add(0x9E3779B97F4A7C15);
-    x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
-    x ^= x >> 31;
-    (((x >> 11) as f64) / ((1u64 << 53) as f64))
-}"
-        .to_string(),
-        _ => return None,
-    })
+    // std declares no intrinsic handler any more (ROADMAP 0.5): `StdOutConsole`
+    // is a platform handler and `DefaultRandom` is Salvo.
+    let _ = (handler, member, params);
+    None
 }

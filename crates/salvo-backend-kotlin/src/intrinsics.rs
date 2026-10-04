@@ -349,11 +349,6 @@ pub fn fn_call(
         // narrower type on purpose — the harness wants *every* death it can
         // survive, ours (`AssertionError`) and the host's (a null dereference,
         // an index out of bounds, a division by zero) alike.
-        ("trapped_by", _) => format!(
-            "(try {{ ({})() }} catch (__e: Throwable) {{ \
-              __e.message ?: \"a trap with no message\" }})",
-            a(0)
-        ),
         ("array_by", Some("Int")) => {
             format!("Array<{}>({}, {})", elem(), a(0), a(1))
         }
@@ -745,10 +740,8 @@ pub fn drop_mut_suffix(name: &str) -> Option<&'static str> {
 /// a member implementing `print` does not recurse into itself — it would
 /// otherwise resolve to std's own `println`.
 pub fn handler_member(handler: &str, member: &str, params: &[String]) -> Option<String> {
-    let p = |i: usize| params.get(i).map(String::as_str).unwrap_or("TODO()");
-    Some(match (handler, member) {
-        ("StdOutConsole", "print") => format!("kotlin.io.print({})", p(0)),
-        ("DefaultRandom", "random") => "kotlin.random.Random.nextDouble()".to_string(),
-        _ => return None,
-    })
+    // std declares no intrinsic handler any more (ROADMAP 0.5): `StdOutConsole`
+    // is a platform handler and `DefaultRandom` is Salvo.
+    let _ = (handler, member, params);
+    None
 }

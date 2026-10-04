@@ -25,6 +25,8 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
+#[path = "platform/core/console.rs"]
+pub mod platform_core_console;
 
 use crate::core_console::*;
 use crate::core_iterator::*;
@@ -473,7 +475,7 @@ pub fn settings(setting_i32: &crate::Setting<i32>, setting_string: &crate::Setti
 }
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let clock = crate::Clock::locked(TickingClock::new());
     println(&console, &(format!("1. the clock reads {}, then {}", clock.now(), clock.now())));
     println(&console, &("2. two effects in one signature:".to_string()));

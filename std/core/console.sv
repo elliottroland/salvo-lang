@@ -3,7 +3,7 @@ export effect Console {
     fn print(message: Str) -> None => message
 }
 
-export intrinsic handler StdOutConsole of Console
+export threadsafe platform handler StdOutConsole() of Console
 
 export fn println(message: Str) [Console] -> None {
     print(message)

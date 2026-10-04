@@ -187,3 +187,22 @@ impl crate::runtime::RuntimeHostPlatformSync for HostRuntime {
         crate::hosttime::salvo_mono_nanos()
     }
 }
+
+// [test-recover] The boundary for a lent body that answers: its answer, or
+// the panic's message, with the default panic hook silenced meanwhile so the
+// trap is reported by whoever asked rather than printed.
+pub fn trap_boundary(body: &mut dyn FnMut() -> Option<String>) -> Option<String> {
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body()));
+    std::panic::set_hook(hook);
+    match r {
+        Ok(v) => v,
+        Err(p) => Some(
+            p.downcast_ref::<String>()
+                .cloned()
+                .or_else(|| p.downcast_ref::<&str>().map(|m| (*m).to_string()))
+                .unwrap_or_else(|| "a trap with no message".to_string()),
+        ),
+    }
+}

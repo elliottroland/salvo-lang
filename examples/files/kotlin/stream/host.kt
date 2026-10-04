@@ -317,7 +317,7 @@ fun kind(source: String, f: salvo.runtime.streams.Fault): Union2<InvalidUtf8, St
     return Union2.U2<InvalidUtf8, StreamFailed>(StreamFailed(source = source, message = f.message))
 }
 
-class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
+class DefaultStreams(private val __dep_RawStreams: RawStreams) : salvo.stream.Streams {
 
     override fun readLine(s: InStream): String? {
         return __dep_RawStreams.rawReadLine(s.handle)

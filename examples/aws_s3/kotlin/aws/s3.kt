@@ -66,7 +66,7 @@ data class PutObjectInput(
     val expectedBucketOwner: String? = null,
 )
 
-fun close__4(streams: Streams, value: PutObjectInput): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+fun close__4(streams: salvo.stream.Streams, value: PutObjectInput): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     return streams.close(value.body)
 }
 
@@ -222,7 +222,7 @@ data class GetObjectOutput(
     val objectLockEventHoldDurationYears: Int? = null,
 )
 
-fun close__5(streams: Streams, value: GetObjectOutput): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+fun close__5(streams: salvo.stream.Streams, value: GetObjectOutput): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     return streams.close(value.body)
 }
 
@@ -289,14 +289,14 @@ class __Mon_S3Calls(
     }
 }
 
-class FakeS3(private val __dep_Streams: Streams) : S3, S3Calls {
+class FakeS3(private val __dep_salvo_stream_Streams: salvo.stream.Streams) : S3, S3Calls {
     private var recorded: MutableList<String> = mutableListOf<String>()
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) {
         recorded.add("put_object")
         val unsized = input.contentLength == null
-        val closed = close__4(__dep_Streams, input)
+        val closed = close__4(__dep_salvo_stream_Streams, input)
         if (closed is Union2.U2<*, *>) {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
@@ -309,7 +309,7 @@ class FakeS3(private val __dep_Streams: Streams) : S3, S3Calls {
 
     override fun getObject(input: GetObjectInput, reply: salvo.SalvoReply) {
         recorded.add("get_object")
-        reply.send(Union2.U1<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(GetObjectOutput(body = __dep_Streams.fromBytes(salvo.SalvoBytes.of(arrayOf<UByte>()))))))
+        reply.send(Union2.U1<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(GetObjectOutput(body = __dep_salvo_stream_Streams.fromBytes(salvo.SalvoBytes.of(arrayOf<UByte>()))))))
     }
 
     override fun calls(): List<String> {

@@ -270,7 +270,7 @@ class __Actor_Napping(private val handler: Napping) : salvo.SalvoActor {
 
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Session", salvo.main.__PROTO_Session), Pair("Sleeper", salvo.main.__PROTO_Sleeper), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
-    val console: Console = StdOutConsole()
+    val console: Console = salvo.core.console.__Platform_StdOutConsole()
     val budget = millis(1500L)
     println(console, "budget ${toStr__7(budget)}, doubled ${toStr__7(times(budget, 2L))}, in millis ${toMillis(budget)}")
     val stamp = epochMilli(1700000000000L)

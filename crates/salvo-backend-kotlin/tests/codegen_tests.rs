@@ -5395,52 +5395,6 @@ fn companion_collision_with_generated_file_is_an_error() {
     );
 }
 
-// [kt-handler-template-return] A handler member with a return type returns
-// its template's value (`return run { ... }`), so value-producing handler
-// members like `random() -> Double` compile; statement-only members are
-// unchanged.
-#[test]
-fn handler_members_with_return_types_return_their_template() {
-    let program = build_program(&[(
-        "main.sv",
-        "import random.Random\nimport random.DefaultRandom\n\n\
-         fn roll() [Random] -> Double {\n    return random()\n}\n\n\
-         fn main() [use] -> None {\n    use StdOutConsole\n    use DefaultRandom\n    \
-         println(\"${roll() < 2.0}\")\n}\n",
-    )]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    let random = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "random.kt")
-        .expect("random.kt not emitted");
-    assert!(
-        random.content.contains("override fun random(): Double {"),
-        "content: {}",
-        random.content
-    );
-    assert!(
-        random.content.contains("return run {"),
-        "content: {}",
-        random.content
-    );
-    assert!(
-        random.content.contains("kotlin.random.Random.nextDouble()"),
-        "content: {}",
-        random.content
-    );
-    // Statement-only members (Console.print) keep their plain body.
-    let console = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "core/console.kt")
-        .expect("core/console.kt not emitted");
-    assert!(
-        !console.content.contains("return run {"),
-        "content: {}",
-        console.content
-    );
-}
 
 // [lit-numeric] Literal suffixes map onto Kotlin's: `5L` stays `5L`,
 // `2.5f` stays `2.5f`, unsuffixed floats are Double (`1.5`).
@@ -12382,7 +12336,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
     // opens a file links none of it. [effect-prereq] `DefaultFs` reaches the
     // `Streams` in scope as a dependency it never wrote.
     let host = file("fs/host.kt");
-    for expected in ["interface RawFs {", "class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Streams) : Fs"] {
+    for expected in ["interface RawFs {", "class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_salvo_stream_Streams: salvo.stream.Streams) : Fs"] {
         assert!(host.contains(expected), "expected `{expected}` in:\n{host}");
     }
     assert!(

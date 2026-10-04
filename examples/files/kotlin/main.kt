@@ -44,7 +44,7 @@ fun kindName__2(kind: Union2<InvalidUtf8, StreamFailed>): String {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun workflow(fs: Fs, console: Console, streams: Streams) {
+fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
     val wrote = writeStr(fs, streams, "notes.txt", "alpha\nbeta\ngamma\n")
     when (wrote) {
         is Union2.U1<*, *> -> {
@@ -331,7 +331,7 @@ fun workflow(fs: Fs, console: Console, streams: Streams) {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun sandboxEdges(fs: Fs, console: Console, streams: Streams) {
+fun sandboxEdges(fs: Fs, console: Console, streams: salvo.stream.Streams) {
     val inside = writeStr(fs, streams, "sub/../probe.txt", "inside\n")
     when (inside) {
         is Union2.U1<*, *> -> {
@@ -370,9 +370,9 @@ fun sandboxEdges(fs: Fs, console: Console, streams: Streams) {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults)))
-    val console: Console = StdOutConsole()
+    val console: Console = salvo.core.console.__Platform_StdOutConsole()
     val raw_streams: RawStreams = HostRawStreams()
-    val streams: Streams = DefaultStreams(raw_streams)
+    val streams: salvo.stream.Streams = DefaultStreams(raw_streams)
     val raw_fs: RawFs = __Mon_RawFs(salvo.fs.host.__Platform_HostRawFs())
     val fs: Fs = DefaultFs(raw_fs, streams)
     val root = "tmp/files-example"
@@ -396,7 +396,7 @@ fun main() {
         val __h = MemFs()
         val __l = java.util.concurrent.locks.ReentrantLock()
         val fs3: Fs = __Mon_Fs(__h, __l)
-        val streams2: Streams = __Mon_Streams(__h, __l)
+        val streams2: salvo.stream.Streams = salvo.stream.__Mon_Streams(__h, __l)
         workflow(fs3, console, streams2)
     }
 }

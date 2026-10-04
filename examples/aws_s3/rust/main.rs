@@ -61,6 +61,8 @@ pub mod runtime_timers;
 pub mod stream;
 #[path = "time.rs"]
 pub mod time;
+#[path = "platform/core/console.rs"]
+pub mod platform_core_console;
 #[path = "platform/runtime/routing.rs"]
 pub mod platform_runtime_routing;
 #[path = "platform/runtime/streams.rs"]
@@ -239,7 +241,7 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string()), ("Wheel".to_string(), crate::runtime_timers::__PROTO_Wheel.to_string())]);
-    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let __inst = std::sync::Arc::new(std::sync::Mutex::new(MemFs::new()));
     let fs2 = crate::fs::Fs::share_locked(__inst.clone());
     let streams = crate::stream::Streams::share_locked(__inst.clone());

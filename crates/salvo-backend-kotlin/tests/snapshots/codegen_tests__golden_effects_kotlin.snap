@@ -48,11 +48,16 @@ class __Mon_Console(
     }
 }
 
-class StdOutConsole : Console {
-    override fun print(message: String) {
-        kotlin.io.print(message)
-    }
+// The interface a `platform handler` of `Console` implements [platform-abi].
+interface ConsolePlatform {
+    fun print(message: String)
 }
+
+open class __Platform_Console(private val impl: ConsolePlatform) : Console {
+    override fun print(message: String) = impl.print(message)
+}
+
+class __Platform_StdOutConsole() : salvo.core.console.__Platform_Console(salvo.platform.core.console.StdOutConsole())
 
 fun println(console: Console, message: String) {
     console.print(message)
@@ -689,7 +694,7 @@ fun luckyNumber(random_int: Random<Int>): Int {
 }
 
 fun main() {
-    val console: Console = StdOutConsole()
+    val console: Console = salvo.core.console.__Platform_StdOutConsole()
     val random_int: Random<Int> = __Mon_Random(CyclicRandom<Int>(listOf<Int>(10, 20, 30), { __i0 -> __i0 }))
     val random_string: Random<String> = __Mon_Random(CyclicRandom<String>(listOf<String>("a", "b"), { __i0 -> __i0 }))
     draw(random_int, random_string, console)
@@ -1207,5 +1212,16 @@ object SalvoTime {
     fun epochNanos(): Long {
         val now = java.time.Instant.now()
         return now.epochSecond * 1_000_000_000L + now.nano.toLong()
+    }
+}
+
+// ===== platform/core/console.kt =====
+// [platform-tree] std's console, for `core.console`'s
+// `threadsafe platform handler StdOutConsole` (ROADMAP 0.5): standard output.
+package salvo.platform.core.console
+
+class StdOutConsole : salvo.core.console.ConsolePlatform {
+    override fun print(message: String) {
+        kotlin.io.print(message)
     }
 }

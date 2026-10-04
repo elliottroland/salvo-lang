@@ -45,6 +45,8 @@ pub mod core_string;
 pub mod runtime;
 #[path = "runtime/routing.rs"]
 pub mod runtime_routing;
+#[path = "platform/core/console.rs"]
+pub mod platform_core_console;
 #[path = "platform/runtime/routing.rs"]
 pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
@@ -222,7 +224,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string())]);
-    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     println(&console, &("-- FakeSqs --".to_string()));
     if true {
         let __inst = std::sync::Arc::new(std::sync::Mutex::new(FakeSqs::new()));

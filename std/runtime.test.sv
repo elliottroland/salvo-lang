@@ -302,3 +302,26 @@ test actor(seed: 7) "the seed decides the identity bits" {
     expect_eq(identity_bits(), b)
     expect(a != b, "two draws differ")
 }
+
+// [waitfor-pump] A wait's record is reused once the wait has ended, so a loop
+// of waits does not grow the table (ROADMAP 0.1).
+test "a loop of waits reuses one waiter record" {
+    let echo = spawn_body(main_pool(), 4, body_of((kind, slot, msg) -> {
+        let t: Token = unerase(msg)
+        answer(t, erase(1))
+    }))
+    let w0 = waiter()
+    let {token: t0, wid: wid0} = w0
+    send_dyn(copy(echo), erase(t0))
+    let _first: Int = unerase(await_answer(wid0))
+    let before = waiter_record_count()
+    let i = 0
+    while i < 50 {
+        let w = waiter()
+        let {token, wid} = w
+        send_dyn(copy(echo), erase(token))
+        let _n: Int = unerase(await_answer(wid))
+        i = i + 1
+    }
+    expect_eq(waiter_record_count(), before)
+}

@@ -37,6 +37,8 @@ pub mod core_string;
 pub mod runtime;
 #[path = "runtime/routing.rs"]
 pub mod runtime_routing;
+#[path = "platform/core/console.rs"]
+pub mod platform_core_console;
 #[path = "platform/runtime/routing.rs"]
 pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
@@ -824,7 +826,7 @@ pub fn report_line(counter: usize, label: String, out: crate::scheduler::SalvoRe
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Counter".to_string(), crate::__PROTO_Counter.to_string()), ("Desk".to_string(), crate::__PROTO_Desk.to_string()), ("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Fragile".to_string(), crate::__PROTO_Fragile.to_string()), ("Ledger".to_string(), crate::__PROTO_Ledger.to_string())]);
-    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let mut workers = crate::scheduler::salvo_pool(((2) as usize));
     let mut counter = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, std::boxed::Box::new(__Actor_Counting::new(__h)), __DECODE_Counting); __a });
     crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Bump(2), crate::__PROTO_Counter);

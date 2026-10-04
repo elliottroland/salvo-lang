@@ -31,6 +31,8 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
+#[path = "platform/core/console.rs"]
+pub mod platform_core_console;
 
 use crate::core_array::*;
 use crate::core_console::*;
@@ -280,7 +282,7 @@ pub fn first__2<__It0: Clone>(it: &mut __It0, next: &mut dyn FnMut(&mut __It0) -
 }
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let mut xs = vec![1, 2, 3, 4];
     describe_container(&console, &xs);
     let mut p = countdown(5);

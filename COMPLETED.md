@@ -135,6 +135,23 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**ROADMAP 0.1, 0.4, 0.5 and the 0c workarounds (2026-10-04).** The waiter
+table reuses a record once its wait has ended (a free list; each record keeps
+its token's slot, and an answer with another slot is dropped), so a loop of
+`waitfor`s no longer grows it — tested with 50 waits. `std.test`'s
+`trapped_by` is Salvo over `runtime.trap_boundary`, the runtime's quiet fault
+boundary for a lent body; both backends' `trapped_by` lowerings are gone.
+`StdOutConsole` is a `threadsafe platform handler` (`std/platform/core/console.*`)
+and `DefaultRandom` an ordinary handler over `runtime.random_double`, seeded in
+an actor test (user decision) [random-default]; std has no intrinsic handler
+left, so the Kotlin test of intrinsic-handler templates went with it (the
+machinery stays, unused). The workarounds 0c had forced are undone:
+`routing.sv`'s nested `is` tests are `&&` chains, `net.sv`'s `departed` is `n`
+again, and the stream table's handler is `Streams` again (Kotlin now qualifies
+the effect it would clash with). Found: an `is` binding is in scope in an
+`if` condition's `&&` chain but not in a `return`'s, which is how the rule is
+written; one routing test kept its `if`.
+
 **ROADMAP 0c, the emitter defects (2026-10-04).** Every item reproduced
 first; two no longer did (item 8, private std fn names mangled apart from a
 program's since overloads are keyed by declaration; item 10, a `Map` of linear

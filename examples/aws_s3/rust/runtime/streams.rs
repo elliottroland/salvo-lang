@@ -15,7 +15,7 @@ use crate::unions::*;
 fn __module_use_0() -> &'static crate::runtime_streams::StreamTable {
     static CELL: std::sync::OnceLock<crate::runtime_streams::StreamTable> = std::sync::OnceLock::new();
     CELL.get_or_init(|| {
-            let stream_table = crate::runtime_streams::StreamTable::locked(HostStreamTable::new());
+            let stream_table = crate::runtime_streams::StreamTable::locked(Streams::new());
         stream_table
     })
 }
@@ -317,7 +317,7 @@ impl StreamTable {
     }
 }
 
-pub struct HostStreamTable {
+pub struct Streams {
     next: i64,
     in_keys: Vec<i64>,
     ins: Vec<InEntry>,
@@ -328,7 +328,7 @@ pub struct HostStreamTable {
     pending: Vec<Pending>,
 }
 
-impl HostStreamTable {
+impl Streams {
     pub fn new() -> Self {
         Self {
             next: 0i64,
@@ -343,7 +343,7 @@ impl HostStreamTable {
     }
 }
 
-impl crate::runtime_streams::__Stateful_StreamTable for HostStreamTable {
+impl crate::runtime_streams::__Stateful_StreamTable for Streams {
 
     fn next_handle(&mut self) -> i64 {
         self.next = self.next + ((1) as i64);

@@ -27,6 +27,8 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
+#[path = "platform/core/console.rs"]
+pub mod platform_core_console;
 
 use crate::core_console::*;
 use crate::core_deque::*;
@@ -129,7 +131,7 @@ pub fn a_queue_of_tickets(console: &crate::core_console::Console) {
 }
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     one_use(&console);
     borrow_then_use(&console);
     read_a_field(&console);

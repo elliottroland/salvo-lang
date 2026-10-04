@@ -160,7 +160,7 @@ object RawRenamePath {
 
 class __Platform_HostRawFs() : salvo.fs.host.__Platform_RawFs(salvo.platform.fs.host.HostRawFs())
 
-class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Streams) : Fs {
+class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_salvo_stream_Streams: salvo.stream.Streams) : Fs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun openRead(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {

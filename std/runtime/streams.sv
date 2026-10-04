@@ -123,7 +123,7 @@ effect StreamTable {
     fn take_pending(handle: Long) -> Pending? => handle
 }
 
-handler HostStreamTable() of StreamTable {
+handler Streams() of StreamTable {
     next: Long = 0
     in_keys: Mut List<Long> = mut_list_of()
     ins: Mut List<Mut InEntry> = mut_list_of()
@@ -199,7 +199,7 @@ handler HostStreamTable() of StreamTable {
     }
 }
 
-use HostStreamTable()
+use Streams()
 
 fn index_in(keys: List<Long>, handle: Long) [] -> Int => keys, handle {
     let i = 0

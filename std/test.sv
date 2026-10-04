@@ -25,6 +25,7 @@
 // property test's seed, a shrink count — without changing the channel it
 // travels on (user decision 2026-09-23).
 import throw
+import runtime.trap_boundary
 
 export struct Failure {
     // One line, ideally: the report indents it under the test's own line.
@@ -81,10 +82,13 @@ export fn expect_eq<T>(actual: T, expected: T, ?Eq<T>, ?ToStr<T>) [Throw<Failure
 //
 // It lives here, in the test module, and therefore **only exists in test
 // files** [test-implicit-import]: production code still cannot catch a trap, the
-// stance A-2 took when it rejected an interceptable abort. Each backend lowers
-// it to its own catch — an exception handler on the JVM, `catch_unwind` on Rust
-// — and the message is the trap's own text [assert-trap].
-export intrinsic fn trapped_by(body: () -> Str?) [] -> Str? => body
+// stance A-2 took when it rejected an interceptable abort. The catch is the
+// runtime's fault boundary (`runtime.trap_boundary`, ROADMAP 0.4) — an
+// exception handler on the JVM, `catch_unwind` on Rust — and the message is the
+// trap's own text [assert-trap].
+export fn trapped_by(body: () -> Str?) [] -> Str? => body {
+    return trap_boundary(body)
+}
 
 // [test-trap-expect] The trap a [body] produced, or `None` when it completed:
 // `trapped_by` with the shape a test wants, since a test's body answers nothing.

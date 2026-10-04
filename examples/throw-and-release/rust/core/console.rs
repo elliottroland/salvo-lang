@@ -48,19 +48,25 @@ impl Console {
     }
 }
 
-#[derive(Clone)]
-pub struct StdOutConsole {
+/// The adapter a `use` of a platform handler of `Console` constructs [platform-abi].
+pub struct __Platform_Console<T>(pub T);
+
+/// What a `threadsafe platform handler` of `Console` implements [platform-abi].
+pub trait ConsolePlatformSync: Send + Sync {
+    fn print(&self, message: &String);
 }
 
-impl StdOutConsole {
-    pub fn new() -> Self {
-        Self { }
+impl<T: ConsolePlatformSync> __Stateless_Console for __Platform_Console<T> {
+    fn print(&self, message: &String) {
+        self.0.print(message)
     }
 }
 
-impl crate::core_console::__Stateless_Console for StdOutConsole {
-    fn print(&self, message: &String) {
-        print!("{}", message)
+pub type __Platform_StdOutConsole = crate::core_console::__Platform_Console<crate::platform_core_console::StdOutConsole>;
+
+impl __Platform_StdOutConsole {
+    pub fn new() -> Self {
+        crate::core_console::__Platform_Console(crate::platform_core_console::StdOutConsole::new())
     }
 }
 

@@ -57,7 +57,7 @@ fun fsEscaped(path: String): Checked<Union7<NotFound, PermissionDenied, AlreadyE
     return checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U5<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(PathEscapes(path = path)))
 }
 
-class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private val __dep_Streams: Streams) : Fs {
+class RestrictedFs(private val root: String, private val __dep_Fs: Fs, private val __dep_salvo_stream_Streams: salvo.stream.Streams) : Fs {
 
     override fun openRead(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val real = fsResolve(root, path)

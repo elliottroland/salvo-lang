@@ -184,7 +184,7 @@ fun settings(setting_int: Setting<Int>, setting_string: Setting<String>, console
 }
 
 fun main() {
-    val console: Console = StdOutConsole()
+    val console: Console = salvo.core.console.__Platform_StdOutConsole()
     val clock: Clock = __Mon_Clock(TickingClock())
     println(console, "1. the clock reads ${clock.now()}, then ${clock.now()}")
     println(console, "2. two effects in one signature:")

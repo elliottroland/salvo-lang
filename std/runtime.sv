@@ -49,6 +49,12 @@ export platform fn start_thread(body: once () -> None) [] -> None => !body
 // activation runs in, so a fault is the actor's death and not the thread's.
 platform fn guarded(body: once () -> None) [] -> Str? => !body
 
+// [test-recover] The same fault boundary for a body that is only lent, and
+// answers: its own answer, or the fault's message in its place. Quiet — the
+// host prints nothing for the fault — since the caller reports it. What
+// `std.test`'s `trapped_by` is.
+export platform fn trap_boundary(body: () -> Str?) [] -> Str? => body
+
 // ===== the host [runtime-host] =====
 //
 // What only the host can do, behind one interface the backends implement in
@@ -251,11 +257,15 @@ linear struct WaiterRec canbe Mut {
     // task, 2 main's own thread, 0 not waiting), and the actor whose
     // activation it is, or -1.
     waiting: Int,
-    waiting_actor: Int
+    waiting_actor: Int,
+    // [waitfor-pump] The slot of the token minted for this wait: a record is
+    // reused once its wait has ended, and an answer carrying another slot
+    // (late, or forged from the wire) is not this wait's.
+    slot: Long
 }
 
 fn drop_waiter_rec(w: WaiterRec) [] -> None => !w {
-    let {pool, value, filled, parker, waiting, waiting_actor} = w
+    let {pool, value, filled, parker, waiting, waiting_actor, slot} = w
     drop_slot(value)
 }
 
@@ -418,6 +428,8 @@ effect SchedTable {
     fn next_work(pool: Int, idle: Parker) -> RunActor | RunTask | Retire | None => !pool, !idle
     // [pool-retire] Worker threads that have returned from retired pools.
     fn retired_workers() -> Int
+    // [waitfor-pump] Waiter records in the table, free ones included.
+    fn waiter_records() -> Int
     // One step of waiting on [wid] from a frame of kind [frame] (1 an
     // activation or task, 2 main's thread) inside [own], serving [pool].
     fn wait_step(wid: Int, pool: Int, own: Int, frame: Int, me: Parker) -> WaitStep
@@ -442,6 +454,9 @@ effect SchedTable {
     // Moves the virtual clock forward to [at] (never back).
     fn advance_to(at: Long) -> None => !at
     fn random_bits() -> Long
+    // [random-default] A uniform double in [0, 1): from the seed on the
+    // virtual runtime, from a generator seeded by OS entropy otherwise.
+    fn random_unit() -> Double
     // A token answered when nothing can run: what moves virtual time.
     fn clock_hook(t: Token) -> None => !t
     // Work from any pool but [own]'s activations, for a send waiting for room.
@@ -451,6 +466,9 @@ effect SchedTable {
 handler Scheduler() of SchedTable {
     actors: Mut List<Mut ActorRec> = mut_list_of()
     waiters: Mut List<Mut WaiterRec> = mut_list_of()
+    // [waitfor-pump] Waiter records whose wait has ended, to be reused: the
+    // table stays as large as the most waits ever open at once.
+    free_waiters: Mut List<Int> = mut_list_of()
     pools: Mut List<Mut PoolRec> = mut_list_of()
     idle_hooks: Mut List<IdleHook> = mut_list_of()
     next_slot: Long = 0
@@ -468,6 +486,9 @@ handler Scheduler() of SchedTable {
     virtual_mode: Bool = false
     vnow: Long = 0
     rng: Long = 1
+    // [random-default] Whether `rng` has been seeded outside the virtual
+    // runtime, which seeds it itself.
+    rng_seeded: Bool = false
     clock_hooks: Mut List<Token> = mut_list_of()
 
     // [main-pool] Pool 0 exists from the start and belongs to `main`.
@@ -579,11 +600,8 @@ handler Scheduler() of SchedTable {
     fn mint_waiter(pool: Int) -> WaiterMint => !pool {
         let p = get(pools, pool)!
         p.owed = p.owed + 1
-        add(waiters, Mut WaiterRec {
-            pool: pool, value: slot_empty(), filled: false, parker: None, waiting: 0, waiting_actor: -1
-        })
-        let wid = size(waiters) - 1
         next_slot = next_slot + 1
+        let wid = reuse_waiter(waiters, free_waiters, copy(pool), copy(next_slot))
         let t = Token { target: ToWaiter { wid: copy(wid) }, slot: copy(next_slot), tracked: true }
         return WaiterMint { token: t, wid: wid }
     }
@@ -607,6 +625,10 @@ handler Scheduler() of SchedTable {
         let hook = untrack(actors, waiters, pools, t)
         add(idle_hooks, IdleHook { pool: pool, token: hook })
         wake_all_pools(pools)
+    }
+
+    fn waiter_records() -> Int {
+        return size(waiters)
     }
 
     fn next_work(pool: Int, idle: Parker) -> RunActor | RunTask | Retire | None => !pool, !idle {
@@ -668,6 +690,8 @@ handler Scheduler() of SchedTable {
             }
             w.waiting = 0
             w.waiting_actor = -1
+            // The token is spent and the wait over: the record is free.
+            add(free_waiters, copy(wid))
             // This thread may have been woken for work, and leaves with its
             // answer instead: the wake is passed on.
             wake_pool(pools, copy(pool))
@@ -817,6 +841,19 @@ handler Scheduler() of SchedTable {
         if at > vnow {
             vnow = at
         }
+    }
+
+    fn random_unit() -> Double {
+        if !virtual_mode && !rng_seeded {
+            rng = seed_of(secure_bits())
+            rng_seeded = true
+        }
+        let hi = lehmer(copy(rng))
+        let lo = lehmer(copy(hi))
+        rng = copy(lo)
+        // Two 31-bit draws, each in 1..2^31-2, as one number in [0, m^2).
+        let m = 2147483646L
+        return to_double((hi - 1L) * m + (lo - 1L)) / (to_double(m) * to_double(m))
     }
 
     fn random_bits() -> Long {
@@ -976,6 +1013,26 @@ fn release(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, poo
 }
 
 // [actor-replyto] An answer, to wherever its token was aimed.
+// [waitfor-pump] A waiter record for a new wait of slot [slot] on [pool]: a
+// freed one when there is one, else a new one. Answers its index.
+fn reuse_waiter(waiters: Mut List<Mut WaiterRec>, free: Mut List<Int>, pool: Int, slot: Long) [] -> Int
+=> waiters: Mut, free: Mut, !pool, !slot {
+    if remove_first(free) is Int wid {
+        let w = get(waiters, wid)!
+        w.pool = pool
+        w.filled = false
+        w.parker = None
+        w.waiting = 0
+        w.waiting_actor = -1
+        w.slot = slot
+        return wid
+    }
+    add(waiters, Mut WaiterRec {
+        pool: pool, value: slot_empty(), filled: false, parker: None, waiting: 0, waiting_actor: -1, slot: slot
+    })
+    return size(waiters) - 1
+}
+
 fn deliver_to(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>,
     t: Token, value: Dyn) [] -> None
     => actors: Mut, waiters: Mut, pools: Mut, !t, !value {
@@ -998,6 +1055,10 @@ fn deliver_to(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, 
         }
     } elif target is ToWaiter tw {
         let w = get(waiters, tw.wid)!
+        if w.slot != slot || w.filled {
+            drop_dyn(value)
+            return
+        }
         slot_put(w.value, value)
         w.filled = true
         if w.parker is Parker p {
@@ -1283,6 +1344,12 @@ export fn new_dedicated_pool() [] -> Int {
     return start_pool(1, -1, true)
 }
 
+// [waitfor-pump] Waiter records in the scheduler's table: as many as the
+// most waits ever open at once.
+export fn waiter_record_count() [] -> Int {
+    return waiter_records()
+}
+
 // [pool-retire] Worker threads that have returned from retired pools.
 export fn retired_worker_count() [] -> Int {
     return retired_workers()
@@ -1424,6 +1491,12 @@ export fn external_begin() [] -> None {
 // actor test runs on.
 export fn enter_virtual(seed: Long) [] -> None => !seed {
     go_virtual(seed)
+}
+
+// [random-default] A uniform double in [0, 1): what `random.DefaultRandom`
+// answers. Repeatable from the seed in an actor test [test-actor].
+export fn random_double() [] -> Double {
+    return random_unit()
 }
 
 // [test-actor] Whether this is the virtual runtime.

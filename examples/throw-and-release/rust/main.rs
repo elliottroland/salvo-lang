@@ -29,6 +29,8 @@ pub mod core_sorted;
 pub mod core_string;
 #[path = "throw.rs"]
 pub mod throw;
+#[path = "platform/core/console.rs"]
+pub mod platform_core_console;
 
 use crate::core_console::*;
 use crate::core_iterator::*;
@@ -130,7 +132,7 @@ pub fn report(console: &crate::core_console::Console, label: &String, config: &S
 }
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let mut small = read_size(&console, "notes.txt".to_string(), 3);
     println(&console, &(format!("1. read {}", small)));
     let mut clamped = read_size(&console, "notes.txt".to_string(), 99);

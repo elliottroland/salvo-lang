@@ -84,19 +84,25 @@ impl Console {
     }
 }
 
-#[derive(Clone)]
-pub struct StdOutConsole {
+/// The adapter a `use` of a platform handler of `Console` constructs [platform-abi].
+pub struct __Platform_Console<T>(pub T);
+
+/// What a `threadsafe platform handler` of `Console` implements [platform-abi].
+pub trait ConsolePlatformSync: Send + Sync {
+    fn print(&self, message: &String);
 }
 
-impl StdOutConsole {
-    pub fn new() -> Self {
-        Self { }
+impl<T: ConsolePlatformSync> __Stateless_Console for __Platform_Console<T> {
+    fn print(&self, message: &String) {
+        self.0.print(message)
     }
 }
 
-impl crate::core_console::__Stateless_Console for StdOutConsole {
-    fn print(&self, message: &String) {
-        print!("{}", message)
+pub type __Platform_StdOutConsole = crate::core_console::__Platform_Console<crate::platform_core_console::StdOutConsole>;
+
+impl __Platform_StdOutConsole {
+    pub fn new() -> Self {
+        crate::core_console::__Platform_Console(crate::platform_core_console::StdOutConsole::new())
     }
 }
 
@@ -746,6 +752,8 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
+#[path = "platform/core/console.rs"]
+pub mod platform_core_console;
 
 use crate::core_console::*;
 use crate::core_iterator::*;
@@ -838,7 +846,7 @@ pub fn lucky_number(random_i32: &crate::Random<i32>) -> i32 {
 }
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let random_i32 = crate::Random::<i32>::locked(CyclicRandom::<i32>::new(vec![10, 20, 30], move |__i0| __i0.clone()));
     let random_string = crate::Random::<String>::locked(CyclicRandom::<String>::new(vec!["a".to_string(), "b".to_string()], move |__i0| __i0.clone()));
     draw(&random_i32, &random_string, &console);
@@ -2528,5 +2536,27 @@ pub fn salvo_epoch_nanos() -> i64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(since) => since.as_nanos() as i64,
         Err(before) => -(before.duration().as_nanos() as i64),
+    }
+}
+
+// ===== platform/core/console.rs =====
+// [platform-tree] std's console, for `core.console`'s
+// `threadsafe platform handler StdOutConsole` (ROADMAP 0.5): standard output,
+// with no buffering of its own, so a line printed before a trap is seen.
+
+use std::io::Write;
+
+pub struct StdOutConsole;
+
+impl StdOutConsole {
+    pub fn new() -> Self {
+        StdOutConsole
+    }
+}
+
+impl crate::core_console::ConsolePlatformSync for StdOutConsole {
+    fn print(&self, message: &String) {
+        let mut out = std::io::stdout().lock();
+        let _ = out.write_all(message.as_bytes());
     }
 }

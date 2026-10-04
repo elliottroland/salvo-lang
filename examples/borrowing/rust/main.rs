@@ -27,6 +27,8 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
+#[path = "platform/core/console.rs"]
+pub mod platform_core_console;
 
 use crate::collections::*;
 use crate::core_console::*;
@@ -179,7 +181,7 @@ pub fn hoist(camp: &mut Camp, banner: String) {
 }
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let mut roster: Vec<Fighter> = vec![Fighter { name: "Ada".to_string(), hp: 30, energy: 4 }, Fighter { name: "Bo".to_string(), hp: 8, energy: 9 }];
     let mut ada = named(&roster, &("Ada".to_string())).unwrap();
     println(&console, &(format!("1. found {}, hp {}", ada.name.clone(), ada.hp)));

@@ -60,12 +60,6 @@ Built: see COMPLETED.md's decision log and its "Design record: the runtime in
 Salvo" (the runtime record, retired 2026-10-03). What is left, besides 0c, 0d, 0e
 and the `test actor` follow-ups recorded below:
 
-1. **The waiter table never shrinks** (runtime finding 4, a defect): every
-   `waitfor` adds a `WaiterRec` to the scheduler that is never removed, so a
-   long-running loop around a `waitfor` grows the table without bound. Fix:
-   reuse a waiter's index once its wait has ended and its token is spent (a
-   free list), or key waiters in a map. Dead actors keep their record by
-   design, since a stale addr must keep meaning the dead actor.
 2. **The actor, net and time intrinsics as Salvo** (runtime E8's second
    half): `core.actor` still declares 8 intrinsics (`pool`, `thread`,
    `watch`, `on_idle`, `send`, …), `net` 26 and `time` 1, each lowered by the
@@ -78,11 +72,6 @@ and the `test actor` follow-ups recorded below:
    opaque handles over an index, `Reply<T>` linear, so they are unforgeable
    and need no phantom parameters; a new backend writes an index wrapper per
    type instead of lowering three intrinsic types.
-4. **`std.test`'s `trapped_by` and the runtime's `guarded` as one
-   primitive**, a `RuntimeHost` member `std.test` calls.
-5. **`StdOutConsole` and `DefaultRandom` as platform handlers** rather than
-   intrinsic handlers. In an actor test `DefaultRandom` draws from the test's
-   seed, as the runtime's own random bits do (user decision 2026-10-04).
 6. **Kotlin's `unerase<T>` cannot check `T`** (erased generics): a mismatch
    surfaces as a `ClassCastException` where the value is used. In the
    runtime a mismatch is a compiler bug either way; an exact check would need
@@ -104,11 +93,6 @@ and the `test actor` follow-ups recorded below:
 ### 0b — ✅ Three slow tests (fixed 2026-10-04, COMPLETED.md)
 
 ### 0c — ✅ Emitter defects and gaps (closed 2026-10-04, COMPLETED.md)
-
-Left from it: std still carries the workarounds the defects forced, now
-unnecessary — the nested `is` test in `std/runtime/routing.sv` (item 9), the
-handler `HostStreamTable` (item 13, could be `Streams` again), `net.sv`'s
-`departed` (item 1) — to be undone when those files are next touched.
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 

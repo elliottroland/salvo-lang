@@ -25,6 +25,8 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
+#[path = "platform/core/console.rs"]
+pub mod platform_core_console;
 
 use crate::core_console::*;
 use crate::core_iterator::*;
@@ -110,7 +112,7 @@ pub fn handle__Fresh(request: &Request) -> String {
 }
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(StdOutConsole::new());
+    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let mut xs: Vec<i32> = vec![];
     xs.push(3);
     println(&console, &(format!("1. head after add: {}", head(&xs))));

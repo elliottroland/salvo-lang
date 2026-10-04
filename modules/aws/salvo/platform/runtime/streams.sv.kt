@@ -17,7 +17,7 @@ import salvo.runtime.*
 
 // [mod-use] The module's `use` #0, bound on first use.
 private val __moduleUse0: StreamTable by lazy {
-    val stream_table: StreamTable = __Mon_StreamTable(HostStreamTable())
+    val stream_table: StreamTable = __Mon_StreamTable(Streams())
     stream_table
 }
 
@@ -202,7 +202,7 @@ class __Mon_StreamTable(
     }
 }
 
-class HostStreamTable : StreamTable {
+class Streams : StreamTable {
     private var next: Long = 0L
     private var inKeys: MutableList<Long> = mutableListOf<Long>()
     private var ins: MutableList<InEntry> = mutableListOf<InEntry>()

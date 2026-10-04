@@ -7871,7 +7871,9 @@ between endpoints and delivers what arrives into the scheduler.
   platform root, bound by the runtime module's `use HostRuntime()`
   [mod-use] (the runtime record). Its members: `secure_bits` (OS entropy:
   `/dev/urandom` on Rust, `SecureRandom` on Kotlin [addr-capability]),
-  `report` (a line on stderr) and `mono_nanos` (the monotonic clock). What
+  `report` (a line on stderr) and `mono_nanos` (the monotonic clock). Waiter
+  records are reused once their wait has ended, checked by the token's slot,
+  so the table holds as many as the most waits ever open at once. What
   else the runtime needs from the host is a platform type or fn of its own
   module: `Parker`, `start_thread`, `guarded`, `Dyn`, `Body`, `Slot`, the
   `here` thread-local, `exit_process`, and the services' `HostIn`/`HostOut`
@@ -8141,6 +8143,14 @@ replaced the working document TESTING.md).
     anything.
   * [test-unique] Two tests in one file may not share a name — the name is the
     test's identity to the runner.
+* [random-default] **`random.DefaultRandom` is Salvo over the runtime**
+  (2026-10-04, ROADMAP 0.5): a handler whose `random()` is
+  `runtime.random_double()`, two draws of the scheduler's Lehmer generator
+  as one double in [0, 1). Seeded by OS entropy on first use, and by the test's
+  seed in an actor test, so its draws repeat there [test-actor]. Not
+  cryptographic. `core.console`'s `StdOutConsole` is a `threadsafe platform
+  handler` with its host files in `std/platform/core/console.{rs,kt}`; std
+  declares no `intrinsic handler` any more.
 * [test-kind] **A test's kind decides what it runs on** (user decision
   2026-10-03, D11): `test "…"` is a plain test, on the threaded runtime;
   `test actor(ARGS) "…"` is an actor test, on the virtual runtime
@@ -8254,7 +8264,10 @@ replaced the working document TESTING.md).
   * These are ordinary functions that `throw` [test-fail], so a test *about*
     them reads its own failure off a `try` — which is what `std/test.test.sv`,
     the test module's own annex, does.
-* [test-recover] A test that **traps** is that test's failure, not the end of the
+* [test-recover] (`std.test`'s `trapped_by` is Salvo since 2026-10-04: a call
+  of `runtime.trap_boundary`, the runtime's fault boundary for a lent body,
+  rather than an intrinsic each backend lowered.)
+  A test that **traps** is that test's failure, not the end of the
   run (user decision 2026-09-23, A-5): a failed `assert!` [assert-trap], a
   subscript out of range, any failure the program is not meant to continue past
   is caught by the **generated harness** and reported like any other failure.

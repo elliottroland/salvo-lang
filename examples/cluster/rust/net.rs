@@ -1075,12 +1075,12 @@ impl StaticNodeGroup {
                 }
             }
             Some(Union3::U2(_)) => {
-                let mut departed = self.known.remove(&event.as_ref().unwrap().u2().node);
-                if departed.is_none() {
+                let mut n = self.known.remove(&event.as_ref().unwrap().u2().node);
+                if n.is_none() {
                     return;
                 }
                 for w in &self.watchers {
-                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Left(departed.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeGroupWatcher);
+                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Left(n.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeGroupWatcher);
                 }
             }
             Some(Union3::U3(_)) => {
@@ -1268,12 +1268,12 @@ impl GossipNodeGroup {
                 }
             }
             Some(Union3::U2(_)) => {
-                let mut departed = self.known.remove(&event.as_ref().unwrap().u2().node);
-                if departed.is_none() {
+                let mut n = self.known.remove(&event.as_ref().unwrap().u2().node);
+                if n.is_none() {
                     return;
                 }
                 for w in &self.watchers {
-                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Left(departed.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeGroupWatcher);
+                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Left(n.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeGroupWatcher);
                 }
             }
             Some(Union3::U3(_)) => {

@@ -501,12 +501,12 @@ export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, s
                 }
             }
             is PeerGone {
-                let departed = remove(known, event.node)
-                if departed is None {
+                let n = remove(known, event.node)
+                if n is None {
                     return
                 }
                 for w in watchers {
-                    w.left(copy(departed), "left")
+                    w.left(copy(n), "left")
                 }
             }
             // A static group knows its list already; an introduction is news
@@ -598,12 +598,12 @@ export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport,
                 }
             }
             is PeerGone {
-                let departed = remove(known, event.node)
-                if departed is None {
+                let n = remove(known, event.node)
+                if n is None {
                     return
                 }
                 for w in watchers {
-                    w.left(copy(departed), "left")
+                    w.left(copy(n), "left")
                 }
             }
             is PeerIntro {

@@ -247,10 +247,8 @@ handler Routes() of RouteTable {
         if r.node == here {
             let idx = to_int(r.actor)
             let b = get(bits, idx)
-            if !contains_key(remote, idx) && b is Long known {
-                if known == r.bits {
-                    return Found { idx: idx }
-                }
+            if !contains_key(remote, idx) && b is Long known && known == r.bits {
+                return Found { idx: idx }
             }
             if dead_entry >= 0 {
                 return Found { idx: copy(dead_entry) }
@@ -350,12 +348,9 @@ handler Routes() of RouteTable {
             return false
         }
         let idx = to_int(actor)
-        if contains_key(remote, idx) {
-            return false
-        }
         let b = get(bits, idx)
-        if b is Long known {
-            return known == claimed
+        if !contains_key(remote, idx) && b is Long known && known == claimed {
+            return true
         }
         return false
     }

@@ -654,12 +654,12 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
                 }
             }
             is Union3.U2<*, *, *> -> {
-                val departed = known.remove((event?.value as PeerGone).node)
-                if (departed == null) {
+                val n = known.remove((event?.value as PeerGone).node)
+                if (n == null) {
                     return
                 }
                 for (w in watchers) {
-                    salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(departed, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
+                    salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(n, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
                 }
             }
             is Union3.U3<*, *, *> -> {
@@ -811,12 +811,12 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
                 }
             }
             is Union3.U2<*, *, *> -> {
-                val departed = known.remove((event?.value as PeerGone).node)
-                if (departed == null) {
+                val n = known.remove((event?.value as PeerGone).node)
+                if (n == null) {
                     return
                 }
                 for (w in watchers) {
-                    salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(departed, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
+                    salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(n, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
                 }
             }
             is Union3.U3<*, *, *> -> {
