@@ -61,6 +61,8 @@ pub mod time;
 pub mod platform_core_bytes;
 #[path = "salvo/platform/core/deque.sv.rs"]
 pub mod platform_core_deque;
+#[path = "salvo/platform/core/list.sv.rs"]
+pub mod platform_core_list;
 #[path = "salvo/platform/core/string.sv.rs"]
 pub mod platform_core_string;
 #[path = "salvo/platform/runtime/routing.sv.rs"]

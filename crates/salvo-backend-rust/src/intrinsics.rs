@@ -188,8 +188,9 @@ pub fn fn_call(
         // `?ToStr<T>` implicit can resolve one (added 2026-09-23 with the test
         // surface). `Display` is what interpolation itself uses
         // [rs-interp-to-str], so `to_str(x)` and `"${x}"` are the same string
-        // by construction. `Double`/`Float` have no `to_str`: the two hosts
-        // disagree about printing a whole float.
+        // by construction; a float's text is Salvo's rule [interp-float].
+        ("to_str", Some("Double")) => format!("crate::strings::salvo_f64_text({})", a(0)),
+        ("to_str", Some("Float")) => format!("crate::strings::salvo_f32_text({})", a(0)),
         ("to_str", Some("Int" | "Long" | "Byte" | "Char" | "Bool" | "Str")) => {
             format!("format!(\"{{}}\", {})", a(0))
         }
@@ -305,58 +306,6 @@ pub fn fn_call(
         // correlation `DefaultClock` keeps) is ordinary Salvo over these.
         // [stream-handle] One counter for every stream table in the process.
         ("epoch_nanos", None) => "crate::hosttime::salvo_epoch_nanos()".to_string(),
-        // core.list ------------------------------------------------------
-        // `List<T>` and `Mut List<T>` are both `Vec<T>`: Rust expresses
-        // mutability through the binding and the reference, not through a
-        // second type [type-canbe-mut].
-        // [fn-variadic] A `...spread` argument arrives as the whole
-        // `Vec<T>`, so the constructor *is* that vector — wrapping it in a
-        // `vec![]` would build a vector of one vector (which rustc rejects,
-        // but only after the fact [backend-never-wrong]).
-        // Cloned, not moved: Salvo does not track a variadic position, so
-        // the spread array stays usable afterwards — which is what Kotlin's
-        // `listOf(*arr)` does too.
-        // [col-sorted-list] [cmp-carry] The sorted-list primitives take the
-        // ordering as an ordinary fn-typed argument — `sort`/`add_sorted`/
-        // `binary_search` are ordinary Salvo over these, which is how they get
-        // to take it as an *implicit* parameter (a template cannot). So the
-        // comparator is whatever the claim names, never Rust's own `Ord`: a
-        // hand-written `cmp@Person` sorts here.
-        //
-        // `sort_by` is Rust's stable sort, and the `i32` the comparator answers
-        // becomes an `Ordering` by comparing it against zero.
-        ("sort_by", Some("List")) => format!(
-            "{{ let mut __cmp = {}; let mut __v = {}.clone(); \
-             __v.sort_by(|__a, __b| __cmp(__a, __b).cmp(&0)); __v }}",
-            a(1),
-            a(0)
-        ),
-        // A **lower bound**: the count of elements strictly below `elem` in
-        // *that* ordering, so an equal run is entered from the front and both
-        // backends land on the same index.
-        ("insert_sorted_by", Some("List")) => format!(
-            "{{ let mut __cmp = {}; let __e = {}; \
-             let __at = {}.partition_point(|__x| __cmp(__x, &__e) < 0); \
-             {}.insert(__at, __e); }}",
-            a(2),
-            a(1),
-            a(0),
-            a(0)
-        ),
-        // Lower bound, then a *tie* test in the same ordering — not an equality
-        // test, and not `Vec::binary_search`, which may answer any index within
-        // an equal run [col-sorted-list].
-        ("search_sorted_by", Some("List")) => format!(
-            "{{ let mut __cmp = {}; let __e = {}; \
-             let __at = {}.partition_point(|__x| __cmp(__x, &__e) < 0); \
-             if __at < {}.len() && __cmp(&{}[__at], &__e) == 0 {{ Some(__at as i32) }} \
-             else {{ None }} }}",
-            a(2),
-            a(1),
-            a(0),
-            a(0),
-            a(0)
-        ),
         // [col-of-nonempty] The constructors match on the *name*, because the
         // first parameter no longer identifies them: the empty one has none and
         // the element one starts with a `T`. Three call shapes reach here.
@@ -389,7 +338,7 @@ pub fn fn_call(
         // (`Option<&T>`): `get` declares `(proj(list) T)?`, and a
         // caller that needs ownership says `copy` [copy-opt-in]. (Until
         // 2026-09-11 every read cloned, even one that only tested `None`.)
-        ("get", Some("List")) | ("get", Some("[]")) => {
+        ("get", Some("[]")) => {
             if loc_lend {
                 // [rs-loc] The locator form: the position when present,
                 // `None` where the read would have answered `None` — same
@@ -403,58 +352,17 @@ pub fn fn_call(
                 format!("{}.get({})", a(0), index(1))
             }
         }
-        ("add", Some("List")) => format!("{}.push({})", a(0), a(1)),
-        // [linear-container] Take-by-move: the element leaves the list, so
-        // nothing is cloned and nothing is left behind — which is what makes
-        // these legal for a `List<Reply<T>>` where `get` (a borrow) is not.
-        // A block, so the receiver is named once and the emptiness test and
-        // the removal cannot disagree about it.
-        // Methods on the generated `SalvoTake` trait rather than an inline
-        // `&mut` block, for the reason `set(Mut Str)` is one: a `Mut List<T>`
-        // parameter *is* a `&mut Vec<T>` and cannot be re-borrowed by an inline
-        // `&mut`, and method syntax splices the receiver exactly once
-        // [rs-borrows].
-        ("remove_first", Some("List")) => format!("{}.salvo_remove_first()", a(0)),
-        ("remove_at", Some("List")) => format!("{}.salvo_remove_at({})", a(0), a(1)),
-        // [col-insert] [col-remove-range]
-        ("insert_at", Some("List")) => format!("{}.salvo_insert_at({}, {})", a(0), a(1), a(2)),
-        ("remove_range", Some("List")) => format!("{}.salvo_remove_range({}, {})", a(0), a(1), a(2)),
-        // [col-bounds] `Vec::swap` panics out of range, and the answer has to be
-        // a `Bool` instead — so the bounds are tested here. A negative `i32`
-        // becomes a huge `usize`, which the length test rejects, so one
-        // comparison per index covers both ends.
-        // The answer is a `Checked<Bool>` [col-bounds], so it is built here:
-        // `core::checked::Checked` is an ordinary generated struct.
-        ("swap", Some("List")) => format!(
-            "{{ let __i = {}; let __j = {}; \
-             Checked {{ value: \
-             if __i < {}.len() && __j < {}.len() {{ {}.swap(__i, __j); true }} \
-             else {{ false }} }} }}",
-            index(1),
-            index(2),
-            a(0),
-            a(0),
-            a(0)
-        ),
-        // [linear-container] The terminal: the list is consumed (so a state
-        // field arrives here as a `mem::take`) and every element is handed to
-        // the callback, which owns it.
-        // `for_each` rather than a `for` loop: the callback's parameter type
-        // is then inferred from the iterator's item through the `FnMut` bound,
-        // where an immediately-applied closure literal (`(|r| …)(x)`) leaves
-        // rustc with nothing to infer from (E0282).
-        ("drain", Some("List")) => format!("{}.into_iter().for_each({})", a(0), a(1)),
         // `first` is a derived return (`proj(list)`), so it
         // borrows rather than clones [readonly-return].
-        ("first", Some("List")) | ("first", Some("[]")) => format!("{}.first()", a(0)),
-        ("size", Some("List")) | ("size", Some("[]")) => {
+        ("first", Some("[]")) => format!("{}.first()", a(0)),
+        ("size", Some("[]")) => {
             format!("({}.len() as i32)", a(0))
         }
         // [interp-to-str] `[1, 2, 3]` — the format is fixed by the language,
         // not by the target's own collection formatting, so both backends
         // print the same text [backend-parity]. (Rust `Debug` would quote
         // strings and Kotlin's `toString` would not.)
-        ("to_str", Some("List")) | ("to_str", Some("[]")) => format!(
+        ("to_str", Some("[]")) => format!(
             "format!(\"[{{}}]\", {}.iter().map(|__e| __e.to_string())\
              .collect::<Vec<_>>().join(\", \"))",
             a(0)
@@ -488,17 +396,6 @@ pub fn fn_call(
         }
         ("to_map", Some("List")) => map_ctor(format!("{}.iter().map({})", a(0), a(1))),
 
-        // core.seq -------------------------------------------------------
-        // The `List` fast paths [fn-overload-rank] go through the
-        // generated helpers [rs-seq]: a generic parameter is what gives the
-        // callback an expected type, which is what closure inference needs
-        // and what no inline shape could supply. `&{}[..]` reaches an owned
-        // `Vec`, a `&Vec` and a `&mut Vec` alike.
-        ("map", Some("List")) => format!("salvo_map(&{}[..], {})", a(0), a(1)),
-        ("filter", Some("List")) => format!("salvo_filter(&{}[..], {})", a(0), a(1)),
-        ("reduce", Some("List")) => {
-            format!("salvo_reduce(&{}[..], {}, {})", a(0), a(1), a(2))
-        }
 
         // core.set -------------------------------------------------------
         // [rs-collections] The ordered set from the runtime file. A

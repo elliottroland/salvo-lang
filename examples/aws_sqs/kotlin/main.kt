@@ -63,7 +63,7 @@ fun roundTrip(sqs: Sqs, console: Console, name: String) {
     when (got) {
         is Union2.U1<*, *> -> {
             val messages: List<Message> = ((got.value as ReceiveMessageOutput).messages ?: listOf<Message>())
-            println(console, "received ${messages.size} message(s)")
+            println(console, "received ${sizePlatform(messages)} message(s)")
             for (m in messages) {
                 println(console, "  ${(m.body ?: "")}")
             }
@@ -120,10 +120,10 @@ class MemSqs : Sqs {
         }
         val grown = mutableListOf<String>()
         for (b in held) {
-            grown.add(b)
+            addPlatform(grown, b)
         }
-        val id = "m${grown.size + 1}"
-        grown.add(input.messageBody)
+        val id = "m${sizePlatform(grown) + 1}"
+        addPlatform(grown, input.messageBody)
         val stored: List<String> = grown
         queues.put(input.queueUrl, stored)
         salvo.SalvoSched.replyWire(reply, Union2.U1<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>(ok(SendMessageOutput(messageId = id))), salvo.Union2Codec(__Codec_SendMessageOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
@@ -139,7 +139,7 @@ class MemSqs : Sqs {
         var i = 0
         for (b in held) {
             i = i + 1
-            out.add(Message(messageId = "m$i", receiptHandle = "m$i", body = b))
+            addPlatform(out, Message(messageId = "m$i", receiptHandle = "m$i", body = b))
         }
         val messages: List<Message> = out
         reply.send(Union2.U1<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>(ok(ReceiveMessageOutput(messages = messages))))
@@ -170,7 +170,7 @@ fun main() {
         val sqs: Sqs = __Mon_Sqs(__h, __l)
         val sqs_calls: SqsCalls = __Mon_SqsCalls(__h, __l)
         roundTrip(sqs, console, "orders")
-        println(console, "calls: ${sqs_calls.calls().joinToString(", ", "[", "]")}")
+        println(console, "calls: ${toStr__2(sqs_calls.calls(), { __i0 -> __i0 })}")
     }
     println(console, "-- MemSqs --")
     if (true) {

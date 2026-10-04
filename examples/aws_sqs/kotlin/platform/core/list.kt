@@ -1,0 +1,72 @@
+// [platform-value-type] std's list, for `core.list`'s
+// `platform type List<T> canbe Mut` (ROADMAP 0.7): Kotlin's `List`, and
+// `MutableList` for the mutable kind.
+package salvo.platform.core.list
+
+typealias List<T> = kotlin.collections.List<T>
+typealias MutList<T> = kotlin.collections.MutableList<T>
+
+fun <T> get(list: List<T>, index: Int): T? = list.getOrNull(index)
+
+fun <T> first(list: List<T>): T? = list.firstOrNull()
+
+fun <T> size(list: List<T>): Int = list.size
+
+fun <T> add(list: MutList<T>, elem: T) {
+    list.add(elem)
+}
+
+fun <T> removeFirst(list: MutList<T>): T? = if (list.isEmpty()) null else list.removeAt(0)
+
+fun <T> removeLast(list: MutList<T>): T? = if (list.isEmpty()) null else list.removeAt(list.size - 1)
+
+fun <T> removeAt(list: MutList<T>, index: Int): T? =
+    if (index >= 0 && index < list.size) list.removeAt(index) else null
+
+// [col-insert] The element back when the index is outside 0..=size.
+fun <T> insertAt(list: MutList<T>, index: Int, elem: T): T? =
+    if (index >= 0 && index <= list.size) {
+        list.add(index, elem)
+        null
+    } else {
+        elem
+    }
+
+// [col-remove-range] Clamped to the list.
+fun <T> removeRange(list: MutList<T>, from: Int, to: Int): MutList<T> {
+    val f = from.coerceIn(0, list.size)
+    val t = to.coerceIn(f, list.size)
+    val out = list.subList(f, t).toMutableList()
+    list.subList(f, t).clear()
+    return out
+}
+
+// [col-bounds] Out of range moves nothing and answers `false`.
+fun <T> swapAt(list: MutList<T>, i: Int, j: Int): Boolean {
+    if (i < 0 || j < 0 || i >= list.size || j >= list.size) return false
+    val t = list[i]
+    list[i] = list[j]
+    list[j] = t
+    return true
+}
+
+fun <T> intoMut(list: List<T>): MutList<T> = if (list is MutableList<T>) list else list.toMutableList()
+
+// [linear-container] Ending one that still holds elements would drop them.
+fun <T> endEmpty(list: MutList<T>) {
+    check(list.isEmpty()) { "salvo: a list was ended with elements in it" }
+}
+
+// A stable sort, in the language's ordering, of a copy.
+fun <T> sortBy(list: List<T>, cmp: (T, T) -> Int): MutList<T> =
+    list.sortedWith(Comparator { a, b -> cmp(a, b) }).toMutableList()
+
+// A **lower bound**, by scan: `binarySearch` could land anywhere in an equal
+// run, which would diverge from Rust [col-sorted-list].
+fun <T> insertSortedBy(list: MutList<T>, elem: T, cmp: (T, T) -> Int) {
+    val at = list.indexOfFirst { cmp(it, elem) >= 0 }.let { if (it < 0) list.size else it }
+    list.add(at, elem)
+}
+
+fun <T> searchSortedBy(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? =
+    list.indexOfFirst { cmp(it, elem) >= 0 }.let { if (it >= 0 && cmp(list[it], elem) == 0) it else null }

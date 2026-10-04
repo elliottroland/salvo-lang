@@ -28,7 +28,7 @@ interface DeadlineTable {
     fun register(at: Long, done: salvo.SalvoReply): Boolean
     fun wheelParker(p: salvo.platform.runtime.Parker)
     fun waker(): salvo.platform.runtime.Parker?
-    fun takeDue(now: Long): MutableList<salvo.SalvoReply>
+    fun takeDue(now: Long): salvo.platform.core.list.MutList<salvo.SalvoReply>
     fun nextDeadline(): Long?
     fun clear()
 }
@@ -52,7 +52,7 @@ class __Mon_DeadlineTable(
         lock.lock()
         try { return inner.waker() } finally { lock.unlock() }
     }
-    override fun takeDue(now: Long): MutableList<salvo.SalvoReply> {
+    override fun takeDue(now: Long): salvo.platform.core.list.MutList<salvo.SalvoReply> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.takeDue(now) } finally { lock.unlock() }
@@ -70,15 +70,15 @@ class __Mon_DeadlineTable(
 }
 
 class Deadlines : DeadlineTable {
-    private var ats: MutableList<Long> = mutableListOf<Long>()
-    private var dones: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
+    private var ats: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
+    private var dones: salvo.platform.core.list.MutList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
     private var running: Boolean = false
     private var parker: salvo.platform.runtime.Parker? = null
-    private var forgotten: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
+    private var forgotten: salvo.platform.core.list.MutList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
 
     override fun register(at: Long, done: salvo.SalvoReply): Boolean {
-        ats.add(at)
-        dones.add(done)
+        addPlatform(ats, at)
+        addPlatform(dones, done)
         if (running) {
             return false
         }
@@ -98,16 +98,16 @@ class Deadlines : DeadlineTable {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun takeDue(now: Long): MutableList<salvo.SalvoReply> {
-        val due: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
+    override fun takeDue(now: Long): salvo.platform.core.list.MutList<salvo.SalvoReply> {
+        val due: salvo.platform.core.list.MutList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
         var i = 0
-        while (i < ats.size) {
-            if ((ats.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.timers:72:16")) <= now) {
-                val _at = (ats).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
-                var __is1 = (dones).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
+        while (i < sizePlatform(ats)) {
+            if ((getPlatform(ats, i) ?: throw AssertionError("salvo: value is absent at runtime.timers:72:16")) <= now) {
+                val _at = removeAtPlatform(ats, i)
+                var __is1 = removeAtPlatform(dones, i)
                 if (__is1 != null) {
                     val r = __is1 as salvo.SalvoReply
-                    due.add(r)
+                    addPlatform(due, r)
                 }
             } else {
                 i = i + 1
@@ -132,19 +132,19 @@ class Deadlines : DeadlineTable {
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun clear() {
         while (true) {
-            var __is2 = (dones).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
+            var __is2 = removeFirstPlatform(dones)
             if (!(__is2 != null)) break
             val r = __is2 as salvo.SalvoReply
-            forgotten.add(r)
+            addPlatform(forgotten, r)
         }
-        while ((ats).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) } != null) {
+        while (removeFirstPlatform(ats) != null) {
         }
         running = false
     }
 }
 
-fun answerAll(due: MutableList<salvo.SalvoReply>, now: Long) {
-    (due).toList().forEach({ r -> salvo.SalvoSched.replyWire(r, Fired(at = Tick(nanos = now)), __Codec_Fired) })
+fun answerAll(due: salvo.platform.core.list.MutList<salvo.SalvoReply>, now: Long) {
+    drain__2(due, { r -> salvo.SalvoSched.replyWire(r, Fired(at = Tick(nanos = now)), __Codec_Fired) })
 }
 
 interface Wheel {

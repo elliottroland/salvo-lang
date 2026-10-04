@@ -135,6 +135,38 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`List` as a value platform type (2026-10-04, ROADMAP 0.7).** `core.list`'s
+operations are host code (`std/platform/core/list.*`), and `core.seq`'s
+`filter` over a `List` too (`platform/core/seq.*`); `map`/`reduce` over a
+`List`, `swap`, `drain`, `sort`/`mut_sort` (over a platform `sort_by`),
+`list_by`/`mut_list_by` and `to_str` are Salvo. `list_of`/`mut_list_of` stay
+intrinsic, since literals and spreads lower through them. 16 Kotlin and 13
+Rust lowerings went, and with them `salvo_map`/`salvo_filter`/`salvo_reduce`
+and the `SalvoTake` trait from Rust's `runtime/seq.rs`. What fell out:
+- Interpolation reaches a `to_str` that takes implicits: they are filled at the
+  zero-width span after the value. std gained `to_str` for `Double`/`Float`
+  (by [interp-float]; the comment that held them back predated that rule).
+  A nested list no longer prints: its element's `to_str` takes an implicit,
+  which waits on recursive implicit resolution (ROADMAP 6). The float test's
+  `[[4.0]]` case became `[4.0]`.
+- **A silent miscompile, fixed**: `push3(xs!)` with a `Mut` parameter lent
+  `&mut` of a clone on Rust, so the push was lost (`xs 1` against Kotlin's
+  `xs 3`). Only the intrinsic path had the [rs-narrow-mut] handling; it is in
+  `borrowed_mut_arg` now, so every fn gets it. Moving `add` to a platform fn
+  is what exposed it.
+- `for` over a `List`, `Str` or `Bytes` is the native loop again
+  ([iter-for-native] now counts these platform types): without it a loop over
+  `List<Addr<E>>` bound each element as `&usize`. That also wins back the
+  native loop over `Bytes`, lost in the `Bytes` step.
+- Rust: a `core` platform fn's plain `T` is bounded `Clone` (the host copies);
+  std's platform wrappers take `&mut dyn FnMut`, since an implicit `cmp`
+  already arrives that way; the locator variant [rs-loc] of a borrowing
+  platform fn answers the position (`get`: the index; otherwise found by
+  address).
+- The cleanup script's arm scanner stopped at a `}`-terminated arm and took
+  the `set_of` constructors with it the first time; rewritten and re-run.
+Thirteen tests that pinned old lowering text were updated.
+
 **`Deque` as a value platform type (2026-10-04, ROADMAP 0.7).** User
 decisions the same evening: std's platform fns may answer a borrow of their
 argument; a collection's `to_str` is Salvo over a `?to_str` implicit (option

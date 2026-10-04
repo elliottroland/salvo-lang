@@ -211,19 +211,24 @@ Conventions:
     implicit parameter (user decision 2026-09-11): a `to_str` in scope
     whose parameter accepts the type and which returns `Str`. The winner is
     recorded in `Checked::interp_to_str` and the emitters call it.
-  * **std provides** `intrinsic fn to_str<T>(list: List<T>) -> Str`,
-    rendering `[1, 2, 3]`. The format is the *language's*, implemented per
-    backend, because the targets' own collection formatting disagrees
-    (Rust `Debug` quotes strings, Kotlin's `joinToString` does not).
+  * **std provides** `fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str)
+    -> Str`, rendering `[1, 2, 3]`, in Salvo since 2026-10-04
+    [platform-value-type]; and `to_str` for every scalar, `Double` and `Float`
+    included (by [interp-float]), so a list of any scalar prints. A `to_str`
+    that takes implicits is called from the interpolation with them filled
+    at the zero-width span after the value, which no other call occupies.
+    The format is the *language's*, because the targets' own collection
+    formatting disagrees (Rust `Debug` quotes strings, Kotlin's
+    `joinToString` does not).
   * **`params ToStr<T>`** exists as a *convenience* only (user decision
     2026-09-11): declaring `: ToStr<self>` does not enable interpolation —
     a `to_str` in scope does that — it validates at the declaration that
     one exists, which is where the mistake is easier to see.
-  * **Known limitation**: a generic `List<T>` cannot be interpolated, since
-    an opaque `T` has no text form on either backend. Composing an element
-    `?to_str` would fix it and is not built: `resolve_implicit_fn` skips
-    candidates that themselves take implicits, and `implicit_args` is keyed
-    by *call* spans, which an interpolation does not have.
+  * **Known limitation**: a nested list (`List<List<Int>>`) cannot be
+    interpolated, since its element's `to_str` itself takes an implicit and
+    `resolve_implicit_fn` skips such candidates: recursive implicit
+    resolution, ROADMAP 6. A generic `List<T>` prints where its fn takes a
+    `?to_str` for `T`.
 * [interp-struct] **A struct interpolates by opting in** (user decision
   2026-09-28, comptime round 1, replacing the 2026-09-11 default-on
   derivation): `struct Person : ToStr<self> by auto { … }` stamps the
@@ -8231,8 +8236,8 @@ replaced the working document TESTING.md).
   * std gained `to_str` for the scalars with this rule (`Int`, `Long`, `Byte`,
     `Char`, `Bool`, `Str`): interpolation renders them natively, but a
     `?ToStr<T>` position needs a *function* to resolve [implicit-resolve].
-    `Double`/`Float` deliberately have none — the hosts disagree about printing
-    a whole float.
+    `Double`/`Float` have theirs since 2026-10-04, by [interp-float], so a
+    `List<Double>` prints through `?to_str` [platform-value-type].
 * [test-run] A `test` block is expanded **before resolution**
   (`desugar::expand_tests`, run from `salvo_core::expand`) into an exported,
   parameterless fn named `__salvo_test_<module_mangled>_<index>` declaring
@@ -8534,7 +8539,9 @@ replaced the working document TESTING.md).
     (deep), `Debug`, `PartialEq`, `Eq` and `Hash`, so a struct holding one
     still derives. A value type keeps its canonical wire form where the
     encoding defines one [wire-format] (`Bytes`); otherwise it is `noremote`.
-    `Bytes`, `Str` and `Deque` are built; the other collections follow.
+    `Bytes`, `Str`, `Deque` and `List` are built; `Set`, `Map` and the sorted
+    pair follow. `list_of`/`mut_list_of` stay intrinsic, since literals and
+    spreads lower through them.
     For the collections (user decisions 2026-10-04): **std's own platform
     fns may answer a borrow** of the one parameter the result names
     (`get(d, i) -> (proj(d) T)?`), which customer code's still may not;
@@ -8542,10 +8549,15 @@ replaced the working document TESTING.md).
     implicit, so a collection prints only where its element does; and
     **`drain` is Salvo** over `into_mut`, `remove_first` and `end_empty` (a
     host fn that traps on a non-empty container), so no effectful callback
-    crosses the boundary. A `core` platform fn's Rust type parameters carry
-    no bounds — the host states what it needs, and an element may be a
-    borrow — and neither do a `T canbe linear` fn's or any struct's (the
-    derives bound their own impls). A platform
+    crosses the boundary. A `core` platform fn's Rust type parameters are
+    bounded `Clone` for a plain `T` and not at all for a `T canbe linear` —
+    an element may then be a borrow — and a struct's carry none (the derives
+    bound their own impls). std's Rust wrappers take a lent fn value as
+    `&mut dyn FnMut`, as their hosts do, since a caller may already hold it
+    that way (an implicit `cmp`). The locator variant of a borrowing platform
+    fn [rs-loc] answers the borrow's position: `List`'s `get` its index,
+    anything else found by address. `for` over a `List`, `Str` or `Bytes`
+    stays the backends' native loop [iter-for-native]. A platform
     fn's Rust wrapper is called through its module's path
     (`crate::core_string::size_platform`), since two modules' wrappers of
     one name are ambiguous through glob imports.

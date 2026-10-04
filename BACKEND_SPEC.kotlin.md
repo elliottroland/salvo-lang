@@ -230,9 +230,9 @@ Conventions:
     name too, which is what makes `::name` right when the name is overloaded
     [fn-value-select].
 * [kt-seq] std's sequence functions [seq-iterator]: the `List` fast paths
-  lower to Kotlin's own operations — `map`/`filter` with
-  `.toMutableList()`, since the result is a `Mut List<U>`, and `reduce` to
-  `.fold(init, op)`. The generic bodies are ordinary generic functions whose
+  are std functions (2026-10-04, [platform-value-type]) — `map` and `reduce`
+  Salvo loops, `filter` a platform fn over Kotlin's own
+  (`platform/core/seq.kt`). The generic bodies are ordinary generic functions whose
   implicit `next` arrives as a trailing argument (`::next`, or an anonymous
   function for a minted origin — see [kt-pass-loop]).
 * [implicit-intrinsic] An `intrinsic fn` filling an implicit parameter

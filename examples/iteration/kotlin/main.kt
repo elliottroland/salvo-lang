@@ -17,13 +17,9 @@ fun describeContainer(console: Console, xs: List<Int>) {
     for (n in xs) {
         sum = sum + n
     }
-    println(console, "1. list of ${xs.size} sums to $sum")
+    println(console, "1. list of ${sizePlatform(xs)} sums to $sum")
     val letters = mutStr(arrayOf())
-    var __loop1_pass = iter__9("salvo")
-    while (true) {
-        val __loop1_step = next__20(__loop1_pass)
-        if (__loop1_step !is Union2.U1<Char, Finished>) { break }
-        val c = __loop1_step.value
+    for (c in "salvo") {
         appendPlatform(letters, "$c.")
     }
     println(console, "1. string: ${letters.toString()}")
@@ -71,9 +67,9 @@ fun skip(p: Countdown): Union2<Int, Finished> {
 fun take(console: Console, p: Countdown, count: Int) {
     var seen = 0
     while (true) {
-        val __loop2_step = next__23(p)
-        if (__loop2_step !is Union2.U1<Int, Finished>) { break }
-        val n = __loop2_step.value
+        val __loop1_step = next__23(p)
+        if (__loop1_step !is Union2.U1<Int, Finished>) { break }
+        val n = __loop1_step.value
         println(console, "2. got $n")
         seen = seen + 1
         if (seen == count) {
@@ -133,7 +129,7 @@ fun iter__10(bag: Bag): __Iter_iter_Bag {
 }
 
 fun next__25(__p: __Iter_iter_Bag): Union2<Int, Finished> {
-    val e = __p.items.getOrNull(__p.at)
+    val e = getPlatform(__p.items, __p.at)
     if (e == null) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -202,9 +198,9 @@ fun next__27(__p: __Iter_naturals_Int): Union2<Int, Finished> {
 fun<It> sumOf(it: It, next: (It) -> Union2<Int, Finished>): Int {
     var total = 0
     while (true) {
-        val __loop3_step = next(it)
-        if (__loop3_step !is Union2.U1<*, *>) { break }
-        val n = __loop3_step.value as Int
+        val __loop2_step = next(it)
+        if (__loop2_step !is Union2.U1<*, *>) { break }
+        val n = __loop2_step.value as Int
         total = total + n
     }
     return total
@@ -213,11 +209,11 @@ fun<It> sumOf(it: It, next: (It) -> Union2<Int, Finished>): Int {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<C, __It0> total(c: C, iter: (C) -> __It0, next: (__It0) -> Union2<Int, Finished>): Int {
     var total = 0
-    var __loop4_pass = iter(c)
+    var __loop3_pass = iter(c)
     while (true) {
-        val __loop4_step = next(__loop4_pass)
-        if (__loop4_step !is Union2.U1<*, *>) { break }
-        val n = __loop4_step.value as Int
+        val __loop3_step = next(__loop3_pass)
+        if (__loop3_step !is Union2.U1<*, *>) { break }
+        val n = __loop3_step.value as Int
         total = total + n
     }
     return total
@@ -226,9 +222,9 @@ fun<C, __It0> total(c: C, iter: (C) -> __It0, next: (__It0) -> Union2<Int, Finis
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<__It0> first__2(it: __It0, next: (__It0) -> Union2<Int, Finished>): Int {
     while (true) {
-        val __loop5_step = next(it)
-        if (__loop5_step !is Union2.U1<*, *>) { break }
-        val n = __loop5_step.value as Int
+        val __loop4_step = next(it)
+        if (__loop4_step !is Union2.U1<*, *>) { break }
+        val n = __loop4_step.value as Int
         return n
     }
     return -1
@@ -244,66 +240,66 @@ fun main() {
     println(console, "2. rest sums to ${sumOf(p, ::next__23)}")
     val q = countdown(6)
     while (true) {
-        val __loop6_step = skip(q)
-        if (__loop6_step !is Union2.U1<*, *>) { break }
-        val n = __loop6_step.value as Int
+        val __loop5_step = skip(q)
+        if (__loop5_step !is Union2.U1<*, *>) { break }
+        val n = __loop5_step.value as Int
         println(console, "2. skip $n")
     }
-    var __loop7_pass = halving(20)
+    var __loop6_pass = halving(20)
     while (true) {
-        val __loop7_step = next__24(__loop7_pass)
-        if (__loop7_step !is Union2.U1<Int, Finished>) { break }
-        val n = __loop7_step.value
+        val __loop6_step = next__24(__loop6_pass)
+        if (__loop6_step !is Union2.U1<Int, Finished>) { break }
+        val n = __loop6_step.value
         println(console, "2b. halving $n")
     }
     val hp = halving(20)
     println(console, "2b. summed from a held iterator: ${sumOf(hp, ::next__24)}")
     println(console, "2b. first from a pattern-typed fn: ${first__2(halvingFromTen(), ::next__24)}")
     val bag = Bag(items = listOf<Int>(7, 8))
-    var __loop8_pass = iter__10(bag)
+    var __loop7_pass = iter__10(bag)
     while (true) {
-        val __loop8_step = next__25(__loop8_pass)
-        if (__loop8_step !is Union2.U1<Int, Finished>) { break }
-        val n = __loop8_step.value
+        val __loop7_step = next__25(__loop7_pass)
+        if (__loop7_step !is Union2.U1<Int, Finished>) { break }
+        val n = __loop7_step.value
         println(console, "2c. bag $n")
     }
     println(console, "2c. total of a bag ${total(bag, ::iter__10, ::next__25)}, of a list ${total(xs, ::iter__4, ::next__5)}")
-    var __loop9_pass = fibs(6)
+    var __loop8_pass = fibs(6)
     while (true) {
-        val __loop9_step = next__26(console, __loop9_pass)
-        if (__loop9_step !is Union2.U1<Int, Finished>) { break }
-        val n = __loop9_step.value
+        val __loop8_step = next__26(console, __loop8_pass)
+        if (__loop8_step !is Union2.U1<Int, Finished>) { break }
+        val n = __loop8_step.value
         println(console, "3. fib $n")
     }
-    var __loop10_pass = naturals(10)
+    var __loop9_pass = naturals(10)
     while (true) {
-        val __loop10_step = next__27(__loop10_pass)
-        if (__loop10_step !is Union2.U1<Int, Finished>) { break }
-        val n = __loop10_step.value
+        val __loop9_step = next__27(__loop9_pass)
+        if (__loop9_step !is Union2.U1<Int, Finished>) { break }
+        val n = __loop9_step.value
         if (n > 12) {
             break
         }
         println(console, "3. natural $n")
     }
-    val doubled = xs.map({ n -> n * 2 }).toMutableList()
-    val odd = xs.filter({ n -> n % 2 == 1 }).toMutableList()
-    val total = xs.fold(0, { acc, n -> acc + n })
-    println(console, "5. list: ${doubled.size} doubled, ${odd.size} odd, total $total")
+    val doubled = map__2(xs, { n -> n * 2 })
+    val odd = filterPlatform(xs, { n -> n % 2 == 1 })
+    val total = reduce__2(xs, 0, { acc, n -> acc + n })
+    println(console, "5. list: ${sizePlatform(doubled)} doubled, ${sizePlatform(odd)} odd, total $total")
     val words = listOf<String>("ann", "bo", "carol")
     val lengths = map(iter__4(words), { w -> sizePlatform(w) }, ::next__5)
     println(console, "5. lengths: ${reduce(iter__4(lengths), 0, { acc, n -> acc + n }, ::next__5)}")
     val word = "iteration"
     val vowels = filter(iter__9(word), { c -> c == 'i' || c == 'o' }, ::next__20)
-    println(console, "5. vowels: ${vowels.size}")
+    println(console, "5. vowels: ${sizePlatform(vowels)}")
     println(console, "5. halving total ${reduce(halving(20), 0, { acc, n -> acc + n }, ::next__24)}")
-    val collected = mapTo(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__23)
-    println(console, "6. collected ${collected.size}")
+    val collected = mapTo(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, ::addPlatform, ::next__23)
+    println(console, "6. collected ${sizePlatform(collected)}")
     val evens = mutStr(arrayOf())
-    var __loop11_pass = range(0, 10, 2)
+    var __loop10_pass = range(0, 10, 2)
     while (true) {
-        val __loop11_step = next__12(__loop11_pass)
-        if (__loop11_step !is Union2.U1<Int, Finished>) { break }
-        val i = __loop11_step.value
+        val __loop10_step = next__12(__loop10_pass)
+        if (__loop10_step !is Union2.U1<Int, Finished>) { break }
+        val i = __loop10_step.value
         appendPlatform(evens, "$i ")
     }
     println(console, "7. evens ${evens.toString()}")

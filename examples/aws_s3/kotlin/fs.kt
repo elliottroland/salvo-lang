@@ -105,7 +105,7 @@ object __Codec_Streaming : salvo.WireCodec<Streaming> {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun toStr__2(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): String {
+fun toStr__3(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): String {
     when (kind) {
         is Union7.U1<*, *, *, *, *, *, *> -> {
             return "no such file or directory: ${(kind.value as NotFound).path}"
@@ -126,7 +126,7 @@ fun toStr__2(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirecto
             return "io error: ${(kind.value as IoError).path}: ${(kind.value as IoError).message}"
         }
         is Union7.U7<*, *, *, *, *, *, *> -> {
-            return toStr__6((kind.value as Streaming).error)
+            return toStr__7((kind.value as Streaming).error)
         }
     }
 }
@@ -264,12 +264,12 @@ fun readLines(fs: Fs, streams: salvo.stream.Streams, path: String): Union2<List<
         return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
     val p = lines__2((opened.value as InStream))
-    val out: MutableList<String> = mutableListOf<String>()
+    val out: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     while (true) {
         val __loop1_step = next__21(streams, p)
         if (__loop1_step !is Union2.U1<String, Finished>) { break }
         val line = __loop1_step.value
-        out.add(line)
+        addPlatform(out, line)
     }
     val closed = close__2(streams, p)
     if (closed is Union2.U2<*, *>) {
@@ -374,73 +374,73 @@ fun copyFile(fs: Fs, streams: salvo.stream.Streams, from: String, to: String): U
 }
 
 fun openRead(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.openRead(toStr__5(p))
+    return fs.openRead(toStr__6(p))
 }
 
 fun openReadAt(fs: Fs, streams: salvo.stream.Streams, p: Path, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.openReadAt(toStr__5(p), offset)
+    return fs.openReadAt(toStr__6(p), offset)
 }
 
 fun openWrite(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.openWrite(toStr__5(p))
+    return fs.openWrite(toStr__6(p))
 }
 
 fun openAppend(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.openAppend(toStr__5(p))
+    return fs.openAppend(toStr__6(p))
 }
 
 fun exists(fs: Fs, streams: salvo.stream.Streams, p: Path): Boolean {
-    return fs.exists(toStr__5(p))
+    return fs.exists(toStr__6(p))
 }
 
 fun metadata(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.metadata(toStr__5(p))
+    return fs.metadata(toStr__6(p))
 }
 
 fun listDir(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.listDir(toStr__5(p))
+    return fs.listDir(toStr__6(p))
 }
 
 fun createDirs(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.createDirs(toStr__5(p))
+    return fs.createDirs(toStr__6(p))
 }
 
 fun delete(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.delete(toStr__5(p))
+    return fs.delete(toStr__6(p))
 }
 
 fun openLines__2(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return openLines(fs, streams, toStr__5(p))
+    return openLines(fs, streams, toStr__6(p))
 }
 
 fun openChunks__2(fs: Fs, streams: salvo.stream.Streams, p: Path, size: Int): Union2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return openChunks(fs, streams, toStr__5(p), size)
+    return openChunks(fs, streams, toStr__6(p), size)
 }
 
 fun readToStr__2(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return readToStr(fs, streams, toStr__5(p))
+    return readToStr(fs, streams, toStr__6(p))
 }
 
 fun readLines__2(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return readLines(fs, streams, toStr__5(p))
+    return readLines(fs, streams, toStr__6(p))
 }
 
 fun writeStr__2(fs: Fs, streams: salvo.stream.Streams, p: Path, content: String): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return writeStr(fs, streams, toStr__5(p), content)
+    return writeStr(fs, streams, toStr__6(p), content)
 }
 
 fun readToBytes__2(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<salvo.platform.core.bytes.Bytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return readToBytes(fs, streams, toStr__5(p))
+    return readToBytes(fs, streams, toStr__6(p))
 }
 
 fun writeBytesTo__2(fs: Fs, streams: salvo.stream.Streams, p: Path, data: salvo.platform.core.bytes.Bytes): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return writeBytesTo(fs, streams, toStr__5(p), data)
+    return writeBytesTo(fs, streams, toStr__6(p), data)
 }
 
 fun renamePath(fs: Fs, streams: salvo.stream.Streams, from: Path, to: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.renamePath(toStr__5(from), toStr__5(to))
+    return fs.renamePath(toStr__6(from), toStr__6(to))
 }
 
 fun copyFile__2(fs: Fs, streams: salvo.stream.Streams, from: Path, to: Path): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return copyFile(fs, streams, toStr__5(from), toStr__5(to))
+    return copyFile(fs, streams, toStr__6(from), toStr__6(to))
 }

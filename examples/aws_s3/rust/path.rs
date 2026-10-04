@@ -28,7 +28,7 @@ pub fn path(text: &String) -> Path {
     return Path { text: text.clone() };
 }
 
-pub fn to_str__6(p: &Path) -> String {
+pub fn to_str__7(p: &Path) -> String {
     return p.text.clone();
 }
 
@@ -139,7 +139,7 @@ pub fn segments(p: &Path) -> Vec<String> {
     let mut out = vec![];
     for mut part in crate::core_string::split_platform(&p.text, &("/".to_string())) {
         if !is_empty__2(&part) {
-            out.push(part.clone());
+            crate::core_list::add_platform(&mut out, part.clone());
         }
     }
     return out;

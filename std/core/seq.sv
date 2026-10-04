@@ -61,10 +61,22 @@ export fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [
 // `map(xs, f)` still reads well on the type people map most: a backend lowers
 // these to its own collection operation, and overload specificity picks them
 // when the subject really is a `List` [fn-overload-rank].
-export intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f
-export intrinsic fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> Mut List<proj T> holds proj(list)
+export fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f {
+    let out = mut_list_of<U>()
+    for x in list {
+        add(out, f(x))
+    }
+    return out
+}
+export platform fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> Mut List<proj T> holds proj(list)
 => list, keep
-export intrinsic fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> A => list, f, !init
+export fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> A => list, f, !init {
+    let acc = init
+    for x in list {
+        acc = f(acc, x)
+    }
+    return acc
+}
 
 // ===== mapping into a collection you provide [seq-into] =====
 

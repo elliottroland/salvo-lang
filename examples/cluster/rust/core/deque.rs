@@ -16,7 +16,7 @@ pub fn empty_deque_platform<T>() -> std::collections::VecDeque<T> {
     crate::platform_core_deque::empty_deque()
 }
 
-pub fn deque_from_platform<T>(first: T, rest: Vec<T>) -> std::collections::VecDeque<T> {
+pub fn deque_from_platform<T: Clone>(first: T, rest: Vec<T>) -> std::collections::VecDeque<T> {
     crate::platform_core_deque::deque_from(first, rest)
 }
 
@@ -133,7 +133,7 @@ pub fn to_list<T: Clone>(d: &std::collections::VecDeque<T>, copy: &mut dyn FnMut
     let mut out = vec![];
     let mut __loop2_pass = iter__3(d);
     while let Union2::U1(mut x) = next__3(&mut __loop2_pass) {
-        out.push(copy(&x));
+        crate::core_list::add_platform(&mut out, copy(&x));
     }
     return out;
 }

@@ -181,24 +181,16 @@ Conventions:
   requires function"); Kotlin needs nothing, which is why this rule is
   backend-prefixed.
 * [rs-seq] std's sequence functions [seq-iterator]: the `List` fast paths
-  lower to the generated helpers in `strings.rs`'s sibling `seq.rs` —
-  `salvo_map`/`salvo_filter`/`salvo_reduce`, taking `&[T]` so a call splices
-  its receiver as `&place[..]` and works for an owned `Vec`, a `&Vec` and a
-  `&mut Vec` alike.
-  * **Functions rather than inline expressions**, and the reason is closure
-    inference: a Rust closure bound to a `let` cannot infer its parameter
-    types, and neither can one nested in another closure's argument, so
-    every inline shape needed an annotation the emitter does not have. A
-    generic parameter *is* an expected type — and it also pins the
-    callback's convention (`FnMut(&T)`), which is what a fn-typed parameter
-    of declared type `(T) -> U` renders as [rs-fn-param-convention].
-  * `salvo_reduce` is a loop, not `Iterator::fold`: the callback's
-    accumulator is *borrowed* by that convention and `fold` passes it by
-    value.
-  * A **lambda** argument to an intrinsic follows the declared parameter
-    type's conventions like any other fn-typed position, and a **named fn**
-    wraps in the same adapter closure [fn-contract] — a fn item's own
-    convention is by value, which is E0631 against `FnMut(&T)`.
+  are std functions (2026-10-04, [platform-value-type]): `map` and `reduce`
+  are Salvo loops, and `filter` is a platform fn (`platform/core/seq.rs`)
+  cloning each kept element. Their fn-typed parameters render as
+  `&mut impl FnMut(&T)` ([rs-fn-param-convention]; `&mut dyn FnMut` for a
+  platform wrapper), which is what gives a lambda argument its parameter
+  types: a Rust closure bound to a `let` or nested in another closure's
+  argument cannot infer them. A **named fn** argument wraps in the adapter
+  closure [fn-contract], since a fn item's own convention is by value
+  (E0631 against `FnMut(&T)`). `runtime/seq.rs` is left holding
+  `salvo_pair_mut` [rs-elem-mut].
 * [implicit-intrinsic] An `intrinsic fn` filling an implicit parameter is
   passed as an adapter closure whose body is the intrinsic's *lowering*:
   emitting `iter(__i0)` would name the generated `iter` **module** (E0423).
@@ -1862,12 +1854,6 @@ facts worth knowing") and keeps the history ("One shape for effects").
   rather than as a `while` with the subject in its condition. `place_storage`
   answers the temporary for that subject's span, so the test, the binding and
   any nested read all agree.
-  * The **take-by-move list intrinsics are trait methods** for the reason
-    `set(Mut Str)` is one: `remove_first`/`remove_at` lower to
-    `salvo_remove_first()` / `salvo_remove_at(i)` on the generated `SalvoTake`
-    trait (`runtime/seq.rs`), because a `Mut List<T>` parameter *is* a
-    `&mut Vec<T>` and an inline `&mut` cannot re-borrow it — and method syntax
-    splices the receiver exactly once [rs-borrows].
 * [rs-state-take] [linear-state] **Taking a container out of handler state is
   `std::mem::take`.** A field behind `&mut self` cannot be moved out (E0507),
   and cloning it would duplicate every obligation inside — so the read the

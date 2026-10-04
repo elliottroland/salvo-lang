@@ -586,7 +586,7 @@ class Gathering : Gather {
 
     override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) {
         addLastPlatform(pending, out)
-        left = members.size
+        left = sizePlatform(members)
         total = 0
         for (m in members) {
             salvo.SalvoSched.sendWire(m, __Msg_Search.Query(word, run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Gathering.Partial(); __r }), __PROTO_Search, __Codec___Msg_Search)
@@ -888,7 +888,7 @@ fun freshId(sequencer: Sequencer): String {
 }
 
 fun checkout(inventory: Inventory, console: Console, skus: List<String>) {
-    val shards: MutableList<String> = mutableListOf<String>()
+    val shards: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     for (sku in skus) {
         val answer = run {
             val (out, __wid) = salvo.SalvoSched.waiter()
@@ -897,12 +897,12 @@ fun checkout(inventory: Inventory, console: Console, skus: List<String>) {
             salvo.SalvoSched.awaitReply(__wid) as String
         }
         val parts = splitPlatform(answer, ":")
-        shards.add((parts.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:220:26")))
-        println(console, "  $sku: ${(parts.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:221:30"))} reserved on its shard so far")
+        addPlatform(shards, (getPlatform(parts, 0) ?: throw AssertionError("salvo: value is absent at main:220:26")))
+        println(console, "  $sku: ${(getPlatform(parts, 1) ?: throw AssertionError("salvo: value is absent at main:221:30"))} reserved on its shard so far")
     }
-    println(console, "  apple and apple on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:223:51"))) == ((shards.getOrNull(2) ?: throw AssertionError("salvo: value is absent at main:223:68"))))}")
-    println(console, "  apple and fig on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:224:49"))) == ((shards.getOrNull(3) ?: throw AssertionError("salvo: value is absent at main:224:66"))))}")
-    println(console, "  apple and pear on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:225:50"))) == ((shards.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:225:67"))))}")
+    println(console, "  apple and apple on one shard: ${(((getPlatform(shards, 0) ?: throw AssertionError("salvo: value is absent at main:223:51"))) == ((getPlatform(shards, 2) ?: throw AssertionError("salvo: value is absent at main:223:68"))))}")
+    println(console, "  apple and fig on one shard: ${(((getPlatform(shards, 0) ?: throw AssertionError("salvo: value is absent at main:224:49"))) == ((getPlatform(shards, 3) ?: throw AssertionError("salvo: value is absent at main:224:66"))))}")
+    println(console, "  apple and pear on one shard: ${(((getPlatform(shards, 0) ?: throw AssertionError("salvo: value is absent at main:225:50"))) == ((getPlatform(shards, 1) ?: throw AssertionError("salvo: value is absent at main:225:67"))))}")
 }
 
 fun count__3(search: Search, word: String): Int {
@@ -1109,12 +1109,12 @@ fun main() {
         salvo.SalvoSched.sendWire(nodes, __Msg_NodeGroup.Members(out), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Node>
     }
-    println(console, "nodes: ${members.size + 1}, sequencers: ${run {
+    println(console, "nodes: ${sizePlatform(members) + 1}, sequencers: ${sizePlatform(run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
         salvo.SalvoSched.sendWire(seq, __Msg_ActorGroup.Members(out), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Int>
-    }.size}")
+    })}")
     println(console, "singleton (b's sequencer is remote: ${!eq__2(NodeId(salvo.SalvoSched.addrIdentity(remoteSeq).node), NodeId(salvo.SalvoSched.hereNode()))}):")
     val leader: Leader = LastHost(nodes, a)
     twoIds(leader, console, seq)
@@ -1134,12 +1134,12 @@ fun main() {
     }
     settle(timer)
     println(console, "after b left:")
-    println(console, "  sequencers: ${run {
+    println(console, "  sequencers: ${sizePlatform(run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
         salvo.SalvoSched.sendWire(seq, __Msg_ActorGroup.Members(out), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Int>
-    }.size}")
+    })}")
     twoIds(leader, console, seq)
 }
 

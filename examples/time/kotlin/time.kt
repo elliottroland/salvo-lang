@@ -103,10 +103,10 @@ fun abs(d: Duration): Duration {
     return d
 }
 
-fun toStr__8(d: Duration): String {
+fun toStr__9(d: Duration): String {
     if (d.nanos < 0) {
         val positive = Duration(nanos = 0L - d.nanos)
-        return "-${toStr__8(positive)}"
+        return "-${toStr__9(positive)}"
     }
     if (d.nanos == (0).toLong()) {
         return "0s"
@@ -392,8 +392,8 @@ const val __PROTO_TimerCtl: String = "93f92d20477305ad"
 
 class ManualTime : Timer, TimerCtl {
     private var now: Long = 0L
-    private var deadlines: MutableList<Long> = mutableListOf<Long>()
-    private var pending: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
+    private var deadlines: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
+    private var pending: salvo.platform.core.list.MutList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
     internal val __mailboxCapacity: Int = 64
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_ManualTime> = mutableMapOf()
@@ -402,8 +402,8 @@ class ManualTime : Timer, TimerCtl {
         if (wait.nanos <= 0) {
             salvo.SalvoSched.replyWire(done, Fired(at = Tick(nanos = now)), __Codec_Fired)
         } else {
-            deadlines.add(now + wait.nanos)
-            pending.add(done)
+            addPlatform(deadlines, now + wait.nanos)
+            addPlatform(pending, done)
         }
     }
 
@@ -414,10 +414,10 @@ class ManualTime : Timer, TimerCtl {
             var __is1 = earliestDue(deadlines, target)
             if (!(__is1 != null)) break
             val at = __is1 as Int
-            val deadline = (deadlines.getOrNull(at) ?: throw AssertionError("salvo: value is absent at time:477:33"))
-            (deadlines).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
+            val deadline = (getPlatform(deadlines, at) ?: throw AssertionError("salvo: value is absent at time:477:33"))
+            removeAtPlatform(deadlines, at)
             now = deadline
-            var __is2 = (pending).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
+            var __is2 = removeAtPlatform(pending, at)
             if (__is2 != null) {
                 val token = __is2 as salvo.SalvoReply
                 salvo.SalvoSched.replyWire(token, Fired(at = Tick(nanos = deadline)), __Codec_Fired)
@@ -489,8 +489,8 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
     var best = -1
     var bestAt = 0L
     var i = 0
-    while (i < deadlines.size) {
-        val at = (deadlines.getOrNull(i) ?: throw AssertionError("salvo: value is absent at time:501:23"))
+    while (i < sizePlatform(deadlines)) {
+        val at = (getPlatform(deadlines, i) ?: throw AssertionError("salvo: value is absent at time:501:23"))
         if (at <= target && (best < 0 || at < bestAt)) {
             best = i
             bestAt = at

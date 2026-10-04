@@ -52,7 +52,7 @@ fun next__20(p: StrYield): Union2<Char, Finished> {
     return Union2.U1<Char, Finished>(emitted(chr))
 }
 
-fun splitPlatform(str: String, sep: String): MutableList<String> {
+fun splitPlatform(str: String, sep: String): salvo.platform.core.list.MutList<String> {
     return salvo.platform.core.string.split(str, sep)
 }
 
@@ -175,14 +175,14 @@ fun repeat(str: String, n: Int): String {
     return out.toString()
 }
 
-fun lines(str: String): MutableList<String> {
+fun lines(str: String): salvo.platform.core.list.MutList<String> {
     val parts = splitPlatform(str, "\n")
-    if (parts.size > 1 && endsWithPlatform(str, "\n")) {
+    if (sizePlatform(parts) > 1 && endsWithPlatform(str, "\n")) {
         val _end = removeBack(parts, 1)
     }
     val out = mutableListOf<String>()
     for (p in parts) {
-        out.add(trimSuffixPlatform(p, "\r"))
+        addPlatform(out, trimSuffixPlatform(p, "\r"))
     }
     return out
 }

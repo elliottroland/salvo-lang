@@ -43,6 +43,8 @@ pub mod platform_core_bytes;
 pub mod platform_core_console;
 #[path = "platform/core/deque.rs"]
 pub mod platform_core_deque;
+#[path = "platform/core/list.rs"]
+pub mod platform_core_list;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 #[path = "platform/runtime/routing.rs"]
@@ -778,7 +780,7 @@ impl crate::__Stateless_Fragile for Breaking {
 
     fn crash(&self) {
         let mut empty: Vec<i32> = vec![];
-        let mut boom = *empty.get((7) as i64 as usize).expect("salvo: value is absent at main:145:20");
+        let mut boom = *crate::core_list::get_platform(&empty, 7).expect("salvo: value is absent at main:145:20");
         drop(boom);
     }
 }

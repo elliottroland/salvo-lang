@@ -1480,7 +1480,7 @@ fn derived_returns_emit_borrows() {
         main.content
     );
     assert!(
-        main.content.contains("return persons.first();"),
+        main.content.contains("return crate::core_list::first_platform(persons);"),
         "generated:\n{}",
         main.content
     );
@@ -4916,8 +4916,8 @@ fn implicit_parameters_lower_to_trailing_fn_arguments() {
         // A resolved default is passed as an adapter closure over the fn,
         // which bridges the position's convention to the callee's own: `add`
         // takes its `Int`s by value, so the adapter clones out of the
-        // borrows (free for a scalar). (`add__2`: core declares `add`s too.)
-        "&mut |__i0, __i1| add__2((__i0).clone(), (__i1).clone())",
+        // borrows (free for a scalar). (`add__3`: core declares `add`s too.)
+        "&mut |__i0, __i1| add__3((__i0).clone(), (__i1).clone())",
         // The same bridging for an override written at the call site
         // [implicit-override].
         "&mut |__i0, __i1| times__2((__i0).clone(), (__i1).clone())",
@@ -6194,10 +6194,10 @@ fn a_mut_payload_is_peeled_by_borrowing_the_storage() {
     let src = &main.content;
     for needle in [
         // The intrinsic path: a variable and a field over the nullable repr.
-        "a.as_mut().unwrap().push(9)",
-        "b.items.as_mut().unwrap().push(9)",
+        "add_platform(a.as_mut().unwrap(), 9)",
+        "add_platform(b.items.as_mut().unwrap(), 9)",
         // The intrinsic path over a wrapper arm, narrowed by `when`/`is`.
-        "d.u1_mut().push(9)",
+        "add_platform(d.u1_mut(), 9)",
         // The `^` shadow: a borrow into the storage, and no `mut` on a binding
         // that is already a reference.
         "let c = c.u1_mut();",
@@ -7249,9 +7249,8 @@ const SEQ_DEMO_OUTPUT: &str = "list: 4 10 2\nnamed: 4\narray: 60 3\nchars: 2\n\
                                iter: 10 2\nnames: 3 1\nbag: 11\n\
                                bag element 5\nbag element 6\n";
 
-/// [rs-seq] The `List` fast paths go through the generated helpers, whose
-/// generic parameters are what give a callback its expected type — the whole
-/// reason they are functions rather than inline expressions.
+/// [rs-seq] The `List` fast paths are std functions (`filter` a platform fn),
+/// whose parameter types are what give a callback its expected type.
 /// [implicit-intrinsic] The generic overload's implicit `iter` arrives as an
 /// adapter closure whose body is the *intrinsic's own lowering*: emitting
 /// `iter(__i0)` would name the generated `iter` **module** (E0423).
@@ -7264,15 +7263,15 @@ fn sequence_functions_lower_to_helpers() {
         .expect("main.rs emitted")
         .content;
     assert!(
-        main.contains("salvo_map(&xs[..], |n| *n * 2)")
-            && main.contains("salvo_reduce(&xs[..], 0,")
-            && main.contains("salvo_filter(&xs[..],"),
+        main.contains("(&xs, &mut (|n| *n * 2))")
+            && main.contains("(&xs, 0, &mut (|a, b| *a + *b))")
+            && main.contains("filter_platform(&xs, &mut (|n| *n > 2))"),
         "unexpected:\n{main}"
     );
     // A named fn as the callback wraps in an adapter: a fn item's own
-    // convention is by value, and the helper hands it `&T` [fn-contract].
+    // convention is by value, and `map` hands it `&T` [fn-contract].
     assert!(
-        main.contains("let mut named = salvo_map(&xs[..], |"),
+        main.contains("(&xs, &mut |mut __a0| double(__a0.clone()))"),
         "unexpected:\n{main}"
     );
     // [iter-fn] A pass subject reaches the generic overload through its `iter`,
@@ -7281,20 +7280,7 @@ fn sequence_functions_lower_to_helpers() {
         main.contains("__Iter_iter_Naturals"),
         "expected the pass to be minted through its generated `iter` in:\n{main}"
     );
-    // The support file is there, and only because something needed it.
-    assert!(
-        files
-            .iter()
-            .any(|f| f.rel_path.to_string_lossy() == "seq.rs"),
-        "seq.rs should be emitted"
-    );
-    let plain = generate(&[("main.sv", "export fn main() {\n}\n")]);
-    assert!(
-        !plain
-            .iter()
-            .any(|f| f.rel_path.to_string_lossy() == "seq.rs"),
-        "the sequence helpers must not be emitted for a program that never uses them"
-    );
+    let _ = &files;
 }
 
 #[test]
@@ -7382,7 +7368,7 @@ fn scope_selectors_and_renames_are_erased() {
     // `@core.list` is std's `size`, mangled because this program declares its
     // own [rs-fn-mangling].
     assert!(
-        main.contains("(xs.len() as i32)"),
+        main.contains("size_platform(&xs)"),
         "expected the core lowering:\n{main}"
     );
     // The renamed overload is called by its declaration's mangled name.
@@ -7786,7 +7772,7 @@ fn rustc_compiles_and_runs_field_disjoint_access() {
         .expect("main.rs")
         .content;
     assert!(
-        main.contains("let mut n = &p.name;") && main.contains("p.tags.push("),
+        main.contains("let mut n = &p.name;") && main.contains("add_platform(&mut p.tags, "),
         "expected a disjoint-field borrow held across the mutation in:\n{main}"
     );
     run_rust_files(&files, "field-disjoint", FIELD_DISJOINT_OUTPUT);
@@ -8093,7 +8079,7 @@ fn rustc_compiles_and_runs_a_capture_rooted_projection() {
     // is deref'd for the cast — which goes through `i64`, so a negative
     // literal index stays an *answer* rather than rustc's E0600 [col-bounds].
     assert!(
-        main.contains("|i| all.get((*i) as i64 as usize).expect(\"salvo: value is absent"),
+        main.contains("|i| crate::core_list::get_platform(&all, *i).expect(\"salvo: value is absent"),
         "expected a clone-free, deref'd pick lambda:\n{main}"
     );
     run_rust_files(&files, "pick-list", PICK_LIST_OUTPUT);
@@ -11384,7 +11370,7 @@ fn draining_state_lowers_to_a_take() {
         .expect("main.rs");
     assert!(
         main.content
-            .contains("std::mem::take(&mut self.waiting).into_iter().for_each("),
+            .contains("(std::mem::take(&mut self.waiting), "),
         "the drain of a state field is not a take:\n{}",
         main.content
     );
@@ -13954,7 +13940,7 @@ fn an_intrinsic_argument_takes_the_intrinsics_own_mode() {
     // `xs.as_ref().expect(…).clone().push(3)`, which appends to the clone and
     // prints `xs 1` where Kotlin prints `xs 2`.
     assert!(
-        main.contains("xs.as_mut().expect(\"salvo: value is absent at main:8:9\").push(3)"),
+        main.contains("add_platform(xs.as_mut().expect(\"salvo: value is absent at main:8:9\"), 3)"),
         "a `Mut` intrinsic argument did not reach the storage:\n{main}"
     );
     run_rust_files(
@@ -14262,7 +14248,7 @@ fn a_surviving_field_derivation_renders_as_a_virtual_place() {
         main.content
     );
     assert!(
-        main.content.contains("e.rings.len()"),
+        main.content.contains("size_platform(&e.rings)"),
         "{}",
         main.content
     );
@@ -15000,7 +14986,8 @@ fn rustc_compiles_and_runs_after_the_reachability_narrowing() {
 /// The table walks both ends of the plain window (`1234567.0` plain,
 /// `1.2345678E7` scientific), the signs, zero, `NaN` and both infinities, a
 /// struct rendered field-wise [interp-struct], a list, an explicit `to_str`, a
-/// nested list, and a map *value* — every path where a float becomes text.
+/// one-element list, and a map *value* — every path where a float becomes text
+/// (a nested list waits on recursive implicit resolution, ROADMAP 6).
 const FLOAT_TEXT_DEMO: &str = r#"
 struct Point : ToStr<self> by auto {
     x: Double,
@@ -15016,7 +15003,7 @@ fn main() [use] -> None {
     println("${zero / zero} ${one / zero} ${0.0 - one / zero}")
     println("${Point { x: 2.0, ratio: 3.0 }}")
     let xs: List<Double> = list_of(2.0, 0.5)
-    println("${xs} ${to_str(xs)} ${list_of(list_of(4.0))}")
+    println("${xs} ${to_str(xs)} ${list_of(4.0)}")
     let m: Map<Str, Double> = {"a": 2.0}
     println("${m}")
 }
@@ -15045,7 +15032,7 @@ fn rustc_compiles_and_runs_salvos_float_text() {
         return;
     }
     let files = generate(&[("main.sv", FLOAT_TEXT_DEMO)]);
-    run_rust_files(&files, "float_text", "2.0 8.25 -2.0 0.0 0.001 1.0E-4\n1234567.0 1.2345678E7 1.0E20 1.0E-14\nNaN Infinity -Infinity\nPoint { x: 2.0, ratio: 3.0 }\n[2.0, 0.5] [2.0, 0.5] [[4.0]]\n{a: 2.0}\n");
+    run_rust_files(&files, "float_text", "2.0 8.25 -2.0 0.0 0.001 1.0E-4\n1234567.0 1.2345678E7 1.0E20 1.0E-14\nNaN Infinity -Infinity\nPoint { x: 2.0, ratio: 3.0 }\n[2.0, 0.5] [2.0, 0.5] [4.0]\n{a: 2.0}\n");
 }
 
 

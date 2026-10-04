@@ -8,11 +8,11 @@ import salvo.core.sorted.*
 import salvo.core.string.*
 
 fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
-    return list.size > 0
+    return sizePlatform(list) > 0
 }
 
 fun head(list: List<Int>): Int {
-    val first = list.getOrNull(0)
+    val first = getPlatform(list, 0)
     return (first ?: throw AssertionError("salvo: value is absent at main:30:12"))
 }
 
@@ -36,7 +36,7 @@ fun sum(list: List<Int>): Int {
     return total
 }
 
-fun compact(list: MutableList<Int>) {
+fun compact(list: salvo.platform.core.list.MutList<Int>) {
 }
 
 data class Request(
@@ -78,8 +78,8 @@ fun handle__Fresh(request: Request): String {
 
 fun main() {
     val console: Console = salvo.core.console.__Platform_StdOutConsole()
-    val xs: MutableList<Int> = mutableListOf<Int>()
-    xs.add(3)
+    val xs: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
+    addPlatform(xs, 3)
     println(console, "1. head after add: ${head(xs)}")
     val maybeEmpty = listOf<Int>(7, 8)
     if (NonEmpty_qualifies(maybeEmpty)) {
@@ -93,7 +93,7 @@ fun main() {
     }
     println(console, "3. sum ${sum(xs)}, head still ${head(xs)}")
     compact(xs)
-    xs.add(9)
+    addPlatform(xs, 9)
     println(console, "3. after compact and add, head is ${head(xs)}")
     val session = authenticate(Request(path = "/orders", touches = 0))
     val fresh = freshen(Request(path = "/health", touches = 0))

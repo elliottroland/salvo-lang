@@ -18,11 +18,11 @@ fun fsResolve(root: String, path: String): String? {
         return null
     }
     val segs = splitPlatform(path, "/")
-    val kept: MutableList<String> = mutableListOf<String>()
+    val kept: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     var skip = 0
-    var i = segs.size - 1
+    var i = sizePlatform(segs) - 1
     while (i >= 0) {
-        val seg = (segs.getOrNull(i) ?: throw AssertionError("salvo: value is absent at fs.restricted:35:19"))
+        val seg = (getPlatform(segs, i) ?: throw AssertionError("salvo: value is absent at fs.restricted:35:19"))
         if (seg == "..") {
             skip = skip + 1
         } else {
@@ -31,7 +31,7 @@ fun fsResolve(root: String, path: String): String? {
                 if (skip > 0) {
                     skip = skip - 1
                 } else {
-                    kept.add(seg)
+                    addPlatform(kept, seg)
                 }
             }
         }
@@ -40,10 +40,10 @@ fun fsResolve(root: String, path: String): String? {
     if (skip > 0) {
         return null
     }
-    val parts: MutableList<String> = mutableListOf<String>()
-    var j = kept.size - 1
+    val parts: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
+    var j = sizePlatform(kept) - 1
     while (j >= 0) {
-        parts.add((kept.getOrNull(j) ?: throw AssertionError("salvo: value is absent at fs.restricted:58:24")))
+        addPlatform(parts, (getPlatform(kept, j) ?: throw AssertionError("salvo: value is absent at fs.restricted:58:24")))
         j = j - 1
     }
     val rel = joinPlatform(parts, "/")

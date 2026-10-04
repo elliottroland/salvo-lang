@@ -440,32 +440,32 @@ impl FakeSqs {
 impl crate::aws_sqs::__Stateful_Sqs for FakeSqs {
 
     fn create_queue(&mut self, input: CreateQueueInput, reply: crate::scheduler::SalvoReply) {
-        self.recorded.push("create_queue".to_string());
+        crate::core_list::add_platform(&mut self.recorded, "create_queue".to_string());
         crate::scheduler::salvo_reply_wire::<Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(CreateQueueOutput { queue_url: None })));
     }
 
     fn get_queue_url(&mut self, input: GetQueueUrlInput, reply: crate::scheduler::SalvoReply) {
-        self.recorded.push("get_queue_url".to_string());
+        crate::core_list::add_platform(&mut self.recorded, "get_queue_url".to_string());
         crate::scheduler::salvo_reply_wire::<Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(GetQueueUrlOutput { queue_url: None })));
     }
 
     fn send_message(&mut self, input: SendMessageInput, reply: crate::scheduler::SalvoReply) {
-        self.recorded.push("send_message".to_string());
+        crate::core_list::add_platform(&mut self.recorded, "send_message".to_string());
         crate::scheduler::salvo_reply_wire::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(SendMessageOutput { md5_of_message_body: None, md5_of_message_attributes: None, md5_of_message_system_attributes: None, message_id: None, sequence_number: None })));
     }
 
     fn receive_message(&mut self, input: ReceiveMessageInput, reply: crate::scheduler::SalvoReply) {
-        self.recorded.push("receive_message".to_string());
+        crate::core_list::add_platform(&mut self.recorded, "receive_message".to_string());
         (reply).send(std::boxed::Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(ReceiveMessageOutput { messages: None }))));
     }
 
     fn delete_message(&mut self, input: DeleteMessageInput, reply: crate::scheduler::SalvoReply) {
-        self.recorded.push("delete_message".to_string());
+        crate::core_list::add_platform(&mut self.recorded, "delete_message".to_string());
         crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<(), Checked<Union2<SqsError, AwsError>>>::U1(ok(())));
     }
 
     fn delete_queue(&mut self, input: DeleteQueueInput, reply: crate::scheduler::SalvoReply) {
-        self.recorded.push("delete_queue".to_string());
+        crate::core_list::add_platform(&mut self.recorded, "delete_queue".to_string());
         crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<(), Checked<Union2<SqsError, AwsError>>>::U1(ok(())));
     }
 }

@@ -77,12 +77,13 @@ export params ToStr<T> {
 // render an `Int` (added 2026-09-23 with the test surface, user decision: std
 // grows what the framework needs).
 //
-// `Double` and `Float` are deliberately absent: the two hosts disagree about
-// how a whole float prints (`1.0` on the JVM, `1` on Rust), so a text form for
-// them is a parity decision rather than a lowering, and no test needs one yet.
 export intrinsic fn to_str(value: Int) [] -> Str => value
 export intrinsic fn to_str(value: Long) [] -> Str => value
 export intrinsic fn to_str(value: Byte) [] -> Str => value
 export intrinsic fn to_str(value: Char) [] -> Str => value
 export intrinsic fn to_str(value: Bool) [] -> Str => value
 export intrinsic fn to_str(value: Str) [] -> Str => value
+// A float's text is Salvo's rule, the shortest digits that round-trip with a
+// decimal point always present [interp-float].
+export intrinsic fn to_str(value: Double) [] -> Str => value
+export intrinsic fn to_str(value: Float) [] -> Str => value

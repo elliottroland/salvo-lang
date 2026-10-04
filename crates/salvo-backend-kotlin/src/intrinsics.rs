@@ -94,7 +94,8 @@ pub fn fn_call(
         // A `Str` is its own text: `toString()` on one is kotlinc's
         // "redundant conversion" warning (0c item 15).
         ("to_str", Some("Str")) => a(0).to_string(),
-        ("to_str", Some("Int" | "Long" | "Byte" | "Char" | "Bool")) => {
+        // [interp-float] Kotlin's own text is Salvo's rule.
+        ("to_str", Some("Int" | "Long" | "Byte" | "Char" | "Bool" | "Double" | "Float")) => {
             format!("({}).toString()", a(0))
         }
         // Structural equality on every intrinsic type: Kotlin's `==` is
@@ -195,114 +196,13 @@ pub fn fn_call(
         ("mut_list_of", _) => {
             format!("mutableListOf<{}>({})", elem(), args.join(", "))
         }
-        // [col-sorted-list] [cmp-carry] The sorted-list primitives take the
-        // ordering as an ordinary fn-typed argument, so the comparator is
-        // whatever the `Sorted` claim names — never natural ordering, which
-        // would put `String` in UTF-16 code-unit order where Salvo's `Str`
-        // order is code point [kt-ordered]. The canonical `cmp(Str, Str)` is
-        // the runtime helper, so that correction still happens; it arrives
-        // here already wrapped.
-        ("sort_by", Some("List")) => format!(
-            "({}).let {{ __l -> ({}).let {{ __c -> __l.sortedWith(\
-             Comparator {{ __a, __b -> __c(__a, __b) }}).toMutableList() }} }}",
-            a(0),
-            a(1)
-        ),
-        // A **lower bound**, by scan: the first index whose element is not
-        // below `elem` in that ordering. `binarySearch` would answer an
-        // arbitrary index within an equal run, which would diverge from Rust
-        // [col-sorted-list].
-        ("insert_sorted_by", Some("List")) => format!(
-            "({}).let {{ __l -> ({}).let {{ __e -> ({}).let {{ __c -> __l.add(\
-             __l.indexOfFirst {{ __c(it, __e) >= 0 }}\
-             .let {{ if (it < 0) __l.size else it }}, __e) }} }} }}",
-            a(0),
-            a(1),
-            a(2)
-        ),
-        // Lower bound, then a *tie* test in the same ordering [col-membership].
-        ("search_sorted_by", Some("List")) => format!(
-            "({}).let {{ __l -> ({}).let {{ __e -> ({}).let {{ __c -> \
-             __l.indexOfFirst {{ __c(it, __e) >= 0 }}\
-             .let {{ if (it >= 0 && __c(__l[it], __e) == 0) it else null }} }} }} }}",
-            a(0),
-            a(1),
-            a(2)
-        ),
-        ("get", Some("List")) => format!("{}.getOrNull({})", a(0), a(1)),
-        ("add", Some("List")) => format!("{}.add({})", a(0), a(1)),
-        // [linear-container] Take-by-move: the element leaves the list. A
-        // `let` so the receiver is evaluated once, and `removeAt` answers the
-        // element it removed.
-        ("remove_first", Some("List")) => format!(
-            "({}).let {{ __l -> if (__l.isEmpty()) null else __l.removeAt(0) }}",
-            a(0)
-        ),
-        // [col-insert] The element back when the index is outside 0..=size.
-        ("insert_at", Some("List")) => format!(
-            "({}).let {{ __l -> ({}).let {{ __i -> ({}).let {{ __e -> \
-             if (__i >= 0 && __i <= __l.size) {{ __l.add(__i, __e); null }} else __e }} }} }}",
-            a(0),
-            a(1),
-            a(2)
-        ),
-        // [col-remove-range] Clamped to the list.
-        ("remove_range", Some("List")) => format!(
-            "({}).let {{ __l -> val __f = ({}).coerceIn(0, __l.size); \
-             val __t = ({}).coerceIn(__f, __l.size); \
-             val __r = __l.subList(__f, __t).toMutableList(); __l.subList(__f, __t).clear(); __r }}",
-            a(0),
-            a(1),
-            a(2)
-        ),
-        ("remove_at", Some("List")) => format!(
-            "({}).let {{ __l -> ({}).let {{ __i -> \
-             if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null }} }}",
-            a(0),
-            a(1)
-        ),
-        // [col-bounds] Written out rather than `java.util.Collections.swap`,
-        // which throws out of range where this answers `false` — and which
-        // would need an import for three statements.
-        // The answer is a `Checked<Bool>` [col-bounds], built here.
-        ("swap", Some("List")) => format!(
-            "Checked(({}).let {{ __l -> ({}).let {{ __i -> ({}).let {{ __j -> \
-             if (__i >= 0 && __i < __l.size && __j >= 0 && __j < __l.size) {{ \
-             val __t = __l[__i]; __l[__i] = __l[__j]; __l[__j] = __t; true }} \
-             else false }} }} }})",
-            a(0),
-            a(1),
-            a(2)
-        ),
-        // [linear-container] The terminal: every element is handed to the
-        // callback, which owns it. Over a snapshot, so the callback may touch
-        // the collection the list came from; the list itself is spent — the
-        // checker made the caller put a fresh one back.
-        // `forEach` rather than a `for` loop: the callback's parameter type is
-        // then inferred from the receiver through `forEach`'s own signature,
-        // where an immediately-applied lambda literal leaves kotlinc asking
-        // for an explicit type ("an explicit type is required on a value
-        // parameter"). Over a snapshot, so the callback may touch the
-        // collection the list came from.
-        ("drain", Some("List")) => format!("({}).toList().forEach({})", a(0), a(1)),
-        ("first", Some("List")) => format!("{}.firstOrNull()", a(0)),
-        ("size", Some("List")) => format!("{}.size", a(0)),
         // [interp-to-str] `[1, 2, 3]`, the language's format rather than the
         // JVM's — `joinToString` already produces exactly it, but writing it
         // out is what pins the parity with Rust [backend-parity].
-        ("to_str", Some("List")) | ("to_str", Some("[]")) => {
+        ("to_str", Some("[]")) => {
             format!("{}.joinToString(\", \", \"[\", \"]\")", a(0))
         }
 
-        // core.seq -------------------------------------------------------
-        // [kt-seq] The `List` fast paths [fn-overload-rank]: Kotlin's own
-        // collection operations, with the eager result made mutable because
-        // `map`/`filter` return `Mut List<U>`.
-        ("map", Some("List")) => format!("{}.map({}).toMutableList()", a(0), a(1)),
-        ("filter", Some("List")) => {
-            format!("{}.filter({}).toMutableList()", a(0), a(1))
-        }
-        ("reduce", Some("List")) => format!("{}.fold({}, {})", a(0), a(1), a(2)),
 
         // [col-by] The generated constructors. The callback is handed to a
         // Kotlin builder (`Array(n, init)`, `MutableList(n, init)`) or to

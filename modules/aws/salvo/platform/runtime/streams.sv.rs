@@ -12,7 +12,6 @@ use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::runtime::*;
-use crate::seq::*;
 use crate::unions::*;
 
 /// [mod-use] The module's `use` #0, bound on first use.
@@ -356,25 +355,25 @@ impl crate::runtime_streams::__Stateful_StreamTable for Streams {
 
     fn put_in(&mut self, handle: i64, mut e: InEntry) {
         unbusy(&mut self.busy, &mut self.waiting, handle.clone());
-        self.in_keys.push(handle);
-        self.ins.push(e);
+        crate::core_list::add_platform(&mut self.in_keys, handle);
+        crate::core_list::add_platform(&mut self.ins, e);
     }
 
     fn put_out(&mut self, handle: i64, mut e: OutEntry) {
         unbusy(&mut self.busy, &mut self.waiting, handle.clone());
-        self.out_keys.push(handle);
-        self.outs.push(e);
+        crate::core_list::add_platform(&mut self.out_keys, handle);
+        crate::core_list::add_platform(&mut self.outs, e);
     }
 
     fn take_in(&mut self, handle: i64, me: Parker) -> Union3<InEntry, Busy, Unknown> {
         let mut at = index_in(&self.in_keys, handle);
         if at >= 0 {
-            let mut _k = self.in_keys.salvo_remove_at(at.clone());
-            self.busy.push(handle.clone());
-            return Union3::<InEntry, Busy, Unknown>::U1(self.ins.salvo_remove_at(at).expect("salvo: value is absent at runtime.streams:159:20"));
+            let mut _k = crate::core_list::remove_at_platform(&mut self.in_keys, at.clone());
+            crate::core_list::add_platform(&mut self.busy, handle.clone());
+            return Union3::<InEntry, Busy, Unknown>::U1(crate::core_list::remove_at_platform(&mut self.ins, at).expect("salvo: value is absent at runtime.streams:159:20"));
         }
         if index_in(&self.busy, handle) >= 0 {
-            self.waiting.push(me);
+            crate::core_list::add_platform(&mut self.waiting, me);
             return Union3::<InEntry, Busy, Unknown>::U2(Busy {  });
         }
         return Union3::<InEntry, Busy, Unknown>::U3(Unknown {  });
@@ -383,12 +382,12 @@ impl crate::runtime_streams::__Stateful_StreamTable for Streams {
     fn take_out(&mut self, handle: i64, me: Parker) -> Union3<OutEntry, Busy, Unknown> {
         let mut at = index_in(&self.out_keys, handle);
         if at >= 0 {
-            let mut _k = self.out_keys.salvo_remove_at(at.clone());
-            self.busy.push(handle.clone());
-            return Union3::<OutEntry, Busy, Unknown>::U1(self.outs.salvo_remove_at(at).expect("salvo: value is absent at runtime.streams:173:20"));
+            let mut _k = crate::core_list::remove_at_platform(&mut self.out_keys, at.clone());
+            crate::core_list::add_platform(&mut self.busy, handle.clone());
+            return Union3::<OutEntry, Busy, Unknown>::U1(crate::core_list::remove_at_platform(&mut self.outs, at).expect("salvo: value is absent at runtime.streams:173:20"));
         }
         if index_in(&self.busy, handle) >= 0 {
-            self.waiting.push(me);
+            crate::core_list::add_platform(&mut self.waiting, me);
             return Union3::<OutEntry, Busy, Unknown>::U2(Busy {  });
         }
         return Union3::<OutEntry, Busy, Unknown>::U3(Unknown {  });
@@ -399,14 +398,14 @@ impl crate::runtime_streams::__Stateful_StreamTable for Streams {
     }
 
     fn add_pending(&mut self, p: Pending) {
-        self.pending.push(p);
+        crate::core_list::add_platform(&mut self.pending, p);
     }
 
     fn take_pending(&mut self, handle: i64) -> Option<Pending> {
         let mut i = 0;
-        while i < (self.pending.len() as i32) {
-            if self.pending.get((i) as i64 as usize).expect("salvo: value is absent at runtime.streams:193:16").handle == handle {
-                return self.pending.salvo_remove_at(i);
+        while i < crate::core_list::size_platform(&self.pending) {
+            if crate::core_list::get_platform(&self.pending, i).expect("salvo: value is absent at runtime.streams:193:16").handle == handle {
+                return crate::core_list::remove_at_platform(&mut self.pending, i);
             }
             i = i + 1;
         }
@@ -416,8 +415,8 @@ impl crate::runtime_streams::__Stateful_StreamTable for Streams {
 
 pub fn index_in(keys: &Vec<i64>, handle: i64) -> i32 {
     let mut i = 0;
-    while i < (keys.len() as i32) {
-        if *keys.get((i) as i64 as usize).expect("salvo: value is absent at runtime.streams:207:12") == handle {
+    while i < crate::core_list::size_platform(keys) {
+        if *crate::core_list::get_platform(keys, i).expect("salvo: value is absent at runtime.streams:207:12") == handle {
             return i;
         }
         i = i + 1;
@@ -428,10 +427,10 @@ pub fn index_in(keys: &Vec<i64>, handle: i64) -> i32 {
 pub fn unbusy(busy: &mut Vec<i64>, waiting: &mut Vec<Parker>, handle: i64) {
     let mut at = index_in(busy, handle);
     if at >= 0 {
-        let mut _h = busy.salvo_remove_at(at);
+        let mut _h = crate::core_list::remove_at_platform(busy, at);
     }
-    while ((waiting.len() as i32) > 0) {
-        crate::runtime::unpark_platform(&(waiting.salvo_remove_at(0).expect("salvo: value is absent at runtime.streams:224:16")));
+    while crate::core_list::size_platform(waiting) > 0 {
+        crate::runtime::unpark_platform(&(crate::core_list::remove_at_platform(waiting, 0).expect("salvo: value is absent at runtime.streams:224:16")));
     }
 }
 

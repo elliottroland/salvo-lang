@@ -8,7 +8,11 @@
 // terminal is [drain] — while `List<Int>` is an ordinary list. The
 // element's declaration is the source of the linearity; a list never
 // spells it.
-export intrinsic type List<T canbe linear> canbe Mut
+// [platform-value-type] A value platform type (ROADMAP 0.7): the host
+// implements it in `std/platform/core/list.{rs,kt}` and names the mutable
+// kind `MutList`. The constructors stay intrinsic for now, since list
+// literals and spreads lower through them.
+export platform type List<T canbe linear> canbe Mut
 
 // Constructors, in two shapes [col-of-nonempty] (user decision 2026-09-23).
 // Writing a *first* element establishes `NonEmpty` **by construction**, so no
@@ -39,14 +43,24 @@ export intrinsic fn mut_list_of<T canbe linear>(first: T, ...rest: T[]) [] -> +N
 // [col-by] Builds a list of [size] elements, each from its index:
 // `list_by(3, i -> i * 2)` is `[0, 2, 4]`. The generator is called once per
 // index, in order.
-export intrinsic fn list_by<T>(size: Int, init: (Int) -> T) [] -> List<T> => size, init
+export fn list_by<T>(size: Int, init: (Int) -> T) [] -> List<T> => size, init {
+    return mut_list_by(size, init)
+}
 
 // Mutable variant
-export intrinsic fn mut_list_by<T>(size: Int, init: (Int) -> T) [] -> Mut List<T>
-=> size, init
+export fn mut_list_by<T>(size: Int, init: (Int) -> T) [] -> Mut List<T>
+=> size, init {
+    let out = mut_list_of<T>()
+    let i = 0
+    while i < size {
+        add(out, init(copy(i)))
+        i = i + 1
+    }
+    return out
+}
 
 // Possibly gets the element at the given index if the list is long enough
-export intrinsic fn get<T canbe linear>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
+export platform fn get<T canbe linear>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
 
 // [qual-depend] [col-idx] The claim that an `Int` is a **valid index of one
 // particular list**: `0 <= index < size(list)`, bound to that list's
@@ -150,7 +164,7 @@ export fn update2<T>(list: List<Mut T>, i: Idx(list) Int, j: NotEq(i) Idx(list) 
 // Adds an element to the list. The list takes ownership of `elem`, so it
 // is moved; the list itself is mutated, which is why its surviving
 // qualifiers are listed exhaustively [deduce-syntax].
-export intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem
+export platform fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem
 
 // [linear-container] Takes the **first** element out of the list, or answers
 // `None` when it is empty: the way an obligation leaves a list one at a time.
@@ -161,26 +175,26 @@ export intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None =
 // The `T?` shape is the whole absence story: the `None` arm owes nothing, so
 // the emptiness check *is* the union narrow [linear-union-arm]. Pairs with
 // `while` for a take-until-empty loop, and with [drain] for the terminal.
-export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut
+export platform fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut
 
 // [linear-container] The same, at an index: the element at [index] is moved
 // out and the elements after it shift down. `None` when the index is past the
 // end.
-export intrinsic fn remove_at<T canbe linear>(list: Mut List<T>, index: Int) [] -> T?
+export platform fn remove_at<T canbe linear>(list: Mut List<T>, index: Int) [] -> T?
 => list: Mut, index
 
 // [col-insert] Puts [elem] at [index], shifting the elements from there on
 // up by one; [index] may be the size, which appends. Out of range (below 0 or
 // past the size), nothing moves and [elem] is **handed back**, so a list of
 // obligations cannot lose one [linear-container].
-export intrinsic fn insert_at<T canbe linear>(list: Mut List<T>, index: Int, elem: T) [] -> T?
+export platform fn insert_at<T canbe linear>(list: Mut List<T>, index: Int, elem: T) [] -> T?
 => list: Mut, index, !elem
 
 // [col-remove-range] Takes the elements at indices [from] up to (not
 // including) [to] out of the list, in order, and answers them. The range is
 // clamped to the list, so an out-of-range bound removes what there is: the
 // primitive the `remove_front`/`remove_back` family is written over.
-export intrinsic fn remove_range<T canbe linear>(list: Mut List<T>, from: Int, to: Int) [] -> Mut List<T>
+export platform fn remove_range<T canbe linear>(list: Mut List<T>, from: Int, to: Int) [] -> Mut List<T>
 => list: Mut, from, to
 
 // [linear-container] Exchanges the elements at [i] and [j]. **Total**: no value
@@ -200,8 +214,13 @@ export intrinsic fn remove_range<T canbe linear>(list: Mut List<T>, from: Int, t
 // or `ignore` it to say that not looking was the intent. The **total** overload
 // above answers plain `None` — where both indices carry `Idx` claims there is no
 // failure to check.
-export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -> Checked<Bool>
-=> list: Mut, i, j
+export fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -> Checked<Bool>
+=> list: Mut, i, j {
+    return checked(swap_at(list, i, j))
+}
+
+// The host's exchange, answering whether both indices were in range.
+platform fn swap_at<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -> Bool => list: Mut, i, j
 
 // [linear-container] There is deliberately **no** positional write for a list
 // of obligations. `replace(list, index, elem) -> T?` looks like the map's, but
@@ -223,10 +242,25 @@ export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -
 // no path can drop the elements it did not reach. The callback's own effects
 // travel to the caller [fn-effects], so draining into an effectful discharger
 // needs no annotation here.
-export intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
-=>[each] !x => !list, each
+export fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
+=>[each] !x => !list, each {
+    let m = into_mut(list)
+    reverse(m)
+    while size(m) > 0 {
+        each(remove_last(m)!)
+    }
+    end_empty(m)
+}
 
-export intrinsic fn first<T canbe linear>(list: List<T>) [] -> proj(list) T? => list
+// [linear-container] A list as one to empty, and the end of an emptied one:
+// what [drain] is written with. Ending one that still holds elements traps.
+platform fn into_mut<T canbe linear>(list: List<T>) [] -> Mut List<T> => !list
+platform fn end_empty<T canbe linear>(list: Mut List<T>) [] -> None => !list
+
+// [linear-container] Takes the **last** element out, or `None` when empty.
+export platform fn remove_last<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut
+
+export platform fn first<T canbe linear>(list: List<T>) [] -> proj(list) T? => list
 
 // [col-nonempty] The claim that a list has at least one element, and the
 // reason the qualifier machinery is worth having over a container: with it,
@@ -274,7 +308,7 @@ export fn first<T canbe linear>(list: NonEmpty List<T>) [] -> proj(list) T => li
 }
 
 // Returns the number of elements in the list
-export intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list
+export platform fn size<T canbe linear>(list: List<T>) [] -> Int => list
 
 // ===== the list surface written in Salvo [col-salvo] =====
 //
@@ -621,7 +655,19 @@ export iter fn enumerate_rev<T>(list: List<T>) -> Emitted Enumerated<T> | Finish
 // text form. An `intrinsic` rather than Salvo code because rendering the
 // *elements* is the backend's own formatting, which is also why the element
 // type must render natively — a list of structs needs a `to_str` of your own.
-export intrinsic fn to_str<T>(list: List<T>) [] -> Str => list
+export fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str) [] -> Str => list {
+    let out = mut_str("[")
+    let i = 0
+    for x in list {
+        if i > 0 {
+            append(out, ", ")
+        }
+        append(out, to_str(x))
+        i = i + 1
+    }
+    append(out, "]")
+    return out
+}
 
 
 // [col-sorted-list] The claim that a list's elements are in order. A *state*
@@ -662,18 +708,18 @@ export qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T> with NonEmpty {
 
 // Answers the elements of [list] in the order [cmp] puts them in. A stable
 // sort on both backends, so equal elements keep their relative order.
-intrinsic fn sort_by<T>(list: List<T>, cmp: (T, T) -> Int) [] -> Mut List<T>
+platform fn sort_by<T>(list: List<T>, cmp: (T, T) -> Int) [] -> Mut List<T>
 => list, cmp
 
 // Inserts [elem] at the **lower bound** for [cmp] — before any element that
 // ties with it — which is the position that keeps the list ordered.
-intrinsic fn insert_sorted_by<T>(list: Mut List<T>, elem: T, cmp: (T, T) -> Int) [] -> None
+platform fn insert_sorted_by<T>(list: Mut List<T>, elem: T, cmp: (T, T) -> Int) [] -> None
 => list: Mut, !elem, cmp
 
 // The **lowest** index that ties with [elem] under [cmp], or `None`. A tie is
 // `cmp(a, b) == 0`, never the host's equality: that is the only test
 // consistent with the ordering the `Sorted` claim names [col-membership].
-intrinsic fn search_sorted_by<T>(list: List<T>, elem: T, cmp: (T, T) -> Int) [] -> Int?
+platform fn search_sorted_by<T>(list: List<T>, elem: T, cmp: (T, T) -> Int) [] -> Int?
 => list, elem, cmp
 
 // Returns the elements in order, and **publishes the ordering** it sorted by:

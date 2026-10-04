@@ -29,6 +29,8 @@ pub mod core_sorted;
 pub mod core_string;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/list.rs"]
+pub mod platform_core_list;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
@@ -42,5 +44,5 @@ pub fn main() {
     println(&console, &(format!("profile: {}", creds.profile.clone())));
     println(&console, &(format!("path:    {}", creds.path.clone())));
     let mut staging = ProfileCredentials { profile: "staging".to_string(), path: "/etc/aws/credentials".to_string() };
-    println(&console, &(format!("{}", to_str__10(&staging))));
+    println(&console, &(format!("{}", to_str__11(&staging))));
 }

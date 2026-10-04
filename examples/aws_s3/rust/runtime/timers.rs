@@ -8,7 +8,6 @@ use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::runtime::*;
-use crate::seq::*;
 use crate::time::*;
 
 /// [mod-use] The module's `use` #0, bound on first use.
@@ -139,8 +138,8 @@ impl Deadlines {
 impl crate::runtime_timers::__Stateful_DeadlineTable for Deadlines {
 
     fn register(&mut self, at: i64, done: crate::scheduler::SalvoReply) -> bool {
-        self.ats.push(at);
-        self.dones.push(done);
+        crate::core_list::add_platform(&mut self.ats, at);
+        crate::core_list::add_platform(&mut self.dones, done);
         if self.running {
             return false;
         }
@@ -162,13 +161,13 @@ impl crate::runtime_timers::__Stateful_DeadlineTable for Deadlines {
     fn take_due(&mut self, now: i64) -> Vec<crate::scheduler::SalvoReply> {
         let mut due: Vec<crate::scheduler::SalvoReply> = vec![];
         let mut i = 0;
-        while i < (self.ats.len() as i32) {
-            if *self.ats.get((i) as i64 as usize).expect("salvo: value is absent at runtime.timers:72:16") <= now {
-                let mut _at = self.ats.salvo_remove_at(i);
-                let mut __is1 = self.dones.salvo_remove_at(i);
+        while i < crate::core_list::size_platform(&self.ats) {
+            if *crate::core_list::get_platform(&self.ats, i).expect("salvo: value is absent at runtime.timers:72:16") <= now {
+                let mut _at = crate::core_list::remove_at_platform(&mut self.ats, i);
+                let mut __is1 = crate::core_list::remove_at_platform(&mut self.dones, i);
                 if __is1.is_some() {
                     let mut r = __is1.unwrap();
-                    due.push(r);
+                    crate::core_list::add_platform(&mut due, r);
                 }
             } else {
                 i = i + 1;
@@ -192,21 +191,21 @@ impl crate::runtime_timers::__Stateful_DeadlineTable for Deadlines {
 
     fn clear(&mut self) {
         loop {
-            let mut __is2 = self.dones.salvo_remove_first();
+            let mut __is2 = crate::core_list::remove_first_platform(&mut self.dones);
             if !(__is2.is_some()) {
                 break;
             }
             let mut r = __is2.unwrap();
-            self.forgotten.push(r);
+            crate::core_list::add_platform(&mut self.forgotten, r);
         }
-        while self.ats.salvo_remove_first().is_some() {
+        while crate::core_list::remove_first_platform(&mut self.ats).is_some() {
         }
         self.running = false;
     }
 }
 
 pub fn answer_all(mut due: Vec<crate::scheduler::SalvoReply>, now: i64) {
-    due.into_iter().for_each(|r| crate::scheduler::salvo_reply_wire::<Fired>(r, Fired { at: Tick { nanos: now.clone() } }));
+    drain__2(due, &mut (|r| crate::scheduler::salvo_reply_wire::<Fired>(r, Fired { at: Tick { nanos: now.clone() } })));
 }
 
 pub trait __Stateless_Wheel: Send + Sync {

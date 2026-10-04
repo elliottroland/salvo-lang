@@ -142,7 +142,7 @@ fun<T> toList(d: kotlin.collections.ArrayDeque<T>, copy: (T) -> T): List<T> {
         val __loop2_step = next__3(__loop2_pass)
         if (__loop2_step !is Union2.U1<*, *>) { break }
         val x = __loop2_step.value as T
-        out.add(copy(x))
+        addPlatform(out, copy(x))
     }
     return out
 }

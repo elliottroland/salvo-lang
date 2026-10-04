@@ -9,7 +9,6 @@ use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::runtime::*;
-use crate::seq::*;
 use crate::unions::*;
 
 /// [mod-use] The module's `use` #0, bound on first use.
@@ -709,9 +708,9 @@ pub fn version_in(versions: &SalvoMap<i32, i64>, group: i32) -> i64 {
 pub fn bump_in(versions: &mut SalvoMap<i32, i64>, waiters: &mut Vec<ViewWaiter>, group: i32) {
     versions.insert(group.clone(), version_in(versions, group.clone()) + ((1) as i64));
     let mut i = 0;
-    while i < (waiters.len() as i32) {
-        if waiters.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:171:12").group == group {
-            let mut w = waiters.salvo_remove_at(i.clone()).expect("salvo: value is absent at runtime.routing:172:21");
+    while i < crate::core_list::size_platform(waiters) {
+        if crate::core_list::get_platform(waiters, i).expect("salvo: value is absent at runtime.routing:171:12").group == group {
+            let mut w = crate::core_list::remove_at_platform(waiters, i.clone()).expect("salvo: value is absent at runtime.routing:172:21");
             crate::runtime::unpark_platform(&(w.parker.clone()));
         } else {
             i = i + 1;
@@ -881,7 +880,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
                 self.held_n.insert(addr.clone(), held_in(&self.held_n, addr.clone()) + 1);
                 return 1;
             }
-            self.credit_waiters.push(me);
+            crate::core_list::add_platform(&mut self.credit_waiters, me);
             return 0;
         }
         return -1;
@@ -900,8 +899,8 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
 
     fn take_outbox(&mut self) -> Vec<Staged> {
         let mut out: Vec<Staged> = vec![];
-        while ((self.outbox.len() as i32) > 0) {
-            out.push(self.outbox.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:327:22"));
+        while crate::core_list::size_platform(&self.outbox) > 0 {
+            crate::core_list::add_platform(&mut out, crate::core_list::remove_at_platform(&mut self.outbox, 0).expect("salvo: value is absent at runtime.routing:327:22"));
         }
         return out;
     }
@@ -971,16 +970,16 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn put_task(&mut self, key: i64, t: ExportedTask) {
-        self.task_keys.push(key);
-        self.tasks.push(t);
+        crate::core_list::add_platform(&mut self.task_keys, key);
+        crate::core_list::add_platform(&mut self.tasks, t);
     }
 
     fn take_task(&mut self, key: i64) -> Option<ExportedTask> {
         let mut i = 0;
-        while i < (self.task_keys.len() as i32) {
-            if *self.task_keys.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:401:16") == key {
-                let mut _k = self.task_keys.salvo_remove_at(i.clone());
-                return self.tasks.salvo_remove_at(i);
+        while i < crate::core_list::size_platform(&self.task_keys) {
+            if *crate::core_list::get_platform(&self.task_keys, i).expect("salvo: value is absent at runtime.routing:401:16") == key {
+                let mut _k = crate::core_list::remove_at_platform(&mut self.task_keys, i.clone());
+                return crate::core_list::remove_at_platform(&mut self.tasks, i);
             }
             i = i + 1;
         }
@@ -1035,7 +1034,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
             if r.is_some() {
                 let mut found = r.unwrap();
                 if found.node == node {
-                    gone.push(idx.clone());
+                    crate::core_list::add_platform(&mut gone, idx.clone());
                 }
             }
         }
@@ -1070,15 +1069,15 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
             return -1i64;
         }
         self.next_waiter = self.next_waiter + ((1) as i64);
-        self.view_waiters.push(ViewWaiter { group: group, id: self.next_waiter.clone(), parker: me });
+        crate::core_list::add_platform(&mut self.view_waiters, ViewWaiter { group: group, id: self.next_waiter.clone(), parker: me });
         return self.next_waiter.clone();
     }
 
     fn drop_view_waiter(&mut self, id: i64) {
         let mut i = 0;
-        while i < (self.view_waiters.len() as i32) {
-            if self.view_waiters.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:496:16").id == id {
-                let mut _w = self.view_waiters.salvo_remove_at(i.clone());
+        while i < crate::core_list::size_platform(&self.view_waiters) {
+            if crate::core_list::get_platform(&self.view_waiters, i).expect("salvo: value is absent at runtime.routing:496:16").id == id {
+                let mut _w = crate::core_list::remove_at_platform(&mut self.view_waiters, i.clone());
                 return;
             }
             i = i + 1;
@@ -1144,8 +1143,8 @@ pub fn identity_in(remote: &SalvoMap<i32, RemoteRef>, bits: &mut SalvoMap<i32, i
 }
 
 pub fn wake_senders(waiters: &mut Vec<Parker>) {
-    while ((waiters.len() as i32) > 0) {
-        crate::runtime::unpark_platform(&(waiters.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:554:16")));
+    while crate::core_list::size_platform(waiters) > 0 {
+        crate::runtime::unpark_platform(&(crate::core_list::remove_at_platform(waiters, 0).expect("salvo: value is absent at runtime.routing:554:16")));
     }
 }
 
@@ -1154,17 +1153,17 @@ pub fn stage_in(routes: &SalvoMap<i64, Bytes>, outbound: &SalvoSet<i64>, outbox:
     if ep.is_some() {
         let mut at = ep.unwrap();
         if outbound.contains(&from) {
-            outbox.push(Staged { from: from, to: at.clone(), frame: frame });
+            crate::core_list::add_platform(outbox, Staged { from: from, to: at.clone(), frame: frame });
             return;
         }
     }
-    parked.push(Parked { from: from, to: to, frame: frame });
+    crate::core_list::add_platform(parked, Parked { from: from, to: to, frame: frame });
 }
 
 pub fn restage(routes: &SalvoMap<i64, Bytes>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>) {
     let mut waiting: Vec<Parked> = vec![];
-    while ((parked.len() as i32) > 0) {
-        waiting.push(parked.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:577:22"));
+    while crate::core_list::size_platform(parked) > 0 {
+        crate::core_list::add_platform(&mut waiting, crate::core_list::remove_at_platform(parked, 0).expect("salvo: value is absent at runtime.routing:577:22"));
     }
     for mut p in waiting.clone() {
         stage_in(routes, outbound, outbox, parked, p.from, p.to, p.frame.clone());
@@ -1472,19 +1471,19 @@ pub fn view_set(group: i32, members: Vec<i32>) {
 pub fn view_members(group: i32) -> Vec<i32> {
     let mut left: Vec<i32> = vec![];
     for mut m in __module_use_0().view_of(group) {
-        left.push(m.clone());
+        crate::core_list::add_platform(&mut left, m.clone());
     }
     let mut out: Vec<i32> = vec![];
-    while ((left.len() as i32) > 0) {
+    while crate::core_list::size_platform(&left) > 0 {
         let mut best = 0;
         let mut i = 1;
-        while i < (left.len() as i32) {
-            if before(&(identity(*left.get((i) as i64 as usize).expect("salvo: value is absent at runtime.routing:937:37"))), &(identity(*left.get((best) as i64 as usize).expect("salvo: value is absent at runtime.routing:937:68")))) {
+        while i < crate::core_list::size_platform(&left) {
+            if before(&(identity(*crate::core_list::get_platform(&left, i).expect("salvo: value is absent at runtime.routing:937:37"))), &(identity(*crate::core_list::get_platform(&left, best).expect("salvo: value is absent at runtime.routing:937:68")))) {
                 best = i.clone();
             }
             i = i + 1;
         }
-        out.push(left.salvo_remove_at(best).expect("salvo: value is absent at runtime.routing:942:18"));
+        crate::core_list::add_platform(&mut out, crate::core_list::remove_at_platform(&mut left, best).expect("salvo: value is absent at runtime.routing:942:18"));
     }
     return out.clone();
 }

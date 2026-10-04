@@ -63,6 +63,8 @@ pub mod platform_core_bytes;
 pub mod platform_core_console;
 #[path = "platform/core/deque.rs"]
 pub mod platform_core_deque;
+#[path = "platform/core/list.rs"]
+pub mod platform_core_list;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 #[path = "platform/fs/host.rs"]
@@ -371,19 +373,19 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             println(console, &(format!("unexpected: {}", missing.u1().clone())));
         }
         Union2::U2(_) => {
-            failures.push(detach((match missing { Union2::U2(__v) => __v, _ => unreachable!() })));
+            crate::core_list::add_platform(&mut failures, detach((match missing { Union2::U2(__v) => __v, _ => unreachable!() })));
         }
     }
     let mut not_a_dir = fs.list_dir(&("notes.txt".to_string()));
     match not_a_dir {
         Union2::U1(_) => {
-            println(console, &(format!("unexpected: {}", format!("[{}]", not_a_dir.u1().clone().iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
+            println(console, &(format!("unexpected: {}", to_str__3(&not_a_dir.u1().clone(), &mut |__i0| format!("{}", __i0)))));
         }
         Union2::U2(_) => {
-            failures.push(detach((match not_a_dir { Union2::U2(__v) => __v, _ => unreachable!() })));
+            crate::core_list::add_platform(&mut failures, detach((match not_a_dir { Union2::U2(__v) => __v, _ => unreachable!() })));
         }
     }
-    println(console, &(format!("failures: {}", (failures.len() as i32))));
+    println(console, &(format!("failures: {}", crate::core_list::size_platform(&failures))));
     for mut kind in failures.clone() {
         println(console, &(format!("  {}", kind_name(&(kind.clone())))));
     }

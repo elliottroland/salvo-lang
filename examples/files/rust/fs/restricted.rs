@@ -19,9 +19,9 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
     let mut segs = crate::core_string::split_platform(path, &("/".to_string()));
     let mut kept: Vec<String> = vec![];
     let mut skip = 0;
-    let mut i = (segs.len() as i32) - 1;
+    let mut i = crate::core_list::size_platform(&segs) - 1;
     while i >= 0 {
-        let mut seg = segs.get((i) as i64 as usize).unwrap();
+        let mut seg = crate::core_list::get_platform(&segs, i).unwrap();
         if seg.clone() == "..".to_string() {
             skip = skip + 1;
         } else {
@@ -30,7 +30,7 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
                 if skip > 0 {
                     skip = skip - 1;
                 } else {
-                    kept.push(seg.clone());
+                    crate::core_list::add_platform(&mut kept, seg.clone());
                 }
             }
         }
@@ -40,9 +40,9 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
         return None;
     }
     let mut parts: Vec<String> = vec![];
-    let mut j = (kept.len() as i32) - 1;
+    let mut j = crate::core_list::size_platform(&kept) - 1;
     while j >= 0 {
-        parts.push(kept.get((j) as i64 as usize).expect("salvo: value is absent at fs.restricted:58:24").clone());
+        crate::core_list::add_platform(&mut parts, crate::core_list::get_platform(&kept, j).expect("salvo: value is absent at fs.restricted:58:24").clone());
         j = j - 1;
     }
     let mut rel = crate::core_string::join_platform(&parts, &("/".to_string()));

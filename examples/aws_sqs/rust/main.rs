@@ -51,6 +51,8 @@ pub mod platform_core_bytes;
 pub mod platform_core_console;
 #[path = "platform/core/deque.rs"]
 pub mod platform_core_deque;
+#[path = "platform/core/list.rs"]
+pub mod platform_core_list;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 #[path = "platform/runtime/routing.rs"]
@@ -121,7 +123,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
     match got {
         Union2::U1(_) => {
             let mut messages: Vec<Message> = if got.u1().clone().messages.is_some() { got.u1().clone().messages.as_ref().unwrap().clone() } else { vec![] };
-            println(console, &(format!("received {} message(s)", (messages.len() as i32))));
+            println(console, &(format!("received {} message(s)", crate::core_list::size_platform(&messages))));
             for m in &messages {
                 println(console, &(format!("  {}", if m.body.is_some() { m.body.as_ref().unwrap().clone() } else { "".to_string() })));
             }
@@ -189,10 +191,10 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
         }
         let mut grown = vec![];
         for mut b in held.unwrap().clone() {
-            grown.push(b.clone());
+            crate::core_list::add_platform(&mut grown, b.clone());
         }
-        let mut id = format!("m{}", (grown.len() as i32) + 1);
-        grown.push(input.message_body.clone());
+        let mut id = format!("m{}", crate::core_list::size_platform(&grown) + 1);
+        crate::core_list::add_platform(&mut grown, input.message_body.clone());
         let mut stored: Vec<String> = grown;
         self.queues.insert(input.queue_url.clone(), stored);
         crate::scheduler::salvo_reply_wire::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(SendMessageOutput { message_id: Some(id), md5_of_message_body: None, md5_of_message_attributes: None, md5_of_message_system_attributes: None, sequence_number: None })));
@@ -208,7 +210,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
         let mut i = 0;
         for mut b in held.unwrap().clone() {
             i = i + 1;
-            out.push(Message { message_id: Some(format!("m{}", i)), receipt_handle: Some(format!("m{}", i)), body: Some(b.clone()), md5_of_body: None, attributes: None, md5_of_message_attributes: None, message_attributes: None });
+            crate::core_list::add_platform(&mut out, Message { message_id: Some(format!("m{}", i)), receipt_handle: Some(format!("m{}", i)), body: Some(b.clone()), md5_of_body: None, attributes: None, md5_of_message_attributes: None, message_attributes: None });
         }
         let mut messages: Vec<Message> = out;
         (reply).send(std::boxed::Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(ReceiveMessageOutput { messages: Some(messages) }))));
@@ -237,7 +239,7 @@ pub fn main() {
         let sqs2 = crate::aws_sqs::Sqs::share_locked(__inst.clone());
         let sqs_calls = crate::aws_sqs::SqsCalls::share_locked(__inst.clone());
         round_trip(&sqs2, &console, &("orders".to_string()));
-        println(&console, &(format!("calls: {}", format!("[{}]", sqs_calls.calls().iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
+        println(&console, &(format!("calls: {}", to_str__3(&sqs_calls.calls(), &mut |__i0| format!("{}", __i0)))));
     }
     println(&console, &("-- MemSqs --".to_string()));
     if true {

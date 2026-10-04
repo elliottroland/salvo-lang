@@ -298,26 +298,26 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
             println(console, "byte read failed: ${kindName(detach((whole.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
-    val failures: MutableList<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = mutableListOf<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>()
+    val failures: salvo.platform.core.list.MutList<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = mutableListOf<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>()
     val missing = readToStr(fs, streams, "nope.txt")
     when (missing) {
         is Union2.U1<*, *> -> {
             println(console, "unexpected: ${(missing.value as String)}")
         }
         is Union2.U2<*, *> -> {
-            failures.add(detach((missing.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))
+            addPlatform(failures, detach((missing.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))
         }
     }
     val notADir = fs.listDir("notes.txt")
     when (notADir) {
         is Union2.U1<*, *> -> {
-            println(console, "unexpected: ${(notADir.value as List<String>).joinToString(", ", "[", "]")}")
+            println(console, "unexpected: ${toStr__2((notADir.value as List<String>), { __i0 -> __i0 })}")
         }
         is Union2.U2<*, *> -> {
-            failures.add(detach((notADir.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))
+            addPlatform(failures, detach((notADir.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))
         }
     }
-    println(console, "failures: ${failures.size}")
+    println(console, "failures: ${sizePlatform(failures)}")
     for (kind in failures) {
         println(console, "  ${kindName(kind)}")
     }

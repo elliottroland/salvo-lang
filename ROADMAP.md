@@ -79,13 +79,13 @@ and the `test actor` follow-ups recorded below:
 7. **Every collection as a platform type** — in progress: the mechanism
    and `Bytes` are built [platform-value-type] (2026-10-04, convention (c):
    the host names the mutable kind `Mut<Name>`, Kotlin provides `copy`).
-   `Str` and `Deque` too (types still render natively, which the host types
-   alias). Next `List`, then `Set`, `Map` and the sorted pair, whose identity
+   `Str`, `Deque` and `List` too (types still render natively, which the host
+   types alias; `list_of`/`mut_list_of` stay intrinsic because literals and
+   spreads lower through them). Next `Set`, `Map` and the sorted pair, whose identity
    slots (`Set<T>(?hash, ?eq)`) a platform type is to be allowed to declare,
    the host receiving the functions at construction (user decision
-   2026-10-04, option (a)). Lost with
-   `Bytes` and to be won back generally: the native `for` over a buffer
-   (now the `BytesYield` pass). (User decision 2026-10-04,
+   2026-10-04, option (a)). Lost with `List`: printing a nested list, which
+   needs recursive implicit resolution (item 6). (User decision 2026-10-04,
    replacing runtime step 17 and widening §12's scope, which had kept the
    `canbe Mut` collections intrinsic): `List`, `Set`, `Map`, the sorted pair,
    `Deque`, `Str` and `Bytes`. A `platform type` that `canbe Mut` names **two

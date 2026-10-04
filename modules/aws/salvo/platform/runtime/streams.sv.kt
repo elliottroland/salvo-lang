@@ -204,13 +204,13 @@ class __Mon_StreamTable(
 
 class Streams : StreamTable {
     private var next: Long = 0L
-    private var inKeys: MutableList<Long> = mutableListOf<Long>()
-    private var ins: MutableList<InEntry> = mutableListOf<InEntry>()
-    private var outKeys: MutableList<Long> = mutableListOf<Long>()
-    private var outs: MutableList<OutEntry> = mutableListOf<OutEntry>()
-    private var busy: MutableList<Long> = mutableListOf<Long>()
-    private var waiting: MutableList<salvo.platform.runtime.Parker> = mutableListOf<salvo.platform.runtime.Parker>()
-    private var pending: MutableList<Pending> = mutableListOf<Pending>()
+    private var inKeys: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
+    private var ins: salvo.platform.core.list.MutList<InEntry> = mutableListOf<InEntry>()
+    private var outKeys: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
+    private var outs: salvo.platform.core.list.MutList<OutEntry> = mutableListOf<OutEntry>()
+    private var busy: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
+    private var waiting: salvo.platform.core.list.MutList<salvo.platform.runtime.Parker> = mutableListOf<salvo.platform.runtime.Parker>()
+    private var pending: salvo.platform.core.list.MutList<Pending> = mutableListOf<Pending>()
 
     override fun nextHandle(): Long {
         next = next + 1
@@ -219,25 +219,25 @@ class Streams : StreamTable {
 
     override fun putIn(handle: Long, e: InEntry) {
         unbusy(busy, waiting, handle)
-        inKeys.add(handle)
-        ins.add(e)
+        addPlatform(inKeys, handle)
+        addPlatform(ins, e)
     }
 
     override fun putOut(handle: Long, e: OutEntry) {
         unbusy(busy, waiting, handle)
-        outKeys.add(handle)
-        outs.add(e)
+        addPlatform(outKeys, handle)
+        addPlatform(outs, e)
     }
 
     override fun takeIn(handle: Long, me: salvo.platform.runtime.Parker): Union3<InEntry, Busy, Unknown> {
         val at = indexIn(inKeys, handle)
         if (at >= 0) {
-            val _k = (inKeys).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
-            busy.add(handle)
-            return Union3.U1<InEntry, Busy, Unknown>(((ins).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.streams:159:20")))
+            val _k = removeAtPlatform(inKeys, at)
+            addPlatform(busy, handle)
+            return Union3.U1<InEntry, Busy, Unknown>((removeAtPlatform(ins, at) ?: throw AssertionError("salvo: value is absent at runtime.streams:159:20")))
         }
         if (indexIn(busy, handle) >= 0) {
-            waiting.add(me)
+            addPlatform(waiting, me)
             return Union3.U2<InEntry, Busy, Unknown>(Busy())
         }
         return Union3.U3<InEntry, Busy, Unknown>(Unknown())
@@ -246,12 +246,12 @@ class Streams : StreamTable {
     override fun takeOut(handle: Long, me: salvo.platform.runtime.Parker): Union3<OutEntry, Busy, Unknown> {
         val at = indexIn(outKeys, handle)
         if (at >= 0) {
-            val _k = (outKeys).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
-            busy.add(handle)
-            return Union3.U1<OutEntry, Busy, Unknown>(((outs).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.streams:173:20")))
+            val _k = removeAtPlatform(outKeys, at)
+            addPlatform(busy, handle)
+            return Union3.U1<OutEntry, Busy, Unknown>((removeAtPlatform(outs, at) ?: throw AssertionError("salvo: value is absent at runtime.streams:173:20")))
         }
         if (indexIn(busy, handle) >= 0) {
-            waiting.add(me)
+            addPlatform(waiting, me)
             return Union3.U2<OutEntry, Busy, Unknown>(Busy())
         }
         return Union3.U3<OutEntry, Busy, Unknown>(Unknown())
@@ -262,14 +262,14 @@ class Streams : StreamTable {
     }
 
     override fun addPending(p: Pending) {
-        pending.add(p)
+        addPlatform(pending, p)
     }
 
     override fun takePending(handle: Long): Pending? {
         var i = 0
-        while (i < pending.size) {
-            if ((pending.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.streams:193:16")).handle == handle) {
-                return (pending).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
+        while (i < sizePlatform(pending)) {
+            if ((getPlatform(pending, i) ?: throw AssertionError("salvo: value is absent at runtime.streams:193:16")).handle == handle) {
+                return removeAtPlatform(pending, i)
             }
             i = i + 1
         }
@@ -279,8 +279,8 @@ class Streams : StreamTable {
 
 fun indexIn(keys: List<Long>, handle: Long): Int {
     var i = 0
-    while (i < keys.size) {
-        if ((keys.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.streams:207:12")) == handle) {
+    while (i < sizePlatform(keys)) {
+        if ((getPlatform(keys, i) ?: throw AssertionError("salvo: value is absent at runtime.streams:207:12")) == handle) {
             return i
         }
         i = i + 1
@@ -288,13 +288,13 @@ fun indexIn(keys: List<Long>, handle: Long): Int {
     return -1
 }
 
-fun unbusy(busy: MutableList<Long>, waiting: MutableList<salvo.platform.runtime.Parker>, handle: Long) {
+fun unbusy(busy: salvo.platform.core.list.MutList<Long>, waiting: salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>, handle: Long) {
     val at = indexIn(busy, handle)
     if (at >= 0) {
-        val _h = (busy).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
+        val _h = removeAtPlatform(busy, at)
     }
-    while (waiting.size > 0) {
-        unparkPlatform(((waiting).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.streams:224:16")))
+    while (sizePlatform(waiting) > 0) {
+        unparkPlatform((removeAtPlatform(waiting, 0) ?: throw AssertionError("salvo: value is absent at runtime.streams:224:16")))
     }
 }
 

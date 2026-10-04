@@ -189,12 +189,12 @@ pub fn repeat(str: &String, n: i32) -> String {
 
 pub fn lines(str: &String) -> Vec<String> {
     let mut parts = split_platform(str, &("\n".to_string()));
-    if ((parts.len() as i32) > 1 && ends_with_platform(str, &("\n".to_string()))) {
+    if crate::core_list::size_platform(&parts) > 1 && ends_with_platform(str, &("\n".to_string())) {
         let mut _end = remove_back(&mut parts, 1);
     }
     let mut out = vec![];
     for p in &parts {
-        out.push(trim_suffix_platform(p, &("\r".to_string())));
+        crate::core_list::add_platform(&mut out, trim_suffix_platform(p, &("\r".to_string())));
     }
     return out;
 }

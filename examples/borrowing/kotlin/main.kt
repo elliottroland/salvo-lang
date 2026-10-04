@@ -42,7 +42,7 @@ fun window(roster: List<Fighter>): Window {
 }
 
 fun peek(w: Window): Fighter? {
-    return w.roster.getOrNull(w.at)
+    return getPlatform(w.roster, w.at)
 }
 
 fun heal(f: Fighter) {
@@ -97,7 +97,7 @@ fun rotate(squad: Squad, from: Fighter, to: Fighter) {
 
 data class Camp(
     var supplies: Int,
-    var banners: MutableList<String>,
+    var banners: salvo.platform.core.list.MutList<String>,
 )
 
 object __Codec_Camp : salvo.WireCodec<Camp> {
@@ -114,7 +114,7 @@ fun spend(camp: Camp, n: Int) {
 }
 
 fun hoist(camp: Camp, banner: String) {
-    camp.banners.add(banner)
+    addPlatform(camp.banners, banner)
     return
 }
 
@@ -123,9 +123,9 @@ fun main() {
     val roster: List<Fighter> = listOf<Fighter>(Fighter(name = "Ada", hp = 30, energy = 4), Fighter(name = "Bo", hp = 8, energy = 9))
     val ada = (named(roster, "Ada") ?: throw AssertionError("salvo: value is absent at main:192:15"))
     println(console, "1. found ${ada.name}, hp ${ada.hp}")
-    val names: MutableList<String> = mutableListOf<String>()
-    names.add(ada.name)
-    println(console, "1. copied out ${names.joinToString(", ", "[", "]")}")
+    val names: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
+    addPlatform(names, ada.name)
+    println(console, "1. copied out ${toStr__2(names, { __i0 -> __i0 })}")
     val w = window(roster)
     w.at = 1
     println(console, "1. window at ${w.at}: ${(peek(w) ?: throw AssertionError("salvo: value is absent at main:206:38")).name}")
@@ -133,24 +133,24 @@ fun main() {
     val standing = filter(pass, { f: Fighter ->
     f.hp > 10
 }, ::next__5)
-    println(console, "1. ${standing.size} of ${roster.size} still standing")
-    val bench: MutableList<Fighter> = mutableListOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2))
-    bench.add(Fighter(name = "Dee", hp = 6, energy = 7))
-    println(console, "2. bench ${bench.size}, front ${(bench.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:221:47")).name} (a reading, not a handle)")
+    println(console, "1. ${sizePlatform(standing)} of ${sizePlatform(roster)} still standing")
+    val bench: salvo.platform.core.list.MutList<Fighter> = mutableListOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2))
+    addPlatform(bench, Fighter(name = "Dee", hp = 6, energy = 7))
+    println(console, "2. bench ${sizePlatform(bench)}, front ${(getPlatform(bench, 0) ?: throw AssertionError("salvo: value is absent at main:221:47")).name} (a reading, not a handle)")
     val squad: List<Fighter> = listOf<Fighter>(Fighter(name = "Ada", hp = 30, energy = 4), Fighter(name = "Bo", hp = 8, energy = 9))
-    val boss = (squad.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:232:16"))
+    val boss = (getPlatform(squad, 0) ?: throw AssertionError("salvo: value is absent at main:232:16"))
     boss.hp = boss.hp + 1
-    val n = squad.size
+    val n = sizePlatform(squad)
     boss.hp = boss.hp + n
-    println(console, "2. ${(squad.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:236:19")).name} at ${(squad.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:236:45")).hp} after a read in the middle")
+    println(console, "2. ${(getPlatform(squad, 0) ?: throw AssertionError("salvo: value is absent at main:236:19")).name} at ${(getPlatform(squad, 0) ?: throw AssertionError("salvo: value is absent at main:236:45")).hp} after a read in the middle")
     heal((wounded(squad) ?: throw AssertionError("salvo: value is absent at main:239:10")))
     rallyAt(squad, 1, ::at)
-    println(console, "2. after the searches: ${(squad.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:244:39")).hp} ${(squad.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:244:60")).hp}")
+    println(console, "2. after the searches: ${(getPlatform(squad, 0) ?: throw AssertionError("salvo: value is absent at main:244:39")).hp} ${(getPlatform(squad, 1) ?: throw AssertionError("salvo: value is absent at main:244:60")).hp}")
     val i = 0
     val j = 1
     if (NotEq_qualifies(j, i)) {
-        val a = (squad.getOrNull(i) ?: throw AssertionError("salvo: value is absent at main:260:17"))
-        val d = (squad.getOrNull(j) ?: throw AssertionError("salvo: value is absent at main:261:17"))
+        val a = (getPlatform(squad, i) ?: throw AssertionError("salvo: value is absent at main:260:17"))
+        val d = (getPlatform(squad, j) ?: throw AssertionError("salvo: value is absent at main:261:17"))
         a.hp = a.hp + 1
         d.hp = d.hp + 1
         duel(a, d)
@@ -175,13 +175,13 @@ fun main() {
             strike(get(squad, i), get(squad, i))
         }
     }
-    println(console, "4. ${(squad.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:294:19")).hp} hp / ${(squad.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:294:45")).energy} energy after striking itself")
+    println(console, "4. ${(getPlatform(squad, 0) ?: throw AssertionError("salvo: value is absent at main:294:19")).hp} hp / ${(getPlatform(squad, 0) ?: throw AssertionError("salvo: value is absent at main:294:45")).energy} energy after striking itself")
     val team = Squad(banner = "Red", members = listOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2), Fighter(name = "Dee", hp = 6, energy = 7)))
-    rotate(team, (team.members.getOrNull(i) ?: throw AssertionError("salvo: value is absent at main:301:18")), (team.members.getOrNull(j) ?: throw AssertionError("salvo: value is absent at main:301:41")))
-    println(console, "4. ${team.banner}: ${(team.members.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:302:35")).energy} ${(team.members.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:302:67")).energy}")
+    rotate(team, (getPlatform(team.members, i) ?: throw AssertionError("salvo: value is absent at main:301:18")), (getPlatform(team.members, j) ?: throw AssertionError("salvo: value is absent at main:301:41")))
+    println(console, "4. ${team.banner}: ${(getPlatform(team.members, 0) ?: throw AssertionError("salvo: value is absent at main:302:35")).energy} ${(getPlatform(team.members, 1) ?: throw AssertionError("salvo: value is absent at main:302:67")).energy}")
     val camp = Camp(supplies = 10, banners = mutableListOf<String>("red"))
     val banners = camp.banners
     spend(camp, 3)
     hoist(camp, "blue")
-    println(console, "5. supplies ${camp.supplies}, banners ${banners.joinToString(", ", "[", "]")}")
+    println(console, "5. supplies ${camp.supplies}, banners ${toStr__2(banners, { __i0 -> __i0 })}")
 }

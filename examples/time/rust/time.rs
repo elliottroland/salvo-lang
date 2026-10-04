@@ -9,7 +9,6 @@ use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::runtime::*;
 use crate::runtime_timers::*;
-use crate::seq::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Duration {
@@ -118,10 +117,10 @@ pub fn abs(d: Duration) -> Duration {
     return d;
 }
 
-pub fn to_str__9(d: &Duration) -> String {
+pub fn to_str__10(d: &Duration) -> String {
     if d.nanos < ((0) as i64) {
         let mut positive = Duration { nanos: 0i64 - d.nanos };
-        return format!("-{}", to_str__9(&positive));
+        return format!("-{}", to_str__10(&positive));
     }
     if d.nanos == ((0) as i64) {
         return "0s".to_string();
@@ -648,8 +647,8 @@ impl crate::time::__Stateful_Timer for ManualTime {
         if wait.nanos <= ((0) as i64) {
             crate::scheduler::salvo_reply_wire::<Fired>(done, Fired { at: Tick { nanos: self.now } });
         } else {
-            self.deadlines.push(self.now + wait.nanos);
-            self.pending.push(done);
+            crate::core_list::add_platform(&mut self.deadlines, self.now + wait.nanos);
+            crate::core_list::add_platform(&mut self.pending, done);
         }
     }
 }
@@ -664,10 +663,10 @@ impl crate::time::__Stateful_TimerCtl for ManualTime {
                 break;
             }
             let mut at = __is1.unwrap();
-            let mut deadline = *self.deadlines.get((at) as i64 as usize).expect("salvo: value is absent at time:477:33");
-            self.deadlines.salvo_remove_at(at);
+            let mut deadline = *crate::core_list::get_platform(&self.deadlines, at).expect("salvo: value is absent at time:477:33");
+            crate::core_list::remove_at_platform(&mut self.deadlines, at);
             self.now = deadline.clone();
-            let mut __is2 = self.pending.salvo_remove_at(at);
+            let mut __is2 = crate::core_list::remove_at_platform(&mut self.pending, at);
             if __is2.is_some() {
                 let mut token = __is2.unwrap();
                 crate::scheduler::salvo_reply_wire::<Fired>(token, Fired { at: Tick { nanos: deadline } });
@@ -756,8 +755,8 @@ pub fn earliest_due(deadlines: &Vec<i64>, target: i64) -> Option<i32> {
     let mut best = -1;
     let mut best_at = 0i64;
     let mut i = 0;
-    while i < (deadlines.len() as i32) {
-        let mut at = *deadlines.get((i) as i64 as usize).expect("salvo: value is absent at time:501:23");
+    while i < crate::core_list::size_platform(deadlines) {
+        let mut at = *crate::core_list::get_platform(deadlines, i).expect("salvo: value is absent at time:501:23");
         if at <= target && (best < 0 || at < best_at) {
             best = i.clone();
             best_at = at.clone();

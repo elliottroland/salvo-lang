@@ -3997,7 +3997,15 @@ impl<'p> Emitter<'p> {
                 }
             };
         }
-        format!("{}({code})", self.kotlin_fn_name(decl))
+        // [interp-to-str] A `to_str` with implicits had them filled at the
+        // zero-width span after the value.
+        let at = salvo_syntax::Span::new(expr.span().end, expr.span().end);
+        let implicits = self.emit_implicit_args(&[], at);
+        if implicits.is_empty() {
+            format!("{}({code})", self.kotlin_fn_name(decl))
+        } else {
+            format!("{}({code}, {})", self.kotlin_fn_name(decl), implicits.join(", "))
+        }
     }
 
 

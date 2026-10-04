@@ -57,6 +57,10 @@ pub mod platform_core_bytes;
 pub mod platform_core_console;
 #[path = "platform/core/deque.rs"]
 pub mod platform_core_deque;
+#[path = "platform/core/list.rs"]
+pub mod platform_core_list;
+#[path = "platform/core/seq.rs"]
+pub mod platform_core_seq;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 #[path = "platform/net.rs"]
@@ -1078,7 +1082,7 @@ impl crate::__Stateful_Gather for Gathering {
 
     fn scatter(&mut self, word: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
         crate::core_deque::add_last_platform(&mut self.pending, out);
-        self.left = (members.len() as i32);
+        self.left = crate::core_list::size_platform(&members);
         self.total = 0;
         for m in &members {
             crate::scheduler::salvo_send_wire(m.clone(), crate::__Msg_Search::Query(word.clone(), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Gathering::Partial); __r }), crate::__PROTO_Search);
@@ -1529,12 +1533,12 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
             *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
         };
         let mut parts = crate::core_string::split_platform(&answer, &(":".to_string()));
-        shards.push(parts.get((0) as i64 as usize).expect("salvo: value is absent at main:220:26").clone());
-        println(console, &(format!("  {}: {} reserved on its shard so far", sku.clone(), parts.get((1) as i64 as usize).expect("salvo: value is absent at main:221:30"))));
+        crate::core_list::add_platform(&mut shards, crate::core_list::get_platform(&parts, 0).expect("salvo: value is absent at main:220:26").clone());
+        println(console, &(format!("  {}: {} reserved on its shard so far", sku.clone(), crate::core_list::get_platform(&parts, 1).expect("salvo: value is absent at main:221:30"))));
     }
-    println(console, &(format!("  apple and apple on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:223:51")[..] == &shards.get((2) as i64 as usize).expect("salvo: value is absent at main:223:68")[..]))));
-    println(console, &(format!("  apple and fig on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:224:49")[..] == &shards.get((3) as i64 as usize).expect("salvo: value is absent at main:224:66")[..]))));
-    println(console, &(format!("  apple and pear on one shard: {}", (&shards.get((0) as i64 as usize).expect("salvo: value is absent at main:225:50")[..] == &shards.get((1) as i64 as usize).expect("salvo: value is absent at main:225:67")[..]))));
+    println(console, &(format!("  apple and apple on one shard: {}", (&crate::core_list::get_platform(&shards, 0).expect("salvo: value is absent at main:223:51")[..] == &crate::core_list::get_platform(&shards, 2).expect("salvo: value is absent at main:223:68")[..]))));
+    println(console, &(format!("  apple and fig on one shard: {}", (&crate::core_list::get_platform(&shards, 0).expect("salvo: value is absent at main:224:49")[..] == &crate::core_list::get_platform(&shards, 3).expect("salvo: value is absent at main:224:66")[..]))));
+    println(console, &(format!("  apple and pear on one shard: {}", (&crate::core_list::get_platform(&shards, 0).expect("salvo: value is absent at main:225:50")[..] == &crate::core_list::get_platform(&shards, 1).expect("salvo: value is absent at main:225:67")[..]))));
 }
 
 pub fn count__3(search: &crate::Search, word: String) -> i32 {
@@ -1826,12 +1830,12 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(nodes, crate::net::__Msg_NodeGroup::Members(out), crate::net::__PROTO_NodeGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<Node>>().expect("the awaited answer")
     };
-    println(&console, &(format!("nodes: {}, sequencers: {}", (members.len() as i32) + 1, ({
+    println(&console, &(format!("nodes: {}, sequencers: {}", crate::core_list::size_platform(&members) + 1, crate::core_list::size_platform(&({
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Vec<usize>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(seq, crate::net::__Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<usize>>().expect("the awaited answer")
-    }.len() as i32))));
+    })))));
     println(&console, &(format!("singleton (b's sequencer is remote: {}):", !eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((remote_seq).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })))));
     let leader = crate::net::Leader::shared(LastHost::new(nodes.clone(), a.clone()));
     two_ids(&leader, &console, seq.clone());
@@ -1851,12 +1855,12 @@ pub fn main() {
     };
     settle(&(timer.clone()));
     println(&console, &("after b left:".to_string()));
-    println(&console, &(format!("  sequencers: {}", ({
+    println(&console, &(format!("  sequencers: {}", crate::core_list::size_platform(&({
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Vec<usize>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(seq, crate::net::__Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<usize>>().expect("the awaited answer")
-    }.len() as i32))));
+    })))));
     two_ids(&leader, &console, seq);
 }
 

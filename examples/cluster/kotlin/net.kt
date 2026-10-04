@@ -28,7 +28,7 @@ object __Codec_NodeEndpoint : salvo.WireCodec<NodeEndpoint> {
     override fun dec(inp: salvo.WireIn): NodeEndpoint = NodeEndpoint(salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun toStr__3(e: NodeEndpoint): String {
+fun toStr__4(e: NodeEndpoint): String {
     return "${e.host}:${e.port}"
 }
 
@@ -63,13 +63,13 @@ object NetErrors {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun toStr__4(e: Union2<Unreachable, WireFailed>): String {
+fun toStr__5(e: Union2<Unreachable, WireFailed>): String {
     when (e) {
         is Union2.U1<*, *> -> {
-            return "unreachable: ${toStr__3((e.value as Unreachable).to)}"
+            return "unreachable: ${toStr__4((e.value as Unreachable).to)}"
         }
         is Union2.U2<*, *> -> {
-            return "wire failed to ${toStr__3((e.value as WireFailed).to)}: ${(e.value as WireFailed).reason}"
+            return "wire failed to ${toStr__4((e.value as WireFailed).to)}: ${(e.value as WireFailed).reason}"
         }
     }
 }
@@ -616,7 +616,7 @@ fun leaveGroup(known: Map<NodeId, Node>) {
 
 class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoint>, private val __dep_Transport: Transport) : NodeGroup {
     private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__2, ::eq__2).also { __m -> __m.putAll(listOf()) }
-    private var watchers: MutableList<Int> = mutableListOf<Int>()
+    private var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     internal val __mailboxCapacity: Int = 64
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_StaticNodeGroup> = mutableMapOf()
@@ -632,7 +632,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
                 salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
             }
         }
-        watchers.add(w)
+        addPlatform(watchers, w)
     }
 
     override fun leave() {
@@ -750,11 +750,11 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
 }
 
 fun knownNodes(known: Map<NodeId, Node>): List<Node> {
-    val allKnown: MutableList<Node> = mutableListOf<Node>()
+    val allKnown: salvo.platform.core.list.MutList<Node> = mutableListOf<Node>()
     for (id in known.keys.toMutableList()) {
         val n = known[id]
         if (!(n == null)) {
-            allKnown.add(n)
+            addPlatform(allKnown, n)
         }
     }
     return allKnown
@@ -763,7 +763,7 @@ fun knownNodes(known: Map<NodeId, Node>): List<Node> {
 class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndpoint>, private val __dep_Transport: Transport) : NodeGroup {
     private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__2, ::eq__2).also { __m -> __m.putAll(listOf()) }
     private var dialed: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
-    private var watchers: MutableList<Int> = mutableListOf<Int>()
+    private var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     internal val __mailboxCapacity: Int = 64
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_GossipNodeGroup> = mutableMapOf()
@@ -779,7 +779,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
                 salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
             }
         }
-        watchers.add(w)
+        addPlatform(watchers, w)
     }
 
     override fun leave() {
@@ -794,16 +794,16 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
                 if (known.containsKey((event?.value as PeerHello).node)) {
                     return
                 }
-                val others: MutableList<NodeEndpoint> = mutableListOf<NodeEndpoint>()
+                val others: salvo.platform.core.list.MutList<NodeEndpoint> = mutableListOf<NodeEndpoint>()
                 for (id in known.keys.toMutableList()) {
                     val n = known[id]
                     if (!(n == null)) {
-                        others.add(n.at)
+                        addPlatform(others, n.at)
                     }
                     introduce(id, listOf<NodeEndpoint>((event?.value as PeerHello).at))
                 }
                 introduce((event?.value as PeerHello).node, others)
-                dialed.add(toStr__3((event?.value as PeerHello).at))
+                dialed.add(toStr__4((event?.value as PeerHello).at))
                 val n = Node(id = (event?.value as PeerHello).node, at = (event?.value as PeerHello).at)
                 known.put((event?.value as PeerHello).node, n)
                 for (w in watchers) {
@@ -908,13 +908,13 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
 }
 
 fun dial(transport: Transport, dialed: MutableSet<String>, group: String, e: NodeEndpoint) {
-    if (eq(e, transport.localEndpoint()) || dialed.contains(toStr__3(e))) {
+    if (eq(e, transport.localEndpoint()) || dialed.contains(toStr__4(e))) {
         return
     }
-    dialed.add(toStr__3(e))
+    dialed.add(toStr__4(e))
     val sent = transport.deliver(e, helloFrame(transport, group))
     if (sent is Union2.U2<*, *>) {
-        val _forgot = dialed.remove(toStr__3(e))
+        val _forgot = dialed.remove(toStr__4(e))
     }
 }
 
@@ -1092,9 +1092,9 @@ fun join(group: Int, member: Int) {
 }
 
 class ActorGrouping(private val name: String, private val proto: Protocol) : ActorGroup, NodeGroupWatcher {
-    private var all: MutableList<Int> = mutableListOf<Int>()
-    private var peers: MutableList<NodeId> = mutableListOf<NodeId>()
-    private var watchers: MutableList<Int> = mutableListOf<Int>()
+    private var all: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
+    private var peers: salvo.platform.core.list.MutList<NodeId> = mutableListOf<NodeId>()
+    private var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     internal val __mailboxCapacity: Int = 64
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_ActorGrouping> = mutableMapOf()
@@ -1127,10 +1127,10 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
     }
 
     override fun left(n: Node, why: String) {
-        val gone: MutableList<Int> = mutableListOf<Int>()
+        val gone: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
         for (m in all) {
             if (eq__2(NodeId(salvo.SalvoSched.addrIdentity(m).node), n.id)) {
-                gone.add(m)
+                addPlatform(gone, m)
             }
         }
         for (m in gone) {
@@ -1140,7 +1140,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
                 }
             }
         }
-        if (gone.size > 0) {
+        if (sizePlatform(gone) > 0) {
             mirror(__addr!!, all)
         }
     }
@@ -1154,7 +1154,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
     }
 
     override fun subscribe(w: Int) {
-        watchers.add(w)
+        addPlatform(watchers, w)
     }
 
     fun control(from: NodeId, data: salvo.platform.core.bytes.Bytes) {
@@ -1166,7 +1166,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
             return
         }
         if (!containsNode(peers, from)) {
-            peers.add(from)
+            addPlatform(peers, from)
             shareMembers(name, proto.hash, from, all)
         }
         var changed = false
@@ -1283,13 +1283,13 @@ fun mirror(group: Int, members: List<Int>) {
     salvo.SalvoSched.viewSet(group, members)
 }
 
-fun admit(list: MutableList<Int>, a: Int): Boolean {
+fun admit(list: salvo.platform.core.list.MutList<Int>, a: Int): Boolean {
     for (x in list) {
         if ((salvo.SalvoSched.addrIdentity(x) == salvo.SalvoSched.addrIdentity(a))) {
             return false
         }
     }
-    list.add(a)
+    addPlatform(list, a)
     return true
 }
 
@@ -1302,7 +1302,7 @@ fun containsNode(list: List<NodeId>, n: NodeId): Boolean {
     return false
 }
 
-fun withdraw(list: MutableList<Int>, a: Int): Boolean {
+fun withdraw(list: salvo.platform.core.list.MutList<Int>, a: Int): Boolean {
     var mutIndex: Int? = null
     var i = 0
     for (x in list) {
@@ -1314,7 +1314,7 @@ fun withdraw(list: MutableList<Int>, a: Int): Boolean {
     if (mutIndex == null) {
         return false
     }
-    val _removed = (list).let { __l -> (mutIndex).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
+    val _removed = removeAtPlatform(list, mutIndex)
     return true
 }
 
@@ -1426,9 +1426,9 @@ fun routeKeyed(route_selector: RouteSelector, group: Int, config: RouteConfig, s
 }
 
 fun routeView(group: Int): RouteView {
-    val members: MutableList<RouteMember> = mutableListOf<RouteMember>()
+    val members: salvo.platform.core.list.MutList<RouteMember> = mutableListOf<RouteMember>()
     for (m in salvo.SalvoSched.viewMembers(group)) {
-        members.add(RouteMember(addr = m, local = eq__2(NodeId(salvo.SalvoSched.addrIdentity(m).node), NodeId(salvo.SalvoSched.hereNode()))))
+        addPlatform(members, RouteMember(addr = m, local = eq__2(NodeId(salvo.SalvoSched.addrIdentity(m).node), NodeId(salvo.SalvoSched.hereNode()))))
     }
     return RouteView(members = members.toMutableList())
 }
@@ -1476,7 +1476,7 @@ class Sharded : RouteSelector {
     }
 
     override fun select(view: RouteView, key: Long?): Int? {
-        val n = view.members.size
+        val n = sizePlatform(view.members)
         if (n == 0) {
             return null
         }
@@ -1487,7 +1487,7 @@ class Sharded : RouteSelector {
             k
         }
         val slot = (magnitude % (n).toLong()).toInt()
-        val picked = (view.members.getOrNull(slot) ?: return null)
+        val picked = (getPlatform(view.members, slot) ?: return null)
         return picked.addr
     }
 }
@@ -1798,7 +1798,7 @@ class MemTransport(private val me: NodeEndpoint, private val net: Int) : Transpo
 }
 
 fun cutKey(a: NodeEndpoint, b: NodeEndpoint): String {
-    return "${toStr__3(a)}>${toStr__3(b)}"
+    return "${toStr__4(a)}>${toStr__4(b)}"
 }
 
 fun cmp(a: NodeEndpoint, b: NodeEndpoint): Int {

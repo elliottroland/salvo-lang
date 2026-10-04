@@ -63,7 +63,7 @@ impl crate::wire::__Wire for StreamFailed {
     }
 }
 
-pub fn to_str__7(kind: &Union2<InvalidUtf8, StreamFailed>) -> String {
+pub fn to_str__8(kind: &Union2<InvalidUtf8, StreamFailed>) -> String {
     match kind {
         Union2::U1(_) => {
             return format!("not valid UTF-8: {}", kind.u1().clone().source.clone());

@@ -38,7 +38,7 @@ fun byLen(a: String, b: String): Int {
 }
 
 fun countUnique(xs: List<Int>): Int {
-    return xs.size
+    return sizePlatform(xs)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -47,7 +47,7 @@ fun main() {
     val primes = listOf<Int>(2, 3, 5, 7)
     val vowels = linkedSetOf<String>("a", "e", "i", "o", "u")
     val ages = linkedMapOf<String, Int>(("ada" to 36), ("grace" to 45))
-    println(console, "1. list ${primes.joinToString(", ", "[", "]")}")
+    println(console, "1. list ${toStr__2(primes, { __i0 -> (__i0).toString() })}")
     println(console, "1. set ${vowels.joinToString(", ", "{", "}")} of ${vowels.size}")
     println(console, "1. map ${ages.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
     val note: Note = Note(text = "still a struct literal")
@@ -85,8 +85,8 @@ fun main() {
     val n2 = Note(text = "same")
     val notesEqual = eq__11(n1, n2)
     println(console, "4. plain struct equality $notesEqual")
-    val squares = MutableList<Int>(4, { i -> i * i })
-    println(console, "5. generated ${squares.joinToString(", ", "[", "]")}")
+    val squares = listBy(4, { i -> i * i })
+    println(console, "5. generated ${toStr__2(squares, { __i0 -> (__i0).toString() })}")
     val deduped = linkedSetOf<Int>().also { __s -> __s.addAll(primes) }
     println(console, "5. to_set ${deduped.joinToString(", ", "{", "}")}")
     val words = listOf<String>("alpha", "be")
@@ -94,29 +94,29 @@ fun main() {
     println(console, "5. to_map with a rule ${lengths.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
     val filled = listOf<String>("ada", "grace")
     println(console, "6. first is ${first(filled)}, no optional")
-    val growing: MutableList<Int> = mutableListOf<Int>()
-    growing.add(7)
+    val growing: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
+    addPlatform(growing, 7)
     println(console, "6. after add, first is ${first(growing)}")
     val ordered = sort(listOf<Int>(40, 10, 30, 20), { __i0, __i1 -> (__i0).compareTo(__i1) })
-    println(console, "6. sorted ${ordered.joinToString(", ", "[", "]")}")
+    println(console, "6. sorted ${toStr__2(ordered, { __i0 -> (__i0).toString() })}")
     var __is1 = binarySearch(ordered, 30, { __i0, __i1 -> (__i0).compareTo(__i1) })
     if (__is1 != null) {
         val at = __is1 as Int
         println(console, "6. found 30 at $at")
     }
-    val live: MutableList<Int> = mutSort(listOf<Int>(10, 30), { __i0, __i1 -> (__i0).compareTo(__i1) })
+    val live: salvo.platform.core.list.MutList<Int> = mutSort(listOf<Int>(10, 30), { __i0, __i1 -> (__i0).compareTo(__i1) })
     addSorted(live, 20, { __i0, __i1 -> (__i0).compareTo(__i1) })
     addSorted(live, 5, { __i0, __i1 -> (__i0).compareTo(__i1) })
-    println(console, "6. still sorted ${live.joinToString(", ", "[", "]")}")
+    println(console, "6. still sorted ${toStr__2(live, { __i0 -> (__i0).toString() })}")
     val bylen = sort(listOf<String>("alpha", "be", "z"), ::byLen)
-    println(console, "6. by length ${bylen.joinToString(", ", "[", "]")}")
+    println(console, "6. by length ${toStr__2(bylen, { __i0 -> __i0 })}")
     var __is2 = binarySearch(bylen, "hi", ::byLen)
     if (__is2 != null) {
         val atLen = __is2 as Int
         println(console, "6. a two-letter word at $atLen")
     }
     val unique = deduped.toMutableList()
-    println(console, "6. distinct ${unique.joinToString(", ", "[", "]")} of ${countUnique(unique)}")
+    println(console, "6. distinct ${toStr__2(unique, { __i0 -> (__i0).toString() })} of ${countUnique(unique)}")
     var __loop1_pass = iter__6(vowels)
     while (true) {
         val __loop1_step = next__19(__loop1_pass)

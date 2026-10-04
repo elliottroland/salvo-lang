@@ -3957,6 +3957,22 @@ impl<'p> Emitter<'p> {
         let args: Vec<String> = f.params.iter().map(|p| rs_ident(&p.name.name)).collect();
         let call = format!("crate::{}::{}({})", host_mod_name(&module), rs_ident(&f.name.name), args.join(", "));
         let pad = "    ".repeat(indent);
+        // [rs-loc] The locator variant answers a *position* in the first
+        // parameter rather than a borrow of it: `List`'s `get` is its index
+        // when in range; otherwise the borrow the host answered is found in
+        // the container by address.
+        if self.lend_loc_mode {
+            let first = args.first().cloned().unwrap_or_default();
+            if module.0 == ["core", "list"] && f.name.name == "get" && args.len() == 2 {
+                return format!(
+                    "{pad}if {i} >= 0 && ({i} as usize) < {first}.len() {{ Some({i} as usize) }} else {{ None }}\n",
+                    i = args[1]
+                );
+            }
+            return format!(
+                "{pad}{call}.map(|__x| {first}.iter().position(|__e| std::ptr::eq(__e, __x)).expect(\"salvo: a borrow outside its container\"))\n"
+            );
+        }
         // [platform-check] The wrapper checks the result (D7).
         let plan = self
             .abi_keep
@@ -5898,11 +5914,15 @@ impl<'p> Emitter<'p> {
                 // to the host, which may store, move and hand one back: the
                 // fixed bounds `Send + 'static` (which give `Any` for a
                 // downcast), never `Clone`, so a linear argument fits.
-                // A `core` collection's platform fn is bounded by nothing: it
-                // holds and moves elements, and its element may be a borrow
-                // (`&'s T`) a generic caller passes through [platform-value-type].
+                // A `core` collection's platform fn is bounded by what Salvo
+                // promises of its parameter: `Clone` for an ordinary one, nothing
+                // for one that `canbe linear` (its element may also be a borrow).
                 if f.platform && core_platform {
-                    g.name.clone()
+                    if f.generic_canbe.iter().any(|c| c.0.name == g.name && c.1.name.name == "linear") {
+                        g.name.clone()
+                    } else {
+                        format!("{}: Clone", g.name)
+                    }
                 } else if f.platform {
                     format!("{}: Send + 'static", g.name)
                 } else if fn_key.is_some_and(|k| self.value_keyed_fns.contains(&k)) {
@@ -6600,6 +6620,16 @@ impl<'p> Emitter<'p> {
                 } else {
                     trimmed.split(", ").map(|p| p.to_string()).collect()
                 };
+            }
+        }
+        // [platform-fn-value] std's platform wrappers take a lent fn value as
+        // their hosts do, `&mut dyn FnMut`: a caller may hold it that way
+        // already (an implicit `cmp`), which `&mut impl FnMut` would refuse.
+        if f.platform && self.program.files[self.file_of_fn(f)].is_std {
+            for p in params.iter_mut() {
+                if p.contains("&mut impl FnMut(") {
+                    *p = p.replacen("&mut impl FnMut(", "&mut dyn FnMut(", 1);
+                }
             }
         }
         if !lifetime_generics.is_empty() {
@@ -13853,6 +13883,16 @@ impl<'p> Emitter<'p> {
         if let Some(code) = self.narrowed_place_mut(expr) {
             return code;
         }
+        // [rs-narrow-mut] [rs-opt-borrow] `xs!` lent `Mut` to an ordinary or
+        // platform fn reaches the payload mutably, as it does for an
+        // intrinsic's `Mut` argument: borrowing the read form lent a clone,
+        // so `push3(xs!)` appended to a temporary (found 2026-10-04, when
+        // `List`'s `add` became a platform fn).
+        if let Expr::NonNull { operand, span } = expr {
+            if let Some(place) = self.owned_optional_local(operand, *span) {
+                return self.optional_local_borrow_mut(&place, *span);
+            }
+        }
         if let Expr::Ident(id) = expr {
             if id.name != "None" && self.ident_unwrap(id).is_none() {
                 match self.bindings.get(id.name.as_str()) {
@@ -14178,6 +14218,9 @@ impl<'p> Emitter<'p> {
         };
         let arg = self.emit_expr(expr);
         if decl.intrinsic {
+            if decl.name.name == "to_str" && matches!(recv_name(decl), Some("Double" | "Float")) {
+                self.needs_str = true;
+            }
             // The template takes pre-rendered arguments, which is what lets
             // this stay off the `&'p Expr` path the general call emitter uses.
             let recv = decl.params.first().and_then(|p| type_base_name(&p.ty));
@@ -14201,7 +14244,15 @@ impl<'p> Emitter<'p> {
             };
         }
         let name = self.rust_fn_name(decl);
-        format!("{name}(&{arg})")
+        // [interp-to-str] A `to_str` with implicits had them filled at the
+        // zero-width span after the value.
+        let at = Span::new(expr.span().end, expr.span().end);
+        let implicits = self.emit_implicit_args(&[], at);
+        if implicits.is_empty() {
+            format!("{name}(&{arg})")
+        } else {
+            format!("{name}(&{arg}, {})", implicits.join(", "))
+        }
     }
 
     // ================= value-position control flow =================
@@ -16251,16 +16302,6 @@ impl<'p> Emitter<'p> {
             // sequence helpers, which is what gives their callbacks an
             // expected type — a closure bound to a `let` cannot infer its
             // parameters, so an inline lowering would not compile.
-            if recv == Some("List")
-                && matches!(
-                    f.name.name.as_str(),
-                    // [linear-container] `remove_first`/`remove_at` are methods
-                    // on the same generated trait file.
-                    "map" | "filter" | "reduce" | "remove_first" | "remove_at" | "insert_at" | "remove_range"
-                )
-            {
-                self.needs_seq = true;
-            }
             // [rs-collections] The ordered `Set`/`Map` runtime: either the
             // receiver is one of them, or this is a constructor, whose
             // receiver is the variadic array rather than the collection it
@@ -16342,6 +16383,9 @@ impl<'p> Emitter<'p> {
             } else {
                 Vec::new()
             };
+            if f.name.name == "to_str" && matches!(recv, Some("Double" | "Float")) {
+                self.needs_str = true;
+            }
             if let Some(code) =
                 crate::intrinsics::fn_call(
                     &f.name.name,
@@ -16894,11 +16938,10 @@ impl<'p> Emitter<'p> {
     /// [backend-never-wrong].
     fn intrinsic_fn_value_body(&mut self, decl: &FnDecl, params: &[String]) -> String {
         let recv = decl.params.first().and_then(|p| type_base_name(&p.ty));
-        if decl.name.name == "set" && recv == Some("Str") {
+        if (decl.name.name == "set" && recv == Some("Str"))
+            || (decl.name.name == "to_str" && matches!(recv, Some("Double" | "Float")))
+        {
             self.needs_str = true;
-        }
-        if recv == Some("List") && matches!(decl.name.name.as_str(), "map" | "filter" | "reduce") {
-            self.needs_seq = true;
         }
         match crate::intrinsics::fn_call(
             &decl.name.name,
@@ -18255,6 +18298,10 @@ fn type_key_name<'a>(checked: &'a salvo_core::Checked, ty: &'a Type) -> Option<&
         Type::QualifiedGroup { base, .. } => type_key_name(checked, base),
         _ => type_base_name(ty),
     }
+}
+
+fn recv_name(decl: &FnDecl) -> Option<&str> {
+    decl.params.first().and_then(|p| type_base_name(&p.ty))
 }
 
 fn type_base_name(ty: &Type) -> Option<&str> {

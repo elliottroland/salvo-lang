@@ -13,7 +13,7 @@ use crate::unions::*;
 pub fn map<It: Clone, T: Clone, U: Clone>(it: &mut It, f: &mut impl FnMut(&T) -> U, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<U> {
     let mut out = vec![];
     while let Union2::U1(mut x) = next(it) {
-        out.push(f(&x));
+        crate::core_list::add_platform(&mut out, f(&x));
     }
     return out;
 }
@@ -22,7 +22,7 @@ pub fn filter<It: Clone, T: Clone>(it: &mut It, keep: &mut impl FnMut(&T) -> boo
     let mut out = vec![];
     while let Union2::U1(mut x) = next(it) {
         if keep(&x) {
-            out.push(x);
+            crate::core_list::add_platform(&mut out, x);
         }
     }
     return out;
@@ -31,6 +31,26 @@ pub fn filter<It: Clone, T: Clone>(it: &mut It, keep: &mut impl FnMut(&T) -> boo
 pub fn reduce<It: Clone, T: Clone, A: Clone>(it: &mut It, init: &A, f: &mut impl FnMut(&A, &T) -> A, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> A {
     let mut acc = init.clone();
     while let Union2::U1(mut x) = next(it) {
+        acc = f(&acc, &x);
+    }
+    return acc;
+}
+
+pub fn map__2<T: Clone, U: Clone>(list: &Vec<T>, f: &mut impl FnMut(&T) -> U) -> Vec<U> {
+    let mut out = vec![];
+    for mut x in list.clone() {
+        crate::core_list::add_platform(&mut out, f(&x));
+    }
+    return out;
+}
+
+pub fn filter_platform<T: Clone>(list: &Vec<T>, keep: &mut dyn FnMut(&T) -> bool) -> Vec<T> {
+    crate::platform_core_seq::filter(list, keep)
+}
+
+pub fn reduce__2<T: Clone, A: Clone>(list: &Vec<T>, init: A, f: &mut impl FnMut(&A, &T) -> A) -> A {
+    let mut acc = init.clone();
+    for mut x in list.clone() {
         acc = f(&acc, &x);
     }
     return acc;
@@ -272,7 +292,7 @@ pub fn skipping_while<It: Clone, T: Clone>(it: It, skip: impl Fn(&T) -> bool + S
 pub fn to_list__2<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<T> {
     let mut out = vec![];
     while let Union2::U1(mut x) = next(it) {
-        out.push(x);
+        crate::core_list::add_platform(&mut out, x);
     }
     return out;
 }

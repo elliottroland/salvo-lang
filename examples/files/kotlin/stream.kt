@@ -49,7 +49,7 @@ object __Codec_StreamFailed : salvo.WireCodec<StreamFailed> {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun toStr__6(kind: Union2<InvalidUtf8, StreamFailed>): String {
+fun toStr__7(kind: Union2<InvalidUtf8, StreamFailed>): String {
     when (kind) {
         is Union2.U1<*, *> -> {
             return "not valid UTF-8: ${(kind.value as InvalidUtf8).source}"

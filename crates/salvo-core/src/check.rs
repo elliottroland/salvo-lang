@@ -9564,6 +9564,33 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// in scope whose parameter accepts this type and which returns `Str`.
     /// std provides one for `List<T>`; `Mut Str` never arrives here (a
     /// builder is converted first [str-drop-mut]).
+    /// [interp-to-str] The `to_str` overload taking one argument of [ty] and
+    /// needing implicits, with those implicits filled at the zero-width span
+    /// after [expr] (`Checked::implicit_args` there); `None` when there is
+    /// none, or its implicits cannot be filled (which reports why).
+    fn interp_to_str_with_implicits(&mut self, expr: &'p Expr, ty: &Ty) -> Option<FnKey> {
+        let at = Span::new(expr.span().end, expr.span().end);
+        for entry in self.overloads_of("to_str") {
+            let decl = entry.decl;
+            let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
+            let implicits = self.out.implicit_params.get(&entry.key).cloned().unwrap_or_default();
+            if fixed.len() != 1 || implicits.is_empty() {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            let pattern = self.lower_type(&fixed[0].ty);
+            self.generics = saved;
+            let mut subst: HashMap<String, Ty> = HashMap::new();
+            if !unify(&pattern, ty.strip_quals(), &mut subst) {
+                continue;
+            }
+            let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+            self.fill_implicits(&implicits, "to_str", &mut subst, &generics, &[], at);
+            return Some(entry.key);
+        }
+        None
+    }
+
     fn check_interpolable(&mut self, expr: &'p Expr, ty: &Ty) {
         if ty.is_unknown() || matches!(ty, Ty::Never) || Self::interp_native(ty) {
             return;
@@ -9580,6 +9607,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return;
             }
             Err(_) => {}
+        }
+        // [interp-to-str] A `to_str` with implicits of its own — a
+        // collection's, over its element's `to_str` [platform-value-type] —
+        // is a call made here: its implicits are filled at a zero-width span
+        // at the end of the value, which no other call can occupy.
+        if let Some(key) = self.interp_to_str_with_implicits(expr, ty) {
+            self.out.interp_to_str.insert(self.key(expr.span()), key);
+            return;
         }
         // [interp-to-str] No `to_str` in scope. A struct interpolates by
         // opting in (user decision 2026-09-28, replacing the default-on
@@ -23389,7 +23424,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .symbols
                 .intrinsic_types
                 .get(name.as_str())
-                .is_some_and(|d| d.intrinsic),
+                .is_some_and(|d| {
+                    // [platform-value-type] std's value types whose host types
+                    // are the backends' own containers keep the native loop.
+                    d.intrinsic || (d.platform && matches!(name.as_str(), "List" | "Str" | "Bytes"))
+                }),
             _ => false,
         }
     }

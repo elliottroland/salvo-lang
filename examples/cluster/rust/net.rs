@@ -12,7 +12,6 @@ use crate::core_seq::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
-use crate::seq::*;
 use crate::time::*;
 use crate::unions::*;
 
@@ -35,7 +34,7 @@ impl crate::wire::__Wire for NodeEndpoint {
     }
 }
 
-pub fn to_str__4(e: &NodeEndpoint) -> String {
+pub fn to_str__5(e: &NodeEndpoint) -> String {
     return format!("{}:{}", e.host.clone(), e.port);
 }
 
@@ -86,13 +85,13 @@ impl NetError {
     }
 }
 
-pub fn to_str__5(e: &Union2<Unreachable, WireFailed>) -> String {
+pub fn to_str__6(e: &Union2<Unreachable, WireFailed>) -> String {
     match e {
         Union2::U1(_) => {
-            return format!("unreachable: {}", to_str__4(&e.u1().clone().to));
+            return format!("unreachable: {}", to_str__5(&e.u1().clone().to));
         }
         Union2::U2(_) => {
-            return format!("wire failed to {}: {}", to_str__4(&e.u2().clone().to), e.u2().clone().reason.clone());
+            return format!("wire failed to {}: {}", to_str__5(&e.u2().clone().to), e.u2().clone().reason.clone());
         }
     }
 }
@@ -1040,7 +1039,7 @@ impl crate::net::__Stateful_NodeGroup for StaticNodeGroup {
                 crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined(n.unwrap().clone()), crate::net::__PROTO_NodeGroupWatcher);
             }
         }
-        self.watchers.push(w);
+        crate::core_list::add_platform(&mut self.watchers, w);
     }
 
     fn leave(&mut self) {
@@ -1178,7 +1177,7 @@ pub fn known_nodes(known: &SalvoMap<NodeId, Node>) -> Vec<Node> {
     for mut id in known.keys().cloned().collect::<Vec<_>>() {
         let mut n = known.get(&id);
         if !(n.is_none()) {
-            all_known.push(n.unwrap().clone());
+            crate::core_list::add_platform(&mut all_known, n.unwrap().clone());
         }
     }
     return all_known;
@@ -1225,7 +1224,7 @@ impl crate::net::__Stateful_NodeGroup for GossipNodeGroup {
                 crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined(n.unwrap().clone()), crate::net::__PROTO_NodeGroupWatcher);
             }
         }
-        self.watchers.push(w);
+        crate::core_list::add_platform(&mut self.watchers, w);
     }
 
     fn leave(&mut self) {
@@ -1255,12 +1254,12 @@ impl GossipNodeGroup {
                 for mut id in self.known.keys().cloned().collect::<Vec<_>>() {
                     let mut n = self.known.get(&id);
                     if !(n.is_none()) {
-                        others.push(n.unwrap().clone().at.clone());
+                        crate::core_list::add_platform(&mut others, n.unwrap().clone().at.clone());
                     }
                     introduce(&(id.clone()), &(vec![event.as_ref().unwrap().u1().clone().at.clone()]));
                 }
                 introduce(&(event.as_ref().unwrap().u1().clone().node.clone()), &others);
-                self.dialed.insert(to_str__4(&event.as_ref().unwrap().u1().clone().at));
+                self.dialed.insert(to_str__5(&event.as_ref().unwrap().u1().clone().at));
                 let mut n = Node { id: event.as_ref().unwrap().u1().clone().node.clone(), at: event.as_ref().unwrap().u1().clone().at.clone() };
                 self.known.insert(event.as_ref().unwrap().u1().clone().node.clone(), n.clone());
                 for w in &self.watchers {
@@ -1370,13 +1369,13 @@ fn __decode_msg_GossipNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::sc
 }
 
 pub fn dial(transport: &crate::net::Transport, dialed: &mut SalvoSet<String>, group: &String, e: NodeEndpoint) {
-    if eq__2(&e, &(transport.local_endpoint())) || dialed.contains(&to_str__4(&e)) {
+    if eq__2(&e, &(transport.local_endpoint())) || dialed.contains(&to_str__5(&e)) {
         return;
     }
-    dialed.insert(to_str__4(&e));
+    dialed.insert(to_str__5(&e));
     let mut sent = { let __a1 = hello_frame(transport, group); transport.deliver(&(e.clone()), __a1) };
     if matches!(sent, Union2::U2(_)) {
-        let mut _forgot = dialed.remove(&to_str__4(&e));
+        let mut _forgot = dialed.remove(&to_str__5(&e));
     }
 }
 
@@ -1735,7 +1734,7 @@ impl crate::net::__Stateful_ActorGroup for ActorGrouping {
     }
 
     fn subscribe(&mut self, w: usize) {
-        self.watchers.push(w);
+        crate::core_list::add_platform(&mut self.watchers, w);
     }
 }
 
@@ -1749,7 +1748,7 @@ impl crate::net::__Stateful_NodeGroupWatcher for ActorGrouping {
         let mut gone: Vec<usize> = vec![];
         for m in &self.all {
             if eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((m.clone()).clone()).node as i64 }), &n.id) {
-                gone.push(m.clone());
+                crate::core_list::add_platform(&mut gone, m.clone());
             }
         }
         for m in &gone {
@@ -1759,7 +1758,7 @@ impl crate::net::__Stateful_NodeGroupWatcher for ActorGrouping {
                 }
             }
         }
-        if ((gone.len() as i32) > 0) {
+        if crate::core_list::size_platform(&gone) > 0 {
             mirror(&(self.__addr.expect("a handler naming its own address runs as an actor")), &self.all);
         }
     }
@@ -1780,7 +1779,7 @@ impl ActorGrouping {
             return;
         }
         if !contains_node(&self.peers, &(from.clone())) {
-            self.peers.push(from.clone());
+            crate::core_list::add_platform(&mut self.peers, from.clone());
             share_members(&self.name, &self.proto.hash, &(from.clone()), &self.all);
         }
         let mut changed = false;
@@ -1918,7 +1917,7 @@ pub fn admit(list: &mut Vec<usize>, a: usize) -> bool {
             return false;
         }
     }
-    list.push(a);
+    crate::core_list::add_platform(list, a);
     return true;
 }
 
@@ -1943,7 +1942,7 @@ pub fn withdraw(list: &mut Vec<usize>, a: usize) -> bool {
     if mut_index.is_none() {
         return false;
     }
-    let mut _removed = list.salvo_remove_at(mut_index.unwrap());
+    let mut _removed = crate::core_list::remove_at_platform(list, mut_index.unwrap());
     return true;
 }
 
@@ -2114,7 +2113,7 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, group: &usize, co
 pub fn route_view(group: &usize) -> RouteView {
     let mut members: Vec<RouteMember> = vec![];
     for mut m in crate::scheduler::salvo_view_members((group.clone()).clone()) {
-        members.push(RouteMember { addr: m.clone(), local: eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((m).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })) });
+        crate::core_list::add_platform(&mut members, RouteMember { addr: m.clone(), local: eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((m).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })) });
     }
     return RouteView { members: members.clone() };
 }
@@ -2182,7 +2181,7 @@ impl crate::net::__Stateless_RouteSelector for Sharded {
     }
 
     fn select(&self, view: &RouteView, key: &Option<i64>) -> Option<usize> {
-        let mut n = (view.members.len() as i32);
+        let mut n = crate::core_list::size_platform(&view.members);
         if n == 0 {
             return None;
         }
@@ -2193,7 +2192,7 @@ impl crate::net::__Stateless_RouteSelector for Sharded {
             k
         };
         let mut slot = ((magnitude % ((n) as i64)) as i32);
-        let mut picked = { let __pick1 = view.members.get((slot) as i64 as usize); if __pick1.is_some() { __pick1.unwrap() } else { return None } };
+        let mut picked = { let __pick1 = crate::core_list::get_platform(&view.members, slot); if __pick1.is_some() { __pick1.unwrap() } else { return None } };
         return Some(picked.addr.clone());
     }
 }
@@ -2693,7 +2692,7 @@ impl crate::net::__Stateless_Transport for MemTransport {
 }
 
 pub fn cut_key(a: &NodeEndpoint, b: &NodeEndpoint) -> String {
-    return format!("{}>{}", to_str__4(a), to_str__4(b));
+    return format!("{}>{}", to_str__5(a), to_str__5(b));
 }
 
 pub fn cmp(a: &NodeEndpoint, b: &NodeEndpoint) -> i32 {

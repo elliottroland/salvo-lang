@@ -267,7 +267,7 @@ interface RouteTable {
     fun takeCredit(addr: Int, me: salvo.platform.runtime.Parker): Int
     fun stage(from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes)
     fun grant(addr: Int, pool: Int, from: Long, n: Int)
-    fun takeOutbox(): MutableList<Staged>
+    fun takeOutbox(): salvo.platform.core.list.MutList<Staged>
     fun addRoute(node: Long, at: salvo.platform.core.bytes.Bytes)
     fun setOutbound(node: Long)
     fun hasOutbound(node: Long): Boolean
@@ -362,7 +362,7 @@ class __Mon_RouteTable(
         lock.lock()
         try { inner.grant(addr, pool, from, n) } finally { lock.unlock() }
     }
-    override fun takeOutbox(): MutableList<Staged> {
+    override fun takeOutbox(): salvo.platform.core.list.MutList<Staged> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.takeOutbox() } finally { lock.unlock() }
@@ -494,12 +494,12 @@ fun versionIn(versions: Map<Int, Long>, group: Int): Long {
     return 0L
 }
 
-fun bumpIn(versions: MutableMap<Int, Long>, waiters: MutableList<ViewWaiter>, group: Int) {
+fun bumpIn(versions: MutableMap<Int, Long>, waiters: salvo.platform.core.list.MutList<ViewWaiter>, group: Int) {
     versions.put(group, versionIn(versions, group) + 1)
     var i = 0
-    while (i < waiters.size) {
-        if ((waiters.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:171:12")).group == group) {
-            val w = ((waiters).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:172:21"))
+    while (i < sizePlatform(waiters)) {
+        if ((getPlatform(waiters, i) ?: throw AssertionError("salvo: value is absent at runtime.routing:171:12")).group == group) {
+            val w = (removeAtPlatform(waiters, i) ?: throw AssertionError("salvo: value is absent at runtime.routing:172:21"))
             unparkPlatform(w.parker)
         } else {
             i = i + 1
@@ -524,18 +524,18 @@ class Routes : RouteTable {
     private var heldN: MutableMap<Int, Int> = linkedMapOf<Int, Int>().also { __m -> __m.putAll(listOf()) }
     private var routes: MutableMap<Long, salvo.platform.core.bytes.Bytes> = linkedMapOf<Long, salvo.platform.core.bytes.Bytes>().also { __m -> __m.putAll(listOf()) }
     private var outbound: MutableSet<Long> = linkedSetOf<Long>().also { __s -> __s.addAll(listOf()) }
-    private var parked: MutableList<Parked> = mutableListOf<Parked>()
-    private var outbox: MutableList<Staged> = mutableListOf<Staged>()
-    private var taskKeys: MutableList<Long> = mutableListOf<Long>()
-    private var tasks: MutableList<ExportedTask> = mutableListOf<ExportedTask>()
+    private var parked: salvo.platform.core.list.MutList<Parked> = mutableListOf<Parked>()
+    private var outbox: salvo.platform.core.list.MutList<Staged> = mutableListOf<Staged>()
+    private var taskKeys: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
+    private var tasks: salvo.platform.core.list.MutList<ExportedTask> = mutableListOf<ExportedTask>()
     private var controls: MutableMap<ControlKey, Int> = salvo.SalvoHashMap<ControlKey, Int>(::hash__6, ::eq__6).also { __m -> __m.putAll(listOf()) }
     private var local: List<Pair<String, String>> = listOf<Pair<String, String>>()
     private var peers: MutableMap<Long, List<Pair<String, String>>> = linkedMapOf<Long, List<Pair<String, String>>>().also { __m -> __m.putAll(listOf()) }
     private var deadEntry: Int = -1
-    private var creditWaiters: MutableList<salvo.platform.runtime.Parker> = mutableListOf<salvo.platform.runtime.Parker>()
+    private var creditWaiters: salvo.platform.core.list.MutList<salvo.platform.runtime.Parker> = mutableListOf<salvo.platform.runtime.Parker>()
     private var views: MutableMap<Int, List<Int>> = linkedMapOf<Int, List<Int>>().also { __m -> __m.putAll(listOf()) }
     private var versions: MutableMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
-    private var viewWaiters: MutableList<ViewWaiter> = mutableListOf<ViewWaiter>()
+    private var viewWaiters: salvo.platform.core.list.MutList<ViewWaiter> = mutableListOf<ViewWaiter>()
     private var nextWaiter: Long = 0L
 
     override fun nodeOfPool(pool: Int): Long {
@@ -629,7 +629,7 @@ class Routes : RouteTable {
                 heldN.put(addr, heldIn(heldN, addr) + 1)
                 return 1
             }
-            creditWaiters.add(me)
+            addPlatform(creditWaiters, me)
             return 0
         }
         return -1
@@ -646,10 +646,10 @@ class Routes : RouteTable {
         stageIn(routes, outbound, outbox, parked, me.node, from, frame)
     }
 
-    override fun takeOutbox(): MutableList<Staged> {
-        val out: MutableList<Staged> = mutableListOf<Staged>()
-        while (outbox.size > 0) {
-            out.add(((outbox).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:327:22")))
+    override fun takeOutbox(): salvo.platform.core.list.MutList<Staged> {
+        val out: salvo.platform.core.list.MutList<Staged> = mutableListOf<Staged>()
+        while (sizePlatform(outbox) > 0) {
+            addPlatform(out, (removeAtPlatform(outbox, 0) ?: throw AssertionError("salvo: value is absent at runtime.routing:327:22")))
         }
         return out
     }
@@ -721,16 +721,16 @@ class Routes : RouteTable {
     }
 
     override fun putTask(key: Long, t: ExportedTask) {
-        taskKeys.add(key)
-        tasks.add(t)
+        addPlatform(taskKeys, key)
+        addPlatform(tasks, t)
     }
 
     override fun takeTask(key: Long): ExportedTask? {
         var i = 0
-        while (i < taskKeys.size) {
-            if ((taskKeys.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:401:16")) == key) {
-                val _k = (taskKeys).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
-                return (tasks).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
+        while (i < sizePlatform(taskKeys)) {
+            if ((getPlatform(taskKeys, i) ?: throw AssertionError("salvo: value is absent at runtime.routing:401:16")) == key) {
+                val _k = removeAtPlatform(taskKeys, i)
+                return removeAtPlatform(tasks, i)
             }
             i = i + 1
         }
@@ -782,13 +782,13 @@ class Routes : RouteTable {
     override fun forgetNode(node: Long): List<Int> {
         val _route = routes.remove(node)
         val _peer = peers.remove(node)
-        val gone: MutableList<Int> = mutableListOf<Int>()
+        val gone: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
         for (idx in remote.keys.toMutableList()) {
             val r = remote[idx]
             if (r != null) {
                 val found = r as RemoteRef
                 if (found.node == node) {
-                    gone.add(idx)
+                    addPlatform(gone, idx)
                 }
             }
         }
@@ -824,15 +824,15 @@ class Routes : RouteTable {
             return -1L
         }
         nextWaiter = nextWaiter + 1
-        viewWaiters.add(ViewWaiter(group = group, id = nextWaiter, parker = me))
+        addPlatform(viewWaiters, ViewWaiter(group = group, id = nextWaiter, parker = me))
         return nextWaiter
     }
 
     override fun dropViewWaiter(id: Long) {
         var i = 0
-        while (i < viewWaiters.size) {
-            if ((viewWaiters.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:496:16")).id == id) {
-                val _w = (viewWaiters).let { __l -> (i).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
+        while (i < sizePlatform(viewWaiters)) {
+            if ((getPlatform(viewWaiters, i) ?: throw AssertionError("salvo: value is absent at runtime.routing:496:16")).id == id) {
+                val _w = removeAtPlatform(viewWaiters, i)
                 return
             }
             i = i + 1
@@ -898,29 +898,29 @@ fun identityIn(remote: Map<Int, RemoteRef>, bits: MutableMap<Int, Long>, poolNod
     return RemoteRef(node = n, actor = (addr).toLong(), bits = minted)
 }
 
-fun wakeSenders(waiters: MutableList<salvo.platform.runtime.Parker>) {
-    while (waiters.size > 0) {
-        unparkPlatform(((waiters).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:554:16")))
+fun wakeSenders(waiters: salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>) {
+    while (sizePlatform(waiters) > 0) {
+        unparkPlatform((removeAtPlatform(waiters, 0) ?: throw AssertionError("salvo: value is absent at runtime.routing:554:16")))
     }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun stageIn(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Long>, outbox: MutableList<Staged>, parked: MutableList<Parked>, from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes) {
+fun stageIn(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Long>, outbox: salvo.platform.core.list.MutList<Staged>, parked: salvo.platform.core.list.MutList<Parked>, from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes) {
     val ep = routes[to]
     if (ep != null) {
         val at = ep as salvo.platform.core.bytes.Bytes
         if (outbound.contains(from)) {
-            outbox.add(Staged(from = from, to = at, frame = frame))
+            addPlatform(outbox, Staged(from = from, to = at, frame = frame))
             return
         }
     }
-    parked.add(Parked(from = from, to = to, frame = frame))
+    addPlatform(parked, Parked(from = from, to = to, frame = frame))
 }
 
-fun restage(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Long>, outbox: MutableList<Staged>, parked: MutableList<Parked>) {
-    val waiting: MutableList<Parked> = mutableListOf<Parked>()
-    while (parked.size > 0) {
-        waiting.add(((parked).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:577:22")))
+fun restage(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Long>, outbox: salvo.platform.core.list.MutList<Staged>, parked: salvo.platform.core.list.MutList<Parked>) {
+    val waiting: salvo.platform.core.list.MutList<Parked> = mutableListOf<Parked>()
+    while (sizePlatform(parked) > 0) {
+        addPlatform(waiting, (removeAtPlatform(parked, 0) ?: throw AssertionError("salvo: value is absent at runtime.routing:577:22")))
     }
     for (p in waiting) {
         stageIn(routes, outbound, outbox, parked, p.from, p.to, p.frame)
@@ -1230,21 +1230,21 @@ fun viewSet(group: Int, members: List<Int>) {
 }
 
 fun viewMembers(group: Int): List<Int> {
-    val left: MutableList<Int> = mutableListOf<Int>()
+    val left: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     for (m in __moduleUse0.viewOf(group)) {
-        left.add(m)
+        addPlatform(left, m)
     }
-    val out: MutableList<Int> = mutableListOf<Int>()
-    while (left.size > 0) {
+    val out: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
+    while (sizePlatform(left) > 0) {
         var best = 0
         var i = 1
-        while (i < left.size) {
-            if (before(identity((left.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime.routing:937:37"))), identity((left.getOrNull(best) ?: throw AssertionError("salvo: value is absent at runtime.routing:937:68"))))) {
+        while (i < sizePlatform(left)) {
+            if (before(identity((getPlatform(left, i) ?: throw AssertionError("salvo: value is absent at runtime.routing:937:37"))), identity((getPlatform(left, best) ?: throw AssertionError("salvo: value is absent at runtime.routing:937:68"))))) {
                 best = i
             }
             i = i + 1
         }
-        out.add(((left).let { __l -> (best).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:942:18")))
+        addPlatform(out, (removeAtPlatform(left, best) ?: throw AssertionError("salvo: value is absent at runtime.routing:942:18")))
     }
     return out.toMutableList()
 }

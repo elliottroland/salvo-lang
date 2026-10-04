@@ -1971,13 +1971,13 @@ export fn main() [use] -> None {
         .unwrap();
     assert!(
         main.content
-            .contains("fun fill(target: MutableList<Int>, n: Int)"),
+            .contains("fun fill(target: salvo.platform.core.list.MutList<Int>, n: Int)"),
         "unexpected: {}",
         main.content
     );
     assert!(main
         .content
-        .contains("val items: MutableList<Int> = mutableListOf<Int>(1)"));
+        .contains("val items: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>(1)"));
 }
 
 // [type-canbe-mut] `Mut` only applies to declarations that say `canbe Mut`.
@@ -3855,7 +3855,7 @@ fn main() [use] -> None {
     println("${zero / zero} ${one / zero} ${0.0 - one / zero}")
     println("${Point { x: 2.0, ratio: 3.0 }}")
     let xs: List<Double> = list_of(2.0, 0.5)
-    println("${xs} ${to_str(xs)} ${list_of(list_of(4.0))}")
+    println("${xs} ${to_str(xs)} ${list_of(4.0)}")
     let m: Map<Str, Double> = {"a": 2.0}
     println("${m}")
 }
@@ -3866,7 +3866,7 @@ fn kotlinc_compiles_and_runs_salvos_float_text() -> KotlinCase {
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    kotlin_case(files, "float_text", "2.0 8.25 -2.0 0.0 0.001 1.0E-4\n1234567.0 1.2345678E7 1.0E20 1.0E-14\nNaN Infinity -Infinity\nPoint { x: 2.0, ratio: 3.0 }\n[2.0, 0.5] [2.0, 0.5] [[4.0]]\n{a: 2.0}\n")
+    kotlin_case(files, "float_text", "2.0 8.25 -2.0 0.0 0.001 1.0E-4\n1234567.0 1.2345678E7 1.0E20 1.0E-14\nNaN Infinity -Infinity\nPoint { x: 2.0, ratio: 3.0 }\n[2.0, 0.5] [2.0, 0.5] [4.0]\n{a: 2.0}\n")
 }
 
 
@@ -10622,7 +10622,7 @@ const SEQ_DEMO_OUTPUT: &str = "list: 4 10 2\nnamed: 4\narray: 60 3\nchars: 2\n\
                                bag element 5\nbag element 6\n";
 
 /// [kt-seq] [seq-iterator] A `params` group emits nothing, and the `List` fast
-/// paths lower to Kotlin's own collection operations; the generic body is a
+/// paths are std functions (`filter` a platform fn over Kotlin's own); the generic body is a
 /// plain generic function whose implicit parameter arrives as a trailing
 /// argument — an *adapter lambda* when the resolved `iter` is an intrinsic,
 /// since an intrinsic has no Kotlin name to reference [implicit-intrinsic].
@@ -10638,9 +10638,9 @@ fn sequence_functions_lower_to_collection_operations() {
         .expect("main.kt emitted")
         .content;
     assert!(
-        main.contains("xs.map({ n -> n * 2 }).toMutableList()")
-            && main.contains("xs.filter({ n -> n > 2 }).toMutableList()")
-            && main.contains("xs.fold(0, { a, b -> a + b })"),
+        main.contains("(xs, { n -> n * 2 })")
+            && main.contains("filterPlatform(xs, { n -> n > 2 })")
+            && main.contains("(xs, 0, { a, b -> a + b })"),
         "unexpected:\n{main}"
     );
     // The generic overload for a pass subject gets the resolved `next` as its
@@ -10748,7 +10748,7 @@ fn scope_selectors_and_renames_are_erased() {
     // `size@core.list(xs)` is std's `size` — the mangled one, since this
     // program declares its own.
     assert!(
-        main.contains("println(console, \"core: ${xs.size}\")"),
+        main.contains("println(console, \"core: ${sizePlatform(xs)}\")"),
         "unexpected:\n{main}"
     );
     // The renamed overload is called by its declaration's mangled name —
@@ -13432,7 +13432,8 @@ fn kotlinc_compiles_and_runs_obligations_in_a_collection() -> KotlinCase {
 
 /// [kt-actor] [linear-container] The lowering: Kotlin needs no `mem::take`
 /// equivalent — objects are references, and the checker made the member assign
-/// a fresh list before it returned — so a drain is `forEach` over a snapshot.
+/// a fresh list before it returned — so a drain is std's Salvo `drain` over the
+/// field, followed by the fresh list [platform-value-type].
 #[test]
 fn draining_state_lowers_to_a_foreach_kotlin() {
     let files = generate_files(&[("main.sv", LINEAR_QUEUE)]);
@@ -13441,8 +13442,8 @@ fn draining_state_lowers_to_a_foreach_kotlin() {
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .expect("main.kt");
     assert!(
-        main.content.contains("(waiting).toList().forEach("),
-        "the drain is not a forEach over a snapshot:\n{}",
+        main.content.contains("(waiting, {") && main.content.contains("waiting = mutableListOf<"),
+        "the drain is not std's drain over the field:\n{}",
         main.content
     );
 }

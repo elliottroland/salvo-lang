@@ -441,7 +441,7 @@ impl FakeS3 {
 impl crate::aws_s3::__Stateful_S3 for FakeS3 {
 
     fn put_object(&mut self, input: PutObjectInput, reply: crate::scheduler::SalvoReply) {
-        self.recorded.push("put_object".to_string());
+        crate::core_list::add_platform(&mut self.recorded, "put_object".to_string());
         let mut r#unsized = input.content_length.is_none();
         let mut closed = close__4(&self.__dep_Streams, input);
         if matches!(closed, Union2::U2(_)) {
@@ -455,7 +455,7 @@ impl crate::aws_s3::__Stateful_S3 for FakeS3 {
     }
 
     fn get_object(&mut self, input: GetObjectInput, reply: crate::scheduler::SalvoReply) {
-        self.recorded.push("get_object".to_string());
+        crate::core_list::add_platform(&mut self.recorded, "get_object".to_string());
         (reply).send(std::boxed::Box::new(Union2::<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>::U1(ok(GetObjectOutput { body: self.__dep_Streams.from_bytes(bytes_of(vec![])), delete_marker: None, accept_ranges: None, expiration: None, restore: None, last_modified: None, content_length: None, e_tag: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, missing_meta: None, version_id: None, cache_control: None, content_disposition: None, content_encoding: None, content_language: None, content_range: None, content_type: None, website_redirect_location: None, server_side_encryption: None, metadata: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, bucket_key_enabled: None, storage_class: None, request_charged: None, replication_status: None, parts_count: None, tag_count: None, object_lock_mode: None, object_lock_retain_until_date: None, object_lock_legal_hold_status: None, object_lock_event_hold: None, object_lock_event_hold_duration_days: None, object_lock_event_hold_duration_years: None }))));
     }
 }

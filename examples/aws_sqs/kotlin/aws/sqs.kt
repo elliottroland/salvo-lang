@@ -268,35 +268,35 @@ class __Mon_SqsCalls(
 }
 
 class FakeSqs : Sqs, SqsCalls {
-    private var recorded: MutableList<String> = mutableListOf<String>()
+    private var recorded: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
 
     override fun createQueue(input: CreateQueueInput, reply: salvo.SalvoReply) {
-        recorded.add("create_queue")
+        addPlatform(recorded, "create_queue")
         salvo.SalvoSched.replyWire(reply, Union2.U1<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>(ok(CreateQueueOutput())), salvo.Union2Codec(__Codec_CreateQueueOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 
     override fun getQueueUrl(input: GetQueueUrlInput, reply: salvo.SalvoReply) {
-        recorded.add("get_queue_url")
+        addPlatform(recorded, "get_queue_url")
         salvo.SalvoSched.replyWire(reply, Union2.U1<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>(ok(GetQueueUrlOutput())), salvo.Union2Codec(__Codec_GetQueueUrlOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 
     override fun sendMessage(input: SendMessageInput, reply: salvo.SalvoReply) {
-        recorded.add("send_message")
+        addPlatform(recorded, "send_message")
         salvo.SalvoSched.replyWire(reply, Union2.U1<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>(ok(SendMessageOutput())), salvo.Union2Codec(__Codec_SendMessageOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 
     override fun receiveMessage(input: ReceiveMessageInput, reply: salvo.SalvoReply) {
-        recorded.add("receive_message")
+        addPlatform(recorded, "receive_message")
         reply.send(Union2.U1<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>(ok(ReceiveMessageOutput())))
     }
 
     override fun deleteMessage(input: DeleteMessageInput, reply: salvo.SalvoReply) {
-        recorded.add("delete_message")
+        addPlatform(recorded, "delete_message")
         salvo.SalvoSched.replyWire(reply, Union2.U1<Unit, Checked<Union2<SqsError, AwsError>>>(ok(Unit)), salvo.Union2Codec(salvo.UnitCodec, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 
     override fun deleteQueue(input: DeleteQueueInput, reply: salvo.SalvoReply) {
-        recorded.add("delete_queue")
+        addPlatform(recorded, "delete_queue")
         salvo.SalvoSched.replyWire(reply, Union2.U1<Unit, Checked<Union2<SqsError, AwsError>>>(ok(Unit)), salvo.Union2Codec(salvo.UnitCodec, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 

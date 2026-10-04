@@ -27,6 +27,8 @@ pub mod core_sorted;
 pub mod core_string;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/list.rs"]
+pub mod platform_core_list;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
@@ -39,11 +41,11 @@ use crate::core_sorted::*;
 use crate::core_string::*;
 
 pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
-    return (list.len() as i32) > 0;
+    return crate::core_list::size_platform(list) > 0;
 }
 
 pub fn head(list: &Vec<i32>) -> i32 {
-    let mut first = list.get((0) as i64 as usize);
+    let mut first = crate::core_list::get_platform(list, 0);
     return *first.expect("salvo: value is absent at main:30:12");
 }
 
@@ -116,7 +118,7 @@ pub fn handle__Fresh(request: &Request) -> String {
 pub fn main() {
     let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let mut xs: Vec<i32> = vec![];
-    xs.push(3);
+    crate::core_list::add_platform(&mut xs, 3);
     println(&console, &(format!("1. head after add: {}", head(&xs))));
     let mut maybe_empty = vec![7, 8];
     if NonEmpty__List_qualifies(&maybe_empty) {
@@ -130,7 +132,7 @@ pub fn main() {
     }
     println(&console, &(format!("3. sum {}, head still {}", sum(&xs), head(&xs))));
     compact(&mut xs);
-    xs.push(9);
+    crate::core_list::add_platform(&mut xs, 9);
     println(&console, &(format!("3. after compact and add, head is {}", head(&xs))));
     let mut session = authenticate(Request { path: "/orders".to_string(), touches: 0 });
     let mut fresh = freshen(Request { path: "/health".to_string(), touches: 0 });

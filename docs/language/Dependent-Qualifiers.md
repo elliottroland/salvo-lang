@@ -62,7 +62,7 @@ export qualifier Idx<T>(list: List<T>) of Int {
 }
 
 // The optional read — no claim, so it may answer nothing.
-export intrinsic fn get<T>(list: List<T>, index: Int) -> (proj(list) T)?
+export platform fn get<T>(list: List<T>, index: Int) -> (proj(list) T)?
 
 // The total read — the claim did the checking, so there is no `None` arm.
 export fn get<T>(list: List<T>, index: Idx(list) Int) -> proj(list) T

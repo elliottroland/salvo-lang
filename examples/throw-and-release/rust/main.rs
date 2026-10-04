@@ -31,6 +31,8 @@ pub mod core_string;
 pub mod throw;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/list.rs"]
+pub mod platform_core_list;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
