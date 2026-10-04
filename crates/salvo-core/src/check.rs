@@ -2519,7 +2519,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if let Some(rt) = &f.return_type {
                         // [platform-check] D10 C5: a result borrowed from a
                         // parameter would need host lifetimes.
-                        if ast_mentions_proj(rt) {
+                        // [platform-value-type] std's own collections answer a
+                        // borrow of the one parameter they name (`get -> (proj(list)
+                        // T)?`): std's privilege (user decision 2026-10-04).
+                        if ast_mentions_proj(rt) && !self.is_std {
                             self.error(
                                 f.name.span,
                                 format!(

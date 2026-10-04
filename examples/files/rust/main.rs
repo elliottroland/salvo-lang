@@ -61,6 +61,8 @@ pub mod stream_host;
 pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/deque.rs"]
+pub mod platform_core_deque;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 #[path = "platform/fs/host.rs"]

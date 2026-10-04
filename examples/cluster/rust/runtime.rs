@@ -413,7 +413,7 @@ pub fn drop_actor_rec(a: ActorRec) {
     let mut ready = __destructured4.ready;
     let mut proxy = __destructured4.proxy;
     drop_slot_platform(body);
-    queue.into_iter().for_each(|e| drop_entry(e));
+    drain(queue, &mut (|e| drop_entry(e)));
     watchers.into_iter().for_each(|t| drop_token(t));
 }
 
@@ -511,7 +511,7 @@ pub fn drop_pool_rec(p: PoolRec) {
     let mut owed = __destructured7.owed;
     let mut dedicated = __destructured7.dedicated;
     let mut retired = __destructured7.retired;
-    tasks.into_iter().for_each(|t| drop_task_run(t));
+    drain(tasks, &mut (|t| drop_task_run(t)));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1172,12 +1172,12 @@ impl Scheduler {
 impl crate::runtime::__Stateful_SchedTable for Scheduler {
 
     fn new_pool(&mut self, sink: i32, dedicated: bool) -> i32 {
-        self.pools.push(PoolRec { idle: vec![], tasks: std::collections::VecDeque::<TaskRun>::new(), ready: std::collections::VecDeque::<i32>::new(), sink: sink, owed: 0, dedicated: dedicated, retired: false });
+        self.pools.push(PoolRec { idle: vec![], tasks: mut_deque_of(), ready: mut_deque_of(), sink: sink, owed: 0, dedicated: dedicated, retired: false });
         return (self.pools.len() as i32) - 1;
     }
 
     fn new_actor(&mut self, pool: i32, bound: i32, body: Body) -> i32 {
-        self.actors.push(ActorRec { body: slot_of_platform(body), pool: pool, bound: bound, queue: std::collections::VecDeque::<Union3<Delivered, Answered, Reported>>::new(), slots: std::collections::VecDeque::<i64>::new(), user_len: 0, gate: None, running: false, dead: false, exit_reason: "".to_string(), blocked: vec![], watchers: vec![], owed: 0, ready: false, proxy: false });
+        self.actors.push(ActorRec { body: slot_of_platform(body), pool: pool, bound: bound, queue: mut_deque_of(), slots: mut_deque_of(), user_len: 0, gate: None, running: false, dead: false, exit_reason: "".to_string(), blocked: vec![], watchers: vec![], owed: 0, ready: false, proxy: false });
         return (self.actors.len() as i32) - 1;
     }
 
@@ -1200,8 +1200,8 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             return Union4::<Sent, Dead, Full, Remote>::U3(Full { msg: msg });
         }
         let mut e: Union3<Delivered, Answered, Reported> = Union3::<Delivered, Answered, Reported>::U1(Delivered { msg: msg, from: ((-1) as i64) });
-        self.actors[__h0].queue.push_back(e);
-        self.actors[__h0].slots.push_back(((-1) as i64));
+        crate::core_deque::add_last_platform(&mut self.actors[__h0].queue, e);
+        crate::core_deque::add_last_platform(&mut self.actors[__h0].slots, ((-1) as i64));
         self.actors[__h0].user_len = self.actors[__h0].user_len + 1;
         if mark_ready(&mut self.actors[__h0], &mut self.pools, addr.clone()) {
             let mut pool = self.actors[__h0].pool;
@@ -1222,8 +1222,8 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             return false;
         }
         let mut e: Union3<Delivered, Answered, Reported> = Union3::<Delivered, Answered, Reported>::U1(Delivered { msg: msg, from: from });
-        self.actors[__h1].queue.push_back(e);
-        self.actors[__h1].slots.push_back(((-1) as i64));
+        crate::core_deque::add_last_platform(&mut self.actors[__h1].queue, e);
+        crate::core_deque::add_last_platform(&mut self.actors[__h1].slots, ((-1) as i64));
         self.actors[__h1].user_len = self.actors[__h1].user_len + 1;
         if mark_ready(&mut self.actors[__h1], &mut self.pools, addr.clone()) {
             let mut pool = self.actors[__h1].pool;
@@ -1432,11 +1432,11 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         self.actors[__h11].exit_reason = reason.clone();
         self.actors[__h11].gate = None;
         self.actors[__h11].user_len = 0;
-        while ((self.actors[__h11].queue.len() as i32) > 0) {
-            drop_entry(self.actors[__h11].queue.pop_front().expect("salvo: value is absent at runtime:753:24"));
+        while crate::core_deque::size_platform(&self.actors[__h11].queue) > 0 {
+            drop_entry(crate::core_deque::remove_first_platform(&mut self.actors[__h11].queue).expect("salvo: value is absent at runtime:753:24"));
         }
-        while ((self.actors[__h11].slots.len() as i32) > 0) {
-            let mut _s = self.actors[__h11].slots.pop_front();
+        while crate::core_deque::size_platform(&self.actors[__h11].slots) > 0 {
+            let mut _s = crate::core_deque::remove_first_platform(&mut self.actors[__h11].slots);
         }
         loop {
             let mut __is4 = self.actors[__h11].blocked.salvo_remove_first();
@@ -1584,7 +1584,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
 impl Scheduler {
 
     fn init(&mut self) {
-        self.pools.push(PoolRec { idle: vec![], tasks: std::collections::VecDeque::<TaskRun>::new(), ready: std::collections::VecDeque::<i32>::new(), sink: -1, owed: 0, dedicated: false, retired: false });
+        self.pools.push(PoolRec { idle: vec![], tasks: mut_deque_of(), ready: mut_deque_of(), sink: -1, owed: 0, dedicated: false, retired: false });
     }
 }
 
@@ -1616,10 +1616,10 @@ pub fn reset_all(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, idle_hook
         actors[__h13].gate = None;
         actors[__h13].user_len = 0;
         actors[__h13].owed = 0;
-        while ((actors[__h13].queue.len() as i32) > 0) {
-            drop_entry(actors[__h13].queue.pop_front().expect("salvo: value is absent at runtime:918:24"));
+        while crate::core_deque::size_platform(&actors[__h13].queue) > 0 {
+            drop_entry(crate::core_deque::remove_first_platform(&mut actors[__h13].queue).expect("salvo: value is absent at runtime:918:24"));
         }
-        while actors[__h13].slots.pop_front().is_some() {
+        while crate::core_deque::remove_first_platform(&mut actors[__h13].slots).is_some() {
         }
         loop {
             let mut __is7 = actors[__h13].watchers.salvo_remove_first();
@@ -1642,14 +1642,14 @@ pub fn reset_all(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, idle_hook
         let __h14 = (i) as usize;
         pools.get(__h14).expect("salvo: value is absent at runtime:933:17");
         loop {
-            let mut __is9 = pools[__h14].tasks.pop_front();
+            let mut __is9 = crate::core_deque::remove_first_platform(&mut pools[__h14].tasks);
             if !(__is9.is_some()) {
                 break;
             }
             let mut t = __is9.unwrap();
             drop_task_run(t);
         }
-        while pools[__h14].ready.pop_front().is_some() {
+        while crate::core_deque::remove_first_platform(&mut pools[__h14].ready).is_some() {
         }
         pools[__h14].owed = 0;
         if i > 0 {
@@ -1773,9 +1773,9 @@ pub fn deliver_to(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pool
             drop_dyn_platform(value);
             return;
         }
-        actors[__h19].slots.push_back(slot.clone());
+        crate::core_deque::add_last_platform(&mut actors[__h19].slots, slot.clone());
         let mut e: Union3<Delivered, Answered, Reported> = Union3::<Delivered, Answered, Reported>::U2(Answered { slot: slot, value: value });
-        actors[__h19].queue.push_back(e);
+        crate::core_deque::add_last_platform(&mut actors[__h19].queue, e);
         if mark_ready(&mut actors[__h19], pools, to.addr) {
             let mut pool = actors[__h19].pool;
             wake_pool(pools, pool);
@@ -1800,7 +1800,7 @@ pub fn deliver_to(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pool
         let mut body = __destructured18.body;
         let __h21 = (pool) as usize;
         pools.get(__h21).expect("salvo: value is absent at runtime:1069:17");
-        pools[__h21].tasks.push_back(TaskRun { body: body, value: value });
+        crate::core_deque::add_last_platform(&mut pools[__h21].tasks, TaskRun { body: body, value: value });
         wake_pool(pools, pool.clone());
     }
 }
@@ -1812,8 +1812,8 @@ pub fn report_fault(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, pool: 
         actors.get(__h22).expect("salvo: value is absent at runtime:1082:17");
         if !actors[__h22].dead {
             let mut e: Union3<Delivered, Answered, Reported> = Union3::<Delivered, Answered, Reported>::U3(Reported { reason: reason });
-            actors[__h22].queue.push_back(e);
-            actors[__h22].slots.push_back(((-1) as i64));
+            crate::core_deque::add_last_platform(&mut actors[__h22].queue, e);
+            crate::core_deque::add_last_platform(&mut actors[__h22].slots, ((-1) as i64));
             if mark_ready(&mut actors[__h22], pools, sink.clone()) {
                 let mut sink_pool = actors[__h22].pool;
                 wake_pool(pools, sink_pool);
@@ -1829,7 +1829,7 @@ pub fn quiet(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools: &m
         return false;
     }
     for p in &*pools {
-        if ((p.tasks.len() as i32) > 0) {
+        if crate::core_deque::size_platform(&p.tasks) > 0 {
             return false;
         }
     }
@@ -1908,7 +1908,7 @@ pub fn deadlock_report(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>,
 pub fn take_work(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, pool: i32, exclude: i32) -> Option<Union2<RunActor, RunTask>> {
     let __h23 = (pool) as usize;
     pools.get(__h23).expect("salvo: value is absent at runtime:1181:13");
-    let mut task = pools[__h23].tasks.pop_front();
+    let mut task = crate::core_deque::remove_first_platform(&mut pools[__h23].tasks);
     if task.is_some() {
         let mut t = task.unwrap();
         let __destructured20 = t;
@@ -1917,7 +1917,7 @@ pub fn take_work(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, pool: i32
         return Some(Union2::<RunActor, RunTask>::U2(RunTask { pool: pool, body: body, value: value }));
     }
     loop {
-        let mut __is15 = pools[__h23].ready.pop_front();
+        let mut __is15 = crate::core_deque::remove_first_platform(&mut pools[__h23].ready);
         if !(__is15.is_some()) {
             break;
         }
@@ -1929,8 +1929,8 @@ pub fn take_work(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, pool: i32
             let mut at = deliverable(&actors[__h24].slots, &actors[__h24].gate);
             if at.is_some() {
                 let mut k = at.unwrap();
-                let mut _slot = actors[__h24].slots.remove((k.clone()) as i64 as usize);
-                let mut e = actors[__h24].queue.remove((k) as i64 as usize).expect("salvo: value is absent at runtime:1194:25");
+                let mut _slot = crate::core_deque::remove_at_platform(&mut actors[__h24].slots, k.clone());
+                let mut e = crate::core_deque::remove_at_platform(&mut actors[__h24].queue, k).expect("salvo: value is absent at runtime:1194:25");
                 actors[__h24].running = true;
                 let mut body = slot_take_platform(&mut actors[__h24].body).expect("salvo: value is absent at runtime:1196:28");
                 return work_of(&mut actors[__h24], i.clone(), e, body);
@@ -1950,7 +1950,7 @@ pub fn mark_ready(a: &mut ActorRec, pools: &mut Vec<PoolRec>, addr: i32) -> bool
     a.ready = true;
     let __h25 = (a.pool) as usize;
     pools.get(__h25).expect("salvo: value is absent at runtime:1215:13");
-    pools[__h25].ready.push_back(addr);
+    crate::core_deque::add_last_platform(&mut pools[__h25].ready, addr);
     return true;
 }
 
@@ -1990,15 +1990,15 @@ pub fn work_of(a: &mut ActorRec, addr: i32, e: Union3<Delivered, Answered, Repor
 }
 
 pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) -> Option<i32> {
-    if ((slots.len() as i32) == 0) {
+    if crate::core_deque::size_platform(slots) == 0 {
         return None;
     }
     if gate.is_none() {
         return Some(0);
     }
     let mut i = 0;
-    while i < (slots.len() as i32) {
-        if *slots.get((i) as i64 as usize).expect("salvo: value is absent at runtime:1263:12") == gate.unwrap() {
+    while i < crate::core_deque::size_platform(slots) {
+        if *crate::core_deque::get_platform(slots, i).expect("salvo: value is absent at runtime:1263:12") == gate.unwrap() {
             return Some(i.clone());
         }
         i = i + 1;
@@ -2041,7 +2041,7 @@ pub fn wake_waiters(waiters: &mut Vec<WaiterRec>) {
 pub fn retire_if_done(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, pool: i32) {
     let __h28 = (pool) as usize;
     pools.get(__h28).expect("salvo: value is absent at runtime:1308:13");
-    if !pools[__h28].dedicated || pools[__h28].retired || (pools[__h28].tasks.len() as i32) > 0 || pools[__h28].owed > 0 {
+    if !pools[__h28].dedicated || pools[__h28].retired || crate::core_deque::size_platform(&pools[__h28].tasks) > 0 || pools[__h28].owed > 0 {
         return;
     }
     for a in &*actors {

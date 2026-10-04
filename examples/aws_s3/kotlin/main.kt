@@ -47,7 +47,7 @@ fun sizeOf(fs: Fs, streams: salvo.stream.Streams, path: String): Long? {
 fun upload(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, bucket: String, key: String, path: String, length: Long?) {
     val opened = fs.openRead(path)
     if (opened is Union2.U2<*, *>) {
-        println(console, "open $path: ${toStr(detach((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+        println(console, "open $path: ${toStr__2(detach((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         return
     }
     val put = run {
@@ -84,7 +84,7 @@ fun download(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, bu
     println(console, "get $key: ${(contentLength ?: -1L)} bytes")
     val target = fs.openWrite(path)
     if (target is Union2.U2<*, *>) {
-        println(console, "open $path: ${toStr(detach((target.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+        println(console, "open $path: ${toStr__2(detach((target.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         val closed = streams.close(body)
         if (closed is Union2.U2<*, *>) {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
@@ -102,7 +102,7 @@ fun download(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, bu
             println(console, "piped ${(copied.value as Long)} bytes into $path")
         }
         is Union2.U2<*, *> -> {
-            println(console, "pipe: ${toStr__5(detach((copied.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+            println(console, "pipe: ${toStr__6(detach((copied.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
         }
     }
 }
@@ -118,7 +118,7 @@ fun roundTrip(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, k
             console.print((back.value as String))
         }
         is Union2.U2<*, *> -> {
-            println(console, "back.txt: ${toStr(detach((back.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "back.txt: ${toStr__2(detach((back.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
 }
@@ -139,7 +139,7 @@ class MemS3(private val __dep_salvo_stream_Streams: salvo.stream.Streams) : S3 {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
         if (filled is Union2.U2<*, *>) {
-            salvo.SalvoSched.replyWire(reply, Union2.U2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(Union2.U2<S3Error, AwsError>(AwsError(code = "StreamFailed", message = "${toStr__5(detach((filled.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
+            salvo.SalvoSched.replyWire(reply, Union2.U2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(Union2.U2<S3Error, AwsError>(AwsError(code = "StreamFailed", message = "${toStr__6(detach((filled.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
             return
         }
         val data: salvo.platform.core.bytes.Bytes = buf
@@ -170,7 +170,7 @@ fun main() {
     val streams: salvo.stream.Streams = salvo.stream.__Mon_Streams(__h, __l)
     val written = writeStr(fs, streams, "notes.txt", "hello from Salvo\nsecond line\n")
     if (written is Union2.U2<*, *>) {
-        println(console, "write: ${toStr(detach((written.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+        println(console, "write: ${toStr__2(detach((written.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         return
     }
     println(console, "-- FakeS3 --")

@@ -226,7 +226,7 @@ fun<It, T> skippingWhile(it: It, skip: (T) -> Boolean, next: (It) -> Union2<T, F
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T> toList(it: It, next: (It) -> Union2<T, Finished>): MutableList<T> {
+fun<It, T> toList__2(it: It, next: (It) -> Union2<T, Finished>): MutableList<T> {
     val out = mutableListOf<T>()
     while (true) {
         val __loop6_step = next(it)

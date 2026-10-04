@@ -28,7 +28,7 @@ object __Codec_NodeEndpoint : salvo.WireCodec<NodeEndpoint> {
     override fun dec(inp: salvo.WireIn): NodeEndpoint = NodeEndpoint(salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun toStr__2(e: NodeEndpoint): String {
+fun toStr__3(e: NodeEndpoint): String {
     return "${e.host}:${e.port}"
 }
 
@@ -63,13 +63,13 @@ object NetErrors {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun toStr__3(e: Union2<Unreachable, WireFailed>): String {
+fun toStr__4(e: Union2<Unreachable, WireFailed>): String {
     when (e) {
         is Union2.U1<*, *> -> {
-            return "unreachable: ${toStr__2((e.value as Unreachable).to)}"
+            return "unreachable: ${toStr__3((e.value as Unreachable).to)}"
         }
         is Union2.U2<*, *> -> {
-            return "wire failed to ${toStr__2((e.value as WireFailed).to)}: ${(e.value as WireFailed).reason}"
+            return "wire failed to ${toStr__3((e.value as WireFailed).to)}: ${(e.value as WireFailed).reason}"
         }
     }
 }
@@ -803,7 +803,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
                     introduce(id, listOf<NodeEndpoint>((event?.value as PeerHello).at))
                 }
                 introduce((event?.value as PeerHello).node, others)
-                dialed.add(toStr__2((event?.value as PeerHello).at))
+                dialed.add(toStr__3((event?.value as PeerHello).at))
                 val n = Node(id = (event?.value as PeerHello).node, at = (event?.value as PeerHello).at)
                 known.put((event?.value as PeerHello).node, n)
                 for (w in watchers) {
@@ -908,13 +908,13 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
 }
 
 fun dial(transport: Transport, dialed: MutableSet<String>, group: String, e: NodeEndpoint) {
-    if (eq(e, transport.localEndpoint()) || dialed.contains(toStr__2(e))) {
+    if (eq(e, transport.localEndpoint()) || dialed.contains(toStr__3(e))) {
         return
     }
-    dialed.add(toStr__2(e))
+    dialed.add(toStr__3(e))
     val sent = transport.deliver(e, helloFrame(transport, group))
     if (sent is Union2.U2<*, *>) {
-        val _forgot = dialed.remove(toStr__2(e))
+        val _forgot = dialed.remove(toStr__3(e))
     }
 }
 
@@ -1798,7 +1798,7 @@ class MemTransport(private val me: NodeEndpoint, private val net: Int) : Transpo
 }
 
 fun cutKey(a: NodeEndpoint, b: NodeEndpoint): String {
-    return "${toStr__2(a)}>${toStr__2(b)}"
+    return "${toStr__3(a)}>${toStr__3(b)}"
 }
 
 fun cmp(a: NodeEndpoint, b: NodeEndpoint): Int {

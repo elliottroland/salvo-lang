@@ -135,6 +135,21 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`Deque` as a value platform type (2026-10-04, ROADMAP 0.7).** User
+decisions the same evening: std's platform fns may answer a borrow of their
+argument; a collection's `to_str` is Salvo over a `?to_str` implicit (option
+(a)); `Set`/`Map` will get identity slots on platform types (option (a)).
+Built: `core.deque` is host code (`std/platform/core/deque.*`) plus Salvo
+constructors, `drain` (over `into_mut`/`remove_first`/`end_empty`), `to_str`,
+`to_list`, `to_deque` and `deque_by`; 15 lowerings per backend went. A
+linear element travels alone (`deque_of(first)`), since no obligation can sit
+in a variadic tail. What fell out on Rust: a `core` platform fn's type
+parameters are unbounded (the host bounds them), a `T canbe linear` fn's are
+not bounded `Clone`, and no struct bounds its parameters (`Checked<T: Clone>`
+had made a linear `Checked` unnameable from such a fn) — the derives bound
+their own impls. A cleanup script took a shared Rust constructor arm with it
+(`array_by`/`list_by`/`set_by`/`map_by`/`to_set`); restored before the suite.
+
 **`Str` as a value platform type (2026-10-04, ROADMAP 0.7).** `core.string`'s
 operations are std host code (`std/platform/core/string.{rs,kt}`); `mut_str`
 and `index_of(str, needle, from)` are Salvo (two platform fns may not overload

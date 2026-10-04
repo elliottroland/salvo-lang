@@ -55,6 +55,8 @@ pub mod time;
 pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/deque.rs"]
+pub mod platform_core_deque;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 #[path = "platform/net.rs"]
@@ -1062,7 +1064,7 @@ pub struct Gathering {
 impl Gathering {
     pub fn new() -> Self {
         Self {
-            pending: std::collections::VecDeque::<crate::scheduler::SalvoReply>::new(),
+            pending: mut_deque_of(),
             left: 0,
             total: 0,
             __mailbox_capacity: 16,
@@ -1075,7 +1077,7 @@ impl Gathering {
 impl crate::__Stateful_Gather for Gathering {
 
     fn scatter(&mut self, word: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
-        self.pending.push_back(out);
+        crate::core_deque::add_last_platform(&mut self.pending, out);
         self.left = (members.len() as i32);
         self.total = 0;
         for m in &members {
@@ -1090,7 +1092,7 @@ impl Gathering {
         self.total = self.total + n;
         self.left = self.left - 1;
         if self.left == 0 {
-            let mut out = self.pending.pop_front();
+            let mut out = crate::core_deque::remove_first_platform(&mut self.pending);
             match out {
                 Some(_) => {
                     crate::scheduler::salvo_reply_wire::<i32>(out.unwrap(), self.total.clone());
@@ -1364,7 +1366,7 @@ pub struct Racing {
 impl Racing {
     pub fn new() -> Self {
         Self {
-            pending: std::collections::VecDeque::<crate::scheduler::SalvoReply>::new(),
+            pending: mut_deque_of(),
             __mailbox_capacity: 16,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -1375,7 +1377,7 @@ impl Racing {
 impl crate::__Stateful_Race for Racing {
 
     fn race(&mut self, key: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
-        self.pending.push_back(out);
+        crate::core_deque::add_last_platform(&mut self.pending, out);
         for m in &members {
             crate::scheduler::salvo_send_wire(m.clone(), crate::__Msg_Lookup::Lookup(key.clone(), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Racing::First); __r }), crate::__PROTO_Lookup);
         }
@@ -1385,7 +1387,7 @@ impl crate::__Stateful_Race for Racing {
 impl Racing {
 
     fn first(&mut self, answer: String) {
-        let mut out = self.pending.pop_front();
+        let mut out = crate::core_deque::remove_first_platform(&mut self.pending);
         match out {
             Some(_) => {
                 crate::scheduler::salvo_reply_wire::<String>(out.unwrap(), answer);

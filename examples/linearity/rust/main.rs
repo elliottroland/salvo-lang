@@ -29,6 +29,8 @@ pub mod core_sorted;
 pub mod core_string;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/deque.rs"]
+pub mod platform_core_deque;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
@@ -94,7 +96,7 @@ pub fn read_a_field(console: &crate::core_console::Console) {
     redeem(console, ticket);
 }
 
-pub fn hand_over<T: Clone>(console: &crate::core_console::Console, value: T, to: impl FnOnce(&crate::core_console::Console, T)) {
+pub fn hand_over<T>(console: &crate::core_console::Console, value: T, to: impl FnOnce(&crate::core_console::Console, T)) {
     to(console, value);
 }
 
@@ -108,11 +110,11 @@ pub fn scrap(ticket: Ticket) {
 }
 
 pub fn a_queue_of_tickets(console: &crate::core_console::Console) {
-    let mut queue: std::collections::VecDeque<Ticket> = std::collections::VecDeque::<Ticket>::new();
-    queue.push_back(issue(console, 5, "2B".to_string()));
-    queue.push_back(issue(console, 6, "2C".to_string()));
-    println(console, &(format!("6. queued {}", (queue.len() as i32))));
-    let mut first = queue.pop_front();
+    let mut queue: std::collections::VecDeque<Ticket> = mut_deque_of();
+    crate::core_deque::add_last_platform(&mut queue, issue(console, 5, "2B".to_string()));
+    crate::core_deque::add_last_platform(&mut queue, issue(console, 6, "2C".to_string()));
+    println(console, &(format!("6. queued {}", crate::core_deque::size_platform(&queue))));
+    let mut first = crate::core_deque::remove_first_platform(&mut queue);
     match first {
         Some(_) => {
             redeem(console, first.unwrap());
@@ -121,14 +123,14 @@ pub fn a_queue_of_tickets(console: &crate::core_console::Console) {
         }
     }
     loop {
-        let mut __is1 = queue.pop_front();
+        let mut __is1 = crate::core_deque::remove_first_platform(&mut queue);
         if !(__is1.is_some()) {
             break;
         }
         let mut next = __is1.unwrap();
         redeem(console, next);
     }
-    queue.into_iter().for_each(|mut __a0| scrap(__a0));
+    drain(queue, &mut |mut __a0| scrap(__a0));
     println(console, &("6. queue drained".to_string()));
 }
 

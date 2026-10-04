@@ -254,8 +254,8 @@ data class ActorRec(
     var body: salvo.platform.runtime.Slot<salvo.platform.runtime.Body>,
     var pool: Int,
     var bound: Int,
-    var queue: kotlin.collections.ArrayDeque<Union3<Delivered, Answered, Reported>>,
-    var slots: kotlin.collections.ArrayDeque<Long>,
+    var queue: salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>,
+    var slots: salvo.platform.core.deque.MutDeque<Long>,
     var userLen: Int,
     var gate: Long?,
     var running: Boolean,
@@ -286,7 +286,7 @@ fun dropActorRec(a: ActorRec) {
     val ready = __destructured4.ready
     val proxy = __destructured4.proxy
     dropSlotPlatform(body)
-    (queue).toList().forEach({ e -> dropEntry(e) })
+    drain(queue, { e -> dropEntry(e) })
     (watchers).toList().forEach({ t -> dropToken(t) })
 }
 
@@ -327,8 +327,8 @@ fun dropTaskRun(t: TaskRun) {
 
 data class PoolRec(
     var idle: MutableList<salvo.platform.runtime.Parker>,
-    var tasks: kotlin.collections.ArrayDeque<TaskRun>,
-    var ready: kotlin.collections.ArrayDeque<Int>,
+    var tasks: salvo.platform.core.deque.MutDeque<TaskRun>,
+    var ready: salvo.platform.core.deque.MutDeque<Int>,
     var sink: Int,
     var owed: Int,
     var dedicated: Boolean,
@@ -344,7 +344,7 @@ fun dropPoolRec(p: PoolRec) {
     val owed = __destructured7.owed
     val dedicated = __destructured7.dedicated
     val retired = __destructured7.retired
-    (tasks).toList().forEach({ t -> dropTaskRun(t) })
+    drain(tasks, { t -> dropTaskRun(t) })
 }
 
 data class ToActor(
@@ -752,12 +752,12 @@ class Scheduler : SchedTable {
     private var clockHooks: MutableList<Token> = mutableListOf<Token>()
 
     override fun newPool(sink: Int, dedicated: Boolean): Int {
-        pools.add(PoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = kotlin.collections.ArrayDeque<TaskRun>(listOf<TaskRun>()), ready = kotlin.collections.ArrayDeque<Int>(listOf<Int>()), sink = sink, owed = 0, dedicated = dedicated, retired = false))
+        pools.add(PoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = mutDequeOf(), ready = mutDequeOf(), sink = sink, owed = 0, dedicated = dedicated, retired = false))
         return pools.size - 1
     }
 
     override fun newActor(pool: Int, bound: Int, body: salvo.platform.runtime.Body): Int {
-        actors.add(ActorRec(body = slotOfPlatform(body), pool = pool, bound = bound, queue = kotlin.collections.ArrayDeque<Union3<Delivered, Answered, Reported>>(listOf<Union3<Delivered, Answered, Reported>>()), slots = kotlin.collections.ArrayDeque<Long>(listOf<Long>()), userLen = 0, gate = null, running = false, dead = false, exitReason = "", blocked = mutableListOf<salvo.platform.runtime.Parker>(), watchers = mutableListOf<Token>(), owed = 0, ready = false, proxy = false))
+        actors.add(ActorRec(body = slotOfPlatform(body), pool = pool, bound = bound, queue = mutDequeOf(), slots = mutDequeOf(), userLen = 0, gate = null, running = false, dead = false, exitReason = "", blocked = mutableListOf<salvo.platform.runtime.Parker>(), watchers = mutableListOf<Token>(), owed = 0, ready = false, proxy = false))
         return actors.size - 1
     }
 
@@ -779,8 +779,8 @@ class Scheduler : SchedTable {
             return Union4.U3<Sent, Dead, Full, Remote>(Full(msg = msg))
         }
         val e: Union3<Delivered, Answered, Reported> = Union3.U1<Delivered, Answered, Reported>(Delivered(msg = msg, from = (-1).toLong()))
-        a.queue.addLast(e)
-        a.slots.addLast((-1).toLong())
+        addLastPlatform(a.queue, e)
+        addLastPlatform(a.slots, (-1).toLong())
         a.userLen = a.userLen + 1
         if (markReady(a, pools, addr)) {
             val pool = a.pool
@@ -800,8 +800,8 @@ class Scheduler : SchedTable {
             return false
         }
         val e: Union3<Delivered, Answered, Reported> = Union3.U1<Delivered, Answered, Reported>(Delivered(msg = msg, from = from))
-        a.queue.addLast(e)
-        a.slots.addLast((-1).toLong())
+        addLastPlatform(a.queue, e)
+        addLastPlatform(a.slots, (-1).toLong())
         a.userLen = a.userLen + 1
         if (markReady(a, pools, addr)) {
             val pool = a.pool
@@ -998,11 +998,11 @@ class Scheduler : SchedTable {
         a.exitReason = reason
         a.gate = null
         a.userLen = 0
-        while (a.queue.size > 0) {
-            dropEntry((a.queue.removeFirstOrNull() ?: throw AssertionError("salvo: value is absent at runtime:753:24")))
+        while (sizePlatform(a.queue) > 0) {
+            dropEntry((removeFirstPlatform(a.queue) ?: throw AssertionError("salvo: value is absent at runtime:753:24")))
         }
-        while (a.slots.size > 0) {
-            val _s = a.slots.removeFirstOrNull()
+        while (sizePlatform(a.slots) > 0) {
+            val _s = removeFirstPlatform(a.slots)
         }
         while (true) {
             var __is4 = (a.blocked).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
@@ -1142,7 +1142,7 @@ class Scheduler : SchedTable {
     }
 
     fun init() {
-        pools.add(PoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = kotlin.collections.ArrayDeque<TaskRun>(listOf<TaskRun>()), ready = kotlin.collections.ArrayDeque<Int>(listOf<Int>()), sink = -1, owed = 0, dedicated = false, retired = false))
+        pools.add(PoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = mutDequeOf(), ready = mutDequeOf(), sink = -1, owed = 0, dedicated = false, retired = false))
     }
 }
 
@@ -1174,10 +1174,10 @@ fun resetAll(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, idleHoo
         a.gate = null
         a.userLen = 0
         a.owed = 0
-        while (a.queue.size > 0) {
-            dropEntry((a.queue.removeFirstOrNull() ?: throw AssertionError("salvo: value is absent at runtime:918:24")))
+        while (sizePlatform(a.queue) > 0) {
+            dropEntry((removeFirstPlatform(a.queue) ?: throw AssertionError("salvo: value is absent at runtime:918:24")))
         }
-        while (a.slots.removeFirstOrNull() != null) {
+        while (removeFirstPlatform(a.slots) != null) {
         }
         while (true) {
             var __is7 = (a.watchers).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
@@ -1197,12 +1197,12 @@ fun resetAll(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, idleHoo
     while (i < pools.size) {
         val p = (pools.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime:933:17"))
         while (true) {
-            var __is9 = p.tasks.removeFirstOrNull()
+            var __is9 = removeFirstPlatform(p.tasks)
             if (!(__is9 != null)) break
             val t = __is9 as TaskRun
             dropTaskRun(t)
         }
-        while (p.ready.removeFirstOrNull() != null) {
+        while (removeFirstPlatform(p.ready) != null) {
         }
         p.owed = 0
         if (i > 0) {
@@ -1322,9 +1322,9 @@ fun deliverTo(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, po
             dropDynPlatform(value)
             return
         }
-        a.slots.addLast(slot)
+        addLastPlatform(a.slots, slot)
         val e: Union3<Delivered, Answered, Reported> = Union3.U2<Delivered, Answered, Reported>(Answered(slot = slot, value = value))
-        a.queue.addLast(e)
+        addLastPlatform(a.queue, e)
         if (markReady(a, pools, to.addr)) {
             val pool = a.pool
             wakePool(pools, pool)
@@ -1347,7 +1347,7 @@ fun deliverTo(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, po
         val pool = __destructured18.pool
         val body = __destructured18.body
         val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:1069:17"))
-        p.tasks.addLast(TaskRun(body = body, value = value))
+        addLastPlatform(p.tasks, TaskRun(body = body, value = value))
         wakePool(pools, pool)
     }
 }
@@ -1358,8 +1358,8 @@ fun reportFault(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, pool
         val s = (actors.getOrNull(sink) ?: throw AssertionError("salvo: value is absent at runtime:1082:17"))
         if (!s.dead) {
             val e: Union3<Delivered, Answered, Reported> = Union3.U3<Delivered, Answered, Reported>(Reported(reason = reason))
-            s.queue.addLast(e)
-            s.slots.addLast((-1).toLong())
+            addLastPlatform(s.queue, e)
+            addLastPlatform(s.slots, (-1).toLong())
             if (markReady(s, pools, sink)) {
                 val sinkPool = s.pool
                 wakePool(pools, sinkPool)
@@ -1375,7 +1375,7 @@ fun quiet(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pools:
         return false
     }
     for (p in pools) {
-        if (p.tasks.size > 0) {
+        if (sizePlatform(p.tasks) > 0) {
             return false
         }
     }
@@ -1453,7 +1453,7 @@ fun deadlockReport(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun takeWork(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, pool: Int, exclude: Int): Union2<RunActor, RunTask>? {
     val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:1181:13"))
-    val task = p.tasks.removeFirstOrNull()
+    val task = removeFirstPlatform(p.tasks)
     if (task != null) {
         val t = task as TaskRun
         val __destructured20 = t
@@ -1462,7 +1462,7 @@ fun takeWork(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, pool: I
         return Union2.U2<RunActor, RunTask>(RunTask(pool = pool, body = body, value = value))
     }
     while (true) {
-        var __is15 = p.ready.removeFirstOrNull()
+        var __is15 = removeFirstPlatform(p.ready)
         if (!(__is15 != null)) break
         val i = __is15 as Int
         val a = (actors.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime:1188:17"))
@@ -1471,8 +1471,8 @@ fun takeWork(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, pool: I
             val at = deliverable(a.slots, a.gate)
             if (at != null) {
                 val k = at as Int
-                val _slot = (a.slots).let { __l -> (k).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
-                val e = ((a.queue).let { __l -> (k).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime:1194:25"))
+                val _slot = removeAtPlatform(a.slots, k)
+                val e = (removeAtPlatform(a.queue, k) ?: throw AssertionError("salvo: value is absent at runtime:1194:25"))
                 a.running = true
                 val body = (slotTakePlatform(a.body) ?: throw AssertionError("salvo: value is absent at runtime:1196:28"))
                 return workOf(a, i, e, body)
@@ -1491,7 +1491,7 @@ fun markReady(a: ActorRec, pools: MutableList<PoolRec>, addr: Int): Boolean {
     }
     a.ready = true
     val p = (pools.getOrNull(a.pool) ?: throw AssertionError("salvo: value is absent at runtime:1215:13"))
-    p.ready.addLast(addr)
+    addLastPlatform(p.ready, addr)
     return true
 }
 
@@ -1532,15 +1532,15 @@ fun workOf(a: ActorRec, addr: Int, e: Union3<Delivered, Answered, Reported>, bod
 }
 
 fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
-    if (slots.size == 0) {
+    if (sizePlatform(slots) == 0) {
         return null
     }
     if (gate == null) {
         return 0
     }
     var i = 0
-    while (i < slots.size) {
-        if ((slots.getOrNull(i) ?: throw AssertionError("salvo: value is absent at runtime:1263:12")) == gate) {
+    while (i < sizePlatform(slots)) {
+        if ((getPlatform(slots, i) ?: throw AssertionError("salvo: value is absent at runtime:1263:12")) == gate) {
             return i
         }
         i = i + 1
@@ -1581,7 +1581,7 @@ fun wakeWaiters(waiters: MutableList<WaiterRec>) {
 
 fun retireIfDone(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, pool: Int) {
     val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:1308:13"))
-    if (!p.dedicated || p.retired || p.tasks.size > 0 || p.owed > 0) {
+    if (!p.dedicated || p.retired || sizePlatform(p.tasks) > 0 || p.owed > 0) {
         return
     }
     for (a in actors) {

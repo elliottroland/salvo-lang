@@ -28,7 +28,7 @@ pub fn path(text: &String) -> Path {
     return Path { text: text.clone() };
 }
 
-pub fn to_str__5(p: &Path) -> String {
+pub fn to_str__6(p: &Path) -> String {
     return p.text.clone();
 }
 

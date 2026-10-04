@@ -278,7 +278,7 @@ pub fn total<'c, C: Clone, __It0: Clone>(c: &'c C, iter: &mut dyn FnMut(&'c C) -
     return total;
 }
 
-pub fn first__2<__It0: Clone>(it: &mut __It0, next: &mut dyn FnMut(&mut __It0) -> Union2<i32, Finished>) -> i32 {
+pub fn first__3<__It0: Clone>(it: &mut __It0, next: &mut dyn FnMut(&mut __It0) -> Union2<i32, Finished>) -> i32 {
     while let Union2::U1(mut n) = next(it) {
         return n;
     }
@@ -302,7 +302,7 @@ pub fn main() {
     }
     let mut hp = halving(20);
     println(&console, &(format!("2b. summed from a held iterator: {}", sum_of::<__Iter_halving_Int>(&mut hp, &mut |__i0| next__24(__i0)))));
-    println(&console, &(format!("2b. first from a pattern-typed fn: {}", first__2::<__Iter_halving_Int>(&mut (halving_from_ten()), &mut |__i0| next__24(__i0)))));
+    println(&console, &(format!("2b. first from a pattern-typed fn: {}", first__3::<__Iter_halving_Int>(&mut (halving_from_ten()), &mut |__i0| next__24(__i0)))));
     let mut bag = Bag { items: vec![7, 8] };
     let mut __loop7_pass = iter__10(&bag);
     while let Union2::U1(mut n) = next__25(&mut __loop7_pass) {

@@ -1,7 +1,7 @@
 use crate::core_iterator::*;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Checked<T: Clone> {
+pub struct Checked<T> {
     pub value: T,
 }
 
@@ -16,7 +16,7 @@ impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for Checked<T
     }
 }
 
-pub fn checked<T: Clone>(value: T) -> Checked<T> {
+pub fn checked<T>(value: T) -> Checked<T> {
     return Checked { value: value };
 }
 
@@ -24,6 +24,6 @@ pub fn ignore<T: Clone>(checked: Checked<T>) {
     drop(checked);
 }
 
-pub fn detach<T: Clone>(checked: Checked<T>) -> T {
+pub fn detach<T>(checked: Checked<T>) -> T {
     return checked.value;
 }

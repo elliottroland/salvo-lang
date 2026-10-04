@@ -12,7 +12,7 @@ pub fn iter__6<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct SetYield<T: Clone> {
+pub struct SetYield<T> {
     pub items: Vec<T>,
     pub at: i32,
 }

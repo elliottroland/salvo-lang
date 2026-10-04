@@ -35,7 +35,7 @@ impl crate::wire::__Wire for NodeEndpoint {
     }
 }
 
-pub fn to_str__3(e: &NodeEndpoint) -> String {
+pub fn to_str__4(e: &NodeEndpoint) -> String {
     return format!("{}:{}", e.host.clone(), e.port);
 }
 
@@ -86,13 +86,13 @@ impl NetError {
     }
 }
 
-pub fn to_str__4(e: &Union2<Unreachable, WireFailed>) -> String {
+pub fn to_str__5(e: &Union2<Unreachable, WireFailed>) -> String {
     match e {
         Union2::U1(_) => {
-            return format!("unreachable: {}", to_str__3(&e.u1().clone().to));
+            return format!("unreachable: {}", to_str__4(&e.u1().clone().to));
         }
         Union2::U2(_) => {
-            return format!("wire failed to {}: {}", to_str__3(&e.u2().clone().to), e.u2().clone().reason.clone());
+            return format!("wire failed to {}: {}", to_str__4(&e.u2().clone().to), e.u2().clone().reason.clone());
         }
     }
 }
@@ -1260,7 +1260,7 @@ impl GossipNodeGroup {
                     introduce(&(id.clone()), &(vec![event.as_ref().unwrap().u1().clone().at.clone()]));
                 }
                 introduce(&(event.as_ref().unwrap().u1().clone().node.clone()), &others);
-                self.dialed.insert(to_str__3(&event.as_ref().unwrap().u1().clone().at));
+                self.dialed.insert(to_str__4(&event.as_ref().unwrap().u1().clone().at));
                 let mut n = Node { id: event.as_ref().unwrap().u1().clone().node.clone(), at: event.as_ref().unwrap().u1().clone().at.clone() };
                 self.known.insert(event.as_ref().unwrap().u1().clone().node.clone(), n.clone());
                 for w in &self.watchers {
@@ -1370,13 +1370,13 @@ fn __decode_msg_GossipNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::sc
 }
 
 pub fn dial(transport: &crate::net::Transport, dialed: &mut SalvoSet<String>, group: &String, e: NodeEndpoint) {
-    if eq__2(&e, &(transport.local_endpoint())) || dialed.contains(&to_str__3(&e)) {
+    if eq__2(&e, &(transport.local_endpoint())) || dialed.contains(&to_str__4(&e)) {
         return;
     }
-    dialed.insert(to_str__3(&e));
+    dialed.insert(to_str__4(&e));
     let mut sent = { let __a1 = hello_frame(transport, group); transport.deliver(&(e.clone()), __a1) };
     if matches!(sent, Union2::U2(_)) {
-        let mut _forgot = dialed.remove(&to_str__3(&e));
+        let mut _forgot = dialed.remove(&to_str__4(&e));
     }
 }
 
@@ -2693,7 +2693,7 @@ impl crate::net::__Stateless_Transport for MemTransport {
 }
 
 pub fn cut_key(a: &NodeEndpoint, b: &NodeEndpoint) -> String {
-    return format!("{}>{}", to_str__3(a), to_str__3(b));
+    return format!("{}>{}", to_str__4(a), to_str__4(b));
 }
 
 pub fn cmp(a: &NodeEndpoint, b: &NodeEndpoint) -> i32 {

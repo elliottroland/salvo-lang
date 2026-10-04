@@ -3035,9 +3035,12 @@ impl<'p> Emitter<'p> {
         // struct over an iterator (a lazy adaptor) is instantiated at a pass
         // borrowing its source, `ListYield<'s, T>`. A fn field's callback is
         // `'static` by its own bound, which is all the struct needs.
+        // [linear-generics] Nor `Clone`: the derive bounds its own impls, and
+        // a struct may hold a linear `T` (`Checked<T>` of an obligation) that
+        // a `T canbe linear` fn names without promising `Clone`.
         let mut generics = self
             .emit_generic_params(&s.generics)
-            .replace(": Clone + 'static", ": Clone");
+            .replace(": Clone + 'static", "");
         // [rs-proj-struct] A pass borrowing its source carries the source's
         // lifetime: `pub struct ListYield<'s, T> { pub items: &'s Vec<T>, … }`.
         let borrowing = self.borrowing_structs.contains(&s.name.name);
@@ -5871,6 +5874,10 @@ impl<'p> Emitter<'p> {
         // [rs-borrows] The blanket `Clone` bound, plus `'static`: every
         // Salvo type is owned data with no lifetime of its own, and a lazy
         // iterator's captured state outlives the call [rs-iter-pass].
+        let core_platform = f.platform
+            && self.program.files.get(self.file_idx).is_some_and(|file| {
+                file.is_std && file.module.0.first().is_some_and(|m| m == "core")
+            });
         let generic_parts: Vec<String> = f
             .generics
             .iter()
@@ -5891,10 +5898,19 @@ impl<'p> Emitter<'p> {
                 // to the host, which may store, move and hand one back: the
                 // fixed bounds `Send + 'static` (which give `Any` for a
                 // downcast), never `Clone`, so a linear argument fits.
-                if f.platform {
+                // A `core` collection's platform fn is bounded by nothing: it
+                // holds and moves elements, and its element may be a borrow
+                // (`&'s T`) a generic caller passes through [platform-value-type].
+                if f.platform && core_platform {
+                    g.name.clone()
+                } else if f.platform {
                     format!("{}: Send + 'static", g.name)
                 } else if fn_key.is_some_and(|k| self.value_keyed_fns.contains(&k)) {
                     format!("{}: Clone + Send + 'static", g.name)
+                } else if f.generic_canbe.iter().any(|c| c.0.name == g.name && c.1.name.name == "linear") {
+                    // [linear-generics] A `T canbe linear` is never copied, and a
+                    // linear `T` has no `Clone`.
+                    g.name.clone()
                 } else {
                     format!("{}: Clone", g.name)
                 }

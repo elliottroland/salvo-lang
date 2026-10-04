@@ -1,0 +1,64 @@
+// [platform-value-type] std's double-ended queue, for `core.deque`'s
+// `platform type Deque<T> canbe Mut` (ROADMAP 0.7): a `VecDeque`, both ends
+// O(1). `Mut Deque` is the same type, passed as `&mut`.
+
+use std::collections::VecDeque;
+
+pub type Deque<T> = VecDeque<T>;
+pub type MutDeque<T> = VecDeque<T>;
+
+pub fn empty_deque<T>() -> Deque<T> {
+    VecDeque::new()
+}
+
+pub fn deque_from<T>(first: T, rest: Vec<T>) -> Deque<T> {
+    let mut d = VecDeque::with_capacity(rest.len() + 1);
+    d.push_back(first);
+    d.extend(rest);
+    d
+}
+
+pub fn into_mut<T>(d: Deque<T>) -> Deque<T> {
+    d
+}
+
+// [linear-container] Ending one that still holds elements would drop them.
+pub fn end_empty<T>(d: Deque<T>) {
+    assert!(d.is_empty(), "salvo: a deque was ended with elements in it");
+}
+
+pub fn add_last<T>(d: &mut Deque<T>, elem: T) {
+    d.push_back(elem);
+}
+
+pub fn add_first<T>(d: &mut Deque<T>, elem: T) {
+    d.push_front(elem);
+}
+
+pub fn remove_first<T>(d: &mut Deque<T>) -> Option<T> {
+    d.pop_front()
+}
+
+pub fn remove_last<T>(d: &mut Deque<T>) -> Option<T> {
+    d.pop_back()
+}
+
+pub fn remove_at<T>(d: &mut Deque<T>, index: i32) -> Option<T> {
+    if index < 0 { None } else { d.remove(index as usize) }
+}
+
+pub fn get<T>(d: &Deque<T>, index: i32) -> Option<&T> {
+    if index < 0 { None } else { d.get(index as usize) }
+}
+
+pub fn first<T>(d: &Deque<T>) -> Option<&T> {
+    d.front()
+}
+
+pub fn last<T>(d: &Deque<T>) -> Option<&T> {
+    d.back()
+}
+
+pub fn size<T>(d: &Deque<T>) -> i32 {
+    d.len() as i32
+}

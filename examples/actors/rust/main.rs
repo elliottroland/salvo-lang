@@ -41,6 +41,8 @@ pub mod runtime_routing;
 pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/deque.rs"]
+pub mod platform_core_deque;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 #[path = "platform/runtime/routing.rs"]
@@ -579,7 +581,7 @@ impl Desking {
     pub fn new(room: i32) -> Self {
         Self {
             room,
-            waiting: std::collections::VecDeque::<crate::scheduler::SalvoReply>::new(),
+            waiting: mut_deque_of(),
             __mailbox_capacity: room,
             __addr: None,
             __parked: std::collections::HashMap::new(),
@@ -590,11 +592,11 @@ impl Desking {
 impl crate::__Stateful_Desk for Desking {
 
     fn ticket(&mut self, out: crate::scheduler::SalvoReply) {
-        self.waiting.push_back(out);
+        crate::core_deque::add_last_platform(&mut self.waiting, out);
     }
 
     fn serve(&mut self, name: String) {
-        let mut next = self.waiting.pop_front();
+        let mut next = crate::core_deque::remove_first_platform(&mut self.waiting);
         match next {
             Some(_) => {
                 crate::scheduler::salvo_reply_wire::<String>(next.unwrap(), format!("served {}", name));
@@ -606,8 +608,8 @@ impl crate::__Stateful_Desk for Desking {
     }
 
     fn close_up(&mut self, reason: String) {
-        std::mem::take(&mut self.waiting).into_iter().for_each(|r| crate::scheduler::salvo_reply_wire::<String>(r, format!("closed: {}", reason)));
-        self.waiting = std::collections::VecDeque::<crate::scheduler::SalvoReply>::new();
+        drain(std::mem::take(&mut self.waiting), &mut (|r| crate::scheduler::salvo_reply_wire::<String>(r, format!("closed: {}", reason))));
+        self.waiting = mut_deque_of();
     }
 }
 

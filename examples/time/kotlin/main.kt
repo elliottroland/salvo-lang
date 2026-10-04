@@ -9,9 +9,9 @@ import salvo.time.*
 fun verdict(started: Tick, at: Tick, budget: Duration): String {
     val took = between__2(started, at)
     if (cmp__2(took, budget) > 0) {
-        return "late by ${toStr__7(minus(took, budget))}"
+        return "late by ${toStr__8(minus(took, budget))}"
     }
-    return "in time, ${toStr__7(minus(budget, took))} to spare"
+    return "in time, ${toStr__8(minus(budget, took))} to spare"
 }
 
 fun overdue(ticker: Ticker, started: Tick, budget: Duration): Boolean {
@@ -216,7 +216,7 @@ class Napping(private val __dep_Timer: Timer, private val __dep_Ticker: Ticker) 
     }
 
     override fun woke(started: Tick, out: salvo.SalvoReply, f: Fired) {
-        salvo.SalvoSched.replyWire(out, "napped ${toStr__7(elapsed(__dep_Ticker, started))}", salvo.StrCodec)
+        salvo.SalvoSched.replyWire(out, "napped ${toStr__8(elapsed(__dep_Ticker, started))}", salvo.StrCodec)
     }
 }
 
@@ -272,7 +272,7 @@ fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Session", salvo.main.__PROTO_Session), Pair("Sleeper", salvo.main.__PROTO_Sleeper), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
     val console: Console = salvo.core.console.__Platform_StdOutConsole()
     val budget = millis(1500L)
-    println(console, "budget ${toStr__7(budget)}, doubled ${toStr__7(times(budget, 2L))}, in millis ${toMillis(budget)}")
+    println(console, "budget ${toStr__8(budget)}, doubled ${toStr__8(times(budget, 2L))}, in millis ${toMillis(budget)}")
     val stamp = epochMilli(1700000000000L)
     println(console, "stamp ${toEpochSecond(stamp)}s, a minute later ${toEpochSecond(plus__2(stamp, minutes(1L)))}s")
     val clock: Clock = __Mon_Clock(DefaultClock())

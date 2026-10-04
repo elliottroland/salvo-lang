@@ -8534,7 +8534,18 @@ replaced the working document TESTING.md).
     (deep), `Debug`, `PartialEq`, `Eq` and `Hash`, so a struct holding one
     still derives. A value type keeps its canonical wire form where the
     encoding defines one [wire-format] (`Bytes`); otherwise it is `noremote`.
-    `Bytes` and `Str` are built; the other collections follow. A platform
+    `Bytes`, `Str` and `Deque` are built; the other collections follow.
+    For the collections (user decisions 2026-10-04): **std's own platform
+    fns may answer a borrow** of the one parameter the result names
+    (`get(d, i) -> (proj(d) T)?`), which customer code's still may not;
+    **`to_str` of a collection is Salvo** over a `?to_str: (x: T) -> Str`
+    implicit, so a collection prints only where its element does; and
+    **`drain` is Salvo** over `into_mut`, `remove_first` and `end_empty` (a
+    host fn that traps on a non-empty container), so no effectful callback
+    crosses the boundary. A `core` platform fn's Rust type parameters carry
+    no bounds — the host states what it needs, and an element may be a
+    borrow — and neither do a `T canbe linear` fn's or any struct's (the
+    derives bound their own impls). A platform
     fn's Rust wrapper is called through its module's path
     (`crate::core_string::size_platform`), since two modules' wrappers of
     one name are ambiguous through glob imports.

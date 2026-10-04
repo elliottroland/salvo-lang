@@ -56,7 +56,7 @@ pub fn drop<T: Clone>(value: T) {
 }
 
 #[derive(Clone)]
-pub struct Mapping<It: Clone, T: Clone, U: Clone> {
+pub struct Mapping<It, T, U> {
     pub src: It,
     pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
     pub f: std::sync::Arc<dyn Fn(&T) -> U + Send + Sync>,
@@ -88,7 +88,7 @@ pub fn mapping<It: Clone, T: Clone, U: Clone>(it: It, f: impl Fn(&T) -> U + Send
 }
 
 #[derive(Clone)]
-pub struct Filtering<It: Clone, T: Clone> {
+pub struct Filtering<It, T> {
     pub src: It,
     pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
     pub keep: std::sync::Arc<dyn Fn(&T) -> bool + Send + Sync>,
@@ -124,7 +124,7 @@ pub fn filtering<It: Clone, T: Clone>(it: It, keep: impl Fn(&T) -> bool + Send +
 }
 
 #[derive(Clone)]
-pub struct Taking<It: Clone, T: Clone> {
+pub struct Taking<It, T> {
     pub src: It,
     pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
     pub left: i32,
@@ -154,7 +154,7 @@ pub fn taking<It: Clone, T: Clone>(it: It, n: i32, next: impl Fn(&mut It) -> Uni
 }
 
 #[derive(Clone)]
-pub struct TakingWhile<It: Clone, T: Clone> {
+pub struct TakingWhile<It, T> {
     pub src: It,
     pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
     pub keep: std::sync::Arc<dyn Fn(&T) -> bool + Send + Sync>,
@@ -195,7 +195,7 @@ pub fn taking_while<It: Clone, T: Clone>(it: It, keep: impl Fn(&T) -> bool + Sen
 }
 
 #[derive(Clone)]
-pub struct Skipping<It: Clone, T: Clone> {
+pub struct Skipping<It, T> {
     pub src: It,
     pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
     pub left: i32,
@@ -228,7 +228,7 @@ pub fn skipping<It: Clone, T: Clone>(it: It, n: i32, next: impl Fn(&mut It) -> U
 }
 
 #[derive(Clone)]
-pub struct SkippingWhile<It: Clone, T: Clone> {
+pub struct SkippingWhile<It, T> {
     pub src: It,
     pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
     pub skip: std::sync::Arc<dyn Fn(&T) -> bool + Send + Sync>,
@@ -269,7 +269,7 @@ pub fn skipping_while<It: Clone, T: Clone>(it: It, skip: impl Fn(&T) -> bool + S
     return SkippingWhile { src: it, step: std::sync::Arc::new(next), skip: std::sync::Arc::new(skip), started: false };
 }
 
-pub fn to_list<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<T> {
+pub fn to_list__2<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<T> {
     let mut out = vec![];
     while let Union2::U1(mut x) = next(it) {
         out.push(x);

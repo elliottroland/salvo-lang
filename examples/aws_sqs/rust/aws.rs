@@ -120,7 +120,7 @@ impl crate::wire::__Wire for AwsError {
     }
 }
 
-pub fn to_str__9(value: &ProfileCredentials) -> String {
+pub fn to_str__10(value: &ProfileCredentials) -> String {
     let mut out: String = mut_str(vec!["ProfileCredentials {".to_string()]);
     crate::core_string::append_platform(&mut out, &(" ".to_string()));
     crate::core_string::append_platform(&mut out, &(format!("profile: {}", value.profile.clone())));

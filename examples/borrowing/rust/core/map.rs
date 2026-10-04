@@ -11,7 +11,7 @@ pub fn KeyOf_qualifies<K: Clone, V: Clone>(key: &K, map: &SalvoMap<K, V>) -> boo
     return map.contains_key(&key);
 }
 
-pub fn get__3<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V {
+pub fn get__4<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V {
     return map.get(&key).unwrap();
 }
 
@@ -20,7 +20,7 @@ pub fn iter__5<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct MapKeyYield<K: Clone> {
+pub struct MapKeyYield<K> {
     pub items: Vec<K>,
     pub at: i32,
 }

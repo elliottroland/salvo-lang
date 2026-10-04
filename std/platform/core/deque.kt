@@ -1,0 +1,42 @@
+// [platform-value-type] std's double-ended queue, for `core.deque`'s
+// `platform type Deque<T> canbe Mut` (ROADMAP 0.7): Kotlin's `ArrayDeque`,
+// one class for both kinds.
+package salvo.platform.core.deque
+
+typealias Deque<T> = kotlin.collections.ArrayDeque<T>
+typealias MutDeque<T> = kotlin.collections.ArrayDeque<T>
+
+fun <T> emptyDeque(): MutDeque<T> = kotlin.collections.ArrayDeque()
+
+fun <T> dequeFrom(first: T, rest: Array<T>): MutDeque<T> {
+    val d = kotlin.collections.ArrayDeque<T>(rest.size + 1)
+    d.addLast(first)
+    d.addAll(rest)
+    return d
+}
+
+fun <T> intoMut(d: Deque<T>): MutDeque<T> = d
+
+// [linear-container] Ending one that still holds elements would drop them.
+fun <T> endEmpty(d: MutDeque<T>) {
+    check(d.isEmpty()) { "salvo: a deque was ended with elements in it" }
+}
+
+fun <T> addLast(d: MutDeque<T>, elem: T) = d.addLast(elem)
+
+fun <T> addFirst(d: MutDeque<T>, elem: T) = d.addFirst(elem)
+
+fun <T> removeFirst(d: MutDeque<T>): T? = d.removeFirstOrNull()
+
+fun <T> removeLast(d: MutDeque<T>): T? = d.removeLastOrNull()
+
+fun <T> removeAt(d: MutDeque<T>, index: Int): T? =
+    if (index >= 0 && index < d.size) d.removeAt(index) else null
+
+fun <T> get(d: Deque<T>, index: Int): T? = d.getOrNull(index)
+
+fun <T> first(d: Deque<T>): T? = d.firstOrNull()
+
+fun <T> last(d: Deque<T>): T? = d.lastOrNull()
+
+fun <T> size(d: Deque<T>): Int = d.size

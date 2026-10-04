@@ -24,7 +24,7 @@ fun path(text: String): Path {
     return Path(text = text)
 }
 
-fun toStr__4(p: Path): String {
+fun toStr__5(p: Path): String {
     return p.text
 }
 

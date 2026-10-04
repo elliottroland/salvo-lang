@@ -9374,8 +9374,10 @@ impl<'p> Emitter<'p> {
             // plain kind as well as the `Mut` one: a host may use one class for
             // both, so a plain value can be the very object something else
             // holds as `Mut` — identity would alias it [kt-copy].
-            Ty::Named { name, .. }
-                if self.symbols.intrinsic_types.get(name.as_str()).is_some_and(|t| {
+            // Element-free ones only: a collection's copy must also copy
+            // mutable elements, which its own arm below does.
+            Ty::Named { name, args: no_args }
+                if no_args.is_empty() && self.symbols.intrinsic_types.get(name.as_str()).is_some_and(|t| {
                     t.platform && !t.linear && t.auto_qualifiers.iter().any(|q| q.name.name == "Mut")
                 }) =>
             {

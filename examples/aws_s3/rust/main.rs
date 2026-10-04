@@ -65,6 +65,8 @@ pub mod time;
 pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
+#[path = "platform/core/deque.rs"]
+pub mod platform_core_deque;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 #[path = "platform/runtime/routing.rs"]
@@ -120,7 +122,7 @@ pub fn size_of(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &Stri
 pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::core_console::Console, streams: &crate::stream::Streams, bucket: &String, key: &String, path: &String, length: Option<i64>) {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
-        println(console, &(format!("open {}: {}", path.clone(), to_str__2(&detach((match opened { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+        println(console, &(format!("open {}: {}", path.clone(), to_str__3(&detach((match opened { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         return;
     }
     let mut put = {
@@ -156,7 +158,7 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::cor
     println(console, &(format!("get {}: {} bytes", key.clone(), if content_length.is_some() { content_length.unwrap() } else { -1i64 })));
     let mut target = fs.open_write(path);
     if matches!(target, Union2::U2(_)) {
-        println(console, &(format!("open {}: {}", path.clone(), to_str__2(&detach((match target { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+        println(console, &(format!("open {}: {}", path.clone(), to_str__3(&detach((match target { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         let mut closed = streams.close(body);
         if matches!(closed, Union2::U2(_)) {
             ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
@@ -174,7 +176,7 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::cor
             println(console, &(format!("piped {} bytes into {}", *copied.u1(), path.clone())));
         }
         Union2::U2(_) => {
-            println(console, &(format!("pipe: {}", to_str__6(&detach((match copied { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+            println(console, &(format!("pipe: {}", to_str__7(&detach((match copied { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         }
     }
 }
@@ -189,7 +191,7 @@ pub fn round_trip(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::c
             console.print(back.u1());
         }
         Union2::U2(_) => {
-            println(console, &(format!("back.txt: {}", to_str__2(&detach((match back { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+            println(console, &(format!("back.txt: {}", to_str__3(&detach((match back { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         }
     }
 }
@@ -222,7 +224,7 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
             ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         if matches!(filled, Union2::U2(_)) {
-            crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U2(AwsError { code: "StreamFailed".to_string(), message: format!("{}", to_str__6(&detach((match filled { Union2::U2(__v) => __v, _ => unreachable!() })))) })))));
+            crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U2(AwsError { code: "StreamFailed".to_string(), message: format!("{}", to_str__7(&detach((match filled { Union2::U2(__v) => __v, _ => unreachable!() })))) })))));
             return;
         }
         let mut data: Bytes = buf;
@@ -251,7 +253,7 @@ pub fn main() {
     let streams = crate::stream::Streams::share_locked(__inst.clone());
     let mut written = write_str(&fs2, &streams, &("notes.txt".to_string()), &("hello from Salvo\nsecond line\n".to_string()));
     if matches!(written, Union2::U2(_)) {
-        println(&console, &(format!("write: {}", to_str__2(&detach((match written { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+        println(&console, &(format!("write: {}", to_str__3(&detach((match written { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         return;
     }
     println(&console, &("-- FakeS3 --".to_string()));

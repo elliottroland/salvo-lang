@@ -16,7 +16,7 @@ impl crate::wire::__Wire for Finished {
     }
 }
 
-pub fn emitted<T: Clone>(value: T) -> T {
+pub fn emitted<T>(value: T) -> T {
     return value;
 }
 

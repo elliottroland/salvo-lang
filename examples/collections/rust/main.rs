@@ -134,10 +134,10 @@ pub fn main() {
     let mut lengths = SalvoMap::from_entries::<HostHash, HostEq, _>(words.iter().map(|w| (w.clone(), crate::core_string::size_platform(w))));
     println(&console, &(format!("5. to_map with a rule {}", lengths.to_string())));
     let mut filled = vec!["ada".to_string(), "grace".to_string()];
-    println(&console, &(format!("6. first is {}, no optional", first(&filled))));
+    println(&console, &(format!("6. first is {}, no optional", first__2(&filled))));
     let mut growing: Vec<i32> = vec![];
     growing.push(7);
-    println(&console, &(format!("6. after add, first is {}", *first(&growing))));
+    println(&console, &(format!("6. after add, first is {}", *first__2(&growing))));
     let mut ordered = sort::<i32>(&(vec![40, 10, 30, 20]), &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
     println(&console, &(format!("6. sorted {}", format!("[{}]", ordered.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
     let mut __is1 = binary_search::<i32>(&ordered, &(30), &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));

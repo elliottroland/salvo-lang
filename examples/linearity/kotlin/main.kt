@@ -70,11 +70,11 @@ fun scrap(ticket: Ticket) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun aQueueOfTickets(console: Console) {
-    val queue: kotlin.collections.ArrayDeque<Ticket> = kotlin.collections.ArrayDeque<Ticket>(listOf<Ticket>())
-    queue.addLast(issue(console, 5, "2B"))
-    queue.addLast(issue(console, 6, "2C"))
-    println(console, "6. queued ${queue.size}")
-    val first = queue.removeFirstOrNull()
+    val queue: salvo.platform.core.deque.MutDeque<Ticket> = mutDequeOf()
+    addLastPlatform(queue, issue(console, 5, "2B"))
+    addLastPlatform(queue, issue(console, 6, "2C"))
+    println(console, "6. queued ${sizePlatform(queue)}")
+    val first = removeFirstPlatform(queue)
     when {
         first != null -> {
             redeem(console, first)
@@ -83,12 +83,12 @@ fun aQueueOfTickets(console: Console) {
         }
     }
     while (true) {
-        var __is1 = queue.removeFirstOrNull()
+        var __is1 = removeFirstPlatform(queue)
         if (!(__is1 != null)) break
         val next = __is1 as Ticket
         redeem(console, next)
     }
-    (queue).toList().forEach(::scrap)
+    drain(queue, ::scrap)
     println(console, "6. queue drained")
 }
 

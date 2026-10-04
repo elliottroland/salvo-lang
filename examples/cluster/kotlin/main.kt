@@ -577,7 +577,7 @@ object __Codec___Msg_Gather : salvo.WireCodec<__Msg_Gather> {
 const val __PROTO_Gather: String = "98712ca205da344c"
 
 class Gathering : Gather {
-    private var pending: kotlin.collections.ArrayDeque<salvo.SalvoReply> = kotlin.collections.ArrayDeque<salvo.SalvoReply>(listOf<salvo.SalvoReply>())
+    private var pending: salvo.platform.core.deque.MutDeque<salvo.SalvoReply> = mutDequeOf()
     private var left: Int = 0
     private var total: Int = 0
     internal val __mailboxCapacity: Int = 16
@@ -585,7 +585,7 @@ class Gathering : Gather {
     internal val __parked: MutableMap<Long, __Cont_Gathering> = mutableMapOf()
 
     override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) {
-        pending.addLast(out)
+        addLastPlatform(pending, out)
         left = members.size
         total = 0
         for (m in members) {
@@ -597,7 +597,7 @@ class Gathering : Gather {
         total = total + n
         left = left - 1
         if (left == 0) {
-            val out = pending.removeFirstOrNull()
+            val out = removeFirstPlatform(pending)
             when {
                 out != null -> {
                     salvo.SalvoSched.replyWire(out, total, salvo.IntCodec)
@@ -771,20 +771,20 @@ object __Codec___Msg_Race : salvo.WireCodec<__Msg_Race> {
 const val __PROTO_Race: String = "5e0ec4d63d5f53dd"
 
 class Racing : Race {
-    private var pending: kotlin.collections.ArrayDeque<salvo.SalvoReply> = kotlin.collections.ArrayDeque<salvo.SalvoReply>(listOf<salvo.SalvoReply>())
+    private var pending: salvo.platform.core.deque.MutDeque<salvo.SalvoReply> = mutDequeOf()
     internal val __mailboxCapacity: Int = 16
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Racing> = mutableMapOf()
 
     override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) {
-        pending.addLast(out)
+        addLastPlatform(pending, out)
         for (m in members) {
             salvo.SalvoSched.sendWire(m, __Msg_Lookup.Lookup(key, run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Racing.First(); __r }), __PROTO_Lookup, __Codec___Msg_Lookup)
         }
     }
 
     fun first(answer: String) {
-        val out = pending.removeFirstOrNull()
+        val out = removeFirstPlatform(pending)
         when {
             out != null -> {
                 salvo.SalvoSched.replyWire(out, answer, salvo.StrCodec)

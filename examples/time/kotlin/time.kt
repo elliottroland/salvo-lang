@@ -103,10 +103,10 @@ fun abs(d: Duration): Duration {
     return d
 }
 
-fun toStr__7(d: Duration): String {
+fun toStr__8(d: Duration): String {
     if (d.nanos < 0) {
         val positive = Duration(nanos = 0L - d.nanos)
-        return "-${toStr__7(positive)}"
+        return "-${toStr__8(positive)}"
     }
     if (d.nanos == (0).toLong()) {
         return "0s"
