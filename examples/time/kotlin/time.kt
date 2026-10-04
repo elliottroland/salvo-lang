@@ -103,10 +103,10 @@ fun abs(d: Duration): Duration {
     return d
 }
 
-fun toStr__6(d: Duration): String {
+fun toStr__7(d: Duration): String {
     if (d.nanos < 0) {
         val positive = Duration(nanos = 0L - d.nanos)
-        return "-${toStr__6(positive)}"
+        return "-${toStr__7(positive)}"
     }
     if (d.nanos == (0).toLong()) {
         return "0s"
@@ -509,13 +509,13 @@ fun cmp__2(a: Duration, b: Duration): Int {
     return 0
 }
 
-fun hash__6(value: Duration): Long {
+fun hash__7(value: Duration): Long {
     var h = 17L
     h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
     return h
 }
 
-fun eq__6(a: Duration, b: Duration): Boolean {
+fun eq__7(a: Duration, b: Duration): Boolean {
     if (!((a.nanos) == (b.nanos))) {
         return false
     }
@@ -530,13 +530,13 @@ fun cmp__3(a: Instant, b: Instant): Int {
     return 0
 }
 
-fun hash__7(value: Instant): Long {
+fun hash__8(value: Instant): Long {
     var h = 17L
     h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
     return h
 }
 
-fun eq__7(a: Instant, b: Instant): Boolean {
+fun eq__8(a: Instant, b: Instant): Boolean {
     if (!((a.nanos) == (b.nanos))) {
         return false
     }
@@ -551,13 +551,13 @@ fun cmp__4(a: Tick, b: Tick): Int {
     return 0
 }
 
-fun hash__8(value: Tick): Long {
+fun hash__9(value: Tick): Long {
     var h = 17L
     h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
     return h
 }
 
-fun eq__8(a: Tick, b: Tick): Boolean {
+fun eq__9(a: Tick, b: Tick): Boolean {
     if (!((a.nanos) == (b.nanos))) {
         return false
     }

@@ -9,7 +9,6 @@ import salvo.core.deque.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.result.*
-import salvo.core.seq.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*

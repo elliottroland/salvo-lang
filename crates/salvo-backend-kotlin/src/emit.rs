@@ -9626,6 +9626,28 @@ impl<'p> Emitter<'p> {
                                         out.push("TODO()".to_string());
                                     }
                                 }
+                            } else if decl.intrinsic && matches!(decl.name.name.as_str(), "encode" | "decode") {
+                                // [stream-values] [wire-format] `encode` /
+                                // `decode` as a value: the codec for the type
+                                // the position was resolved at, as `protocol`.
+                                match Self::codec_position_type(&decl.name.name, want) {
+                                    Some(t) => {
+                                        self.needs_wire = true;
+                                        let codec = self.kotlin_codec_expr(&t);
+                                        out.push(if decl.name.name == "encode" {
+                                            format!("{{ __v -> salvo.salvoEncode(__v, {codec}) }}")
+                                        } else {
+                                            format!("{{ __b -> salvo.salvoDecode(__b, {codec}) }}")
+                                        });
+                                    }
+                                    None => {
+                                        self.error(format!(
+                                            "`{}` fills `?{name}: {want}`, which does not name a concrete type",
+                                            decl.name.name
+                                        ));
+                                        out.push("TODO()".to_string());
+                                    }
+                                }
                             } else if decl.intrinsic {
                                 out.push(self.intrinsic_fn_value(decl));
                             } else {
@@ -9738,6 +9760,17 @@ impl<'p> Emitter<'p> {
     /// fn value's are the caller's), so an intrinsic like `list` would not
     /// render correctly as a value; it is a codegen error rather than a
     /// guess [backend-never-wrong].
+    /// [stream-values] The type an `encode`/`decode` value codes, read off the
+    /// fn type of the position it fills: `encode`'s parameter, `decode`'s
+    /// result without its `None`.
+    fn codec_position_type(name: &str, want: &Ty) -> Option<Ty> {
+        let Ty::Fn { params, ret, .. } = want.strip_quals() else {
+            return None;
+        };
+        let t = if name == "encode" { params.first()?.clone() } else { ret.without_none() };
+        ty_is_concrete(&t).then_some(t)
+    }
+
     fn intrinsic_fn_value(&mut self, decl: &FnDecl) -> String {
         let params: Vec<String> = (0..decl.params.iter().filter(|p| !p.implicit).count())
             .map(|i| format!("__i{i}"))

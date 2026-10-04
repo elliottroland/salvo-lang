@@ -183,9 +183,9 @@ fn main() [use] {
   without one (`when { n < 0 { … } else { … } }`), which is how a chain of
   conditions produces a value that is never absent. Conditions are `Bool`;
   there is no truthiness.
-- **Functions**: overloading by argument types — the most specific *scope*
-  wins first (`core`, then imports, then your module, then the function's own
-  scope), then the most specific signature; an ambiguity is an error, and the
+- **Functions**: overloading by argument types — every visible function
+  competes, whichever module it comes from, and the most specific signature
+  wins (a concrete type beats a type variable); an ambiguity is an error, and the
   caller picks with `size@core.list(xs)` or `rename fn size2 = size(...)` —
   dot-notation
   (`list.size()` ≡ `size(list)`), variadics, lambdas and generics.

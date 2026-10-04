@@ -102,7 +102,7 @@ fun download(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String,
             println(console, "piped ${(copied.value as Long)} bytes into $path")
         }
         is Union2.U2<*, *> -> {
-            println(console, "pipe: ${toStr__4(detach((copied.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+            println(console, "pipe: ${toStr__5(detach((copied.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
         }
     }
 }
@@ -139,7 +139,7 @@ class MemS3(private val __dep_Streams: Streams) : S3 {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
         if (filled is Union2.U2<*, *>) {
-            salvo.SalvoSched.replyWire(reply, Union2.U2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(Union2.U2<S3Error, AwsError>(AwsError(code = "StreamFailed", message = "${toStr__4(detach((filled.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
+            salvo.SalvoSched.replyWire(reply, Union2.U2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(Union2.U2<S3Error, AwsError>(AwsError(code = "StreamFailed", message = "${toStr__5(detach((filled.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
             return
         }
         val data: salvo.SalvoBytes = buf

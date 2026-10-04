@@ -119,10 +119,10 @@ pub fn abs(d: Duration) -> Duration {
     return d;
 }
 
-pub fn to_str__6(d: &Duration) -> String {
+pub fn to_str__7(d: &Duration) -> String {
     if d.nanos < ((0) as i64) {
         let mut positive = Duration { nanos: 0i64 - d.nanos };
-        return format!("-{}", to_str__6(&positive));
+        return format!("-{}", to_str__7(&positive));
     }
     if d.nanos == ((0) as i64) {
         return "0s".to_string();
@@ -779,13 +779,13 @@ pub fn cmp__2(a: &Duration, b: &Duration) -> i32 {
     return 0;
 }
 
-pub fn hash__6(value: &Duration) -> i64 {
+pub fn hash__7(value: &Duration) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__6(a: &Duration, b: &Duration) -> bool {
+pub fn eq__7(a: &Duration, b: &Duration) -> bool {
     if !((a.nanos) == (b.nanos)) {
         return false;
     }
@@ -800,13 +800,13 @@ pub fn cmp__3(a: &Instant, b: &Instant) -> i32 {
     return 0;
 }
 
-pub fn hash__7(value: &Instant) -> i64 {
+pub fn hash__8(value: &Instant) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__7(a: &Instant, b: &Instant) -> bool {
+pub fn eq__8(a: &Instant, b: &Instant) -> bool {
     if !((a.nanos) == (b.nanos)) {
         return false;
     }
@@ -821,13 +821,13 @@ pub fn cmp__4(a: &Tick, b: &Tick) -> i32 {
     return 0;
 }
 
-pub fn hash__8(value: &Tick) -> i64 {
+pub fn hash__9(value: &Tick) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__8(a: &Tick, b: &Tick) -> bool {
+pub fn eq__9(a: &Tick, b: &Tick) -> bool {
     if !((a.nanos) == (b.nanos)) {
         return false;
     }

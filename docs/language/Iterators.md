@@ -235,9 +235,9 @@ std's `range` is the pattern in one file: an `iter fn range(start, end, step)`
 and two overloads, `fn range(start: Int, end: Int) -> iter Int` and `fn
 range(end: Int) -> iter Int`, each delegating to it.
 
-## Iterators over iterators: `take`, `skip`
+## Iterators over iterators: `mapping`, `taking`, …
 
-`take(it, n)`, `take_while(it, keep)`, `skip(it, n)` and `skip_while(it, skip)` each answer an iterator over another one. Nothing runs until the result is driven, and each step pulls one element from the source, so they work on a source that never ends:
+A function whose name is a present participle answers an iterator over another one: `mapping(it, f)`, `filtering(it, keep)`, `taking(it, n)`, `taking_while(it, keep)`, `skipping(it, n)` and `skipping_while(it, skip)`. Nothing runs until the result is driven, and each step pulls one element from the source, so they work on a source that never ends. `map` and `filter` are their eager counterparts: they drive the source at once and answer a list.
 
 ```
 iter fn naturals(n: Int) -> Emitted Int | Finished {
@@ -249,12 +249,13 @@ iter fn naturals(n: Int) -> Emitted Int | Finished {
     return emitted(v)
 }
 
-for x in take(skip(naturals(1), 2), 3) {   // 3, 4, 5
+let odd_squares = filtering(mapping(naturals(1), (x: Int) -> x * x), (x: Int) -> x % 2 == 1)
+for x in taking(odd_squares, 3) {   // 1, 9, 25
     println("${x}")
 }
 ```
 
-`collect(it)` drives an iterator to its end and answers its elements as a list. Each adaptor is an ordinary iterator struct holding its source and the source's `next`, the same thing you would write by hand.
+`to_list(it)` drives an iterator to its end and answers its elements as a list. Each adaptor is an ordinary iterator struct holding its source and the source's `next`, the same thing you would write by hand.
 
 ## There is no iterator *type*
 

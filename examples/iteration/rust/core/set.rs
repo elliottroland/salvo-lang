@@ -3,6 +3,7 @@ use crate::core_array::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
+use crate::core_seq::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
@@ -30,7 +31,7 @@ impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetYield<
     }
 }
 
-pub fn next__17<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next__19<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());

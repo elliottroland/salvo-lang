@@ -147,3 +147,35 @@ fn main() [use] {
 A stream belongs to the provider that minted it. Handing a `MemFs` stream to the host's `Streams` (or the reverse) is a program bug and **traps**; every stream table draws its handles from one process-wide counter, so the wrong table always finds an *unknown* handle rather than someone else's live stream. The rule of thumb is all-host or all-mem, never a mix.
 
 `RestrictedFs(root)` is an **interceptor**: it declares the effect it implements, so it wraps whichever filesystem is already registered, and the same handler restricts the host's files in production and a `MemFs` in a test of the restriction itself. It intercepts `Fs` only — the policy is entirely in the opens, and what they open is read by the `Streams` in scope as usual. Paths are rebased — code under it never learns where it is really running — and one that resolves outside the root comes back as `Err PathEscapes` rather than pretending not to exist. The check is lexical, so it is not symlink-safe; that hardening belongs to the host layer and is not pretended away here.
+
+## Paths
+
+A path is a value of its own, `Path`, from `import path`, so path operations stay out of `Str`'s way:
+
+```
+import path
+
+let db = path("/var/data/board.db")
+let dir = parent(db)              // Path?: /var/data
+let name = file_name(db)          // Str?: board.db
+let ext = extension(db)           // Str?: db
+let backup = with_extension(db, "bak")
+let log = join(path("/var/log"), "board.log")
+```
+
+Every `fs` operation and one-shot takes a `Path` as well as a `Str`, so code that keeps its paths as values never spells `to_str`. A `Path` is only text: nothing about it touches a disk, and the separator is `/` on every backend.
+
+## Numbers and values in a stream
+
+`write_int`, `write_long`, `read_int` and `read_long` write and read fixed-width numbers, big-endian. `write_value(out, v)` writes any value with a wire form [noremote] in Salvo's canonical encoding, behind its length, and `read_value<T>(in)` reads one back — which is what a file of records needs:
+
+```
+import net.encode
+import net.decode
+
+let _n = write_value(out, Notice { id: "a1", body: "hello" })
+let back = read_value<Notice>(input)   // Ok Notice | End | Err Checked<StreamError>
+```
+
+The encoding is the one actors use across the network, so a file written by a Kotlin program reads back in a Rust one. A read answers `End` when the stream has ended before it, and an error when it ends part-way through or the bytes are not a value of the type asked for. The two `import`s bring the codec the call needs: a value's encoding belongs to its type, so the caller, who knows the type, supplies it.
+

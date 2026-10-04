@@ -78,12 +78,12 @@ fun main() {
     val a = Point(x = 1, y = 2)
     val b = Point(x = 1, y = 2)
     val c = Point(x = 1, y = 9)
-    val same = eq__9(a, b)
+    val same = eq__10(a, b)
     val before = cmp__5(a, c) < 0
     println(console, "4. equal $same, ordered $before")
     val n1 = Note(text = "same")
     val n2 = Note(text = "same")
-    val notesEqual = eq__10(n1, n2)
+    val notesEqual = eq__11(n1, n2)
     println(console, "4. plain struct equality $notesEqual")
     val squares = MutableList<Int>(4, { i -> i * i })
     println(console, "5. generated ${squares.joinToString(", ", "[", "]")}")
@@ -119,7 +119,7 @@ fun main() {
     println(console, "6. distinct ${unique.joinToString(", ", "[", "]")} of ${countUnique(unique)}")
     var __loop1_pass = iter__6(vowels)
     while (true) {
-        val __loop1_step = next__17(__loop1_pass)
+        val __loop1_step = next__19(__loop1_pass)
         if (__loop1_step !is Union2.U1<*, *>) { break }
         val v = __loop1_step.value as String
         console.print(v)
@@ -149,14 +149,14 @@ fun cmp__5(a: Point, b: Point): Int {
     return 0
 }
 
-fun hash__9(value: Point): Long {
+fun hash__10(value: Point): Long {
     var h = 17L
     h = ((h) * 31L + ((value.x).hashCode().toLong()))
     h = ((h) * 31L + ((value.y).hashCode().toLong()))
     return h
 }
 
-fun eq__9(a: Point, b: Point): Boolean {
+fun eq__10(a: Point, b: Point): Boolean {
     if (!((a.x) == (b.x))) {
         return false
     }
@@ -166,7 +166,7 @@ fun eq__9(a: Point, b: Point): Boolean {
     return true
 }
 
-fun eq__10(a: Note, b: Note): Boolean {
+fun eq__11(a: Note, b: Note): Boolean {
     if (!((a.text) == (b.text))) {
         return false
     }

@@ -2,6 +2,8 @@
 
 import fs
 import fs.mem
+import net.encode
+import net.decode
 
 test "fresh handles never repeat" {
     let a = fresh_handle()
@@ -71,4 +73,81 @@ test "pipe copies a stream into a file" {
             expect(false, "read back failed")
         }
     }
+}
+
+// ===== [stream-values] =====
+
+struct Rec : Hashed<self> by auto {
+    id: Str,
+    n: Long
+}
+
+// The number, or a marker: `End` is -1000, an error -2000.
+fn num(r: Ok Long | End | Err Checked<StreamError>) [] -> Long => !r {
+    when r {
+        is Ok { return r }
+        is End { return -1000L }
+        is Err {
+            ignore(r)
+            return -2000L
+        }
+    }
+}
+
+fn num(r: Ok Int | End | Err Checked<StreamError>) [] -> Long => !r {
+    when r {
+        is Ok { return to_long(r) }
+        is End { return -1000L }
+        is Err {
+            ignore(r)
+            return -2000L
+        }
+    }
+}
+
+fn rec(r: Ok Rec | End | Err Checked<StreamError>) [] -> Rec => !r {
+    when r {
+        is Ok { return r }
+        is End { return Rec { id: "end", n: 0L } }
+        is Err {
+            ignore(r)
+            return Rec { id: "err", n: 0L }
+        }
+    }
+}
+
+fn done(r: Ok None | Err Checked<StreamError>) [] -> None => !r {
+    if r is Err {
+        ignore(r)
+    }
+}
+
+test "numbers and values round-trip through a file" {
+    use MemFs()
+    let opened = open_write("/recs")
+    if opened is Err {
+        ignore(opened)
+        throw(Failure { message: "open failed" })
+    }
+    let out: OutStream = opened
+    let _a = write_int(out, -2)
+    let _b = write_long(out, 1099511627776L)
+    let _c = write_value(out, Rec { id: "x", n: -7L })
+    done(close(out))
+    let reading = open_read("/recs")
+    if reading is Err {
+        ignore(reading)
+        throw(Failure { message: "reopen failed" })
+    }
+    let s: InStream = reading
+    let i = num(read_int(s))
+    let l = num(read_long(s))
+    let r = rec(read_value<Rec>(s))
+    let end = num(read_int(s))
+    done(close(s))
+    expect_eq(i, -2L)
+    expect_eq(l, 1099511627776L)
+    expect_eq(r.id, "x")
+    expect_eq(r.n, -7L)
+    expect_eq(end, -1000L)
 }

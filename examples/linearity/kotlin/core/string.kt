@@ -17,7 +17,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__18(p: StrYield): Union2<Char, Finished> {
+fun next__20(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return Union2.U2<Char, Finished>(finished())

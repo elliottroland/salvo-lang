@@ -1813,9 +1813,9 @@ fn deduction_entry_forms_are_validated() {
 fn bodyless_declarations_must_be_explicit() {
     let dir = src_dir("decl_explicit");
 
-    // An effect member missing the two that apply to it (effects are
-    // forbidden there [effect-member-no-effects], so they are not asked
-    // for).
+    // An effect member missing its clause (effects are forbidden there
+    // [effect-member-no-effects], so they are not asked for, and a missing
+    // return type is `None` [effect-member-none]).
     fs::write(
         dir.join("main.sv"),
         "effect Sink {\n    fn eat(x: Str)\n}\n",
@@ -1827,7 +1827,7 @@ fn bodyless_declarations_must_be_explicit() {
     // [deduce-syntax] The clause is required per parameter (Copy scalars
     // exempt), not as a whole.
     assert!(
-        stderr.contains("effect member `eat` must declare its return type")
+        !stderr.contains("effect member `eat` must declare its return type")
             && stderr.contains(
                 "an effect member has no body to infer from, so its deduction clause must say \
                  what happens to `x`"

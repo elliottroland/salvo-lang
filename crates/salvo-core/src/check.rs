@@ -4447,6 +4447,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [decl-explicit] The effect-member form: return type and deductions
     /// are required, effects are forbidden [effect-member-no-effects].
     fn require_explicit_member(&mut self, f: &FnDecl) {
+        // [effect-member-none] An effect member's absent return type is
+        // `None`, as a fn's is (user decision 2026-10-04): the clause and the
+        // parameters still say everything else.
         self.require_explicit(f, "effect member", false);
     }
 
@@ -4455,7 +4458,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [actor-send-fn] A `send fn` answers nothing — the reply, if there
         // is one, is a `Reply<T>` parameter — so there is no return type to
         // require, and writing one is its own error (`check_send_member`).
-        if f.return_type.is_none() && !f.is_send {
+        if f.return_type.is_none() && !f.is_send && kind != "effect member" {
             self.error(
                 f.name.span,
                 format!(
@@ -6504,7 +6507,44 @@ impl<'p, 'r> Checker<'p, 'r> {
         // to the fn path and cannot run before the side is known. A bare
         // lambda in a *colliding* call therefore needs an annotation — an
         // error, never a silent difference (recorded cut, ROADMAP.md).
-        let arg_tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+        //
+        // [lit-numeric] Except a numeric literal, which adopts the one numeric
+        // type both sides name at its position, as on the fn path: a `Path`
+        // overload of `open_read_at(Str, Long)` must not turn `5` into a
+        // mismatch (found 2026-10-04).
+        let mut position_tys: Vec<Vec<Ty>> = Vec::new();
+        for decl in members.iter().copied().chain(fn_cands.iter().map(|e| e.decl)) {
+            position_tys.push(self.declared_param_tys(decl));
+        }
+        let arg_tys: Vec<Ty> = args
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let want = match a {
+                    Expr::Int { long: false, .. } | Expr::Float { single: false, .. } => {
+                        let float = matches!(a, Expr::Float { .. });
+                        let own = if float { "Double" } else { "Int" };
+                        let mut names: Vec<String> = Vec::new();
+                        for tys in &position_tys {
+                            if let Some(Ty::Named { name, args }) = tys.get(i) {
+                                if args.is_empty()
+                                    && matches!(name.as_str(), "Int" | "Long" | "Float" | "Double" | "Byte")
+                                    && !names.contains(name)
+                                {
+                                    names.push(name.clone());
+                                }
+                            }
+                        }
+                        match names.as_slice() {
+                            [one] if one != own => Some(Ty::named(one)),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+                self.check_expr(a, want.as_ref())
+            })
+            .collect();
         let m = self.fitting_members(effect, members, &arg_tys);
         let f = self.fitting_fns(fn_cands, &arg_tys);
         let shown = |tys: &[Ty]| -> String {
@@ -28220,8 +28260,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     _ => continue,
                 };
                 // Unknown effect names are reported at the callee's own
-                // declaration; skip them here.
-                if !self.scope.effects.contains_key(r.name.name.as_str()) {
+                // declaration; skip them here. Known *where the callee wrote
+                // them* [type-identity]: a caller need not import an effect
+                // the callee requires — `read_to_str`'s implied `Streams`
+                // [effect-prereq] is `fs`'s to name, not the caller's (a
+                // caller that imported `fs` alone dropped it until
+                // 2026-10-04, and the target compiler refused the call).
+                if !self.scope_of(r).effects.contains_key(r.name.name.as_str()) {
                     continue;
                 }
                 let empty = HashMap::new();

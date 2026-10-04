@@ -321,3 +321,131 @@ export fn copy_stream(s: InStream, w: OutStream) [Streams] -> Ok Long | Err Chec
     }
     return ok(total)
 }
+
+// ===== numbers and values [stream-values] =====
+//
+// Fixed-width numbers, big-endian and two's complement, and whole values in
+// Salvo's canonical encoding behind a length (user decision 2026-10-04): what
+// a file of records is written and read back with. Ordinary Salvo over
+// `write_bytes` and `read_bytes`, so a fake `Streams` reads and writes them
+// too. A read answers `End` when the stream ends before the first byte, and
+// an error when it ends inside a number or a value, or the bytes do not
+// decode as the value asked for.
+
+// [stream-values] Writes [v] as 4 bytes, big-endian; answers the bytes
+// written.
+export fn write_int(s: OutStream, v: Int) [Streams] -> Long => s {
+    return write_bytes(s, fixed_bytes(to_long(v), 4))
+}
+
+// [stream-values] Writes [v] as 8 bytes, big-endian; answers the bytes
+// written.
+export fn write_long(s: OutStream, v: Long) [Streams] -> Long => s {
+    return write_bytes(s, fixed_bytes(v, 8))
+}
+
+// [stream-values] Writes [v] in the canonical encoding [wire-encoding],
+// behind its length as a 4-byte `Int`, so [read_value] knows where it ends;
+// answers the bytes written. The codec is an implicit, `net`'s `encode` at
+// the caller's concrete type: a wire form is the instantiation's, so a
+// generic body cannot name it [noremote].
+export fn write_value<T>(s: OutStream, v: T, ?encode: (v: T) -> Bytes) [Streams] -> Long
+=>[encode] !v => s, !v {
+    let data = encode(v)
+    let n = write_int(s, size(data))
+    return n + write_bytes(s, data)
+}
+
+// [stream-values] Reads a 4-byte big-endian `Int`.
+export fn read_int(s: InStream) [Streams] -> Ok Int | End | Err Checked<StreamError> => s {
+    let r = read_fixed(s, 4)
+    when r {
+        is Ok { return ok(to_int(r)) }
+        is End { return End {} }
+        is Err { return r }
+    }
+}
+
+// [stream-values] Reads an 8-byte big-endian `Long`.
+export fn read_long(s: InStream) [Streams] -> Ok Long | End | Err Checked<StreamError> => s {
+    return read_fixed(s, 8)
+}
+
+// [stream-values] Reads a value [write_value] wrote: its length, then that
+// many bytes, decoded as a `T` by the implicit `decode` (`net`'s, at the
+// caller's type).
+export fn read_value<T>(s: InStream, ?decode: (data: Bytes) -> T?) [Streams] -> Ok T | End | Err Checked<StreamError>
+=> s {
+    let len = read_int(s)
+    if len is End {
+        return End {}
+    }
+    if len is Err {
+        return len
+    }
+    let n: Int = len
+    let data = read_bytes(s, n)
+    if data is Err {
+        return data
+    }
+    let bytes: Bytes = data
+    if size(bytes) < n {
+        return err(checked<StreamError>(StreamFailed { source: "read_value", message: "the stream ended inside a value" }))
+    }
+    let v = decode(bytes)
+    if v is None {
+        return err(checked<StreamError>(StreamFailed { source: "read_value", message: "the bytes are not a value of the type asked for" }))
+    }
+    return ok(v)
+}
+
+// [v] as [width] big-endian bytes, two's complement: the low byte is the
+// floor remainder by 256, and the rest is the exact quotient, which is an
+// arithmetic shift for a negative number too.
+fn fixed_bytes(v: Long, width: Int) [] -> Bytes => v, width {
+    let out = mut_bytes()
+    let rest = copy(v)
+    let i = 0
+    while i < width {
+        let low = rest % 256L
+        if low < 0L {
+            low = low + 256L
+        }
+        add(out, to_byte(to_int(low)))
+        rest = (rest - low) / 256L
+        i = i + 1
+    }
+    let back = mut_bytes()
+    let j = width - 1
+    while j >= 0 {
+        add(back, get(out, j)!)
+        j = j - 1
+    }
+    return back
+}
+
+// [width] big-endian bytes as a number: the first byte carries the sign.
+fn read_fixed(s: InStream, width: Int) [Streams] -> Ok Long | End | Err Checked<StreamError> => s, width {
+    let r = read_bytes(s, width)
+    if r is Err {
+        return r
+    }
+    let data: Bytes = r
+    if size(data) == 0 {
+        return End {}
+    }
+    if size(data) < width {
+        return err(checked<StreamError>(StreamFailed { source: "read", message: "the stream ended inside a number" }))
+    }
+    let first = to_long(to_int(get(data, 0)!))
+    if first >= 128L {
+        first = first - 256L
+    }
+    let v = first
+    let i = 1
+    while i < width {
+        v = v * 256L + to_long(to_int(get(data, i)!))
+        i = i + 1
+    }
+    return ok(v)
+}

@@ -78,6 +78,8 @@ effect Console {
 }
 ```
 
+A member with no return type returns `None`, as a function does, so `fn println(message: Str) => message` declares the same member. Its deduction clause is still required: with no body there is nothing to infer it from.
+
 Suppose we want to write a function which uses the Random and Console effects. Then we can write the following:
 
 ```

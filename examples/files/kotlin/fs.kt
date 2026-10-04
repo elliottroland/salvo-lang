@@ -11,6 +11,7 @@ import salvo.core.result.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
+import salvo.path.*
 import salvo.stream.*
 
 // Factories for the host: one per arm of the union [platform-factory].
@@ -125,7 +126,7 @@ fun toStr(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory,
             return "io error: ${(kind.value as IoError).path}: ${(kind.value as IoError).message}"
         }
         is Union7.U7<*, *, *, *, *, *, *> -> {
-            return toStr__4((kind.value as Streaming).error)
+            return toStr__5((kind.value as Streaming).error)
         }
     }
 }
@@ -265,7 +266,7 @@ fun readLines(fs: Fs, streams: Streams, path: String): Union2<List<String>, Chec
     val p = lines__2((opened.value as InStream))
     val out: MutableList<String> = mutableListOf<String>()
     while (true) {
-        val __loop1_step = next__19(streams, p)
+        val __loop1_step = next__21(streams, p)
         if (__loop1_step !is Union2.U1<String, Finished>) { break }
         val line = __loop1_step.value
         out.add(line)
@@ -370,4 +371,76 @@ fun copyFile(fs: Fs, streams: Streams, from: String, to: String): Union2<Long, C
         return Union2.U2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((shutS.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
     return Union2.U1<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok((moved.value as Long)))
+}
+
+fun openRead(fs: Fs, streams: Streams, p: Path): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.openRead(toStr__4(p))
+}
+
+fun openReadAt(fs: Fs, streams: Streams, p: Path, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.openReadAt(toStr__4(p), offset)
+}
+
+fun openWrite(fs: Fs, streams: Streams, p: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.openWrite(toStr__4(p))
+}
+
+fun openAppend(fs: Fs, streams: Streams, p: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.openAppend(toStr__4(p))
+}
+
+fun exists(fs: Fs, streams: Streams, p: Path): Boolean {
+    return fs.exists(toStr__4(p))
+}
+
+fun metadata(fs: Fs, streams: Streams, p: Path): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.metadata(toStr__4(p))
+}
+
+fun listDir(fs: Fs, streams: Streams, p: Path): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.listDir(toStr__4(p))
+}
+
+fun createDirs(fs: Fs, streams: Streams, p: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.createDirs(toStr__4(p))
+}
+
+fun delete(fs: Fs, streams: Streams, p: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.delete(toStr__4(p))
+}
+
+fun openLines__2(fs: Fs, streams: Streams, p: Path): Union2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return openLines(fs, streams, toStr__4(p))
+}
+
+fun openChunks__2(fs: Fs, streams: Streams, p: Path, size: Int): Union2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return openChunks(fs, streams, toStr__4(p), size)
+}
+
+fun readToStr__2(fs: Fs, streams: Streams, p: Path): Union2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return readToStr(fs, streams, toStr__4(p))
+}
+
+fun readLines__2(fs: Fs, streams: Streams, p: Path): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return readLines(fs, streams, toStr__4(p))
+}
+
+fun writeStr__2(fs: Fs, streams: Streams, p: Path, content: String): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return writeStr(fs, streams, toStr__4(p), content)
+}
+
+fun readToBytes__2(fs: Fs, streams: Streams, p: Path): Union2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return readToBytes(fs, streams, toStr__4(p))
+}
+
+fun writeBytesTo__2(fs: Fs, streams: Streams, p: Path, data: salvo.SalvoBytes): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return writeBytesTo(fs, streams, toStr__4(p), salvo.SalvoBytes(data))
+}
+
+fun renamePath(fs: Fs, streams: Streams, from: Path, to: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.renamePath(toStr__4(from), toStr__4(to))
+}
+
+fun copyFile__2(fs: Fs, streams: Streams, from: Path, to: Path): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return copyFile(fs, streams, toStr__4(from), toStr__4(to))
 }

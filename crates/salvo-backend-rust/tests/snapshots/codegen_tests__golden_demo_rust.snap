@@ -563,7 +563,7 @@ impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetYield<
     }
 }
 
-pub fn next__17<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next__19<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());
@@ -634,7 +634,7 @@ pub struct StrYield<'s> {
     pub at: i32,
 }
 
-pub fn next__18(p: &mut StrYield<'_>) -> Union2<char, Finished> {
+pub fn next__20(p: &mut StrYield<'_>) -> Union2<char, Finished> {
     let mut chr = p.text.chars().nth((p.at) as i64 as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
@@ -789,7 +789,7 @@ pub fn full_name(person: &Person) -> String {
 pub fn greet(console: &crate::core_console::Console, person: &Person) {
     println(console, &(format!("Hello, {}!", full_name(person))));
     let mut __loop1_pass = iter__10(&(upto(1, 4)));
-    while let Union2::U1(mut i) = next__21(&mut __loop1_pass) {
+    while let Union2::U1(mut i) = next__23(&mut __loop1_pass) {
         println(console, &(format!("  {}: {}", i, person.age + i)));
     }
 }
@@ -840,7 +840,7 @@ pub fn iter__10(r: &Upto) -> __Iter_iter_Upto {
     return __Iter_iter_Upto { end: r.end, at: r.start };
 }
 
-pub fn next__21(__p: &mut __Iter_iter_Upto) -> Union2<i32, Finished> {
+pub fn next__23(__p: &mut __Iter_iter_Upto) -> Union2<i32, Finished> {
     if __p.at >= __p.end {
         return Union2::<i32, Finished>::U2(finished());
     }

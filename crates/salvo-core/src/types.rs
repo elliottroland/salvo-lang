@@ -1046,6 +1046,15 @@ pub fn spec_cmp(a: &Ty, b: &Ty) -> Option<std::cmp::Ordering> {
         // dimension, so `proj Mut Str` vs `Str` (more qualifiers, less
         // ownership) is unrankable rather than a guess.
         (Ty::Qualified { .. }, _) | (_, Ty::Qualified { .. }) => {
+            // [fn-overload-rank] Rule 1 first: a type variable says least
+            // whatever its qualifiers, so `Set<T>` beats `Mut It` for a `Mut
+            // Set<Str>` (user decision 2026-10-04) — a qualifier on a type
+            // variable is a permission it asks for, not knowledge of the type.
+            match (matches!(a.strip_quals(), Ty::Var(_)), matches!(b.strip_quals(), Ty::Var(_))) {
+                (true, false) => return Some(Less),
+                (false, true) => return Some(Greater),
+                _ => {}
+            }
             let (mut qa, mut qb) = (qual_names(a), qual_names(b));
             let pa = qa.iter().position(|q| *q == "proj").map(|i| qa.remove(i)).is_some();
             let pb = qb.iter().position(|q| *q == "proj").map(|i| qb.remove(i)).is_some();

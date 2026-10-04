@@ -16697,6 +16697,17 @@ impl<'p> Emitter<'p> {
     /// with the call's arguments substituted names `E` concretely, which is
     /// what lets the one type-argument-reading intrinsic render itself as a
     /// value. `None` when the position is not of that shape.
+    /// [stream-values] The type an `encode`/`decode` value codes, read off the
+    /// fn type of the position it fills: `encode`'s parameter, `decode`'s
+    /// result without its `None`.
+    fn codec_position_type(name: &str, want: &Ty) -> Option<Ty> {
+        let Ty::Fn { params, ret, .. } = want.strip_quals() else {
+            return None;
+        };
+        let t = if name == "encode" { params.first()?.clone() } else { ret.without_none() };
+        ty_is_concrete(&t).then_some(t)
+    }
+
     fn protocol_position_effect(want: &Ty) -> Option<String> {
         let Ty::Fn { ret, .. } = want.strip_quals() else { return None };
         let Ty::Named { name, args } = ret.strip_quals() else { return None };
@@ -16960,6 +16971,31 @@ impl<'p> Emitter<'p> {
                                     None => {
                                         self.error(format!(
                                             "`protocol` fills `?{name}: {want}`, which does not name a concrete effect"
+                                        ));
+                                        "todo!()".to_string()
+                                    }
+                                }
+                            } else if decl.intrinsic && matches!(decl.name.name.as_str(), "encode" | "decode") {
+                                // [stream-values] [wire-format] `encode` /
+                                // `decode` as a value, at the type the
+                                // position was resolved at, as `protocol`.
+                                match Self::codec_position_type(&decl.name.name, want) {
+                                    Some(t) => {
+                                        self.needs_wire = true;
+                                        let rs = self.rust_ty(&t);
+                                        if decl.name.name == "encode" {
+                                            format!(
+                                                "crate::wire::salvo_encode::<{rs}>(<_ as std::borrow::Borrow<{rs}>>::borrow(&{}))",
+                                                params[0]
+                                            )
+                                        } else {
+                                            format!("crate::wire::salvo_decode::<{rs}>(&{})", params[0])
+                                        }
+                                    }
+                                    None => {
+                                        self.error(format!(
+                                            "`{}` fills `?{name}: {want}`, which does not name a concrete type",
+                                            decl.name.name
                                         ));
                                         "todo!()".to_string()
                                     }

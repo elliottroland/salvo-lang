@@ -8,6 +8,7 @@ use crate::core_result::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::path::*;
 use crate::stream::*;
 use crate::unions::*;
 
@@ -174,7 +175,7 @@ pub fn to_str(kind: &Union7<NotFound, PermissionDenied, AlreadyExists, NotADirec
             return format!("io error: {}: {}", kind.u6().clone().path.clone(), kind.u6().clone().message.clone());
         }
         Union7::U7(_) => {
-            return to_str__4(&kind.u7().clone().error);
+            return to_str__5(&kind.u7().clone().error);
         }
     }
 }
@@ -365,7 +366,7 @@ pub fn read_lines(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &S
     }
     let mut p = lines__2((match opened { Union2::U1(__v) => __v, _ => unreachable!() }));
     let mut out: Vec<String> = vec![];
-    while let Union2::U1(mut line) = next__19(streams, &mut p) {
+    while let Union2::U1(mut line) = next__21(streams, &mut p) {
         out.push(line);
     }
     let mut closed = close__2(streams, p);
@@ -464,4 +465,76 @@ pub fn copy_file(fs: &crate::fs::Fs, streams: &crate::stream::Streams, from: &St
         return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_stream_error((match shut_s { Union2::U2(__v) => __v, _ => unreachable!() }))));
     }
     return Union2::<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(*moved.u1()));
+}
+
+pub fn open_read(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.open_read(&(to_str__4(p)));
+}
+
+pub fn open_read_at(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path, offset: i64) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.open_read_at(&(to_str__4(p)), offset);
+}
+
+pub fn open_write(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.open_write(&(to_str__4(p)));
+}
+
+pub fn open_append(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.open_append(&(to_str__4(p)));
+}
+
+pub fn exists(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> bool {
+    return fs.exists(&(to_str__4(p)));
+}
+
+pub fn metadata(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.metadata(&(to_str__4(p)));
+}
+
+pub fn list_dir(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> Union2<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.list_dir(&(to_str__4(p)));
+}
+
+pub fn create_dirs(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.create_dirs(&(to_str__4(p)));
+}
+
+pub fn delete(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.delete(&(to_str__4(p)));
+}
+
+pub fn open_lines__2(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> Union2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return open_lines(fs, streams, &(to_str__4(p)));
+}
+
+pub fn open_chunks__2(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path, size: i32) -> Union2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return open_chunks(fs, streams, &(to_str__4(p)), size);
+}
+
+pub fn read_to_str__2(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> Union2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return read_to_str(fs, streams, &(to_str__4(p)));
+}
+
+pub fn read_lines__2(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> Union2<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return read_lines(fs, streams, &(to_str__4(p)));
+}
+
+pub fn write_str__2(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path, content: &String) -> Union2<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return write_str(fs, streams, &(to_str__4(p)), &(content.clone()));
+}
+
+pub fn read_to_bytes__2(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path) -> Union2<Vec<u8>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return read_to_bytes(fs, streams, &(to_str__4(p)));
+}
+
+pub fn write_bytes_to__2(fs: &crate::fs::Fs, streams: &crate::stream::Streams, p: &Path, data: &Vec<u8>) -> Union2<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return write_bytes_to(fs, streams, &(to_str__4(p)), &(data.clone()));
+}
+
+pub fn rename_path(fs: &crate::fs::Fs, streams: &crate::stream::Streams, from: &Path, to: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return fs.rename_path(&(to_str__4(from)), &(to_str__4(to)));
+}
+
+pub fn copy_file__2(fs: &crate::fs::Fs, streams: &crate::stream::Streams, from: &Path, to: &Path) -> Union2<i64, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return copy_file(fs, streams, &(to_str__4(from)), &(to_str__4(to)));
 }

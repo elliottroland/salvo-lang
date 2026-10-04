@@ -202,12 +202,15 @@ a correct program from building. std works around the first by naming.
    top-level fn of the module (mangled `skip__2`), `skip(x)` is emitted as
    `skip__2(x)`. Repro: `core.seq`'s `SkipWhile` next, written with
    `let skip = t.skip`, failed kotlinc with "unresolved reference 'skip__2'".
-17. **A module's own fn does not beat a generic import of the same name**:
-   with `fn tally<T>(xs: List<T>)` in `main` and an imported `fn
-   tally<It>(it: Mut It)`, `tally(mut_list_of(1, 2))` is reported ambiguous,
-   where [fn-overload-scope] says the more specific scope wins first. Repro:
-   two files, `main.sv` importing `lib.gen`. Found adding a generic
-   `count(it)` to `core.seq` (dropped for it).
+17. **An overload whose implicits cannot be filled still competes**: a
+   generic `count<It, T>(it: Mut It, ?Yield<It, T>)` fits a `Mut List<Int>`
+   by type, so where the program's own `count(NonEmpty List<T>)` does not fit
+   the call reports "no `next` fits … for `count`" rather than "no matching
+   overload". Dropping a candidate whose implicits do not resolve before
+   ranking would fix it; until then std has no generic `count(it)`. Repro:
+   `analyze_tests::a_refinement_recovers_a_qualifier_stripped_by_a_mutating_call`'s
+   control, with such a `count` in `core.seq`.
+
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 
@@ -229,6 +232,35 @@ decision 2026-10-02), to be revisited once the port lands. First candidates:
 
 Genuinely the host's, for contrast: `Dyn`'s erasure and downcast, `Parker`,
 `start_thread`, `guarded`, `secure_bits`, the clock.
+
+### 0f — Slices: `proj List<T>` and `proj Mut List<T>` (user, 2026-10-04, not built)
+
+A slice is a view of a contiguous range of a list: `proj List<T>` to read,
+`proj Mut List<T>` to write through. In Salvo it is the existing projection
+of the list with a range attached, so it is borrowed from the list, lives no
+longer than it, and copies nothing; on Rust it lowers to `&[T]` / `&mut [T]`,
+on Kotlin to `subList` (a view there too). What it needs: a slice type the
+checker treats as a `List<T>` for reading (`get`, `size`, `iter`, `for`),
+`sub_list` answering one, and lifetime emission on Rust for a slice
+returned from a generic fn (the gap that made `sub_list` copy).
+
+Functions that would change once slices exist:
+
+- `sub_list(list, from, to)` → answers `proj List<T>` (today a copy, by
+  `?copy`); a `Mut List` argument answers `proj Mut List<T>`.
+- `partition(list, pick)` → stays a copy (a partition is not contiguous),
+  but `split_at(list, i) -> (proj List<T>, proj List<T>)` becomes possible.
+- `remove_front`/`remove_back` and the `_while` forms → unchanged (they move
+  elements out), but read-only twins `front(list, n)` / `back(list, n)` /
+  `front_while` / `back_while` become slices instead of copies.
+- `find_first`/`find_last`, `index_of`, `contains`, `any`, `all`, `count`,
+  `reverse` → take a slice wherever they take a list, so they work on a range
+  without copying it (a slice *is* a list for reading, so this may come
+  free).
+- `Bytes`'s `slice` and `Str`'s `substr` → the same idea for their own
+  types; decide whether they become `proj Bytes` / `proj Str` views too.
+- `Deque` → has no contiguous storage on Kotlin (`ArrayDeque` is a ring), so
+  it gets no slices.
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 

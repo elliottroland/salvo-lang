@@ -288,7 +288,7 @@ Conventions:
 * [rs-lazy-adaptor] [seq-lazy] **A struct over an iterator** (2026-10-03):
   a struct's type parameters carry `Clone` but not `'static`, since a lazy
   adaptor is instantiated at a pass that borrows its source
-  (`Take<ListYield<'s, T>, &T>`); a fn field's callback is `'static` by its
+  (`Taking<ListYield<'s, T>, &T>`); a fn field's callback is `'static` by its
   own bound, which is all the struct needs. A fn that hands back such a struct
   takes its callbacks owned as `impl Fn(…) + Send + Sync + 'static` (the
   `Arc<dyn Fn + Send + Sync>` field's bounds), and that includes the fns an

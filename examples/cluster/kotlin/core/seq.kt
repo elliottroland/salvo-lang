@@ -77,13 +77,61 @@ fun<D, It, T> filterTo(dest: D, it: It, keep: (T) -> Boolean, add: (D, T) -> Uni
 fun<T> drop(value: T) {
 }
 
-data class Take<It, T>(
+data class Mapping<It, T, U>(
+    var src: It,
+    var step: (It) -> Union2<T, Finished>,
+    var f: (T) -> U,
+)
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun<It, T, U> next__13(m: Mapping<It, T, U>): Union2<U, Finished> {
+    val step = m.step
+    val x = step(m.src)
+    if (x is Union2.U2<*, *>) {
+        return Union2.U2<U, Finished>(finished())
+    }
+    val f = m.f
+    val y: U = f((x.value as T))
+    return Union2.U1<U, Finished>(emitted(y))
+}
+
+fun<It, T, U> mapping(it: It, f: (T) -> U, next: (It) -> Union2<T, Finished>): Mapping<It, T, U> {
+    return Mapping(src = it, step = next, f = f)
+}
+
+data class Filtering<It, T>(
+    var src: It,
+    var step: (It) -> Union2<T, Finished>,
+    var keep: (T) -> Boolean,
+)
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun<It, T> next__14(t: Filtering<It, T>): Union2<T, Finished> {
+    val step = t.step
+    val keep = t.keep
+    while (true) {
+        val x = step(t.src)
+        if (x is Union2.U2<*, *>) {
+            return Union2.U2<T, Finished>(finished())
+        }
+        if (keep((x.value as T))) {
+            return Union2.U1<T, Finished>(emitted((x.value as T)))
+        }
+    }
+    return Union2.U2<T, Finished>(finished())
+}
+
+fun<It, T> filtering(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, Finished>): Filtering<It, T> {
+    return Filtering(src = it, step = next, keep = keep)
+}
+
+data class Taking<It, T>(
     var src: It,
     var step: (It) -> Union2<T, Finished>,
     var left: Int,
 )
 
-fun<It, T> next__13(t: Take<It, T>): Union2<T, Finished> {
+fun<It, T> next__15(t: Taking<It, T>): Union2<T, Finished> {
     if (t.left <= 0) {
         return Union2.U2<T, Finished>(finished())
     }
@@ -92,11 +140,11 @@ fun<It, T> next__13(t: Take<It, T>): Union2<T, Finished> {
     return step(t.src)
 }
 
-fun<It, T> take(it: It, n: Int, next: (It) -> Union2<T, Finished>): Take<It, T> {
-    return Take(src = it, step = next, left = n)
+fun<It, T> taking(it: It, n: Int, next: (It) -> Union2<T, Finished>): Taking<It, T> {
+    return Taking(src = it, step = next, left = n)
 }
 
-data class TakeWhile<It, T>(
+data class TakingWhile<It, T>(
     var src: It,
     var step: (It) -> Union2<T, Finished>,
     var keep: (T) -> Boolean,
@@ -104,7 +152,7 @@ data class TakeWhile<It, T>(
 )
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun<It, T> next__14(t: TakeWhile<It, T>): Union2<T, Finished> {
+fun<It, T> next__16(t: TakingWhile<It, T>): Union2<T, Finished> {
     if (t.done) {
         return Union2.U2<T, Finished>(finished())
     }
@@ -122,17 +170,17 @@ fun<It, T> next__14(t: TakeWhile<It, T>): Union2<T, Finished> {
     return Union2.U2<T, Finished>(finished())
 }
 
-fun<It, T> takeWhile(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, Finished>): TakeWhile<It, T> {
-    return TakeWhile(src = it, step = next, keep = keep, done = false)
+fun<It, T> takingWhile(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, Finished>): TakingWhile<It, T> {
+    return TakingWhile(src = it, step = next, keep = keep, done = false)
 }
 
-data class Skip<It, T>(
+data class Skipping<It, T>(
     var src: It,
     var step: (It) -> Union2<T, Finished>,
     var left: Int,
 )
 
-fun<It, T> next__15(t: Skip<It, T>): Union2<T, Finished> {
+fun<It, T> next__17(t: Skipping<It, T>): Union2<T, Finished> {
     val step = t.step
     while (t.left > 0) {
         t.left = t.left - 1
@@ -144,11 +192,11 @@ fun<It, T> next__15(t: Skip<It, T>): Union2<T, Finished> {
     return step(t.src)
 }
 
-fun<It, T> skip(it: It, n: Int, next: (It) -> Union2<T, Finished>): Skip<It, T> {
-    return Skip(src = it, step = next, left = n)
+fun<It, T> skipping(it: It, n: Int, next: (It) -> Union2<T, Finished>): Skipping<It, T> {
+    return Skipping(src = it, step = next, left = n)
 }
 
-data class SkipWhile<It, T>(
+data class SkippingWhile<It, T>(
     var src: It,
     var step: (It) -> Union2<T, Finished>,
     var skip: (T) -> Boolean,
@@ -156,7 +204,7 @@ data class SkipWhile<It, T>(
 )
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun<It, T> next__16(t: SkipWhile<It, T>): Union2<T, Finished> {
+fun<It, T> next__18(t: SkippingWhile<It, T>): Union2<T, Finished> {
     val step = t.step
     if (t.started) {
         return step(t.src)
@@ -175,12 +223,12 @@ fun<It, T> next__16(t: SkipWhile<It, T>): Union2<T, Finished> {
     return Union2.U2<T, Finished>(finished())
 }
 
-fun<It, T> skipWhile(it: It, skip: (T) -> Boolean, next: (It) -> Union2<T, Finished>): SkipWhile<It, T> {
-    return SkipWhile(src = it, step = next, skip = skip, started = false)
+fun<It, T> skippingWhile(it: It, skip: (T) -> Boolean, next: (It) -> Union2<T, Finished>): SkippingWhile<It, T> {
+    return SkippingWhile(src = it, step = next, skip = skip, started = false)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun<It, T> collect(it: It, next: (It) -> Union2<T, Finished>): MutableList<T> {
+fun<It, T> toList(it: It, next: (It) -> Union2<T, Finished>): MutableList<T> {
     val out = mutableListOf<T>()
     while (true) {
         val __loop6_step = next(it)

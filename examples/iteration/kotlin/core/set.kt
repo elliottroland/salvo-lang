@@ -5,6 +5,7 @@ import salvo.core.array.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
+import salvo.core.seq.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
@@ -25,7 +26,7 @@ class __Codec_SetYield<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCod
     override fun dec(inp: salvo.WireIn): SetYield<T> = SetYield(salvo.ListCodec(__c_T).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<T> next__17(p: SetYield<T>): Union2<T, Finished> {
+fun<T> next__19(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return Union2.U2<T, Finished>(finished())

@@ -857,6 +857,17 @@ Conventions:
   `lines(str)` (split at `\n`, a `\r` before it dropped, no empty last line
   for a trailing newline), and `split_once(str, sep)` / `split_last(str, sep)`
   (`(before, after)?`, at the first or last `sep`).
+* [path-type] **`path.Path` is a path as a value** (user decision
+  2026-10-04: a struct rather than functions over `Str`, so `Str`'s surface
+  and its completion stay free of path operations): `struct Path : Hashed<self>
+  by auto { text: Str }`, built with `path(text)`, read with `to_str`. Its
+  operations are Salvo: `join(p, child)` (an absolute child replaces, a
+  trailing `/` is not doubled), `parent` (`None` above the top; `parent(/a)` is
+  `/`), `file_name`, `extension` and `stem` (a lone leading dot is not an
+  extension), `with_extension`, `segments` (empty ones dropped) and
+  `is_absolute`. Separators are `/` on every backend. Nothing touches a disk;
+  `fs` has a `Path` overload of each operation and one-shot, forwarding the
+  text.
 * [col-span] `core.string` declares `struct Span { start: Int, end: Int }`
   — a struct, not a tuple, because a qualifier cannot apply to a tuple
   [qual-union-arm] — and `qualifier SpanOf(str: Str) of Span`
@@ -2191,9 +2202,12 @@ Conventions:
   decision 2026-09-03). A fn with **no body** — an `intrinsic fn` — must
   declare its **effect list**, **deduction clause** (every parameter but
   Copy scalars [deduce-syntax]) and **return type**; an *effect member*
-  must declare its deduction clause and return type (it may not declare
-  effects at all
-  [effect-member-no-effects]). Inference from an absent body is a guess,
+  must declare its deduction clause (it may not declare effects at all
+  [effect-member-no-effects]).
+  * [effect-member-none] An effect member with no return type returns
+    `None`, as a fn does (user decision 2026-10-04; it had to write `-> None`
+    until then): `None` is what an absent return type means everywhere else,
+    so leaving it off guesses nothing. Inference from an absent body is a guess,
   and always the most permissive one: it is how std's `add` came to be
   inferred as *keeping* the element the list had taken ownership of, so
   `add(xs, h)` then reading `h` compiled on Kotlin and was rejected by
@@ -2293,7 +2307,10 @@ Conventions:
 * [fn-overload-rank] **Then the most specific signature**, compared **per
   argument slot** (`types::spec_cmp`, `rank_cmp`):
   1. a **type variable** says the least, structurally (`List<Int>` beats
-     `List<T>`);
+     `List<T>`) — **whatever its qualifiers**: `Set<T>` beats `Mut It` for a
+     `Mut Set<Str>` argument, since a qualifier on a type variable is a
+     permission the fn asks for, not knowledge of the type (user decision
+     2026-10-04; it was unrankable under rule 3 until then);
   2. **union arms compare as sets**: fewer arms says more, so `Int` beats
      `Int | Str` beats `Int | Str | Bool`, and `Int` beats `Int?`. `Any` is
      the broadest type, so it is always least specific — which is why the
@@ -2646,17 +2663,19 @@ Conventions:
   * An **effectful** `next` is a codegen error for now: its handlers would
     have to be threaded into every turn of the loop, which is phase I4
     [backend-never-wrong].
-* [seq-lazy] **Lazy adaptors** (2026-10-03, user request): `take(it, n)`,
-  `take_while(it, keep)`, `skip(it, n)` and `skip_while(it, skip)` answer an
-  iterator over another, and nothing runs until it is driven, so an endless
-  source costs nothing and a `break` stops it. Each is a struct (`Take<It,
-  T>`, …) holding the source iterator and the source's `next`, kept as a fn
-  field from the `?Yield<It, T>` implicit, plus its own state; its `next`
-  pulls one element at a time. `collect(it)` drives one to its end as a list
-  (a view of a borrowing source's elements, as `filter`'s is; named
-  `collect` because a generic `to_list(it)` made every container's own
-  `to_list` ambiguous). `map` and `filter` are still eager. Rust:
-  [rs-lazy-adaptor].
+* [seq-lazy] **Lazy adaptors are named by a present participle** (user
+  decisions 2026-10-03/04): `mapping(it, f)`, `filtering(it, keep)`,
+  `taking(it, n)`, `taking_while(it, keep)`, `skipping(it, n)` and
+  `skipping_while(it, skip)` answer an iterator over another, while `map` and
+  `filter` stay eager and answer lists. Nothing runs until the iterator is
+  driven, so an endless source costs nothing and a `break` stops it. Each is
+  a struct (`Mapping<It, T, U>`, `Taking<It, T>`, …) holding the source
+  iterator and the source's `next`, kept as a fn field from the `?Yield<It,
+  T>` implicit, plus its own state; its `next` pulls one element at a time.
+  `to_list(it)` drives one to its end as a list (a view of a borrowing
+  source's elements, as `filter`'s is); a container's own `to_list` is more
+  specific and wins [fn-overload-rank]. There is no `count(it)`: see ROADMAP
+  0c item 17. Rust: [rs-lazy-adaptor].
 * [seq-iterator] std's sequence functions (`map`, `filter`, `reduce`) take their
   subject as an **iterator** and reach its `next` through a `?Yield<It, T>`
   spread [implicit-group] — the group std declares for iteration — so any
@@ -4209,6 +4228,20 @@ Conventions:
   handle, and `salvo_stream_take_in` / `SalvoStreams.takeIn` take a stream
   out for host code to read itself (the S3 glue's upload), read-ahead first.
   `HostRawFs` registers what it opens.
+* [stream-values] **Numbers and values on a stream** (user decision
+  2026-10-04): `write_int`/`write_long` and `read_int`/`read_long` (4 and 8
+  bytes, big-endian, two's complement), and `write_value(out, v)` /
+  `read_value<T>(in)`: the canonical encoding [wire-format] behind a 4-byte
+  length. Ordinary Salvo over `write_bytes` and `read_bytes`, so a fake
+  `Streams` serves them. A read answers `Ok …`, `End` when the stream ends
+  before the first byte, or `Err Checked<StreamError>` when it ends inside a
+  number or value, or the bytes do not decode as the type asked for. The
+  codec is an implicit (`?encode: (v: T) -> Bytes`, `?decode: (data: Bytes)
+  -> T?`), filled at the caller's concrete type by `net`'s `encode`/`decode`
+  — which the caller imports — since a wire form is the instantiation's and a
+  generic body may not name it [noremote]. Both backends lower `encode`/
+  `decode` as a value at the type of the position they fill, as they do for
+  `protocol`.
 * [stream-receive] **`Streams.receive(s, reply: Reply<Received>)` reads
   without blocking** (§4b step 3d, 2026-09-29): it consumes the stream and the
   answer hands it back — `Received = Ok Packet | End | Err

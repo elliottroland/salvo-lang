@@ -25,6 +25,7 @@
 //     double that fakes both fakes them too.
 
 import stream
+import path
 
 // ===== errors =====
 
@@ -280,4 +281,81 @@ export fn copy_file(from: Str, to: Str) [Fs] -> Ok Long | Err Checked<FsError> =
         return err(fs_stream_error(shut_s))
     }
     return ok(moved)
+}
+
+// ===== the same, at a `Path` [path-type] =====
+//
+// Each takes the path as a [Path] and forwards its text, so a program that
+// keeps its paths as values never spells `to_str`.
+
+export fn open_read(p: Path) [Fs] -> Ok InStream | Err Checked<FsError> => p {
+    return open_read(to_str(p))
+}
+
+export fn open_read_at(p: Path, offset: Long) [Fs] -> Ok InStream | Err Checked<FsError> => p {
+    return open_read_at(to_str(p), offset)
+}
+
+export fn open_write(p: Path) [Fs] -> Ok OutStream | Err Checked<FsError> => p {
+    return open_write(to_str(p))
+}
+
+export fn open_append(p: Path) [Fs] -> Ok OutStream | Err Checked<FsError> => p {
+    return open_append(to_str(p))
+}
+
+export fn exists(p: Path) [Fs] -> Bool => p {
+    return exists(to_str(p))
+}
+
+export fn metadata(p: Path) [Fs] -> Ok FileInfo | Err Checked<FsError> => p {
+    return metadata(to_str(p))
+}
+
+export fn list_dir(p: Path) [Fs] -> Ok List<Str> | Err Checked<FsError> => p {
+    return list_dir(to_str(p))
+}
+
+export fn create_dirs(p: Path) [Fs] -> Ok None | Err Checked<FsError> => p {
+    return create_dirs(to_str(p))
+}
+
+export fn delete(p: Path) [Fs] -> Ok None | Err Checked<FsError> => p {
+    return delete(to_str(p))
+}
+
+export fn open_lines(p: Path) [Fs] -> Ok Mut Lines | Err Checked<FsError> => p {
+    return open_lines(to_str(p))
+}
+
+export fn open_chunks(p: Path, size: Int) [Fs] -> Ok Mut Chunks | Err Checked<FsError> => p {
+    return open_chunks(to_str(p), size)
+}
+
+export fn read_to_str(p: Path) [Fs] -> Ok Str | Err Checked<FsError> => p {
+    return read_to_str(to_str(p))
+}
+
+export fn read_lines(p: Path) [Fs] -> Ok List<Str> | Err Checked<FsError> => p {
+    return read_lines(to_str(p))
+}
+
+export fn write_str(p: Path, content: Str) [Fs] -> Ok Long | Err Checked<FsError> => p, content {
+    return write_str(to_str(p), copy(content))
+}
+
+export fn read_to_bytes(p: Path) [Fs] -> Ok Bytes | Err Checked<FsError> => p {
+    return read_to_bytes(to_str(p))
+}
+
+export fn write_bytes_to(p: Path, data: Bytes) [Fs] -> Ok Long | Err Checked<FsError> => p, data {
+    return write_bytes_to(to_str(p), copy(data))
+}
+
+export fn rename_path(from: Path, to: Path) [Fs] -> Ok None | Err Checked<FsError> => from, to {
+    return rename_path(to_str(from), to_str(to))
+}
+
+export fn copy_file(from: Path, to: Path) [Fs] -> Ok Long | Err Checked<FsError> => from, to {
+    return copy_file(to_str(from), to_str(to))
 }

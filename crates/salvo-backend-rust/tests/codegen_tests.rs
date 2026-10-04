@@ -1561,7 +1561,8 @@ fn fn_type_contracts_emit_modes() {
     );
     assert!(
         // `count` may be mangled (`count__3`): core declares one too.
-        ["count(&__a0)", "count(__a0)", "count__2(&__a0)", "count__2(__a0)"].iter().any(|c| main.content.contains(c)),
+        // `count` is mangled (`count__N`) since core declares one too.
+        main.content.contains("apply_keeping(&mut |mut __a0| count"),
         "adapter expected:\n{}",
         main.content
     );
@@ -7664,7 +7665,9 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
     // `core.deque` brought its pass and `reversed` (2026-10-02), and again
     // when `core.seq`'s lazy adaptors brought four (2026-10-03).
     assert!(
-        main.contains("next__23(&console, &mut __loop"),
+        // The suffix is the overload's mangle, which moves whenever std
+        // gains a `next`: what matters is the handler threaded in.
+        main.contains("(&console, &mut __loop") && main.contains("= next__"),
         "expected the handler threaded into the drive:\n{main}"
     );
 }

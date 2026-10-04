@@ -49,7 +49,7 @@ object __Codec_StreamFailed : salvo.WireCodec<StreamFailed> {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun toStr__4(kind: Union2<InvalidUtf8, StreamFailed>): String {
+fun toStr__5(kind: Union2<InvalidUtf8, StreamFailed>): String {
     when (kind) {
         is Union2.U1<*, *> -> {
             return "not valid UTF-8: ${(kind.value as InvalidUtf8).source}"
@@ -240,7 +240,7 @@ fun lines__2(s: InStream): Lines {
     return Lines(s = s)
 }
 
-fun next__19(streams: Streams, p: Lines): Union2<String, Finished> {
+fun next__21(streams: Streams, p: Lines): Union2<String, Finished> {
     val line = streams.readLine(p.s)
     when {
         line != null -> {
@@ -266,7 +266,7 @@ fun chunks(s: InStream, size: Int): Chunks {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun next__20(streams: Streams, p: Chunks): Union2<salvo.SalvoBytes, Finished> {
+fun next__22(streams: Streams, p: Chunks): Union2<salvo.SalvoBytes, Finished> {
     val got = streams.readBytes(p.s, p.size)
     if (got is Union2.U2<*, *>) {
         ignore((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
@@ -324,4 +324,111 @@ fun copyStream(streams: Streams, s: InStream, w: OutStream): Union2<Long, Checke
         }
     }
     return Union2.U1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(total))
+}
+
+fun writeInt(streams: Streams, s: OutStream, v: Int): Long {
+    return streams.writeBytes(s, fixedBytes((v).toLong(), 4))
+}
+
+fun writeLong(streams: Streams, s: OutStream, v: Long): Long {
+    return streams.writeBytes(s, fixedBytes(v, 8))
+}
+
+fun<T> writeValue(streams: Streams, s: OutStream, v: T, encode: (T) -> salvo.SalvoBytes): Long {
+    val data = encode(v)
+    val n = writeInt(streams, s, data.size)
+    return n + streams.writeBytes(s, data)
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun readInt(streams: Streams, s: InStream): Union3<Int, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    val r = readFixed(streams, s, 4)
+    when (r) {
+        is Union3.U1<*, *, *> -> {
+            return Union3.U1<Int, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(((r.value as Long)).toInt()))
+        }
+        is Union3.U2<*, *, *> -> {
+            return Union3.U2<Int, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(End())
+        }
+        is Union3.U3<*, *, *> -> {
+            return Union3.U3<Int, End, Checked<Union2<InvalidUtf8, StreamFailed>>>((r.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+        }
+    }
+}
+
+fun readLong(streams: Streams, s: InStream): Union3<Long, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    return readFixed(streams, s, 8)
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun<T> readValue(streams: Streams, s: InStream, decode: (salvo.SalvoBytes) -> T?): Union3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    val len = readInt(streams, s)
+    if (len is Union3.U2<*, *, *>) {
+        return Union3.U2<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(End())
+    }
+    if (len is Union3.U3<*, *, *>) {
+        return Union3.U3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>((len.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+    }
+    val n: Int = (len.value as Int)
+    val data = streams.readBytes(s, n)
+    if (data is Union2.U2<*, *>) {
+        return Union3.U3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>((data.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+    }
+    val bytes: salvo.SalvoBytes = (data.value as salvo.SalvoBytes)
+    if (bytes.size < n) {
+        return Union3.U3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U2<InvalidUtf8, StreamFailed>(StreamFailed(source = "read_value", message = "the stream ended inside a value")))))
+    }
+    val v = decode(bytes)
+    if (v == null) {
+        return Union3.U3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U2<InvalidUtf8, StreamFailed>(StreamFailed(source = "read_value", message = "the bytes are not a value of the type asked for")))))
+    }
+    return Union3.U1<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(v))
+}
+
+fun fixedBytes(v: Long, width: Int): salvo.SalvoBytes {
+    val out = salvo.SalvoBytes.joined()
+    var rest = v
+    var i = 0
+    while (i < width) {
+        var low = rest % 256L
+        if (low < 0L) {
+            low = low + 256L
+        }
+        out.add(((low).toInt()).toUByte())
+        rest = (rest - low) / 256L
+        i = i + 1
+    }
+    val back = salvo.SalvoBytes.joined()
+    var j = width - 1
+    while (j >= 0) {
+        back.add((out.getOrNull(j) ?: throw AssertionError("salvo: value is absent at stream:421:19")))
+        j = j - 1
+    }
+    return back
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun readFixed(streams: Streams, s: InStream, width: Int): Union3<Long, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    val r = streams.readBytes(s, width)
+    if (r is Union2.U2<*, *>) {
+        return Union3.U3<Long, End, Checked<Union2<InvalidUtf8, StreamFailed>>>((r.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
+    }
+    val data: salvo.SalvoBytes = (r.value as salvo.SalvoBytes)
+    if (data.size == 0) {
+        return Union3.U2<Long, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(End())
+    }
+    if (data.size < width) {
+        return Union3.U3<Long, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U2<InvalidUtf8, StreamFailed>(StreamFailed(source = "read", message = "the stream ended inside a number")))))
+    }
+    var first = (((data.getOrNull(0) ?: throw AssertionError("salvo: value is absent at stream:440:32"))).toInt()).toLong()
+    if (first >= 128L) {
+        first = first - 256L
+    }
+    var v = first
+    var i = 1
+    while (i < width) {
+        v = v * 256L + (((data.getOrNull(i) ?: throw AssertionError("salvo: value is absent at stream:447:39"))).toInt()).toLong()
+        i = i + 1
+    }
+    return Union3.U1<Long, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(v))
 }

@@ -79,7 +79,7 @@ object __Codec_AwsError : salvo.WireCodec<AwsError> {
     override fun dec(inp: salvo.WireIn): AwsError = AwsError(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp))
 }
 
-fun toStr__7(value: ProfileCredentials): String {
+fun toStr__8(value: ProfileCredentials): String {
     val out: StringBuilder = StringBuilder(listOf("ProfileCredentials {").joinToString(""))
     out.append(" ")
     out.append("profile: ${value.profile}")

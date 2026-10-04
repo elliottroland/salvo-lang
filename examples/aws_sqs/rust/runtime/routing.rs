@@ -1213,7 +1213,7 @@ pub fn same_actor(a: i32, b: i32) -> bool {
     if !__module_use_0().is_proxy(a.clone()) && !__module_use_0().is_proxy(b.clone()) {
         return false;
     }
-    return eq__4(&(identity(a)), &(identity(b)));
+    return eq__5(&(identity(a)), &(identity(b)));
 }
 
 pub fn import_addr(node: i64, actor: i64, bits: i64) -> i32 {
@@ -1519,7 +1519,7 @@ pub fn view_wait(group: i32, seen: i64, nanos: i64) {
     __module_use_0().drop_view_waiter(id);
 }
 
-pub fn hash__4(value: &RemoteRef) -> i64 {
+pub fn hash__5(value: &RemoteRef) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.actor), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
@@ -1527,7 +1527,7 @@ pub fn hash__4(value: &RemoteRef) -> i64 {
     return h;
 }
 
-pub fn eq__4(a: &RemoteRef, b: &RemoteRef) -> bool {
+pub fn eq__5(a: &RemoteRef, b: &RemoteRef) -> bool {
     if !((a.node) == (b.node)) {
         return false;
     }
@@ -1540,14 +1540,14 @@ pub fn eq__4(a: &RemoteRef, b: &RemoteRef) -> bool {
     return true;
 }
 
-pub fn hash__5(value: &ControlKey) -> i64 {
+pub fn hash__6(value: &ControlKey) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.channel[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__5(a: &ControlKey, b: &ControlKey) -> bool {
+pub fn eq__6(a: &ControlKey, b: &ControlKey) -> bool {
     if !((a.node) == (b.node)) {
         return false;
     }
@@ -1559,20 +1559,20 @@ pub fn eq__5(a: &ControlKey, b: &ControlKey) -> bool {
 
 pub struct __Hash_hash__RemoteRef_RemoteRef;
 impl SalvoHash<RemoteRef> for __Hash_hash__RemoteRef_RemoteRef {
-    fn hash(__v: &RemoteRef) -> i64 { hash__4(__v) }
+    fn hash(__v: &RemoteRef) -> i64 { hash__5(__v) }
 }
 
 pub struct __Eq_eq__RemoteRef_RemoteRef;
 impl SalvoEq<RemoteRef> for __Eq_eq__RemoteRef_RemoteRef {
-    fn eq(__a: &RemoteRef, __b: &RemoteRef) -> bool { eq__4(__a, __b) }
+    fn eq(__a: &RemoteRef, __b: &RemoteRef) -> bool { eq__5(__a, __b) }
 }
 
 pub struct __Hash_hash__ControlKey_ControlKey;
 impl SalvoHash<ControlKey> for __Hash_hash__ControlKey_ControlKey {
-    fn hash(__v: &ControlKey) -> i64 { hash__5(__v) }
+    fn hash(__v: &ControlKey) -> i64 { hash__6(__v) }
 }
 
 pub struct __Eq_eq__ControlKey_ControlKey;
 impl SalvoEq<ControlKey> for __Eq_eq__ControlKey_ControlKey {
-    fn eq(__a: &ControlKey, __b: &ControlKey) -> bool { eq__5(__a, __b) }
+    fn eq(__a: &ControlKey, __b: &ControlKey) -> bool { eq__6(__a, __b) }
 }

@@ -15,47 +15,60 @@ fn ints(xs: List<Int>) [] -> Str => xs {
     return to_str(xs)
 }
 
-test "take stops an endless source" {
+test "taking stops an endless source" {
     let out: Mut List<Int> = mut_list_of()
-    for x in take(naturals(1), 3) {
+    for x in taking(naturals(1), 3) {
         add(out, x)
     }
     expect_eq(to_str(out), "[1, 2, 3]")
 }
 
-test "take_while stops at the first refusal" {
+test "taking_while stops at the first refusal" {
     let out: Mut List<Int> = mut_list_of()
-    for x in take_while(naturals(1), (x: Int) -> x * x < 20) {
+    for x in taking_while(naturals(1), (x: Int) -> x * x < 20) {
         add(out, x)
     }
     expect_eq(to_str(out), "[1, 2, 3, 4]")
 }
 
-test "skip and skip_while drop a prefix" {
+test "skipping and skipping_while drop a prefix" {
     let xs = list_of(1, 2, 3, 4, 5)
     let a: Mut List<Int> = mut_list_of()
-    for x in skip(iter(xs), 3) {
+    for x in skipping(iter(xs), 3) {
         add(a, copy(x))
     }
     let b: Mut List<Int> = mut_list_of()
-    for x in skip_while(iter(xs), (x: Int) -> x < 4) {
+    for x in skipping_while(iter(xs), (x: Int) -> x < 4) {
         add(b, copy(x))
     }
     expect_eq(to_str(a), "[4, 5]")
     expect_eq(to_str(b), "[4, 5]")
 }
 
-test "adaptors compose, and collect drives them" {
-    let pass = take(skip(naturals(10), 2), 3)
-    let firsts = collect(pass)
+test "adaptors compose, and to_list drives them" {
+    let pass = taking(skipping(naturals(10), 2), 3)
+    let firsts = to_list(pass)
     expect_eq(ints(firsts), "[12, 13, 14]")
-    let small = take_while(naturals(0), (x: Int) -> x < 7)
-    expect_eq(size(collect(small)), 7)
+    let small = taking_while(naturals(0), (x: Int) -> x < 7)
+    expect_eq(size(to_list(small)), 7)
 }
 
 test "a list's own pass is borrowed, so the list stays usable" {
     let xs = list_of("a", "b", "c")
-    let two = take(iter(xs), 2)
-    expect_eq(size(collect(two)), 2)
+    let two = taking(iter(xs), 2)
+    expect_eq(size(to_list(two)), 2)
     expect_eq(size(xs), 3)
+}
+
+test "mapping and filtering are lazy over an endless source" {
+    let out: Mut List<Int> = mut_list_of()
+    for x in taking(filtering(mapping(naturals(1), (x: Int) -> x * x), (x: Int) -> x % 2 == 1), 3) {
+        add(out, x)
+    }
+    expect_eq(to_str(out), "[1, 9, 25]")
+}
+
+test "a container's own to_list still wins" {
+    let s = set_of("b", "a")
+    expect_eq(size(to_list(s)), 2)
 }

@@ -502,7 +502,7 @@ class __Codec_SetYield<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCod
     override fun dec(inp: salvo.WireIn): SetYield<T> = SetYield(salvo.ListCodec(__c_T).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<T> next__17(p: SetYield<T>): Union2<T, Finished> {
+fun<T> next__19(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return Union2.U2<T, Finished>(finished())
@@ -574,7 +574,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__18(p: StrYield): Union2<Char, Finished> {
+fun next__20(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return Union2.U2<Char, Finished>(finished())
@@ -698,7 +698,7 @@ fun iter__10(r: Upto): __Iter_iter_Upto {
     return __Iter_iter_Upto(end = r.end, at = r.start)
 }
 
-fun next__21(__p: __Iter_iter_Upto): Union2<Int, Finished> {
+fun next__23(__p: __Iter_iter_Upto): Union2<Int, Finished> {
     if (__p.at >= __p.end) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -756,7 +756,7 @@ __loop3
     var __loop4_ran = false
     var __loop5_pass = iter__10(upto(0, 0))
     while (true) {
-        val __loop5_step = next__21(__loop5_pass)
+        val __loop5_step = next__23(__loop5_pass)
         if (__loop5_step !is Union2.U1<Int, Finished>) { break }
         val x = __loop5_step.value
         __loop4_ran = true

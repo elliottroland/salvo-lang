@@ -9,5 +9,5 @@ fun main() {
     println(console, "profile: ${creds.profile}")
     println(console, "path:    ${creds.path}")
     val staging = ProfileCredentials(profile = "staging", path = "/etc/aws/credentials")
-    println(console, "${toStr__7(staging)}")
+    println(console, "${toStr__8(staging)}")
 }

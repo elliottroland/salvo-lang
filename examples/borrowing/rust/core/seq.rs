@@ -52,15 +52,83 @@ pub fn drop<T: Clone>(value: T) {
 }
 
 #[derive(Clone)]
-pub struct Take<It: Clone, T: Clone> {
+pub struct Mapping<It: Clone, T: Clone, U: Clone> {
+    pub src: It,
+    pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
+    pub f: std::sync::Arc<dyn Fn(&T) -> U + Send + Sync>,
+}
+
+impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug, U: Clone + std::fmt::Debug> std::fmt::Debug for Mapping<It, T, U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Mapping")
+            .field("src", &self.src)
+            .field("step", &"<fn>")
+            .field("f", &"<fn>")
+            .finish()
+    }
+}
+
+pub fn next__13<It: Clone, T: Clone, U: Clone>(m: &mut Mapping<It, T, U>) -> Union2<U, Finished> {
+    let mut step = &m.step;
+    let mut x = step(&mut m.src);
+    if matches!(x, Union2::U2(_)) {
+        return Union2::<U, Finished>::U2(finished());
+    }
+    let mut f = &m.f;
+    let mut y: U = f(x.u1());
+    return Union2::<U, Finished>::U1(emitted(y));
+}
+
+pub fn mapping<It: Clone, T: Clone, U: Clone>(it: It, f: impl Fn(&T) -> U + Send + Sync + 'static, next: impl Fn(&mut It) -> Union2<T, Finished> + Send + Sync + 'static) -> Mapping<It, T, U> {
+    return Mapping { src: it, step: std::sync::Arc::new(next), f: std::sync::Arc::new(f) };
+}
+
+#[derive(Clone)]
+pub struct Filtering<It: Clone, T: Clone> {
+    pub src: It,
+    pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
+    pub keep: std::sync::Arc<dyn Fn(&T) -> bool + Send + Sync>,
+}
+
+impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug for Filtering<It, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Filtering")
+            .field("src", &self.src)
+            .field("step", &"<fn>")
+            .field("keep", &"<fn>")
+            .finish()
+    }
+}
+
+pub fn next__14<It: Clone, T: Clone>(t: &mut Filtering<It, T>) -> Union2<T, Finished> {
+    let mut step = &t.step;
+    let mut keep = &t.keep;
+    loop {
+        let mut x = step(&mut t.src);
+        if matches!(x, Union2::U2(_)) {
+            return Union2::<T, Finished>::U2(finished());
+        }
+        if keep(x.u1()) {
+            return Union2::<T, Finished>::U1(emitted(x.u1().clone()));
+        }
+    }
+    return Union2::<T, Finished>::U2(finished());
+}
+
+pub fn filtering<It: Clone, T: Clone>(it: It, keep: impl Fn(&T) -> bool + Send + Sync + 'static, next: impl Fn(&mut It) -> Union2<T, Finished> + Send + Sync + 'static) -> Filtering<It, T> {
+    return Filtering { src: it, step: std::sync::Arc::new(next), keep: std::sync::Arc::new(keep) };
+}
+
+#[derive(Clone)]
+pub struct Taking<It: Clone, T: Clone> {
     pub src: It,
     pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
     pub left: i32,
 }
 
-impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug for Take<It, T> {
+impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug for Taking<It, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Take")
+        f.debug_struct("Taking")
             .field("src", &self.src)
             .field("step", &"<fn>")
             .field("left", &self.left)
@@ -68,7 +136,7 @@ impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug fo
     }
 }
 
-pub fn next__13<It: Clone, T: Clone>(t: &mut Take<It, T>) -> Union2<T, Finished> {
+pub fn next__15<It: Clone, T: Clone>(t: &mut Taking<It, T>) -> Union2<T, Finished> {
     if t.left <= 0 {
         return Union2::<T, Finished>::U2(finished());
     }
@@ -77,21 +145,21 @@ pub fn next__13<It: Clone, T: Clone>(t: &mut Take<It, T>) -> Union2<T, Finished>
     return step(&mut t.src);
 }
 
-pub fn take<It: Clone, T: Clone>(it: It, n: i32, next: impl Fn(&mut It) -> Union2<T, Finished> + Send + Sync + 'static) -> Take<It, T> {
-    return Take { src: it, step: std::sync::Arc::new(next), left: n };
+pub fn taking<It: Clone, T: Clone>(it: It, n: i32, next: impl Fn(&mut It) -> Union2<T, Finished> + Send + Sync + 'static) -> Taking<It, T> {
+    return Taking { src: it, step: std::sync::Arc::new(next), left: n };
 }
 
 #[derive(Clone)]
-pub struct TakeWhile<It: Clone, T: Clone> {
+pub struct TakingWhile<It: Clone, T: Clone> {
     pub src: It,
     pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
     pub keep: std::sync::Arc<dyn Fn(&T) -> bool + Send + Sync>,
     pub done: bool,
 }
 
-impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug for TakeWhile<It, T> {
+impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug for TakingWhile<It, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TakeWhile")
+        f.debug_struct("TakingWhile")
             .field("src", &self.src)
             .field("step", &"<fn>")
             .field("keep", &"<fn>")
@@ -100,7 +168,7 @@ impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug fo
     }
 }
 
-pub fn next__14<It: Clone, T: Clone>(t: &mut TakeWhile<It, T>) -> Union2<T, Finished> {
+pub fn next__16<It: Clone, T: Clone>(t: &mut TakingWhile<It, T>) -> Union2<T, Finished> {
     if t.done {
         return Union2::<T, Finished>::U2(finished());
     }
@@ -118,20 +186,20 @@ pub fn next__14<It: Clone, T: Clone>(t: &mut TakeWhile<It, T>) -> Union2<T, Fini
     return Union2::<T, Finished>::U2(finished());
 }
 
-pub fn take_while<It: Clone, T: Clone>(it: It, keep: impl Fn(&T) -> bool + Send + Sync + 'static, next: impl Fn(&mut It) -> Union2<T, Finished> + Send + Sync + 'static) -> TakeWhile<It, T> {
-    return TakeWhile { src: it, step: std::sync::Arc::new(next), keep: std::sync::Arc::new(keep), done: false };
+pub fn taking_while<It: Clone, T: Clone>(it: It, keep: impl Fn(&T) -> bool + Send + Sync + 'static, next: impl Fn(&mut It) -> Union2<T, Finished> + Send + Sync + 'static) -> TakingWhile<It, T> {
+    return TakingWhile { src: it, step: std::sync::Arc::new(next), keep: std::sync::Arc::new(keep), done: false };
 }
 
 #[derive(Clone)]
-pub struct Skip<It: Clone, T: Clone> {
+pub struct Skipping<It: Clone, T: Clone> {
     pub src: It,
     pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
     pub left: i32,
 }
 
-impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug for Skip<It, T> {
+impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug for Skipping<It, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Skip")
+        f.debug_struct("Skipping")
             .field("src", &self.src)
             .field("step", &"<fn>")
             .field("left", &self.left)
@@ -139,7 +207,7 @@ impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug fo
     }
 }
 
-pub fn next__15<It: Clone, T: Clone>(t: &mut Skip<It, T>) -> Union2<T, Finished> {
+pub fn next__17<It: Clone, T: Clone>(t: &mut Skipping<It, T>) -> Union2<T, Finished> {
     let mut step = &t.step;
     while t.left > 0 {
         t.left = t.left - 1;
@@ -151,21 +219,21 @@ pub fn next__15<It: Clone, T: Clone>(t: &mut Skip<It, T>) -> Union2<T, Finished>
     return step(&mut t.src);
 }
 
-pub fn skip<It: Clone, T: Clone>(it: It, n: i32, next: impl Fn(&mut It) -> Union2<T, Finished> + Send + Sync + 'static) -> Skip<It, T> {
-    return Skip { src: it, step: std::sync::Arc::new(next), left: n };
+pub fn skipping<It: Clone, T: Clone>(it: It, n: i32, next: impl Fn(&mut It) -> Union2<T, Finished> + Send + Sync + 'static) -> Skipping<It, T> {
+    return Skipping { src: it, step: std::sync::Arc::new(next), left: n };
 }
 
 #[derive(Clone)]
-pub struct SkipWhile<It: Clone, T: Clone> {
+pub struct SkippingWhile<It: Clone, T: Clone> {
     pub src: It,
     pub step: std::sync::Arc<dyn Fn(&mut It) -> Union2<T, Finished> + Send + Sync>,
     pub skip: std::sync::Arc<dyn Fn(&T) -> bool + Send + Sync>,
     pub started: bool,
 }
 
-impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug for SkipWhile<It, T> {
+impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug for SkippingWhile<It, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SkipWhile")
+        f.debug_struct("SkippingWhile")
             .field("src", &self.src)
             .field("step", &"<fn>")
             .field("skip", &"<fn>")
@@ -174,7 +242,7 @@ impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug fo
     }
 }
 
-pub fn next__16<It: Clone, T: Clone>(t: &mut SkipWhile<It, T>) -> Union2<T, Finished> {
+pub fn next__18<It: Clone, T: Clone>(t: &mut SkippingWhile<It, T>) -> Union2<T, Finished> {
     let mut step = &t.step;
     if t.started {
         return step(&mut t.src);
@@ -193,11 +261,11 @@ pub fn next__16<It: Clone, T: Clone>(t: &mut SkipWhile<It, T>) -> Union2<T, Fini
     return Union2::<T, Finished>::U2(finished());
 }
 
-pub fn skip_while<It: Clone, T: Clone>(it: It, skip: impl Fn(&T) -> bool + Send + Sync + 'static, next: impl Fn(&mut It) -> Union2<T, Finished> + Send + Sync + 'static) -> SkipWhile<It, T> {
-    return SkipWhile { src: it, step: std::sync::Arc::new(next), skip: std::sync::Arc::new(skip), started: false };
+pub fn skipping_while<It: Clone, T: Clone>(it: It, skip: impl Fn(&T) -> bool + Send + Sync + 'static, next: impl Fn(&mut It) -> Union2<T, Finished> + Send + Sync + 'static) -> SkippingWhile<It, T> {
+    return SkippingWhile { src: it, step: std::sync::Arc::new(next), skip: std::sync::Arc::new(skip), started: false };
 }
 
-pub fn collect<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<T> {
+pub fn to_list<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<T> {
     let mut out = vec![];
     while let Union2::U1(mut x) = next(it) {
         out.push(x);

@@ -120,7 +120,7 @@ impl crate::wire::__Wire for AwsError {
     }
 }
 
-pub fn to_str__7(value: &ProfileCredentials) -> String {
+pub fn to_str__8(value: &ProfileCredentials) -> String {
     let mut out: String = [&"ProfileCredentials {".to_string()[..]].concat();
     out.push_str(&" ".to_string()[..]);
     out.push_str(&format!("profile: {}", value.profile.clone())[..]);

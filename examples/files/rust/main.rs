@@ -45,6 +45,8 @@ pub mod fs_host;
 pub mod fs_mem;
 #[path = "fs/restricted.rs"]
 pub mod fs_restricted;
+#[path = "path.rs"]
+pub mod path;
 #[path = "runtime.rs"]
 pub mod runtime;
 #[path = "runtime/routing.rs"]
@@ -129,7 +131,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
     match opened {
         Union2::U1(_) => {
             let mut p = lines__2((match opened { Union2::U1(__v) => __v, _ => unreachable!() }));
-            while let Union2::U1(mut line) = next__19(streams, &mut p) {
+            while let Union2::U1(mut line) = next__21(streams, &mut p) {
                 println(console, &(format!("line: {}", line)));
             }
             let mut closed = close__2(streams, p);
@@ -323,7 +325,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
         Union2::U1(_) => {
             let mut p = ch.u1().clone();
             let mut seen = 0;
-            while let Union2::U1(mut chunk) = next__20(streams, &mut p) {
+            while let Union2::U1(mut chunk) = next__22(streams, &mut p) {
                 seen = seen + (chunk.len() as i32);
             }
             println(console, &(format!("chunks saw {} bytes", seen)));

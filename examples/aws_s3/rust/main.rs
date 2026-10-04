@@ -47,6 +47,8 @@ pub mod core_string;
 pub mod fs;
 #[path = "fs/mem.rs"]
 pub mod fs_mem;
+#[path = "path.rs"]
+pub mod path;
 #[path = "runtime.rs"]
 pub mod runtime;
 #[path = "runtime/routing.rs"]
@@ -166,7 +168,7 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::cor
             println(console, &(format!("piped {} bytes into {}", *copied.u1(), path.clone())));
         }
         Union2::U2(_) => {
-            println(console, &(format!("pipe: {}", to_str__4(&detach((match copied { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+            println(console, &(format!("pipe: {}", to_str__5(&detach((match copied { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         }
     }
 }
@@ -214,7 +216,7 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
             ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         if matches!(filled, Union2::U2(_)) {
-            crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U2(AwsError { code: "StreamFailed".to_string(), message: format!("{}", to_str__4(&detach((match filled { Union2::U2(__v) => __v, _ => unreachable!() })))) })))));
+            crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U2(AwsError { code: "StreamFailed".to_string(), message: format!("{}", to_str__5(&detach((match filled { Union2::U2(__v) => __v, _ => unreachable!() })))) })))));
             return;
         }
         let mut data: Vec<u8> = buf;
