@@ -1094,6 +1094,10 @@ struct Emitter<'p> {
     /// *value*'s type — `return None` in a `Str?`-returning fn is `return
     /// null` and correct.
     ret_is_unit: bool,
+    /// [kt-lambda-return] The label of the block lambda being emitted, when
+    /// it returns early: Kotlin forbids a bare `return` there.
+    lambda_label: Option<String>,
+    lambda_label_id: usize,
     /// [implicit-param] The implicit parameters of the fn being emitted, in
     /// the checker's order: trailing parameters of the signature, and the
     /// names a bare call inside the body reaches as *values* rather than
@@ -1237,6 +1241,8 @@ impl<'p> Emitter<'p> {
             platform_hosts: BTreeSet::new(),
             generated_items: Vec::new(),
             ret_is_unit: false,
+            lambda_label: None,
+            lambda_label_id: 0,
             needs_throw: false,
             needs_compare: false,
             needs_keyed: false,
@@ -3309,7 +3315,7 @@ impl<'p> Emitter<'p> {
                 // covers subclasses of members that are never continuation
                 // targets in this table.
                 out.push_str(
-                    "\n    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {\n        \
+                    "\n    @Suppress(\"REDUNDANT_ELSE_IN_WHEN\")\n    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {\n        \
                      val c = handler.__parked[slot] ?: return Pair(false, null)\n        \
                      return when (c) {\n",
                 );
@@ -3923,7 +3929,7 @@ impl<'p> Emitter<'p> {
             rendered
         };
         let suppress = if self.unchecked_cast {
-            format!("{pad}@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\")\n")
+            format!("{pad}@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\", \"UNNECESSARY_SAFE_CALL\")\n")
         } else {
             String::new()
         };
@@ -4983,6 +4989,17 @@ impl<'p> Emitter<'p> {
             // [expr-escape] The escapes are expressions now (2026-09-21) and
             // arrive wrapped in a statement; these arms precede the general
             // `Stmt::Expr` case and keep every rule they had.
+            // [kt-lambda-return] Inside a block lambda: `return@label`.
+            Stmt::Expr(Expr::Return { value, .. }) if self.lambda_label.is_some() => {
+                let label = self.lambda_label.clone().unwrap_or_default();
+                match value.as_deref() {
+                    Some(v) if !self.ty_of(v.span()).is_some_and(|t| t.is_none_ty()) => {
+                        let v = self.emit_expr(v);
+                        format!("{pad}return@{label} {v}\n")
+                    }
+                    _ => format!("{pad}return@{label}\n"),
+                }
+            }
             Stmt::Expr(Expr::Return { value, .. }) => match (self.stmt_ctx, value.as_deref()) {
                 // [kt-none-unit] A `None` value in a `Unit`-returning fn has no
                 // payload to hand back: evaluate it for its effects (it may be
@@ -5200,7 +5217,7 @@ impl<'p> Emitter<'p> {
                 return "TODO()".to_string();
             }
         };
-        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler_name)).copied() else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &handler_name)).copied() else {
             self.error(format!("unknown handler `{handler_name}` in `spawn`"));
             return "TODO()".to_string();
         };
@@ -5395,7 +5412,7 @@ impl<'p> Emitter<'p> {
             _ => None,
         };
         if let Some((name, args)) = named {
-            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name)).copied() {
+            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &name)).copied() {
                 let arg_code: Vec<String> =
                     args.iter().map(|a| self.emit_expr(a)).collect();
                 let ctor = self.handler_ctor_name(&name, decl);
@@ -5581,7 +5598,7 @@ impl<'p> Emitter<'p> {
             _ => None,
         };
         if let Some((name, args)) = named {
-            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name)).copied() {
+            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &name)).copied() {
                 let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
                 let ctor = self.handler_ctor_name(&name, decl);
                 let inner = format!("{ctor}({})", arg_code.join(", "));
@@ -5801,7 +5818,7 @@ impl<'p> Emitter<'p> {
             .get(&(self.file_idx, span))
             .cloned()
             .unwrap_or(handler_name);
-        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler_name)) else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &handler_name)) else {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
         };
@@ -7188,8 +7205,15 @@ impl<'p> Emitter<'p> {
                     Expr::Return { value, .. } | Expr::Break { value, .. } => value.as_deref(),
                     _ => None,
                 };
+                let labelled;
                 let word = match expr {
-                    Expr::Return { .. } => "return",
+                    Expr::Return { .. } => match &self.lambda_label {
+                        Some(l) => {
+                            labelled = format!("return@{l}");
+                            labelled.as_str()
+                        }
+                        None => "return",
+                    },
                     Expr::Break { .. } => "break",
                     _ => "continue",
                 };
@@ -7438,6 +7462,15 @@ impl<'p> Emitter<'p> {
                     .cloned()
                 {
                     return self.emit_compare_via(*op, lhs, rhs, &via, *span);
+                }
+                // [is-and-chain] The right side reads a binding the left
+                // made: bound in a `run` block inside the `&&`, after the
+                // test passed.
+                if *op == BinaryOp::And && bindings_read_later(lhs, rhs) {
+                    let l = self.emit_operand_left(lhs, bin_prec(*op));
+                    let prologue = self.emit_is_bindings(lhs, 0);
+                    let r = self.emit_expr(rhs);
+                    return format!("{l} && run {{ {}{r} }}", prologue.replace('\n', "; "));
                 }
                 let prec = bin_prec(*op);
                 let l = self.emit_operand_left(lhs, prec);
@@ -7744,6 +7777,9 @@ impl<'p> Emitter<'p> {
             lets.push_str(&format!("val __c{i} = {code}; "));
             args.push(format!("__c{i}"));
         }
+        // A generic payload is an unchecked cast; the enclosing fn says so
+        // with its `@Suppress` (0c item 15).
+        self.note_payload_cast();
         args.push(format!("__v as {payload}"));
         // [task-pool-inherit] An omitted `on` clause is the pool current where
         // the mint runs.
@@ -7764,7 +7800,7 @@ impl<'p> Emitter<'p> {
     /// being emitted — the enclosing handler, since a mint is lexical.
     fn current_cont_type(&self) -> Option<String> {
         let name = self.current_handler.as_deref()?;
-        let h = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name))?;
+        let h = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &name))?;
         self.handler_cont_type(h)
     }
 
@@ -7779,7 +7815,7 @@ impl<'p> Emitter<'p> {
             self.error("internal: a self-send outside a handler member");
             return "TODO()".to_string();
         };
-        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler)).copied() else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &handler)).copied() else {
             self.error(format!("internal: no handler `{handler}` for a self-send"));
             return "TODO()".to_string();
         };
@@ -8109,13 +8145,7 @@ impl<'p> Emitter<'p> {
                     continue;
                 }
             }
-            if matches!(stmt, Stmt::Expr(Expr::Return { .. })) {
-                self.error(
-                    "early `return` inside a lambda is not supported yet \
-                     (only as the final statement)",
-                );
-                continue;
-            }
+
             out.push_str(&self.emit_stmt(stmt, 1));
         }
         out
@@ -8569,12 +8599,26 @@ impl<'p> Emitter<'p> {
                 // enclosing `iterator {}` builder.
                 let saved_ctx = self.stmt_ctx;
                 self.stmt_ctx = StmtCtx::Normal;
-                let mut out = format!("{{ {} ->\n", param_list.join(", "));
+                // [kt-lambda-return] A return anywhere but last needs a label:
+                // Kotlin refuses a bare `return` in a lambda.
+                let early = block_returns_early(&block.stmts);
+                let saved_label = if early {
+                    self.lambda_label_id += 1;
+                    self.lambda_label.replace(format!("__l{}", self.lambda_label_id))
+                } else {
+                    self.lambda_label.take()
+                };
+                let prefix = match &self.lambda_label {
+                    Some(l) => format!("{l}@"),
+                    None => String::new(),
+                };
+                let mut out = format!("{prefix}{{ {} ->\n", param_list.join(", "));
                 if !fx_prelude.is_empty() {
                     out.push_str(&format!("    {fx_prelude}"));
                 }
                 out.push_str(&self.emit_lambda_stmts(&block.stmts));
                 out.push('}');
+                self.lambda_label = saved_label;
                 self.stmt_ctx = saved_ctx;
                 out
             }
@@ -8852,6 +8896,15 @@ impl<'p> Emitter<'p> {
         // An `intrinsic fn` lowers in the emitter [intrinsic-fn]; anything
         // else has a body, since a bodiless top-level fn is a parse error
         // [decl-body].
+        // [call-resolve] A fn-typed local outranks every declaration of its
+        // name: the call goes through the local (step 4), whatever else the
+        // name could mean (found 2026-10-04: `let skip = t.skip; skip(x)`
+        // called a top-level `skip`).
+        if self.checked.local_calls.contains(&(self.file_idx, span)) {
+            let mut arg_code: Vec<String> = self.fn_value_effect_args(span);
+            arg_code.extend(args.iter().map(|a| self.emit_expr(a)));
+            return format!("{}({})", kt_ident(name), arg_code.join(", "));
+        }
         let checker_resolved = self
             .checked
             .call_fn
@@ -10791,6 +10844,32 @@ fn is_place_expr(expr: &Expr) -> bool {
     }
 }
 
+/// [is-and-chain] The `is` bindings [cond] makes that [later] reads: what an
+/// `&&` has to bind before its right side.
+fn bindings_read_later(cond: &Expr, later: &Expr) -> bool {
+    let mut names: Vec<String> = Vec::new();
+    collect_is_bindings(cond, &mut |_, _, b, _, _| names.push(b.name.clone()));
+    if names.is_empty() {
+        return false;
+    }
+    struct Reads<'n> {
+        names: &'n [String],
+        found: bool,
+    }
+    impl salvo_syntax::visit::Visitor for Reads<'_> {
+        fn visit_expr(&mut self, e: &Expr) {
+            if let Expr::Ident(id) = e {
+                if self.names.contains(&id.name) {
+                    self.found = true;
+                }
+            }
+        }
+    }
+    let mut r = Reads { names: &names, found: false };
+    salvo_syntax::visit::walk_expr(&mut r, later);
+    r.found
+}
+
 fn collect_is_bindings<'a>(
     cond: &'a Expr,
     f: &mut impl FnMut(&'a Expr, &'a [TypeRef], &'a Ident, Span, bool),
@@ -10842,3 +10921,36 @@ fn kt_literal(lit: &salvo_syntax::ast::TypeLit) -> String {
     }
 }
 
+
+/// [kt-lambda-return] Whether a lambda body returns anywhere but as its last
+/// statement — nested blocks included, lambdas inside it excluded.
+fn block_returns_early(stmts: &[Stmt]) -> bool {
+    struct Finder {
+        found: bool,
+        depth: usize,
+    }
+    impl salvo_syntax::visit::Visitor for Finder {
+        fn visit_expr(&mut self, e: &Expr) {
+            if matches!(e, Expr::Return { .. }) && self.depth == 0 {
+                self.found = true;
+            }
+        }
+    }
+    let n = stmts.len();
+    for (i, stmt) in stmts.iter().enumerate() {
+        if i + 1 == n && matches!(stmt, Stmt::Expr(Expr::Return { .. })) {
+            continue;
+        }
+        let mut f = Finder { found: false, depth: 0 };
+        // Lambdas nested in the statement return from themselves; skip them
+        // by walking only what is not a lambda.
+        if let Stmt::Expr(Expr::Lambda { .. }) = stmt {
+            continue;
+        }
+        salvo_syntax::visit::walk_stmt(&mut f, stmt);
+        if f.found {
+            return true;
+        }
+    }
+    false
+}

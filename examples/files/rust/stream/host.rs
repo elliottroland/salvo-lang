@@ -175,13 +175,13 @@ impl RawStreams {
 pub fn host_received(reply: crate::scheduler::SalvoReply, handle: i64, got: Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>) {
     match got {
         Union3::U1(_) => {
-            (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(Packet { bytes: got.u1().clone(), stream: InStream { handle: handle } }))));
+            (reply).send(std::boxed::Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(Packet { bytes: got.u1().clone(), stream: InStream { handle: handle } }))));
         }
         Union3::U2(_) => {
-            (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(got.u2().clone())));
+            (reply).send(std::boxed::Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(got.u2().clone())));
         }
         Union3::U3(_) => {
-            (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3(err(checked(got.u3().clone())))));
+            (reply).send(std::boxed::Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3(err(checked(got.u3().clone())))));
         }
     }
 }
@@ -339,7 +339,7 @@ impl crate::stream_host::__Stateless_RawStreams for HostRawStreams {
     }
 
     fn raw_receive(&self, handle: i64, reply: crate::scheduler::SalvoReply) {
-        receive(handle, ({ let __c0 = reply; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), Box::new(move |__v| chunk_received(__c0, *__v.downcast::<Chunk>().expect("the awaited answer"))), (|__b: &[u8]| crate::wire::salvo_decode::<Chunk>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))) }));
+        receive(handle, ({ let __c0 = reply; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), std::boxed::Box::new(move |__v| chunk_received(__c0, *__v.downcast::<Chunk>().expect("the awaited answer"))), (|__b: &[u8]| crate::wire::salvo_decode::<Chunk>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))) }));
     }
 
     fn raw_from_bytes(&self, data: Vec<u8>) -> i64 {
@@ -467,7 +467,7 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
     fn receive(&self, s: InStream, reply: crate::scheduler::SalvoReply) {
         let mut handle = s.handle;
         drop(s);
-        self.__dep_RawStreams.raw_receive(handle.clone(), ({ let __c0 = reply; let __c1 = handle; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), Box::new(move |__v| host_received(__c0, __c1, *__v.downcast::<Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>>().expect("the awaited answer"))), (|__b: &[u8]| crate::wire::salvo_decode::<Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))) }));
+        self.__dep_RawStreams.raw_receive(handle.clone(), ({ let __c0 = reply; let __c1 = handle; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), std::boxed::Box::new(move |__v| host_received(__c0, __c1, *__v.downcast::<Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>>().expect("the awaited answer"))), (|__b: &[u8]| crate::wire::salvo_decode::<Union3<Vec<u8>, End, Union2<InvalidUtf8, StreamFailed>>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))) }));
     }
 
     fn from_bytes(&self, data: Vec<u8>) -> InStream {

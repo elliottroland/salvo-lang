@@ -179,7 +179,7 @@ class MemFs : Fs, Streams {
         return memReadBytes(reads, s.handle, max)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val got = memReadBytes(reads, s.handle, max)
         if (got is Union2.U2<*, *>) {
@@ -190,7 +190,7 @@ class MemFs : Fs, Streams {
         return Union2.U1<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(data.size))
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val got = memReadAll(reads, s.handle)
         if (got is Union2.U2<*, *>) {
@@ -230,7 +230,7 @@ class MemFs : Fs, Streams {
         return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun receive(s: InStream, reply: salvo.SalvoReply) {
         val got = memReadBytes(reads, s.handle, 65536)
         if (got is Union2.U2<*, *>) {

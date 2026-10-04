@@ -18,7 +18,7 @@ import salvo.fs.*
 import salvo.fs.mem.*
 import salvo.stream.*
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun describe(e: Union2<S3Error, AwsError>): String {
     if (e is Union2.U2<*, *>) {
         return "${(e.value as AwsError).code}: ${(e.value as AwsError).message}"
@@ -26,10 +26,10 @@ fun describe(e: Union2<S3Error, AwsError>): String {
     if (((e.value as S3Error).code == "NoSuchKey")) {
         return "no such key"
     }
-    return "the service refused: ${((e.value as S3Error).code).toString()}"
+    return "the service refused: ${(e.value as S3Error).code}"
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun sizeOf(fs: Fs, streams: Streams, path: String): Long? {
     val info = fs.metadata(path)
     when (info) {
@@ -43,7 +43,7 @@ fun sizeOf(fs: Fs, streams: Streams, path: String): Long? {
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun upload(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String, key: String, path: String, length: Long?) {
     val opened = fs.openRead(path)
     if (opened is Union2.U2<*, *>) {
@@ -66,7 +66,7 @@ fun upload(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String, k
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun download(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String, key: String, path: String) {
     val got = run {
         val (r, __wid) = salvo.SalvoSched.waiter()
@@ -107,7 +107,7 @@ fun download(s3: S3, fs: Fs, console: Console, streams: Streams, bucket: String,
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun roundTrip(s3: S3, fs: Fs, console: Console, streams: Streams, key: String) {
     upload(s3, fs, console, streams, "notes", key, "notes.txt", sizeOf(fs, streams, "notes.txt"))
     download(s3, fs, console, streams, "notes", key, "back.txt")
@@ -126,7 +126,7 @@ fun roundTrip(s3: S3, fs: Fs, console: Console, streams: Streams, key: String) {
 class MemS3(private val __dep_Streams: Streams) : S3 {
     private var objects: MutableMap<String, salvo.SalvoBytes> = linkedMapOf<String, salvo.SalvoBytes>().also { __m -> __m.putAll(listOf()) }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) {
         val __destructured2 = input
         val bucket = __destructured2.bucket
@@ -160,7 +160,7 @@ class MemS3(private val __dep_Streams: Streams) : S3 {
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
     val console: Console = StdOutConsole()

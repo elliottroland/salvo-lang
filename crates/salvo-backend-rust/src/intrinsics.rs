@@ -255,7 +255,7 @@ pub fn fn_call(
         // consumed, and the payload crosses the seam as the runtime's untyped
         // box. `Box::new` is where the sendability the checker proved becomes
         // Rust's `Send` bound on `SalvoMsg`.
-        ("send", Some("Reply")) => format!("({}).send(Box::new({}))", a(0), a(1)),
+        ("send", Some("Reply")) => format!("({}).send(std::boxed::Box::new({}))", a(0), a(1)),
         // [actor-spawn-expr] A pool is a scheduler index; `pool(n)` starts its
         // worker threads.
         // [pool-fault-sink] The two-argument overload: the sink's addr plus the
@@ -265,7 +265,7 @@ pub fn fn_call(
         // `Int` first and the table's key is the receiver type.
         ("pool", Some("Int")) if args.len() == 2 => format!(
             "crate::scheduler::salvo_pool_with_sink((({}) as usize), Some(((({}) as usize), \
-             |__reason| Box::new(__Msg_Faults::Faulted(Fault {{ reason: __reason }})))))",
+             |__reason| std::boxed::Box::new(__Msg_Faults::Faulted(Fault {{ reason: __reason }})))))",
             a(0),
             a(1)
         ),
@@ -285,7 +285,7 @@ pub fn fn_call(
         // something else (the annotation naming std's `Exit` would not
         // resolve), so a shadowing declaration and this emission never meet.
         ("watch", Some("Addr")) => format!(
-            "crate::scheduler::salvo_watch({}, {}, |__reason| Box::new(Exit {{ reason: __reason }}))",
+            "crate::scheduler::salvo_watch({}, {}, |__reason| std::boxed::Box::new(Exit {{ reason: __reason }}))",
             a(0),
             a(1)
         ),
@@ -294,7 +294,7 @@ pub fn fn_call(
         // the language's `Idle`, so the registration site closes over the
         // constructor. `Idle` is named unqualified on `Exit`'s precedent above.
         ("on_idle", Some("Pool")) => format!(
-            "crate::scheduler::salvo_on_idle({}, {}, |__gates, __tokens| Box::new(Idle {{ \
+            "crate::scheduler::salvo_on_idle({}, {}, |__gates, __tokens| std::boxed::Box::new(Idle {{ \
              parked_gates: __gates, parked_tokens: __tokens }}))",
             a(0),
             a(1)
@@ -480,7 +480,7 @@ pub fn fn_call(
         // with rustc's default (unwind), and nothing here sets it.
         ("trapped_by", _) => format!(
             "{{ let __hook = std::panic::take_hook(); \
-               std::panic::set_hook(Box::new(|_| {{}})); \
+               std::panic::set_hook(std::boxed::Box::new(|_| {{}})); \
                let __r = std::panic::catch_unwind(std::panic::AssertUnwindSafe({})); \
                std::panic::set_hook(__hook); \
                match __r {{ Ok(__v) => __v, Err(__e) => Some( \

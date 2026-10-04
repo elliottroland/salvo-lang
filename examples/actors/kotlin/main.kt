@@ -105,6 +105,7 @@ class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -218,6 +219,7 @@ class __Actor_Bookkeeping(private val handler: Bookkeeping) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -360,6 +362,7 @@ class __Actor_Desking(private val handler: Desking) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -461,6 +464,7 @@ fun formatted(label: String, out: salvo.SalvoReply, total: Int) {
     salvo.SalvoSched.replyWire(out, "$label totalled $total", salvo.StrCodec)
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun reportLine(counter: Int, label: String, out: salvo.SalvoReply) {
     salvo.SalvoSched.sendWire(counter, __Msg_Counter.Total(run { val __c0 = label; val __c1 = out; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) }) { __v -> formatted(__c0, __c1, __v as Int) } }), __PROTO_Counter, __Codec___Msg_Counter)
 }

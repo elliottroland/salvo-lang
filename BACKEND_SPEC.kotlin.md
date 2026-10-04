@@ -1199,6 +1199,10 @@ nothing but the monitor.
   (2026-10-02): `SalvoSched` has no timer thread, and `HostRuntime.monoNanos`
   reads `SalvoTime.monoNanos()`. The wheel's thread is a pool worker, a daemon
   like every other, so pending deadlines still die with the program.
+* [kt-lambda-return] **A block lambda that returns early is labelled**
+  (2026-10-04): Kotlin refuses a bare `return` in a lambda, so a lambda with a
+  `return` anywhere but last is emitted `__lN@{ … }` and each of its returns
+  is `return@__lN`. A final `return v` stays the lambda's value.
 * [kt-mixed] **The mixed lowering** [mixed-handler] (SH-1, built
   2026-09-19). The JVM half of [rs-mixed], simpler because references share:
 

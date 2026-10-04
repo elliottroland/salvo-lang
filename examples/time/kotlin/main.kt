@@ -121,6 +121,7 @@ class __Actor_Sessions(private val handler: Sessions) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -247,6 +248,7 @@ class __Actor_Napping(private val handler: Napping) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {

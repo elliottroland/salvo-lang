@@ -144,6 +144,17 @@ impl<'p> Symbols<'p> {
                 table.entry(name).or_insert(module);
             }
         }
+        // [type-identity] A handler named like a type of another module: two
+        // namespaces in Salvo, one in each host's imports (0c item 13), so
+        // the name clashes and the handler is the one keyed.
+        let cross: Vec<&'p str> = first_handler
+            .iter()
+            .filter(|(n, m)| first_type.get(*n).is_some_and(|tm| tm != *m))
+            .map(|(n, _)| *n)
+            .collect();
+        for name in &cross {
+            symbols.clashing.insert(name);
+        }
         for unit in program.units() {
             let module: &'p ModulePath = &unit.file.module;
             let key_in = |name: &'p str, first: &HashMap<&'p str, &'p ModulePath>| -> &'p str {
@@ -157,6 +168,10 @@ impl<'p> Symbols<'p> {
                     Item::Struct(s) => (s as *const StructDecl as usize, key_in(&s.name.name, &first_type)),
                     Item::Effect(e) => (e as *const EffectDecl as usize, key_in(&e.name.name, &first_type)),
                     Item::Type(t) => (t as *const TypeDecl as usize, key_in(&t.name.name, &first_type)),
+                    Item::Handler(h) if first_type.get(h.name.name.as_str()).is_some_and(|m| *m != module) => (
+                        h as *const HandlerDecl as usize,
+                        crate::typekey::keyed(&h.name.name, &module.to_string()),
+                    ),
                     Item::Handler(h) => (h as *const HandlerDecl as usize, key_in(&h.name.name, &first_handler)),
                     _ => continue,
                 };

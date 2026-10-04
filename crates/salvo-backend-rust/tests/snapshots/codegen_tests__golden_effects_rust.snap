@@ -804,7 +804,7 @@ impl<T: 'static> Random<T> {
 
 pub struct CyclicRandom<T: Clone + Send + Sync + 'static> {
     values: Vec<T>,
-    copy: Box<dyn FnMut(&T) -> T + Send>,
+    copy: std::boxed::Box<dyn FnMut(&T) -> T + Send>,
     i: i32,
 }
 
@@ -812,7 +812,7 @@ impl<T: Clone + Send + Sync + 'static> CyclicRandom<T> {
     pub fn new(values: Vec<T>, copy: impl FnMut(&T) -> T + Send + 'static) -> Self {
         Self {
             values,
-            copy: Box::new(copy),
+            copy: std::boxed::Box::new(copy),
             i: 0,
         }
     }

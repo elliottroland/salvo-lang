@@ -96,7 +96,7 @@ class Deadlines : DeadlineTable {
         return null
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun takeDue(now: Long): MutableList<salvo.SalvoReply> {
         val due: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
         var i = 0
@@ -128,7 +128,7 @@ class Deadlines : DeadlineTable {
         return earliest
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun clear() {
         while (true) {
             var __is2 = (dones).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
@@ -262,7 +262,7 @@ fun armClock() {
 })))
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun advance() {
     val until = __moduleUse0.nextDeadline()
     if (until != null) {

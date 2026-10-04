@@ -19,7 +19,7 @@ import salvo.fs.restricted.*
 import salvo.stream.*
 import salvo.stream.host.*
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun kindName(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): String {
     if (kind is Union7.U1<*, *, *, *, *, *, *>) {
         return "not found"
@@ -43,7 +43,7 @@ fun kindName__2(kind: Union2<InvalidUtf8, StreamFailed>): String {
     return "other"
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun workflow(fs: Fs, console: Console, streams: Streams) {
     val wrote = writeStr(fs, streams, "notes.txt", "alpha\nbeta\ngamma\n")
     when (wrote) {
@@ -330,7 +330,7 @@ fun workflow(fs: Fs, console: Console, streams: Streams) {
     println(console, "cleaned up")
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun sandboxEdges(fs: Fs, console: Console, streams: Streams) {
     val inside = writeStr(fs, streams, "sub/../probe.txt", "inside\n")
     when (inside) {
@@ -367,7 +367,7 @@ fun sandboxEdges(fs: Fs, console: Console, streams: Streams) {
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults)))
     val console: Console = StdOutConsole()

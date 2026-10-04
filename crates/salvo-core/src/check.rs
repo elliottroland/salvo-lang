@@ -757,6 +757,9 @@ pub struct Checked {
     /// or an alias): how an emitter resolves a name written in an
     /// expression (`use H()`, `spawn H()`).
     pub visible_keys: HashMap<(usize, String), String>,
+    /// [type-identity] The same for handler names, which are a namespace of
+    /// their own: a handler may share its name with a type (0c item 13).
+    pub visible_handler_keys: HashMap<(usize, String), String>,
     /// Field accesses [lsp-definition]: the span of the field *name* in
     /// `base.field` mapped to where the field's declaration is written.
     /// Drives go-to-definition and doc hover on fields [doc-comment].
@@ -1081,6 +1084,14 @@ impl Checked {
         self.visible_keys.get(&(file, name.to_string())).map(|k| k.as_str()).unwrap_or(name)
     }
 
+    /// [type-identity] The key of handler [name] as file [file] sees it.
+    pub fn visible_handler_key<'a>(&'a self, file: usize, name: &'a str) -> &'a str {
+        self.visible_handler_keys
+            .get(&(file, name.to_string()))
+            .map(|k| k.as_str())
+            .unwrap_or_else(|| self.visible_key(file, name))
+    }
+
     pub fn written_key<'a>(&'a self, r: &'a TypeRef) -> &'a str {
         if let Some(k) = self.type_ref_keys.get(&(r as *const TypeRef as usize)) {
             return k;
@@ -1278,6 +1289,11 @@ fn check_once<'p>(
                 if key != *name {
                     out.visible_keys.insert((file, name.to_string()), key.to_string());
                 }
+            }
+        }
+        for (name, decl) in &scope.handlers {
+            if let Some(key) = symbols.key_of(*decl) {
+                out.visible_handler_keys.insert((file, name.to_string()), key.to_string());
             }
         }
     }
@@ -5324,6 +5340,70 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// One implicit parameter, filled [implicit-resolve] — `None` when
     /// nothing fits, which is reported here.
+    /// [implicit-fit] The first implicit of fn [key] that nothing at this
+    /// call could fill — no named argument, no forwarded implicit, no visible
+    /// fn of that name and type — rendered `?name: type`; `None` when all
+    /// can be. Reports nothing.
+    fn unfillable_implicit(
+        &mut self,
+        key: FnKey,
+        generics: &[ast::Ident],
+        subst: &HashMap<String, Ty>,
+        named: &'p [ast::NamedArg],
+    ) -> Option<String> {
+        let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
+        let callee_generics: HashSet<String> = generics.iter().map(|g| g.name.clone()).collect();
+        // What the implicits themselves determine first, as the call does
+        // [implicit-infer]: `T` from `next`'s answer.
+        let mut subst = subst.clone();
+        self.extend_subst_from_implicits(Some(key), &callee_generics, &mut subst);
+        let subst = &subst;
+        for imp in &implicits {
+            if imp.binder || named.iter().any(|a| a.name.name == imp.name) {
+                continue;
+            }
+            let want = substitute_vars(&imp.ty, subst, &callee_generics);
+            // The same substitution the fill below uses, so the probe answers
+            // what the fill would.
+            if ty_mentions_vars(&want, &callee_generics) {
+                continue;
+            }
+            if self.own_implicits.iter().any(|p| p.name == imp.name) {
+                continue;
+            }
+            if !self.some_fn_accepts(&imp.name, &want) {
+                return Some(format!("?{}: {want}", imp.name));
+            }
+        }
+        None
+    }
+
+    /// [implicit-fit] Whether some visible fn named [name] takes the
+    /// parameters of the fn type [want] — by shape only: its answer may not be
+    /// known yet at ranking, and an answer that does not fit is reported by
+    /// the fill as before.
+    fn some_fn_accepts(&mut self, name: &str, want: &Ty) -> bool {
+        let Ty::Fn { params: want_params, .. } = want.strip_quals() else {
+            return true;
+        };
+        let want_params = want_params.clone();
+        for entry in self.overloads_of(name) {
+            let decl = entry.decl;
+            let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
+            if fixed.len() != want_params.len() {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            let have: Vec<Ty> = fixed.iter().map(|p| self.lower_type(&p.ty)).collect();
+            self.generics = saved;
+            let mut binding: HashMap<String, Ty> = HashMap::new();
+            if have.iter().zip(&want_params).all(|(h, w)| unify(h, w, &mut binding)) {
+                return true;
+            }
+        }
+        false
+    }
+
     fn fill_one_implicit(
         &mut self,
         imp: &ImplicitParam,
@@ -26151,6 +26231,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // whose own effect-member test is a program-wide name
                     // map that cannot see locals.
                     self.out.local_calls.insert(self.key(span));
+                    // Calling the local is a use of it.
+                    if let Some(v) = self.lookup_mut(&id.name) {
+                        v.used = true;
+                    }
                     // [fn-effects] The call supplies the value's effects.
                     self.check_fn_value_effects(&effects, span);
                     for (i, a) in args.iter().enumerate() {
@@ -27112,8 +27196,38 @@ impl<'p, 'r> Checker<'p, 'r> {
             });
         }
 
+        // [implicit-fit] A candidate whose implicit parameters nothing here
+        // can fill does not fit (user decision 2026-10-04): a generic
+        // `count(it: Mut It, ?Yield<It, T>)` fits any `Mut` argument by type,
+        // and must not outrank — or block — an overload that really fits.
+        // Only among several candidates: a lone one keeps its own, more
+        // specific diagnostic about the implicit.
+        let mut unfillable: Vec<(String, String)> = Vec::new();
+        if candidates.len() > 1 && !viable.is_empty() {
+            let mut kept = Vec::with_capacity(viable.len());
+            for v in viable.drain(..) {
+                match v.key.and_then(|k| self.unfillable_implicit(k, &v.decl.generics, &v.subst, named)) {
+                    Some(missing) => unfillable.push((v.module.clone(), missing)),
+                    None => kept.push(v),
+                }
+            }
+            viable = kept;
+        }
+
         if viable.is_empty() {
             let shown: Vec<String> = arg_tys.iter().map(|t| t.to_string()).collect();
+            if let Some((module, missing)) = unfillable.first() {
+                self.error(
+                    span,
+                    format!(
+                        "no matching overload for `{name}({})`: the one from `{module}` that \
+                         fits by type needs `{missing}`, which nothing in scope fills \
+                         [implicit-fit]",
+                        shown.join(", ")
+                    ),
+                );
+                return Ty::Unknown;
+            }
             // [proj-type] When a projection is all that stands between the
             // arguments and a candidate, say so — and say the remedy.
             if let Some((callee, pname, i, why)) = proj_blocked.first().cloned() {

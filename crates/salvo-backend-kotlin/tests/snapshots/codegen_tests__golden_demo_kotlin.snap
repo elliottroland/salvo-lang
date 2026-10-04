@@ -619,7 +619,7 @@ fun lines(str: String): MutableList<String> {
     return out
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun splitOnce(str: String, sep: String): Pair<String, String>? {
     val at = str.indexOf(sep).takeIf { it >= 0 }
     if (at != null) {
@@ -631,7 +631,7 @@ fun splitOnce(str: String, sep: String): Pair<String, String>? {
     return null
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun splitLast(str: String, sep: String): Pair<String, String>? {
     val at = str.lastIndexOf(sep).takeIf { it >= 0 }
     if (at != null) {
@@ -670,7 +670,7 @@ object __Codec_Person : salvo.WireCodec<Person> {
     override fun dec(inp: salvo.WireIn): Person = Person(salvo.StrCodec.dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun fullName(person: Person): String {
     if (person.surname != null) {
         val surname = person.surname as String

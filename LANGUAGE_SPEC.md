@@ -1176,6 +1176,10 @@ Conventions:
   as the declared type.
   * A narrowed union value is physically re-wrapped to its own logical
     type at the `let` boundary (coercion recorded by the checker).
+* [for-elem-write] **A `for` body may write a field of its element** (user
+  decision 2026-10-04): `for a in xs { a.dead = true }` over a `Mut List<Mut
+  T>` changes the list's elements. Rust iterates `iter_mut()` when the body
+  assigns through the element; Kotlin needed nothing.
 * [let-destructure] `let (a, b) = ...` and `let {field, field: name} = ...`
   destructure tuples and structs.
   * Struct destructuring binds the *declared* field types, deliberately
@@ -2036,6 +2040,11 @@ Conventions:
     `next` over a container is written, and requiring an `else` block or a
     two-armed `when` for it was a limitation of the analysis, not a rule
     anybody chose.
+* [is-and-chain] **An `is` binding is in scope in the rest of its `&&`
+  chain**: `if b is Long known && known == x { … }`. Both backends bind it
+  inside the `&&` once the test has passed (Rust `lhs && { let known = …;
+  rhs }`, Kotlin `lhs && run { … }`), and again for the body as before
+  (fixed 2026-10-04; it was refused by both host compilers).
 * [is-binding] `is Type name` binds the narrowed value to a fresh
   variable in the matched branch (and per-iteration in `while`).
   * Parse heuristic: uppercase idents in the check are type refs; a
@@ -2343,6 +2352,16 @@ Conventions:
     candidate the arguments keep the untyped probe, and the lead is only ever
     a *hint* — the selection re-derives everything from the argument types it
     ends up with.
+* [implicit-fit] **A candidate whose implicits nothing can fill does not
+  fit** (user decision 2026-10-04): among several candidates, one with an
+  implicit parameter that no named argument, forwarded implicit or visible fn
+  of that name accepting the wanted parameters can fill is dropped before
+  ranking. So std's generic `count<It, T>(it: Mut It, ?Yield<It, T>)` neither
+  outranks nor blocks a program's own `count(NonEmpty List<T>)`; when every
+  candidate drops out, the error is "no matching overload", naming the
+  implicit. Checked by the parameters' shape only, since the answer type may
+  not be known at ranking; a lone candidate keeps its own diagnostic about
+  the implicit.
 * [fn-overload-ambiguous] **No single most specific candidate is an error**,
   never a pick. The diagnostic names the candidates and the remedies:
   narrowing an argument, or `rename fn <new> = f(...)`.

@@ -78,7 +78,7 @@ fun strictPort(text: String): Int {
     return n
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun report(console: Console, label: String, config: String) {
     val outcome = try {
         Union2.U1<Int, String>(portOf(config))
@@ -95,7 +95,7 @@ fun report(console: Console, label: String, config: String) {
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     val console: Console = StdOutConsole()
     val small = readSize(console, "notes.txt", 3)

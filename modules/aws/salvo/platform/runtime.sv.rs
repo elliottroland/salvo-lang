@@ -52,11 +52,11 @@ pub fn unpark_platform(p: &Parker) {
     crate::platform_runtime::unpark(p)
 }
 
-pub fn start_thread_platform(body: Box<dyn FnOnce() + Send + 'static>) {
+pub fn start_thread_platform(body: std::boxed::Box<dyn FnOnce() + Send + 'static>) {
     crate::platform_runtime::start_thread(body)
 }
 
-pub fn guarded_platform(body: Box<dyn FnOnce() + Send + 'static>) -> Option<String> {
+pub fn guarded_platform(body: std::boxed::Box<dyn FnOnce() + Send + 'static>) -> Option<String> {
     crate::platform_runtime::guarded(body)
 }
 
@@ -187,7 +187,7 @@ pub fn drop_dyn_platform(d: Dyn) {
 pub use crate::platform_runtime::Body;
 const _: fn() = || { fn __contract<T: Send + 'static>() {} __contract::<Body>(); };
 
-pub fn body_of_platform(f: Box<dyn FnMut(i32, i64, Dyn) + Send + 'static>) -> Body {
+pub fn body_of_platform(f: std::boxed::Box<dyn FnMut(i32, i64, Dyn) + Send + 'static>) -> Body {
     crate::platform_runtime::body_of(f)
 }
 
@@ -2018,7 +2018,7 @@ pub fn start_pool(n: i32, sink: i32, dedicated: bool) -> i32 {
     }
     let mut i = 0;
     while i < n {
-        start_thread_platform(Box::new({ let mut id = id.clone(); move || {
+        start_thread_platform(std::boxed::Box::new({ let mut id = id.clone(); move || {
     serve_pool(id.clone());
 } }));
         i = i + 1;
@@ -2333,5 +2333,5 @@ pub fn waiter_pool(wid: i32) -> i32 {
 }
 
 pub fn spawn_inert() -> i32 {
-    return spawn_body(0, 0, body_of_platform(Box::new(move |kind, slot, value| drop_dyn_platform(value))));
+    return spawn_body(0, 0, body_of_platform(std::boxed::Box::new(move |kind, slot, value| drop_dyn_platform(value))));
 }

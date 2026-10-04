@@ -456,7 +456,7 @@ impl crate::aws_sqs::__Stateful_Sqs for FakeSqs {
 
     fn receive_message(&mut self, input: ReceiveMessageInput, reply: crate::scheduler::SalvoReply) {
         self.recorded.push("receive_message".to_string());
-        (reply).send(Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(ReceiveMessageOutput { messages: None }))));
+        (reply).send(std::boxed::Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(ReceiveMessageOutput { messages: None }))));
     }
 
     fn delete_message(&mut self, input: DeleteMessageInput, reply: crate::scheduler::SalvoReply) {

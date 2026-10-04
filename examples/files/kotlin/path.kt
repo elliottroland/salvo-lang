@@ -78,7 +78,7 @@ fun fileName(p: Path): String? {
     return name
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun extension(p: Path): String? {
     val name = fileName(p)
     if (name != null) {
@@ -96,7 +96,7 @@ fun extension(p: Path): String? {
     return null
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun stem(p: Path): String? {
     val name = fileName(p)
     if (name != null) {
@@ -114,7 +114,7 @@ fun stem(p: Path): String? {
     return null
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun withExtension(p: Path, ext: String): Path {
     val s = stem(p)
     if (s != null) {

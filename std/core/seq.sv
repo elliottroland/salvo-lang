@@ -272,15 +272,13 @@ export fn next<It, T>(t: Mut SkippingWhile<It, T>) [] -> Emitted T | Finished =>
     if t.started {
         return step(t.src)
     }
-    // Not named `skip`: on Kotlin a local fn value of a top-level fn's name
-    // is called as the fn (ROADMAP 0c item 16).
-    let passing = t.skip
+    let skip = t.skip
     while true {
         let x = step(t.src)
         if x is Finished {
             return finished()
         }
-        if !passing(x) {
+        if !skip(x) {
             t.started = true
             return emitted(x)
         }
@@ -304,4 +302,14 @@ export fn to_list<It, T>(it: Mut It, ?Yield<It, T>) [] -> Mut List<proj T> holds
         add(out, x)
     }
     return out
+}
+
+// [seq-lazy] Drives [it] to its end, answering how many elements it had. A
+// `count` of the program's own over a list is more specific and wins.
+export fn count<It, T>(it: Mut It, ?Yield<It, T>) [] -> Int => it: Mut {
+    let n = 0
+    for _x in it {
+        n = n + 1
+    }
+    return n
 }

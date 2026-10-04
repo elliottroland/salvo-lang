@@ -194,7 +194,7 @@ fun next__27(__p: __Iter_naturals_Int): Union2<Int, Finished> {
     return Union2.U1<Int, Finished>(emitted(now))
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<It> sumOf(it: It, next: (It) -> Union2<Int, Finished>): Int {
     var total = 0
     while (true) {
@@ -206,7 +206,7 @@ fun<It> sumOf(it: It, next: (It) -> Union2<Int, Finished>): Int {
     return total
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<C, __It0> total(c: C, iter: (C) -> __It0, next: (__It0) -> Union2<Int, Finished>): Int {
     var total = 0
     var __loop3_pass = iter(c)
@@ -219,7 +219,7 @@ fun<C, __It0> total(c: C, iter: (C) -> __It0, next: (__It0) -> Union2<Int, Finis
     return total
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<__It0> first__2(it: __It0, next: (__It0) -> Union2<Int, Finished>): Int {
     while (true) {
         val __loop4_step = next(it)
@@ -230,7 +230,7 @@ fun<__It0> first__2(it: __It0, next: (__It0) -> Union2<Int, Finished>): Int {
     return -1
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     val console: Console = StdOutConsole()
     val xs = listOf<Int>(1, 2, 3, 4)

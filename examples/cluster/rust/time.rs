@@ -520,7 +520,7 @@ impl crate::scheduler::SalvoActor for __Actor_DefaultTimer {
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont_DefaultTimer::After{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_DefaultTimer::After{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -529,7 +529,7 @@ pub const __DECODE_DefaultTimer: Option<crate::scheduler::MsgDecoder> = Some(__d
 fn __decode_msg_DefaultTimer(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         if proto == crate::time::__PROTO_Timer {
             return crate::wire::salvo_decode::<crate::time::__Msg_Timer>(payload)
-                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
+                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
         }
     None
 }
@@ -734,8 +734,8 @@ impl crate::scheduler::SalvoActor for __Actor_ManualTime {
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont_ManualTime::After{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_ManualTime::Advance{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Duration>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_ManualTime::After{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_ManualTime::Advance{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Duration>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -744,11 +744,11 @@ pub const __DECODE_ManualTime: Option<crate::scheduler::MsgDecoder> = Some(__dec
 fn __decode_msg_ManualTime(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         if proto == crate::time::__PROTO_Timer {
             return crate::wire::salvo_decode::<crate::time::__Msg_Timer>(payload)
-                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
+                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
         }
         if proto == crate::time::__PROTO_TimerCtl {
             return crate::wire::salvo_decode::<crate::time::__Msg_TimerCtl>(payload)
-                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
+                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
         }
     None
 }

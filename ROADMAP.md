@@ -103,101 +103,12 @@ and the `test actor` follow-ups recorded below:
 
 ### 0b — ✅ Three slow tests (fixed 2026-10-04, COMPLETED.md)
 
-### 0c — Rust emitter defects and gaps (found 2026-10-02, not fixed)
+### 0c — ✅ Emitter defects and gaps (closed 2026-10-04, COMPLETED.md)
 
-Found while moving the group protocol into `std/net.sv` (runtime step
-4). Each is refused by rustc, so none is silently wrong, but each stops
-a correct program from building. std works around the first by naming.
-
-1. **A second `let` of one name in a fn, after a loop that declared it,
-   inherits the wrong move decision.** The later binding's narrowed reads
-   inside a loop lower to `n.unwrap()` (a move) instead of
-   `n.as_ref().unwrap()`, and rustc reports E0382. `net.sv`'s mechanisms
-   name their departed node `departed` to avoid it. Repro:
-   ```
-   struct Node { id: Int, label: Str }
-   fn take(n: Node) [Console] -> None => !n { println("took ${n.label}") }
-   fn f(m: Mut Map<Int, Node>, k: Int) [Console] -> None => m: Mut {
-       for id in keys(m) {
-           let n = get(m, id)
-           if !(n is None) { println("saw ${n.label}") }
-       }
-       let n = remove(m, k)
-       if n is None { return }
-       for i in [1, 2] { take(copy(n)) }
-   }
-   ```
-2. **A union argument to a `send fn` through an addr is not coerced.**
-   `b.go(A { x: 1 })` where `send fn go(v: A | B | None)` emits
-   `__Msg_Bin::Go(A { x: 1 })` without the union wrapper (E0308); binding the
-   value to an annotated `let` first works.
-3. **An effect named `Box` makes a handle variable `box`**, a reserved word
-   in Rust: `use Boxing()` of `effect Box` emits `let box = …`. The handle
-   name needs `r#` escaping (or a mangled name) like other identifiers.
-4. **Calling a fn value with its own result as the argument is E0499 on
-   Rust**: `f(f(x))` for `f: (n: Int) -> Int` borrows `*f` mutably twice. A
-   `let y = f(x)` first works. The emitter should hoist the inner call.
-6. **A `return` inside a lambda in a function that may throw** (a test body)
-   is wrong on both backends: Rust returns `ControlFlow::Continue(())` from a
-   closure typed `()` (E0308), Kotlin a bare `return` from a lambda (refused).
-   Refused by the host compilers, so not silent. `std/runtime.test.sv` uses
-   `if`/`else` instead.
-7. ✅ Closed 2026-10-02: a narrowed linear union arm handed on clones on Rust
-   (now moved, [rs-linear-move]).
-8. **Private std function names share the mangling space with user code**
-   (the function half of the clash work; types are done, [type-identity]):
-   a private runtime `fn work` collided with a program's in emitted names,
-   which is why it became `serve_pool`. Calls already resolve by
-   declaration (`call_fn`); the emitted name of an overload should be keyed
-   the same way.
-9. **An `is` binding is not in scope later in its own `&&` chain on Rust**:
-   `if b is Long known && known == x { … }` emits `(b.is_some()) && known ==
-   x` (E0425). Kotlin is right. `std/runtime/routing.sv` nests the test.
-10. **A `Map` whose values are linear does not build on Rust**: the empty
-   literal lowers to `SalvoMap::from_entries`, which needs `Clone`. The
-   routing service keeps exported tasks in two index-aligned lists instead.
-11. **A struct's fn-typed field with a named parameter does not build on
-   Rust**: `struct Tok { f: (x: Int) -> Int }` and `Tok { f: x -> x + 1 }`
-   emit the lambda with a reference parameter (`|x| *x + 1`) for an
-   `Arc<dyn Fn(i32) -> i32>` field (E0614). Unnamed (`(Int) -> Int`) works.
-12. **A struct field's default is inlined where the literal is written, with
-   the names it uses unimported there (Rust)**: `struct C { d: Duration =
-   Duration { nanos: 1L } }` and `C {}` in a module that does not import
-   `Duration` emits `Duration { … }` there (E0422). `net`'s
-   `default_route_config()` builds `RouteConfig {}` in its own module
-   instead.
-13. **A handler and a type of one name clash in Kotlin output**: Salvo keeps
-   handlers and types in separate namespaces, but the Kotlin classes share a
-   package's star-import space, so `runtime.streams`' handler `Streams`
-   beside `stream`'s effect `Streams` was ambiguous to kotlinc. The handler
-   was renamed (`HostStreamTable`); [type-identity] tracks the two
-   namespaces separately, so the emitter should qualify across them too.
-14. **Assigning a field of a `for` element is accepted but does not build on
-   Rust**: `for a in actors { a.dead = true }` over a `Mut List<Mut ActorRec>`
-   checks, and emits `for a in &*actors`, which rustc refuses. It is allowed
-   (user decision 2026-10-04): the emitter iterates mutably. Workaround until
-   then: index with `get(actors, i)!`.
-15. **The Kotlin emitter's output draws kotlinc warnings**, now hidden from
-   `run` and `test` by `-nowarn`: an unnecessary safe call on a narrowed union
-   arm (`w?.value as RunActor`, in `runtime.kt` and `runtime/routing.kt`), a
-   redundant `.toString()` on a `Str` passed to `ToStr`, and a redundant
-   `else` in an exhaustive `when`. Repro: `salvo test --backend kotlin --src
-   std` before 2026-10-03, or compile any program with plain `kotlinc`.
-16. **Kotlin calls a local fn value by a top-level fn's mangled name**: in a
-   fn where `let skip = t.skip` binds a fn value and `skip` is also a
-   top-level fn of the module (mangled `skip__2`), `skip(x)` is emitted as
-   `skip__2(x)`. Repro: `core.seq`'s `SkipWhile` next, written with
-   `let skip = t.skip`, failed kotlinc with "unresolved reference 'skip__2'".
-17. **An overload whose implicits cannot be filled still competes**: a
-   generic `count<It, T>(it: Mut It, ?Yield<It, T>)` fits a `Mut List<Int>`
-   by type, so where the program's own `count(NonEmpty List<T>)` does not fit
-   the call reports "no `next` fits … for `count`" rather than "no matching
-   overload". Decided (user, 2026-10-04): a candidate whose implicits cannot
-   be filled does not fit, and is dropped before ranking. Then std gains a
-   generic `count(it)`. Repro:
-   `analyze_tests::a_refinement_recovers_a_qualifier_stripped_by_a_mutating_call`'s
-   control, with such a `count` in `core.seq`.
-
+Left from it: std still carries the workarounds the defects forced, now
+unnecessary — the nested `is` test in `std/runtime/routing.sv` (item 9), the
+handler `HostStreamTable` (item 13, could be `Streams` again), `net.sv`'s
+`departed` (item 1) — to be undone when those files are next touched.
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 

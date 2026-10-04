@@ -1416,3 +1416,154 @@ fn main() [use, spawn] {
     }
     __stamp.verified();
 }
+
+/// The emitter gaps of ROADMAP 0c, closed 2026-10-04: one program per item,
+/// run on both backends, printing the same lines. Each line is numbered after
+/// its item: (1) a second `let` of a name after a loop that declared it, (2) a
+/// union argument to a `send fn` through an addr, (3) an effect named `Box`,
+/// (4) `f(f(x))`, (6) a `return` in a lambda inside a throwing fn
+/// [kt-lambda-return], (9) an `is` binding read later in its `&&` chain
+/// [is-and-chain], (11) a fn field with a named parameter, (12) a field default
+/// naming a type the literal's file does not import [rs-default-path], (13) a
+/// handler named like another module's type [type-identity], (14) writing a
+/// field of a `for` element [for-elem-write], (16) a fn-typed local named like
+/// a top-level fn [call-resolve].
+#[test]
+fn the_roadmap_0c_emitter_gaps_build_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("roadmap_0c", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("roadmap_0c");
+    fs::create_dir_all(dir.join("lib")).unwrap();
+    fs::write(dir.join("lib/conf.sv"), r#"import time.Duration
+
+// [rs-default-path] A default naming a type the user's file does not import.
+export struct Conf { d: Duration = Duration { nanos: 5L } }
+
+// [type-identity] A handler named like a type of another module.
+export effect Table {
+    fn size() -> Int
+}
+export handler Circle() of Table {
+    fn size() -> Int { return 3 }
+}
+"#).unwrap();
+    fs::write(dir.join("lib/shapes.sv"), r#"export struct Circle { r: Int }
+"#).unwrap();
+    fs::write(dir.join("main.sv"), r#"import lib.conf
+import lib.shapes
+import throw
+
+struct Node { id: Int, label: Str }
+struct A { x: Int }
+struct B { y: Int }
+struct Rec canbe Mut { dead: Bool }
+struct H<T> { skip: (x: T) -> Bool }
+struct Tok { f: (x: Int) -> Int }
+
+effect Box {
+    fn get() -> Int
+}
+handler Boxing() of Box {
+    fn get() -> Int { return 7 }
+}
+
+actor effect Bin {
+    send fn go(v: A | B | None, done: Reply<Int>) => !v, !done
+}
+handler Binning() of Bin {
+    mailbox { capacity: 4 }
+    send fn go(v: A | B | None, done: Reply<Int>) {
+        if v is A {
+            done.send(v.x)
+        } else {
+            done.send(0)
+        }
+    }
+}
+
+fn skip(s: Str) [] -> Str { return s }
+
+// 0c item 1: a second `let n` after a loop that declared one.
+fn rebind(m: Mut Map<Int, Node>, k: Int) [] -> Int => m: Mut {
+    let seen = 0
+    for id in keys(m) {
+        let n = get(m, id)
+        if !(n is None) { seen = seen + size(n.label) }
+    }
+    let n = remove(m, k)
+    if n is None { return -1 }
+    for _i in [1, 2] { seen = seen + copy(n).id }
+    return seen
+}
+
+// 0c item 4: a fn value called on its own result.
+fn twice(f: (n: Int) -> Int, x: Int) [] -> Int => f {
+    return f(f(x))
+}
+
+// 0c item 6: a `return` inside a lambda in a fn that may throw.
+fn may(n: Int) [Throw<Str>] -> Int {
+    if n < 0 { throw("neg") }
+    let f = (x: Int) -> {
+        if x > 1 { return x * 2 }
+        return x
+    }
+    return f(n)
+}
+
+// 0c item 9: an `is` binding read later in its own `&&` chain.
+fn same(b: Long?, x: Long) [] -> Bool {
+    if b is Long known && known == x { return true }
+    return false
+}
+
+// 0c item 16: a fn-typed local named like a top-level fn.
+fn use_it<T>(h: H<T>, v: T) [] -> Bool => h, v {
+    let skip = h.skip
+    return skip(v)
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let m: Mut Map<Int, Node> = mut_map_of()
+    put(m, 1, Node { id: 1, label: "ab" })
+    println("1: ${rebind(m, 1)}")
+    let b = spawn Binning()
+    let got = waitfor out: Reply<Int> { b.go(A { x: 9 }, out) }
+    println("2: ${got}")
+    use Boxing()
+    println("3: ${get()}")
+    println("4: ${twice((n: Int) -> n + 1, 1)}")
+    let r = try { may(2) }
+    when r {
+        is Ok { println("6: ${r}") }
+        is Thrown { println("6: thrown") }
+    }
+    println("9: ${same(3L, 3L)} ${same(None, 3L)}")
+    let t = Tok { f: x -> x + 1 }
+    let tf = t.f
+    println("11: ${tf(2)}")
+    let c = Conf {}
+    println("12: ${c.d.nanos}")
+    use Circle()
+    let shape = Circle { r: 2 }
+    println("13: ${size()} ${shape.r}")
+    let xs: Mut List<Mut Rec> = mut_list_of(Mut Rec { dead: false })
+    for a in xs {
+        if !a.dead { a.dead = true }
+    }
+    println("14: ${get(xs, 0)!.dead}")
+    println("16: ${use_it(H<Int> { skip: (x: Int) -> x > 2 }, 3)} ${skip("s")}")
+}
+"#).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "1: 4\n2: 9\n3: 7\n4: 3\n6: 4\n9: true false\n11: 3\n12: 5\n13: 3 2\n14: true\n16: true s\n", "{backend}");
+    }
+    __stamp.verified();
+}

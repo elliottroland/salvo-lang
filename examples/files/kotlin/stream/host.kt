@@ -113,7 +113,7 @@ class __Mon_RawStreams(
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun hostReceived(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.SalvoBytes, End, Union2<InvalidUtf8, StreamFailed>>) {
     when (got) {
         is Union3.U1<*, *, *> -> {
@@ -134,7 +134,7 @@ class HostRawStreams : RawStreams {
         return nextLine(handle)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun rawReadAll(handle: Long): Union2<String, Union2<InvalidUtf8, StreamFailed>> {
         val e = checkoutIn(handle)
         val r = readAll(e)
@@ -153,7 +153,7 @@ class HostRawStreams : RawStreams {
         return Union2.U2<String, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, salvo.runtime.streams.Fault(utf8 = true, message = ""))))
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun rawReadBytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>> {
         val e = checkoutIn(handle)
         val r = readUpTo(e, max)
@@ -166,7 +166,7 @@ class HostRawStreams : RawStreams {
         return Union2.U1<salvo.SalvoBytes, Union2<InvalidUtf8, StreamFailed>>(ok(r.data))
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun rawReadToBytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union2<InvalidUtf8, StreamFailed>> {
         val e = checkoutIn(handle)
         val r = readUpTo(e, max)
@@ -180,7 +180,7 @@ class HostRawStreams : RawStreams {
         return Union2.U1<Int, Union2<InvalidUtf8, StreamFailed>>(ok(r.data.size))
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun rawReadToStr(handle: Long, buf: StringBuilder): Union2<Long, Union2<InvalidUtf8, StreamFailed>> {
         val e = checkoutIn(handle)
         val r = readAll(e)
@@ -201,7 +201,7 @@ class HostRawStreams : RawStreams {
         return Union2.U2<Long, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, salvo.runtime.streams.Fault(utf8 = true, message = ""))))
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun rawReadLineToStr(handle: Long, buf: StringBuilder): Boolean {
         val line = nextLine(handle)
         if (line != null) {
@@ -219,7 +219,7 @@ class HostRawStreams : RawStreams {
         return at
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun rawCloseRead(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
         val e = checkoutIn(handle)
         val source = e.source
@@ -252,7 +252,7 @@ class HostRawStreams : RawStreams {
         return at
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
         val e = checkoutOut(handle)
         val source = e.source
@@ -265,7 +265,7 @@ class HostRawStreams : RawStreams {
         return Union2.U1<Unit, Union2<InvalidUtf8, StreamFailed>>(ok(Unit))
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun rawCloseWrite(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
         val e = checkoutOut(handle)
         val source = e.source
@@ -277,6 +277,7 @@ class HostRawStreams : RawStreams {
         return Union2.U1<Unit, Union2<InvalidUtf8, StreamFailed>>(ok(Unit))
     }
 
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun rawReceive(handle: Long, reply: salvo.SalvoReply) {
         receive(handle, run { val __c0 = reply; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Chunk) }) { __v -> chunkReceived(__c0, __v as Chunk) } })
     }
@@ -286,7 +287,7 @@ class HostRawStreams : RawStreams {
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun chunkReceived(reply: salvo.SalvoReply, c: Chunk) {
     if (c.fault != null) {
         val f = c.fault as salvo.runtime.streams.Fault
@@ -322,7 +323,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
         return __dep_RawStreams.rawReadLine(s.handle)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun readAll(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawReadAll(s.handle)
         when (r) {
@@ -335,7 +336,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun readBytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawReadBytes(s.handle, max)
         when (r) {
@@ -348,7 +349,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawReadToBytes(s.handle, buf, max)
         when (r) {
@@ -361,7 +362,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawReadToStr(s.handle, buf)
         when (r) {
@@ -382,7 +383,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
         return __dep_RawStreams.rawReadPosition(s.handle)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun close(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawCloseRead(s.handle)
         (s).let {}
@@ -396,6 +397,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
         }
     }
 
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun receive(s: InStream, reply: salvo.SalvoReply) {
         val handle = s.handle
         (s).let {}
@@ -422,7 +424,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
         return __dep_RawStreams.rawWritePosition(s.handle)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawFlush(s.handle)
         when (r) {
@@ -435,7 +437,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : Streams {
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawCloseWrite(s.handle)
         (s).let {}

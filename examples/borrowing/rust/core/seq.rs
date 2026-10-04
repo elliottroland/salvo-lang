@@ -247,13 +247,13 @@ pub fn next__18<It: Clone, T: Clone>(t: &mut SkippingWhile<It, T>) -> Union2<T, 
     if t.started {
         return step(&mut t.src);
     }
-    let mut passing = &t.skip;
+    let mut skip = &t.skip;
     loop {
         let mut x = step(&mut t.src);
         if matches!(x, Union2::U2(_)) {
             return Union2::<T, Finished>::U2(finished());
         }
-        if !passing(x.u1()) {
+        if !skip(x.u1()) {
             t.started = true;
             return Union2::<T, Finished>::U1(emitted(x.u1().clone()));
         }
@@ -271,4 +271,12 @@ pub fn to_list<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -
         out.push(x);
     }
     return out;
+}
+
+pub fn count__2<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> i32 {
+    let mut n = 0;
+    while let Union2::U1(mut _x) = next(it) {
+        n = n + 1;
+    }
+    return n;
 }

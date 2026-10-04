@@ -264,7 +264,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
             let mut open = mem_read_state(&self.reads, s.handle);
             self.reads.remove(&s.handle);
             drop(s);
-            (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3(err(checked(Union2::<InvalidUtf8, StreamFailed>::U2(StreamFailed { source: open.source.clone(), message: "read failed".to_string() }))))));
+            (reply).send(std::boxed::Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3(err(checked(Union2::<InvalidUtf8, StreamFailed>::U2(StreamFailed { source: open.source.clone(), message: "read failed".to_string() }))))));
             ignore((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
             return;
         }
@@ -272,10 +272,10 @@ impl crate::stream::__Stateful_Streams for MemFs {
         if ((data.len() as i32) == 0) {
             self.reads.remove(&s.handle);
             drop(s);
-            (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(End {  })));
+            (reply).send(std::boxed::Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(End {  })));
             return;
         }
-        (reply).send(Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(Packet { bytes: data, stream: s }))));
+        (reply).send(std::boxed::Box::new(Union3::<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(Packet { bytes: data, stream: s }))));
     }
 
     fn from_bytes(&mut self, data: Vec<u8>) -> InStream {

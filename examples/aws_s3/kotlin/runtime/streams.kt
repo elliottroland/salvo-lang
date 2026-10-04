@@ -314,7 +314,7 @@ fun registerBytes(data: salvo.SalvoBytes): Long {
     return registerIn("<bytes>", hostBytesInPlatform(data), 0L)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun checkoutIn(handle: Long): InEntry {
     while (true) {
         val got = __moduleUse0.takeIn(handle, thisParkerPlatform())
@@ -330,7 +330,7 @@ fun checkoutIn(handle: Long): InEntry {
     return checkoutIn(handle)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun checkoutOut(handle: Long): OutEntry {
     while (true) {
         val got = __moduleUse0.takeOut(handle, thisParkerPlatform())
@@ -366,7 +366,7 @@ fun closeIn(handle: Long, e: InEntry): Fault? {
     return failed
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun closeOut(handle: Long, e: OutEntry): Fault? {
     __moduleUse0.forget(handle)
     val __destructured5 = e
@@ -421,7 +421,7 @@ object __Codec_Read : salvo.WireCodec<Read> {
     override fun dec(inp: salvo.WireIn): Read = Read(salvo.BytesCodec.dec(inp), salvo.BoolCodec.dec(inp), salvo.OptCodec(__Codec_Fault).dec(inp))
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun readLine(e: InEntry): Read {
     if (e.failed != null) {
         val f = e.failed as Fault
@@ -455,7 +455,7 @@ fun readLine(e: InEntry): Read {
     return readLine(e)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun readAll(e: InEntry): Read {
     if (e.failed != null) {
         val f = e.failed as Fault
@@ -477,7 +477,7 @@ fun readAll(e: InEntry): Read {
     return readAll(e)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun readUpTo(e: InEntry, max: Int): Read {
     if (e.failed != null) {
         val f = e.failed as Fault
@@ -514,7 +514,7 @@ fun recordOut(e: OutEntry, message: String) {
     e.failed = Fault(utf8 = false, message = message)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun write(e: OutEntry, data: salvo.SalvoBytes): Long {
     if (e.failed != null) {
         val earlier = e.failed as Fault
@@ -530,7 +530,7 @@ fun write(e: OutEntry, data: salvo.SalvoBytes): Long {
     return (data.size).toLong()
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun flush__2(e: OutEntry): Fault? {
     val failed = hostFlushPlatform(e.host)
     if (failed != null) {
@@ -571,7 +571,7 @@ fun startReader(handle: Long) {
 })
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun readAndAnswer(handle: Long) {
     val e = checkoutIn(handle)
     val got = readUpTo(e, 65536)

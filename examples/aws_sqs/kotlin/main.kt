@@ -15,7 +15,7 @@ import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun describe(e: Union2<SqsError, AwsError>): String {
     if (e is Union2.U2<*, *>) {
         return "${(e.value as AwsError).code}: ${(e.value as AwsError).message}"
@@ -23,10 +23,10 @@ fun describe(e: Union2<SqsError, AwsError>): String {
     if (((e.value as SqsError).code == "QueueDoesNotExist")) {
         return "no such queue"
     }
-    return "the service refused: ${((e.value as SqsError).code).toString()}"
+    return "the service refused: ${(e.value as SqsError).code}"
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun roundTrip(sqs: Sqs, console: Console, name: String) {
     val created = run {
         val (r, __wid) = salvo.SalvoSched.waiter()
@@ -159,7 +159,7 @@ class MemSqs : Sqs {
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults)))
     val console: Console = StdOutConsole()

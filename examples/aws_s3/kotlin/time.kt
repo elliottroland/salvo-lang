@@ -331,6 +331,7 @@ class __Actor_DefaultTimer(private val handler: DefaultTimer) : salvo.SalvoActor
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -406,7 +407,7 @@ class ManualTime : Timer, TimerCtl {
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun advance(by: Duration) {
         val target = now + by.nanos
         while (true) {
@@ -463,6 +464,7 @@ class __Actor_ManualTime(private val handler: ManualTime) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {

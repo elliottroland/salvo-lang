@@ -10929,7 +10929,7 @@ fn a_payload_cast_gets_the_suppression() {
     // A generic payload is an *unchecked* cast ...
     assert!(
         main.contains(
-            "@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\")\nfun<It, T> countAll"
+            "@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\", \"UNNECESSARY_SAFE_CALL\")\nfun<It, T> countAll"
         ),
         "expected the suppression on the generic-element combinator in:\n{main}"
     );
@@ -10939,7 +10939,7 @@ fn a_payload_cast_gets_the_suppression() {
     // is the author's to silence.
     assert!(
         main.contains(
-            "@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\")\nfun<It> sumInts"
+            "@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\", \"UNNECESSARY_SAFE_CALL\")\nfun<It> sumInts"
         ),
         "a concrete payload cast is annotated too in:\n{main}"
     );

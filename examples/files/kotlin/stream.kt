@@ -48,7 +48,7 @@ object __Codec_StreamFailed : salvo.WireCodec<StreamFailed> {
     override fun dec(inp: salvo.WireIn): StreamFailed = StreamFailed(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp))
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun toStr__5(kind: Union2<InvalidUtf8, StreamFailed>): String {
     when (kind) {
         is Union2.U1<*, *> -> {
@@ -193,11 +193,12 @@ class __Mon_Streams(
     }
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun pipe(streams: Streams, from: InStream, to: OutStream, done: salvo.SalvoReply) {
     streams.receive(from, run { val __e0 = streams; val __c0 = to; val __c1 = done; val __c2 = 0L; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { _: ByteArray -> Pair(false, null) }) { __v -> pipeStep(__e0, __c0, __c1, __c2, __v as Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) } })
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun pipeStep(streams: Streams, to: OutStream, done: salvo.SalvoReply, moved: Long, got: Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) {
     when (got) {
         is Union3.U1<*, *, *> -> {
@@ -265,7 +266,7 @@ fun chunks(s: InStream, size: Int): Chunks {
     return Chunks(s = s, size = size)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun next__22(streams: Streams, p: Chunks): Union2<salvo.SalvoBytes, Finished> {
     val got = streams.readBytes(p.s, p.size)
     if (got is Union2.U2<*, *>) {
@@ -287,7 +288,7 @@ fun streamChunkSize(): Int {
     return 65536
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun fillFrom(streams: Streams, s: InStream, buf: salvo.SalvoBytes): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     var total: Long = 0L
     var reading = true
@@ -305,7 +306,7 @@ fun fillFrom(streams: Streams, s: InStream, buf: salvo.SalvoBytes): Union2<Long,
     return Union2.U1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(total))
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun copyStream(streams: Streams, s: InStream, w: OutStream): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     val buf = salvo.SalvoBytes.joined()
     var total: Long = 0L
@@ -340,7 +341,7 @@ fun<T> writeValue(streams: Streams, s: OutStream, v: T, encode: (T) -> salvo.Sal
     return n + streams.writeBytes(s, data)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun readInt(streams: Streams, s: InStream): Union3<Int, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     val r = readFixed(streams, s, 4)
     when (r) {
@@ -360,7 +361,7 @@ fun readLong(streams: Streams, s: InStream): Union3<Long, End, Checked<Union2<In
     return readFixed(streams, s, 8)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> readValue(streams: Streams, s: InStream, decode: (salvo.SalvoBytes) -> T?): Union3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     val len = readInt(streams, s)
     if (len is Union3.U2<*, *, *>) {
@@ -407,7 +408,7 @@ fun fixedBytes(v: Long, width: Int): salvo.SalvoBytes {
     return back
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun readFixed(streams: Streams, s: InStream, width: Int): Union3<Long, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     val r = streams.readBytes(s, width)
     if (r is Union2.U2<*, *>) {

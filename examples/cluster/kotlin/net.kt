@@ -9,6 +9,7 @@ import salvo.core.deque.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.result.*
+import salvo.core.seq.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
@@ -61,7 +62,7 @@ object NetErrors {
     fun wireFailed(value: WireFailed): Union2<Unreachable, WireFailed> = salvo.Union2.U2(value)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun toStr__3(e: Union2<Unreachable, WireFailed>): String {
     when (e) {
         is Union2.U1<*, *> -> {
@@ -259,6 +260,7 @@ class __Actor_Sending(private val handler: Sending) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -312,6 +314,7 @@ class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -564,7 +567,7 @@ object __Codec_PeerIntro : salvo.WireCodec<PeerIntro> {
     override fun dec(inp: salvo.WireIn): PeerIntro = PeerIntro(salvo.ListCodec(__Codec_NodeEndpoint).dec(inp))
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.SalvoBytes): Union3<PeerHello, PeerGone, PeerIntro>? {
     val msg = salvo.salvoDecode(data, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))
     when (msg) {
@@ -636,7 +639,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
         leaveGroup(known)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     fun control(from: NodeId, data: salvo.SalvoBytes) {
         val event = handshake(__dep_Transport, name, from, data)
         when (event) {
@@ -725,6 +728,7 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -782,7 +786,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
         leaveGroup(known)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     fun control(from: NodeId, data: salvo.SalvoBytes) {
         val event = handshake(__dep_Transport, name, from, data)
         when (event) {
@@ -882,6 +886,7 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -1248,6 +1253,7 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -1736,6 +1742,7 @@ class __Actor_MemNetwork(private val handler: MemNetwork) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {

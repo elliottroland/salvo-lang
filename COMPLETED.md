@@ -135,6 +135,38 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**ROADMAP 0c, the emitter defects (2026-10-04).** Every item reproduced
+first; two no longer did (item 8, private std fn names mangled apart from a
+program's since overloads are keyed by declaration; item 10, a `Map` of linear
+values, which builds now in a local, a handler field and an empty literal),
+and item 16 needed a repro closer to the original. Fixed: (1) a new `let`
+resets the Rust binding kind a sibling scope's `let` of the name left; (2) an
+addr or façade send applies the checker's coercion to its payload; (3) a
+handle named after a Rust keyword gets a `_`, and generated code spells
+`std::boxed::Box`; (4) `f(f(x))` evaluates its
+arguments into locals first [rs-fn-value-nested]; (6) a closure does not throw
+on Rust, and a Kotlin block lambda that returns early is labelled
+[kt-lambda-return] — the Kotlin half was broken in *every* fn, not only a
+throwing one; (9) an `is` binding is bound inside its `&&` chain on both
+backends [is-and-chain] — broken on Kotlin too; (11) a lambda stored in a fn
+field takes the field's parameter conventions; (12) a struct literal names a
+type its file cannot see through its module's path [rs-default-path]; (13) a
+handler named like another module's type clashes, is keyed, and is looked up
+by a handler-namespace key (`visible_handler_key`) on both backends — broken
+on Rust too; (14) a `for` body writing a field of its element iterates
+`iter_mut()` (user decision: allowed) [for-elem-write]; (15) kotlinc's
+warnings on generated code are gone (a `Str`'s `to_str` is itself,
+`UNNECESSARY_SAFE_CALL` and `REDUNDANT_ELSE_IN_WHEN` suppressed where the
+emitter cannot know, a task's payload cast noted for suppression), checked by
+compiling the `actors` and `files` examples with plain kotlinc; (16) Kotlin
+calls a fn-typed local through the local whatever `call_fn` holds, and the
+checker marks the local used; (17) a candidate whose implicits cannot be
+filled drops out before ranking (user decision) [implicit-fit], so std has a
+generic `count(it)` again. Found on the way and not a defect: a linear
+struct of plain fields is discharged with `discard`, not by destructuring.
+New test: `run_tests::the_roadmap_0c_emitter_gaps_build_on_both_backends`, one
+program exercising each fixed item on both backends.
+
 **The slow tests, ROADMAP 0b (2026-10-04).** Warm, measured with the
 machine under outside load (load average 40–90 on 10 cores): the Kotlin
 driver 69 s → 12 s, `every_example_has_a_kotlin_case` 69 s → gone, the

@@ -230,8 +230,8 @@ impl crate::scheduler::SalvoActor for __Actor_Counting {
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont_Counting::Bump{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_Counting::Total{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Counting::Bump{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Counting::Total{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -240,7 +240,7 @@ pub const __DECODE_Counting: Option<crate::scheduler::MsgDecoder> = Some(__decod
 fn __decode_msg_Counting(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         if proto == crate::__PROTO_Counter {
             return crate::wire::salvo_decode::<crate::__Msg_Counter>(payload)
-                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
+                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
         }
     None
 }
@@ -425,8 +425,8 @@ impl crate::scheduler::SalvoActor for __Actor_Bookkeeping {
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont_Bookkeeping::Report{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_Bookkeeping::Reported{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Bookkeeping::Report{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Bookkeeping::Reported{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -435,7 +435,7 @@ pub const __DECODE_Bookkeeping: Option<crate::scheduler::MsgDecoder> = Some(__de
 fn __decode_msg_Bookkeeping(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         if proto == crate::__PROTO_Ledger {
             return crate::wire::salvo_decode::<crate::__Msg_Ledger>(payload)
-                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
+                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
         }
     None
 }
@@ -652,9 +652,9 @@ impl crate::scheduler::SalvoActor for __Actor_Desking {
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont_Desking::Ticket{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_Desking::Serve{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_Desking::CloseUp{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Desking::Ticket{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Desking::Serve{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Desking::CloseUp{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -663,7 +663,7 @@ pub const __DECODE_Desking: Option<crate::scheduler::MsgDecoder> = Some(__decode
 fn __decode_msg_Desking(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         if proto == crate::__PROTO_Desk {
             return crate::wire::salvo_decode::<crate::__Msg_Desk>(payload)
-                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
+                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
         }
     None
 }
@@ -809,7 +809,7 @@ pub const __DECODE_Breaking: Option<crate::scheduler::MsgDecoder> = Some(__decod
 fn __decode_msg_Breaking(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         if proto == crate::__PROTO_Fragile {
             return crate::wire::salvo_decode::<crate::__Msg_Fragile>(payload)
-                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
+                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
         }
     None
 }
@@ -819,39 +819,39 @@ pub fn formatted(label: String, out: crate::scheduler::SalvoReply, total: i32) {
 }
 
 pub fn report_line(counter: usize, label: String, out: crate::scheduler::SalvoReply) {
-    crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Total(({ let __c0 = label; let __c1 = out; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), Box::new(move |__v| formatted(__c0, __c1, *__v.downcast::<i32>().expect("the awaited answer"))), (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))) })), crate::__PROTO_Counter);
+    crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Total(({ let __c0 = label; let __c1 = out; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), std::boxed::Box::new(move |__v| formatted(__c0, __c1, *__v.downcast::<i32>().expect("the awaited answer"))), (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))) })), crate::__PROTO_Counter);
 }
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Counter".to_string(), crate::__PROTO_Counter.to_string()), ("Desk".to_string(), crate::__PROTO_Desk.to_string()), ("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Fragile".to_string(), crate::__PROTO_Fragile.to_string()), ("Ledger".to_string(), crate::__PROTO_Ledger.to_string())]);
     let console = crate::core_console::Console::shared(StdOutConsole::new());
     let mut workers = crate::scheduler::salvo_pool(((2) as usize));
-    let mut counter = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Counting::new(__h)), __DECODE_Counting); __a });
+    let mut counter = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, std::boxed::Box::new(__Actor_Counting::new(__h)), __DECODE_Counting); __a });
     crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Bump(2), crate::__PROTO_Counter);
     crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Bump(3), crate::__PROTO_Counter);
     let mut sum = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(counter, crate::__Msg_Counter::Total(out), crate::__PROTO_Counter);
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
     println(&console, &(format!("1. counter total is {}", sum)));
-    let mut ledger = ({ let __h = Bookkeeping::new(crate::Counter::shared(__Stub_Counter::new(counter))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Bookkeeping::new(__h)), __DECODE_Bookkeeping); __a });
+    let mut ledger = ({ let __h = Bookkeeping::new(crate::Counter::shared(__Stub_Counter::new(counter))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, std::boxed::Box::new(__Actor_Bookkeeping::new(__h)), __DECODE_Bookkeeping); __a });
     let mut line = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(ledger, crate::__Msg_Ledger::Report("counter".to_string(), out), crate::__PROTO_Ledger);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
     println(&console, &(format!("3. ledger says {}", line)));
-    let mut desk = ({ let __h = Desking::new(8); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Desking::new(__h)), __DECODE_Desking); __a });
+    let mut desk = ({ let __h = Desking::new(8); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, std::boxed::Box::new(__Actor_Desking::new(__h)), __DECODE_Desking); __a });
     let mut first = {
         let (mut a, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(desk, crate::__Msg_Desk::Ticket(a), crate::__PROTO_Desk);
         let mut second = {
             let (mut b, __wid) = crate::scheduler::salvo_waiter();
-            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
             crate::scheduler::salvo_send_wire(desk, crate::__Msg_Desk::Ticket(b), crate::__PROTO_Desk);
             crate::scheduler::salvo_send_wire(desk, crate::__Msg_Desk::Serve("ada".to_string()), crate::__PROTO_Desk);
             crate::scheduler::salvo_send_wire(desk, crate::__Msg_Desk::CloseUp("end of day".to_string()), crate::__PROTO_Desk);
@@ -861,11 +861,11 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
     println(&console, &(format!("4. first waiter got: {}", first)));
-    let mut fragile = ({ let __h = Breaking::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Breaking::new(__h)), __DECODE_Breaking); __a });
+    let mut fragile = ({ let __h = Breaking::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, std::boxed::Box::new(__Actor_Breaking::new(__h)), __DECODE_Breaking); __a });
     let mut exit = {
         let (mut gone, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Exit>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
-        crate::scheduler::salvo_watch(fragile, gone, |__reason| Box::new(Exit { reason: __reason }));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Exit>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_watch(fragile, gone, |__reason| std::boxed::Box::new(Exit { reason: __reason }));
         crate::scheduler::salvo_send_wire(fragile, crate::__Msg_Fragile::Crash, crate::__PROTO_Fragile);
         *crate::scheduler::salvo_wait(__wid).downcast::<Exit>().expect("the awaited answer")
     };
@@ -876,23 +876,23 @@ pub fn main() {
     counter2.bump(5);
     let mut inline = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         counter2.total(out);
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
     println(&console, &(format!("6. inline total is {}", inline)));
-    let mut mine = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_current_pool(), __cap as usize, Box::new(__Actor_Counting::new(__h)), __DECODE_Counting); __a });
+    let mut mine = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_current_pool(), __cap as usize, std::boxed::Box::new(__Actor_Counting::new(__h)), __DECODE_Counting); __a });
     crate::scheduler::salvo_send_wire(mine, crate::__Msg_Counter::Bump(6), crate::__PROTO_Counter);
     let mut local = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<i32>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(mine, crate::__Msg_Counter::Total(out), crate::__PROTO_Counter);
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
     println(&console, &(format!("7. the main pool's own actor totalled {}", local)));
     let mut line8 = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         report_line(mine, "the counter".to_string(), out);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };

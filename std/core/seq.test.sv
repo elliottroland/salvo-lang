@@ -45,12 +45,11 @@ test "skipping and skipping_while drop a prefix" {
     expect_eq(to_str(b), "[4, 5]")
 }
 
-test "adaptors compose, and to_list drives them" {
+test "adaptors compose, and to_list and count drive them" {
     let pass = taking(skipping(naturals(10), 2), 3)
     let firsts = to_list(pass)
     expect_eq(ints(firsts), "[12, 13, 14]")
-    let small = taking_while(naturals(0), (x: Int) -> x < 7)
-    expect_eq(size(to_list(small)), 7)
+    expect_eq(count(taking_while(naturals(0), (x: Int) -> x < 7)), 7)
 }
 
 test "a list's own pass is borrowed, so the list stays usable" {

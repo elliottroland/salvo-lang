@@ -41,7 +41,7 @@ fun countUnique(xs: List<Int>): Int {
     return xs.size
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     val console: Console = StdOutConsole()
     val primes = listOf<Int>(2, 3, 5, 7)

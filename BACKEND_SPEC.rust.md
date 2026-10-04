@@ -1926,6 +1926,15 @@ facts worth knowing") and keeps the history ("One shape for effects").
 * [rs-time] [time-timer] **Deadlines are the runtime module's**, in Salvo
   (2026-10-02): the scheduler has no timer thread, and `HostRuntime.mono_nanos`
   reads `crate::hosttime::salvo_mono_nanos()`, the timeline `tick()` reports.
+* [rs-default-path] **A struct literal's type is spelled so it resolves where
+  it is written** (2026-10-04): a field default is inlined at the outer
+  literal, whose file need not import the type the default names, so a struct
+  that file cannot name unqualified is written through its module's path.
+* [rs-fn-value-nested] **`f(f(x))` evaluates the arguments first**
+  (2026-10-04): a fn value is called through `&mut`, so an argument calling
+  the same value borrows it twice (E0499); the arguments go into locals first.
+* **Generated code spells `std::boxed::Box`** (2026-10-04): a program's effect
+  named `Box` made the generated `Box::new` resolve to its handle type.
 * [rs-mailbox] A handler's `__mailbox_capacity` field is **`pub`** (since
   2026-09-18): the spawn site need not be in the same module, and std's own
   `DefaultTimer` is spawned from user code — a private field made that a raw

@@ -162,7 +162,7 @@ class __Platform_HostRawFs() : salvo.fs.host.__Platform_RawFs(salvo.platform.fs.
 
 class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Streams) : Fs {
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun openRead(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val r = __dep_RawFs.rawOpenRead(path)
         when (r) {
@@ -175,7 +175,7 @@ class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Strea
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun openReadAt(path: String, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val r = __dep_RawFs.rawOpenReadAt(path, offset)
         when (r) {
@@ -188,7 +188,7 @@ class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Strea
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun openWrite(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val r = __dep_RawFs.rawOpenWrite(path)
         when (r) {
@@ -201,7 +201,7 @@ class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Strea
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun openAppend(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val r = __dep_RawFs.rawOpenAppend(path)
         when (r) {
@@ -218,7 +218,7 @@ class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Strea
         return __dep_RawFs.rawExists(path)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun metadata(path: String): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val r = __dep_RawFs.rawMetadata(path)
         when (r) {
@@ -231,7 +231,7 @@ class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Strea
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun listDir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val r = __dep_RawFs.rawListDir(path)
         when (r) {
@@ -244,7 +244,7 @@ class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Strea
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun createDirs(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val r = __dep_RawFs.rawCreateDirs(path)
         when (r) {
@@ -257,7 +257,7 @@ class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Strea
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun delete(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val r = __dep_RawFs.rawDelete(path)
         when (r) {
@@ -270,7 +270,7 @@ class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_Streams: Strea
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun renamePath(from: String, to: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val r = __dep_RawFs.rawRenamePath(from, to)
         when (r) {

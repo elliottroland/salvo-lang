@@ -212,6 +212,7 @@ class __Actor_Sequencing(private val handler: Sequencing) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -267,6 +268,7 @@ class __Actor_Stocking(private val handler: Stocking) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -326,6 +328,7 @@ class __Actor_Indexing(private val handler: Indexing) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -379,6 +382,7 @@ class __Actor_Looking(private val handler: Looking) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -452,6 +456,7 @@ class __Actor_SlowLooking(private val handler: SlowLooking) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -512,6 +517,7 @@ class __Actor_Scattering(private val handler: Scattering) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -644,6 +650,7 @@ class __Actor_Gathering(private val handler: Gathering) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -704,6 +711,7 @@ class __Actor_Hedging(private val handler: Hedging) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -829,6 +837,7 @@ class __Actor_Racing(private val handler: Racing) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -896,7 +905,7 @@ fun checkout(inventory: Inventory, console: Console, skus: List<String>) {
     println(console, "  apple and pear on one shard: ${(((shards.getOrNull(0) ?: throw AssertionError("salvo: value is absent at main:225:50"))) == ((shards.getOrNull(1) ?: throw AssertionError("salvo: value is absent at main:225:67"))))}")
 }
 
-fun count__2(search: Search, word: String): Int {
+fun count__3(search: Search, word: String): Int {
     return run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
@@ -1037,6 +1046,7 @@ class __Actor_Booting(private val handler: Booting) : salvo.SalvoActor {
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -1112,7 +1122,7 @@ fun main() {
     shop(console, stock)
     println(console, "scatter:")
     val search: Search = Scattering(index, run { val __h = Gathering(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Gathering(__h), __Actor_Gathering.__DECODE); __a })
-    println(console, "  salvo: ${count__2(search, "salvo")}, actors: ${count__2(search, "actors")}, none: ${count__2(search, "none")}")
+    println(console, "  salvo: ${count__3(search, "salvo")}, actors: ${count__3(search, "actors")}, none: ${count__3(search, "none")}")
     println(console, "hedge:")
     val lookup: Lookup = Hedging(looks, run { val __h = Racing(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Racing(__h), __Actor_Racing.__DECODE); __a })
     println(console, "  ${find(lookup, "k1")}")
@@ -1171,6 +1181,7 @@ class __Actor___Route_Inventory(private val handler: __Route_Inventory) : salvo.
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -1227,6 +1238,7 @@ class __Actor___Route_Lookup(private val handler: __Route_Lookup) : salvo.SalvoA
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -1283,6 +1295,7 @@ class __Actor___Route_Search(private val handler: __Route_Search) : salvo.SalvoA
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
@@ -1339,6 +1352,7 @@ class __Actor___Route_Sequencer(private val handler: __Route_Sequencer) : salvo.
         }
     }
 
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {

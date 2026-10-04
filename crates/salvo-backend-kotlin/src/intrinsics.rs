@@ -91,7 +91,10 @@ pub fn fn_call(
         // `to_str(x)` and `"${x}"` agree by construction. `Double`/`Float`
         // have no `to_str`: the two hosts disagree about printing a whole
         // float.
-        ("to_str", Some("Int" | "Long" | "Byte" | "Char" | "Bool" | "Str")) => {
+        // A `Str` is its own text: `toString()` on one is kotlinc's
+        // "redundant conversion" warning (0c item 15).
+        ("to_str", Some("Str")) => a(0).to_string(),
+        ("to_str", Some("Int" | "Long" | "Byte" | "Char" | "Bool")) => {
             format!("({}).toString()", a(0))
         }
         // Structural equality on every intrinsic type: Kotlin's `==` is

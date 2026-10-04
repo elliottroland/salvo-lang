@@ -292,7 +292,7 @@ class __Mon_S3Calls(
 class FakeS3(private val __dep_Streams: Streams) : S3, S3Calls {
     private var recorded: MutableList<String> = mutableListOf<String>()
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) {
         recorded.add("put_object")
         val unsized = input.contentLength == null

@@ -24,7 +24,7 @@ fn __module_use_0() -> &'static crate::runtime_timers::DeadlineTable {
 fn __module_use_1() -> &'static crate::runtime_timers::Wheel {
     static CELL: std::sync::OnceLock<crate::runtime_timers::Wheel> = std::sync::OnceLock::new();
     CELL.get_or_init(|| {
-            let mut wheel = crate::runtime_timers::Wheel::shared(__Stub_Wheel::new(({ let __h = Wheeling::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, Box::new(__Actor_Wheeling::new(__h)), __DECODE_Wheeling); __a })));
+            let mut wheel = crate::runtime_timers::Wheel::shared(__Stub_Wheel::new(({ let __h = Wheeling::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, std::boxed::Box::new(__Actor_Wheeling::new(__h)), __DECODE_Wheeling); __a })));
         wheel
     })
 }
@@ -361,7 +361,7 @@ pub const __DECODE_Wheeling: Option<crate::scheduler::MsgDecoder> = Some(__decod
 fn __decode_msg_Wheeling(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         if proto == crate::runtime_timers::__PROTO_Wheel {
             return crate::wire::salvo_decode::<crate::runtime_timers::__Msg_Wheel>(payload)
-                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
+                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
         }
     None
 }
@@ -388,7 +388,7 @@ pub fn after_nanos(delay: i64, done: crate::scheduler::SalvoReply) {
 }
 
 pub fn arm_clock() {
-    on_clock(mint_task_on(main_pool(), body_of_platform(Box::new(move |kind, slot, value| {
+    on_clock(mint_task_on(main_pool(), body_of_platform(std::boxed::Box::new(move |kind, slot, value| {
     drop_dyn_platform(value);
     advance();
 }))));

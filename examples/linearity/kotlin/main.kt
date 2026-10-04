@@ -68,7 +68,7 @@ fun scrap(ticket: Ticket) {
     (ticket).let {}
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun aQueueOfTickets(console: Console) {
     val queue: kotlin.collections.ArrayDeque<Ticket> = kotlin.collections.ArrayDeque<Ticket>(listOf<Ticket>())
     queue.addLast(issue(console, 5, "2B"))

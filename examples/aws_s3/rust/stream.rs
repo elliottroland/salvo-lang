@@ -278,7 +278,7 @@ impl Streams {
 }
 
 pub fn pipe(streams: &crate::stream::Streams, from: InStream, to: OutStream, done: crate::scheduler::SalvoReply) {
-    { let __a1 = ({ let __e0 = streams.clone(); let __c0 = to; let __c1 = done; let __c2 = 0i64; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), Box::new(move |__v| pipe_step(__e0.clone(), __c0, __c1, __c2, *__v.downcast::<Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>>().expect("the awaited answer"))), (|_| None)) }); streams.receive(from, __a1) };
+    { let __a1 = ({ let __e0 = streams.clone(); let __c0 = to; let __c1 = done; let __c2 = 0i64; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), std::boxed::Box::new(move |__v| pipe_step(__e0.clone(), __c0, __c1, __c2, *__v.downcast::<Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>>().expect("the awaited answer"))), (|_| None)) }); streams.receive(from, __a1) };
 }
 
 pub fn pipe_step(mut streams: crate::stream::Streams, to: OutStream, done: crate::scheduler::SalvoReply, moved: i64, got: Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>) {
@@ -288,7 +288,7 @@ pub fn pipe_step(mut streams: crate::stream::Streams, to: OutStream, done: crate
             let mut bytes = __destructured2.bytes;
             let mut stream = __destructured2.stream;
             let mut written = streams.write_bytes(&to, &bytes);
-            { let __a1 = ({ let __e0 = streams.clone(); let __c0 = to; let __c1 = done; let __c2 = moved + written; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), Box::new(move |__v| pipe_step(__e0.clone(), __c0, __c1, __c2, *__v.downcast::<Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>>().expect("the awaited answer"))), (|_| None)) }); streams.receive(stream, __a1) };
+            { let __a1 = ({ let __e0 = streams.clone(); let __c0 = to; let __c1 = done; let __c2 = moved + written; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), std::boxed::Box::new(move |__v| pipe_step(__e0.clone(), __c0, __c1, __c2, *__v.downcast::<Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>>().expect("the awaited answer"))), (|_| None)) }); streams.receive(stream, __a1) };
         }
         Union3::U2(_) => {
             let mut closed = streams.close__2(to);

@@ -230,7 +230,7 @@ fun dropAnswered(a: Answered) {
     dropDynPlatform(value)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun dropEntry(e: Union3<Delivered, Answered, Reported>) {
     if (e is Union3.U1<*, *, *>) {
         val d = e.value as Delivered
@@ -787,7 +787,7 @@ class Scheduler : SchedTable {
         return true
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun kill(addr: Int, reason: String) {
         val a = (actors.getOrNull(addr) ?: throw AssertionError("salvo: value is absent at runtime:542:17"))
         if (a.dead) {
@@ -866,7 +866,7 @@ class Scheduler : SchedTable {
         wakeAllPools(pools)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun nextWork(pool: Int, idle: salvo.platform.runtime.Parker): Union3<RunActor, RunTask, Retire>? {
         if ((pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:613:12")).retired) {
             retired = retired + 1
@@ -898,7 +898,7 @@ class Scheduler : SchedTable {
         return retired
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.runtime.Parker): Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> {
         val w = (waiters.getOrNull(wid) ?: throw AssertionError("salvo: value is absent at runtime:647:17"))
         if (w.waiting == 0) {
@@ -955,7 +955,7 @@ class Scheduler : SchedTable {
         return Union6.U4<Got, RunActor, RunTask, Sleep, Again, Stuck>(Sleep())
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun finish(addr: Int, body: salvo.platform.runtime.Body, fault: String?) {
         active = active - 1
         val a = (actors.getOrNull(addr) ?: throw AssertionError("salvo: value is absent at runtime:713:17"))
@@ -1005,7 +1005,7 @@ class Scheduler : SchedTable {
         wakeAllPools(pools)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun taskDone(pool: Int, fault: String?) {
         active = active - 1
         if (fault != null) {
@@ -1086,7 +1086,7 @@ class Scheduler : SchedTable {
         clockHooks.add(hook)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun virtualWork(own: Int): Union2<RunActor, RunTask>? {
         val w = takeFor(actors, pools, 0, own, true)
         if (w is Union2.U1<*, *>) {
@@ -1123,7 +1123,7 @@ fun seedOf(seed: Long): Long {
     return s + 1
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun resetAll(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, idleHooks: MutableList<IdleHook>, clockHooks: MutableList<Token>) {
     var k = 0
     while (k < actors.size) {
@@ -1185,7 +1185,7 @@ fun resetAll(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, idleHoo
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun fireClock(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pools: MutableList<PoolRec>, hooks: MutableList<Token>) {
     var __is12 = (hooks).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
     if (__is12 != null) {
@@ -1194,7 +1194,7 @@ fun fireClock(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, po
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun takeFor(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, pool: Int, exclude: Int, any: Boolean): Union2<RunActor, RunTask>? {
     if (!any) {
         return takeWork(actors, pools, pool, exclude)
@@ -1226,7 +1226,7 @@ fun untrack(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pool
     return Token(target = target, slot = slot, tracked = false)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun release(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pools: MutableList<PoolRec>, target: Union3<ToActor, ToWaiter, ToTask>) {
     if (target is Union3.U1<*, *, *>) {
         val to = target.value as ToActor
@@ -1249,7 +1249,7 @@ fun release(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pool
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun deliverTo(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pools: MutableList<PoolRec>, t: Token, value: salvo.platform.runtime.Dyn) {
     val __destructured17 = t
     val target = __destructured17.target
@@ -1331,7 +1331,7 @@ fun quiet(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pools:
     return true
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun fireIdle(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec>, pools: MutableList<PoolRec>, hooks: MutableList<IdleHook>) {
     while (true) {
         var __is13 = (hooks).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
@@ -1389,7 +1389,7 @@ fun deadlockReport(actors: MutableList<ActorRec>, waiters: MutableList<WaiterRec
     return "salvo: deadlock: nothing can run while $who waits$detail"
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun takeWork(actors: MutableList<ActorRec>, pools: MutableList<PoolRec>, pool: Int, exclude: Int): Union2<RunActor, RunTask>? {
     val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:1120:13"))
     val task = p.tasks.removeFirstOrNull()
@@ -1434,7 +1434,7 @@ fun markReady(a: ActorRec, pools: MutableList<PoolRec>, addr: Int): Boolean {
     return true
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun workOf(a: ActorRec, addr: Int, e: Union3<Delivered, Answered, Reported>, body: salvo.platform.runtime.Body): Union2<RunActor, RunTask>? {
     if (e is Union3.U1<*, *, *>) {
         val d = e.value as Delivered
@@ -1487,7 +1487,7 @@ fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
     return null
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun wakePool(pools: MutableList<PoolRec>, pool: Int) {
     val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:1217:13"))
     var __is15 = (p.idle).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
@@ -1497,7 +1497,7 @@ fun wakePool(pools: MutableList<PoolRec>, pool: Int) {
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun wakeEvery(pools: MutableList<PoolRec>, pool: Int) {
     val p = (pools.getOrNull(pool) ?: throw AssertionError("salvo: value is absent at runtime:1225:13"))
     while (true) {
@@ -1508,7 +1508,7 @@ fun wakeEvery(pools: MutableList<PoolRec>, pool: Int) {
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun wakeWaiters(waiters: MutableList<WaiterRec>) {
     for (w in waiters) {
         if (w.waiting > 0 && (w.parker != null)) {
@@ -1571,7 +1571,7 @@ fun spawnBody(pool: Int, bound: Int, body: salvo.platform.runtime.Body): Int {
     return __moduleUse1.newActor(pool, bound, body)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun sendDyn(addr: Int, msg: salvo.platform.runtime.Dyn) {
     val back = sendOrBack(addr, msg)
     if (back != null) {
@@ -1580,7 +1580,7 @@ fun sendDyn(addr: Int, msg: salvo.platform.runtime.Dyn) {
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun sendOrBack(addr: Int, msg: salvo.platform.runtime.Dyn): salvo.platform.runtime.Dyn? {
     var r = __moduleUse1.enqueue(addr, msg, thisParkerPlatform())
     while (r is Union4.U3<*, *, *, *>) {
@@ -1615,7 +1615,7 @@ fun sendOrBack(addr: Int, msg: salvo.platform.runtime.Dyn): salvo.platform.runti
     return null
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun makeRoom(addr: Int) {
     val w = __moduleUse1.virtualWork(hereActorPlatform())
     if (w is Union2.U1<*, *>) {
@@ -1688,7 +1688,7 @@ fun externalEnd() {
     __moduleUse1.external(-1)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun awaitAnswer(wid: Int): salvo.platform.runtime.Dyn {
     val pool = herePoolPlatform()
     val own = hereActorPlatform()
@@ -1759,7 +1759,7 @@ fun runTask(rt: RunTask) {
     __moduleUse1.taskDone(pool, fault)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun servePool(pool: Int) {
     setHerePlatform(pool, noFrame())
     while (true) {
@@ -1793,7 +1793,7 @@ data class Exported(
     val body: salvo.platform.runtime.Body?,
 )
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun exportToken(t: Token): Exported {
     val __destructured31 = t
     val target = __destructured31.target
@@ -1819,7 +1819,7 @@ fun exportToken(t: Token): Exported {
     return Exported(kind = kind, id = id, slot = slot, body = null)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun dropExported(e: Exported) {
     val __destructured33 = e
     val kind = __destructured33.kind

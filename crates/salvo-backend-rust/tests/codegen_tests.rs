@@ -10887,7 +10887,7 @@ fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
     );
     assert!(
         main.content.contains(
-            "crate::scheduler::salvo_send(self.__addr, Box::new(__Msg_CyclicRandom::Advance("
+            "crate::scheduler::salvo_send(self.__addr, std::boxed::Box::new(__Msg_CyclicRandom::Advance("
         ),
         "the façade send is missing:\n{}",
         main.content
@@ -11452,7 +11452,7 @@ fn a_watch_lowers_to_a_scheduler_call_with_an_exit_builder() {
         .expect("main.rs");
     assert!(
         main.content.contains(
-            "crate::scheduler::salvo_watch(c, out, |__reason| Box::new(Exit { reason: __reason }))"
+            "crate::scheduler::salvo_watch(c, out, |__reason| std::boxed::Box::new(Exit { reason: __reason }))"
         ),
         "the watch registration or its `Exit` builder is missing:\n{}",
         main.content
@@ -11683,7 +11683,7 @@ fn a_quiescence_hook_lowers_to_a_scheduler_call_with_an_idle_builder() {
     assert!(
         main.content.contains(
             "crate::scheduler::salvo_on_idle(p, i, |__gates, __tokens| \
-             Box::new(Idle { parked_gates: __gates, parked_tokens: __tokens }))"
+             std::boxed::Box::new(Idle { parked_gates: __gates, parked_tokens: __tokens }))"
         ),
         "the idle registration or its `Idle` builder is missing:\n{}",
         main.content

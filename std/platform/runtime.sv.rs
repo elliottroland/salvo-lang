@@ -41,11 +41,11 @@ pub fn unpark_platform(p: &Parker) {
     crate::platform_runtime::unpark(p)
 }
 
-pub fn start_thread_platform(body: Box<dyn FnOnce() + Send + 'static>) {
+pub fn start_thread_platform(body: std::boxed::Box<dyn FnOnce() + Send + 'static>) {
     crate::platform_runtime::start_thread(body)
 }
 
-pub fn guarded_platform(body: Box<dyn FnOnce() + Send + 'static>) -> Option<String> {
+pub fn guarded_platform(body: std::boxed::Box<dyn FnOnce() + Send + 'static>) -> Option<String> {
     crate::platform_runtime::guarded(body)
 }
 
@@ -162,7 +162,7 @@ pub fn drop_dyn_platform(d: Dyn) {
 pub use crate::platform_runtime::Body;
 const _: fn() = || { fn __contract<T: Send + 'static>() {} __contract::<Body>(); };
 
-pub fn body_of_platform(f: Box<dyn FnMut(i32, i64, Dyn) + Send + 'static>) -> Body {
+pub fn body_of_platform(f: std::boxed::Box<dyn FnMut(i32, i64, Dyn) + Send + 'static>) -> Body {
     crate::platform_runtime::body_of(f)
 }
 

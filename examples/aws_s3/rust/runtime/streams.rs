@@ -710,7 +710,7 @@ pub fn receive(handle: i64, done: crate::scheduler::SalvoReply) {
 }
 
 pub fn start_reader(handle: i64) {
-    start_thread_platform(Box::new({ let mut handle = handle.clone(); move || {
+    start_thread_platform(std::boxed::Box::new({ let mut handle = handle.clone(); move || {
     read_and_answer(handle.clone());
 } }));
 }

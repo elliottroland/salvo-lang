@@ -75,7 +75,7 @@ fun lines(str: String): MutableList<String> {
     return out
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun splitOnce(str: String, sep: String): Pair<String, String>? {
     val at = str.indexOf(sep).takeIf { it >= 0 }
     if (at != null) {
@@ -87,7 +87,7 @@ fun splitOnce(str: String, sep: String): Pair<String, String>? {
     return null
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun splitLast(str: String, sep: String): Pair<String, String>? {
     val at = str.lastIndexOf(sep).takeIf { it >= 0 }
     if (at != null) {

@@ -80,7 +80,7 @@ pub fn describe(e: &Union2<SqsError, AwsError>) -> String {
 pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Console, name: &String) {
     let mut created = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         sqs.create_queue(CreateQueueInput { queue_name: name.clone(), attributes: None, tags: None }, r);
         *crate::scheduler::salvo_wait(__wid).downcast::<Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>>().expect("the awaited answer")
     };
@@ -92,7 +92,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
     println(console, &(format!("created {}", url)));
     let mut sent = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         sqs.send_message(SendMessageInput { queue_url: url.clone(), message_body: "hello from Salvo".to_string(), delay_seconds: None, message_attributes: None, message_system_attributes: None, message_deduplication_id: None, message_group_id: None }, r);
         *crate::scheduler::salvo_wait(__wid).downcast::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>().expect("the awaited answer")
     };
@@ -124,7 +124,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
     }
     let mut gone = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
-        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+        crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         sqs.delete_queue(DeleteQueueInput { queue_url: url.clone() }, r);
         *crate::scheduler::salvo_wait(__wid).downcast::<Union2<(), Checked<Union2<SqsError, AwsError>>>>().expect("the awaited answer")
     };
@@ -193,7 +193,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
     fn receive_message(&mut self, input: ReceiveMessageInput, reply: crate::scheduler::SalvoReply) {
         let mut held = self.queues.get(&input.queue_url);
         if held.is_none() {
-            (reply).send(Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(input.queue_url.clone())))))));
+            (reply).send(std::boxed::Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(input.queue_url.clone())))))));
             return;
         }
         let mut out = vec![];
@@ -203,7 +203,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
             out.push(Message { message_id: Some(format!("m{}", i)), receipt_handle: Some(format!("m{}", i)), body: Some(b.clone()), md5_of_body: None, attributes: None, md5_of_message_attributes: None, message_attributes: None });
         }
         let mut messages: Vec<Message> = out;
-        (reply).send(Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(ReceiveMessageOutput { messages: Some(messages) }))));
+        (reply).send(std::boxed::Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(ReceiveMessageOutput { messages: Some(messages) }))));
     }
 
     fn delete_message(&mut self, input: DeleteMessageInput, reply: crate::scheduler::SalvoReply) {
@@ -237,7 +237,7 @@ pub fn main() {
         round_trip(&sqs3, &console, &("orders".to_string()));
         let mut missing = {
             let (mut r, __wid) = crate::scheduler::salvo_waiter();
-            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg)));
+            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
             sqs3.get_queue_url(GetQueueUrlInput { queue_name: "nowhere".to_string(), queue_owner_aws_account_id: None }, r);
             *crate::scheduler::salvo_wait(__wid).downcast::<Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>>().expect("the awaited answer")
         };

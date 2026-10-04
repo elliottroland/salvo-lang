@@ -355,6 +355,7 @@ fn emit_program_mode(
         emitter.effect_paths = effect_paths.clone();
         emitter.module_paths = module_paths.clone();
         emitter.module_prefixes = module_prefixes.clone();
+        emitter.visible_structs = resolution.scopes[file_idx].structs.keys().map(|k| k.to_string()).collect();
         emitter.erased = erased.clone();
         emitter.abi_keep = if abi_full.contains(&unit.file.module) { None } else { closure.clone() };
         emitter.platform_effects = platform_effects.clone();
@@ -1563,6 +1564,8 @@ struct Emitter<'p> {
     module_paths: HashMap<usize, String>,
     /// [type-identity] Each emitted module's path prefix (`crate::lib_b::`).
     module_prefixes: HashMap<ModulePath, String>,
+    /// [rs-default-path] The struct names this file can name unqualified.
+    visible_structs: HashSet<String>,
     /// [effect-generic-decl] The declarations whose generics are erased at
     /// emission; an instance of one renders without its arguments.
     erased: salvo_core::Erased,
@@ -2348,6 +2351,7 @@ impl<'p> Emitter<'p> {
             effect_paths: HashMap::new(),
             module_paths: HashMap::new(),
             module_prefixes: HashMap::new(),
+            visible_structs: HashSet::new(),
             erased: salvo_core::Erased::default(),
             needs_wire: false,
             ret_is_unit: false,
@@ -4552,7 +4556,7 @@ impl<'p> Emitter<'p> {
             // -> Int)`) is stored the same way (user decision 2026-09-28).
             let ty = if p.implicit || matches!(p.ty, Type::Fn { .. }) {
                 let rendered = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
-                format!("Box<dyn {} + Send>", rendered.trim_start_matches("impl "))
+                format!("std::boxed::Box<dyn {} + Send>", rendered.trim_start_matches("impl "))
             } else {
                 self.param_type(&p.ty, p.variadic, ParamMode::Owned)
             };
@@ -4664,7 +4668,7 @@ impl<'p> Emitter<'p> {
         for p in &own {
             if p.implicit || matches!(p.ty, Type::Fn { .. }) {
                 out.push_str(&format!(
-                    "            {}: Box::new({}),\n",
+                    "            {}: std::boxed::Box::new({}),\n",
                     rs_ident(&p.name.name),
                     rs_ident(&p.name.name)
                 ));
@@ -5120,7 +5124,7 @@ impl<'p> Emitter<'p> {
                     arms.push_str(&format!(
                         "        if proto == {proto} {{\n            \
                          return crate::wire::salvo_decode::<{msg_path}>(payload)\n                \
-                         .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);\n        }}\n"
+                         .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);\n        }}\n"
                     ));
                 }
             }
@@ -7171,6 +7175,22 @@ impl<'p> Emitter<'p> {
             .unwrap_or_else(|| rendered.to_string())
     }
 
+    /// [rs-default-path] A struct literal's type, spelled so it resolves
+    /// here: a literal from a field default is inlined where the outer
+    /// literal is written, whose module need not import the type the default
+    /// names (`d: Duration = Duration { … }` in a file that imports only `C`),
+    /// so a struct this file cannot name goes through its module's path.
+    fn struct_lit_path(&self, key: &str) -> String {
+        let plain = salvo_core::typekey::plain(key);
+        if self.symbols.clashes(key) || self.visible_structs.contains(plain) {
+            return self.type_path(key);
+        }
+        match self.symbols.key_modules.get(key).and_then(|m| self.module_prefixes.get(*m)) {
+            Some(prefix) => format!("{prefix}{}", rs_ident(plain)),
+            None => self.type_path(key),
+        }
+    }
+
     fn type_path(&self, key: &str) -> String {
         let plain = rs_ident(salvo_core::typekey::plain(key));
         if !self.symbols.clashes(key) {
@@ -9025,6 +9045,13 @@ impl<'p> Emitter<'p> {
                 }
                 return format!("{pad}self.{field} = {value_code};\n");
             }
+            // A new `let` is a new variable: a name may be bound again in a
+            // later sibling scope (Salvo refuses only shadowing), and that
+            // earlier binding's kind — a borrowed optional read with a bare
+            // `.unwrap()` — must not carry over (0c item 1).
+            self.bindings.remove(name.name.as_str());
+            self.virtual_places.remove(name.name.as_str());
+            self.elem_places.remove(name.name.as_str());
         }
         // [deduce-field] A **virtual place** binding emits no `let`: every
         // use re-materializes the path, which is what lets the value live
@@ -9300,7 +9327,7 @@ impl<'p> Emitter<'p> {
                 return "todo!()".to_string();
             }
         };
-        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler_name)).copied() else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &handler_name)).copied() else {
             self.error(format!("unknown handler `{handler_name}` in `spawn`"));
             return "todo!()".to_string();
         };
@@ -9377,7 +9404,7 @@ impl<'p> Emitter<'p> {
                     "({{ {lets}let __h = {ctor}::new({}); \
                      let __cap = __h.__mailbox_capacity; \
                      let __a = crate::scheduler::salvo_spawn({pool_code}, __cap as usize, \
-                     Box::new({}::new(__h)), None); \
+                     std::boxed::Box::new({}::new(__h)), None); \
                      {handle}::shared({} {{ {} }}) }})",
                     handler_args.join(", "),
                     actor_struct_name(&handler_name),
@@ -9463,7 +9490,7 @@ impl<'p> Emitter<'p> {
         // type inference of `new`'s argument, so the path is spelled by the
         // struct name alone and rustc fills the parameters).
         let spawn_call = format!(
-            "crate::scheduler::salvo_spawn({pool_code}, __cap as usize, Box::new({body}), {})",
+            "crate::scheduler::salvo_spawn({pool_code}, __cap as usize, std::boxed::Box::new({body}), {})",
             actor_decode_const_name(&handler_name)
         );
         // [effect-handler-multi] One addr per implemented effect. There is one
@@ -9475,7 +9502,7 @@ impl<'p> Emitter<'p> {
         // message anyone sends afterwards can overtake it.
         let init = if decl.init.is_some() {
             format!(
-                "crate::scheduler::salvo_send(__a, Box::new({}::Init)); ",
+                "crate::scheduler::salvo_send(__a, std::boxed::Box::new({}::Init)); ",
                 private_enum_name(&handler_name)
             )
         } else {
@@ -9603,7 +9630,7 @@ impl<'p> Emitter<'p> {
             _ => None,
         };
         if let Some((name, args)) = named {
-            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name)).copied() {
+            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &name)).copied() {
                 let arg_code: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
                 let ctor = self.handler_ctor_path(&name, decl);
                 let mk = if self.handler_is_stateful(decl) { "locked" } else { "shared" };
@@ -9707,7 +9734,15 @@ impl<'p> Emitter<'p> {
         let member = self.called_member_name(&effect_name, &field.name, span);
         let msg = self.effect_path(&effect_name, &msg_enum_name(&effect_name));
         let variant = msg_variant_name(&member);
-        let payload: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
+        // Owned, with the checker's coercion applied: a payload declared
+        // `A | B | None` wraps the `A` it is given.
+        let payload: Vec<String> = args
+            .iter()
+            .map(|a| {
+                let code = self.emit_owned(a);
+                self.apply_coercion(a.span(), code)
+            })
+            .collect();
         let built = if payload.is_empty() {
             format!("{msg}::{variant}")
         } else {
@@ -9734,7 +9769,7 @@ impl<'p> Emitter<'p> {
             let proto = self.effect_path(effect_name, &protocol_const_name(effect_name));
             format!("crate::scheduler::salvo_send_wire({target}, {built}, {proto})")
         } else {
-            format!("crate::scheduler::salvo_send({target}, Box::new({built}))")
+            format!("crate::scheduler::salvo_send({target}, std::boxed::Box::new({built}))")
         }
     }
 
@@ -9750,13 +9785,21 @@ impl<'p> Emitter<'p> {
         };
         let msg = msg_enum_name(&handler);
         let variant = msg_variant_name(member);
-        let payload: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
+        // Owned, with the checker's coercion applied: a payload declared
+        // `A | B | None` wraps the `A` it is given.
+        let payload: Vec<String> = args
+            .iter()
+            .map(|a| {
+                let code = self.emit_owned(a);
+                self.apply_coercion(a.span(), code)
+            })
+            .collect();
         let built = if payload.is_empty() {
             format!("{msg}::{variant}")
         } else {
             format!("{msg}::{variant}({})", payload.join(", "))
         };
-        format!("crate::scheduler::salvo_send(self.__addr, Box::new({built}))")
+        format!("crate::scheduler::salvo_send(self.__addr, std::boxed::Box::new({built}))")
     }
 
     /// [mixed-handler] [rs-mixed] Whether a handler is mixed: every face a
@@ -10004,7 +10047,7 @@ impl<'p> Emitter<'p> {
             .get(&(self.file_idx, span))
             .cloned()
             .unwrap_or(handler_name);
-        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler_name)) else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &handler_name)) else {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
         };
@@ -10254,7 +10297,7 @@ impl<'p> Emitter<'p> {
             _ => None,
         };
         if let Some((name, args)) = named {
-            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name)).copied() {
+            if let Some(decl) = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &name)).copied() {
                 let arg_code: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
                 let ctor = self.handler_ctor_path(&name, decl);
                 let inner = format!("{ctor}::new({})", arg_code.join(", "));
@@ -10508,8 +10551,17 @@ impl<'p> Emitter<'p> {
                         None
                     };
                     let by_ref = borrow_iter.is_some() && !iter_subject;
+                    // [for-elem-write] A body writing a field of the element
+                    // (`for a in xs { a.dead = true }` over a `Mut List<Mut
+                    // T>`) iterates mutably (user decision 2026-10-04).
+                    let writes_elem = by_ref
+                        && match pattern {
+                            Pattern::Ident(id) => assigns_field_of(body, &id.name),
+                            _ => false,
+                        };
                     let var = self.for_pattern_var(pattern, by_ref, indent + 1);
                     let iter = match borrow_iter {
+                        Some(_) if writes_elem => format!("{}.iter_mut()", self.emit_expr(iterable)),
                         Some(code) => code,
                         None => self.emit_bound_value(iterable, iterable.span()),
                     };
@@ -12481,6 +12533,16 @@ impl<'p> Emitter<'p> {
                 {
                     return self.emit_compare_via(*op, lhs, rhs, &via, *span);
                 }
+                // [is-and-chain] `b is Long known && known == x`: the right
+                // side reads a binding the left made, so it is bound in a
+                // block inside the `&&`, after the test passed. The body's
+                // own binding is emitted as before.
+                if *op == BinaryOp::And && bindings_read_later(lhs, rhs) {
+                    let l = self.emit_operand_left(lhs, bin_prec(*op));
+                    let prologue = self.emit_is_bindings(lhs, 0);
+                    let r = self.emit_expr(rhs);
+                    return format!("{l} && {{ {} {r} }}", prologue.replace('\n', " "));
+                }
                 let prec = bin_prec(*op);
                 let l = self.emit_operand_left(lhs, prec);
                 let r = self.emit_operand(rhs, prec);
@@ -12852,7 +12914,7 @@ impl<'p> Emitter<'p> {
         let decoder = self.reply_decoder_for_ast(&last.ty);
         format!(
             "({{ {lets}crate::scheduler::salvo_mint_task({pool_code}, \
-             Box::new(move |__v| {name}({})), {decoder}) }})",
+             std::boxed::Box::new(move |__v| {name}({})), {decoder}) }})",
             args.join(", ")
         )
     }
@@ -12877,7 +12939,7 @@ impl<'p> Emitter<'p> {
         self.needs_wire = true;
         let rs = self.rust_ty(&ty);
         format!(
-            "(|__b: &[u8]| crate::wire::salvo_decode::<{rs}>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))"
+            "(|__b: &[u8]| crate::wire::salvo_decode::<{rs}>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))"
         )
     }
 
@@ -12898,14 +12960,22 @@ impl<'p> Emitter<'p> {
             self.error("internal: a self-send outside a handler member");
             return "todo!()".to_string();
         };
-        let Some(decl) = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &handler)).copied() else {
+        let Some(decl) = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &handler)).copied() else {
             self.error(format!("internal: no handler `{handler}` for a self-send"));
             return "todo!()".to_string();
         };
         // The message owns its payload either way: it outlives the send when
         // it is queued, and the member's parameters are consumed when it is
         // called [actor-self-send].
-        let payload: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
+        // Owned, with the checker's coercion applied: a payload declared
+        // `A | B | None` wraps the `A` it is given.
+        let payload: Vec<String> = args
+            .iter()
+            .map(|a| {
+                let code = self.emit_owned(a);
+                self.apply_coercion(a.span(), code)
+            })
+            .collect();
         // [mixed-handler] [rs-mixed] A mixed servant's self-send — a bare
         // sibling call or `k@self(…)` in a send member (user decision
         // 2026-09-19): the message enum is the *handler's* (`__Msg_H`), and
@@ -12922,7 +12992,7 @@ impl<'p> Emitter<'p> {
             };
             return format!(
                 "crate::scheduler::salvo_send(self.__addr\
-                 .expect(\"a mixed servant runs as an actor\"), Box::new({built}))"
+                 .expect(\"a mixed servant runs as an actor\"), std::boxed::Box::new({built}))"
             );
         }
         // [actor-private-send] A private member: `__Priv_H::K(payload)` when
@@ -12941,7 +13011,7 @@ impl<'p> Emitter<'p> {
             // methods like any other: its dependencies are its own fields.
             let inline = format!("self.{}({})", rs_ident(&f.name.name), payload.join(", "));
             return format!(
-                "match self.__addr {{ Some(__a) => crate::scheduler::salvo_send(__a, Box::new({built})), \
+                "match self.__addr {{ Some(__a) => crate::scheduler::salvo_send(__a, std::boxed::Box::new({built})), \
                  None => {inline} }}"
             );
         }
@@ -12979,7 +13049,7 @@ impl<'p> Emitter<'p> {
         // A trailing `, )` when the member takes nothing.
         let inline = inline.replace(", )", ")");
         format!(
-            "match self.__addr {{ Some(__a) => crate::scheduler::salvo_send(__a, Box::new({built})), \
+            "match self.__addr {{ Some(__a) => crate::scheduler::salvo_send(__a, std::boxed::Box::new({built})), \
              None => {inline} }}"
         )
     }
@@ -12988,7 +13058,7 @@ impl<'p> Emitter<'p> {
     /// being emitted — the enclosing handler, since a mint is lexical.
     fn current_cont_type(&mut self) -> Option<String> {
         let name = self.current_handler.clone()?;
-        let h = self.symbols.handlers.get(self.checked.visible_key(self.file_idx, &name)).copied()?;
+        let h = self.symbols.handlers.get(self.checked.visible_handler_key(self.file_idx, &name)).copied()?;
         self.handler_cont_type(h)
     }
 
@@ -14810,6 +14880,10 @@ impl<'p> Emitter<'p> {
                 self.splice_floor = self.exit_splices.len();
                 let saved_loop_floors = std::mem::take(&mut self.loop_splice_floors);
                 let body_floor = self.exit_splices.len();
+                // [rs-throw-controlflow] A closure does not throw: its
+                // `return` answers the closure's own value, not the enclosing
+                // fn's `ControlFlow` (0c item 6).
+                let saved_throw = self.throw_message.take();
                 let n = block.stmts.len();
                 for (i, stmt) in block.stmts.iter().enumerate() {
                     if i + 1 == n {
@@ -14827,15 +14901,9 @@ impl<'p> Emitter<'p> {
                             continue;
                         }
                     }
-                    if matches!(stmt, Stmt::Expr(Expr::Return { .. })) {
-                        self.error(
-                            "early `return` inside a lambda is not supported yet \
-                             (only as the final statement)",
-                        );
-                        continue;
-                    }
                     out.push_str(&self.emit_stmt(stmt, 1, StmtCtx::Normal));
                 }
+                self.throw_message = saved_throw;
                 out.push_str(&self.splice_exits(body_floor, 1, true));
                 self.loop_splice_floors = saved_loop_floors;
                 self.splice_floor = saved_floor;
@@ -14900,6 +14968,20 @@ impl<'p> Emitter<'p> {
                     Some((rs_ident(&name.name), code))
                 }
                 StructLitFieldKind::Named { name, value } => {
+                    // [rs-fn-field] A lambda stored in a fn-typed field takes
+                    // the field's parameter conventions, which is how the
+                    // field's `Arc<dyn Fn(…)>` is rendered: a kept Copy
+                    // scalar by value, a kept `T` by reference.
+                    if matches!(value, Expr::Lambda { .. }) {
+                        let field_ty = type_name
+                            .as_deref()
+                            .and_then(|n| self.symbols.structs.get(n).copied())
+                            .and_then(|sd| sd.fields.iter().find(|f| f.name.name == name.name))
+                            .map(|f| f.ty.clone());
+                        if let Some(ft @ Type::Fn { .. }) = field_ty {
+                            self.pending_lambda_conv = Some(self.fn_type_param_conventions(&ft));
+                        }
+                    }
                     Some((rs_ident(&name.name), self.emit_expr(value)))
                 }
                 _ => None,
@@ -14965,7 +15047,7 @@ impl<'p> Emitter<'p> {
                         }
                     }
                 }
-                format!("{} {{ {} }}", self.type_path(&name), named_args.join(", "))
+                format!("{} {{ {} }}", self.struct_lit_path(&name), named_args.join(", "))
             }
             1 => {
                 // `P {...base, f: v}` -> `P { f: v, ..base.clone() }`
@@ -15485,6 +15567,16 @@ impl<'p> Emitter<'p> {
         } else {
             rs_ident(name)
         };
+        // [rs-fn-value-nested] `f(f(x))`: a fn value is called through
+        // `&mut`, so an argument that calls the same value borrows it a
+        // second time (E0499). The arguments are evaluated first, into
+        // locals — Salvo evaluates arguments before the call anyway.
+        if args.iter().any(|a| expr_calls_name(a, name)) {
+            let lets: Vec<String> =
+                all.iter().enumerate().map(|(i, c)| format!("let __fa{i} = {c};")).collect();
+            let names: Vec<String> = (0..all.len()).map(|i| format!("__fa{i}")).collect();
+            return format!("{{ {} {callee}{generics}({}) }}", lets.join(" "), names.join(", "));
+        }
         format!("{callee}{generics}({})", all.join(", "))
     }
 
@@ -15569,11 +15661,11 @@ impl<'p> Emitter<'p> {
             self.pending_lambda_move = producer || kept;
             let mode = if kept { ParamMode::Owned } else { mode };
             let code = self.emit_arg(arg, mode, Some(&param.ty));
-            let code = if kept { format!("Box::new({code})") } else { code };
+            let code = if kept { format!("std::boxed::Box::new({code})") } else { code };
             // [rs-effects] A `once` fn value given to an effect member is
             // boxed, as the member's `dyn`-compatible signature takes it.
             let code = if member.is_some() && is_once_fn_type(&param.ty) {
-                format!("Box::new({code})")
+                format!("std::boxed::Box::new({code})")
             } else {
                 code
             };
@@ -15870,7 +15962,7 @@ impl<'p> Emitter<'p> {
                     let nid = self.node_id_ty();
                     return format!(
                         "crate::scheduler::salvo_watch_control(({channel}).clone(), ({sink}).clone(), \
-                         |__n, __d| Box::new({msg}::Control({nid} {{ id: __n as i64 }}, __d)))"
+                         |__n, __d| std::boxed::Box::new({msg}::Control({nid} {{ id: __n as i64 }}, __d)))"
                     );
                 }
                 "send_control" if args.len() == 3 => {
@@ -18249,6 +18341,11 @@ fn effect_param_name(effect_ty: &str) -> String {
             c => out.push(c),
         }
     }
+    // An effect named after a keyword (`Box`, `Type`) would name its handle
+    // `box`; generated names get a numeric suffix, so `_` keeps both legal.
+    if RUST_KEYWORDS.contains(&out.as_str()) || RUST_UNRAW.contains(&out.as_str()) {
+        out.push('_');
+    }
     out
 }
 
@@ -19155,6 +19252,32 @@ fn is_place_expr(expr: &Expr) -> bool {
     }
 }
 
+/// [is-and-chain] The `is` bindings [cond] makes that [later] reads: what an
+/// `&&` has to bind before its right side.
+fn bindings_read_later(cond: &Expr, later: &Expr) -> bool {
+    let mut names: Vec<String> = Vec::new();
+    collect_is_bindings(cond, &mut |_, _, b, _, _| names.push(b.name.clone()));
+    if names.is_empty() {
+        return false;
+    }
+    struct Reads<'n> {
+        names: &'n [String],
+        found: bool,
+    }
+    impl salvo_syntax::visit::Visitor for Reads<'_> {
+        fn visit_expr(&mut self, e: &Expr) {
+            if let Expr::Ident(id) = e {
+                if self.names.contains(&id.name) {
+                    self.found = true;
+                }
+            }
+        }
+    }
+    let mut r = Reads { names: &names, found: false };
+    salvo_syntax::visit::walk_expr(&mut r, later);
+    r.found
+}
+
 fn collect_is_bindings<'a>(
     cond: &'a Expr,
     f: &mut impl FnMut(&'a Expr, &'a [TypeRef], &'a Ident, Span, bool),
@@ -19307,7 +19430,7 @@ fn member_fn_param_ty(ty: &Type, rendered: String) -> String {
     }
     if is_once_fn_type(ty) {
         if let Some(rest) = rendered.strip_prefix("impl ") {
-            return format!("Box<dyn {rest} + '_>");
+            return format!("std::boxed::Box<dyn {rest} + '_>");
         }
     }
     rendered
@@ -19318,7 +19441,58 @@ fn member_fn_param_ty(ty: &Type, rendered: String) -> String {
 fn kept_fn_param_ty(rendered: String) -> String {
     let inner = rendered.strip_prefix("&mut ").unwrap_or(&rendered);
     match inner.strip_prefix("impl ") {
-        Some(rest) => format!("Box<dyn {rest} + Send + 'static>"),
+        Some(rest) => format!("std::boxed::Box<dyn {rest} + Send + 'static>"),
         None => rendered,
     }
+}
+
+/// [for-elem-write] Whether [block] assigns through a field of [name]
+/// (`name.f = …`, `name.f.g = …`), at any depth.
+fn assigns_field_of(block: &Block, name: &str) -> bool {
+    struct Finder<'n> {
+        name: &'n str,
+        found: bool,
+    }
+    fn root_is(e: &Expr, name: &str) -> bool {
+        match e {
+            Expr::Field { base, .. } => match base.as_ref() {
+                Expr::Ident(id) => id.name == name,
+                other => root_is(other, name),
+            },
+            _ => false,
+        }
+    }
+    impl salvo_syntax::visit::Visitor for Finder<'_> {
+        fn visit_stmt(&mut self, stmt: &Stmt) {
+            if let Stmt::Assign { target, .. } = stmt {
+                if root_is(target, self.name) {
+                    self.found = true;
+                }
+            }
+        }
+    }
+    let mut f = Finder { name, found: false };
+    salvo_syntax::visit::walk_block(&mut f, block);
+    f.found
+}
+
+/// [rs-fn-value-nested] Whether [expr] contains a call whose callee is the
+/// bare name [name].
+fn expr_calls_name(expr: &Expr, name: &str) -> bool {
+    struct Calls<'n> {
+        name: &'n str,
+        found: bool,
+    }
+    impl salvo_syntax::visit::Visitor for Calls<'_> {
+        fn visit_expr(&mut self, e: &Expr) {
+            if let Expr::Call { callee, .. } = e {
+                if matches!(callee.as_ref(), Expr::Ident(id) if id.name == self.name) {
+                    self.found = true;
+                }
+            }
+        }
+    }
+    let mut c = Calls { name, found: false };
+    salvo_syntax::visit::walk_expr(&mut c, expr);
+    c.found
 }

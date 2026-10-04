@@ -487,7 +487,7 @@ class __Mon_RouteTable(
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun versionIn(versions: Map<Int, Long>, group: Int): Long {
     val v = versions[group]
     if (v != null) {
@@ -563,7 +563,7 @@ class Routes : RouteTable {
         return identityIn(remote, bits, poolNode, nodeId, addr, pool)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun findImport(r: RemoteRef, here: Long): Union3<Found, MakeProxy, MakeDead> {
         if (r.node == here) {
             val idx = (r.actor).toInt()
@@ -587,7 +587,7 @@ class Routes : RouteTable {
         return Union3.U2<Found, MakeProxy, MakeDead>(MakeProxy())
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun registerProxy(r: RemoteRef, idx: Int, here: Long): Int {
         val existing = proxies[r]
         if (existing != null) {
@@ -614,7 +614,7 @@ class Routes : RouteTable {
         return remote.containsKey(addr)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun proxyRef(addr: Int): RemoteRef? {
         val r = remote[addr]
         if (r != null) {
@@ -624,7 +624,7 @@ class Routes : RouteTable {
         return null
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun takeCredit(addr: Int, me: salvo.platform.runtime.Parker): Int {
         val c = credits[addr]
         if (c != null) {
@@ -673,7 +673,7 @@ class Routes : RouteTable {
         return outbound.contains(node)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun accepts(to: Long, actor: Long, claimed: Long): Boolean {
         if (!hosted.contains(to)) {
             return false
@@ -697,7 +697,7 @@ class Routes : RouteTable {
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun credited(r: RemoteRef, to: Long, n: Int): Boolean {
         if (!hosted.contains(to)) {
             return false
@@ -749,7 +749,7 @@ class Routes : RouteTable {
         controls.put(ControlKey(node = node, channel = channel), sink)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun channelSink(node: Long, channel: String): Int {
         val s = controls[ControlKey(node = node, channel = channel)]
         if (s != null) {
@@ -771,7 +771,7 @@ class Routes : RouteTable {
         peers.put(node, table)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun peerHash(node: Long, protocol: String): String? {
         val t = peers[node]
         if (t != null) {
@@ -786,7 +786,7 @@ class Routes : RouteTable {
         return null
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun forgetNode(node: Long): List<Int> {
         val _route = routes.remove(node)
         val _peer = peers.remove(node)
@@ -809,7 +809,7 @@ class Routes : RouteTable {
         bumpIn(versions, viewWaiters, group)
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun viewOf(group: Int): List<Int> {
         val v = views[group]
         if (v != null) {
@@ -847,7 +847,7 @@ class Routes : RouteTable {
         }
     }
 
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST")
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun creditsOf(addr: Int): Int? {
         val c = credits[addr]
         if (c != null) {
@@ -868,7 +868,7 @@ sealed class __Priv_Routes {
     object Init : __Priv_Routes()
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun nodeIn(poolNode: Map<Int, Long>, nodeId: Long, pool: Int): Long {
     val n = poolNode[pool]
     if (n != null) {
@@ -878,7 +878,7 @@ fun nodeIn(poolNode: Map<Int, Long>, nodeId: Long, pool: Int): Long {
     return nodeId
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun heldIn(heldN: Map<Int, Int>, idx: Int): Int {
     val h = heldN[idx]
     if (h != null) {
@@ -888,7 +888,7 @@ fun heldIn(heldN: Map<Int, Int>, idx: Int): Int {
     return 0
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun identityIn(remote: Map<Int, RemoteRef>, bits: MutableMap<Int, Long>, poolNode: Map<Int, Long>, nodeId: Long, addr: Int, pool: Int): RemoteRef {
     val r = remote[addr]
     if (r != null) {
@@ -912,7 +912,7 @@ fun wakeSenders(waiters: MutableList<salvo.platform.runtime.Parker>) {
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun stageIn(routes: Map<Long, salvo.SalvoBytes>, outbound: Set<Long>, outbox: MutableList<Staged>, parked: MutableList<Parked>, from: Long, to: Long, frame: salvo.SalvoBytes) {
     val ep = routes[to]
     if (ep != null) {
@@ -975,7 +975,7 @@ fun sameActor(a: Int, b: Int): Boolean {
     return eq__5(identity(a), identity(b))
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun importAddr(node: Long, actor: Long, bits: Long): Int {
     val r = RemoteRef(node = node, actor = actor, bits = bits)
     val here = hereNode()
@@ -1032,7 +1032,7 @@ fun answerRemote(t: ReplyParts, payload: salvo.SalvoBytes) {
     flush()
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun exportReply(e: Exported): ReplyParts {
     val __destructured2 = e
     val kind = __destructured2.kind
@@ -1130,7 +1130,7 @@ fun peerProtocol(node: Long, protocol: String): String? {
     return __moduleUse0.peerHash(node, protocol)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun deliver(data: salvo.SalvoBytes): Boolean {
     val f = salvo.salvoDecode(data, salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
     if (f is Union5.U1<*, *, *, *, *>) {
@@ -1194,7 +1194,7 @@ fun deliver(data: salvo.SalvoBytes): Boolean {
     return false
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun deliverAnswer(a: AnswerFrame): Boolean {
     if (!__moduleUse0.hosts(a.to)) {
         return false
