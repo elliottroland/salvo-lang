@@ -72,50 +72,36 @@ and the `test actor` follow-ups recorded below:
    emitters to a call of the scheduler shims. With the runtime in Salvo they
    can be ordinary Salvo functions calling `runtime`, so a new backend
    lowers none of them.
-3. **`Addr<E>`, `Reply<T>` and `Pool` as Salvo types** (runtime E7): a
-   struct over an index with `E` phantom, a linear struct, a struct over an
-   index. Needs phantom type parameters accepted (unchecked), and the
-   generated ABI types keep host code's view of them.
+3. **`Addr<E>`, `Reply<T>` and `Pool` as platform types of the runtime
+   module** (user decision 2026-10-04, option (b) over Salvo structs, which
+   Salvo's lack of private fields would make forgeable by a struct literal):
+   opaque handles over an index, `Reply<T>` linear, so they are unforgeable
+   and need no phantom parameters; a new backend writes an index wrapper per
+   type instead of lowering three intrinsic types.
 4. **`std.test`'s `trapped_by` and the runtime's `guarded` as one
    primitive**, a `RuntimeHost` member `std.test` calls.
 5. **`StdOutConsole` and `DefaultRandom` as platform handlers** rather than
-   intrinsic handlers.
+   intrinsic handlers. In an actor test `DefaultRandom` draws from the test's
+   seed, as the runtime's own random bits do (user decision 2026-10-04).
 6. **Kotlin's `unerase<T>` cannot check `T`** (erased generics): a mismatch
    surfaces as a `ClassCastException` where the value is used. In the
    runtime a mismatch is a compiler bug either way; an exact check would need
    a type token generated code could pass.
-7. **Optional: the other collections onto generic platform types** (runtime
-   step 17).
+7. **Every collection as a platform type** (user decision 2026-10-04,
+   replacing runtime step 17 and widening §12's scope, which had kept the
+   `canbe Mut` collections intrinsic): `List`, `Set`, `Map`, the sorted pair,
+   `Deque`, `Str` and `Bytes`. A `platform type` that `canbe Mut` names **two
+   host types**, one for the immutable kind and one for the mutable (Kotlin
+   `List`/`MutableList`; Rust may name one type for both, `Vec`), and the
+   builders (`list_of`, `mut_list_of`, …) are platform fns answering the one
+   or the other; the backends keep deciding how a `Mut` and a non-`Mut`
+   value is passed. To settle while building: the spelling of the two-type
+   declaration, literals (`[1, 2]`, `{…}`) lowering to the builders, value
+   semantics of `copy`, element-conditional linearity [linear-container],
+   `proj` reads and iteration fast paths, and the identity-keyed `Set`/`Map`
+   (`?hash`, `?eq` as type arguments).
 
-### 0b — Three slow tests (recorded 2026-10-02, to investigate)
-
-The user asked for these to be looked at together; they have been a problem
-for a while. Measured 2026-10-02 on an M1 Pro, at a load average of 125–290
-from outside the suite:
-
-1. **`kotlinc_compiles_and_runs_every_case`** (Kotlin `codegen_tests`).
-   Under `SALVO_E2E_FRESH=1 cargo nextest run` it hit nextest's 360 s
-   timeout (`slow-timeout` 30 s × 12, `.config/nextest.toml`) on both of
-   that day's commits; alone it passes in ~200 s. Warm, with every stamp
-   hitting, it still costs ~31 s, all of it building the `KOTLIN_CASES`
-   registry (each case runs parse + check + emit over std) before any stamp
-   is consulted.
-2. **`every_example_has_a_kotlin_case`** (same binary). Builds the whole
-   registry too, only to read each case's `tag`, so it pays the same ~31 s
-   in parallel with (1) for a check that needs no emission at all.
-3. **The `salvo-testkit` hygiene test** (`hygiene_tests.rs`), ~10–11 s warm
-   on every run.
-
-Together they are why a warm `cargo test` takes ~1m02 against the ~15 s
-budget in AGENTS.md. Leads, from the earlier records: the 2026-09-21 skip
-gate fixed (1) under `SALVO_SKIP_E2E` only; the stamp stays keyed on the
-generated sources (user decision 2026-09-25), so the cheap options are
-those that avoid building a case whose stamp would hit — caching the
-emission beside the verdict, emitting std once and sharing it across cases,
-or a registry of tags that (2) can read without building anything. For the
-fresh-run timeout: whether the batch kotlinc invocations scale with the
-machine's free cores, and whether the driver should be split so nextest can
-schedule its parts.
+### 0b — ✅ Three slow tests (fixed 2026-10-04, COMPLETED.md)
 
 ### 0c — Rust emitter defects and gaps (found 2026-10-02, not fixed)
 
@@ -188,9 +174,9 @@ a correct program from building. std works around the first by naming.
    namespaces separately, so the emitter should qualify across them too.
 14. **Assigning a field of a `for` element is accepted but does not build on
    Rust**: `for a in actors { a.dead = true }` over a `Mut List<Mut ActorRec>`
-   checks, and emits `for a in &*actors`, which rustc refuses. Either the
-   checker refuses it or the emitter iterates mutably. Workaround: index with
-   `get(actors, i)!`.
+   checks, and emits `for a in &*actors`, which rustc refuses. It is allowed
+   (user decision 2026-10-04): the emitter iterates mutably. Workaround until
+   then: index with `get(actors, i)!`.
 15. **The Kotlin emitter's output draws kotlinc warnings**, now hidden from
    `run` and `test` by `-nowarn`: an unnecessary safe call on a narrowed union
    arm (`w?.value as RunActor`, in `runtime.kt` and `runtime/routing.kt`), a
@@ -206,8 +192,9 @@ a correct program from building. std works around the first by naming.
    generic `count<It, T>(it: Mut It, ?Yield<It, T>)` fits a `Mut List<Int>`
    by type, so where the program's own `count(NonEmpty List<T>)` does not fit
    the call reports "no `next` fits … for `count`" rather than "no matching
-   overload". Dropping a candidate whose implicits do not resolve before
-   ranking would fix it; until then std has no generic `count(it)`. Repro:
+   overload". Decided (user, 2026-10-04): a candidate whose implicits cannot
+   be filled does not fit, and is dropped before ranking. Then std gains a
+   generic `count(it)`. Repro:
    `analyze_tests::a_refinement_recovers_a_qualifier_stripped_by_a_mutating_call`'s
    control, with such a `count` in `core.seq`.
 

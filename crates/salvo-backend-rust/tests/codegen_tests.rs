@@ -12377,6 +12377,18 @@ fn examples_dir() -> std::path::PathBuf {
 }
 
 /// Every example directory, by name, in a stable order.
+/// Runs [check] for every example at once, one thread each: emission is the
+/// cost and the examples share nothing (ROADMAP 0b). A failing example's
+/// panic is printed under its thread and fails the test.
+fn for_each_example(check: impl Fn(String) + Sync) {
+    std::thread::scope(|scope| {
+        for example in example_names() {
+            let check = &check;
+            scope.spawn(move || check(example));
+        }
+    });
+}
+
 fn example_names() -> Vec<String> {
     let mut out: Vec<String> = std::fs::read_dir(examples_dir())
         .expect("examples/ is readable")
@@ -12439,7 +12451,7 @@ fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
 /// 2026-09-15: nothing in the suite read the examples at all.
 #[test]
 fn every_examples_checked_in_rust_is_current() {
-    for example in example_names() {
+    for_each_example(|example| {
         let files = emit_example(&example);
         let root = examples_dir().join(&example).join("rust");
         for file in &files {
@@ -12469,7 +12481,7 @@ fn every_examples_checked_in_rust_is_current() {
                 );
             }
         }
-    }
+    });
 }
 
 /// …and each example still runs to the stdout checked in beside it,
@@ -12477,13 +12489,13 @@ fn every_examples_checked_in_rust_is_current() {
 /// bytes from the same file.
 #[test]
 fn every_example_runs_to_its_expected_output() {
-    for example in example_names() {
+    for_each_example(|example| {
         let files = emit_example(&example);
         let expected =
             std::fs::read_to_string(examples_dir().join(&example).join("expected.txt"))
                 .unwrap_or_else(|_| panic!("examples/{example}/expected.txt is missing"));
         run_rust_files(&files, &format!("example-{example}"), &expected);
-    }
+    });
 }
 
 // ===================== time [time-types] [time-timer] =====================

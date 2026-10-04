@@ -16,10 +16,10 @@
 # AMFI rejecting a freshly linked binary, not a broken test — see
 # COMPLETED.md's gotchas.
 [profile.default]
-# The kotlin driver test (`kotlinc_compiles_and_runs_every_case`) legitimately
-# runs minutes fresh — it batch-compiles every case (173 on 2026-09-28) while
-# every other kotlinc test contends for the same cores, and it measured 174s
-# alone and 211–240s inside a full fresh run that day. The other toolchain
+# The kotlin driver tests (`kotlinc_compiles_and_runs_every_case_{0..3}`, four
+# shards since 2026-10-04) legitimately run minutes fresh — together they
+# batch-compile every case (195 that day), and each shard measured ~108s with
+# the machine loaded. The other toolchain
 # tests are minutes-long only when something is wrong; a test that hangs
 # should still say so rather than stall the run, so the ceiling is 6 minutes.
 slow-timeout = { period = "30s", terminate-after = 12 }

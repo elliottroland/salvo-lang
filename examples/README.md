@@ -25,8 +25,8 @@ Every one of these is **checked by the test suite** (added 2026-09-16, after
 `examples/effects/` was found broken for a day): each backend asserts that the
 checked-in generated tree is what the compiler writes today — which also fails
 if an example's source stops checking — and that the program runs to
-`expected.txt`. Adding an example therefore means adding its Kotlin
-compile-and-run case to `KOTLIN_CASES`; a test says so if you forget.
+`expected.txt`. Both pick up every directory here with a `salvo/` tree, so
+a new example needs no registration.
 
 More will be added as features land. This tree replaced `experiments/`, which
 held hand-written *prototypes* of designs not yet built; the prototypes' value

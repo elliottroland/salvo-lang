@@ -2306,8 +2306,9 @@ export handler LoudPing of Ping {
 /// One compile-and-run verification: a generated program, the JVM entry
 /// class to launch, and the exact stdout it must print.
 ///
-/// Cases are built by plain functions listed in [`KOTLIN_CASES`], and one
-/// driver test — [`kotlinc_compiles_and_runs_every_case`] — does all the
+/// Cases are built by plain functions listed in [`KOTLIN_CASES`] (and one per
+/// example), and one driver — [`kotlinc_compiles_and_runs_every_case`], run as
+/// four shard tests — does all the
 /// toolchain work: it compiles every outstanding case in a handful of
 /// *batched* `kotlinc` invocations (each invocation costs ~2.5s of JVM and
 /// compiler startup regardless of input size, so one invocation per test
@@ -4517,20 +4518,6 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_reads_of_an_optional_local,
     kotlinc_compiles_and_runs_narrowed_reads,
     // the checked-in examples, one case each
-    kotlin_example_actors,
-    kotlin_example_borrowing,
-    kotlin_example_collections,
-    kotlin_example_effects,
-    kotlin_example_files,
-    kotlin_example_iteration,
-    kotlin_example_linearity,
-    kotlin_example_qualifiers,
-    kotlin_example_throw_and_release,
-    kotlin_example_time,
-    kotlin_example_cluster,
-    kotlin_example_aws_profile,
-    kotlin_example_aws_sqs,
-    kotlin_example_aws_s3,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -4687,8 +4674,71 @@ fn prefix_content(content: &str, pfx: &str) -> String {
 /// then every compiled program runs in parallel with its stdout asserted.
 /// A stamp is written per case, only after its assertions pass — the cache
 /// behaves exactly as it did when every case was its own test.
+/// Builds every case on a pool of threads, in registry order then the
+/// examples in name order. Each builder runs the whole pipeline over std, so
+/// building them one after another was most of this test's warm cost (ROADMAP
+/// 0b); they share nothing, so a panic in one is that case's failure and is
+/// re-raised here.
+fn build_cases_in_parallel(shard: usize) -> Vec<KotlinCase> {
+    let mut makers: Vec<Box<dyn Fn() -> KotlinCase + Sync>> =
+        KOTLIN_CASES.iter().map(|make| Box::new(*make) as Box<dyn Fn() -> KotlinCase + Sync>).collect();
+    for name in example_names() {
+        makers.push(Box::new(move || example_case(&name)));
+    }
+    // [this shard's share] Every `KOTLIN_SHARDS`-th case, from `shard`.
+    let makers: Vec<_> = makers
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| i % KOTLIN_SHARDS == shard)
+        .map(|(_, m)| m)
+        .collect();
+    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let built: Mutex<Vec<(usize, KotlinCase)>> = Mutex::new(Vec::with_capacity(makers.len()));
+    std::thread::scope(|scope| {
+        for _ in 0..workers.min(makers.len()) {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(make) = makers.get(i) else {
+                    return;
+                };
+                let case = make();
+                built.lock().unwrap().push((i, case));
+            });
+        }
+    });
+    let mut built = built.into_inner().unwrap();
+    built.sort_by_key(|(i, _)| *i);
+    built.into_iter().map(|(_, c)| c).collect()
+}
+
+/// The compile-and-run cases are split over this many tests, so nextest
+/// schedules them beside the rest of the suite and each has its own time
+/// limit: one test compiling every case took ~130 s fresh on an idle machine
+/// and passed nextest's 360 s limit under load (ROADMAP 0b).
+const KOTLIN_SHARDS: usize = 4;
+
 #[test]
-fn kotlinc_compiles_and_runs_every_case() {
+fn kotlinc_compiles_and_runs_every_case_0() {
+    kotlinc_compiles_and_runs_every_case(0);
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_every_case_1() {
+    kotlinc_compiles_and_runs_every_case(1);
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_every_case_2() {
+    kotlinc_compiles_and_runs_every_case(2);
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_every_case_3() {
+    kotlinc_compiles_and_runs_every_case(3);
+}
+
+fn kotlinc_compiles_and_runs_every_case(shard: usize) {
     // The skip gate comes *before* the cases are built: each case builder
     // runs the whole pipeline (parse + check + emit over std), which is the
     // entire ~30s cost of this test — paid even when nothing kotlinc-shaped
@@ -4702,7 +4752,9 @@ fn kotlinc_compiles_and_runs_every_case() {
     }
     // Build every case first: the content assertions inside case builders
     // run even when kotlinc is missing, as they did when each was a #[test].
-    let cases: Vec<KotlinCase> = KOTLIN_CASES.iter().map(|make| make()).collect();
+    // Every example is a case by construction — one per directory under
+    // `examples/` — so none can be left out of the registry.
+    let cases = build_cases_in_parallel(shard);
     let mut seen = std::collections::HashSet::new();
     for case in &cases {
         // Tags name packages, scratch paths and stamps.
@@ -4742,14 +4794,15 @@ fn kotlinc_compiles_and_runs_every_case() {
     // Chunk the pending cases over a few kotlinc processes: each process
     // pays the same ~2.5s startup, and each is internally multi-threaded,
     // so more processes than half the cores just contend.
-    let chunk_count = pending.len().min((workers / 2).max(1));
+    // Four shards share the cores, so each takes a quarter of the half.
+    let chunk_count = pending.len().min((workers / 2 / KOTLIN_SHARDS).max(1));
     let per_chunk = pending.len().div_ceil(chunk_count);
     let chunks: Vec<&[(KotlinCase, salvo_testkit::Stamp)]> = pending.chunks(per_chunk).collect();
 
     // Write each case's sources, prefixed, under its chunk's directory.
     let mut chunk_dirs = Vec::new();
     for (i, chunk) in chunks.iter().enumerate() {
-        let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("kt-batch-{i}"));
+        let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("kt-batch-{shard}-{i}"));
         let mut kt_paths = Vec::new();
         for (case, _) in chunk.iter() {
             let pfx = pkg_prefix(&case.tag);
@@ -7333,8 +7386,6 @@ fn kotlinc_compiles_and_runs_handler_deps_mixed() -> KotlinCase {
          \x20 tallied 1\nL[3] loop 1 #2\n  tallied 1\nL[3] loop 1 #3\n  tallied 1\n",
     )
 }
-
-
 
 // ===== destructuring a loop element [let-destructure] =====
 
@@ -14270,6 +14321,18 @@ fn examples_dir() -> std::path::PathBuf {
 }
 
 /// Every example directory, by name, in a stable order.
+/// Runs [check] for every example at once, one thread each: emission is the
+/// cost and the examples share nothing (ROADMAP 0b). A failing example's
+/// panic is printed under its thread and fails the test.
+fn for_each_example(check: impl Fn(String) + Sync) {
+    std::thread::scope(|scope| {
+        for example in example_names() {
+            let check = &check;
+            scope.spawn(move || check(example));
+        }
+    });
+}
+
 fn example_names() -> Vec<String> {
     let mut out: Vec<String> = std::fs::read_dir(examples_dir())
         .expect("examples/ is readable")
@@ -14332,7 +14395,7 @@ fn emit_example(example: &str) -> Vec<salvo_backend_kotlin::EmittedFile> {
 /// 2026-09-15 — nothing in the suite read the examples at all.
 #[test]
 fn every_examples_checked_in_kotlin_is_current() {
-    for example in example_names() {
+    for_each_example(|example| {
         let files = emit_example(&example);
         let root = examples_dir().join(&example).join("kotlin");
         for file in &files {
@@ -14360,7 +14423,7 @@ fn every_examples_checked_in_kotlin_is_current() {
                 );
             }
         }
-    }
+    });
 }
 
 /// One compile-and-run case per example, batched with every other
@@ -14371,81 +14434,6 @@ fn example_case(name: &str) -> KotlinCase {
     let expected = std::fs::read_to_string(examples_dir().join(name).join("expected.txt"))
         .unwrap_or_else(|_| panic!("examples/{name}/expected.txt is missing"));
     kotlin_case(emit_example(name), &format!("example-{name}"), &expected)
-}
-
-fn kotlin_example_actors() -> KotlinCase {
-    example_case("actors")
-}
-
-fn kotlin_example_borrowing() -> KotlinCase {
-    example_case("borrowing")
-}
-
-fn kotlin_example_collections() -> KotlinCase {
-    example_case("collections")
-}
-
-fn kotlin_example_effects() -> KotlinCase {
-    example_case("effects")
-}
-
-fn kotlin_example_files() -> KotlinCase {
-    example_case("files")
-}
-
-fn kotlin_example_iteration() -> KotlinCase {
-    example_case("iteration")
-}
-
-fn kotlin_example_linearity() -> KotlinCase {
-    example_case("linearity")
-}
-
-fn kotlin_example_qualifiers() -> KotlinCase {
-    example_case("qualifiers")
-}
-
-fn kotlin_example_throw_and_release() -> KotlinCase {
-    example_case("throw-and-release")
-}
-
-fn kotlin_example_time() -> KotlinCase {
-    example_case("time")
-}
-
-fn kotlin_example_cluster() -> KotlinCase {
-    example_case("cluster")
-}
-
-fn kotlin_example_aws_profile() -> KotlinCase {
-    example_case("aws_profile")
-}
-
-fn kotlin_example_aws_sqs() -> KotlinCase {
-    example_case("aws_sqs")
-}
-
-fn kotlin_example_aws_s3() -> KotlinCase {
-    example_case("aws_s3")
-}
-
-/// Every example has a case above — checked here rather than
-/// trusted, since the registry is written by hand.
-#[test]
-fn every_example_has_a_kotlin_case() {
-    let cased: Vec<String> = KOTLIN_CASES
-        .iter()
-        .map(|case| case().tag)
-        .filter(|tag| tag.starts_with("example-"))
-        .map(|tag| tag["example-".len()..].to_string())
-        .collect();
-    for name in example_names() {
-        assert!(
-            cased.contains(&name),
-            "examples/{name} has no Kotlin compile-and-run case: add one to \
-             KOTLIN_CASES"
-        );
-    }
 }
 
 // ===================== time [time-types] [time-timer] =====================

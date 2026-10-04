@@ -207,13 +207,15 @@ run after a relink.)
     starts a JVM and costs about as much as a small compile, so anything
     less made the *check* one of the most expensive things in the suite
     (under nextest, every test is its own process).
-  - The Kotlin compile-and-run tests are **one driver test**
-    (`kotlinc_compiles_and_runs_every_case` over the `KOTLIN_CASES`
-    registry in `codegen_tests.rs`): each case is a fn returning a
-    `KotlinCase`, and the driver batch-compiles every stamp-missing case
-    in a few parallel kotlinc invocations, runs the programs in parallel,
-    and stamps each case separately. A new compile-and-run case is a new
-    case fn plus a registry entry — not a new `#[test]`.
+  - The Kotlin compile-and-run tests are **one driver in four shards**
+    (`kotlinc_compiles_and_runs_every_case_{0..3}` over the `KOTLIN_CASES`
+    registry in `codegen_tests.rs`, plus one case per example directory,
+    found by listing `examples/`): each case is a fn returning a
+    `KotlinCase`, built on a pool of threads; each shard batch-compiles its
+    stamp-missing cases in a few parallel kotlinc invocations, runs the
+    programs in parallel, and stamps each case separately. A new
+    compile-and-run case is a new case fn plus a registry entry — not a new
+    `#[test]` — and a new example needs nothing.
   - The Rust runner (`run_rust_files`) keeps the per-test shape: a rustc
     invocation is cheap, and the runner still gates and stamps internally,
     so a new test that forgets its own guard skips instead of failing.

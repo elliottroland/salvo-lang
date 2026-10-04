@@ -464,12 +464,30 @@ fn debug_map_references(
 )> {
     let mut referenced = std::collections::HashSet::new();
     let mut unparsed = std::collections::HashSet::new();
-    for artifact in mapped {
-        let output = match std::process::Command::new("nm")
-            .arg("-pa")
-            .arg(deps_dir.join(artifact))
-            .output()
-        {
+    // `nm` over every artifact was ~10 s run one after another (ROADMAP 0b);
+    // the artifacts are independent, so they run on a pool of threads and
+    // the answers are read in order below.
+    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let outputs: std::sync::Mutex<Vec<(usize, std::io::Result<std::process::Output>)>> =
+        std::sync::Mutex::new(Vec::with_capacity(mapped.len()));
+    std::thread::scope(|scope| {
+        for _ in 0..workers.min(mapped.len()) {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(artifact) = mapped.get(i) else {
+                    return;
+                };
+                let out = std::process::Command::new("nm").arg("-pa").arg(deps_dir.join(artifact)).output();
+                outputs.lock().unwrap().push((i, out));
+            });
+        }
+    });
+    let mut outputs = outputs.into_inner().unwrap();
+    outputs.sort_by_key(|(i, _)| *i);
+    for (i, result) in outputs {
+        let artifact = &mapped[i];
+        let output = match result {
             Ok(output) if output.status.success() => output,
             Ok(_) => {
                 // `X.dylib`-shaped artifacts own `X.*.rcgu.o` after the

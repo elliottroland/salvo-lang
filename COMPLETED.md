@@ -135,6 +135,28 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The slow tests, ROADMAP 0b (2026-10-04).** Warm, measured with the
+machine under outside load (load average 40–90 on 10 cores): the Kotlin
+driver 69 s → 12 s, `every_example_has_a_kotlin_case` 69 s → gone, the
+hygiene test 11.8 s → 2.5 s, the example emission tests 7.6–16.6 s → 2.7 s;
+`cargo test` warm 1m01 → 58 s under that load. Fresh, the Kotlin driver is four
+shards of ~108 s each (from one test of ~130 s idle that passed nextest's
+360 s limit under load). How: the case builders run on a pool of threads; an
+example is a case because its directory exists, so the registry entries and
+the test that checked them are gone; the driver is four `#[test]` shards
+(`kotlinc_compiles_and_runs_every_case_{0..3}`), each with its own limit and
+its share of the kotlinc processes; the hygiene pruner runs `nm` on all
+artifacts at once; the example-wide emission tests run one thread per
+example. More kotlinc processes per run did not help (8 chunks 155 s, 10
+chunks 173 s, against 129 s for 5): kotlinc is memory- and core-bound. What
+is left of the warm cost is the cases' own emission, which the stamp rule
+(keyed on the generated code, user decision 2026-09-25) does not let a run
+skip. The same day's decisions on ROADMAP items 0 and 0c are recorded there:
+`Addr`/`Reply`/`Pool` as runtime platform types, every collection a platform
+type with two host types for a `canbe Mut` one, unfillable implicits drop a
+candidate, writing a `for` element's field allowed, `DefaultRandom` seeded in
+an actor test.
+
 **Participles, paths and values in streams (2026-10-04, user decisions).**
 The user's answers to the five questions of the day before, all built:
 (1) lazy adaptors are named by a present participle — `mapping`, `filtering`,
