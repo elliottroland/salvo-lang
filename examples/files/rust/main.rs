@@ -57,6 +57,8 @@ pub mod runtime_streams;
 pub mod stream;
 #[path = "stream/host.rs"]
 pub mod stream_host;
+#[path = "platform/core/bytes.rs"]
+pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
 #[path = "platform/fs/host.rs"]
@@ -187,7 +189,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
     match bin {
         Union2::U1(_) => {
             let mut w: OutStream = bin.u1().clone();
-            let mut data = vec![(((0) as i32) as u8), (((255) as i32) as u8), (((200) as i32) as u8)];
+            let mut data = bytes_of(vec![(((0) as i32) as u8), (((255) as i32) as u8), (((200) as i32) as u8)]);
             let mut n = streams.write_bytes(&w, &data);
             let mut m = streams.write(&w, &("hé".to_string()));
             println(console, &(format!("wrote {} raw bytes and {} encoded", n, m)));
@@ -207,7 +209,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             let mut head = streams.read_bytes(&s, 3);
             match head {
                 Union2::U1(_) => {
-                    println(console, &(format!("first three: {} = {}", format!("[{}]", head.u1().clone().iter().map(|__b| __b.to_string()).collect::<Vec<String>>().join(", ")), head.u1().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
+                    println(console, &(format!("first three: {} = {}", to_str_platform(&head.u1().clone()), to_hex_platform(head.u1()))));
                 }
                 Union2::U2(_) => {
                     println(console, &(format!("byte read failed: {}", kind_name__2(&(detach((match head { Union2::U2(__v) => __v, _ => unreachable!() })))))));
@@ -262,12 +264,12 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
     match held {
         Union2::U1(_) => {
             let mut s: InStream = held.u1().clone();
-            let mut buf = Vec::<u8>::new();
+            let mut buf = mut_bytes(vec![]);
             let mut steps = 0;
             let mut moved = 0;
             let mut reading = true;
             while reading {
-                buf.clear();
+                clear_platform(&mut buf);
                 let mut got = streams.read_to(&s, &mut buf, 4);
                 match got {
                     Union2::U1(_) => {
@@ -328,7 +330,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             let mut p = ch.u1().clone();
             let mut seen = 0;
             while let Union2::U1(mut chunk) = next__22(streams, &mut p) {
-                seen = seen + (chunk.len() as i32);
+                seen = seen + size_platform(&chunk);
             }
             println(console, &(format!("chunks saw {} bytes", seen)));
             let mut done = close__3(streams, p);
@@ -352,7 +354,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
     let mut whole = read_to_bytes(fs, streams, &("raw.bin".to_string()));
     match whole {
         Union2::U1(_) => {
-            println(console, &(format!("raw.bin is {} bytes: {}", (whole.u1().len() as i32), whole.u1().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
+            println(console, &(format!("raw.bin is {} bytes: {}", size_platform(whole.u1()), to_hex_platform(whole.u1()))));
         }
         Union2::U2(_) => {
             println(console, &(format!("byte read failed: {}", kind_name(&(detach((match whole { Union2::U2(__v) => __v, _ => unreachable!() })))))));

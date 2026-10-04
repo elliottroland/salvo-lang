@@ -124,7 +124,7 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
     when (bin) {
         is Union2.U1<*, *> -> {
             val w: OutStream = (bin.value as OutStream)
-            val data = salvo.SalvoBytes.of(arrayOf<UByte>((0).toUByte(), (255).toUByte(), (200).toUByte()))
+            val data = bytesOf(arrayOf((0).toUByte(), (255).toUByte(), (200).toUByte()))
             val n = streams.writeBytes(w, data)
             val m = streams.write(w, "hé")
             println(console, "wrote $n raw bytes and $m encoded")
@@ -144,7 +144,7 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
             val head = streams.readBytes(s, 3)
             when (head) {
                 is Union2.U1<*, *> -> {
-                    println(console, "first three: ${(head.value as salvo.SalvoBytes).toString()} = ${(head.value as salvo.SalvoBytes).toHex()}")
+                    println(console, "first three: ${toStrPlatform((head.value as salvo.platform.core.bytes.Bytes))} = ${toHexPlatform((head.value as salvo.platform.core.bytes.Bytes))}")
                 }
                 is Union2.U2<*, *> -> {
                     println(console, "byte read failed: ${kindName__2(detach((head.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
@@ -199,12 +199,12 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
     when (held) {
         is Union2.U1<*, *> -> {
             val s: InStream = (held.value as InStream)
-            val buf = salvo.SalvoBytes.joined()
+            val buf = mutBytes(arrayOf())
             var steps = 0
             var moved = 0
             var reading = true
             while (reading) {
-                buf.clear()
+                clearPlatform(buf)
                 val got = streams.readTo(s, buf, 4)
                 when (got) {
                     is Union2.U1<*, *> -> {
@@ -266,9 +266,9 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
             var seen = 0
             while (true) {
                 val __loop2_step = next__22(streams, p)
-                if (__loop2_step !is Union2.U1<salvo.SalvoBytes, Finished>) { break }
+                if (__loop2_step !is Union2.U1<salvo.platform.core.bytes.Bytes, Finished>) { break }
                 val chunk = __loop2_step.value
-                seen = seen + chunk.size
+                seen = seen + sizePlatform(chunk)
             }
             println(console, "chunks saw $seen bytes")
             val done = close__3(streams, p)
@@ -292,7 +292,7 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
     val whole = readToBytes(fs, streams, "raw.bin")
     when (whole) {
         is Union2.U1<*, *> -> {
-            println(console, "raw.bin is ${(whole.value as salvo.SalvoBytes).size} bytes: ${(whole.value as salvo.SalvoBytes).toHex()}")
+            println(console, "raw.bin is ${sizePlatform((whole.value as salvo.platform.core.bytes.Bytes))} bytes: ${toHexPlatform((whole.value as salvo.platform.core.bytes.Bytes))}")
         }
         is Union2.U2<*, *> -> {
             println(console, "byte read failed: ${kindName(detach((whole.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")

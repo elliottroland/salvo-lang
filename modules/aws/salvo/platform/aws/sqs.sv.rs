@@ -87,9 +87,9 @@ pub struct SendMessageInput {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessageAttributeValue {
     pub string_value: Option<String>,
-    pub binary_value: Option<Vec<u8>>,
+    pub binary_value: Option<Bytes>,
     pub string_list_values: Option<Vec<String>>,
-    pub binary_list_values: Option<Vec<Vec<u8>>>,
+    pub binary_list_values: Option<Vec<Bytes>>,
     pub data_type: String,
 }
 
@@ -115,9 +115,9 @@ impl crate::wire::__Wire for MessageAttributeValue {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessageSystemAttributeValue {
     pub string_value: Option<String>,
-    pub binary_value: Option<Vec<u8>>,
+    pub binary_value: Option<Bytes>,
     pub string_list_values: Option<Vec<String>>,
-    pub binary_list_values: Option<Vec<Vec<u8>>>,
+    pub binary_list_values: Option<Vec<Bytes>>,
     pub data_type: String,
 }
 

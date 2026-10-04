@@ -4387,14 +4387,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
+        // [platform-value-type] A copyable platform type that `canbe Mut` is a
+        // *value*: its copy is the host's own copy, never a shared object, so
+        // `Mut` means what it means for a struct (user decision 2026-10-04,
+        // ROADMAP 0.7). Sharing a mutable host object across threads would
+        // need the opposite promise, so `threadsafe` refuses it.
         for q in &t.auto_qualifiers {
-            if q.name.name == "Mut" && !t.linear {
+            if q.name.name == "Mut" && t.threadsafe {
                 self.error(
                     q.span,
                     format!(
-                        "`platform type {name}` may be `canbe Mut` only when it is `linear`: a \
-                         copy shares the host object, so `Mut` could not mean exclusive access \
-                         [platform-type]"
+                        "`platform type {name}` cannot be both `threadsafe` and `canbe Mut`: a \
+                         value type is copied, never shared [platform-value-type]"
                     ),
                 );
             }

@@ -135,6 +135,23 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Value platform types, and `Bytes` as the first (2026-10-04, ROADMAP 0.7).**
+User decision: convention (c) — a `canbe Mut` platform type's host names its
+mutable kind `Mut<Name>`, no new syntax. Built: the checker accepts a
+copyable `canbe Mut` platform type as a value type (refusing `threadsafe`);
+Kotlin renders `Mut X` as the host's `MutX` and copies through the host
+package's `copy`; Rust asserts the derives a struct of it needs and treats it
+as derivable. `core.bytes` is platform code (`std/platform/core/bytes.*`),
+both backends' 13 `Bytes` lowerings and its type mappings are gone, and
+`bytes_of`/`mut_bytes` are Salvo. What fell out: Kotlin's host project
+flattened every file to `salvo/<stem>.sv.kt`, so the companion
+`platform/core/bytes.kt` and the runtime `bytes.kt` collided — companions keep
+their module path now; a `for` whose subject is a call the minted pass borrows
+hoists it on Rust ([rs-loop-temp], `for b in bytes_of(…)`); a kept variadic
+tail clones a non-Copy place on Rust instead of moving it; the native byte
+loop is lost (ROADMAP 0.7). Tests rewritten for the new shape:
+`bytes_is_a_value_platform_type` on each backend.
+
 **ROADMAP 0.1, 0.4, 0.5 and the 0c workarounds (2026-10-04).** The waiter
 table reuses a record once its wait has ended (a free list; each record keeps
 its token's slot, and an answer with another slot is dropped), so a loop of

@@ -2695,7 +2695,7 @@ impl<'p> Emitter<'p> {
         // [rs-loop-temp] The pass local outlives the statement the subject was
         // written in, so a temporary the subject borrows is hoisted in front
         // of the loop (E0716 otherwise; Kotlin needs nothing).
-        let temps = self.hoist_subject_temporaries(iterable, indent);
+        let mut temps = self.hoist_subject_temporaries(iterable, indent);
         let subject = match &driver.mint {
             // [iter-mint] The subject is a *container*, not a pass: its `iter`
             // mints one, called once before the loop. The arguments go through
@@ -2705,6 +2705,21 @@ impl<'p> Emitter<'p> {
                 Some(decl) => {
                     let callee = self.rust_fn_name(decl);
                     let params = decl.params.clone();
+                    // [rs-loop-temp] The minted pass borrows the subject, so a
+                    // subject that is not a place (`for b in bytes_of(…)`) is
+                    // a temporary the pass would outlive: hoisted too.
+                    if let Some(p) = params.iter().find(|p| !p.implicit) {
+                        if !matches!(self.param_mode(Some(*key), p), ParamMode::Owned)
+                            && !self.place_is_pure(iterable)
+                            && !self.hoisted_reads.contains_key(&(self.file_idx, iterable.span()))
+                        {
+                            let code = self.emit_owned(iterable);
+                            self.hoist_id += 1;
+                            let name = format!("__t{}", self.hoist_id);
+                            temps.push(format!("{pad}let {name} = {code};\n"));
+                            self.hoisted_reads.insert((self.file_idx, iterable.span()), name);
+                        }
+                    }
                     let args = self.emit_args_for_params(&params, &[iterable], Some(*key));
                     format!("{callee}({})", args.join(", "))
                 }
@@ -2991,7 +3006,15 @@ impl<'p> Emitter<'p> {
         match ty {
             Type::Literal { .. } => true,
             Type::Named { base, .. } => match base.name.name.as_str() {
-                "Int" | "Long" | "Byte" | "Char" | "Bool" | "Str" | "Bytes" | "None" => true,
+                "Int" | "Long" | "Byte" | "Char" | "Bool" | "Str" | "None" => true,
+                name if self
+                    .symbols
+                    .intrinsic_types
+                    .get(name)
+                    .is_some_and(|t| t.platform && !t.linear && t.auto_qualifiers.iter().any(|q| q.name.name == "Mut")) =>
+                {
+                    true
+                }
                 "List" | "Set" | "Map" => base.args.iter().all(|a| self.type_derivable(a, depth + 1)),
                 name => self.symbols.structs.get(name).is_some_and(|inner| {
                     (self.struct_has_capability(inner, "hash")
@@ -3212,7 +3235,10 @@ impl<'p> Emitter<'p> {
                     opaque = true;
                     uncloneable = true;
                 } else if let Some(t) = self.symbols.intrinsic_types.get(name).filter(|t| t.platform) {
-                    opaque = true;
+                    // [platform-value-type] A value type's host derives what a
+                    // struct of it needs (asserted at its declaration).
+                    let value = !t.linear && t.auto_qualifiers.iter().any(|q| q.name.name == "Mut");
+                    opaque = !value;
                     uncloneable = t.linear;
                 } else if let Some(st) = self.symbols.structs.get(name) {
                     for f in &st.fields {
@@ -4082,6 +4108,11 @@ impl<'p> Emitter<'p> {
         let mut bounds = vec!["Send", "'static"];
         if !t.linear {
             bounds.push("Clone");
+        }
+        // [platform-value-type] A value type is printed, compared and hashed
+        // as part of the structs holding it, and copied deeply by `Clone`.
+        if !t.linear && t.auto_qualifiers.iter().any(|q| q.name.name == "Mut") {
+            bounds.extend(["std::fmt::Debug", "PartialEq", "Eq", "std::hash::Hash"]);
         }
         if t.threadsafe {
             bounds.push("Sync");
@@ -15717,7 +15748,20 @@ impl<'p> Emitter<'p> {
                 out.push(format!("{{ let mut __v = Vec::new(); {steps}__v }}"));
                 return out;
             }
-            let items: Vec<String> = rest.iter().map(|a| self.emit_expr(a)).collect();
+            // A variadic tail is copied in (no obligation can travel there), so
+            // a non-Copy place is cloned: the caller keeps it.
+            let items: Vec<String> = rest
+                .iter()
+                .map(|a| {
+                    let code = self.emit_expr(a);
+                    let copy = self.ty_of(a.span()).is_some_and(|t| Self::is_copy_ty(t));
+                    if self.place_is_pure(a) && !copy && !code.ends_with(".clone()") {
+                        format!("{code}.clone()")
+                    } else {
+                        code
+                    }
+                })
+                .collect();
             out.push(format!("vec![{}]", items.join(", ")));
         }
         out

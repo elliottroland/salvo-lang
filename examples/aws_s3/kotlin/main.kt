@@ -124,7 +124,7 @@ fun roundTrip(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, k
 }
 
 class MemS3(private val __dep_salvo_stream_Streams: salvo.stream.Streams) : S3 {
-    private var objects: MutableMap<String, salvo.SalvoBytes> = linkedMapOf<String, salvo.SalvoBytes>().also { __m -> __m.putAll(listOf()) }
+    private var objects: MutableMap<String, salvo.platform.core.bytes.Bytes> = linkedMapOf<String, salvo.platform.core.bytes.Bytes>().also { __m -> __m.putAll(listOf()) }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) {
@@ -132,7 +132,7 @@ class MemS3(private val __dep_salvo_stream_Streams: salvo.stream.Streams) : S3 {
         val bucket = __destructured2.bucket
         val key = __destructured2.key
         val body = __destructured2.body
-        val buf = salvo.SalvoBytes.joined()
+        val buf = mutBytes(arrayOf())
         val filled = fillFrom(__dep_salvo_stream_Streams, body, buf)
         val closed = __dep_salvo_stream_Streams.close(body)
         if (closed is Union2.U2<*, *>) {
@@ -142,8 +142,8 @@ class MemS3(private val __dep_salvo_stream_Streams: salvo.stream.Streams) : S3 {
             salvo.SalvoSched.replyWire(reply, Union2.U2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(Union2.U2<S3Error, AwsError>(AwsError(code = "StreamFailed", message = "${toStr__5(detach((filled.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}"))))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
             return
         }
-        val data: salvo.SalvoBytes = buf
-        val tag = "\"${data.size}\""
+        val data: salvo.platform.core.bytes.Bytes = buf
+        val tag = "\"${sizePlatform(data)}\""
         objects.put("$bucket/$key", data)
         salvo.SalvoSched.replyWire(reply, Union2.U1<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(PutObjectOutput(eTag = tag))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
     }
@@ -154,8 +154,8 @@ class MemS3(private val __dep_salvo_stream_Streams: salvo.stream.Streams) : S3 {
             reply.send(Union2.U2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(Union2.U1<S3Error, AwsError>(S3Error(code = "NoSuchKey", message = "The specified key does not exist.", status = 404))))))
             return
         }
-        val data: salvo.SalvoBytes = salvo.SalvoBytes(found)
-        val length = (data.size).toLong()
+        val data: salvo.platform.core.bytes.Bytes = found
+        val length = (sizePlatform(data)).toLong()
         reply.send(Union2.U1<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(GetObjectOutput(body = __dep_salvo_stream_Streams.fromBytes(data), contentLength = length))))
     }
 }

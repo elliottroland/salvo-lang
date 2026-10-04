@@ -69,7 +69,7 @@ data class OutStream(
 )
 
 data class Packet(
-    val bytes: salvo.SalvoBytes,
+    val bytes: salvo.platform.core.bytes.Bytes,
     val stream: InStream,
 )
 
@@ -91,20 +91,20 @@ fun close(streams: Streams, p: Packet): Union2<Unit, Checked<Union2<InvalidUtf8,
 interface Streams {
     fun readLine(s: InStream): String?
     fun readAll(s: InStream): Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>
-    fun readBytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>
-    fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>
+    fun readBytes(s: InStream, max: Int): Union2<salvo.platform.core.bytes.Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>
+    fun readTo(s: InStream, buf: salvo.platform.core.bytes.MutBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun readTo__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun readLineTo(s: InStream, buf: StringBuilder): Boolean
     fun position(s: InStream): Long
     fun close(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun write(s: OutStream, text: String): Long
     fun writeLine(s: OutStream, text: String): Long
-    fun writeBytes(s: OutStream, data: salvo.SalvoBytes): Long
+    fun writeBytes(s: OutStream, data: salvo.platform.core.bytes.Bytes): Long
     fun position__2(s: OutStream): Long
     fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>
     fun receive(s: InStream, reply: salvo.SalvoReply)
-    fun fromBytes(data: salvo.SalvoBytes): InStream
+    fun fromBytes(data: salvo.platform.core.bytes.Bytes): InStream
 }
 
 class __Mon_Streams(
@@ -121,12 +121,12 @@ class __Mon_Streams(
         lock.lock()
         try { return inner.readAll(s) } finally { lock.unlock() }
     }
-    override fun readBytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun readBytes(s: InStream, max: Int): Union2<salvo.platform.core.bytes.Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.readBytes(s, max) } finally { lock.unlock() }
     }
-    override fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun readTo(s: InStream, buf: salvo.platform.core.bytes.MutBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.readTo(s, buf, max) } finally { lock.unlock() }
@@ -161,7 +161,7 @@ class __Mon_Streams(
         lock.lock()
         try { return inner.writeLine(s, text) } finally { lock.unlock() }
     }
-    override fun writeBytes(s: OutStream, data: salvo.SalvoBytes): Long {
+    override fun writeBytes(s: OutStream, data: salvo.platform.core.bytes.Bytes): Long {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.writeBytes(s, data) } finally { lock.unlock() }
@@ -186,7 +186,7 @@ class __Mon_Streams(
         lock.lock()
         try { inner.receive(s, reply) } finally { lock.unlock() }
     }
-    override fun fromBytes(data: salvo.SalvoBytes): InStream {
+    override fun fromBytes(data: salvo.platform.core.bytes.Bytes): InStream {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.fromBytes(data) } finally { lock.unlock() }
@@ -267,17 +267,17 @@ fun chunks(s: InStream, size: Int): Chunks {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun next__22(streams: Streams, p: Chunks): Union2<salvo.SalvoBytes, Finished> {
+fun next__22(streams: Streams, p: Chunks): Union2<salvo.platform.core.bytes.Bytes, Finished> {
     val got = streams.readBytes(p.s, p.size)
     if (got is Union2.U2<*, *>) {
         ignore((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
-        return Union2.U2<salvo.SalvoBytes, Finished>(finished())
+        return Union2.U2<salvo.platform.core.bytes.Bytes, Finished>(finished())
     }
-    val data: salvo.SalvoBytes = (got.value as salvo.SalvoBytes)
-    if (data.size == 0) {
-        return Union2.U2<salvo.SalvoBytes, Finished>(finished())
+    val data: salvo.platform.core.bytes.Bytes = (got.value as salvo.platform.core.bytes.Bytes)
+    if (sizePlatform(data) == 0) {
+        return Union2.U2<salvo.platform.core.bytes.Bytes, Finished>(finished())
     }
-    return Union2.U1<salvo.SalvoBytes, Finished>(emitted(data))
+    return Union2.U1<salvo.platform.core.bytes.Bytes, Finished>(emitted(data))
 }
 
 fun close__3(streams: Streams, p: Chunks): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
@@ -289,7 +289,7 @@ fun streamChunkSize(): Int {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun fillFrom(streams: Streams, s: InStream, buf: salvo.SalvoBytes): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+fun fillFrom(streams: Streams, s: InStream, buf: salvo.platform.core.bytes.MutBytes): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     var total: Long = 0L
     var reading = true
     while (reading) {
@@ -308,11 +308,11 @@ fun fillFrom(streams: Streams, s: InStream, buf: salvo.SalvoBytes): Union2<Long,
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun copyStream(streams: Streams, s: InStream, w: OutStream): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
-    val buf = salvo.SalvoBytes.joined()
+    val buf = mutBytes(arrayOf())
     var total: Long = 0L
     var copying = true
     while (copying) {
-        buf.clear()
+        clearPlatform(buf)
         val got = streams.readTo(s, buf, streamChunkSize())
         if (got is Union2.U2<*, *>) {
             return Union2.U2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
@@ -335,9 +335,9 @@ fun writeLong(streams: Streams, s: OutStream, v: Long): Long {
     return streams.writeBytes(s, fixedBytes(v, 8))
 }
 
-fun<T> writeValue(streams: Streams, s: OutStream, v: T, encode: (T) -> salvo.SalvoBytes): Long {
+fun<T> writeValue(streams: Streams, s: OutStream, v: T, encode: (T) -> salvo.platform.core.bytes.Bytes): Long {
     val data = encode(v)
-    val n = writeInt(streams, s, data.size)
+    val n = writeInt(streams, s, sizePlatform(data))
     return n + streams.writeBytes(s, data)
 }
 
@@ -362,7 +362,7 @@ fun readLong(streams: Streams, s: InStream): Union3<Long, End, Checked<Union2<In
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<T> readValue(streams: Streams, s: InStream, decode: (salvo.SalvoBytes) -> T?): Union3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+fun<T> readValue(streams: Streams, s: InStream, decode: (salvo.platform.core.bytes.Bytes) -> T?): Union3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     val len = readInt(streams, s)
     if (len is Union3.U2<*, *, *>) {
         return Union3.U2<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(End())
@@ -375,8 +375,8 @@ fun<T> readValue(streams: Streams, s: InStream, decode: (salvo.SalvoBytes) -> T?
     if (data is Union2.U2<*, *>) {
         return Union3.U3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>((data.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
     }
-    val bytes: salvo.SalvoBytes = (data.value as salvo.SalvoBytes)
-    if (bytes.size < n) {
+    val bytes: salvo.platform.core.bytes.Bytes = (data.value as salvo.platform.core.bytes.Bytes)
+    if (sizePlatform(bytes) < n) {
         return Union3.U3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U2<InvalidUtf8, StreamFailed>(StreamFailed(source = "read_value", message = "the stream ended inside a value")))))
     }
     val v = decode(bytes)
@@ -386,8 +386,8 @@ fun<T> readValue(streams: Streams, s: InStream, decode: (salvo.SalvoBytes) -> T?
     return Union3.U1<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(v))
 }
 
-fun fixedBytes(v: Long, width: Int): salvo.SalvoBytes {
-    val out = salvo.SalvoBytes.joined()
+fun fixedBytes(v: Long, width: Int): salvo.platform.core.bytes.Bytes {
+    val out = mutBytes(arrayOf())
     var rest = v
     var i = 0
     while (i < width) {
@@ -395,14 +395,14 @@ fun fixedBytes(v: Long, width: Int): salvo.SalvoBytes {
         if (low < 0L) {
             low = low + 256L
         }
-        out.add(((low).toInt()).toUByte())
+        addPlatform(out, ((low).toInt()).toUByte())
         rest = (rest - low) / 256L
         i = i + 1
     }
-    val back = salvo.SalvoBytes.joined()
+    val back = mutBytes(arrayOf())
     var j = width - 1
     while (j >= 0) {
-        back.add((out.getOrNull(j) ?: throw AssertionError("salvo: value is absent at stream:421:19")))
+        addPlatform(back, (getPlatform(out, j) ?: throw AssertionError("salvo: value is absent at stream:421:19")))
         j = j - 1
     }
     return back
@@ -414,21 +414,21 @@ fun readFixed(streams: Streams, s: InStream, width: Int): Union3<Long, End, Chec
     if (r is Union2.U2<*, *>) {
         return Union3.U3<Long, End, Checked<Union2<InvalidUtf8, StreamFailed>>>((r.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
     }
-    val data: salvo.SalvoBytes = (r.value as salvo.SalvoBytes)
-    if (data.size == 0) {
+    val data: salvo.platform.core.bytes.Bytes = (r.value as salvo.platform.core.bytes.Bytes)
+    if (sizePlatform(data) == 0) {
         return Union3.U2<Long, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(End())
     }
-    if (data.size < width) {
+    if (sizePlatform(data) < width) {
         return Union3.U3<Long, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U2<InvalidUtf8, StreamFailed>(StreamFailed(source = "read", message = "the stream ended inside a number")))))
     }
-    var first = (((data.getOrNull(0) ?: throw AssertionError("salvo: value is absent at stream:440:32"))).toInt()).toLong()
+    var first = (((getPlatform(data, 0) ?: throw AssertionError("salvo: value is absent at stream:440:32"))).toInt()).toLong()
     if (first >= 128L) {
         first = first - 256L
     }
     var v = first
     var i = 1
     while (i < width) {
-        v = v * 256L + (((data.getOrNull(i) ?: throw AssertionError("salvo: value is absent at stream:447:39"))).toInt()).toLong()
+        v = v * 256L + (((getPlatform(data, i) ?: throw AssertionError("salvo: value is absent at stream:447:39"))).toInt()).toLong()
         i = i + 1
     }
     return Union3.U1<Long, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(v))

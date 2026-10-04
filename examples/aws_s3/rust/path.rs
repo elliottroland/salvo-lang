@@ -28,7 +28,7 @@ pub fn path(text: &String) -> Path {
     return Path { text: text.clone() };
 }
 
-pub fn to_str__4(p: &Path) -> String {
+pub fn to_str__5(p: &Path) -> String {
     return p.text.clone();
 }
 
@@ -159,7 +159,7 @@ pub fn hash__4(value: &Path) -> i64 {
     return h;
 }
 
-pub fn eq__4(a: &Path, b: &Path) -> bool {
+pub fn eq__5(a: &Path, b: &Path) -> bool {
     if !(&a.text[..] == &b.text[..]) {
         return false;
     }

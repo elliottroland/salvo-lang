@@ -18,55 +18,74 @@
 // That is what makes the fill-a-buffer reads work: one `Mut Bytes` is filled,
 // used and cleared for as long as a loop runs, instead of a fresh payload per
 // chunk [fs-read-to].
-export intrinsic type Bytes canbe Mut
+//
+// [platform-value-type] A **value platform type** (ROADMAP 0.7): the host
+// implements it — `std/platform/core/bytes.{rs,kt}` — and its copy is the
+// host's own copy. Its mutable kind is the host's `MutBytes` [platform-type].
+export platform type Bytes canbe Mut
 
 // The bytes of [elems], in order: `bytes_of(to_byte(0), to_byte(255))`.
 // Bytes have no literal syntax — a `[...]` literal is a `List` [col-literal] —
 // so this is the constructor.
-export intrinsic fn bytes_of(...elems: Byte[]) [] -> Bytes
+export fn bytes_of(...elems: Byte[]) [] -> Bytes => elems {
+    let out = empty_bytes()
+    for b in elems {
+        add(out, b)
+    }
+    return out
+}
 
 // A buffer under construction, holding [parts] concatenated in order.
 // `mut_bytes()` is the empty one, which is how a read buffer starts;
 // mutability is asked for here, mirroring [mut_str] and [mut_list_of].
-export intrinsic fn mut_bytes(...parts: Bytes[]) [] -> Mut Bytes
+export fn mut_bytes(...parts: Bytes[]) [] -> Mut Bytes => parts {
+    let out = empty_bytes()
+    for part in parts {
+        append(out, part)
+    }
+    return out
+}
+
+// An empty buffer to build: what [mut_bytes] and [bytes_of] start from.
+platform fn empty_bytes() [] -> Mut Bytes
 
 // The UTF-8 bytes of [str] — the encoding both backends agree on, and the one
 // [byte_size] counts.
-export intrinsic fn to_bytes(str: Str) [] -> Bytes => str
+export platform fn to_bytes(str: Str) [] -> Bytes => str
 
 // The text [data] spells in UTF-8, or `None` when it is not valid UTF-8.
 // Decoding is **strict** on both backends — a malformed byte is `None`, never
 // a replacement character — which is the rule the filesystem's text reads
 // follow too [fs-bytes].
-export intrinsic fn str_of_bytes(data: Bytes) [] -> Str? => data
+export platform fn str_of_bytes(data: Bytes) [] -> Str? => data
 
 // [cmp-canonical] [op-equality] The canonical equality for a buffer:
 // **structural**, byte for byte, which is what `==` on two `Bytes` means.
 // A plain overload, like every other canonical of an intrinsic type: `core.*`
 // is implicitly visible everywhere, which is the travelling that attachment
 // exists to provide [fn-attached].
-export intrinsic fn eq(a: Bytes, b: Bytes) [] -> Bool => a, b
+export platform fn eq(a: Bytes, b: Bytes) [] -> Bool => a, b
 
 // The number of bytes in [data].
-export intrinsic fn size(data: Bytes) [] -> Int => data
+export platform fn size(data: Bytes) [] -> Int => data
 
 // The byte at [index], or `None` when [index] is outside the buffer.
-export intrinsic fn get(data: Bytes, index: Int) [] -> Byte? => data, index
+export platform fn get(data: Bytes, index: Int) [] -> Byte? => data, index
 
 // The bytes from [start] (inclusive) to [end] (exclusive), or `None` when
 // that range does not lie within the buffer. A **copy**, not a view: Salvo
 // states borrows in deductions, and this one does not borrow [proj-field].
-export intrinsic fn slice(data: Bytes, start: Int, end: Int) [] -> Bytes? => data, start, end
+export platform fn slice(data: Bytes, start: Int, end: Int) [] -> Bytes? => data, start, end
 
 // The index of the first occurrence of [byte], or `None` when it does not
 // occur. No `-1` sentinel: absence is `None` [type-nullable].
-export intrinsic fn index_of(data: Bytes, byte: Byte) [] -> Int? => data, byte
+export platform fn index_of(data: Bytes, byte: Byte) [] -> Int? => data, byte
 
 // Appends one byte to [data].
-export intrinsic fn add(data: Mut Bytes, byte: Byte) [] -> None => data: Mut, byte
+export platform fn add(data: Mut Bytes, byte: Byte) [] -> None => data: Mut, byte
 
 // Appends every byte of [more] to [data].
-export intrinsic fn append(data: Mut Bytes, more: Bytes) [] -> None => data: Mut, more
+export platform fn append(data: Mut Bytes, more: Bytes) [] -> None => data: Mut, more
 
 // Replaces the byte at [index], and answers whether it did. Out of range it
 // writes nothing and answers `false` — the buffer is the caller's, and growing
@@ -75,21 +94,21 @@ export intrinsic fn append(data: Mut Bytes, more: Bytes) [] -> None => data: Mut
 // [col-bounds] The `Bool` is the same report `swap` makes, and for the same
 // reason (user decision 2026-09-22): a write that quietly did nothing is a bug
 // with no symptom at the call. Ignore it where the index is known good.
-export intrinsic fn set(data: Mut Bytes, index: Int, byte: Byte) [] -> Bool
+export platform fn set(data: Mut Bytes, index: Int, byte: Byte) [] -> Bool
 => data: Mut, index, byte
 
 // Removes every byte from [data], keeping whatever room it had. This is the
 // call that makes a buffer reusable across reads [fs-read-to].
-export intrinsic fn clear(data: Mut Bytes) [] -> None => data: Mut
+export platform fn clear(data: Mut Bytes) [] -> None => data: Mut
 
 // The numbers, as a list is written: `[0, 255, 200]`. Deliberately the same
 // text a `List<Byte>` produces, so what a program prints did not change when
 // the payload type did [interp-to-str].
-export intrinsic fn to_str(data: Bytes) [] -> Str => data
+export platform fn to_str(data: Bytes) [] -> Str => data
 
 // Lower-case hex, two characters per byte and nothing between them:
 // `00ffc8`. The form a checksum, a digest or a wire dump wants.
-export intrinsic fn to_hex(data: Bytes) [] -> Str => data
+export platform fn to_hex(data: Bytes) [] -> Str => data
 
 // [iter-mint] A fresh iterator over the bytes of [data], in order — which is what
 // makes `for b in data` and the sequence functions work on a buffer.

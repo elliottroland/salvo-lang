@@ -17,27 +17,27 @@ private val __moduleUse0: RouteTable by lazy {
     route_table
 }
 
-fun decodeMessagePlatform(addr: Int, proto: String, payload: salvo.SalvoBytes): salvo.platform.runtime.Dyn? {
+fun decodeMessagePlatform(addr: Int, proto: String, payload: salvo.platform.core.bytes.Bytes): salvo.platform.runtime.Dyn? {
     return salvo.platform.runtime.routing.decodeMessage(addr, proto, payload)
 }
 
-fun decodeWaiterAnswerPlatform(wid: Int, payload: salvo.SalvoBytes): salvo.platform.runtime.Dyn? {
+fun decodeWaiterAnswerPlatform(wid: Int, payload: salvo.platform.core.bytes.Bytes): salvo.platform.runtime.Dyn? {
     return salvo.platform.runtime.routing.decodeWaiterAnswer(wid, payload)
 }
 
-fun decodeTaskAnswerPlatform(key: Long, payload: salvo.SalvoBytes): salvo.platform.runtime.Dyn? {
+fun decodeTaskAnswerPlatform(key: Long, payload: salvo.platform.core.bytes.Bytes): salvo.platform.runtime.Dyn? {
     return salvo.platform.runtime.routing.decodeTaskAnswer(key, payload)
 }
 
-fun rawAnswerPlatform(payload: salvo.SalvoBytes): salvo.platform.runtime.Dyn {
+fun rawAnswerPlatform(payload: salvo.platform.core.bytes.Bytes): salvo.platform.runtime.Dyn {
     return salvo.platform.runtime.routing.rawAnswer(payload)
 }
 
-fun controlMessagePlatform(sink: Int, from: Long, payload: salvo.SalvoBytes): salvo.platform.runtime.Dyn? {
+fun controlMessagePlatform(sink: Int, from: Long, payload: salvo.platform.core.bytes.Bytes): salvo.platform.runtime.Dyn? {
     return salvo.platform.runtime.routing.controlMessage(sink, from, payload)
 }
 
-fun wireOutPlatform(from: Long, to: salvo.SalvoBytes, frame: salvo.SalvoBytes) {
+fun wireOutPlatform(from: Long, to: salvo.platform.core.bytes.Bytes, frame: salvo.platform.core.bytes.Bytes) {
     return salvo.platform.runtime.routing.wireOut(from, to, frame)
 }
 
@@ -47,7 +47,7 @@ data class MsgFrame(
     val bits: Long,
     val from: Long,
     val proto: String,
-    val payload: salvo.SalvoBytes,
+    val payload: salvo.platform.core.bytes.Bytes,
 )
 
 object __Codec_MsgFrame : salvo.WireCodec<MsgFrame> {
@@ -68,7 +68,7 @@ data class AnswerFrame(
     val id: Long,
     val slot: Long,
     val bits: Long,
-    val payload: salvo.SalvoBytes,
+    val payload: salvo.platform.core.bytes.Bytes,
 )
 
 object __Codec_AnswerFrame : salvo.WireCodec<AnswerFrame> {
@@ -123,7 +123,7 @@ data class ControlFrame(
     val to: Long,
     val from: Long,
     val channel: String,
-    val payload: salvo.SalvoBytes,
+    val payload: salvo.platform.core.bytes.Bytes,
 )
 
 object __Codec_ControlFrame : salvo.WireCodec<ControlFrame> {
@@ -186,7 +186,7 @@ object __Codec_ControlKey : salvo.WireCodec<ControlKey> {
 data class Parked(
     val from: Long,
     val to: Long,
-    val frame: salvo.SalvoBytes,
+    val frame: salvo.platform.core.bytes.Bytes,
 )
 
 object __Codec_Parked : salvo.WireCodec<Parked> {
@@ -200,8 +200,8 @@ object __Codec_Parked : salvo.WireCodec<Parked> {
 
 data class Staged(
     val from: Long,
-    val to: salvo.SalvoBytes,
-    val frame: salvo.SalvoBytes,
+    val to: salvo.platform.core.bytes.Bytes,
+    val frame: salvo.platform.core.bytes.Bytes,
 )
 
 object __Codec_Staged : salvo.WireCodec<Staged> {
@@ -264,10 +264,10 @@ interface RouteTable {
     fun isProxy(addr: Int): Boolean
     fun proxyRef(addr: Int): RemoteRef?
     fun takeCredit(addr: Int, me: salvo.platform.runtime.Parker): Int
-    fun stage(from: Long, to: Long, frame: salvo.SalvoBytes)
+    fun stage(from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes)
     fun grant(addr: Int, pool: Int, from: Long, n: Int)
     fun takeOutbox(): MutableList<Staged>
-    fun addRoute(node: Long, at: salvo.SalvoBytes)
+    fun addRoute(node: Long, at: salvo.platform.core.bytes.Bytes)
     fun setOutbound(node: Long)
     fun hasOutbound(node: Long): Boolean
     fun accepts(to: Long, actor: Long, claimed: Long): Boolean
@@ -351,7 +351,7 @@ class __Mon_RouteTable(
         lock.lock()
         try { return inner.takeCredit(addr, me) } finally { lock.unlock() }
     }
-    override fun stage(from: Long, to: Long, frame: salvo.SalvoBytes) {
+    override fun stage(from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes) {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.stage(from, to, frame) } finally { lock.unlock() }
@@ -366,7 +366,7 @@ class __Mon_RouteTable(
         lock.lock()
         try { return inner.takeOutbox() } finally { lock.unlock() }
     }
-    override fun addRoute(node: Long, at: salvo.SalvoBytes) {
+    override fun addRoute(node: Long, at: salvo.platform.core.bytes.Bytes) {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.addRoute(node, at) } finally { lock.unlock() }
@@ -521,7 +521,7 @@ class Routes : RouteTable {
     private var proxies: MutableMap<RemoteRef, Int> = salvo.SalvoHashMap<RemoteRef, Int>(::hash__5, ::eq__5).also { __m -> __m.putAll(listOf()) }
     private var credits: MutableMap<Int, Int> = linkedMapOf<Int, Int>().also { __m -> __m.putAll(listOf()) }
     private var heldN: MutableMap<Int, Int> = linkedMapOf<Int, Int>().also { __m -> __m.putAll(listOf()) }
-    private var routes: MutableMap<Long, salvo.SalvoBytes> = linkedMapOf<Long, salvo.SalvoBytes>().also { __m -> __m.putAll(listOf()) }
+    private var routes: MutableMap<Long, salvo.platform.core.bytes.Bytes> = linkedMapOf<Long, salvo.platform.core.bytes.Bytes>().also { __m -> __m.putAll(listOf()) }
     private var outbound: MutableSet<Long> = linkedSetOf<Long>().also { __s -> __s.addAll(listOf()) }
     private var parked: MutableList<Parked> = mutableListOf<Parked>()
     private var outbox: MutableList<Staged> = mutableListOf<Staged>()
@@ -634,7 +634,7 @@ class Routes : RouteTable {
         return -1
     }
 
-    override fun stage(from: Long, to: Long, frame: salvo.SalvoBytes) {
+    override fun stage(from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes) {
         stageIn(routes, outbound, outbox, parked, from, to, frame)
     }
 
@@ -653,7 +653,7 @@ class Routes : RouteTable {
         return out
     }
 
-    override fun addRoute(node: Long, at: salvo.SalvoBytes) {
+    override fun addRoute(node: Long, at: salvo.platform.core.bytes.Bytes) {
         routes.put(node, at)
         restage(routes, outbound, outbox, parked)
     }
@@ -904,25 +904,25 @@ fun wakeSenders(waiters: MutableList<salvo.platform.runtime.Parker>) {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun stageIn(routes: Map<Long, salvo.SalvoBytes>, outbound: Set<Long>, outbox: MutableList<Staged>, parked: MutableList<Parked>, from: Long, to: Long, frame: salvo.SalvoBytes) {
+fun stageIn(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Long>, outbox: MutableList<Staged>, parked: MutableList<Parked>, from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes) {
     val ep = routes[to]
     if (ep != null) {
-        val at = ep as salvo.SalvoBytes
+        val at = ep as salvo.platform.core.bytes.Bytes
         if (outbound.contains(from)) {
-            outbox.add(Staged(from = from, to = salvo.SalvoBytes(at), frame = frame))
+            outbox.add(Staged(from = from, to = at, frame = frame))
             return
         }
     }
     parked.add(Parked(from = from, to = to, frame = frame))
 }
 
-fun restage(routes: Map<Long, salvo.SalvoBytes>, outbound: Set<Long>, outbox: MutableList<Staged>, parked: MutableList<Parked>) {
+fun restage(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Long>, outbox: MutableList<Staged>, parked: MutableList<Parked>) {
     val waiting: MutableList<Parked> = mutableListOf<Parked>()
     while (parked.size > 0) {
         waiting.add(((parked).let { __l -> (0).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } } ?: throw AssertionError("salvo: value is absent at runtime.routing:577:22")))
     }
     for (p in waiting) {
-        stageIn(routes, outbound, outbox, parked, p.from, p.to, salvo.SalvoBytes(p.frame))
+        stageIn(routes, outbound, outbox, parked, p.from, p.to, p.frame)
     }
 }
 
@@ -992,7 +992,7 @@ fun remote(addr: Int): Boolean {
     return __moduleUse0.isProxy(addr)
 }
 
-fun sendRemote(addr: Int, proto: String, payload: salvo.SalvoBytes) {
+fun sendRemote(addr: Int, proto: String, payload: salvo.platform.core.bytes.Bytes) {
     val r = __moduleUse0.proxyRef(addr)
     if (r == null) {
         return
@@ -1016,7 +1016,7 @@ fun sendRemote(addr: Int, proto: String, payload: salvo.SalvoBytes) {
     }
 }
 
-fun answerRemote(t: ReplyParts, payload: salvo.SalvoBytes) {
+fun answerRemote(t: ReplyParts, payload: salvo.platform.core.bytes.Bytes) {
     val from = hereNode()
     val frame = salvo.salvoEncode(Union5.U2<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(AnswerFrame(to = t.node, kind = t.kind, id = t.id, slot = t.slot, bits = t.bits, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
     __moduleUse0.stage(from, t.node, frame)
@@ -1055,11 +1055,11 @@ fun creditBack(addr: Int, pool: Int, from: Long) {
 fun flush() {
     val out = __moduleUse0.takeOutbox()
     for (s in out) {
-        wireOutPlatform(s.from, salvo.SalvoBytes(s.to), salvo.SalvoBytes(s.frame))
+        wireOutPlatform(s.from, s.to, s.frame)
     }
 }
 
-fun route(node: Long, at: salvo.SalvoBytes) {
+fun route(node: Long, at: salvo.platform.core.bytes.Bytes) {
     __moduleUse0.addRoute(node, at)
     flush()
 }
@@ -1088,14 +1088,14 @@ fun watchControl(channel: String, sink: Int) {
     __moduleUse0.watchChannel(hereNode(), channel, sink)
 }
 
-fun sendControl(to: Long, channel: String, payload: salvo.SalvoBytes) {
+fun sendControl(to: Long, channel: String, payload: salvo.platform.core.bytes.Bytes) {
     val from = hereNode()
     val frame = salvo.salvoEncode(Union5.U5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(ControlFrame(to = to, from = from, channel = channel, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
     __moduleUse0.stage(from, to, frame)
     flush()
 }
 
-fun controlFrame(channel: String, payload: salvo.SalvoBytes): salvo.SalvoBytes {
+fun controlFrame(channel: String, payload: salvo.platform.core.bytes.Bytes): salvo.platform.core.bytes.Bytes {
     return salvo.salvoEncode(Union5.U5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(ControlFrame(to = 0L, from = hereNode(), channel = channel, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
 }
 
@@ -1122,7 +1122,7 @@ fun peerProtocol(node: Long, protocol: String): String? {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun deliver(data: salvo.SalvoBytes): Boolean {
+fun deliver(data: salvo.platform.core.bytes.Bytes): Boolean {
     val f = salvo.salvoDecode(data, salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
     if (f is Union5.U1<*, *, *, *, *>) {
         val m = f?.value as MsgFrame
@@ -1130,7 +1130,7 @@ fun deliver(data: salvo.SalvoBytes): Boolean {
             return false
         }
         val idx = (m.actor).toInt()
-        val msg = decodeMessagePlatform(idx, m.proto, salvo.SalvoBytes(m.payload))
+        val msg = decodeMessagePlatform(idx, m.proto, m.payload)
         if (msg != null) {
             val v = msg as salvo.platform.runtime.Dyn
             __moduleUse0.received(idx)
@@ -1174,7 +1174,7 @@ fun deliver(data: salvo.SalvoBytes): Boolean {
         if (sink < 0) {
             return false
         }
-        val msg = controlMessagePlatform(sink, c.from, salvo.SalvoBytes(c.payload))
+        val msg = controlMessagePlatform(sink, c.from, c.payload)
         if (msg != null) {
             val v = msg as salvo.platform.runtime.Dyn
             val queued = deliverRemote(sink, v, (-1).toLong())
@@ -1194,12 +1194,12 @@ fun deliverAnswer(a: AnswerFrame): Boolean {
         if (!__moduleUse0.accepts(a.to, a.id, a.bits)) {
             return false
         }
-        answer(tokenToActor((a.id).toInt(), a.slot), rawAnswerPlatform(salvo.SalvoBytes(a.payload)))
+        answer(tokenToActor((a.id).toInt(), a.slot), rawAnswerPlatform(a.payload))
         return true
     }
     if (a.kind == 1) {
         val wid = (a.id).toInt()
-        val v = decodeWaiterAnswerPlatform(wid, salvo.SalvoBytes(a.payload))
+        val v = decodeWaiterAnswerPlatform(wid, a.payload)
         if (v != null) {
             val value = v as salvo.platform.runtime.Dyn
             answer(tokenToWaiter(wid, a.slot), value)
@@ -1210,7 +1210,7 @@ fun deliverAnswer(a: AnswerFrame): Boolean {
     val t = __moduleUse0.takeTask(a.id)
     if (t != null) {
         val task = t as ExportedTask
-        val v = decodeTaskAnswerPlatform(a.id, salvo.SalvoBytes(a.payload))
+        val v = decodeTaskAnswerPlatform(a.id, a.payload)
         val __destructured3 = task
         val pool = __destructured3.pool
         val body = __destructured3.body

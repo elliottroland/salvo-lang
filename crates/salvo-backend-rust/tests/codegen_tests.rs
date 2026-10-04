@@ -4916,8 +4916,8 @@ fn implicit_parameters_lower_to_trailing_fn_arguments() {
         // A resolved default is passed as an adapter closure over the fn,
         // which bridges the position's convention to the callee's own: `add`
         // takes its `Int`s by value, so the adapter clones out of the
-        // borrows (free for a scalar).
-        "&mut |__i0, __i1| add((__i0).clone(), (__i1).clone())",
+        // borrows (free for a scalar). (`add__2`: core declares `add`s too.)
+        "&mut |__i0, __i1| add__2((__i0).clone(), (__i1).clone())",
         // The same bridging for an override written at the call site
         // [implicit-override].
         "&mut |__i0, __i1| times__2((__i0).clone(), (__i1).clone())",
@@ -9626,36 +9626,22 @@ fn rustc_compiles_and_runs_bytes() {
     run_rust_files(&files, "bytes", BYTES_OUTPUT);
 }
 
-/// [bytes-type] `Bytes` and `Mut Bytes` are the *same* Rust type — a
-/// `Vec<u8>`, unboxed — so a dropped `Mut` renders nothing and the buffer
-/// needs no runtime helper at all, which is the asymmetry with Kotlin's
-/// shipped class [kt-bytes].
+/// [platform-value-type] `Bytes` is a value platform type whose Rust host is
+/// `pub type Bytes = Vec<u8>` — unboxed, no class — re-exported from
+/// `core::bytes`, and its operations are the platform wrappers.
 #[test]
-fn bytes_is_a_vec_of_u8() {
+fn bytes_is_a_value_platform_type() {
     let files = generate(&[("main.sv", BYTES_PROGRAM)]);
-    let main = files
+    let core = files
         .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
-        .expect("main.rs emitted");
-    assert!(
-        main.content.contains("let mut buf = Vec::<u8>::new();"),
-        "expected a plain vector for the builder:\n{}",
-        main.content
-    );
-    // A fixed buffer is a `vec![]` of `u8`, and a `for` over one iterates the
-    // bytes natively — no pass, no boxing, nothing shipped.
-    assert!(
-        main.content.contains("for mut byte in fixed.clone()"),
-        "expected the native byte loop:\n{}",
-        main.content
-    );
-    assert!(
-        !files
-            .iter()
-            .any(|f| f.rel_path.to_string_lossy().contains("bytes.rs")
-                && f.content.contains("struct SalvoBytes")),
-        "the rust backend ships no buffer class"
-    );
+        .find(|f| f.rel_path.to_string_lossy() == "core/bytes.rs")
+        .expect("core/bytes.rs emitted");
+    assert!(core.content.contains("pub use crate::platform_core_bytes::Bytes;"), "{}", core.content);
+    let host = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "platform/core/bytes.rs")
+        .expect("std's host file for core.bytes travels with the program");
+    assert!(host.content.contains("pub type Bytes = Vec<u8>;"), "{}", host.content);
 }
 
 // ===== std's filesystem [platform-handler] [linear-group] =====

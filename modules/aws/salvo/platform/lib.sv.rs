@@ -57,6 +57,8 @@ pub mod runtime_streams;
 pub mod stream;
 #[path = "time.sv.rs"]
 pub mod time;
+#[path = "salvo/platform/core/bytes.sv.rs"]
+pub mod platform_core_bytes;
 #[path = "salvo/platform/runtime/routing.sv.rs"]
 pub mod platform_runtime_routing;
 #[path = "salvo/platform/runtime/streams.sv.rs"]

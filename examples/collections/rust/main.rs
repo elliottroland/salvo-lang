@@ -117,12 +117,12 @@ pub fn main() {
     let mut a = Point { x: 1, y: 2 };
     let mut b = Point { x: 1, y: 2 };
     let mut c = Point { x: 1, y: 9 };
-    let mut same = eq__10(&a, &b);
+    let mut same = eq__11(&a, &b);
     let mut before = cmp__5(&a, &c) < 0;
     println(&console, &(format!("4. equal {}, ordered {}", same, before)));
     let mut n1 = Note { text: "same".to_string() };
     let mut n2 = Note { text: "same".to_string() };
-    let mut notes_equal = eq__11(&n1, &n2);
+    let mut notes_equal = eq__12(&n1, &n2);
     println(&console, &(format!("4. plain struct equality {}", notes_equal)));
     let mut squares = (0..(4)).map(|i| i * i).collect::<Vec<_>>();
     println(&console, &(format!("5. generated {}", format!("[{}]", squares.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
@@ -189,7 +189,7 @@ pub fn hash__10(value: &Point) -> i64 {
     return h;
 }
 
-pub fn eq__10(a: &Point, b: &Point) -> bool {
+pub fn eq__11(a: &Point, b: &Point) -> bool {
     if !((a.x) == (b.x)) {
         return false;
     }
@@ -199,7 +199,7 @@ pub fn eq__10(a: &Point, b: &Point) -> bool {
     return true;
 }
 
-pub fn eq__11(a: &Note, b: &Note) -> bool {
+pub fn eq__12(a: &Note, b: &Note) -> bool {
     if !(&a.text[..] == &b.text[..]) {
         return false;
     }

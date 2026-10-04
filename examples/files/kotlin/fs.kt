@@ -295,31 +295,31 @@ fun writeStr(fs: Fs, streams: salvo.stream.Streams, path: String, content: Strin
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun readToBytes(fs: Fs, streams: salvo.stream.Streams, path: String): Union2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+fun readToBytes(fs: Fs, streams: salvo.stream.Streams, path: String): Union2<salvo.platform.core.bytes.Bytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     val opened = fs.openRead(path)
     if (opened is Union2.U2<*, *>) {
-        return Union2.U2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
+        return Union2.U2<salvo.platform.core.bytes.Bytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
     }
     val s: InStream = (opened.value as InStream)
-    val buf = salvo.SalvoBytes.joined()
+    val buf = mutBytes(arrayOf())
     val filling = fillFrom(streams, s, buf)
     if (filling is Union2.U2<*, *>) {
         val closed = streams.close(s)
         if (closed is Union2.U2<*, *>) {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
-        return Union2.U2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((filling.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+        return Union2.U2<salvo.platform.core.bytes.Bytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((filling.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
     val closed = streams.close(s)
     if (closed is Union2.U2<*, *>) {
-        return Union2.U2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
+        return Union2.U2<salvo.platform.core.bytes.Bytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
-    val done: salvo.SalvoBytes = buf
-    return Union2.U1<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(done))
+    val done: salvo.platform.core.bytes.Bytes = buf
+    return Union2.U1<salvo.platform.core.bytes.Bytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(done))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun writeBytesTo(fs: Fs, streams: salvo.stream.Streams, path: String, data: salvo.SalvoBytes): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+fun writeBytesTo(fs: Fs, streams: salvo.stream.Streams, path: String, data: salvo.platform.core.bytes.Bytes): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     val opened = fs.openWrite(path)
     if (opened is Union2.U2<*, *>) {
         return Union2.U2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
@@ -429,12 +429,12 @@ fun writeStr__2(fs: Fs, streams: salvo.stream.Streams, p: Path, content: String)
     return writeStr(fs, streams, toStr__4(p), content)
 }
 
-fun readToBytes__2(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<salvo.SalvoBytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+fun readToBytes__2(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<salvo.platform.core.bytes.Bytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     return readToBytes(fs, streams, toStr__4(p))
 }
 
-fun writeBytesTo__2(fs: Fs, streams: salvo.stream.Streams, p: Path, data: salvo.SalvoBytes): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return writeBytesTo(fs, streams, toStr__4(p), salvo.SalvoBytes(data))
+fun writeBytesTo__2(fs: Fs, streams: salvo.stream.Streams, p: Path, data: salvo.platform.core.bytes.Bytes): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    return writeBytesTo(fs, streams, toStr__4(p), data)
 }
 
 fun renamePath(fs: Fs, streams: salvo.stream.Streams, from: Path, to: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {

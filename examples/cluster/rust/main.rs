@@ -51,6 +51,8 @@ pub mod runtime_routing;
 pub mod runtime_timers;
 #[path = "time.rs"]
 pub mod time;
+#[path = "platform/core/bytes.rs"]
+pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
 #[path = "platform/net.rs"]
@@ -1826,7 +1828,7 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(seq, crate::net::__Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<usize>>().expect("the awaited answer")
     }.len() as i32))));
-    println(&console, &(format!("singleton (b's sequencer is remote: {}):", !eq__2(&(NodeId { id: crate::scheduler::salvo_addr_identity((remote_seq).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })))));
+    println(&console, &(format!("singleton (b's sequencer is remote: {}):", !eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((remote_seq).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })))));
     let leader = crate::net::Leader::shared(LastHost::new(nodes.clone(), a.clone()));
     two_ids(&leader, &console, seq.clone());
     println(&console, &("sharded:".to_string()));

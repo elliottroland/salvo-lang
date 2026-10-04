@@ -18,7 +18,7 @@ private val __moduleUse0: StreamTable by lazy {
 }
 
 data class HostRead(
-    val data: salvo.SalvoBytes,
+    val data: salvo.platform.core.bytes.Bytes,
     val error: String?,
 )
 
@@ -38,7 +38,7 @@ fun hostCloseInPlatform(h: salvo.platform.runtime.streams.HostIn) {
     return salvo.platform.runtime.streams.hostCloseIn(h)
 }
 
-fun hostWritePlatform(h: salvo.platform.runtime.streams.HostOut, data: salvo.SalvoBytes): String? {
+fun hostWritePlatform(h: salvo.platform.runtime.streams.HostOut, data: salvo.platform.core.bytes.Bytes): String? {
     return salvo.platform.runtime.streams.hostWrite(h, data)
 }
 
@@ -50,7 +50,7 @@ fun hostCloseOutPlatform(h: salvo.platform.runtime.streams.HostOut): String? {
     return salvo.platform.runtime.streams.hostCloseOut(h)
 }
 
-fun hostBytesInPlatform(data: salvo.SalvoBytes): salvo.platform.runtime.streams.HostIn {
+fun hostBytesInPlatform(data: salvo.platform.core.bytes.Bytes): salvo.platform.runtime.streams.HostIn {
     return salvo.platform.runtime.streams.hostBytesIn(data)
 }
 
@@ -75,7 +75,7 @@ data class InEntry(
     var source: String,
     var host: salvo.platform.runtime.streams.HostIn,
     var position: Long,
-    var ahead: salvo.SalvoBytes,
+    var ahead: salvo.platform.core.bytes.MutBytes,
     var failed: Fault?,
 )
 
@@ -138,7 +138,7 @@ fun dropPending(p: Pending) {
     val __destructured3 = p
     val handle = __destructured3.handle
     val done = __destructured3.done
-    salvo.SalvoSched.replyWire(done, Chunk(data = salvo.SalvoBytes.of(arrayOf<UByte>()), end = true, fault = null, source = ""), __Codec_Chunk)
+    salvo.SalvoSched.replyWire(done, Chunk(data = bytesOf(arrayOf()), end = true, fault = null, source = ""), __Codec_Chunk)
 }
 
 interface StreamTable {
@@ -300,7 +300,7 @@ fun freshHandle(): Long {
 
 fun registerIn(source: String, host: salvo.platform.runtime.streams.HostIn, position: Long): Long {
     val handle = freshHandle()
-    __moduleUse0.putIn(handle, InEntry(source = source, host = host, position = position, ahead = salvo.SalvoBytes.joined(), failed = null))
+    __moduleUse0.putIn(handle, InEntry(source = source, host = host, position = position, ahead = mutBytes(arrayOf()), failed = null))
     return handle
 }
 
@@ -310,7 +310,7 @@ fun registerOut(source: String, host: salvo.platform.runtime.streams.HostOut, po
     return handle
 }
 
-fun registerBytes(data: salvo.SalvoBytes): Long {
+fun registerBytes(data: salvo.platform.core.bytes.Bytes): Long {
     return registerIn("<bytes>", hostBytesInPlatform(data), 0L)
 }
 
@@ -397,17 +397,17 @@ fun record(e: InEntry, message: String): Fault {
     return f
 }
 
-fun takeAhead(e: InEntry, n: Int): salvo.SalvoBytes {
-    val all = e.ahead.size
-    val front = (e.ahead.slice(0, n) ?: salvo.SalvoBytes.of(arrayOf<UByte>()))
-    val rest = (e.ahead.slice(n, all) ?: salvo.SalvoBytes.of(arrayOf<UByte>()))
-    e.ahead = salvo.SalvoBytes.joined(rest)
+fun takeAhead(e: InEntry, n: Int): salvo.platform.core.bytes.Bytes {
+    val all = sizePlatform(e.ahead)
+    val front = (slicePlatform(e.ahead, 0, n) ?: bytesOf(arrayOf()))
+    val rest = (slicePlatform(e.ahead, n, all) ?: bytesOf(arrayOf()))
+    e.ahead = mutBytes(arrayOf(rest))
     e.position = e.position + (n).toLong()
     return front
 }
 
 data class Read(
-    val data: salvo.SalvoBytes,
+    val data: salvo.platform.core.bytes.Bytes,
     val end: Boolean,
     val fault: Fault?,
 )
@@ -425,32 +425,32 @@ object __Codec_Read : salvo.WireCodec<Read> {
 fun readLine(e: InEntry): Read {
     if (e.failed != null) {
         val f = e.failed as Fault
-        return Read(data = salvo.SalvoBytes.of(arrayOf<UByte>()), end = true, fault = f)
+        return Read(data = bytesOf(arrayOf()), end = true, fault = f)
     }
     while (true) {
-        val at = e.ahead.indexOf((10).toUByte())
+        val at = indexOfPlatform(e.ahead, (10).toUByte())
         if (at != null) {
             val i = at as Int
             val line = takeAhead(e, i + 1)
-            var n = line.size - 1
-            if (n > 0 && ((line.getOrNull(n - 1) ?: throw AssertionError("salvo: value is absent at runtime.streams:362:32"))).toInt() == 13) {
+            var n = sizePlatform(line) - 1
+            if (n > 0 && ((getPlatform(line, n - 1) ?: throw AssertionError("salvo: value is absent at runtime.streams:362:32"))).toInt() == 13) {
                 n = n - 1
             }
-            return Read(data = (line.slice(0, n) ?: salvo.SalvoBytes.of(arrayOf<UByte>())), end = false, fault = null)
+            return Read(data = (slicePlatform(line, 0, n) ?: bytesOf(arrayOf())), end = false, fault = null)
         }
         val got = hostReadPlatform(e.host, 8192)
         if (got.error != null) {
             val message = got.error as String
-            return Read(data = salvo.SalvoBytes.of(arrayOf<UByte>()), end = true, fault = record(e, message))
+            return Read(data = bytesOf(arrayOf()), end = true, fault = record(e, message))
         }
-        if (got.data.size == 0) {
-            if (e.ahead.size == 0) {
-                return Read(data = salvo.SalvoBytes.of(arrayOf<UByte>()), end = true, fault = null)
+        if (sizePlatform(got.data) == 0) {
+            if (sizePlatform(e.ahead) == 0) {
+                return Read(data = bytesOf(arrayOf()), end = true, fault = null)
             }
-            val rest = takeAhead(e, e.ahead.size)
+            val rest = takeAhead(e, sizePlatform(e.ahead))
             return Read(data = rest, end = false, fault = null)
         }
-        e.ahead.append(got.data)
+        appendPlatform(e.ahead, got.data)
     }
     return readLine(e)
 }
@@ -459,20 +459,20 @@ fun readLine(e: InEntry): Read {
 fun readAll(e: InEntry): Read {
     if (e.failed != null) {
         val f = e.failed as Fault
-        return Read(data = salvo.SalvoBytes.of(arrayOf<UByte>()), end = true, fault = f)
+        return Read(data = bytesOf(arrayOf()), end = true, fault = f)
     }
-    val out = salvo.SalvoBytes.joined(takeAhead(e, e.ahead.size))
+    val out = mutBytes(arrayOf(takeAhead(e, sizePlatform(e.ahead))))
     while (true) {
         val got = hostReadPlatform(e.host, 65536)
         if (got.error != null) {
             val message = got.error as String
-            return Read(data = salvo.SalvoBytes.of(arrayOf<UByte>()), end = true, fault = record(e, message))
+            return Read(data = bytesOf(arrayOf()), end = true, fault = record(e, message))
         }
-        if (got.data.size == 0) {
-            return Read(data = salvo.SalvoBytes(out), end = true, fault = null)
+        if (sizePlatform(got.data) == 0) {
+            return Read(data = salvo.platform.core.bytes.copy(out), end = true, fault = null)
         }
-        e.position = e.position + (got.data.size).toLong()
-        out.append(got.data)
+        e.position = e.position + (sizePlatform(got.data)).toLong()
+        appendPlatform(out, got.data)
     }
     return readAll(e)
 }
@@ -481,29 +481,29 @@ fun readAll(e: InEntry): Read {
 fun readUpTo(e: InEntry, max: Int): Read {
     if (e.failed != null) {
         val f = e.failed as Fault
-        return Read(data = salvo.SalvoBytes.of(arrayOf<UByte>()), end = true, fault = f)
+        return Read(data = bytesOf(arrayOf()), end = true, fault = f)
     }
     if (max <= 0) {
-        return Read(data = salvo.SalvoBytes.of(arrayOf<UByte>()), end = false, fault = null)
+        return Read(data = bytesOf(arrayOf()), end = false, fault = null)
     }
-    if (e.ahead.size > 0) {
+    if (sizePlatform(e.ahead) > 0) {
         var n = max
-        if (e.ahead.size < n) {
-            n = e.ahead.size
+        if (sizePlatform(e.ahead) < n) {
+            n = sizePlatform(e.ahead)
         }
         return Read(data = takeAhead(e, n), end = false, fault = null)
     }
     val got = hostReadPlatform(e.host, max)
     if (got.error != null) {
         val message = got.error as String
-        return Read(data = salvo.SalvoBytes.of(arrayOf<UByte>()), end = true, fault = record(e, message))
+        return Read(data = bytesOf(arrayOf()), end = true, fault = record(e, message))
     }
-    e.position = e.position + (got.data.size).toLong()
-    return Read(data = salvo.SalvoBytes(got.data), end = got.data.size == 0, fault = null)
+    e.position = e.position + (sizePlatform(got.data)).toLong()
+    return Read(data = got.data, end = sizePlatform(got.data) == 0, fault = null)
 }
 
-fun decode(e: InEntry, data: salvo.SalvoBytes): String? {
-    val text = data.asString()
+fun decode(e: InEntry, data: salvo.platform.core.bytes.Bytes): String? {
+    val text = strOfBytesPlatform(data)
     if (text == null) {
         e.failed = Fault(utf8 = true, message = "")
     }
@@ -515,7 +515,7 @@ fun recordOut(e: OutEntry, message: String) {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun write(e: OutEntry, data: salvo.SalvoBytes): Long {
+fun write(e: OutEntry, data: salvo.platform.core.bytes.Bytes): Long {
     if (e.failed != null) {
         val earlier = e.failed as Fault
         return 0L
@@ -526,8 +526,8 @@ fun write(e: OutEntry, data: salvo.SalvoBytes): Long {
         recordOut(e, message)
         return 0L
     }
-    e.position = e.position + (data.size).toLong()
-    return (data.size).toLong()
+    e.position = e.position + (sizePlatform(data)).toLong()
+    return (sizePlatform(data)).toLong()
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -543,7 +543,7 @@ fun flush__2(e: OutEntry): Fault? {
 }
 
 data class Chunk(
-    val data: salvo.SalvoBytes,
+    val data: salvo.platform.core.bytes.Bytes,
     val end: Boolean,
     val fault: Fault?,
     val source: String,

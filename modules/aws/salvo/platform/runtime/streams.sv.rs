@@ -34,7 +34,7 @@ const _: fn() = || { fn __contract<T: Send + 'static>() {} __contract::<HostOut>
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct HostRead {
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub error: Option<String>,
 }
 
@@ -59,7 +59,7 @@ pub fn host_close_in_platform(mut h: HostIn) {
     crate::platform_runtime_streams::host_close_in(h)
 }
 
-pub fn host_write_platform(h: &mut HostOut, data: &Vec<u8>) -> Option<String> {
+pub fn host_write_platform(h: &mut HostOut, data: &Bytes) -> Option<String> {
     crate::platform_runtime_streams::host_write(h, data)
 }
 
@@ -71,7 +71,7 @@ pub fn host_close_out_platform(mut h: HostOut) -> Option<String> {
     crate::platform_runtime_streams::host_close_out(h)
 }
 
-pub fn host_bytes_in_platform(data: Vec<u8>) -> HostIn {
+pub fn host_bytes_in_platform(data: Bytes) -> HostIn {
     crate::platform_runtime_streams::host_bytes_in(data)
 }
 
@@ -103,7 +103,7 @@ pub struct InEntry {
     pub source: String,
     pub host: HostIn,
     pub position: i64,
-    pub ahead: Vec<u8>,
+    pub ahead: Bytes,
     pub failed: Option<Fault>,
 }
 
@@ -215,7 +215,7 @@ pub fn drop_pending(p: Pending) {
     let __destructured3 = p;
     let mut handle = __destructured3.handle;
     let mut done = __destructured3.done;
-    crate::scheduler::salvo_reply_wire::<Chunk>(done, Chunk { data: vec![], end: true, fault: None, source: "".to_string() });
+    crate::scheduler::salvo_reply_wire::<Chunk>(done, Chunk { data: bytes_of(vec![]), end: true, fault: None, source: "".to_string() });
 }
 
 pub trait __Stateless_StreamTable: Send + Sync {
@@ -441,7 +441,7 @@ pub fn fresh_handle() -> i64 {
 
 pub fn register_in(source: String, mut host: HostIn, position: i64) -> i64 {
     let mut handle = fresh_handle();
-    __module_use_0().put_in(handle.clone(), InEntry { source: source, host: host, position: position, ahead: Vec::<u8>::new(), failed: None });
+    __module_use_0().put_in(handle.clone(), InEntry { source: source, host: host, position: position, ahead: mut_bytes(vec![]), failed: None });
     return handle;
 }
 
@@ -451,7 +451,7 @@ pub fn register_out(source: String, mut host: HostOut, position: i64) -> i64 {
     return handle;
 }
 
-pub fn register_bytes(data: Vec<u8>) -> i64 {
+pub fn register_bytes(data: Bytes) -> i64 {
     return register_in("<bytes>".to_string(), host_bytes_in_platform(data), 0i64);
 }
 
@@ -535,18 +535,18 @@ pub fn record(e: &mut InEntry, message: String) -> Fault {
     return f;
 }
 
-pub fn take_ahead(e: &mut InEntry, n: i32) -> Vec<u8> {
-    let mut all = (e.ahead.len() as i32);
-    let mut front = { let __pick1 = { let __d = &e.ahead; let __i = 0; let __j = n.clone(); if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }; if __pick1.is_some() { __pick1.as_ref().unwrap().clone() } else { vec![] } };
-    let mut rest = { let __pick2 = { let __d = &e.ahead; let __i = n.clone(); let __j = all; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }; if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { vec![] } };
-    e.ahead = [rest.clone()].iter().flat_map(|__p| __p.iter().copied()).collect::<Vec<u8>>();
+pub fn take_ahead(e: &mut InEntry, n: i32) -> Bytes {
+    let mut all = size_platform(&e.ahead);
+    let mut front = { let __pick1 = slice_platform(&e.ahead, 0, n.clone()); if __pick1.is_some() { __pick1.as_ref().unwrap().clone() } else { bytes_of(vec![]) } };
+    let mut rest = { let __pick2 = slice_platform(&e.ahead, n.clone(), all); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { bytes_of(vec![]) } };
+    e.ahead = mut_bytes(vec![rest.clone()]);
     e.position = e.position + ((n) as i64);
     return front;
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Read {
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub end: bool,
     pub fault: Option<Fault>,
 }
@@ -569,32 +569,32 @@ impl crate::wire::__Wire for Read {
 pub fn read_line(e: &mut InEntry) -> Read {
     if e.failed.is_some() {
         let mut f = e.failed.as_ref().unwrap().clone();
-        return Read { data: vec![], end: true, fault: Some(f.clone()) };
+        return Read { data: bytes_of(vec![]), end: true, fault: Some(f.clone()) };
     }
     loop {
-        let mut at = e.ahead.iter().position(|__x| *__x == (((10) as i32) as u8)).map(|__i| __i as i32);
+        let mut at = index_of_platform(&e.ahead, (((10) as i32) as u8));
         if at.is_some() {
             let mut i = at.unwrap();
             let mut line = take_ahead(e, i + 1);
-            let mut n = (line.len() as i32) - 1;
-            if n > 0 && ((line.get((n - 1) as i64 as usize).copied().expect("salvo: value is absent at runtime.streams:362:32")) as i32) == 13 {
+            let mut n = size_platform(&line) - 1;
+            if n > 0 && ((get_platform(&line, n - 1).expect("salvo: value is absent at runtime.streams:362:32")) as i32) == 13 {
                 n = n - 1;
             }
-            return Read { data: { let __pick3 = { let __d = &line; let __i = 0; let __j = n; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }; if __pick3.is_some() { __pick3.as_ref().unwrap().clone() } else { vec![] } }, end: false, fault: None };
+            return Read { data: { let __pick3 = slice_platform(&line, 0, n); if __pick3.is_some() { __pick3.as_ref().unwrap().clone() } else { bytes_of(vec![]) } }, end: false, fault: None };
         }
         let mut got = host_read_platform(&mut e.host, 8192);
         if got.error.is_some() {
             let mut message = got.error.as_ref().unwrap().clone();
-            return Read { data: vec![], end: true, fault: Some(record(e, message.clone())) };
+            return Read { data: bytes_of(vec![]), end: true, fault: Some(record(e, message.clone())) };
         }
-        if ((got.data.len() as i32) == 0) {
-            if ((e.ahead.len() as i32) == 0) {
-                return Read { data: vec![], end: true, fault: None };
+        if size_platform(&got.data) == 0 {
+            if size_platform(&e.ahead) == 0 {
+                return Read { data: bytes_of(vec![]), end: true, fault: None };
             }
-            let mut rest = take_ahead(e, (e.ahead.len() as i32));
+            let mut rest = take_ahead(e, size_platform(&e.ahead));
             return Read { data: rest, end: false, fault: None };
         }
-        e.ahead.extend_from_slice(&got.data[..]);
+        append_platform(&mut e.ahead, &got.data);
     }
     return read_line(e);
 }
@@ -602,20 +602,20 @@ pub fn read_line(e: &mut InEntry) -> Read {
 pub fn read_all(e: &mut InEntry) -> Read {
     if e.failed.is_some() {
         let mut f = e.failed.as_ref().unwrap().clone();
-        return Read { data: vec![], end: true, fault: Some(f.clone()) };
+        return Read { data: bytes_of(vec![]), end: true, fault: Some(f.clone()) };
     }
-    let mut out = [take_ahead(e, (e.ahead.len() as i32))].iter().flat_map(|__p| __p.iter().copied()).collect::<Vec<u8>>();
+    let mut out = mut_bytes(vec![take_ahead(e, size_platform(&e.ahead))]);
     loop {
         let mut got = host_read_platform(&mut e.host, 65536);
         if got.error.is_some() {
             let mut message = got.error.as_ref().unwrap().clone();
-            return Read { data: vec![], end: true, fault: Some(record(e, message.clone())) };
+            return Read { data: bytes_of(vec![]), end: true, fault: Some(record(e, message.clone())) };
         }
-        if ((got.data.len() as i32) == 0) {
+        if size_platform(&got.data) == 0 {
             return Read { data: out.clone(), end: true, fault: None };
         }
-        e.position = e.position + (((got.data.len() as i32)) as i64);
-        out.extend_from_slice(&got.data[..]);
+        e.position = e.position + ((size_platform(&got.data)) as i64);
+        append_platform(&mut out, &got.data);
     }
     return read_all(e);
 }
@@ -623,29 +623,29 @@ pub fn read_all(e: &mut InEntry) -> Read {
 pub fn read_up_to(e: &mut InEntry, max: i32) -> Read {
     if e.failed.is_some() {
         let mut f = e.failed.as_ref().unwrap().clone();
-        return Read { data: vec![], end: true, fault: Some(f.clone()) };
+        return Read { data: bytes_of(vec![]), end: true, fault: Some(f.clone()) };
     }
     if max <= 0 {
-        return Read { data: vec![], end: false, fault: None };
+        return Read { data: bytes_of(vec![]), end: false, fault: None };
     }
-    if ((e.ahead.len() as i32) > 0) {
+    if size_platform(&e.ahead) > 0 {
         let mut n = max.clone();
-        if ((e.ahead.len() as i32) < n) {
-            n = (e.ahead.len() as i32);
+        if size_platform(&e.ahead) < n {
+            n = size_platform(&e.ahead);
         }
         return Read { data: take_ahead(e, n), end: false, fault: None };
     }
     let mut got = host_read_platform(&mut e.host, max);
     if got.error.is_some() {
         let mut message = got.error.as_ref().unwrap().clone();
-        return Read { data: vec![], end: true, fault: Some(record(e, message.clone())) };
+        return Read { data: bytes_of(vec![]), end: true, fault: Some(record(e, message.clone())) };
     }
-    e.position = e.position + (((got.data.len() as i32)) as i64);
-    return Read { data: got.data.clone(), end: (got.data.len() as i32) == 0, fault: None };
+    e.position = e.position + ((size_platform(&got.data)) as i64);
+    return Read { data: got.data.clone(), end: size_platform(&got.data) == 0, fault: None };
 }
 
-pub fn decode(e: &mut InEntry, data: &Vec<u8>) -> Option<String> {
-    let mut text = String::from_utf8(data.clone()).ok();
+pub fn decode(e: &mut InEntry, data: &Bytes) -> Option<String> {
+    let mut text = str_of_bytes_platform(data);
     if text.is_none() {
         e.failed = Some(Fault { utf8: true, message: "".to_string() });
     }
@@ -656,7 +656,7 @@ pub fn record_out(e: &mut OutEntry, message: String) {
     e.failed = Some(Fault { utf8: false, message: message });
 }
 
-pub fn write(e: &mut OutEntry, data: &Vec<u8>) -> i64 {
+pub fn write(e: &mut OutEntry, data: &Bytes) -> i64 {
     if e.failed.is_some() {
         let mut earlier = e.failed.as_ref().unwrap().clone();
         return 0i64;
@@ -667,8 +667,8 @@ pub fn write(e: &mut OutEntry, data: &Vec<u8>) -> i64 {
         record_out(e, message.clone());
         return 0i64;
     }
-    e.position = e.position + (((data.len() as i32)) as i64);
-    return (((data.len() as i32)) as i64);
+    e.position = e.position + ((size_platform(data)) as i64);
+    return ((size_platform(data)) as i64);
 }
 
 pub fn flush__2(e: &mut OutEntry) -> Option<Fault> {
@@ -684,7 +684,7 @@ pub fn flush__2(e: &mut OutEntry) -> Option<Fault> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Chunk {
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub end: bool,
     pub fault: Option<Fault>,
     pub source: String,

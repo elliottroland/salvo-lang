@@ -108,7 +108,6 @@ pub fn fn_call(
         }
         // [fn-attached] [kt-bytes] A buffer compares **structurally**: the
         // runtime class overrides `equals`/`hashCode` for exactly this.
-        ("eq", Some("Bytes")) => format!("(({}) == ({}))", a(0), a(1)),
         ("eq", Some("Addr")) => format!(
             "(salvo.SalvoSched.addrIdentity({}) == salvo.SalvoSched.addrIdentity({}))",
             a(0),
@@ -614,30 +613,8 @@ pub fn fn_call(
         ),
         ("clear", Some("Str")) => format!("{}.clear()", a(0)),
 
-        // core.bytes -----------------------------------------------------
-        // [kt-bytes] [bytes-type] Every call goes to the shipped buffer
-        // class, which is `Bytes` and `Mut Bytes` both — so a dropped `Mut`
-        // renders nothing and no conversion happens anywhere here.
-        ("bytes_of", Some("[]")) => {
-            format!("salvo.SalvoBytes.of(arrayOf<UByte>({}))", args.join(", "))
-        }
-        // `joined()` with no parts is the empty buffer, so one lowering
-        // serves `mut_bytes()` and `mut_bytes(a, b)` alike.
-        ("mut_bytes", Some("[]")) => format!("salvo.SalvoBytes.joined({})", args.join(", ")),
-        ("to_bytes", Some("Str")) => format!("salvo.SalvoBytes.ofUtf8({})", a(0)),
-        ("str_of_bytes", Some("Bytes")) => format!("{}.asString()", a(0)),
-        ("size", Some("Bytes")) => format!("{}.size", a(0)),
-        ("get", Some("Bytes")) => format!("{}.getOrNull({})", a(0), a(1)),
-        ("slice", Some("Bytes")) => format!("{}.slice({}, {})", a(0), a(1), a(2)),
-        ("index_of", Some("Bytes")) => format!("{}.indexOf({})", a(0), a(1)),
-        ("add", Some("Bytes")) => format!("{}.add({})", a(0), a(1)),
-        ("append", Some("Bytes")) => format!("{}.append({})", a(0), a(1)),
-        // `setAt`, not `set`: the class is Kotlin's, and `set` there is the
-        // indexing operator, which would take an `Int` receiver position.
-        ("set", Some("Bytes")) => format!("{}.setAt({}, {})", a(0), a(1), a(2)),
-        ("clear", Some("Bytes")) => format!("{}.clear()", a(0)),
-        ("to_str", Some("Bytes")) => format!("{}.toString()", a(0)),
-        ("to_hex", Some("Bytes")) => format!("{}.toHex()", a(0)),
+        // core.bytes is platform code since 2026-10-04 [platform-value-type]:
+        // `std/platform/core/bytes.{rs,kt}`.
 
         _ => return None,
     })
@@ -666,11 +643,6 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "Addr" => "Int",
         "Pool" => "Int",
         "Reply" => "salvo.SalvoReply",
-        // [kt-bytes] [bytes-type] One class for `Bytes` and `Mut Bytes`, in
-        // the root `salvo` package so no emitted file needs an import — see
-        // `runtime/bytes.kt` for why neither `List<UByte>` nor `UByteArray`
-        // could do the job.
-        "Bytes" => "salvo.SalvoBytes",
         "None" => "Unit",
         "Any" => "Any",
         "Never" => "Nothing",

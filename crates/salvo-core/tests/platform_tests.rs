@@ -347,7 +347,7 @@ fn platform_types_are_opaque_handles_in_three_kinds() {
     let errors = |src: &str| -> Vec<String> {
         check_errors(src).iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect()
     };
-    let ok = "platform type Client\nthreadsafe platform type Parker\nlinear platform type Cursor canbe Mut\n\n\
+    let ok = "platform type Client\nthreadsafe platform type Parker\nlinear platform type Cursor canbe Mut\nplatform type Buffer canbe Mut\n\n\
               platform fn connect() [] -> Client\nplatform fn ping(c: Client) [] -> Int => c\n\
               platform fn open() [] -> Mut Cursor\nplatform fn step(c: Mut Cursor) [] -> Int => c: Mut\n\
               platform fn close(c: Cursor) [] -> None => !c\n\n\
@@ -356,8 +356,9 @@ fn platform_types_are_opaque_handles_in_three_kinds() {
     assert!(errs.is_empty(), "{errs:?}");
 
     let refused = [
-        ("platform type Client canbe Mut\n", "only when it is `linear`"),
-        ("threadsafe platform type Client canbe Mut\n", "only when it is `linear`"),
+        // [platform-value-type] A copyable `canbe Mut` one is a value type
+        // (`platform type Bytes canbe Mut`), which cannot be shared.
+        ("threadsafe platform type Client canbe Mut\n", "cannot be both `threadsafe` and `canbe Mut`"),
         ("platform type Client : Hashed<self> by auto\n", "cannot take an obligation clause"),
     ];
     for (src, want) in refused {

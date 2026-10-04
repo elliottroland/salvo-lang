@@ -9,20 +9,93 @@ import salvo.core.deque.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
+import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
-fun iter__2(data: salvo.SalvoBytes): BytesYield {
+fun bytesOf(elems: Array<UByte>): salvo.platform.core.bytes.Bytes {
+    val out = emptyBytesPlatform()
+    for (b in elems) {
+        addPlatform(out, b)
+    }
+    return out
+}
+
+fun mutBytes(parts: Array<salvo.platform.core.bytes.Bytes>): salvo.platform.core.bytes.MutBytes {
+    val out = emptyBytesPlatform()
+    for (part in parts) {
+        appendPlatform(out, part)
+    }
+    return out
+}
+
+fun emptyBytesPlatform(): salvo.platform.core.bytes.MutBytes {
+    return salvo.platform.core.bytes.emptyBytes()
+}
+
+fun toBytesPlatform(str: String): salvo.platform.core.bytes.Bytes {
+    return salvo.platform.core.bytes.toBytes(str)
+}
+
+fun strOfBytesPlatform(data: salvo.platform.core.bytes.Bytes): String? {
+    return salvo.platform.core.bytes.strOfBytes(data)
+}
+
+fun eqPlatform(a: salvo.platform.core.bytes.Bytes, b: salvo.platform.core.bytes.Bytes): Boolean {
+    return salvo.platform.core.bytes.eq(a, b)
+}
+
+fun sizePlatform(data: salvo.platform.core.bytes.Bytes): Int {
+    return salvo.platform.core.bytes.size(data)
+}
+
+fun getPlatform(data: salvo.platform.core.bytes.Bytes, index: Int): UByte? {
+    return salvo.platform.core.bytes.get(data, index)
+}
+
+fun slicePlatform(data: salvo.platform.core.bytes.Bytes, start: Int, end: Int): salvo.platform.core.bytes.Bytes? {
+    return salvo.platform.core.bytes.slice(data, start, end)
+}
+
+fun indexOfPlatform(data: salvo.platform.core.bytes.Bytes, byte: UByte): Int? {
+    return salvo.platform.core.bytes.indexOf(data, byte)
+}
+
+fun addPlatform(data: salvo.platform.core.bytes.MutBytes, byte: UByte) {
+    return salvo.platform.core.bytes.add(data, byte)
+}
+
+fun appendPlatform(data: salvo.platform.core.bytes.MutBytes, more: salvo.platform.core.bytes.Bytes) {
+    return salvo.platform.core.bytes.append(data, more)
+}
+
+fun setPlatform(data: salvo.platform.core.bytes.MutBytes, index: Int, byte: UByte): Boolean {
+    return salvo.platform.core.bytes.set(data, index, byte)
+}
+
+fun clearPlatform(data: salvo.platform.core.bytes.MutBytes) {
+    return salvo.platform.core.bytes.clear(data)
+}
+
+fun toStrPlatform(data: salvo.platform.core.bytes.Bytes): String {
+    return salvo.platform.core.bytes.toStr(data)
+}
+
+fun toHexPlatform(data: salvo.platform.core.bytes.Bytes): String {
+    return salvo.platform.core.bytes.toHex(data)
+}
+
+fun iter__2(data: salvo.platform.core.bytes.Bytes): BytesYield {
     return BytesYield(data = data, at = 0)
 }
 
 data class BytesYield(
-    var data: salvo.SalvoBytes,
+    var data: salvo.platform.core.bytes.Bytes,
     var at: Int,
 )
 
 fun next__2(p: BytesYield): Union2<UByte, Finished> {
-    val b = p.data.getOrNull(p.at)
+    val b = getPlatform(p.data, p.at)
     if (b == null) {
         return Union2.U2<UByte, Finished>(finished())
     }

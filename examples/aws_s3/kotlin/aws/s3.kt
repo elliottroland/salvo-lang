@@ -309,7 +309,7 @@ class FakeS3(private val __dep_salvo_stream_Streams: salvo.stream.Streams) : S3,
 
     override fun getObject(input: GetObjectInput, reply: salvo.SalvoReply) {
         recorded.add("get_object")
-        reply.send(Union2.U1<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(GetObjectOutput(body = __dep_salvo_stream_Streams.fromBytes(salvo.SalvoBytes.of(arrayOf<UByte>()))))))
+        reply.send(Union2.U1<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(GetObjectOutput(body = __dep_salvo_stream_Streams.fromBytes(bytesOf(arrayOf()))))))
     }
 
     override fun calls(): List<String> {

@@ -68,9 +68,9 @@ data class SendMessageInput(
 
 data class MessageAttributeValue(
     val stringValue: String? = null,
-    val binaryValue: salvo.SalvoBytes? = null,
+    val binaryValue: salvo.platform.core.bytes.Bytes? = null,
     val stringListValues: List<String>? = null,
-    val binaryListValues: List<salvo.SalvoBytes>? = null,
+    val binaryListValues: List<salvo.platform.core.bytes.Bytes>? = null,
     val dataType: String,
 )
 
@@ -87,9 +87,9 @@ object __Codec_MessageAttributeValue : salvo.WireCodec<MessageAttributeValue> {
 
 data class MessageSystemAttributeValue(
     val stringValue: String? = null,
-    val binaryValue: salvo.SalvoBytes? = null,
+    val binaryValue: salvo.platform.core.bytes.Bytes? = null,
     val stringListValues: List<String>? = null,
-    val binaryListValues: List<salvo.SalvoBytes>? = null,
+    val binaryListValues: List<salvo.platform.core.bytes.Bytes>? = null,
     val dataType: String,
 )
 

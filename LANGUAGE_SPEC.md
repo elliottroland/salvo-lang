@@ -44,7 +44,12 @@ Conventions:
   * The text bridge is `to_bytes(str) -> Bytes` (UTF-8) and
     `str_of_bytes(data) -> Str?` (strict UTF-8: invalid bytes are `None`,
     never a replacement character) [bytes-type].
-* [bytes-type] **`Bytes` is std's byte buffer** (`core.bytes`, user decision
+* [bytes-type] (Since 2026-10-04 a value platform type
+  [platform-value-type]: `std/platform/core/bytes.{rs,kt}` implements it,
+  Rust as `Vec<u8>`, Kotlin as the shipped `salvo.SalvoBytes`; `bytes_of` and
+  `mut_bytes` are Salvo over `empty_bytes`, and a `for` over a buffer goes
+  through its `BytesYield` pass — the native loop each backend had is gone.)
+  **`Bytes` is std's byte buffer** (`core.bytes`, user decision
   2026-09-15), and the payload type of every byte-shaped API — *not*
   `List<Byte>`, which boxed every octet on the JVM and carried a list's
   surface rather than a buffer's.
@@ -8517,9 +8522,19 @@ replaced the working document TESTING.md).
     at once (Rust adds `Sync`); **`linear platform type`** — exactly-once,
     never copied, owed until a platform fn consuming it (`=> !c`), and the
     only kind that may be `canbe Mut`, so a `Mut Cursor` parameter is
-    `&mut Cursor` on Rust. `canbe Mut` on a copyable one is refused (a copy
-    shares the object, so `Mut` could not mean exclusive access), as is
-    `threadsafe linear`.
+    `&mut Cursor` on Rust. `threadsafe linear` is refused.
+  * [platform-value-type] **A copyable `platform type … canbe Mut` is a
+    value type** (user decisions 2026-10-04, ROADMAP 0.7, convention (c)):
+    a copy is the host's own deep copy, never a shared object, so `Mut`
+    means what it means for a struct; `threadsafe` refuses it. The host
+    names the mutable kind **`Mut<Name>`** beside `Name` (Kotlin renders `Mut
+    Bytes` as `…MutBytes`; Rust may alias one type for both, passing `Mut` as
+    `&mut`), and Kotlin's host package provides `copy(x: Name)`, which
+    generated code calls wherever Salvo copies one. Rust asserts `Clone`
+    (deep), `Debug`, `PartialEq`, `Eq` and `Hash`, so a struct holding one
+    still derives. A value type keeps its canonical wire form where the
+    encoding defines one [wire-format] (`Bytes`); otherwise it is `noremote`.
+    `Bytes` is the first; the other collections follow.
   * **Always `noremote`** [noremote] — a host object has no wire form, and
     the wire predicate says so for a struct holding one — and
     sendable [actor-sendable] (Rust: `Send + 'static`), so a handle may sit

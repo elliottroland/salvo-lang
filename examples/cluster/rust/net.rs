@@ -35,7 +35,7 @@ impl crate::wire::__Wire for NodeEndpoint {
     }
 }
 
-pub fn to_str__2(e: &NodeEndpoint) -> String {
+pub fn to_str__3(e: &NodeEndpoint) -> String {
     return format!("{}:{}", e.host.clone(), e.port);
 }
 
@@ -86,23 +86,23 @@ impl NetError {
     }
 }
 
-pub fn to_str__3(e: &Union2<Unreachable, WireFailed>) -> String {
+pub fn to_str__4(e: &Union2<Unreachable, WireFailed>) -> String {
     match e {
         Union2::U1(_) => {
-            return format!("unreachable: {}", to_str__2(&e.u1().clone().to));
+            return format!("unreachable: {}", to_str__3(&e.u1().clone().to));
         }
         Union2::U2(_) => {
-            return format!("wire failed to {}: {}", to_str__2(&e.u2().clone().to), e.u2().clone().reason.clone());
+            return format!("wire failed to {}: {}", to_str__3(&e.u2().clone().to), e.u2().clone().reason.clone());
         }
     }
 }
 
 pub trait __Stateless_Inbound: Send + Sync {
-    fn receive_frame(&self, from: NodeEndpoint, frame: Vec<u8>);
+    fn receive_frame(&self, from: NodeEndpoint, frame: Bytes);
 }
 
 pub trait __Stateful_Inbound: Send {
-    fn receive_frame(&mut self, from: NodeEndpoint, frame: Vec<u8>);
+    fn receive_frame(&mut self, from: NodeEndpoint, frame: Bytes);
 }
 
 pub struct __Stub_Inbound {
@@ -116,7 +116,7 @@ impl __Stub_Inbound {
 }
 
 impl __Stateless_Inbound for __Stub_Inbound {
-    fn receive_frame(&self, from: NodeEndpoint, frame: Vec<u8>) {
+    fn receive_frame(&self, from: NodeEndpoint, frame: Bytes) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Inbound::ReceiveFrame(from, frame), crate::net::__PROTO_Inbound);
     }
 }
@@ -152,7 +152,7 @@ impl Inbound {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Inbound>>) -> Self {
         Self { inner: __Inner_Inbound::Locked(inner) }
     }
-    pub fn receive_frame(&self, from: NodeEndpoint, frame: Vec<u8>) {
+    pub fn receive_frame(&self, from: NodeEndpoint, frame: Bytes) {
         match &self.inner {
             __Inner_Inbound::Shared(h) => h.receive_frame(from, frame),
             __Inner_Inbound::Locked(h) => h.lock().unwrap().receive_frame(from, frame),
@@ -161,7 +161,7 @@ impl Inbound {
 }
 
 pub enum __Msg_Inbound {
-    ReceiveFrame(NodeEndpoint, Vec<u8>),
+    ReceiveFrame(NodeEndpoint, Bytes),
 }
 
 impl crate::wire::__Wire for __Msg_Inbound {
@@ -188,14 +188,14 @@ pub const __PROTO_Inbound: &str = "8e46ddb2a3e90b03";
 pub trait __Stateless_Transport: Send + Sync {
     fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
     fn unlisten(&self, at: &NodeEndpoint);
-    fn deliver(&self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>>;
+    fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>>;
     fn local_endpoint(&self) -> NodeEndpoint;
 }
 
 pub trait __Stateful_Transport: Send {
     fn listen(&mut self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
     fn unlisten(&mut self, at: &NodeEndpoint);
-    fn deliver(&mut self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>>;
+    fn deliver(&mut self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>>;
     fn local_endpoint(&mut self) -> NodeEndpoint;
 }
 
@@ -242,7 +242,7 @@ impl Transport {
             __Inner_Transport::Locked(h) => h.lock().unwrap().unlisten(at),
         }
     }
-    pub fn deliver(&self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>> {
         match &self.inner {
             __Inner_Transport::Shared(h) => h.deliver(to, frame),
             __Inner_Transport::Locked(h) => h.lock().unwrap().deliver(to, frame),
@@ -263,7 +263,7 @@ pub struct __Platform_Transport<T>(pub T);
 pub trait TransportPlatformSync: Send + Sync {
     fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
     fn unlisten(&self, at: &NodeEndpoint);
-    fn deliver(&self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>>;
+    fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>>;
     fn local_endpoint(&self) -> NodeEndpoint;
 }
 
@@ -274,7 +274,7 @@ impl<T: TransportPlatformSync> __Stateless_Transport for __Platform_Transport<T>
     fn unlisten(&self, at: &NodeEndpoint) {
         self.0.unlisten(at)
     }
-    fn deliver(&self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>> {
         self.0.deliver(to, frame)
     }
     fn local_endpoint(&self) -> NodeEndpoint {
@@ -323,11 +323,11 @@ impl crate::wire::__Wire for NodeId {
 }
 
 pub trait __Stateless_Outbound: Send + Sync {
-    fn send_frame(&self, to: NodeEndpoint, frame: Vec<u8>);
+    fn send_frame(&self, to: NodeEndpoint, frame: Bytes);
 }
 
 pub trait __Stateful_Outbound: Send {
-    fn send_frame(&mut self, to: NodeEndpoint, frame: Vec<u8>);
+    fn send_frame(&mut self, to: NodeEndpoint, frame: Bytes);
 }
 
 pub struct __Stub_Outbound {
@@ -341,7 +341,7 @@ impl __Stub_Outbound {
 }
 
 impl __Stateless_Outbound for __Stub_Outbound {
-    fn send_frame(&self, to: NodeEndpoint, frame: Vec<u8>) {
+    fn send_frame(&self, to: NodeEndpoint, frame: Bytes) {
         crate::scheduler::salvo_send_wire(self.addr, __Msg_Outbound::SendFrame(to, frame), crate::net::__PROTO_Outbound);
     }
 }
@@ -377,7 +377,7 @@ impl Outbound {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Outbound>>) -> Self {
         Self { inner: __Inner_Outbound::Locked(inner) }
     }
-    pub fn send_frame(&self, to: NodeEndpoint, frame: Vec<u8>) {
+    pub fn send_frame(&self, to: NodeEndpoint, frame: Bytes) {
         match &self.inner {
             __Inner_Outbound::Shared(h) => h.send_frame(to, frame),
             __Inner_Outbound::Locked(h) => h.lock().unwrap().send_frame(to, frame),
@@ -386,7 +386,7 @@ impl Outbound {
 }
 
 pub enum __Msg_Outbound {
-    SendFrame(NodeEndpoint, Vec<u8>),
+    SendFrame(NodeEndpoint, Bytes),
 }
 
 impl crate::wire::__Wire for __Msg_Outbound {
@@ -430,7 +430,7 @@ impl Sending {
 
 impl crate::net::__Stateless_Outbound for Sending {
 
-    fn send_frame(&self, to: NodeEndpoint, frame: Vec<u8>) {
+    fn send_frame(&self, to: NodeEndpoint, frame: Bytes) {
         let mut _sent = self.__dep_Transport.deliver(&to, frame);
     }
 }
@@ -470,13 +470,13 @@ impl crate::scheduler::SalvoActor for __Actor_Sending {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Sending::SendFrame(to) => self.__dispatch(crate::net::__Msg_Outbound::SendFrame(to, *value.downcast::<Vec<u8>>().expect("the awaited answer"))),
+            __Cont_Sending::SendFrame(to) => self.__dispatch(crate::net::__Msg_Outbound::SendFrame(to, *value.downcast::<Bytes>().expect("the awaited answer"))),
         }
     }
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont_Sending::SendFrame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Vec<u8>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Sending::SendFrame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -508,7 +508,7 @@ impl Receiving {
 
 impl crate::net::__Stateless_Inbound for Receiving {
 
-    fn receive_frame(&self, from: NodeEndpoint, frame: Vec<u8>) {
+    fn receive_frame(&self, from: NodeEndpoint, frame: Bytes) {
         let mut _delivered = crate::scheduler::salvo_deliver_frame(&frame);
     }
 }
@@ -548,13 +548,13 @@ impl crate::scheduler::SalvoActor for __Actor_Receiving {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Receiving::ReceiveFrame(from) => self.__dispatch(crate::net::__Msg_Inbound::ReceiveFrame(from, *value.downcast::<Vec<u8>>().expect("the awaited answer"))),
+            __Cont_Receiving::ReceiveFrame(from) => self.__dispatch(crate::net::__Msg_Inbound::ReceiveFrame(from, *value.downcast::<Bytes>().expect("the awaited answer"))),
         }
     }
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont_Receiving::ReceiveFrame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Vec<u8>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Receiving::ReceiveFrame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -899,7 +899,7 @@ impl crate::wire::__Wire for Intro {
     }
 }
 
-pub fn hello_frame(transport: &crate::net::Transport, group: &String) -> Vec<u8> {
+pub fn hello_frame(transport: &crate::net::Transport, group: &String) -> Bytes {
     let mut hello: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U1(Hello { group: group.clone(), at: transport.local_endpoint(), protocols: crate::scheduler::salvo_local_protocols() });
     return crate::scheduler::salvo_control_frame(&"".to_string(), &crate::wire::salvo_encode(&hello));
 }
@@ -955,7 +955,7 @@ impl crate::wire::__Wire for PeerIntro {
     }
 }
 
-pub fn handshake(transport: &crate::net::Transport, group: &String, from: NodeId, data: Vec<u8>) -> Option<Union3<PeerHello, PeerGone, PeerIntro>> {
+pub fn handshake(transport: &crate::net::Transport, group: &String, from: NodeId, data: Bytes) -> Option<Union3<PeerHello, PeerGone, PeerIntro>> {
     let mut msg = crate::wire::salvo_decode::<Union4<Hello, Ack, Leaving, Intro>>(&data);
     match msg {
         Some(Union4::U1(_)) => {
@@ -1055,13 +1055,13 @@ impl StaticNodeGroup {
         let mut _connected = connect(&self.__dep_Transport, me.clone());
         crate::scheduler::salvo_watch_control(("".to_string()).clone(), (self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __d| std::boxed::Box::new(__Priv_StaticNodeGroup::Control(NodeId { id: __n as i64 }, __d)));
         for e in &self.all {
-            if !eq(e, &me) {
+            if !eq__2(e, &me) {
                 let mut _sent = { let __a1 = hello_frame(&self.__dep_Transport, &self.name); self.__dep_Transport.deliver(&(e.clone()), __a1) };
             }
         }
     }
 
-    fn control(&mut self, from: NodeId, data: Vec<u8>) {
+    fn control(&mut self, from: NodeId, data: Bytes) {
         let mut event = handshake(&self.__dep_Transport, &self.name, from, data);
         match event {
             Some(Union3::U1(_)) => {
@@ -1099,7 +1099,7 @@ pub enum __Cont_StaticNodeGroup {
 
 pub enum __Priv_StaticNodeGroup {
     Init,
-    Control(NodeId, Vec<u8>),
+    Control(NodeId, Bytes),
 }
 
 pub struct __Actor_StaticNodeGroup {
@@ -1151,7 +1151,7 @@ impl crate::scheduler::SalvoActor for __Actor_StaticNodeGroup {
         match __cont {
             __Cont_StaticNodeGroup::Members => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
             __Cont_StaticNodeGroup::Subscribe => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_StaticNodeGroup::Control(from) => self.__dispatch_priv(__Priv_StaticNodeGroup::Control(from, *value.downcast::<Vec<u8>>().expect("the awaited answer"))),
+            __Cont_StaticNodeGroup::Control(from) => self.__dispatch_priv(__Priv_StaticNodeGroup::Control(from, *value.downcast::<Bytes>().expect("the awaited answer"))),
         }
     }
 
@@ -1159,7 +1159,7 @@ impl crate::scheduler::SalvoActor for __Actor_StaticNodeGroup {
         match self.handler.__parked.get(&slot)? {
             __Cont_StaticNodeGroup::Members{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
             __Cont_StaticNodeGroup::Subscribe{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<usize>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_StaticNodeGroup::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Vec<u8>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_StaticNodeGroup::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -1244,7 +1244,7 @@ impl GossipNodeGroup {
         }
     }
 
-    fn control(&mut self, from: NodeId, data: Vec<u8>) {
+    fn control(&mut self, from: NodeId, data: Bytes) {
         let mut event = handshake(&self.__dep_Transport, &self.name, from, data);
         match event {
             Some(Union3::U1(_)) => {
@@ -1260,7 +1260,7 @@ impl GossipNodeGroup {
                     introduce(&(id.clone()), &(vec![event.as_ref().unwrap().u1().clone().at.clone()]));
                 }
                 introduce(&(event.as_ref().unwrap().u1().clone().node.clone()), &others);
-                self.dialed.insert(to_str__2(&event.as_ref().unwrap().u1().clone().at));
+                self.dialed.insert(to_str__3(&event.as_ref().unwrap().u1().clone().at));
                 let mut n = Node { id: event.as_ref().unwrap().u1().clone().node.clone(), at: event.as_ref().unwrap().u1().clone().at.clone() };
                 self.known.insert(event.as_ref().unwrap().u1().clone().node.clone(), n.clone());
                 for w in &self.watchers {
@@ -1295,7 +1295,7 @@ pub enum __Cont_GossipNodeGroup {
 
 pub enum __Priv_GossipNodeGroup {
     Init,
-    Control(NodeId, Vec<u8>),
+    Control(NodeId, Bytes),
 }
 
 pub struct __Actor_GossipNodeGroup {
@@ -1347,7 +1347,7 @@ impl crate::scheduler::SalvoActor for __Actor_GossipNodeGroup {
         match __cont {
             __Cont_GossipNodeGroup::Members => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
             __Cont_GossipNodeGroup::Subscribe => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_GossipNodeGroup::Control(from) => self.__dispatch_priv(__Priv_GossipNodeGroup::Control(from, *value.downcast::<Vec<u8>>().expect("the awaited answer"))),
+            __Cont_GossipNodeGroup::Control(from) => self.__dispatch_priv(__Priv_GossipNodeGroup::Control(from, *value.downcast::<Bytes>().expect("the awaited answer"))),
         }
     }
 
@@ -1355,7 +1355,7 @@ impl crate::scheduler::SalvoActor for __Actor_GossipNodeGroup {
         match self.handler.__parked.get(&slot)? {
             __Cont_GossipNodeGroup::Members{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
             __Cont_GossipNodeGroup::Subscribe{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<usize>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_GossipNodeGroup::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Vec<u8>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_GossipNodeGroup::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -1370,13 +1370,13 @@ fn __decode_msg_GossipNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::sc
 }
 
 pub fn dial(transport: &crate::net::Transport, dialed: &mut SalvoSet<String>, group: &String, e: NodeEndpoint) {
-    if eq(&e, &(transport.local_endpoint())) || dialed.contains(&to_str__2(&e)) {
+    if eq__2(&e, &(transport.local_endpoint())) || dialed.contains(&to_str__3(&e)) {
         return;
     }
-    dialed.insert(to_str__2(&e));
+    dialed.insert(to_str__3(&e));
     let mut sent = { let __a1 = hello_frame(transport, group); transport.deliver(&(e.clone()), __a1) };
     if matches!(sent, Union2::U2(_)) {
-        let mut _forgot = dialed.remove(&to_str__2(&e));
+        let mut _forgot = dialed.remove(&to_str__3(&e));
     }
 }
 
@@ -1748,7 +1748,7 @@ impl crate::net::__Stateful_NodeGroupWatcher for ActorGrouping {
     fn left(&mut self, n: Node, why: String) {
         let mut gone: Vec<usize> = vec![];
         for m in &self.all {
-            if eq__2(&(NodeId { id: crate::scheduler::salvo_addr_identity((m.clone()).clone()).node as i64 }), &n.id) {
+            if eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((m.clone()).clone()).node as i64 }), &n.id) {
                 gone.push(m.clone());
             }
         }
@@ -1771,7 +1771,7 @@ impl ActorGrouping {
         crate::scheduler::salvo_watch_control((self.name.clone()).clone(), (self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __d| std::boxed::Box::new(__Priv_ActorGrouping::Control(NodeId { id: __n as i64 }, __d)));
     }
 
-    fn control(&mut self, from: NodeId, data: Vec<u8>) {
+    fn control(&mut self, from: NodeId, data: Bytes) {
         let mut got = crate::wire::salvo_decode::<(String, Vec<usize>)>(&data);
         if got.is_none() {
             return;
@@ -1810,7 +1810,7 @@ pub enum __Cont_ActorGrouping {
 
 pub enum __Priv_ActorGrouping {
     Init,
-    Control(NodeId, Vec<u8>),
+    Control(NodeId, Bytes),
 }
 
 pub struct __Actor_ActorGrouping {
@@ -1878,7 +1878,7 @@ impl crate::scheduler::SalvoActor for __Actor_ActorGrouping {
             __Cont_ActorGrouping::Subscribe => self.__dispatch_ActorGroup(crate::net::__Msg_ActorGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
             __Cont_ActorGrouping::Joined => self.__dispatch_NodeGroupWatcher(crate::net::__Msg_NodeGroupWatcher::Joined(*value.downcast::<Node>().expect("the awaited answer"))),
             __Cont_ActorGrouping::Left(n) => self.__dispatch_NodeGroupWatcher(crate::net::__Msg_NodeGroupWatcher::Left(n, *value.downcast::<String>().expect("the awaited answer"))),
-            __Cont_ActorGrouping::Control(from) => self.__dispatch_priv(__Priv_ActorGrouping::Control(from, *value.downcast::<Vec<u8>>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Control(from) => self.__dispatch_priv(__Priv_ActorGrouping::Control(from, *value.downcast::<Bytes>().expect("the awaited answer"))),
         }
     }
 
@@ -1890,7 +1890,7 @@ impl crate::scheduler::SalvoActor for __Actor_ActorGrouping {
             __Cont_ActorGrouping::Subscribe{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<usize>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
             __Cont_ActorGrouping::Joined{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Node>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
             __Cont_ActorGrouping::Left{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_ActorGrouping::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Vec<u8>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_ActorGrouping::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
@@ -1924,7 +1924,7 @@ pub fn admit(list: &mut Vec<usize>, a: usize) -> bool {
 
 pub fn contains_node(list: &Vec<NodeId>, n: &NodeId) -> bool {
     for x in list {
-        if eq__2(x, n) {
+        if eq__3(x, n) {
             return true;
         }
     }
@@ -2114,7 +2114,7 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, group: &usize, co
 pub fn route_view(group: &usize) -> RouteView {
     let mut members: Vec<RouteMember> = vec![];
     for mut m in crate::scheduler::salvo_view_members((group.clone()).clone()) {
-        members.push(RouteMember { addr: m.clone(), local: eq__2(&(NodeId { id: crate::scheduler::salvo_addr_identity((m).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })) });
+        members.push(RouteMember { addr: m.clone(), local: eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((m).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })) });
     }
     return RouteView { members: members.clone() };
 }
@@ -2285,7 +2285,7 @@ impl crate::net::__Stateful_RouteSelector for Elected {
         self.chosen = None;
         let mut l = { let __pick2 = self.__dep_Leader.leader(); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { return } };
         for a in &view.members {
-            if eq__2(&(NodeId { id: crate::scheduler::salvo_addr_identity((a.addr.clone()).clone()).node as i64 }), &l) {
+            if eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((a.addr.clone()).clone()).node as i64 }), &l) {
                 self.chosen = Some(a.addr.clone());
                 return;
             }
@@ -2673,7 +2673,7 @@ impl crate::net::__Stateless_Transport for MemTransport {
         crate::scheduler::salvo_send_wire(self.net.clone(), crate::net::__Msg_MemNet::Detach(at.clone()), crate::net::__PROTO_MemNet);
     }
 
-    fn deliver(&self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>> {
         let mut sink = {
             let (mut out, __wid) = crate::scheduler::salvo_waiter();
             crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Option<usize>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
@@ -2693,7 +2693,7 @@ impl crate::net::__Stateless_Transport for MemTransport {
 }
 
 pub fn cut_key(a: &NodeEndpoint, b: &NodeEndpoint) -> String {
-    return format!("{}>{}", to_str__2(a), to_str__2(b));
+    return format!("{}>{}", to_str__3(a), to_str__3(b));
 }
 
 pub fn cmp(a: &NodeEndpoint, b: &NodeEndpoint) -> i32 {
@@ -2715,7 +2715,7 @@ pub fn hash(value: &NodeEndpoint) -> i64 {
     return h;
 }
 
-pub fn eq(a: &NodeEndpoint, b: &NodeEndpoint) -> bool {
+pub fn eq__2(a: &NodeEndpoint, b: &NodeEndpoint) -> bool {
     if !(&a.host[..] == &b.host[..]) {
         return false;
     }
@@ -2731,7 +2731,7 @@ pub fn hash__2(value: &NodeId) -> i64 {
     return h;
 }
 
-pub fn eq__2(a: &NodeId, b: &NodeId) -> bool {
+pub fn eq__3(a: &NodeId, b: &NodeId) -> bool {
     if !((a.id) == (b.id)) {
         return false;
     }
@@ -2745,11 +2745,11 @@ pub fn hash__3(value: &Node) -> i64 {
     return h;
 }
 
-pub fn eq__3(a: &Node, b: &Node) -> bool {
-    if !eq__2(&a.id, &b.id) {
+pub fn eq__4(a: &Node, b: &Node) -> bool {
+    if !eq__3(&a.id, &b.id) {
         return false;
     }
-    if !eq(&a.at, &b.at) {
+    if !eq__2(&a.at, &b.at) {
         return false;
     }
     return true;
@@ -2762,7 +2762,7 @@ impl SalvoHash<NodeId> for __Hash_hash__NodeId_NodeId {
 
 pub struct __Eq_eq__NodeId_NodeId;
 impl SalvoEq<NodeId> for __Eq_eq__NodeId_NodeId {
-    fn eq(__a: &NodeId, __b: &NodeId) -> bool { eq__2(__a, __b) }
+    fn eq(__a: &NodeId, __b: &NodeId) -> bool { eq__3(__a, __b) }
 }
 
 pub struct __Hash_hash__NodeEndpoint_NodeEndpoint;
@@ -2772,5 +2772,5 @@ impl SalvoHash<NodeEndpoint> for __Hash_hash__NodeEndpoint_NodeEndpoint {
 
 pub struct __Eq_eq__NodeEndpoint_NodeEndpoint;
 impl SalvoEq<NodeEndpoint> for __Eq_eq__NodeEndpoint_NodeEndpoint {
-    fn eq(__a: &NodeEndpoint, __b: &NodeEndpoint) -> bool { eq(__a, __b) }
+    fn eq(__a: &NodeEndpoint, __b: &NodeEndpoint) -> bool { eq__2(__a, __b) }
 }

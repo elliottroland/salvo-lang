@@ -233,7 +233,7 @@ pub fn main() {
     b.energy = b.energy + 200;
 }));
             }
-            println(&console, &(format!("3. {} {} (total reads: `Idx` survived)", get(&squad, &i).energy, get(&squad, &j).energy)));
+            println(&console, &(format!("3. {} {} (total reads: `Idx` survived)", get__2(&squad, &i).energy, get__2(&squad, &j).energy)));
         }
     }
     if Idx_qualifies(i, &squad) {

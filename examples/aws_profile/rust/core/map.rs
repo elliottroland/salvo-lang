@@ -10,7 +10,7 @@ pub fn KeyOf_qualifies<K: Clone, V: Clone>(key: &K, map: &SalvoMap<K, V>) -> boo
     return map.contains_key(&key);
 }
 
-pub fn get__2<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V {
+pub fn get__3<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V {
     return map.get(&key).unwrap();
 }
 

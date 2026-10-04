@@ -16,7 +16,7 @@ import salvo.stream.*
 
 data class MemRead(
     val source: String,
-    val data: salvo.SalvoBytes,
+    val data: salvo.platform.core.bytes.Bytes,
     val at: Int,
     val failed: Boolean,
 )
@@ -33,7 +33,7 @@ object __Codec_MemRead : salvo.WireCodec<MemRead> {
 
 data class MemWrite(
     val path: String,
-    val buffer: salvo.SalvoBytes,
+    val buffer: salvo.platform.core.bytes.Bytes,
 )
 
 object __Codec_MemWrite : salvo.WireCodec<MemWrite> {
@@ -45,7 +45,7 @@ object __Codec_MemWrite : salvo.WireCodec<MemWrite> {
 }
 
 class MemFs : Fs, salvo.stream.Streams {
-    private var files: MutableMap<String, salvo.SalvoBytes> = linkedMapOf<String, salvo.SalvoBytes>().also { __m -> __m.putAll(listOf()) }
+    private var files: MutableMap<String, salvo.platform.core.bytes.Bytes> = linkedMapOf<String, salvo.platform.core.bytes.Bytes>().also { __m -> __m.putAll(listOf()) }
     private var reads: MutableMap<Long, MemRead> = linkedMapOf<Long, MemRead>().also { __m -> __m.putAll(listOf()) }
     private var writes: MutableMap<Long, MemWrite> = linkedMapOf<Long, MemWrite>().also { __m -> __m.putAll(listOf()) }
 
@@ -55,7 +55,7 @@ class MemFs : Fs, salvo.stream.Streams {
             return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
         }
         val handle = freshHandle__2()
-        reads.put(handle, MemRead(source = path, data = salvo.SalvoBytes(content), at = 0, failed = false))
+        reads.put(handle, MemRead(source = path, data = content, at = 0, failed = false))
         return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
 
@@ -68,28 +68,28 @@ class MemFs : Fs, salvo.stream.Streams {
         if (at < 0) {
             at = 0
         }
-        val end = content.size
+        val end = sizePlatform(content)
         if (at > end) {
             at = end
         }
         val handle = freshHandle__2()
-        reads.put(handle, MemRead(source = path, data = salvo.SalvoBytes(content), at = at, failed = false))
+        reads.put(handle, MemRead(source = path, data = content, at = at, failed = false))
         return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
 
     override fun openWrite(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val handle = freshHandle__2()
-        val empty = salvo.SalvoBytes.joined()
+        val empty = mutBytes(arrayOf())
         writes.put(handle, MemWrite(path = path, buffer = empty))
         return Union2.U1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
     }
 
     override fun openAppend(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val existing = files[path]
-        val start = salvo.SalvoBytes.joined()
+        val start = mutBytes(arrayOf())
         if (existing == null) {
         } else {
-            start.append(existing)
+            appendPlatform(start, existing)
         }
         val handle = freshHandle__2()
         writes.put(handle, MemWrite(path = path, buffer = start))
@@ -111,7 +111,7 @@ class MemFs : Fs, salvo.stream.Streams {
             }
             return Union2.U2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
         }
-        return Union2.U1<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(FileInfo(size = (content.size).toLong(), isDir = false)))
+        return Union2.U1<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(FileInfo(size = (sizePlatform(content)).toLong(), isDir = false)))
     }
 
     override fun listDir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
@@ -161,7 +161,7 @@ class MemFs : Fs, salvo.stream.Streams {
         if (content == null) {
             return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = from)))))
         }
-        val bytes: salvo.SalvoBytes = salvo.SalvoBytes(content)
+        val bytes: salvo.platform.core.bytes.Bytes = content
         files.remove(from)
         files.put(to, bytes)
         return Union2.U1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
@@ -175,19 +175,19 @@ class MemFs : Fs, salvo.stream.Streams {
         return memReadAll(reads, s.handle)
     }
 
-    override fun readBytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun readBytes(s: InStream, max: Int): Union2<salvo.platform.core.bytes.Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         return memReadBytes(reads, s.handle, max)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun readTo(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun readTo(s: InStream, buf: salvo.platform.core.bytes.MutBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val got = memReadBytes(reads, s.handle, max)
         if (got is Union2.U2<*, *>) {
             return Union2.U2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
-        val data: salvo.SalvoBytes = (got.value as salvo.SalvoBytes)
-        buf.append(data)
-        return Union2.U1<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(data.size))
+        val data: salvo.platform.core.bytes.Bytes = (got.value as salvo.platform.core.bytes.Bytes)
+        appendPlatform(buf, data)
+        return Union2.U1<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(sizePlatform(data)))
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -241,8 +241,8 @@ class MemFs : Fs, salvo.stream.Streams {
             ignore((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
             return
         }
-        val data: salvo.SalvoBytes = (got.value as salvo.SalvoBytes)
-        if (data.size == 0) {
+        val data: salvo.platform.core.bytes.Bytes = (got.value as salvo.platform.core.bytes.Bytes)
+        if (sizePlatform(data) == 0) {
             reads.remove(s.handle)
             (s).let {}
             reply.send(Union3.U2<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(End()))
@@ -251,44 +251,44 @@ class MemFs : Fs, salvo.stream.Streams {
         reply.send(Union3.U1<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Packet(bytes = data, stream = s))))
     }
 
-    override fun fromBytes(data: salvo.SalvoBytes): InStream {
+    override fun fromBytes(data: salvo.platform.core.bytes.Bytes): InStream {
         val handle = freshHandle__2()
         reads.put(handle, MemRead(source = "<bytes>", data = data, at = 0, failed = false))
         return InStream(handle = handle)
     }
 
     override fun write(s: OutStream, text: String): Long {
-        return memAppend(writes, s.handle, salvo.SalvoBytes.ofUtf8(text))
+        return memAppend(writes, s.handle, toBytesPlatform(text))
     }
 
     override fun writeLine(s: OutStream, text: String): Long {
-        return memAppend(writes, s.handle, salvo.SalvoBytes.ofUtf8("$text\n"))
+        return memAppend(writes, s.handle, toBytesPlatform("$text\n"))
     }
 
-    override fun writeBytes(s: OutStream, data: salvo.SalvoBytes): Long {
-        return memAppend(writes, s.handle, salvo.SalvoBytes(data))
+    override fun writeBytes(s: OutStream, data: salvo.platform.core.bytes.Bytes): Long {
+        return memAppend(writes, s.handle, data)
     }
 
     override fun position__2(s: OutStream): Long {
-        return (memWriteState(writes, s.handle).buffer.size).toLong()
+        return (sizePlatform(memWriteState(writes, s.handle).buffer)).toLong()
     }
 
     override fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val open = memWriteState(writes, s.handle)
-        files.put(open.path, salvo.SalvoBytes(open.buffer))
+        files.put(open.path, open.buffer)
         return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
     }
 
     override fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val open = memWriteState(writes, s.handle)
-        files.put(open.path, salvo.SalvoBytes(open.buffer))
+        files.put(open.path, open.buffer)
         writes.remove(s.handle)
         (s).let {}
         return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
     }
 }
 
-fun fsHasChildren(files: Map<String, salvo.SalvoBytes>, path: String): Boolean {
+fun fsHasChildren(files: Map<String, salvo.platform.core.bytes.Bytes>, path: String): Boolean {
     val prefix = "$path/"
     for (key in files.keys) {
         if (key.startsWith(prefix)) {
@@ -298,11 +298,11 @@ fun fsHasChildren(files: Map<String, salvo.SalvoBytes>, path: String): Boolean {
     return false
 }
 
-fun memFindNewline(data: salvo.SalvoBytes, from: Int): Int {
-    val end = data.size
+fun memFindNewline(data: salvo.platform.core.bytes.Bytes, from: Int): Int {
+    val end = sizePlatform(data)
     var i = from
     while (i < end) {
-        if (((data.getOrNull(i) ?: throw AssertionError("salvo: value is absent at fs.mem:311:19"))).toInt() == 10) {
+        if (((getPlatform(data, i) ?: throw AssertionError("salvo: value is absent at fs.mem:311:19"))).toInt() == 10) {
             return i
         }
         i = i + 1
@@ -310,13 +310,13 @@ fun memFindNewline(data: salvo.SalvoBytes, from: Int): Int {
     return end
 }
 
-fun memAppend(writes: MutableMap<Long, MemWrite>, handle: Long, data: salvo.SalvoBytes): Long {
+fun memAppend(writes: MutableMap<Long, MemWrite>, handle: Long, data: salvo.platform.core.bytes.Bytes): Long {
     val open = memWriteState(writes, handle)
-    val grown = salvo.SalvoBytes.joined(open.buffer)
-    grown.append(data)
-    val buffer: salvo.SalvoBytes = grown
+    val grown = mutBytes(arrayOf(open.buffer))
+    appendPlatform(grown, data)
+    val buffer: salvo.platform.core.bytes.Bytes = grown
     writes.put(handle, MemWrite(path = open.path, buffer = buffer))
-    return (data.size).toLong()
+    return (sizePlatform(data)).toLong()
 }
 
 fun memReadState(reads: Map<Long, MemRead>, handle: Long): MemRead {
@@ -324,7 +324,7 @@ fun memReadState(reads: Map<Long, MemRead>, handle: Long): MemRead {
     if (open == null) {
         throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:338:9"))
     }
-    return MemRead(source = open.source, data = salvo.SalvoBytes(open.data), at = open.at, failed = open.failed)
+    return MemRead(source = open.source, data = open.data, at = open.at, failed = open.failed)
 }
 
 fun memWriteState(writes: Map<Long, MemWrite>, handle: Long): MemWrite {
@@ -332,7 +332,7 @@ fun memWriteState(writes: Map<Long, MemWrite>, handle: Long): MemWrite {
     if (open == null) {
         throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:346:9"))
     }
-    return MemWrite(path = open.path, buffer = salvo.SalvoBytes(open.buffer))
+    return MemWrite(path = open.path, buffer = open.buffer)
 }
 
 fun memReadLine(reads: MutableMap<Long, MemRead>, handle: Long): String? {
@@ -341,18 +341,18 @@ fun memReadLine(reads: MutableMap<Long, MemRead>, handle: Long): String? {
         return null
     }
     val at = open.at
-    val bytes: salvo.SalvoBytes = salvo.SalvoBytes(open.data)
-    val end = bytes.size
+    val bytes: salvo.platform.core.bytes.Bytes = open.data
+    val end = sizePlatform(bytes)
     if (at >= end) {
         return null
     }
     val stop = memFindNewline(bytes, at)
-    val line = (bytes.slice(at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:370:16"))
+    val line = (slicePlatform(bytes, at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:370:16"))
     var nextAt = stop
     if (stop < end) {
         nextAt = stop + 1
     }
-    val text = line.asString()
+    val text = strOfBytesPlatform(line)
     if (text == null) {
         reads.put(handle, MemRead(source = open.source, data = bytes, at = nextAt, failed = true))
         return null
@@ -367,10 +367,10 @@ fun memReadAll(reads: MutableMap<Long, MemRead>, handle: Long): Union2<String, C
     if (open.failed) {
         return Union2.U2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
     }
-    val bytes: salvo.SalvoBytes = salvo.SalvoBytes(open.data)
-    val end = bytes.size
-    val rest = (bytes.slice(open.at, end) ?: throw AssertionError("salvo: value is absent at fs.mem:394:16"))
-    val text = rest.asString()
+    val bytes: salvo.platform.core.bytes.Bytes = open.data
+    val end = sizePlatform(bytes)
+    val rest = (slicePlatform(bytes, open.at, end) ?: throw AssertionError("salvo: value is absent at fs.mem:394:16"))
+    val text = strOfBytesPlatform(rest)
     if (text == null) {
         reads.put(handle, MemRead(source = source, data = bytes, at = end, failed = true))
         return Union2.U2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
@@ -379,22 +379,22 @@ fun memReadAll(reads: MutableMap<Long, MemRead>, handle: Long): Union2<String, C
     return Union2.U1<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(text))
 }
 
-fun memReadBytes(reads: MutableMap<Long, MemRead>, handle: Long, max: Int): Union2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+fun memReadBytes(reads: MutableMap<Long, MemRead>, handle: Long, max: Int): Union2<salvo.platform.core.bytes.Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     val open = memReadState(reads, handle)
     val source: String = open.source
     if (open.failed) {
-        return Union2.U2<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
+        return Union2.U2<salvo.platform.core.bytes.Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
     }
-    val bytes: salvo.SalvoBytes = salvo.SalvoBytes(open.data)
+    val bytes: salvo.platform.core.bytes.Bytes = open.data
     var stop = open.at + max
     if (max < 0) {
         stop = open.at
     }
-    val end = bytes.size
+    val end = sizePlatform(bytes)
     if (stop > end) {
         stop = end
     }
-    val taken = (bytes.slice(open.at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:420:17"))
+    val taken = (slicePlatform(bytes, open.at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:420:17"))
     reads.put(handle, MemRead(source = source, data = bytes, at = stop, failed = false))
-    return Union2.U1<salvo.SalvoBytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(taken))
+    return Union2.U1<salvo.platform.core.bytes.Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(taken))
 }

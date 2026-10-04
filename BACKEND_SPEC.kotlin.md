@@ -108,7 +108,12 @@ Conventions:
   `copy` of either is `ArrayDeque(d)` [kt-copy]; the surface is
   `addFirst`/`addLast`, `removeFirstOrNull`/`removeLastOrNull`, a bounds-
   checked `removeAt`, `getOrNull`/`firstOrNull`/`lastOrNull`.
-* [kt-bytes] [bytes-type] **`Bytes` and `Mut Bytes` both map to
+* [kt-bytes] [bytes-type] (Since 2026-10-04 through std's host file
+  `platform/core/bytes.kt`, whose `Bytes` and `MutBytes` alias the class
+  below [platform-value-type]. In a host project a platform companion keeps
+  its module path under `salvo/` — `salvo/core/bytes.sv.kt` — so it cannot
+  collide with the runtime file of the same stem.)
+  **`Bytes` and `Mut Bytes` both map to
   `salvo.SalvoBytes`**, a class shipped with the program
   (`runtime/bytes.kt`, emitted as `bytes.kt` whenever the program names the
   type — the `compare.kt` mechanism). One class for both shapes, so `Mut`

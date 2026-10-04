@@ -61,6 +61,8 @@ pub mod runtime_timers;
 pub mod stream;
 #[path = "time.rs"]
 pub mod time;
+#[path = "platform/core/bytes.rs"]
+pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]
 pub mod platform_core_console;
 #[path = "platform/runtime/routing.rs"]
@@ -116,7 +118,7 @@ pub fn size_of(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &Stri
 pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::core_console::Console, streams: &crate::stream::Streams, bucket: &String, key: &String, path: &String, length: Option<i64>) {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
-        println(console, &(format!("open {}: {}", path.clone(), to_str(&detach((match opened { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+        println(console, &(format!("open {}: {}", path.clone(), to_str__2(&detach((match opened { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         return;
     }
     let mut put = {
@@ -152,7 +154,7 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::cor
     println(console, &(format!("get {}: {} bytes", key.clone(), if content_length.is_some() { content_length.unwrap() } else { -1i64 })));
     let mut target = fs.open_write(path);
     if matches!(target, Union2::U2(_)) {
-        println(console, &(format!("open {}: {}", path.clone(), to_str(&detach((match target { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+        println(console, &(format!("open {}: {}", path.clone(), to_str__2(&detach((match target { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         let mut closed = streams.close(body);
         if matches!(closed, Union2::U2(_)) {
             ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
@@ -170,7 +172,7 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::cor
             println(console, &(format!("piped {} bytes into {}", *copied.u1(), path.clone())));
         }
         Union2::U2(_) => {
-            println(console, &(format!("pipe: {}", to_str__5(&detach((match copied { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+            println(console, &(format!("pipe: {}", to_str__6(&detach((match copied { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         }
     }
 }
@@ -185,13 +187,13 @@ pub fn round_trip(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::c
             console.print(back.u1());
         }
         Union2::U2(_) => {
-            println(console, &(format!("back.txt: {}", to_str(&detach((match back { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+            println(console, &(format!("back.txt: {}", to_str__2(&detach((match back { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         }
     }
 }
 
 pub struct MemS3 {
-    objects: SalvoMap<String, Vec<u8>>,
+    objects: SalvoMap<String, Bytes>,
     __dep_Streams: crate::stream::Streams,
 }
 
@@ -211,18 +213,18 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
         let mut bucket = __destructured2.bucket;
         let mut key = __destructured2.key;
         let mut body = __destructured2.body;
-        let mut buf = Vec::<u8>::new();
+        let mut buf = mut_bytes(vec![]);
         let mut filled = fill_from(&self.__dep_Streams, &body, &mut buf);
         let mut closed = self.__dep_Streams.close(body);
         if matches!(closed, Union2::U2(_)) {
             ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         if matches!(filled, Union2::U2(_)) {
-            crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U2(AwsError { code: "StreamFailed".to_string(), message: format!("{}", to_str__5(&detach((match filled { Union2::U2(__v) => __v, _ => unreachable!() })))) })))));
+            crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U2(AwsError { code: "StreamFailed".to_string(), message: format!("{}", to_str__6(&detach((match filled { Union2::U2(__v) => __v, _ => unreachable!() })))) })))));
             return;
         }
-        let mut data: Vec<u8> = buf;
-        let mut tag = format!("\"{}\"", (data.len() as i32));
+        let mut data: Bytes = buf;
+        let mut tag = format!("\"{}\"", size_platform(&data));
         self.objects.insert(format!("{}/{}", bucket, key), data);
         crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U1(ok(PutObjectOutput { e_tag: Some(tag), expiration: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, server_side_encryption: None, version_id: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, ssekms_encryption_context: None, bucket_key_enabled: None, size: None, request_charged: None })));
     }
@@ -233,8 +235,8 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
             (reply).send(std::boxed::Box::new(Union2::<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U1(S3Error { code: "NoSuchKey".to_string(), message: "The specified key does not exist.".to_string(), status: 404, request_id: None, storage_class: None, access_tier: None }))))));
             return;
         }
-        let mut data: Vec<u8> = found.unwrap().clone();
-        let mut length = (((data.len() as i32)) as i64);
+        let mut data: Bytes = found.unwrap().clone();
+        let mut length = ((size_platform(&data)) as i64);
         (reply).send(std::boxed::Box::new(Union2::<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>::U1(ok(GetObjectOutput { body: self.__dep_Streams.from_bytes(data), content_length: Some(length), delete_marker: None, accept_ranges: None, expiration: None, restore: None, last_modified: None, e_tag: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, missing_meta: None, version_id: None, cache_control: None, content_disposition: None, content_encoding: None, content_language: None, content_range: None, content_type: None, website_redirect_location: None, server_side_encryption: None, metadata: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, bucket_key_enabled: None, storage_class: None, request_charged: None, replication_status: None, parts_count: None, tag_count: None, object_lock_mode: None, object_lock_retain_until_date: None, object_lock_legal_hold_status: None, object_lock_event_hold: None, object_lock_event_hold_duration_days: None, object_lock_event_hold_duration_years: None }))));
     }
 }
@@ -247,7 +249,7 @@ pub fn main() {
     let streams = crate::stream::Streams::share_locked(__inst.clone());
     let mut written = write_str(&fs2, &streams, &("notes.txt".to_string()), &("hello from Salvo\nsecond line\n".to_string()));
     if matches!(written, Union2::U2(_)) {
-        println(&console, &(format!("write: {}", to_str(&detach((match written { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+        println(&console, &(format!("write: {}", to_str__2(&detach((match written { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         return;
     }
     println(&console, &("-- FakeS3 --".to_string()));

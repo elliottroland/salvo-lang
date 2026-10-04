@@ -402,10 +402,17 @@ fn emit_program_mode(
     if abi {
         // [platform-abi] The runtime lives under `salvo/` in the root, beside
         // the module declaration files.
+        // A platform companion keeps its module path under `salvo/`
+        // (`platform/core/bytes.kt` is `salvo/core/bytes.sv.kt`), so it cannot
+        // collide with a runtime file of the same stem.
         for f in &mut files {
             if !f.rel_path.to_string_lossy().ends_with(".sv.kt") {
-                let stem = f.rel_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                f.rel_path = std::path::PathBuf::from("salvo").join(format!("{stem}.sv.kt"));
+                let mut rel = f.rel_path.clone();
+                if let Ok(rest) = rel.strip_prefix(salvo_core::source::PLATFORM_DIR) {
+                    rel = rest.to_path_buf();
+                }
+                rel.set_extension("sv.kt");
+                f.rel_path = std::path::PathBuf::from("salvo").join(rel);
             }
         }
     }
@@ -4355,6 +4362,18 @@ impl<'p> Emitter<'p> {
         self.emit_type_ref_named(&name, &base.args)
     }
     fn expand_mut_type(&mut self, name: &str, arg_strs: &[String]) -> Option<String> {
+        // [platform-value-type] The host names a value type's mutable kind
+        // `Mut<Name>` beside it (user decision 2026-10-04, convention (c)).
+        if self
+            .symbols
+            .intrinsic_types
+            .get(name)
+            .is_some_and(|t| t.platform && !t.linear && t.auto_qualifiers.iter().any(|q| q.name.name == "Mut"))
+        {
+            let module = self.platform_type_module(name)?;
+            let args = if arg_strs.is_empty() { String::new() } else { format!("<{}>", arg_strs.join(", ")) };
+            return Some(format!("{}.Mut{}{args}", host_package(&module), salvo_core::typekey::plain(name)));
+        }
         let kt = crate::intrinsics::mut_type_name(name)?;
         let args = if arg_strs.is_empty() {
             String::new()
@@ -9350,12 +9369,20 @@ impl<'p> Emitter<'p> {
             Ty::Named { name, .. } if has_mut && name == "Str" => {
                 return Some(format!("StringBuilder({code})"));
             }
-            // [kt-bytes] A buffer copies through its copy constructor, and
-            // for `Bytes` as well as `Mut Bytes`: one class serves both, so a
-            // plain `Bytes` can be the very object something else holds as a
-            // `Mut Bytes` — identity would alias it [kt-copy].
-            Ty::Named { name, .. } if name == "Bytes" => {
-                return Some(format!("salvo.SalvoBytes({code})"));
+            // [platform-value-type] A value platform type copies through its
+            // host package's `copy` (convention, with `Mut<Name>`), for the
+            // plain kind as well as the `Mut` one: a host may use one class for
+            // both, so a plain value can be the very object something else
+            // holds as `Mut` — identity would alias it [kt-copy].
+            Ty::Named { name, .. }
+                if self.symbols.intrinsic_types.get(name.as_str()).is_some_and(|t| {
+                    t.platform && !t.linear && t.auto_qualifiers.iter().any(|q| q.name.name == "Mut")
+                }) =>
+            {
+                let name = name.clone();
+                if let Some(module) = self.platform_type_module(&name) {
+                    return Some(format!("{}.copy({code})", host_package(&module)));
+                }
             }
             // [col-deque] One class serves `Deque` and `Mut Deque`, so even a
             // plain deque may be an object someone else mutates: copy it.

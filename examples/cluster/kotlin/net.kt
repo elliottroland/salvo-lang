@@ -75,11 +75,11 @@ fun toStr__3(e: Union2<Unreachable, WireFailed>): String {
 }
 
 interface Inbound {
-    fun receiveFrame(from: NodeEndpoint, frame: salvo.SalvoBytes)
+    fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes)
 }
 
 class __Stub_Inbound(private val addr: Int) : Inbound {
-    override fun receiveFrame(from: NodeEndpoint, frame: salvo.SalvoBytes) {
+    override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         salvo.SalvoSched.sendWire(addr, __Msg_Inbound.ReceiveFrame(from, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
     }
 }
@@ -88,7 +88,7 @@ class __Mon_Inbound(
     private val inner: Inbound,
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Inbound {
-    override fun receiveFrame(from: NodeEndpoint, frame: salvo.SalvoBytes) {
+    override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.receiveFrame(from, frame) } finally { lock.unlock() }
@@ -96,7 +96,7 @@ class __Mon_Inbound(
 }
 
 sealed class __Msg_Inbound {
-    class ReceiveFrame(val from: NodeEndpoint, val frame: salvo.SalvoBytes) : __Msg_Inbound()
+    class ReceiveFrame(val from: NodeEndpoint, val frame: salvo.platform.core.bytes.Bytes) : __Msg_Inbound()
 }
 
 object __Codec___Msg_Inbound : salvo.WireCodec<__Msg_Inbound> {
@@ -117,7 +117,7 @@ const val __PROTO_Inbound: String = "8e46ddb2a3e90b03"
 interface Transport {
     fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>>
     fun unlisten(at: NodeEndpoint)
-    fun deliver(to: NodeEndpoint, frame: salvo.SalvoBytes): Union2<Unit, Union2<Unreachable, WireFailed>>
+    fun deliver(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes): Union2<Unit, Union2<Unreachable, WireFailed>>
     fun localEndpoint(): NodeEndpoint
 }
 
@@ -135,7 +135,7 @@ class __Mon_Transport(
         lock.lock()
         try { inner.unlisten(at) } finally { lock.unlock() }
     }
-    override fun deliver(to: NodeEndpoint, frame: salvo.SalvoBytes): Union2<Unit, Union2<Unreachable, WireFailed>> {
+    override fun deliver(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes): Union2<Unit, Union2<Unreachable, WireFailed>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.deliver(to, frame) } finally { lock.unlock() }
@@ -151,14 +151,14 @@ class __Mon_Transport(
 interface TransportPlatform {
     fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>>
     fun unlisten(at: NodeEndpoint)
-    fun deliver(to: NodeEndpoint, frame: salvo.SalvoBytes): Union2<Unit, Union2<Unreachable, WireFailed>>
+    fun deliver(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes): Union2<Unit, Union2<Unreachable, WireFailed>>
     fun localEndpoint(): NodeEndpoint
 }
 
 open class __Platform_Transport(private val impl: TransportPlatform) : Transport {
     override fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>> = impl.listen(at, sink)
     override fun unlisten(at: NodeEndpoint) = impl.unlisten(at)
-    override fun deliver(to: NodeEndpoint, frame: salvo.SalvoBytes): Union2<Unit, Union2<Unreachable, WireFailed>> = impl.deliver(to, frame)
+    override fun deliver(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes): Union2<Unit, Union2<Unreachable, WireFailed>> = impl.deliver(to, frame)
     override fun localEndpoint(): NodeEndpoint = impl.localEndpoint()
 }
 
@@ -186,11 +186,11 @@ object __Codec_NodeId : salvo.WireCodec<NodeId> {
 }
 
 interface Outbound {
-    fun sendFrame(to: NodeEndpoint, frame: salvo.SalvoBytes)
+    fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes)
 }
 
 class __Stub_Outbound(private val addr: Int) : Outbound {
-    override fun sendFrame(to: NodeEndpoint, frame: salvo.SalvoBytes) {
+    override fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         salvo.SalvoSched.sendWire(addr, __Msg_Outbound.SendFrame(to, frame), __PROTO_Outbound, __Codec___Msg_Outbound)
     }
 }
@@ -199,7 +199,7 @@ class __Mon_Outbound(
     private val inner: Outbound,
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Outbound {
-    override fun sendFrame(to: NodeEndpoint, frame: salvo.SalvoBytes) {
+    override fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.sendFrame(to, frame) } finally { lock.unlock() }
@@ -207,7 +207,7 @@ class __Mon_Outbound(
 }
 
 sealed class __Msg_Outbound {
-    class SendFrame(val to: NodeEndpoint, val frame: salvo.SalvoBytes) : __Msg_Outbound()
+    class SendFrame(val to: NodeEndpoint, val frame: salvo.platform.core.bytes.Bytes) : __Msg_Outbound()
 }
 
 object __Codec___Msg_Outbound : salvo.WireCodec<__Msg_Outbound> {
@@ -230,7 +230,7 @@ class Sending(private val __dep_Transport: Transport) : Outbound {
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Sending> = mutableMapOf()
 
-    override fun sendFrame(to: NodeEndpoint, frame: salvo.SalvoBytes) {
+    override fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         val _sent = __dep_Transport.deliver(to, frame)
     }
 }
@@ -256,7 +256,7 @@ class __Actor_Sending(private val handler: Sending) : salvo.SalvoActor {
         // A reply whose continuation is gone: nothing to run.
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
-            is __Cont_Sending.SendFrame -> handler.sendFrame(c.to, value as salvo.SalvoBytes)
+            is __Cont_Sending.SendFrame -> handler.sendFrame(c.to, value as salvo.platform.core.bytes.Bytes)
         }
     }
 
@@ -284,7 +284,7 @@ class Receiving : Inbound {
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Receiving> = mutableMapOf()
 
-    override fun receiveFrame(from: NodeEndpoint, frame: salvo.SalvoBytes) {
+    override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         val _delivered = salvo.SalvoSched.deliverFrame((frame).toByteArray())
     }
 }
@@ -310,7 +310,7 @@ class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
         // A reply whose continuation is gone: nothing to run.
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
-            is __Cont_Receiving.ReceiveFrame -> handler.receiveFrame(c.from, value as salvo.SalvoBytes)
+            is __Cont_Receiving.ReceiveFrame -> handler.receiveFrame(c.from, value as salvo.platform.core.bytes.Bytes)
         }
     }
 
@@ -527,7 +527,7 @@ object __Codec_Intro : salvo.WireCodec<Intro> {
     override fun dec(inp: salvo.WireIn): Intro = Intro(salvo.ListCodec(__Codec_NodeEndpoint).dec(inp))
 }
 
-fun helloFrame(transport: Transport, group: String): salvo.SalvoBytes {
+fun helloFrame(transport: Transport, group: String): salvo.platform.core.bytes.Bytes {
     val hello: Union4<Hello, Ack, Leaving, Intro> = Union4.U1<Hello, Ack, Leaving, Intro>(Hello(group = group, at = transport.localEndpoint(), protocols = salvo.SalvoSched.localProtocols()))
     return salvo.SalvoBytes(salvo.SalvoSched.controlFrame("", (salvo.salvoEncode(hello, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))).toByteArray()))
 }
@@ -568,7 +568,7 @@ object __Codec_PeerIntro : salvo.WireCodec<PeerIntro> {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.SalvoBytes): Union3<PeerHello, PeerGone, PeerIntro>? {
+fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.platform.core.bytes.Bytes): Union3<PeerHello, PeerGone, PeerIntro>? {
     val msg = salvo.salvoDecode(data, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))
     when (msg) {
         is Union4.U1<*, *, *, *> -> {
@@ -640,7 +640,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    fun control(from: NodeId, data: salvo.SalvoBytes) {
+    fun control(from: NodeId, data: salvo.platform.core.bytes.Bytes) {
         val event = handshake(__dep_Transport, name, from, data)
         when (event) {
             is Union3.U1<*, *, *> -> {
@@ -689,7 +689,7 @@ sealed class __Cont_StaticNodeGroup {
 
 sealed class __Priv_StaticNodeGroup {
     object Init : __Priv_StaticNodeGroup()
-    class Control(val from: NodeId, val data: salvo.SalvoBytes) : __Priv_StaticNodeGroup()
+    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_StaticNodeGroup()
 }
 
 class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.SalvoActor {
@@ -724,7 +724,7 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
         when (c) {
             is __Cont_StaticNodeGroup.Members -> handler.members(value as salvo.SalvoReply)
             is __Cont_StaticNodeGroup.Subscribe -> handler.subscribe(value as Int)
-            is __Cont_StaticNodeGroup.Control -> handler.control(c.from, value as salvo.SalvoBytes)
+            is __Cont_StaticNodeGroup.Control -> handler.control(c.from, value as salvo.platform.core.bytes.Bytes)
         }
     }
 
@@ -787,7 +787,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    fun control(from: NodeId, data: salvo.SalvoBytes) {
+    fun control(from: NodeId, data: salvo.platform.core.bytes.Bytes) {
         val event = handshake(__dep_Transport, name, from, data)
         when (event) {
             is Union3.U1<*, *, *> -> {
@@ -847,7 +847,7 @@ sealed class __Cont_GossipNodeGroup {
 
 sealed class __Priv_GossipNodeGroup {
     object Init : __Priv_GossipNodeGroup()
-    class Control(val from: NodeId, val data: salvo.SalvoBytes) : __Priv_GossipNodeGroup()
+    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_GossipNodeGroup()
 }
 
 class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.SalvoActor {
@@ -882,7 +882,7 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
         when (c) {
             is __Cont_GossipNodeGroup.Members -> handler.members(value as salvo.SalvoReply)
             is __Cont_GossipNodeGroup.Subscribe -> handler.subscribe(value as Int)
-            is __Cont_GossipNodeGroup.Control -> handler.control(c.from, value as salvo.SalvoBytes)
+            is __Cont_GossipNodeGroup.Control -> handler.control(c.from, value as salvo.platform.core.bytes.Bytes)
         }
     }
 
@@ -1157,7 +1157,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
         watchers.add(w)
     }
 
-    fun control(from: NodeId, data: salvo.SalvoBytes) {
+    fun control(from: NodeId, data: salvo.platform.core.bytes.Bytes) {
         val got = salvo.salvoDecode(data, salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec)))
         if (got == null) {
             return
@@ -1200,7 +1200,7 @@ sealed class __Cont_ActorGrouping {
 
 sealed class __Priv_ActorGrouping {
     object Init : __Priv_ActorGrouping()
-    class Control(val from: NodeId, val data: salvo.SalvoBytes) : __Priv_ActorGrouping()
+    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_ActorGrouping()
 }
 
 class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoActor {
@@ -1249,7 +1249,7 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
             is __Cont_ActorGrouping.Subscribe -> handler.subscribe(value as Int)
             is __Cont_ActorGrouping.Joined -> handler.joined(value as Node)
             is __Cont_ActorGrouping.Left -> handler.left(c.n, value as String)
-            is __Cont_ActorGrouping.Control -> handler.control(c.from, value as salvo.SalvoBytes)
+            is __Cont_ActorGrouping.Control -> handler.control(c.from, value as salvo.platform.core.bytes.Bytes)
         }
     }
 
@@ -1778,7 +1778,7 @@ class MemTransport(private val me: NodeEndpoint, private val net: Int) : Transpo
         salvo.SalvoSched.sendWire(net, __Msg_MemNet.Detach(at), __PROTO_MemNet, __Codec___Msg_MemNet)
     }
 
-    override fun deliver(to: NodeEndpoint, frame: salvo.SalvoBytes): Union2<Unit, Union2<Unreachable, WireFailed>> {
+    override fun deliver(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes): Union2<Unit, Union2<Unreachable, WireFailed>> {
         val sink = run {
             val (out, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.OptCodec(salvo.AddrCodec)) })

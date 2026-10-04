@@ -76,7 +76,12 @@ and the `test actor` follow-ups recorded below:
    surfaces as a `ClassCastException` where the value is used. In the
    runtime a mismatch is a compiler bug either way; an exact check would need
    a type token generated code could pass.
-7. **Every collection as a platform type** (user decision 2026-10-04,
+7. **Every collection as a platform type** — in progress: the mechanism
+   and `Bytes` are built [platform-value-type] (2026-10-04, convention (c):
+   the host names the mutable kind `Mut<Name>`, Kotlin provides `copy`).
+   Next `Str`, `List`, `Deque`, `Set`, `Map`, the sorted pair. Lost with
+   `Bytes` and to be won back generally: the native `for` over a buffer
+   (now the `BytesYield` pass). (User decision 2026-10-04,
    replacing runtime step 17 and widening §12's scope, which had kept the
    `canbe Mut` collections intrinsic): `List`, `Set`, `Map`, the sorted pair,
    `Deque`, `Str` and `Bytes`. A `platform type` that `canbe Mut` names **two

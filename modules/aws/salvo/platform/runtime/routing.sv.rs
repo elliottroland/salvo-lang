@@ -25,27 +25,27 @@ fn __module_use_0() -> &'static crate::runtime_routing::RouteTable {
     })
 }
 
-pub fn decode_message_platform(addr: i32, proto: &String, payload: &Vec<u8>) -> Option<Dyn> {
+pub fn decode_message_platform(addr: i32, proto: &String, payload: &Bytes) -> Option<Dyn> {
     crate::platform_runtime_routing::decode_message(addr, proto, payload)
 }
 
-pub fn decode_waiter_answer_platform(wid: i32, payload: &Vec<u8>) -> Option<Dyn> {
+pub fn decode_waiter_answer_platform(wid: i32, payload: &Bytes) -> Option<Dyn> {
     crate::platform_runtime_routing::decode_waiter_answer(wid, payload)
 }
 
-pub fn decode_task_answer_platform(key: i64, payload: &Vec<u8>) -> Option<Dyn> {
+pub fn decode_task_answer_platform(key: i64, payload: &Bytes) -> Option<Dyn> {
     crate::platform_runtime_routing::decode_task_answer(key, payload)
 }
 
-pub fn raw_answer_platform(payload: Vec<u8>) -> Dyn {
+pub fn raw_answer_platform(payload: Bytes) -> Dyn {
     crate::platform_runtime_routing::raw_answer(payload)
 }
 
-pub fn control_message_platform(sink: i32, from: i64, payload: &Vec<u8>) -> Option<Dyn> {
+pub fn control_message_platform(sink: i32, from: i64, payload: &Bytes) -> Option<Dyn> {
     crate::platform_runtime_routing::control_message(sink, from, payload)
 }
 
-pub fn wire_out_platform(from: i64, to: Vec<u8>, frame: Vec<u8>) {
+pub fn wire_out_platform(from: i64, to: Bytes, frame: Bytes) {
     crate::platform_runtime_routing::wire_out(from, to, frame)
 }
 
@@ -56,7 +56,7 @@ pub struct MsgFrame {
     pub bits: i64,
     pub from: i64,
     pub proto: String,
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 }
 
 impl crate::wire::__Wire for MsgFrame {
@@ -87,7 +87,7 @@ pub struct AnswerFrame {
     pub id: i64,
     pub slot: i64,
     pub bits: i64,
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 }
 
 impl crate::wire::__Wire for AnswerFrame {
@@ -169,7 +169,7 @@ pub struct ControlFrame {
     pub to: i64,
     pub from: i64,
     pub channel: String,
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 }
 
 impl crate::wire::__Wire for ControlFrame {
@@ -262,7 +262,7 @@ impl crate::wire::__Wire for ControlKey {
 pub struct Parked {
     pub from: i64,
     pub to: i64,
-    pub frame: Vec<u8>,
+    pub frame: Bytes,
 }
 
 impl crate::wire::__Wire for Parked {
@@ -283,8 +283,8 @@ impl crate::wire::__Wire for Parked {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Staged {
     pub from: i64,
-    pub to: Vec<u8>,
-    pub frame: Vec<u8>,
+    pub to: Bytes,
+    pub frame: Bytes,
 }
 
 impl crate::wire::__Wire for Staged {
@@ -378,10 +378,10 @@ pub trait __Stateless_RouteTable: Send + Sync {
     fn is_proxy(&self, addr: i32) -> bool;
     fn proxy_ref(&self, addr: i32) -> Option<RemoteRef>;
     fn take_credit(&self, addr: i32, me: Parker) -> i32;
-    fn stage(&self, from: i64, to: i64, frame: Vec<u8>);
+    fn stage(&self, from: i64, to: i64, frame: Bytes);
     fn grant(&self, addr: i32, pool: i32, from: i64, n: i32);
     fn take_outbox(&self) -> Vec<Staged>;
-    fn add_route(&self, node: i64, at: Vec<u8>);
+    fn add_route(&self, node: i64, at: Bytes);
     fn set_outbound(&self, node: i64);
     fn has_outbound(&self, node: i64) -> bool;
     fn accepts(&self, to: i64, actor: i64, claimed: i64) -> bool;
@@ -418,10 +418,10 @@ pub trait __Stateful_RouteTable: Send {
     fn is_proxy(&mut self, addr: i32) -> bool;
     fn proxy_ref(&mut self, addr: i32) -> Option<RemoteRef>;
     fn take_credit(&mut self, addr: i32, me: Parker) -> i32;
-    fn stage(&mut self, from: i64, to: i64, frame: Vec<u8>);
+    fn stage(&mut self, from: i64, to: i64, frame: Bytes);
     fn grant(&mut self, addr: i32, pool: i32, from: i64, n: i32);
     fn take_outbox(&mut self) -> Vec<Staged>;
-    fn add_route(&mut self, node: i64, at: Vec<u8>);
+    fn add_route(&mut self, node: i64, at: Bytes);
     fn set_outbound(&mut self, node: i64);
     fn has_outbound(&mut self, node: i64) -> bool;
     fn accepts(&mut self, to: i64, actor: i64, claimed: i64) -> bool;
@@ -543,7 +543,7 @@ impl RouteTable {
             __Inner_RouteTable::Locked(h) => h.lock().unwrap().take_credit(addr, me),
         }
     }
-    pub fn stage(&self, from: i64, to: i64, frame: Vec<u8>) {
+    pub fn stage(&self, from: i64, to: i64, frame: Bytes) {
         match &self.inner {
             __Inner_RouteTable::Shared(h) => h.stage(from, to, frame),
             __Inner_RouteTable::Locked(h) => h.lock().unwrap().stage(from, to, frame),
@@ -561,7 +561,7 @@ impl RouteTable {
             __Inner_RouteTable::Locked(h) => h.lock().unwrap().take_outbox(),
         }
     }
-    pub fn add_route(&self, node: i64, at: Vec<u8>) {
+    pub fn add_route(&self, node: i64, at: Bytes) {
         match &self.inner {
             __Inner_RouteTable::Shared(h) => h.add_route(node, at),
             __Inner_RouteTable::Locked(h) => h.lock().unwrap().add_route(node, at),
@@ -749,7 +749,7 @@ pub struct Routes {
     proxies: SalvoMap<RemoteRef, i32>,
     credits: SalvoMap<i32, i32>,
     held_n: SalvoMap<i32, i32>,
-    routes: SalvoMap<i64, Vec<u8>>,
+    routes: SalvoMap<i64, Bytes>,
     outbound: SalvoSet<i64>,
     parked: Vec<Parked>,
     outbox: Vec<Staged>,
@@ -891,7 +891,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         return -1;
     }
 
-    fn stage(&mut self, from: i64, to: i64, frame: Vec<u8>) {
+    fn stage(&mut self, from: i64, to: i64, frame: Bytes) {
         stage_in(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked, from, to, frame);
     }
 
@@ -910,7 +910,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         return out;
     }
 
-    fn add_route(&mut self, node: i64, at: Vec<u8>) {
+    fn add_route(&mut self, node: i64, at: Bytes) {
         self.routes.insert(node, at);
         restage(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked);
     }
@@ -1153,7 +1153,7 @@ pub fn wake_senders(waiters: &mut Vec<Parker>) {
     }
 }
 
-pub fn stage_in(routes: &SalvoMap<i64, Vec<u8>>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>, from: i64, to: i64, frame: Vec<u8>) {
+pub fn stage_in(routes: &SalvoMap<i64, Bytes>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>, from: i64, to: i64, frame: Bytes) {
     let mut ep = routes.get(&to);
     if ep.is_some() {
         let mut at = ep.unwrap();
@@ -1165,7 +1165,7 @@ pub fn stage_in(routes: &SalvoMap<i64, Vec<u8>>, outbound: &SalvoSet<i64>, outbo
     parked.push(Parked { from: from, to: to, frame: frame });
 }
 
-pub fn restage(routes: &SalvoMap<i64, Vec<u8>>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>) {
+pub fn restage(routes: &SalvoMap<i64, Bytes>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>) {
     let mut waiting: Vec<Parked> = vec![];
     while ((parked.len() as i32) > 0) {
         waiting.push(parked.salvo_remove_at(0).expect("salvo: value is absent at runtime.routing:577:22"));
@@ -1212,7 +1212,7 @@ pub fn same_actor(a: i32, b: i32) -> bool {
     if !__module_use_0().is_proxy(a.clone()) && !__module_use_0().is_proxy(b.clone()) {
         return false;
     }
-    return eq__5(&(identity(a)), &(identity(b)));
+    return eq__6(&(identity(a)), &(identity(b)));
 }
 
 pub fn import_addr(node: i64, actor: i64, bits: i64) -> i32 {
@@ -1240,7 +1240,7 @@ pub fn remote(addr: i32) -> bool {
     return __module_use_0().is_proxy(addr);
 }
 
-pub fn send_remote(addr: i32, proto: String, payload: Vec<u8>) {
+pub fn send_remote(addr: i32, proto: String, payload: Bytes) {
     let mut r = __module_use_0().proxy_ref(addr.clone());
     if r.is_none() {
         return;
@@ -1264,7 +1264,7 @@ pub fn send_remote(addr: i32, proto: String, payload: Vec<u8>) {
     }
 }
 
-pub fn answer_remote(t: ReplyParts, payload: Vec<u8>) {
+pub fn answer_remote(t: ReplyParts, payload: Bytes) {
     let mut from = here_node();
     let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U2(AnswerFrame { to: t.node, kind: t.kind, id: t.id, slot: t.slot, bits: t.bits, payload: payload }));
     __module_use_0().stage(from, t.node, frame);
@@ -1306,7 +1306,7 @@ pub fn flush() {
     }
 }
 
-pub fn route(node: i64, at: Vec<u8>) {
+pub fn route(node: i64, at: Bytes) {
     __module_use_0().add_route(node, at);
     flush();
 }
@@ -1335,14 +1335,14 @@ pub fn watch_control(channel: String, sink: i32) {
     __module_use_0().watch_channel(here_node(), channel, sink);
 }
 
-pub fn send_control(to: i64, channel: String, payload: Vec<u8>) {
+pub fn send_control(to: i64, channel: String, payload: Bytes) {
     let mut from = here_node();
     let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U5(ControlFrame { to: to.clone(), from: from.clone(), channel: channel, payload: payload }));
     __module_use_0().stage(from, to, frame);
     flush();
 }
 
-pub fn control_frame(channel: String, payload: Vec<u8>) -> Vec<u8> {
+pub fn control_frame(channel: String, payload: Bytes) -> Bytes {
     return crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U5(ControlFrame { to: 0i64, from: here_node(), channel: channel, payload: payload }));
 }
 
@@ -1368,7 +1368,7 @@ pub fn peer_protocol(node: i64, protocol: &String) -> Option<String> {
     return __module_use_0().peer_hash(node, protocol);
 }
 
-pub fn deliver(data: &Vec<u8>) -> bool {
+pub fn deliver(data: &Bytes) -> bool {
     let mut f = crate::wire::salvo_decode::<Union5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>>(&data.clone());
     if matches!(f, Some(Union5::U1(_))) {
         let mut m = f.as_ref().unwrap().u1().clone();
@@ -1526,7 +1526,7 @@ pub fn hash__5(value: &RemoteRef) -> i64 {
     return h;
 }
 
-pub fn eq__5(a: &RemoteRef, b: &RemoteRef) -> bool {
+pub fn eq__6(a: &RemoteRef, b: &RemoteRef) -> bool {
     if !((a.node) == (b.node)) {
         return false;
     }
@@ -1546,7 +1546,7 @@ pub fn hash__6(value: &ControlKey) -> i64 {
     return h;
 }
 
-pub fn eq__6(a: &ControlKey, b: &ControlKey) -> bool {
+pub fn eq__7(a: &ControlKey, b: &ControlKey) -> bool {
     if !((a.node) == (b.node)) {
         return false;
     }
@@ -1563,7 +1563,7 @@ impl SalvoHash<RemoteRef> for __Hash_hash__RemoteRef_RemoteRef {
 
 pub struct __Eq_eq__RemoteRef_RemoteRef;
 impl SalvoEq<RemoteRef> for __Eq_eq__RemoteRef_RemoteRef {
-    fn eq(__a: &RemoteRef, __b: &RemoteRef) -> bool { eq__5(__a, __b) }
+    fn eq(__a: &RemoteRef, __b: &RemoteRef) -> bool { eq__6(__a, __b) }
 }
 
 pub struct __Hash_hash__ControlKey_ControlKey;
@@ -1573,5 +1573,5 @@ impl SalvoHash<ControlKey> for __Hash_hash__ControlKey_ControlKey {
 
 pub struct __Eq_eq__ControlKey_ControlKey;
 impl SalvoEq<ControlKey> for __Eq_eq__ControlKey_ControlKey {
-    fn eq(__a: &ControlKey, __b: &ControlKey) -> bool { eq__6(__a, __b) }
+    fn eq(__a: &ControlKey, __b: &ControlKey) -> bool { eq__7(__a, __b) }
 }

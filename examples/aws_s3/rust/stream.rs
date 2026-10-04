@@ -63,7 +63,7 @@ impl crate::wire::__Wire for StreamFailed {
     }
 }
 
-pub fn to_str__5(kind: &Union2<InvalidUtf8, StreamFailed>) -> String {
+pub fn to_str__6(kind: &Union2<InvalidUtf8, StreamFailed>) -> String {
     match kind {
         Union2::U1(_) => {
             return format!("not valid UTF-8: {}", kind.u1().clone().source.clone());
@@ -86,7 +86,7 @@ pub struct OutStream {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Packet {
-    pub bytes: Vec<u8>,
+    pub bytes: Bytes,
     pub stream: InStream,
 }
 
@@ -113,39 +113,39 @@ pub fn close(streams: &crate::stream::Streams, p: Packet) -> Union2<(), Checked<
 pub trait __Stateless_Streams: Send + Sync {
     fn read_line(&self, s: &InStream) -> Option<String>;
     fn read_all(&self, s: &InStream) -> Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>;
-    fn read_bytes(&self, s: &InStream, max: i32) -> Union2<Vec<u8>, Checked<Union2<InvalidUtf8, StreamFailed>>>;
-    fn read_to(&self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn read_bytes(&self, s: &InStream, max: i32) -> Union2<Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn read_to(&self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn read_to__2(&self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn read_line_to(&self, s: &InStream, buf: &mut String) -> bool;
     fn position(&self, s: &InStream) -> i64;
     fn close(&self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn write(&self, s: &OutStream, text: &String) -> i64;
     fn write_line(&self, s: &OutStream, text: &String) -> i64;
-    fn write_bytes(&self, s: &OutStream, data: &Vec<u8>) -> i64;
+    fn write_bytes(&self, s: &OutStream, data: &Bytes) -> i64;
     fn position__2(&self, s: &OutStream) -> i64;
     fn flush(&self, s: &OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn close__2(&self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn receive(&self, s: InStream, reply: crate::scheduler::SalvoReply);
-    fn from_bytes(&self, data: Vec<u8>) -> InStream;
+    fn from_bytes(&self, data: Bytes) -> InStream;
 }
 
 pub trait __Stateful_Streams: Send {
     fn read_line(&mut self, s: &InStream) -> Option<String>;
     fn read_all(&mut self, s: &InStream) -> Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>;
-    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, Checked<Union2<InvalidUtf8, StreamFailed>>>;
-    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn read_to(&mut self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn read_line_to(&mut self, s: &InStream, buf: &mut String) -> bool;
     fn position(&mut self, s: &InStream) -> i64;
     fn close(&mut self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn write(&mut self, s: &OutStream, text: &String) -> i64;
     fn write_line(&mut self, s: &OutStream, text: &String) -> i64;
-    fn write_bytes(&mut self, s: &OutStream, data: &Vec<u8>) -> i64;
+    fn write_bytes(&mut self, s: &OutStream, data: &Bytes) -> i64;
     fn position__2(&mut self, s: &OutStream) -> i64;
     fn flush(&mut self, s: &OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn close__2(&mut self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn receive(&mut self, s: InStream, reply: crate::scheduler::SalvoReply);
-    fn from_bytes(&mut self, data: Vec<u8>) -> InStream;
+    fn from_bytes(&mut self, data: Bytes) -> InStream;
 }
 
 pub struct Streams {
@@ -191,13 +191,13 @@ impl Streams {
             __Inner_Streams::Locked(h) => h.lock().unwrap().read_all(s),
         }
     }
-    pub fn read_bytes(&self, s: &InStream, max: i32) -> Union2<Vec<u8>, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    pub fn read_bytes(&self, s: &InStream, max: i32) -> Union2<Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         match &self.inner {
             __Inner_Streams::Shared(h) => h.read_bytes(s, max),
             __Inner_Streams::Locked(h) => h.lock().unwrap().read_bytes(s, max),
         }
     }
-    pub fn read_to(&self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    pub fn read_to(&self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         match &self.inner {
             __Inner_Streams::Shared(h) => h.read_to(s, buf, max),
             __Inner_Streams::Locked(h) => h.lock().unwrap().read_to(s, buf, max),
@@ -239,7 +239,7 @@ impl Streams {
             __Inner_Streams::Locked(h) => h.lock().unwrap().write_line(s, text),
         }
     }
-    pub fn write_bytes(&self, s: &OutStream, data: &Vec<u8>) -> i64 {
+    pub fn write_bytes(&self, s: &OutStream, data: &Bytes) -> i64 {
         match &self.inner {
             __Inner_Streams::Shared(h) => h.write_bytes(s, data),
             __Inner_Streams::Locked(h) => h.lock().unwrap().write_bytes(s, data),
@@ -269,7 +269,7 @@ impl Streams {
             __Inner_Streams::Locked(h) => h.lock().unwrap().receive(s, reply),
         }
     }
-    pub fn from_bytes(&self, data: Vec<u8>) -> InStream {
+    pub fn from_bytes(&self, data: Bytes) -> InStream {
         match &self.inner {
             __Inner_Streams::Shared(h) => h.from_bytes(data),
             __Inner_Streams::Locked(h) => h.lock().unwrap().from_bytes(data),
@@ -350,17 +350,17 @@ pub fn chunks(s: InStream, size: i32) -> Chunks {
     return Chunks { s: s, size: size };
 }
 
-pub fn next__22(streams: &crate::stream::Streams, p: &mut Chunks) -> Union2<Vec<u8>, Finished> {
+pub fn next__22(streams: &crate::stream::Streams, p: &mut Chunks) -> Union2<Bytes, Finished> {
     let mut got = streams.read_bytes(&p.s, p.size);
     if matches!(got, Union2::U2(_)) {
         ignore((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
-        return Union2::<Vec<u8>, Finished>::U2(finished());
+        return Union2::<Bytes, Finished>::U2(finished());
     }
-    let mut data: Vec<u8> = got.u1().clone();
-    if ((data.len() as i32) == 0) {
-        return Union2::<Vec<u8>, Finished>::U2(finished());
+    let mut data: Bytes = got.u1().clone();
+    if size_platform(&data) == 0 {
+        return Union2::<Bytes, Finished>::U2(finished());
     }
-    return Union2::<Vec<u8>, Finished>::U1(emitted(data));
+    return Union2::<Bytes, Finished>::U1(emitted(data));
 }
 
 pub fn close__3(streams: &crate::stream::Streams, p: Chunks) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
@@ -371,7 +371,7 @@ pub fn stream_chunk_size() -> i32 {
     return 65536;
 }
 
-pub fn fill_from(streams: &crate::stream::Streams, s: &InStream, buf: &mut Vec<u8>) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+pub fn fill_from(streams: &crate::stream::Streams, s: &InStream, buf: &mut Bytes) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     let mut total: i64 = 0i64;
     let mut reading = true;
     while reading {
@@ -389,11 +389,11 @@ pub fn fill_from(streams: &crate::stream::Streams, s: &InStream, buf: &mut Vec<u
 }
 
 pub fn copy_stream(streams: &crate::stream::Streams, s: &InStream, w: &OutStream) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>> {
-    let mut buf = Vec::<u8>::new();
+    let mut buf = mut_bytes(vec![]);
     let mut total: i64 = 0i64;
     let mut copying = true;
     while copying {
-        buf.clear();
+        clear_platform(&mut buf);
         let mut got = streams.read_to(s, &mut buf, stream_chunk_size());
         if matches!(got, Union2::U2(_)) {
             return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
@@ -416,9 +416,9 @@ pub fn write_long(streams: &crate::stream::Streams, s: &OutStream, v: i64) -> i6
     return streams.write_bytes(s, &(fixed_bytes(v, 8)));
 }
 
-pub fn write_value<T: Clone>(streams: &crate::stream::Streams, s: &OutStream, v: T, encode: &mut dyn FnMut(T) -> Vec<u8>) -> i64 {
+pub fn write_value<T: Clone>(streams: &crate::stream::Streams, s: &OutStream, v: T, encode: &mut dyn FnMut(T) -> Bytes) -> i64 {
     let mut data = encode(v);
-    let mut n = write_int(streams, s, (data.len() as i32));
+    let mut n = write_int(streams, s, size_platform(&data));
     return n + streams.write_bytes(s, &data);
 }
 
@@ -441,7 +441,7 @@ pub fn read_long(streams: &crate::stream::Streams, s: &InStream) -> Union3<i64, 
     return read_fixed(streams, s, 8);
 }
 
-pub fn read_value<T: Clone>(streams: &crate::stream::Streams, s: &InStream, decode: &mut dyn FnMut(&Vec<u8>) -> Option<T>) -> Union3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+pub fn read_value<T: Clone>(streams: &crate::stream::Streams, s: &InStream, decode: &mut dyn FnMut(&Bytes) -> Option<T>) -> Union3<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
     let mut len = read_int(streams, s);
     if matches!(len, Union3::U2(_)) {
         return Union3::<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(End {  });
@@ -454,8 +454,8 @@ pub fn read_value<T: Clone>(streams: &crate::stream::Streams, s: &InStream, deco
     if matches!(data, Union2::U2(_)) {
         return Union3::<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3((match data { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
-    let mut bytes: Vec<u8> = data.u1().clone();
-    if ((bytes.len() as i32) < n) {
+    let mut bytes: Bytes = data.u1().clone();
+    if size_platform(&bytes) < n {
         return Union3::<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3(err(checked(Union2::<InvalidUtf8, StreamFailed>::U2(StreamFailed { source: "read_value".to_string(), message: "the stream ended inside a value".to_string() }))));
     }
     let mut v = decode(&bytes);
@@ -465,8 +465,8 @@ pub fn read_value<T: Clone>(streams: &crate::stream::Streams, s: &InStream, deco
     return Union3::<T, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(v.as_ref().unwrap().clone()));
 }
 
-pub fn fixed_bytes(v: i64, width: i32) -> Vec<u8> {
-    let mut out = Vec::<u8>::new();
+pub fn fixed_bytes(v: i64, width: i32) -> Bytes {
+    let mut out = mut_bytes(vec![]);
     let mut rest = v.clone();
     let mut i = 0;
     while i < width {
@@ -474,14 +474,14 @@ pub fn fixed_bytes(v: i64, width: i32) -> Vec<u8> {
         if low < 0i64 {
             low = low + 256i64;
         }
-        out.push((((((low) as i32)) as i32) as u8));
+        add_platform(&mut out, (((((low) as i32)) as i32) as u8));
         rest = (rest - low) / 256i64;
         i = i + 1;
     }
-    let mut back = Vec::<u8>::new();
+    let mut back = mut_bytes(vec![]);
     let mut j = width - 1;
     while j >= 0 {
-        back.push(out.get((j) as i64 as usize).copied().expect("salvo: value is absent at stream:421:19"));
+        add_platform(&mut back, get_platform(&out, j).expect("salvo: value is absent at stream:421:19"));
         j = j - 1;
     }
     return back;
@@ -492,21 +492,21 @@ pub fn read_fixed(streams: &crate::stream::Streams, s: &InStream, width: i32) ->
     if matches!(r, Union2::U2(_)) {
         return Union3::<i64, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3((match r { Union2::U2(__v) => __v, _ => unreachable!() }));
     }
-    let mut data: Vec<u8> = r.u1().clone();
-    if ((data.len() as i32) == 0) {
+    let mut data: Bytes = r.u1().clone();
+    if size_platform(&data) == 0 {
         return Union3::<i64, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(End {  });
     }
-    if ((data.len() as i32) < width) {
+    if size_platform(&data) < width {
         return Union3::<i64, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U3(err(checked(Union2::<InvalidUtf8, StreamFailed>::U2(StreamFailed { source: "read".to_string(), message: "the stream ended inside a number".to_string() }))));
     }
-    let mut first = ((((data.get((0) as i64 as usize).copied().expect("salvo: value is absent at stream:440:32")) as i32)) as i64);
+    let mut first = ((((get_platform(&data, 0).expect("salvo: value is absent at stream:440:32")) as i32)) as i64);
     if first >= 128i64 {
         first = first - 256i64;
     }
     let mut v = first;
     let mut i = 1;
     while i < width {
-        v = v * 256i64 + ((((data.get((i) as i64 as usize).copied().expect("salvo: value is absent at stream:447:39")) as i32)) as i64);
+        v = v * 256i64 + ((((get_platform(&data, i).expect("salvo: value is absent at stream:447:39")) as i32)) as i64);
         i = i + 1;
     }
     return Union3::<i64, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(v));

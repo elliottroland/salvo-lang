@@ -11946,50 +11946,32 @@ fn kotlinc_compiles_and_runs_bytes() -> KotlinCase {
     kotlin_case(files, "bytes", BYTES_OUTPUT)
 }
 
-/// [kt-bytes] The buffer is a **shipped class**, emitted once per program that
-/// names a `Bytes` — and `Mut Bytes` is the same class, so dropping the `Mut`
-/// renders nothing and no conversion happens at a call boundary.
+/// [platform-value-type] `Bytes` is a value platform type: the program names
+/// the host's types — `Bytes`, and `MutBytes` for the mutable kind, by
+/// convention — and calls the platform wrappers; std's host file aliases
+/// both to the shipped `salvo.SalvoBytes`.
 #[test]
-fn bytes_ships_one_runtime_class_for_both_shapes() {
+fn bytes_is_a_value_platform_type() {
     let files = generate_files(&[("main.sv", BYTES_PROGRAM)]);
-    let runtime = files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("bytes.kt"))
-        .expect("bytes.kt emitted");
-    for expected in [
-        "class SalvoBytes",
-        "override fun equals(",
-        "operator fun iterator(): Iterator<UByte>",
-    ] {
-        assert!(
-            runtime.content.contains(expected),
-            "expected `{expected}` in the buffer runtime:\n{}",
-            runtime.content
-        );
-    }
     let main = files
         .iter()
         .find(|f| f.rel_path == std::path::Path::new("main.kt"))
         .expect("main.kt emitted");
-    // One class for both shapes: the builder's declared type is the same as a
-    // fixed buffer's, and `str_of_bytes(buf)` needs no `.toString()`-style
-    // conversion the way a `Mut Str` does [str-drop-mut].
     assert!(
-        main.content.contains("val buf = salvo.SalvoBytes.joined()"),
-        "expected the builder built by the same class:\n{}",
-        main.content
+        main.content.contains("salvo.platform.core.bytes.MutBytes")
+            || files.iter().any(|f| f.content.contains("salvo.platform.core.bytes.MutBytes")),
+        "expected the host's mutable kind named by convention"
     );
-    // A `for` over a buffer is Kotlin's own loop [kt-iter-native]: the class
-    // has an `iterator()`, so iterating allocates no pass.
+    let host = files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("platform/core/bytes.kt"))
+        .expect("std's host file for core.bytes travels with the program");
+    for expected in ["typealias MutBytes", "fun copy(data: Bytes)"] {
+        assert!(host.content.contains(expected), "expected `{expected}` in:\n{}", host.content);
+    }
     assert!(
-        main.content.contains("for (byte in fixed)"),
-        "expected the native byte loop:\n{}",
-        main.content
-    );
-    assert!(
-        main.content.contains("buf.asString()"),
-        "expected the read surface reached without a conversion:\n{}",
-        main.content
+        files.iter().any(|f| f.rel_path == std::path::Path::new("bytes.kt") && f.content.contains("class SalvoBytes")),
+        "the buffer class still ships"
     );
 }
 

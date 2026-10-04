@@ -3,22 +3,99 @@ use crate::core_deque::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
+use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
 
-pub fn iter__2(data: &Vec<u8>) -> BytesYield<'_> {
+/// [platform-type] The host's `Bytes`.
+pub use crate::platform_core_bytes::Bytes;
+const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Bytes>(); };
+
+pub fn bytes_of(elems: Vec<u8>) -> Bytes {
+    let mut out = empty_bytes_platform();
+    for b in &elems {
+        add_platform(&mut out, *b);
+    }
+    return out;
+}
+
+pub fn mut_bytes(parts: Vec<Bytes>) -> Bytes {
+    let mut out = empty_bytes_platform();
+    for part in &parts {
+        append_platform(&mut out, part);
+    }
+    return out;
+}
+
+pub fn empty_bytes_platform() -> Bytes {
+    crate::platform_core_bytes::empty_bytes()
+}
+
+pub fn to_bytes_platform(str: &String) -> Bytes {
+    crate::platform_core_bytes::to_bytes(str)
+}
+
+pub fn str_of_bytes_platform(data: &Bytes) -> Option<String> {
+    crate::platform_core_bytes::str_of_bytes(data)
+}
+
+pub fn eq_platform(a: &Bytes, b: &Bytes) -> bool {
+    crate::platform_core_bytes::eq(a, b)
+}
+
+pub fn size_platform(data: &Bytes) -> i32 {
+    crate::platform_core_bytes::size(data)
+}
+
+pub fn get_platform(data: &Bytes, index: i32) -> Option<u8> {
+    crate::platform_core_bytes::get(data, index)
+}
+
+pub fn slice_platform(data: &Bytes, start: i32, end: i32) -> Option<Bytes> {
+    crate::platform_core_bytes::slice(data, start, end)
+}
+
+pub fn index_of_platform(data: &Bytes, byte: u8) -> Option<i32> {
+    crate::platform_core_bytes::index_of(data, byte)
+}
+
+pub fn add_platform(data: &mut Bytes, byte: u8) {
+    crate::platform_core_bytes::add(data, byte)
+}
+
+pub fn append_platform(data: &mut Bytes, more: &Bytes) {
+    crate::platform_core_bytes::append(data, more)
+}
+
+pub fn set_platform(data: &mut Bytes, index: i32, byte: u8) -> bool {
+    crate::platform_core_bytes::set(data, index, byte)
+}
+
+pub fn clear_platform(data: &mut Bytes) {
+    crate::platform_core_bytes::clear(data)
+}
+
+pub fn to_str_platform(data: &Bytes) -> String {
+    crate::platform_core_bytes::to_str(data)
+}
+
+pub fn to_hex_platform(data: &Bytes) -> String {
+    crate::platform_core_bytes::to_hex(data)
+}
+
+pub fn iter__2(data: &Bytes) -> BytesYield<'_> {
     return BytesYield { data: data, at: 0 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BytesYield<'s> {
-    pub data: &'s Vec<u8>,
+    pub data: &'s Bytes,
     pub at: i32,
 }
 
 pub fn next__2(p: &mut BytesYield<'_>) -> Union2<u8, Finished> {
-    let mut b = p.data.get((p.at) as i64 as usize).copied();
+    let mut b = get_platform(&p.data, p.at);
     if b.is_none() {
         return Union2::<u8, Finished>::U2(finished());
     }

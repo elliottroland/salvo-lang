@@ -197,7 +197,6 @@ pub fn fn_call(
         // [fn-attached] A buffer compares **structurally**: `Vec<u8> ==
         // Vec<u8>` is element-wise, which is what the Kotlin runtime's
         // `SalvoBytes.equals` also does [kt-bytes].
-        ("eq", Some("Bytes")) => format!("({} == {})", a(0), a(1)),
         // [actor-types] Same actor: the same routable identity, so a proxy
         // and the actor it stands for compare equal.
         ("eq", Some("Addr")) => format!(
@@ -753,69 +752,8 @@ pub fn fn_call(
         ("join", Some("List")) => format!("{}.join(&{}[..])", a(0), a(1)),
         ("parse_int", Some("Str")) => format!("{}.parse::<i32>().ok()", a(0)),
 
-        // core.bytes -----------------------------------------------------
-        // [bytes-type] A `Bytes` is a `Vec<u8>`, so most of these are the
-        // vector operation of the same name; the bounds-checked ones answer
-        // `None`/do nothing rather than panicking, which is what the Salvo
-        // declarations promise.
-        ("bytes_of", Some("[]")) if spread_any => owned_vec(),
-        ("bytes_of", Some("[]")) => format!("vec![{}]", args.join(", ")),
-        ("mut_bytes", Some("[]")) if spread_any => {
-            format!("{}.iter().flat_map(|__p| __p.iter().copied()).collect::<Vec<u8>>()", a(0))
-        }
-        ("mut_bytes", Some("[]")) if args.is_empty() => "Vec::<u8>::new()".to_string(),
-        ("mut_bytes", Some("[]")) => format!(
-            "[{}].iter().flat_map(|__p| __p.iter().copied()).collect::<Vec<u8>>()",
-            args.join(", ")
-        ),
-        ("to_bytes", Some("Str")) => format!("{}.as_bytes().to_vec()", a(0)),
-        // Strict by construction: `from_utf8` rejects, it does not replace.
-        ("str_of_bytes", Some("Bytes")) => {
-            format!("String::from_utf8({}.clone()).ok()", a(0))
-        }
-        ("size", Some("Bytes")) => format!("({}.len() as i32)", a(0)),
-        // A negative index wraps to a huge `usize`, which `get` answers
-        // `None` for — the same answer the declaration gives it.
-        ("get", Some("Bytes")) => format!("{}.get({}).copied()", a(0), index(1)),
-        ("slice", Some("Bytes")) => format!(
-            "{{ let __d = &{}; let __i = {}; let __j = {}; \
-             if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() \
-             {{ Some(__d[(__i as usize)..(__j as usize)].to_vec()) }} else {{ None }} }}",
-            a(0),
-            a(1),
-            a(2)
-        ),
-        ("index_of", Some("Bytes")) => format!(
-            "{}.iter().position(|__x| *__x == {}).map(|__i| __i as i32)",
-            a(0),
-            a(1)
-        ),
-        ("add", Some("Bytes")) => format!("{}.push({})", a(0), a(1)),
-        ("append", Some("Bytes")) => format!("{}.extend_from_slice(&{}[..])", a(0), a(1)),
-        // Out of range does nothing, so this is a statement rather than an
-        // indexing assignment (which would panic).
-        // [col-bounds] Answers whether it wrote: out of range nothing moves and
-        // the caller is told, rather than a silent no-op.
-        ("set", Some("Bytes")) => format!(
-            "{{ let __i = {}; if __i >= 0 && (__i as usize) < {}.len() \
-             {{ {}[(__i as usize)] = {}; true }} else {{ false }} }}",
-            a(1),
-            a(0),
-            a(0),
-            a(2)
-        ),
-        ("clear", Some("Bytes")) => format!("{}.clear()", a(0)),
-        // [interp-to-str] `[0, 255, 200]`, the text a `List<Byte>` printed:
-        // the payload type changed, what a program prints did not.
-        ("to_str", Some("Bytes")) => format!(
-            "format!(\"[{{}}]\", {}.iter().map(|__b| __b.to_string())\
-             .collect::<Vec<String>>().join(\", \"))",
-            a(0)
-        ),
-        ("to_hex", Some("Bytes")) => format!(
-            "{}.iter().map(|__b| format!(\"{{:02x}}\", __b)).collect::<String>()",
-            a(0)
-        ),
+        // core.bytes is platform code since 2026-10-04 [platform-value-type]:
+        // `std/platform/core/bytes.{rs,kt}`.
         ("append", Some("Str")) => format!("{}.push_str(&{}[..])", a(0), a(1)),
         // [rs-mut-str] A method on a generated trait, not an inline block:
         // replacing a character needs the string both read and written, and
@@ -855,11 +793,6 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "Addr" => "usize",
         "Pool" => "usize",
         "Reply" => "crate::scheduler::SalvoReply",
-        // [bytes-type] `Bytes` and `Mut Bytes` are both `Vec<u8>`: mutability
-        // lives in the binding and the reference here [type-canbe-mut], and a
-        // byte buffer *is* a `Vec<u8>` — no runtime class, no boxing, which is
-        // the asymmetry with Kotlin's shipped class [kt-bytes].
-        "Bytes" => "Vec<u8>",
         "None" => "()",
         // Only reachable in dead positions.
         "Never" => "()",
