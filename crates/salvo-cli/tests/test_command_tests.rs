@@ -20,6 +20,8 @@ fn work_dir(test: &str) -> PathBuf {
 
 fn salvo_in(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_salvo"))
+        // [kt-std-library] The compiled std is cached in the test target.
+        .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
         .current_dir(dir)
         .args(args)
         .output()
@@ -254,6 +256,8 @@ fn std_tests_pass() {
     // and a scheduler bug is a hang — which has to fail the suite rather than
     // stall it (AGENTS.md: watch the clock).
     let child = Command::new(env!("CARGO_BIN_EXE_salvo"))
+        // [kt-std-library] The compiled std is cached in the test target.
+        .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
         .current_dir(&repo)
         .args(["test", "--src", "std", "--target"])
         .arg(&target)

@@ -4,6 +4,15 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.core.deque
 
+import salvo.*
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.addPlatform
+import salvo.core.list.at
+import salvo.core.list.first
+import salvo.core.string.appendPlatform
+import salvo.core.string.mutStr
 
 fun<T> emptyDequePlatform(): salvo.platform.core.deque.MutDeque<T> {
     return salvo.platform.core.deque.emptyDeque()
@@ -19,6 +28,48 @@ fun<T> intoMutPlatform(d: kotlin.collections.ArrayDeque<T>): salvo.platform.core
 
 fun<T> endEmptyPlatform(d: salvo.platform.core.deque.MutDeque<T>) {
     return salvo.platform.core.deque.endEmpty(d)
+}
+
+fun<T> dequeOf(): kotlin.collections.ArrayDeque<T> {
+    return emptyDequePlatform<T>()
+}
+
+fun<T> dequeOf__T(first: T): kotlin.collections.ArrayDeque<T> {
+    val d = emptyDequePlatform<T>()
+    addLastPlatform(d, first)
+    return d
+}
+
+fun<T> dequeOf__T_TArray(first: T, rest: Array<T>): kotlin.collections.ArrayDeque<T> {
+    return dequeFromPlatform(first, rest)
+}
+
+fun<T> mutDequeOf(): salvo.platform.core.deque.MutDeque<T> {
+    return emptyDequePlatform<T>()
+}
+
+fun<T> mutDequeOf__T(first: T): salvo.platform.core.deque.MutDeque<T> {
+    val d = emptyDequePlatform<T>()
+    addLastPlatform(d, first)
+    return d
+}
+
+fun<T> mutDequeOf__T_TArray(first: T, rest: Array<T>): salvo.platform.core.deque.MutDeque<T> {
+    return dequeFromPlatform(first, rest)
+}
+
+fun<T> dequeBy(size: Int, init: (Int) -> T): kotlin.collections.ArrayDeque<T> {
+    return mutDequeBy(size, init)
+}
+
+fun<T> mutDequeBy(size: Int, init: (Int) -> T): salvo.platform.core.deque.MutDeque<T> {
+    val d = emptyDequePlatform<T>()
+    var i = 0
+    while (i < size) {
+        addLastPlatform(d, init(i))
+        i = i + 1
+    }
+    return d
 }
 
 fun<T> addLastPlatform(d: salvo.platform.core.deque.MutDeque<T>, elem: T) {
@@ -55,4 +106,78 @@ fun<T> lastPlatform(d: kotlin.collections.ArrayDeque<T>): T? {
 
 fun<T> sizePlatform(d: kotlin.collections.ArrayDeque<T>): Int {
     return salvo.platform.core.deque.size(d)
+}
+
+fun<T> drain(d: kotlin.collections.ArrayDeque<T>, each: (T) -> Unit) {
+    val m = intoMutPlatform(d)
+    while (sizePlatform(m) > 0) {
+        each((removeFirstPlatform(m) ?: throw AssertionError("salvo: value is absent at core.deque:101:14")))
+    }
+    endEmptyPlatform(m)
+}
+
+fun<T> toStr(d: kotlin.collections.ArrayDeque<T>, toStr: (T) -> String): String {
+    val out = mutStr(arrayOf("["))
+    var i = 0
+    for (x in salvo.platform.core.deque.each(d)) {
+        if (i > 0) {
+            appendPlatform(out, ", ")
+        }
+        appendPlatform(out, toStr(x))
+        i = i + 1
+    }
+    appendPlatform(out, "]")
+    return out.toString()
+}
+
+fun<T> toList(d: kotlin.collections.ArrayDeque<T>, copy: (T) -> T): List<T> {
+    val out = mutableListOf<T>()
+    for (x in salvo.platform.core.deque.each(d)) {
+        addPlatform(out, copy(x))
+    }
+    return out
+}
+
+fun<T> toDeque(list: List<T>, copy: (T) -> T): kotlin.collections.ArrayDeque<T> {
+    val out = emptyDequePlatform<T>()
+    for (x in salvo.platform.core.list.each(list)) {
+        addLastPlatform(out, copy(x))
+    }
+    return out
+}
+
+fun<T> iter(d: kotlin.collections.ArrayDeque<T>): DequeYield<T> {
+    return DequeYield(items = d, at = 0)
+}
+
+data class DequeYield<T>(
+    var items: kotlin.collections.ArrayDeque<T>,
+    var at: Int,
+)
+
+fun<T> next__DequeYield(p: DequeYield<T>): Union2<T, Finished> {
+    val elem = getPlatform(p.items, p.at)
+    if (elem == null) {
+        return Union2.U2<T, Finished>(finished())
+    }
+    p.at = p.at + 1
+    return Union2.U1<T, Finished>(emitted(elem))
+}
+
+data class __Iter_reversed_Deque<T>(
+    var d: kotlin.collections.ArrayDeque<T>,
+    var at: Int,
+)
+
+fun<T> reversed(d: kotlin.collections.ArrayDeque<T>): __Iter_reversed_Deque<T> {
+    return __Iter_reversed_Deque(d = d, at = sizePlatform(d) - 1)
+}
+
+fun<T> next__Iter_reversed_Deque(__p: __Iter_reversed_Deque<T>): Union2<T, Finished> {
+    val elem = getPlatform(__p.d, __p.at)
+    if (elem == null) {
+        return Union2.U2<T, Finished>(finished())
+    }
+    __p.at = __p.at - 1
+    return Union2.U1<T, Finished>(emitted(elem))
 }

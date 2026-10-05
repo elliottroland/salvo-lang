@@ -199,8 +199,8 @@ object __Codec___Msg_Wheel : salvo.WireCodec<__Msg_Wheel> {
 const val __PROTO_Wheel: String = "df3353758a650c52"
 
 class Wheeling : Wheel {
-    internal val __mailboxCapacity: Int = 2
-    internal var __addr: Int? = null
+    val __mailboxCapacity: Int = 2
+    var __addr: Int? = null
 
     override fun run() {
         __moduleUse0.wheelParker(thisParkerPlatform())

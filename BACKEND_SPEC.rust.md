@@ -815,7 +815,9 @@ the blanket rule:
 ## Unions [rs-union-enums]
 
 * [kt-union-wrappers]-equivalent: wrapper unions emit as generated
-  enums in `unions.rs`:
+  enums, one file per arity (`unions/unionN.rs`) under a `unions/mod.rs`
+  that mounts and re-exports them (2026-10-05, as Kotlin's; a host project's
+  runtime copy stays one `unions.rs`):
   `pub enum UnionN<T1..TN> { U1(T1), .., UN(TN) }` with
   `#[derive(Clone, Debug)]`, per-arm accessor methods
   (`pub fn u1(&self) -> &T1` and `pub fn u1_mut(&mut self) -> &mut T1`,

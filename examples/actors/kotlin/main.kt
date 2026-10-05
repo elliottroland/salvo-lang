@@ -70,9 +70,9 @@ const val __PROTO_Counter: String = "f39d50f9ee8f9923"
 
 class Counting : Counter {
     private var sum: Int = 0
-    internal val __mailboxCapacity: Int = 8
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Counting> = mutableMapOf()
+    val __mailboxCapacity: Int = 8
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Counting> = mutableMapOf()
 
     override fun bump(n: Int) {
         sum = sum + n
@@ -184,9 +184,9 @@ object __Codec___Msg_Ledger : salvo.WireCodec<__Msg_Ledger> {
 const val __PROTO_Ledger: String = "4a99401c8b66babf"
 
 class Bookkeeping(private val __dep_Counter: Counter) : Ledger {
-    internal val __mailboxCapacity: Int = 4
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Bookkeeping> = mutableMapOf()
+    val __mailboxCapacity: Int = 4
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Bookkeeping> = mutableMapOf()
 
     override fun report(label: String, out: salvo.SalvoReply) {
         __dep_Counter.total(run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Bookkeeping.Reported(label, out); __r })
@@ -311,9 +311,9 @@ const val __PROTO_Desk: String = "cb180ef2d1bfd753"
 
 class Desking(private val room: Int) : Desk {
     private var waiting: salvo.platform.core.deque.MutDeque<salvo.SalvoReply> = mutDequeOf()
-    internal val __mailboxCapacity: Int = room
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Desking> = mutableMapOf()
+    val __mailboxCapacity: Int = room
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Desking> = mutableMapOf()
 
     override fun ticket(out: salvo.SalvoReply) {
         addLastPlatform(waiting, out)
@@ -430,8 +430,8 @@ object __Codec___Msg_Fragile : salvo.WireCodec<__Msg_Fragile> {
 const val __PROTO_Fragile: String = "a8c912bc262644a0"
 
 class Breaking : Fragile {
-    internal val __mailboxCapacity: Int = 1
-    internal var __addr: Int? = null
+    val __mailboxCapacity: Int = 1
+    var __addr: Int? = null
 
     override fun crash() {
         val empty: List<Int> = listOf<Int>()

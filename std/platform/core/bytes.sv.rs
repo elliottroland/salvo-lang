@@ -2,11 +2,32 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5ecf120cea852ac5
+use crate::unions::*;
+use crate::core_iterator::Finished;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
+use crate::core_list::at;
 
 /// [platform-type] The host's `Bytes`.
 pub use crate::platform_core_bytes::Bytes;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Bytes>(); };
 const _: fn() = || { fn __each(x: &Bytes) -> impl Iterator<Item = u8> + '_ { crate::platform_core_bytes::each(x).map(|e| e.clone()) } let _ = __each; };
+
+pub fn bytes_of(elems: Vec<u8>) -> Bytes {
+    let mut out = empty_bytes_platform();
+    for b in &elems {
+        add_platform(&mut out, *b);
+    }
+    return out;
+}
+
+pub fn mut_bytes(parts: Vec<Bytes>) -> Bytes {
+    let mut out = empty_bytes_platform();
+    for part in &parts {
+        append_platform(&mut out, part);
+    }
+    return out;
+}
 
 pub fn empty_bytes_platform() -> Bytes {
     crate::platform_core_bytes::empty_bytes()
@@ -62,4 +83,23 @@ pub fn to_str_platform(data: &Bytes) -> String {
 
 pub fn to_hex_platform(data: &Bytes) -> String {
     crate::platform_core_bytes::to_hex(data)
+}
+
+pub fn iter(data: &Bytes) -> BytesYield<'_> {
+    return BytesYield { data: data, at: 0 };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BytesYield<'s> {
+    pub data: &'s Bytes,
+    pub at: i32,
+}
+
+pub fn next(p: &mut BytesYield<'_>) -> Union2<u8, Finished> {
+    let mut b = get_platform(&p.data, p.at);
+    if b.is_none() {
+        return Union2::<u8, Finished>::U2(finished());
+    }
+    p.at = p.at + 1;
+    return Union2::<u8, Finished>::U1(emitted(b.unwrap()));
 }

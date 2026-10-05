@@ -362,10 +362,9 @@ fn golden_unions_rust() {
 #[test]
 fn unions_emit_enums() {
     let files = generate_unions_demo();
-    let unions = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "unions.rs")
-        .expect("unions.rs should be generated");
+    // One file per arity under `unions/mod.rs` [rs-union-enums].
+    let unions = union_text(&files);
+    assert!(files.iter().any(|f| f.rel_path.to_string_lossy() == "unions/union3.rs"));
     assert!(unions.content.contains("pub enum Union2<T1, T2>"));
     assert!(unions.content.contains("pub enum Union3<T1, T2, T3>"));
     assert!(unions
@@ -12933,10 +12932,7 @@ fn a_protocol_with_a_wire_form_gets_a_codec_and_a_hash() {
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
-    let unions = files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("unions.rs"))
-        .expect("unions.rs");
+    let unions = union_text(&files);
     assert!(
         unions.content.contains("impl<T1: crate::wire::__Wire, T2: crate::wire::__Wire> crate::wire::__Wire for Union2<T1, T2>"),
         "expected the union codec:\n{}",
@@ -15911,4 +15907,19 @@ fn main() [use] {
 fn rustc_compiles_and_runs_placeholder_loops() {
     let files = generate(&[("main.sv", PLACEHOLDER_LOOP_DEMO)]);
     run_rust_files(&files, "placeholder-loops", "10\n");
+}
+
+/// The union files' text, read as one [rs-union-enums].
+struct UnionText {
+    content: String,
+}
+
+fn union_text(files: &[salvo_backend_rust::EmittedFile]) -> UnionText {
+    UnionText {
+        content: files
+            .iter()
+            .filter(|f| f.rel_path.starts_with("unions"))
+            .map(|f| f.content.clone())
+            .collect(),
+    }
 }

@@ -4,6 +4,27 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.core.bytes
 
+import salvo.*
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.at
+
+fun bytesOf(elems: Array<UByte>): salvo.platform.core.bytes.Bytes {
+    val out = emptyBytesPlatform()
+    for (b in elems) {
+        addPlatform(out, b)
+    }
+    return out
+}
+
+fun mutBytes(parts: Array<salvo.platform.core.bytes.Bytes>): salvo.platform.core.bytes.MutBytes {
+    val out = emptyBytesPlatform()
+    for (part in parts) {
+        appendPlatform(out, part)
+    }
+    return out
+}
 
 fun emptyBytesPlatform(): salvo.platform.core.bytes.MutBytes {
     return salvo.platform.core.bytes.emptyBytes()
@@ -59,4 +80,22 @@ fun toStrPlatform(data: salvo.platform.core.bytes.Bytes): String {
 
 fun toHexPlatform(data: salvo.platform.core.bytes.Bytes): String {
     return salvo.platform.core.bytes.toHex(data)
+}
+
+fun iter(data: salvo.platform.core.bytes.Bytes): BytesYield {
+    return BytesYield(data = data, at = 0)
+}
+
+data class BytesYield(
+    var data: salvo.platform.core.bytes.Bytes,
+    var at: Int,
+)
+
+fun next(p: BytesYield): Union2<UByte, Finished> {
+    val b = getPlatform(p.data, p.at)
+    if (b == null) {
+        return Union2.U2<UByte, Finished>(finished())
+    }
+    p.at = p.at + 1
+    return Union2.U1<UByte, Finished>(emitted(b))
 }

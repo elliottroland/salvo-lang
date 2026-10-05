@@ -160,6 +160,14 @@ pub trait Backend {
         Ok(Vec::new())
     }
 
+    /// Readies what [`Backend::program_command`] will link besides the
+    /// emitted sources, for a build that is about to run [kt-std-library].
+    /// Called by `run` and `test` after [`Backend::emit`]; nothing by default.
+    fn prepare_run(&self, program: &Program, target_dir: &Path) -> Result<(), BackendError> {
+        let _ = (program, target_dir);
+        Ok(())
+    }
+
     /// Builds the emitted sources with the target toolchain and returns the
     /// **command that launches the program** [cli-run] [test-run].
     /// `emitted` is what [`Backend::emit`] wrote (relative to `target_dir`),

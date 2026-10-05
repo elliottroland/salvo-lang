@@ -218,9 +218,9 @@ const val __PROTO_Lookup: String = "7c0f441570dc9a6f"
 
 class Sequencing(private val who: String) : Sequencer {
     private var n: Int = 0
-    internal val __mailboxCapacity: Int = 16
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Sequencing> = mutableMapOf()
+    val __mailboxCapacity: Int = 16
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Sequencing> = mutableMapOf()
 
     override fun next(out: salvo.SalvoReply) {
         n = n + 1
@@ -274,9 +274,9 @@ class __Actor_Sequencing(private val handler: Sequencing) : salvo.SalvoActor {
 
 class Stocking(private val shard: String) : Inventory {
     private var served: Int = 0
-    internal val __mailboxCapacity: Int = 32
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Stocking> = mutableMapOf()
+    val __mailboxCapacity: Int = 32
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Stocking> = mutableMapOf()
 
     override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
         served = served + qty
@@ -329,9 +329,9 @@ class __Actor_Stocking(private val handler: Stocking) : salvo.SalvoActor {
 }
 
 class Indexing(private val words: List<String>) : Search {
-    internal val __mailboxCapacity: Int = 16
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Indexing> = mutableMapOf()
+    val __mailboxCapacity: Int = 16
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Indexing> = mutableMapOf()
 
     override fun query(word: String, out: salvo.SalvoReply) {
         var n = 0
@@ -389,9 +389,9 @@ class __Actor_Indexing(private val handler: Indexing) : salvo.SalvoActor {
 }
 
 class Looking(private val who: String) : Lookup {
-    internal val __mailboxCapacity: Int = 16
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Looking> = mutableMapOf()
+    val __mailboxCapacity: Int = 16
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Looking> = mutableMapOf()
 
     override fun lookup(key: String, out: salvo.SalvoReply) {
         salvo.SalvoSched.replyWire(out, "$key from $who", salvo.StrCodec)
@@ -443,9 +443,9 @@ class __Actor_Looking(private val handler: Looking) : salvo.SalvoActor {
 }
 
 class SlowLooking(private val who: String, private val timer: Int) : Lookup {
-    internal val __mailboxCapacity: Int = 16
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_SlowLooking> = mutableMapOf()
+    val __mailboxCapacity: Int = 16
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_SlowLooking> = mutableMapOf()
 
     override fun lookup(key: String, out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(timer, __Msg_Timer.After(millis(150L), run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_SlowLooking.Answer(key, out); __r }), __PROTO_Timer, __Codec___Msg_Timer)
@@ -518,9 +518,9 @@ class __Actor_SlowLooking(private val handler: SlowLooking) : salvo.SalvoActor {
 }
 
 class Scattering(private val group: Int, private val gather: Int) : Search {
-    internal val __mailboxCapacity: Int = 16
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Scattering> = mutableMapOf()
+    val __mailboxCapacity: Int = 16
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Scattering> = mutableMapOf()
 
     override fun query(word: String, out: salvo.SalvoReply) {
         val members = run {
@@ -621,9 +621,9 @@ class Gathering : Gather {
     private var pending: salvo.platform.core.deque.MutDeque<salvo.SalvoReply> = mutDequeOf()
     private var left: Int = 0
     private var total: Int = 0
-    internal val __mailboxCapacity: Int = 16
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Gathering> = mutableMapOf()
+    val __mailboxCapacity: Int = 16
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Gathering> = mutableMapOf()
 
     override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) {
         addLastPlatform(pending, out)
@@ -712,9 +712,9 @@ class __Actor_Gathering(private val handler: Gathering) : salvo.SalvoActor {
 }
 
 class Hedging(private val group: Int, private val racer: Int) : Lookup {
-    internal val __mailboxCapacity: Int = 16
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Hedging> = mutableMapOf()
+    val __mailboxCapacity: Int = 16
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Hedging> = mutableMapOf()
 
     override fun lookup(key: String, out: salvo.SalvoReply) {
         val members = run {
@@ -813,9 +813,9 @@ const val __PROTO_Race: String = "5e0ec4d63d5f53dd"
 
 class Racing : Race {
     private var pending: salvo.platform.core.deque.MutDeque<salvo.SalvoReply> = mutDequeOf()
-    internal val __mailboxCapacity: Int = 16
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Racing> = mutableMapOf()
+    val __mailboxCapacity: Int = 16
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Racing> = mutableMapOf()
 
     override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) {
         addLastPlatform(pending, out)
@@ -1030,9 +1030,9 @@ const val __PROTO_Boot: String = "4b15e647d0ca92a7"
 
 class Booting(private val at: NodeEndpoint, private val all: List<NodeEndpoint>, private val net: Int, private val __dep_Transport: Transport) : Boot {
     private var nodes: Int? = null
-    internal val __mailboxCapacity: Int = 2
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Booting> = mutableMapOf()
+    val __mailboxCapacity: Int = 2
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Booting> = mutableMapOf()
 
     override fun boot(done: salvo.SalvoReply) {
         val p = salvo.SalvoSched.pool(1)
@@ -1186,9 +1186,9 @@ fun main() {
 
 class __Route_Inventory(private val group: Int, private val config: RouteConfig, private val __dep_RouteSelector: RouteSelector) : Inventory {
     private var seen: Long = -1L
-    internal val __mailboxCapacity: Int = 1
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont___Route_Inventory> = mutableMapOf()
+    val __mailboxCapacity: Int = 1
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont___Route_Inventory> = mutableMapOf()
 
     override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
         val __pick = routePick__Addr_RouteConfig_Long_Long(__dep_RouteSelector, group, config, seen, salvo.SalvoSched.keyHash(salvo.salvoEncode(sku, salvo.StrCodec).toByteArray()))
@@ -1243,9 +1243,9 @@ class __Actor___Route_Inventory(private val handler: __Route_Inventory) : salvo.
 
 class __Route_Lookup(private val group: Int, private val config: RouteConfig, private val __dep_RouteSelector: RouteSelector) : Lookup {
     private var seen: Long = -1L
-    internal val __mailboxCapacity: Int = 1
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont___Route_Lookup> = mutableMapOf()
+    val __mailboxCapacity: Int = 1
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont___Route_Lookup> = mutableMapOf()
 
     override fun lookup(key: String, out: salvo.SalvoReply) {
         val __pick = routePick__Addr_RouteConfig_Long(__dep_RouteSelector, group, config, seen)
@@ -1300,9 +1300,9 @@ class __Actor___Route_Lookup(private val handler: __Route_Lookup) : salvo.SalvoA
 
 class __Route_Search(private val group: Int, private val config: RouteConfig, private val __dep_RouteSelector: RouteSelector) : Search {
     private var seen: Long = -1L
-    internal val __mailboxCapacity: Int = 1
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont___Route_Search> = mutableMapOf()
+    val __mailboxCapacity: Int = 1
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont___Route_Search> = mutableMapOf()
 
     override fun query(word: String, out: salvo.SalvoReply) {
         val __pick = routePick__Addr_RouteConfig_Long(__dep_RouteSelector, group, config, seen)
@@ -1357,9 +1357,9 @@ class __Actor___Route_Search(private val handler: __Route_Search) : salvo.SalvoA
 
 class __Route_Sequencer(private val group: Int, private val config: RouteConfig, private val __dep_RouteSelector: RouteSelector) : Sequencer {
     private var seen: Long = -1L
-    internal val __mailboxCapacity: Int = 1
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont___Route_Sequencer> = mutableMapOf()
+    val __mailboxCapacity: Int = 1
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont___Route_Sequencer> = mutableMapOf()
 
     override fun next(out: salvo.SalvoReply) {
         val __pick = routePick__Addr_RouteConfig_Long(__dep_RouteSelector, group, config, seen)

@@ -4,6 +4,22 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.core.string
 
+import salvo.*
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.addPlatform
+import salvo.core.list.at
+import salvo.core.list.removeBack
+import salvo.core.list.sizePlatform as sizePlatform__core_list
+
+fun mutStr(parts: Array<String>): salvo.platform.core.string.MutStr {
+    val out = emptyStrPlatform()
+    for (part in parts) {
+        appendPlatform(out, part)
+    }
+    return out
+}
 
 fun emptyStrPlatform(): salvo.platform.core.string.MutStr {
     return salvo.platform.core.string.emptyStr()
@@ -21,12 +37,34 @@ fun charAtPlatform(str: String, index: Int): Char? {
     return salvo.platform.core.string.charAt(str, index)
 }
 
+fun iter(str: String): StrYield {
+    return StrYield(text = str, at = 0)
+}
+
+data class StrYield(
+    var text: String,
+    var at: Int,
+)
+
+fun next(p: StrYield): Union2<Char, Finished> {
+    val chr = charAtPlatform(p.text, p.at)
+    if (chr == null) {
+        return Union2.U2<Char, Finished>(finished())
+    }
+    p.at = p.at + 1
+    return Union2.U1<Char, Finished>(emitted(chr))
+}
+
 fun splitPlatform(str: String, sep: String): salvo.platform.core.list.MutList<String> {
     return salvo.platform.core.string.split(str, sep)
 }
 
 fun indexOfPlatform(str: String, needle: String): Int? {
     return salvo.platform.core.string.indexOf(str, needle)
+}
+
+fun indexOf(str: String, needle: String, from: Int): Int? {
+    return indexOfFromPlatform(str, needle, from)
 }
 
 fun indexOfFromPlatform(str: String, needle: String, from: Int): Int? {
@@ -77,6 +115,27 @@ fun substrPlatform(str: String, start: Int, end: Int): String? {
     return salvo.platform.core.string.substr(str, start, end)
 }
 
+data class Span(
+    val start: Int,
+    val end: Int,
+)
+
+object __Codec_Span : salvo.WireCodec<Span> {
+    override fun enc(v: Span, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.start, out)
+        salvo.IntCodec.enc(v.end, out)
+    }
+    override fun dec(inp: salvo.WireIn): Span = Span(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+}
+
+fun SpanOf_qualifies(span: Span, str: String): Boolean {
+    return span.start >= 0 && span.start <= span.end && span.end <= sizePlatform(str)
+}
+
+fun substr(str: String, at: Span): String {
+    return (substrPlatform(str, at.start, at.end) ?: throw AssertionError("salvo: value is absent at core.string:150:12"))
+}
+
 fun toUpperPlatform(str: String): String {
     return salvo.platform.core.string.toUpper(str)
 }
@@ -103,4 +162,54 @@ fun setPlatform(str: salvo.platform.core.string.MutStr, index: Int, chr: Char): 
 
 fun clearPlatform(str: salvo.platform.core.string.MutStr) {
     return salvo.platform.core.string.clear(str)
+}
+
+fun isEmpty(str: String): Boolean {
+    return sizePlatform(str) == 0
+}
+
+fun repeat(str: String, n: Int): String {
+    val out = mutStr(arrayOf())
+    var i = 0
+    while (i < n) {
+        appendPlatform(out, str)
+        i = i + 1
+    }
+    return out.toString()
+}
+
+fun lines(str: String): salvo.platform.core.list.MutList<String> {
+    val parts = splitPlatform(str, "\n")
+    if (sizePlatform__core_list(parts) > 1 && endsWithPlatform(str, "\n")) {
+        val _end = removeBack(parts, 1)
+    }
+    val out = mutableListOf<String>()
+    for (p in salvo.platform.core.list.each(parts)) {
+        addPlatform(out, trimSuffixPlatform(p, "\r"))
+    }
+    return out
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun splitOnce(str: String, sep: String): Pair<String, String>? {
+    val at = indexOfPlatform(str, sep)
+    if (at != null) {
+        val i = at as Int
+        val before = (substrPlatform(str, 0, i) ?: "")
+        val after = (substrPlatform(str, i + sizePlatform(sep), sizePlatform(str)) ?: "")
+        return Pair(before, after)
+    }
+    return null
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun splitLast(str: String, sep: String): Pair<String, String>? {
+    val at = lastIndexOfPlatform(str, sep)
+    if (at != null) {
+        val i = at as Int
+        val before = (substrPlatform(str, 0, i) ?: "")
+        val after = (substrPlatform(str, i + sizePlatform(sep), sizePlatform(str)) ?: "")
+        return Pair(before, after)
+    }
+    return null
 }

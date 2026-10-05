@@ -165,8 +165,14 @@ never reaches: hello world is 1,516 lines of Kotlin (8 of them `main.kt`) and
 extend `salvo_core::reach` to declarations (fns by what the checker
 resolved, types by name), and emit runtime files only when used. With
 [fn-emit-name] std's output no longer depends on the program, so a std edit
-would rerun only the programs that reach it, and one std compile could be
-shared across a Kotlin batch. Also open, the user's call: CLI test stamps
+would rerun only the programs that reach it. Kotlin already shares one std
+compile across programs [kt-std-library] (2026-10-05). Rust does not: it
+mounts std as modules of each crate, and two things would also have to stop
+depending on the program first — `__loc` locator variants are emitted only
+when a caller demands one (forcing them for all of std fails: an `iter fn`'s
+lending `next` and `get_present` have no locator lowering), and a file imports
+every trait of a module it draws on `as _`, which varies with what is
+emitted. Also open, the user's call: CLI test stamps
 keyed by generated content rather than by the `salvo` binary, so a cached run
 is a sound pre-commit check. `-XX:TieredStopAtLevel=1` for kotlinc was tried
 and rejected (358s against 371s; slower on the large batches).

@@ -295,9 +295,9 @@ object __Codec___Msg_Timer : salvo.WireCodec<__Msg_Timer> {
 const val __PROTO_Timer: String = "d0432e460a159011"
 
 class DefaultTimer : Timer {
-    internal val __mailboxCapacity: Int = 64
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_DefaultTimer> = mutableMapOf()
+    val __mailboxCapacity: Int = 64
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_DefaultTimer> = mutableMapOf()
 
     override fun after(wait: Duration, done: salvo.SalvoReply) {
         afterNanos(wait.nanos, done)
@@ -392,9 +392,9 @@ class ManualTime : Timer, TimerCtl {
     private var now: Long = 0L
     private var deadlines: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
     private var pending: salvo.platform.core.list.MutList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
-    internal val __mailboxCapacity: Int = 64
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_ManualTime> = mutableMapOf()
+    val __mailboxCapacity: Int = 64
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_ManualTime> = mutableMapOf()
 
     override fun after(wait: Duration, done: salvo.SalvoReply) {
         if (wait.nanos <= 0) {

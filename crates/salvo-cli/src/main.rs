@@ -624,6 +624,7 @@ fn build(
     verbose: bool,
     project: Option<&salvo_core::Project>,
     host: &salvo_core::HostDeps,
+    for_run: bool,
 ) -> Result<Option<Built>, ExitCode> {
     let Some(Assembled {
         program,
@@ -674,6 +675,13 @@ fn build(
         eprintln!("{msg}");
     }
     check_dependency_stamps(backend, &program, project, &emitted.files)?;
+    // [kt-std-library] A build about to run readies what it links.
+    if for_run {
+        if let Err(err) = backend.prepare_run(&program, target) {
+            eprintln!("error: {err}");
+            return Err(ExitCode::FAILURE);
+        }
+    }
     let mut written = emitted.files;
     // [platform-host-deps] What the host build needs to know about the
     // declared libraries — a `Cargo.toml` for Rust — beside the sources.
@@ -752,7 +760,7 @@ fn compile(
                 return ExitCode::FAILURE;
             }
         };
-        if let Err(code) = build(backend, &inputs.layout, &target, emit_ast, true, inputs.project.as_ref(), &inputs.host) {
+        if let Err(code) = build(backend, &inputs.layout, &target, emit_ast, true, inputs.project.as_ref(), &inputs.host, false) {
             return code;
         }
     }
@@ -824,7 +832,7 @@ fn run_one(
         return ExitCode::FAILURE;
     }
 
-    let built = match build(backend, layout, target, None, false, inputs.project.as_ref(), &inputs.host) {
+    let built = match build(backend, layout, target, None, false, inputs.project.as_ref(), &inputs.host, true) {
         Ok(Some(built)) => built,
         Ok(None) => return ExitCode::SUCCESS,
         Err(code) => return code,
@@ -1199,6 +1207,10 @@ fn run_test_pass(
         eprintln!("{msg}");
     }
     check_dependency_stamps(backend, program, project, &emitted.files)?;
+    if let Err(err) = backend.prepare_run(program, target) {
+        eprintln!("error: {err}");
+        return Err(ExitCode::FAILURE);
+    }
     // [platform-host-deps] The harness is a program like any other.
     let mut files = emitted.files;
     match backend.write_host_manifest(target, harness_module, host) {

@@ -2,11 +2,37 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5ecf120cea852ac5
+use crate::collections::*;
+use crate::unions::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
 use crate::core_bytes::Bytes;
+use crate::core_list::at;
+use crate::runtime::Body;
 use crate::runtime::Dyn;
+use crate::runtime::Exported;
+use crate::runtime::Parker;
 use crate::runtime::RuntimeHostPlatformSync as _;
 use crate::runtime::__Stateful_RuntimeHost as _;
+use crate::runtime::__Stateful_SchedTable as _;
 use crate::runtime::__Stateless_RuntimeHost as _;
+use crate::runtime::__Stateless_SchedTable as _;
+use crate::runtime::actor_pool;
+use crate::runtime::answer;
+use crate::runtime::current_pool;
+use crate::runtime::deliver_remote;
+use crate::runtime::identity_bits;
+use crate::runtime::kill_actor;
+use crate::runtime::mailbox_dead;
+use crate::runtime::mailbox_queued;
+use crate::runtime::mailbox_room;
+use crate::runtime::mark_proxy;
+use crate::runtime::mint_task_on;
+use crate::runtime::new_pool_of;
+use crate::runtime::spawn_inert;
+use crate::runtime::token_to_actor;
+use crate::runtime::token_to_waiter;
+use crate::runtime::waiter_pool;
 
 /// [mod-use] The module's `use` #0, bound on first use.
 fn __module_use_0() -> &'static crate::runtime_routing::RouteTable {
@@ -39,4 +65,1531 @@ pub fn control_message_platform(sink: i32, from: i64, payload: &Bytes) -> Option
 
 pub fn wire_out_platform(from: i64, to: Bytes, frame: Bytes) {
     crate::platform_runtime_routing::wire_out(from, to, frame)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MsgFrame {
+    pub to: i64,
+    pub actor: i64,
+    pub bits: i64,
+    pub from: i64,
+    pub proto: String,
+    pub payload: Bytes,
+}
+
+impl crate::wire::__Wire for MsgFrame {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.to, out);
+        crate::wire::__Wire::__enc(&self.actor, out);
+        crate::wire::__Wire::__enc(&self.bits, out);
+        crate::wire::__Wire::__enc(&self.from, out);
+        crate::wire::__Wire::__enc(&self.proto, out);
+        crate::wire::__Wire::__enc(&self.payload, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            to: crate::wire::__Wire::__dec(r)?,
+            actor: crate::wire::__Wire::__dec(r)?,
+            bits: crate::wire::__Wire::__dec(r)?,
+            from: crate::wire::__Wire::__dec(r)?,
+            proto: crate::wire::__Wire::__dec(r)?,
+            payload: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnswerFrame {
+    pub to: i64,
+    pub kind: i32,
+    pub id: i64,
+    pub slot: i64,
+    pub bits: i64,
+    pub payload: Bytes,
+}
+
+impl crate::wire::__Wire for AnswerFrame {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.to, out);
+        crate::wire::__Wire::__enc(&self.kind, out);
+        crate::wire::__Wire::__enc(&self.id, out);
+        crate::wire::__Wire::__enc(&self.slot, out);
+        crate::wire::__Wire::__enc(&self.bits, out);
+        crate::wire::__Wire::__enc(&self.payload, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            to: crate::wire::__Wire::__dec(r)?,
+            kind: crate::wire::__Wire::__dec(r)?,
+            id: crate::wire::__Wire::__dec(r)?,
+            slot: crate::wire::__Wire::__dec(r)?,
+            bits: crate::wire::__Wire::__dec(r)?,
+            payload: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct GrantFrame {
+    pub to: i64,
+    pub host: i64,
+    pub actor: i64,
+    pub bits: i64,
+    pub n: i32,
+}
+
+impl crate::wire::__Wire for GrantFrame {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.to, out);
+        crate::wire::__Wire::__enc(&self.host, out);
+        crate::wire::__Wire::__enc(&self.actor, out);
+        crate::wire::__Wire::__enc(&self.bits, out);
+        crate::wire::__Wire::__enc(&self.n, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            to: crate::wire::__Wire::__dec(r)?,
+            host: crate::wire::__Wire::__dec(r)?,
+            actor: crate::wire::__Wire::__dec(r)?,
+            bits: crate::wire::__Wire::__dec(r)?,
+            n: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenFrame {
+    pub to: i64,
+    pub actor: i64,
+    pub bits: i64,
+    pub from: i64,
+}
+
+impl crate::wire::__Wire for OpenFrame {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.to, out);
+        crate::wire::__Wire::__enc(&self.actor, out);
+        crate::wire::__Wire::__enc(&self.bits, out);
+        crate::wire::__Wire::__enc(&self.from, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            to: crate::wire::__Wire::__dec(r)?,
+            actor: crate::wire::__Wire::__dec(r)?,
+            bits: crate::wire::__Wire::__dec(r)?,
+            from: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ControlFrame {
+    pub to: i64,
+    pub from: i64,
+    pub channel: String,
+    pub payload: Bytes,
+}
+
+impl crate::wire::__Wire for ControlFrame {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.to, out);
+        crate::wire::__Wire::__enc(&self.from, out);
+        crate::wire::__Wire::__enc(&self.channel, out);
+        crate::wire::__Wire::__enc(&self.payload, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            to: crate::wire::__Wire::__dec(r)?,
+            from: crate::wire::__Wire::__dec(r)?,
+            channel: crate::wire::__Wire::__dec(r)?,
+            payload: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RemoteRef {
+    pub node: i64,
+    pub actor: i64,
+    pub bits: i64,
+}
+
+impl crate::wire::__Wire for RemoteRef {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.node, out);
+        crate::wire::__Wire::__enc(&self.actor, out);
+        crate::wire::__Wire::__enc(&self.bits, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            node: crate::wire::__Wire::__dec(r)?,
+            actor: crate::wire::__Wire::__dec(r)?,
+            bits: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReplyParts {
+    pub node: i64,
+    pub kind: i32,
+    pub id: i64,
+    pub slot: i64,
+    pub bits: i64,
+}
+
+impl crate::wire::__Wire for ReplyParts {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.node, out);
+        crate::wire::__Wire::__enc(&self.kind, out);
+        crate::wire::__Wire::__enc(&self.id, out);
+        crate::wire::__Wire::__enc(&self.slot, out);
+        crate::wire::__Wire::__enc(&self.bits, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            node: crate::wire::__Wire::__dec(r)?,
+            kind: crate::wire::__Wire::__dec(r)?,
+            id: crate::wire::__Wire::__dec(r)?,
+            slot: crate::wire::__Wire::__dec(r)?,
+            bits: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ControlKey {
+    pub node: i64,
+    pub channel: String,
+}
+
+impl crate::wire::__Wire for ControlKey {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.node, out);
+        crate::wire::__Wire::__enc(&self.channel, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            node: crate::wire::__Wire::__dec(r)?,
+            channel: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Parked {
+    pub from: i64,
+    pub to: i64,
+    pub frame: Bytes,
+}
+
+impl crate::wire::__Wire for Parked {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.from, out);
+        crate::wire::__Wire::__enc(&self.to, out);
+        crate::wire::__Wire::__enc(&self.frame, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            from: crate::wire::__Wire::__dec(r)?,
+            to: crate::wire::__Wire::__dec(r)?,
+            frame: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Staged {
+    pub from: i64,
+    pub to: Bytes,
+    pub frame: Bytes,
+}
+
+impl crate::wire::__Wire for Staged {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.from, out);
+        crate::wire::__Wire::__enc(&self.to, out);
+        crate::wire::__Wire::__enc(&self.frame, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            from: crate::wire::__Wire::__dec(r)?,
+            to: crate::wire::__Wire::__dec(r)?,
+            frame: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+
+pub struct ExportedTask {
+    pub pool: i32,
+    pub body: Body,
+}
+
+impl std::fmt::Debug for ExportedTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExportedTask")
+            .field("pool", &self.pool)
+            .field("body", &"<fn>")
+            .finish()
+    }
+}
+
+pub fn drop_exported_task(t: ExportedTask) {
+    let __destructured1 = t;
+    let mut pool = __destructured1.pool;
+    let mut body = __destructured1.body;
+    crate::runtime::drop_body_platform(body);
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Found {
+    pub idx: i32,
+}
+
+impl crate::wire::__Wire for Found {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.idx, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            idx: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MakeProxy {
+}
+
+impl crate::wire::__Wire for MakeProxy {
+    fn __enc(&self, out: &mut Vec<u8>) {
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MakeDead {
+}
+
+impl crate::wire::__Wire for MakeDead {
+    fn __enc(&self, out: &mut Vec<u8>) {
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+        })
+    }
+}
+
+pub trait __Stateless_RouteTable: Send + Sync {
+    fn node_of_pool(&self, pool: i32) -> i64;
+    fn adopt_pool(&self, pool: i32, node: i64);
+    fn add_node(&self) -> i64;
+    fn hosts(&self, node: i64) -> bool;
+    fn identity_of(&self, addr: i32, pool: i32) -> RemoteRef;
+    fn find_import(&self, r: &RemoteRef, here: i64) -> Union3<Found, MakeProxy, MakeDead>;
+    fn register_proxy(&self, r: RemoteRef, idx: i32, here: i64) -> i32;
+    fn register_dead(&self, idx: i32) -> i32;
+    fn is_proxy(&self, addr: i32) -> bool;
+    fn proxy_ref(&self, addr: i32) -> Option<RemoteRef>;
+    fn take_credit(&self, addr: i32, me: Parker) -> i32;
+    fn stage(&self, from: i64, to: i64, frame: Bytes);
+    fn grant(&self, addr: i32, pool: i32, from: i64, n: i32);
+    fn take_outbox(&self) -> Vec<Staged>;
+    fn add_route(&self, node: i64, at: Bytes);
+    fn set_outbound(&self, node: i64);
+    fn has_outbound(&self, node: i64) -> bool;
+    fn accepts(&self, to: i64, actor: i64, claimed: i64) -> bool;
+    fn received(&self, idx: i32);
+    fn credited(&self, r: RemoteRef, to: i64, n: i32) -> bool;
+    fn held(&self, idx: i32) -> i32;
+    fn put_task(&self, key: i64, t: ExportedTask);
+    fn take_task(&self, key: i64) -> Option<ExportedTask>;
+    fn watch_channel(&self, node: i64, channel: String, sink: i32);
+    fn channel_sink(&self, node: i64, channel: &String) -> i32;
+    fn set_protocols(&self, table: Vec<(String, String)>);
+    fn protocols(&self) -> Vec<(String, String)>;
+    fn set_peer(&self, node: i64, table: Vec<(String, String)>);
+    fn peer_hash(&self, node: i64, protocol: &String) -> Option<String>;
+    fn forget_node(&self, node: i64) -> Vec<i32>;
+    fn credits_of(&self, addr: i32) -> Option<i32>;
+    fn set_view(&self, group: i32, members: Vec<i32>);
+    fn view_of(&self, group: i32) -> Vec<i32>;
+    fn version_of(&self, group: i32) -> i64;
+    fn bump(&self, group: i32);
+    fn add_view_waiter(&self, group: i32, seen: i64, me: Parker) -> i64;
+    fn drop_view_waiter(&self, id: i64);
+}
+
+pub trait __Stateful_RouteTable: Send {
+    fn node_of_pool(&mut self, pool: i32) -> i64;
+    fn adopt_pool(&mut self, pool: i32, node: i64);
+    fn add_node(&mut self) -> i64;
+    fn hosts(&mut self, node: i64) -> bool;
+    fn identity_of(&mut self, addr: i32, pool: i32) -> RemoteRef;
+    fn find_import(&mut self, r: &RemoteRef, here: i64) -> Union3<Found, MakeProxy, MakeDead>;
+    fn register_proxy(&mut self, r: RemoteRef, idx: i32, here: i64) -> i32;
+    fn register_dead(&mut self, idx: i32) -> i32;
+    fn is_proxy(&mut self, addr: i32) -> bool;
+    fn proxy_ref(&mut self, addr: i32) -> Option<RemoteRef>;
+    fn take_credit(&mut self, addr: i32, me: Parker) -> i32;
+    fn stage(&mut self, from: i64, to: i64, frame: Bytes);
+    fn grant(&mut self, addr: i32, pool: i32, from: i64, n: i32);
+    fn take_outbox(&mut self) -> Vec<Staged>;
+    fn add_route(&mut self, node: i64, at: Bytes);
+    fn set_outbound(&mut self, node: i64);
+    fn has_outbound(&mut self, node: i64) -> bool;
+    fn accepts(&mut self, to: i64, actor: i64, claimed: i64) -> bool;
+    fn received(&mut self, idx: i32);
+    fn credited(&mut self, r: RemoteRef, to: i64, n: i32) -> bool;
+    fn held(&mut self, idx: i32) -> i32;
+    fn put_task(&mut self, key: i64, t: ExportedTask);
+    fn take_task(&mut self, key: i64) -> Option<ExportedTask>;
+    fn watch_channel(&mut self, node: i64, channel: String, sink: i32);
+    fn channel_sink(&mut self, node: i64, channel: &String) -> i32;
+    fn set_protocols(&mut self, table: Vec<(String, String)>);
+    fn protocols(&mut self) -> Vec<(String, String)>;
+    fn set_peer(&mut self, node: i64, table: Vec<(String, String)>);
+    fn peer_hash(&mut self, node: i64, protocol: &String) -> Option<String>;
+    fn forget_node(&mut self, node: i64) -> Vec<i32>;
+    fn credits_of(&mut self, addr: i32) -> Option<i32>;
+    fn set_view(&mut self, group: i32, members: Vec<i32>);
+    fn view_of(&mut self, group: i32) -> Vec<i32>;
+    fn version_of(&mut self, group: i32) -> i64;
+    fn bump(&mut self, group: i32);
+    fn add_view_waiter(&mut self, group: i32, seen: i64, me: Parker) -> i64;
+    fn drop_view_waiter(&mut self, id: i64);
+}
+
+pub struct RouteTable {
+    inner: __Inner_RouteTable,
+}
+
+pub enum __Inner_RouteTable {
+    Shared(std::sync::Arc<dyn __Stateless_RouteTable>),
+    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_RouteTable>>),
+}
+
+impl Clone for RouteTable {
+    fn clone(&self) -> Self {
+        Self { inner: match &self.inner {
+            __Inner_RouteTable::Shared(h) => __Inner_RouteTable::Shared(h.clone()),
+            __Inner_RouteTable::Locked(h) => __Inner_RouteTable::Locked(h.clone()),
+        } }
+    }
+}
+
+impl RouteTable {
+    pub fn shared<__H: __Stateless_RouteTable + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_RouteTable::Shared(std::sync::Arc::new(inner)) }
+    }
+    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_RouteTable>) -> Self {
+        Self { inner: __Inner_RouteTable::Shared(inner) }
+    }
+    pub fn locked<__H: __Stateful_RouteTable + 'static>(inner: __H) -> Self {
+        Self { inner: __Inner_RouteTable::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
+    }
+    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_RouteTable>>) -> Self {
+        Self { inner: __Inner_RouteTable::Locked(inner) }
+    }
+    pub fn node_of_pool(&self, pool: i32) -> i64 {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.node_of_pool(pool),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().node_of_pool(pool),
+        }
+    }
+    pub fn adopt_pool(&self, pool: i32, node: i64) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.adopt_pool(pool, node),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().adopt_pool(pool, node),
+        }
+    }
+    pub fn add_node(&self) -> i64 {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.add_node(),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().add_node(),
+        }
+    }
+    pub fn hosts(&self, node: i64) -> bool {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.hosts(node),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().hosts(node),
+        }
+    }
+    pub fn identity_of(&self, addr: i32, pool: i32) -> RemoteRef {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.identity_of(addr, pool),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().identity_of(addr, pool),
+        }
+    }
+    pub fn find_import(&self, r: &RemoteRef, here: i64) -> Union3<Found, MakeProxy, MakeDead> {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.find_import(r, here),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().find_import(r, here),
+        }
+    }
+    pub fn register_proxy(&self, r: RemoteRef, idx: i32, here: i64) -> i32 {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.register_proxy(r, idx, here),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().register_proxy(r, idx, here),
+        }
+    }
+    pub fn register_dead(&self, idx: i32) -> i32 {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.register_dead(idx),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().register_dead(idx),
+        }
+    }
+    pub fn is_proxy(&self, addr: i32) -> bool {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.is_proxy(addr),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().is_proxy(addr),
+        }
+    }
+    pub fn proxy_ref(&self, addr: i32) -> Option<RemoteRef> {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.proxy_ref(addr),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().proxy_ref(addr),
+        }
+    }
+    pub fn take_credit(&self, addr: i32, me: Parker) -> i32 {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.take_credit(addr, me),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().take_credit(addr, me),
+        }
+    }
+    pub fn stage(&self, from: i64, to: i64, frame: Bytes) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.stage(from, to, frame),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().stage(from, to, frame),
+        }
+    }
+    pub fn grant(&self, addr: i32, pool: i32, from: i64, n: i32) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.grant(addr, pool, from, n),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().grant(addr, pool, from, n),
+        }
+    }
+    pub fn take_outbox(&self) -> Vec<Staged> {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.take_outbox(),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().take_outbox(),
+        }
+    }
+    pub fn add_route(&self, node: i64, at: Bytes) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.add_route(node, at),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().add_route(node, at),
+        }
+    }
+    pub fn set_outbound(&self, node: i64) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.set_outbound(node),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().set_outbound(node),
+        }
+    }
+    pub fn has_outbound(&self, node: i64) -> bool {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.has_outbound(node),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().has_outbound(node),
+        }
+    }
+    pub fn accepts(&self, to: i64, actor: i64, claimed: i64) -> bool {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.accepts(to, actor, claimed),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().accepts(to, actor, claimed),
+        }
+    }
+    pub fn received(&self, idx: i32) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.received(idx),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().received(idx),
+        }
+    }
+    pub fn credited(&self, r: RemoteRef, to: i64, n: i32) -> bool {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.credited(r, to, n),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().credited(r, to, n),
+        }
+    }
+    pub fn held(&self, idx: i32) -> i32 {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.held(idx),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().held(idx),
+        }
+    }
+    pub fn put_task(&self, key: i64, t: ExportedTask) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.put_task(key, t),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().put_task(key, t),
+        }
+    }
+    pub fn take_task(&self, key: i64) -> Option<ExportedTask> {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.take_task(key),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().take_task(key),
+        }
+    }
+    pub fn watch_channel(&self, node: i64, channel: String, sink: i32) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.watch_channel(node, channel, sink),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().watch_channel(node, channel, sink),
+        }
+    }
+    pub fn channel_sink(&self, node: i64, channel: &String) -> i32 {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.channel_sink(node, channel),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().channel_sink(node, channel),
+        }
+    }
+    pub fn set_protocols(&self, table: Vec<(String, String)>) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.set_protocols(table),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().set_protocols(table),
+        }
+    }
+    pub fn protocols(&self) -> Vec<(String, String)> {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.protocols(),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().protocols(),
+        }
+    }
+    pub fn set_peer(&self, node: i64, table: Vec<(String, String)>) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.set_peer(node, table),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().set_peer(node, table),
+        }
+    }
+    pub fn peer_hash(&self, node: i64, protocol: &String) -> Option<String> {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.peer_hash(node, protocol),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().peer_hash(node, protocol),
+        }
+    }
+    pub fn forget_node(&self, node: i64) -> Vec<i32> {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.forget_node(node),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().forget_node(node),
+        }
+    }
+    pub fn credits_of(&self, addr: i32) -> Option<i32> {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.credits_of(addr),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().credits_of(addr),
+        }
+    }
+    pub fn set_view(&self, group: i32, members: Vec<i32>) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.set_view(group, members),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().set_view(group, members),
+        }
+    }
+    pub fn view_of(&self, group: i32) -> Vec<i32> {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.view_of(group),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().view_of(group),
+        }
+    }
+    pub fn version_of(&self, group: i32) -> i64 {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.version_of(group),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().version_of(group),
+        }
+    }
+    pub fn bump(&self, group: i32) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.bump(group),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().bump(group),
+        }
+    }
+    pub fn add_view_waiter(&self, group: i32, seen: i64, me: Parker) -> i64 {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.add_view_waiter(group, seen, me),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().add_view_waiter(group, seen, me),
+        }
+    }
+    pub fn drop_view_waiter(&self, id: i64) {
+        match &self.inner {
+            __Inner_RouteTable::Shared(h) => h.drop_view_waiter(id),
+            __Inner_RouteTable::Locked(h) => h.lock().unwrap().drop_view_waiter(id),
+        }
+    }
+}
+
+pub fn version_in(versions: &SalvoMap<i32, i64>, group: i32) -> i64 {
+    let mut v = versions.get(&group);
+    if v.is_some() {
+        let mut n = *v.unwrap();
+        return n.clone();
+    }
+    return 0i64;
+}
+
+pub fn bump_in(versions: &mut SalvoMap<i32, i64>, waiters: &mut Vec<ViewWaiter>, group: i32) {
+    versions.insert(group.clone(), version_in(versions, group.clone()) + ((1) as i64));
+    let mut i = 0;
+    while i < crate::core_list::size_platform(waiters) {
+        if crate::core_list::get_platform(waiters, i).expect("salvo: value is absent at runtime.routing:171:12").group == group {
+            let mut w = crate::core_list::remove_at_platform(waiters, i.clone()).expect("salvo: value is absent at runtime.routing:172:21");
+            crate::runtime::unpark_platform(&(w.parker.clone()));
+        } else {
+            i = i + 1;
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ViewWaiter {
+    pub group: i32,
+    pub id: i64,
+    pub parker: Parker,
+}
+
+impl std::fmt::Debug for ViewWaiter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ViewWaiter")
+            .field("group", &self.group)
+            .field("id", &self.id)
+            .field("parker", &"<fn>")
+            .finish()
+    }
+}
+
+pub struct Routes {
+    node_id: i64,
+    hosted: SalvoSet<i64>,
+    pool_node: SalvoMap<i32, i64>,
+    bits: SalvoMap<i32, i64>,
+    remote: SalvoMap<i32, RemoteRef>,
+    proxies: SalvoMap<RemoteRef, i32>,
+    credits: SalvoMap<i32, i32>,
+    held_n: SalvoMap<i32, i32>,
+    routes: SalvoMap<i64, Bytes>,
+    outbound: SalvoSet<i64>,
+    parked: Vec<Parked>,
+    outbox: Vec<Staged>,
+    task_keys: Vec<i64>,
+    tasks: Vec<ExportedTask>,
+    controls: SalvoMap<ControlKey, i32>,
+    local: Vec<(String, String)>,
+    peers: SalvoMap<i64, Vec<(String, String)>>,
+    dead_entry: i32,
+    credit_waiters: Vec<Parker>,
+    views: SalvoMap<i32, Vec<i32>>,
+    versions: SalvoMap<i32, i64>,
+    view_waiters: Vec<ViewWaiter>,
+    next_waiter: i64,
+}
+
+impl Routes {
+    pub fn new() -> Self {
+        Self {
+            node_id: 0i64,
+            hosted: SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]),
+            pool_node: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            bits: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            remote: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            proxies: SalvoMap::from_entries::<__Hash_hash__RemoteRef_RemoteRef, __Eq_eq__RemoteRef_RemoteRef, _>(vec![]),
+            credits: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            held_n: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            routes: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            outbound: SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]),
+            parked: vec![],
+            outbox: vec![],
+            task_keys: vec![],
+            tasks: vec![],
+            controls: SalvoMap::from_entries::<__Hash_hash__ControlKey_ControlKey, __Eq_eq__ControlKey_ControlKey, _>(vec![]),
+            local: vec![],
+            peers: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            dead_entry: -1,
+            credit_waiters: vec![],
+            views: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            versions: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            view_waiters: vec![],
+            next_waiter: 0i64,
+        }
+    }
+}
+
+impl crate::runtime_routing::__Stateful_RouteTable for Routes {
+
+    fn node_of_pool(&mut self, pool: i32) -> i64 {
+        return node_in(&self.pool_node, self.node_id, pool);
+    }
+
+    fn adopt_pool(&mut self, pool: i32, node: i64) {
+        self.pool_node.insert(pool, node);
+    }
+
+    fn add_node(&mut self) -> i64 {
+        let mut n = fresh_node();
+        self.hosted.insert(n.clone());
+        return n;
+    }
+
+    fn hosts(&mut self, node: i64) -> bool {
+        return self.hosted.contains(&node);
+    }
+
+    fn identity_of(&mut self, addr: i32, pool: i32) -> RemoteRef {
+        return identity_in(&self.remote, &mut self.bits, &self.pool_node, self.node_id, addr, pool);
+    }
+
+    fn find_import(&mut self, r: &RemoteRef, here: i64) -> Union3<Found, MakeProxy, MakeDead> {
+        if r.node == here {
+            let mut idx = ((r.actor) as i32);
+            let mut b = self.bits.get(&idx);
+            if !self.remote.contains_key(&idx) && (b.is_some()) && { let mut known = *b.unwrap();  known == r.bits } {
+                let mut known = *b.unwrap();
+                return Union3::<Found, MakeProxy, MakeDead>::U1(Found { idx: idx });
+            }
+            if self.dead_entry >= 0 {
+                return Union3::<Found, MakeProxy, MakeDead>::U1(Found { idx: self.dead_entry.clone() });
+            }
+            return Union3::<Found, MakeProxy, MakeDead>::U3(MakeDead {  });
+        }
+        let mut p = self.proxies.get(&r);
+        if p.is_some() {
+            let mut idx = *p.unwrap();
+            return Union3::<Found, MakeProxy, MakeDead>::U1(Found { idx: idx.clone() });
+        }
+        return Union3::<Found, MakeProxy, MakeDead>::U2(MakeProxy {  });
+    }
+
+    fn register_proxy(&mut self, r: RemoteRef, idx: i32, here: i64) -> i32 {
+        let mut existing = self.proxies.get(&r);
+        if existing.is_some() {
+            let mut e = *existing.unwrap();
+            return e.clone();
+        }
+        self.remote.insert(idx.clone(), r.clone());
+        self.proxies.insert(r.clone(), idx.clone());
+        self.credits.insert(idx.clone(), 0);
+        let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U4(OpenFrame { to: r.node, actor: r.actor, bits: r.bits, from: here.clone() }));
+        stage_in(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked, here, r.node, frame);
+        return idx;
+    }
+
+    fn register_dead(&mut self, idx: i32) -> i32 {
+        if self.dead_entry >= 0 {
+            return self.dead_entry.clone();
+        }
+        self.dead_entry = idx;
+        return self.dead_entry.clone();
+    }
+
+    fn is_proxy(&mut self, addr: i32) -> bool {
+        return self.remote.contains_key(&addr);
+    }
+
+    fn proxy_ref(&mut self, addr: i32) -> Option<RemoteRef> {
+        let mut r = self.remote.get(&addr);
+        if r.is_some() {
+            let mut found = r.unwrap();
+            return Some(found.clone());
+        }
+        return None;
+    }
+
+    fn take_credit(&mut self, addr: i32, me: Parker) -> i32 {
+        let mut c = self.credits.get(&addr);
+        if c.is_some() {
+            let mut n = *c.unwrap();
+            if n > 0 {
+                self.credits.insert(addr.clone(), n - 1);
+                self.held_n.insert(addr.clone(), held_in(&self.held_n, addr.clone()) + 1);
+                return 1;
+            }
+            crate::core_list::add_platform(&mut self.credit_waiters, me);
+            return 0;
+        }
+        return -1;
+    }
+
+    fn stage(&mut self, from: i64, to: i64, frame: Bytes) {
+        stage_in(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked, from, to, frame);
+    }
+
+    fn grant(&mut self, addr: i32, pool: i32, from: i64, n: i32) {
+        self.held_n.insert(addr.clone(), held_in(&self.held_n, addr.clone()) + n);
+        let mut me = identity_in(&self.remote, &mut self.bits, &self.pool_node, self.node_id, addr.clone(), pool);
+        let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U3(GrantFrame { to: from.clone(), host: me.node, actor: me.actor, bits: me.bits, n: n }));
+        stage_in(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked, me.node, from, frame);
+    }
+
+    fn take_outbox(&mut self) -> Vec<Staged> {
+        let mut out: Vec<Staged> = vec![];
+        while crate::core_list::size_platform(&self.outbox) > 0 {
+            crate::core_list::add_platform(&mut out, crate::core_list::remove_at_platform(&mut self.outbox, 0).expect("salvo: value is absent at runtime.routing:327:22"));
+        }
+        return out;
+    }
+
+    fn add_route(&mut self, node: i64, at: Bytes) {
+        self.routes.insert(node, at);
+        restage(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked);
+    }
+
+    fn set_outbound(&mut self, node: i64) {
+        self.outbound.insert(node);
+        restage(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked);
+    }
+
+    fn has_outbound(&mut self, node: i64) -> bool {
+        return self.outbound.contains(&node);
+    }
+
+    fn accepts(&mut self, to: i64, actor: i64, claimed: i64) -> bool {
+        if !self.hosted.contains(&to) {
+            return false;
+        }
+        let mut idx = ((actor) as i32);
+        let mut b = self.bits.get(&idx);
+        if !self.remote.contains_key(&idx) && (b.is_some()) && { let mut known = *b.unwrap();  known == claimed } {
+            let mut known = *b.unwrap();
+            return true;
+        }
+        return false;
+    }
+
+    fn received(&mut self, idx: i32) {
+        let mut h = held_in(&self.held_n, idx.clone());
+        if h > 0 {
+            self.held_n.insert(idx, h - 1);
+        }
+    }
+
+    fn credited(&mut self, r: RemoteRef, to: i64, n: i32) -> bool {
+        if !self.hosted.contains(&to) {
+            return false;
+        }
+        let mut p = self.proxies.get(&r);
+        if p.is_some() {
+            let mut idx = *p.unwrap();
+            let mut i = idx.clone();
+            let mut c = self.credits.get(&i);
+            let mut now = 0;
+            if c.is_some() {
+                let mut have = *c.unwrap();
+                now = have.clone();
+            }
+            self.credits.insert(i.clone(), now + n);
+            let mut h = held_in(&self.held_n, i.clone()) - n;
+            if h < 0 {
+                h = 0;
+            }
+            self.held_n.insert(i, h);
+            wake_senders(&mut self.credit_waiters);
+            return true;
+        }
+        return false;
+    }
+
+    fn held(&mut self, idx: i32) -> i32 {
+        return held_in(&self.held_n, idx);
+    }
+
+    fn put_task(&mut self, key: i64, t: ExportedTask) {
+        crate::core_list::add_platform(&mut self.task_keys, key);
+        crate::core_list::add_platform(&mut self.tasks, t);
+    }
+
+    fn take_task(&mut self, key: i64) -> Option<ExportedTask> {
+        let mut i = 0;
+        while i < crate::core_list::size_platform(&self.task_keys) {
+            if *crate::core_list::get_platform(&self.task_keys, i).expect("salvo: value is absent at runtime.routing:401:16") == key {
+                let mut _k = crate::core_list::remove_at_platform(&mut self.task_keys, i.clone());
+                return crate::core_list::remove_at_platform(&mut self.tasks, i);
+            }
+            i = i + 1;
+        }
+        return None;
+    }
+
+    fn watch_channel(&mut self, node: i64, channel: String, sink: i32) {
+        self.controls.insert(ControlKey { node: node, channel: channel }, sink);
+    }
+
+    fn channel_sink(&mut self, node: i64, channel: &String) -> i32 {
+        let mut s = self.controls.get(&ControlKey { node: node.clone(), channel: channel.clone() });
+        if s.is_some() {
+            let mut sink = *s.unwrap();
+            return sink.clone();
+        }
+        return -1;
+    }
+
+    fn set_protocols(&mut self, table: Vec<(String, String)>) {
+        self.local = table.clone();
+    }
+
+    fn protocols(&mut self) -> Vec<(String, String)> {
+        return self.local.clone();
+    }
+
+    fn set_peer(&mut self, node: i64, table: Vec<(String, String)>) {
+        self.peers.insert(node, table);
+    }
+
+    fn peer_hash(&mut self, node: i64, protocol: &String) -> Option<String> {
+        let mut t = self.peers.get(&node);
+        if t.is_some() {
+            let mut table = t.unwrap();
+            for mut entry in crate::platform_core_list::each(table).map(|__x| __x.clone()) {
+                let (mut name, mut hash) = entry.clone();
+                if name == protocol.clone() {
+                    return Some(hash.clone());
+                }
+            }
+        }
+        return None;
+    }
+
+    fn forget_node(&mut self, node: i64) -> Vec<i32> {
+        let mut _route = self.routes.remove(&node);
+        let mut _peer = self.peers.remove(&node);
+        let mut gone: Vec<i32> = vec![];
+        for mut idx in crate::platform_core_list::each(&(self.remote.keys().cloned().collect::<Vec<_>>())).map(|__x| __x.clone()) {
+            let mut r = self.remote.get(&idx);
+            if r.is_some() {
+                let mut found = r.unwrap();
+                if found.node == node {
+                    crate::core_list::add_platform(&mut gone, idx.clone());
+                }
+            }
+        }
+        wake_senders(&mut self.credit_waiters);
+        return gone;
+    }
+
+    fn set_view(&mut self, group: i32, members: Vec<i32>) {
+        self.views.insert(group.clone(), members);
+        bump_in(&mut self.versions, &mut self.view_waiters, group);
+    }
+
+    fn view_of(&mut self, group: i32) -> Vec<i32> {
+        let mut v = self.views.get(&group);
+        if v.is_some() {
+            let mut found = v.unwrap();
+            return found.clone();
+        }
+        return vec![];
+    }
+
+    fn version_of(&mut self, group: i32) -> i64 {
+        return version_in(&self.versions, group);
+    }
+
+    fn bump(&mut self, group: i32) {
+        bump_in(&mut self.versions, &mut self.view_waiters, group);
+    }
+
+    fn add_view_waiter(&mut self, group: i32, seen: i64, me: Parker) -> i64 {
+        if version_in(&self.versions, group.clone()) != seen {
+            return -1i64;
+        }
+        self.next_waiter = self.next_waiter + ((1) as i64);
+        crate::core_list::add_platform(&mut self.view_waiters, ViewWaiter { group: group, id: self.next_waiter.clone(), parker: me });
+        return self.next_waiter.clone();
+    }
+
+    fn drop_view_waiter(&mut self, id: i64) {
+        let mut i = 0;
+        while i < crate::core_list::size_platform(&self.view_waiters) {
+            if crate::core_list::get_platform(&self.view_waiters, i).expect("salvo: value is absent at runtime.routing:496:16").id == id {
+                let mut _w = crate::core_list::remove_at_platform(&mut self.view_waiters, i.clone());
+                return;
+            }
+            i = i + 1;
+        }
+    }
+
+    fn credits_of(&mut self, addr: i32) -> Option<i32> {
+        let mut c = self.credits.get(&addr);
+        if c.is_some() {
+            let mut n = *c.unwrap();
+            return Some(n.clone());
+        }
+        return None;
+    }
+}
+
+impl Routes {
+
+    fn init(&mut self) {
+        self.node_id = fresh_node();
+        self.hosted.insert(self.node_id.clone());
+        self.pool_node.insert(0, self.node_id.clone());
+    }
+}
+
+pub enum __Priv_Routes {
+    Init,
+}
+
+pub fn node_in(pool_node: &SalvoMap<i32, i64>, node_id: i64, pool: i32) -> i64 {
+    let mut n = pool_node.get(&pool);
+    if n.is_some() {
+        let mut v = *n.unwrap();
+        return v.clone();
+    }
+    return node_id.clone();
+}
+
+pub fn held_in(held_n: &SalvoMap<i32, i32>, idx: i32) -> i32 {
+    let mut h = held_n.get(&idx);
+    if h.is_some() {
+        let mut n = *h.unwrap();
+        return n.clone();
+    }
+    return 0;
+}
+
+pub fn identity_in(remote: &SalvoMap<i32, RemoteRef>, bits: &mut SalvoMap<i32, i64>, pool_node: &SalvoMap<i32, i64>, node_id: i64, addr: i32, pool: i32) -> RemoteRef {
+    let mut r = remote.get(&addr);
+    if r.is_some() {
+        let mut found = r.unwrap();
+        return found.clone();
+    }
+    let mut n = node_in(pool_node, node_id, pool);
+    let mut b = bits.get(&addr);
+    if b.is_some() {
+        let mut known = *b.unwrap();
+        return RemoteRef { node: n, actor: ((addr) as i64), bits: known.clone() };
+    }
+    let mut minted = identity_bits();
+    bits.insert(addr.clone(), minted.clone());
+    return RemoteRef { node: n, actor: ((addr) as i64), bits: minted };
+}
+
+pub fn wake_senders(waiters: &mut Vec<Parker>) {
+    while crate::core_list::size_platform(waiters) > 0 {
+        crate::runtime::unpark_platform(&(crate::core_list::remove_at_platform(waiters, 0).expect("salvo: value is absent at runtime.routing:554:16")));
+    }
+}
+
+pub fn stage_in(routes: &SalvoMap<i64, Bytes>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>, from: i64, to: i64, frame: Bytes) {
+    let mut ep = routes.get(&to);
+    if ep.is_some() {
+        let mut at = ep.unwrap();
+        if outbound.contains(&from) {
+            crate::core_list::add_platform(outbox, Staged { from: from, to: at.clone(), frame: frame });
+            return;
+        }
+    }
+    crate::core_list::add_platform(parked, Parked { from: from, to: to, frame: frame });
+}
+
+pub fn restage(routes: &SalvoMap<i64, Bytes>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>) {
+    let mut waiting: Vec<Parked> = vec![];
+    while crate::core_list::size_platform(parked) > 0 {
+        crate::core_list::add_platform(&mut waiting, crate::core_list::remove_at_platform(parked, 0).expect("salvo: value is absent at runtime.routing:577:22"));
+    }
+    for mut p in crate::platform_core_list::each(&(waiting)).map(|__x| __x.clone()) {
+        stage_in(routes, outbound, outbox, parked, p.from, p.to, p.frame.clone());
+    }
+}
+
+pub fn fresh_node() -> i64 {
+    let mut b = identity_bits();
+    if b < ((0) as i64) {
+        return -(b + ((1) as i64));
+    }
+    return b;
+}
+
+pub fn here_node() -> i64 {
+    return __module_use_0().node_of_pool(current_pool());
+}
+
+pub fn adopt(pool: i32) {
+    __module_use_0().adopt_pool(pool, here_node());
+}
+
+pub fn new_node() -> i64 {
+    return __module_use_0().add_node();
+}
+
+pub fn pool_at(node: i64, n: i32) -> i32 {
+    let mut p = new_pool_of(n, -1);
+    __module_use_0().adopt_pool(p.clone(), node);
+    return p;
+}
+
+pub fn identity(addr: i32) -> RemoteRef {
+    return __module_use_0().identity_of(addr.clone(), actor_pool(addr.clone()));
+}
+
+pub fn same_actor(a: i32, b: i32) -> bool {
+    if a == b {
+        return true;
+    }
+    if !__module_use_0().is_proxy(a.clone()) && !__module_use_0().is_proxy(b.clone()) {
+        return false;
+    }
+    return eq__RemoteRef_RemoteRef(&(identity(a)), &(identity(b)));
+}
+
+pub fn import_addr(node: i64, actor: i64, bits: i64) -> i32 {
+    let mut r = RemoteRef { node: node, actor: actor, bits: bits };
+    let mut here = here_node();
+    let mut found = __module_use_0().find_import(&(r.clone()), here.clone());
+    if matches!(found, Union3::U1(_)) {
+        let mut f = found.u1().clone();
+        return f.idx;
+    }
+    let mut idx = spawn_inert();
+    if matches!(found, Union3::U3(_)) {
+        kill_actor(idx.clone(), "unknown identity".to_string());
+        return __module_use_0().register_dead(idx);
+    }
+    let mut got = __module_use_0().register_proxy(r, idx.clone(), here);
+    if got == idx {
+        mark_proxy(idx);
+    }
+    flush();
+    return got;
+}
+
+pub fn remote(addr: i32) -> bool {
+    return __module_use_0().is_proxy(addr);
+}
+
+pub fn send_remote(addr: i32, proto: String, payload: Bytes) {
+    let mut r = __module_use_0().proxy_ref(addr.clone());
+    if r.is_none() {
+        return;
+    }
+    loop {
+        let mut got = __module_use_0().take_credit(addr.clone(), crate::runtime::this_parker_platform());
+        if got == 1 {
+            let mut from = here_node();
+            let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U1(MsgFrame { to: r.as_ref().unwrap().clone().node, actor: r.as_ref().unwrap().clone().actor, bits: r.as_ref().unwrap().clone().bits, from: from.clone(), proto: proto, payload: payload }));
+            __module_use_0().stage(from, r.as_ref().unwrap().clone().node, frame);
+            flush();
+            return;
+        }
+        if got < 0 || mailbox_dead(addr.clone()) {
+            return;
+        }
+        crate::runtime::park_platform(&(crate::runtime::this_parker_platform()));
+        if mailbox_dead(addr.clone()) {
+            return;
+        }
+    }
+}
+
+pub fn answer_remote(t: ReplyParts, payload: Bytes) {
+    let mut from = here_node();
+    let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U2(AnswerFrame { to: t.node, kind: t.kind, id: t.id, slot: t.slot, bits: t.bits, payload: payload }));
+    __module_use_0().stage(from, t.node, frame);
+    flush();
+}
+
+pub fn export_reply(e: Exported) -> ReplyParts {
+    let __destructured2 = e;
+    let mut kind = __destructured2.kind;
+    let mut id = __destructured2.id;
+    let mut slot = __destructured2.slot;
+    let mut body = __destructured2.body;
+    if kind == 2 {
+        if body.is_some() {
+            let mut b = body.unwrap();
+            __module_use_0().put_task(slot.clone(), ExportedTask { pool: id.clone(), body: b });
+        }
+        return ReplyParts { node: __module_use_0().node_of_pool(id.clone()), kind: 2, id: slot.clone(), slot: slot, bits: 0i64 };
+    }
+    if body.is_some() {
+        let mut b = body.unwrap();
+        crate::runtime::drop_body_platform(b);
+    }
+    if kind == 1 {
+        return ReplyParts { node: __module_use_0().node_of_pool(waiter_pool(id.clone())), kind: 1, id: ((id) as i64), slot: slot, bits: 0i64 };
+    }
+    let mut me = identity(id);
+    return ReplyParts { node: me.node, kind: 0, id: me.actor, slot: slot, bits: me.bits };
+}
+
+pub fn credit_back(addr: i32, pool: i32, from: i64) {
+    __module_use_0().grant(addr, pool, from, 1);
+}
+
+pub fn flush() {
+    let mut out = __module_use_0().take_outbox();
+    for s in crate::platform_core_list::each(&out) {
+        wire_out_platform(s.from, s.to.clone(), s.frame.clone());
+    }
+}
+
+pub fn route(node: i64, at: Bytes) {
+    __module_use_0().add_route(node, at);
+    flush();
+}
+
+pub fn outbound_bound() {
+    __module_use_0().set_outbound(here_node());
+    flush();
+}
+
+pub fn connected() -> bool {
+    return __module_use_0().has_outbound(here_node());
+}
+
+pub fn credits(addr: i32) -> Option<i32> {
+    return __module_use_0().credits_of(addr);
+}
+
+pub fn pending(addr: i32) -> i32 {
+    if __module_use_0().is_proxy(addr.clone()) {
+        return __module_use_0().held(addr);
+    }
+    return mailbox_queued(addr);
+}
+
+pub fn watch_control(channel: String, sink: i32) {
+    __module_use_0().watch_channel(here_node(), channel, sink);
+}
+
+pub fn send_control(to: i64, channel: String, payload: Bytes) {
+    let mut from = here_node();
+    let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U5(ControlFrame { to: to.clone(), from: from.clone(), channel: channel, payload: payload }));
+    __module_use_0().stage(from, to, frame);
+    flush();
+}
+
+pub fn control_frame(channel: String, payload: Bytes) -> Bytes {
+    return crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U5(ControlFrame { to: 0i64, from: here_node(), channel: channel, payload: payload }));
+}
+
+pub fn node_left(node: i64) {
+    for mut idx in crate::platform_core_list::each(&(__module_use_0().forget_node(node))).map(|__x| __x.clone()) {
+        kill_actor(idx.clone(), "node left".to_string());
+    }
+}
+
+pub fn register_protocols(table: Vec<(String, String)>) {
+    __module_use_0().set_protocols(table);
+}
+
+pub fn local_protocols() -> Vec<(String, String)> {
+    return __module_use_0().protocols();
+}
+
+pub fn set_peer_protocols(node: i64, table: Vec<(String, String)>) {
+    __module_use_0().set_peer(node, table);
+}
+
+pub fn peer_protocol(node: i64, protocol: &String) -> Option<String> {
+    return __module_use_0().peer_hash(node, protocol);
+}
+
+pub fn deliver(data: &Bytes) -> bool {
+    let mut f = crate::wire::salvo_decode::<Union5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>>(&data.clone());
+    if matches!(f, Some(Union5::U1(_))) {
+        let mut m = f.as_ref().unwrap().u1().clone();
+        if !__module_use_0().accepts(m.to, m.actor, m.bits) {
+            return false;
+        }
+        let mut idx = ((m.actor) as i32);
+        let mut msg = decode_message_platform(idx.clone(), &(m.proto.clone()), &(m.payload.clone()));
+        if msg.is_some() {
+            let mut v = msg.unwrap();
+            __module_use_0().received(idx.clone());
+            let mut _queued = deliver_remote(idx, v, m.from);
+            return true;
+        }
+        return false;
+    }
+    if matches!(f, Some(Union5::U2(_))) {
+        let mut a = f.as_ref().unwrap().u2().clone();
+        return deliver_answer(&a);
+    }
+    if matches!(f, Some(Union5::U3(_))) {
+        let mut g = f.as_ref().unwrap().u3().clone();
+        return __module_use_0().credited(RemoteRef { node: g.host, actor: g.actor, bits: g.bits }, g.to, g.n);
+    }
+    if matches!(f, Some(Union5::U4(_))) {
+        let mut o = f.as_ref().unwrap().u4().clone();
+        if !__module_use_0().accepts(o.to, o.actor, o.bits) {
+            return false;
+        }
+        let mut idx = ((o.actor) as i32);
+        let mut room = mailbox_room(idx.clone()) - __module_use_0().held(idx.clone());
+        if room < 1 {
+            room = 1;
+        }
+        __module_use_0().grant(idx.clone(), actor_pool(idx.clone()), o.from, room);
+        flush();
+        return true;
+    }
+    if matches!(f, Some(Union5::U5(_))) {
+        let mut c = f.as_ref().unwrap().u5().clone();
+        let mut node = c.to;
+        if node == ((0) as i64) {
+            node = here_node();
+        }
+        if !__module_use_0().hosts(node.clone()) {
+            return false;
+        }
+        let mut sink = __module_use_0().channel_sink(node, &(c.channel.clone()));
+        if sink < 0 {
+            return false;
+        }
+        let mut msg = control_message_platform(sink.clone(), c.from, &(c.payload.clone()));
+        if msg.is_some() {
+            let mut v = msg.unwrap();
+            let mut queued = deliver_remote(sink, v, ((-1) as i64));
+            return queued;
+        }
+        return false;
+    }
+    return false;
+}
+
+pub fn deliver_answer(a: &AnswerFrame) -> bool {
+    if !__module_use_0().hosts(a.to) {
+        return false;
+    }
+    if a.kind == 0 {
+        if !__module_use_0().accepts(a.to, a.id, a.bits) {
+            return false;
+        }
+        answer(token_to_actor(((a.id) as i32), a.slot), raw_answer_platform(a.payload.clone()));
+        return true;
+    }
+    if a.kind == 1 {
+        let mut wid = ((a.id) as i32);
+        let mut v = decode_waiter_answer_platform(wid.clone(), &(a.payload.clone()));
+        if v.is_some() {
+            let mut value = v.unwrap();
+            answer(token_to_waiter(wid, a.slot), value);
+            return true;
+        }
+        return false;
+    }
+    let mut t = __module_use_0().take_task(a.id);
+    if t.is_some() {
+        let mut task = t.unwrap();
+        let mut v = decode_task_answer_platform(a.id, &(a.payload.clone()));
+        let __destructured3 = task;
+        let mut pool = __destructured3.pool;
+        let mut body = __destructured3.body;
+        if v.is_some() {
+            let mut value = v.unwrap();
+            answer(mint_task_on(pool, body), value);
+            return true;
+        }
+        crate::runtime::drop_body_platform(body);
+    }
+    return false;
+}
+
+pub fn view_set(group: i32, members: Vec<i32>) {
+    __module_use_0().set_view(group, members);
+}
+
+pub fn view_members(group: i32) -> Vec<i32> {
+    let mut left: Vec<i32> = vec![];
+    for mut m in crate::platform_core_list::each(&(__module_use_0().view_of(group))).map(|__x| __x.clone()) {
+        crate::core_list::add_platform(&mut left, m.clone());
+    }
+    let mut out: Vec<i32> = vec![];
+    while crate::core_list::size_platform(&left) > 0 {
+        let mut best = 0;
+        let mut i = 1;
+        while i < crate::core_list::size_platform(&left) {
+            if before(&(identity(*crate::core_list::get_platform(&left, i).expect("salvo: value is absent at runtime.routing:937:37"))), &(identity(*crate::core_list::get_platform(&left, best).expect("salvo: value is absent at runtime.routing:937:68")))) {
+                best = i.clone();
+            }
+            i = i + 1;
+        }
+        crate::core_list::add_platform(&mut out, crate::core_list::remove_at_platform(&mut left, best).expect("salvo: value is absent at runtime.routing:942:18"));
+    }
+    return out.clone();
+}
+
+pub fn before(a: &RemoteRef, b: &RemoteRef) -> bool {
+    if a.node != b.node {
+        return a.node < b.node;
+    }
+    return a.actor <= b.actor;
+}
+
+pub fn view_version(group: i32) -> i64 {
+    return __module_use_0().version_of(group);
+}
+
+pub fn view_refresh(group: i32) {
+    __module_use_0().bump(group);
+}
+
+pub fn view_wait(group: i32, seen: i64, nanos: i64) {
+    let mut me = crate::runtime::this_parker_platform();
+    let mut id = __module_use_0().add_view_waiter(group, seen, me.clone());
+    if id < ((0) as i64) {
+        return;
+    }
+    crate::runtime::park_nanos_platform(&me, nanos);
+    __module_use_0().drop_view_waiter(id);
+}
+
+pub fn hash__RemoteRef(value: &RemoteRef) -> i64 {
+    let mut h = 17i64;
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.actor), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.bits), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    return h;
+}
+
+pub fn eq__RemoteRef_RemoteRef(a: &RemoteRef, b: &RemoteRef) -> bool {
+    if !((a.node) == (b.node)) {
+        return false;
+    }
+    if !((a.actor) == (b.actor)) {
+        return false;
+    }
+    if !((a.bits) == (b.bits)) {
+        return false;
+    }
+    return true;
+}
+
+pub fn hash__ControlKey(value: &ControlKey) -> i64 {
+    let mut h = 17i64;
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.channel[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    return h;
+}
+
+pub fn eq__ControlKey_ControlKey(a: &ControlKey, b: &ControlKey) -> bool {
+    if !((a.node) == (b.node)) {
+        return false;
+    }
+    if !(&a.channel[..] == &b.channel[..]) {
+        return false;
+    }
+    return true;
+}
+
+pub struct __Hash_hash__RemoteRef_RemoteRef;
+impl SalvoHash<RemoteRef> for __Hash_hash__RemoteRef_RemoteRef {
+    fn hash(__v: &RemoteRef) -> i64 { hash__RemoteRef(__v) }
+}
+
+pub struct __Eq_eq__RemoteRef_RemoteRef;
+impl SalvoEq<RemoteRef> for __Eq_eq__RemoteRef_RemoteRef {
+    fn eq(__a: &RemoteRef, __b: &RemoteRef) -> bool { eq__RemoteRef_RemoteRef(__a, __b) }
+}
+
+pub struct __Hash_hash__ControlKey_ControlKey;
+impl SalvoHash<ControlKey> for __Hash_hash__ControlKey_ControlKey {
+    fn hash(__v: &ControlKey) -> i64 { hash__ControlKey(__v) }
+}
+
+pub struct __Eq_eq__ControlKey_ControlKey;
+impl SalvoEq<ControlKey> for __Eq_eq__ControlKey_ControlKey {
+    fn eq(__a: &ControlKey, __b: &ControlKey) -> bool { eq__ControlKey_ControlKey(__a, __b) }
 }

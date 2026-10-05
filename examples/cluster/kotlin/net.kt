@@ -229,9 +229,9 @@ object __Codec___Msg_Outbound : salvo.WireCodec<__Msg_Outbound> {
 const val __PROTO_Outbound: String = "e754249e848e9986"
 
 class Sending(private val __dep_Transport: Transport) : Outbound {
-    internal val __mailboxCapacity: Int = 256
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Sending> = mutableMapOf()
+    val __mailboxCapacity: Int = 256
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Sending> = mutableMapOf()
 
     override fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         val _sent = __dep_Transport.deliver(to, frame)
@@ -283,9 +283,9 @@ class __Actor_Sending(private val handler: Sending) : salvo.SalvoActor {
 }
 
 class Receiving : Inbound {
-    internal val __mailboxCapacity: Int = 256
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Receiving> = mutableMapOf()
+    val __mailboxCapacity: Int = 256
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Receiving> = mutableMapOf()
 
     override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         val _delivered = salvo.SalvoSched.deliverFrame((frame).toByteArray())
@@ -620,9 +620,9 @@ fun leaveGroup(known: Map<NodeId, Node>) {
 class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoint>, private val __dep_Transport: Transport) : NodeGroup {
     private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__NodeId, ::eq__NodeId_NodeId).also { __m -> __m.putAll(listOf()) }
     private var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
-    internal val __mailboxCapacity: Int = 64
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_StaticNodeGroup> = mutableMapOf()
+    val __mailboxCapacity: Int = 64
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_StaticNodeGroup> = mutableMapOf()
 
     override fun members(out: salvo.SalvoReply) {
         salvo.SalvoSched.replyWire(out, knownNodes(known), salvo.ListCodec(__Codec_Node))
@@ -767,9 +767,9 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
     private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__NodeId, ::eq__NodeId_NodeId).also { __m -> __m.putAll(listOf()) }
     private var dialed: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
     private var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
-    internal val __mailboxCapacity: Int = 64
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_GossipNodeGroup> = mutableMapOf()
+    val __mailboxCapacity: Int = 64
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_GossipNodeGroup> = mutableMapOf()
 
     override fun members(out: salvo.SalvoReply) {
         salvo.SalvoSched.replyWire(out, knownNodes(known), salvo.ListCodec(__Codec_Node))
@@ -1098,9 +1098,9 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
     private var all: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     private var peers: salvo.platform.core.list.MutList<NodeId> = mutableListOf<NodeId>()
     private var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
-    internal val __mailboxCapacity: Int = 64
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_ActorGrouping> = mutableMapOf()
+    val __mailboxCapacity: Int = 64
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_ActorGrouping> = mutableMapOf()
 
     override fun join(member: Int) {
         if (!admit(all, member)) {
@@ -1655,9 +1655,9 @@ class MemNetwork : MemNet {
     private var cuts: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
     private var dead: MutableSet<NodeEndpoint> = salvo.SalvoHashSet<NodeEndpoint>(::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint).also { __s -> __s.addAll(listOf()) }
     private var count: Int = 0
-    internal val __mailboxCapacity: Int = 64
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_MemNetwork> = mutableMapOf()
+    val __mailboxCapacity: Int = 64
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_MemNetwork> = mutableMapOf()
 
     override fun attach(at: NodeEndpoint, sink: Int) {
         dead.remove(at)

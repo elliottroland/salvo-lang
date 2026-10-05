@@ -327,8 +327,10 @@ Conventions:
 
 ## Unions
 
-* [kt-union-wrappers] Wrapper unions emit as generated sealed hierarchies
-  in `unions.kt`: `sealed interface UnionN<out T1..TN> { val value: Any? }`
+* [kt-union-wrappers] Wrapper unions emit as generated sealed hierarchies,
+  **one file per arity** (`unions/UnionN.kt`, its codec in
+  `unions/UnionNCodec.kt`; user decision 2026-10-05, so an arity has one place
+  whoever compiles it [kt-std-library]): `sealed interface UnionN<out T1..TN> { val value: Any? }`
   with the arms **nested** in it, `data class Ui<out T1..TN>(override val
   value: Ti) : UnionN<T1..TN>`, generated for every size the program uses.
   An arm is named `UnionN.Ui` — `Union2.U1(x)` — as Rust's is `Union2::U1`
@@ -1034,6 +1036,25 @@ nothing but the monitor.
   data.
 
 ## Running the output [kt-run]
+
+* [kt-std-library] **std compiles once and every program links it** (user
+  decisions 2026-10-05). The library is std emitted alone, every std module a
+  root (`stdlib::std_library_files`), compiled with `-module-name salvo-std`
+  into a cache entry keyed by its files' paths and text and by the resolved
+  `kotlinc`: `$SALVO_CACHE_DIR`, else `$XDG_CACHE_HOME/salvo`, else
+  `~/.cache/salvo`; `SALVO_NO_STD_CACHE` turns it off. An entry is built under
+  a private name and renamed into place, so concurrent builds never see half
+  of one. `salvo run`/`test` ready it (`Backend::prepare_run`) and then
+  compile only the program's files the library does not have, with it on the
+  classpath — **only when every file both have is byte-identical**; otherwise
+  the program compiles whole, as before. The codegen test driver links its
+  batches the same way, from a library in the test target, and rewrites only
+  each case's own packages into its namespace. What it took: nothing in
+  generated code or the runtime is `internal` any more (Kotlin's `internal`
+  stops at a compilation module), and a tuple or union is one arity to a file.
+  Hello world runs in 3.3s against 5.3s; the four driver shards went from
+  185–199s to 103–128s inside a fresh suite. The Rust backend mounts std as
+  modules of each program's crate, so it does not share (ROADMAP 0h).
 
 * [cli-run] [kt-run] `salvo run --backend kotlin` compiles every emitted
   `.kt` file with `kotlinc -d <target>/.salvo_classes`, then launches

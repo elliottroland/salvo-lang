@@ -146,7 +146,7 @@ runner, where cross-binary scheduling wins and the timings matter):
 |---|---|---|
 | `SALVO_SKIP_E2E=1 cargo test` | skips every toolchain test | ~13s |
 | `cargo test` | runs everything; skips only *re-verifying* unchanged generated code | ~15s warm, minutes cold |
-| `SALVO_E2E_FRESH=1 cargo nextest run` | runs everything, ignoring the cache | ~1m40 |
+| `SALVO_E2E_FRESH=1 cargo nextest run` | runs everything, ignoring the cache | ~6m (2026-10-05, 1,689 tests) |
 
 (Measured 2026-09-21 at `[profile.dev] opt-level = 1`; a full rebuild is
 ~2m49 one-off, incremental builds ~8–12s. A run right after a **relink** —
@@ -167,7 +167,7 @@ run after a relink.)
   point.
 - **Watch the clock and flag drift** (user decision 2026-09-12). Test runs
   are `time`d; the table above is the budget. When a run overshoots it
-  noticeably — warm runs past ~20s, fresh runs past ~2 minutes — or a
+  noticeably — warm runs past ~20s, fresh runs past ~7 minutes — or a
   command looks hung, say so to the user rather than silently waiting or
   retrying: slow runs so far have meant something diagnosable (doctest
   passes, JVM probes, stale-object pileup, AMFI kills — see COMPLETED.md's

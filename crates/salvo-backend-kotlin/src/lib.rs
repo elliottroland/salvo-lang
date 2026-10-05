@@ -3,6 +3,7 @@
 mod emit;
 mod imports;
 mod intrinsics;
+pub mod stdlib;
 
 pub use emit::{
     emit_abi, emit_program, emit_program_reporting, host_package, platform_skeletons,
@@ -18,6 +19,10 @@ use salvo_core::{HostDeps, ModulePath, Program};
 /// [kt-run]. Dot-prefixed so a target nested in the source tree stays
 /// invisible to source discovery [mod-ignore].
 const CLASSES_DIR: &str = ".salvo_classes";
+
+/// [kt-std-library] The file in the target naming the compiled standard
+/// library `prepare_run` readied for this build.
+const STD_MARKER: &str = ".salvo_std_library";
 
 /// [kt-gradle] The Gradle build written beside the emitted sources when
 /// artifacts are declared, the Kotlin counterpart of Rust's `Cargo.toml`
@@ -218,6 +223,20 @@ impl Backend for KotlinBackend {
         Ok(files.iter().map(PathBuf::from).collect())
     }
 
+    /// [kt-std-library] Compiles the standard library into the cache, when it
+    /// is not there yet, and records it in the target for `program_command`.
+    fn prepare_run(&self, program: &Program, target_dir: &Path) -> Result<(), BackendError> {
+        let marker = target_dir.join(STD_MARKER);
+        let _ = std::fs::remove_file(&marker);
+        let Some(root) = stdlib::default_cache_root() else {
+            return Ok(());
+        };
+        let files = stdlib::std_library_files(program).map_err(BackendError::Codegen)?;
+        let library = stdlib::prepare(&root, files).map_err(BackendError::Other)?;
+        std::fs::write(&marker, library.entry().to_string_lossy().as_bytes())?;
+        Ok(())
+    }
+
     /// [kt-run] `kotlinc` every emitted `.kt` file into a classes directory
     /// inside the target, then `kotlin -cp` that directory with the entry
     /// class. Companion files [backend-companion] are `.kt` too, so they
@@ -236,11 +255,33 @@ impl Backend for KotlinBackend {
         use std::ffi::OsStr;
 
         let classes = target_dir.join(CLASSES_DIR);
-        let sources: Vec<PathBuf> = emitted
+        let mut sources: Vec<PathBuf> = emitted
             .iter()
             .filter(|p| p.extension().is_some_and(|e| e == "kt"))
             .map(|p| target_dir.join(p))
             .collect();
+        // [kt-std-library] With a library readied, compile only the files it
+        // does not cover — when every one it does cover is identical.
+        let library = std::fs::read_to_string(target_dir.join(STD_MARKER))
+            .ok()
+            .and_then(|entry| stdlib::load(Path::new(entry.trim())));
+        let library = library.and_then(|lib| {
+            let texts: Vec<(PathBuf, String)> = emitted
+                .iter()
+                .filter(|p| p.extension().is_some_and(|e| e == "kt"))
+                .filter_map(|p| Some((p.clone(), std::fs::read_to_string(target_dir.join(p)).ok()?)))
+                .collect();
+            let own: Vec<PathBuf> = lib
+                .own_files(texts.iter().map(|(p, t)| (p.as_path(), t.as_str())))?
+                .into_iter()
+                .map(|p| target_dir.join(p))
+                .collect();
+            Some((lib.classes, own))
+        });
+        if let Some((_, own)) = &library {
+            sources = own.clone();
+        }
+        let lib_classes: Option<PathBuf> = library.map(|(c, _)| c);
         if sources.is_empty() {
             return Err(BackendError::Other(
                 "nothing to run: no Kotlin sources were emitted".to_string(),
@@ -283,7 +324,9 @@ impl Backend for KotlinBackend {
         }
         jars.extend(host.kotlin_jars());
         let classpath = |leading: &Path| {
-            std::env::join_paths(std::iter::once(leading.to_path_buf()).chain(jars.iter().cloned()))
+            std::env::join_paths(
+                std::iter::once(leading.to_path_buf()).chain(lib_classes.iter().cloned()).chain(jars.iter().cloned()),
+            )
                 .map_err(|e| BackendError::Other(format!("cannot build a classpath: {e}")))
         };
 
@@ -295,8 +338,8 @@ impl Backend for KotlinBackend {
         // still see them.
         args.push(OsStr::new("-nowarn"));
         let jar_cp;
-        if !jars.is_empty() {
-            jar_cp = std::env::join_paths(jars.iter().cloned())
+        if !jars.is_empty() || lib_classes.is_some() {
+            jar_cp = std::env::join_paths(lib_classes.iter().cloned().chain(jars.iter().cloned()))
                 .map_err(|e| BackendError::Other(format!("cannot build a classpath: {e}")))?;
             args.push(OsStr::new("-cp"));
             args.push(jar_cp.as_os_str());

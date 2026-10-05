@@ -4,6 +4,34 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.runtime.routing
 
+import salvo.*
+import salvo.core.list.addPlatform
+import salvo.core.list.at
+import salvo.core.list.getPlatform
+import salvo.core.list.removeAtPlatform
+import salvo.core.list.sizePlatform
+import salvo.runtime.Exported
+import salvo.runtime.actorPool
+import salvo.runtime.answer
+import salvo.runtime.currentPool
+import salvo.runtime.deliverRemote
+import salvo.runtime.dropBodyPlatform
+import salvo.runtime.identityBits
+import salvo.runtime.killActor
+import salvo.runtime.mailboxDead
+import salvo.runtime.mailboxQueued
+import salvo.runtime.mailboxRoom
+import salvo.runtime.markProxy
+import salvo.runtime.mintTaskOn
+import salvo.runtime.newPoolOf
+import salvo.runtime.parkNanosPlatform
+import salvo.runtime.parkPlatform
+import salvo.runtime.spawnInert
+import salvo.runtime.thisParkerPlatform
+import salvo.runtime.tokenToActor
+import salvo.runtime.tokenToWaiter
+import salvo.runtime.unparkPlatform
+import salvo.runtime.waiterPool
 
 // [mod-use] The module's `use` #0, bound on first use.
 private val __moduleUse0: RouteTable by lazy {
@@ -33,4 +61,1274 @@ fun controlMessagePlatform(sink: Int, from: Long, payload: salvo.platform.core.b
 
 fun wireOutPlatform(from: Long, to: salvo.platform.core.bytes.Bytes, frame: salvo.platform.core.bytes.Bytes) {
     return salvo.platform.runtime.routing.wireOut(from, to, frame)
+}
+
+data class MsgFrame(
+    val to: Long,
+    val actor: Long,
+    val bits: Long,
+    val from: Long,
+    val proto: String,
+    val payload: salvo.platform.core.bytes.Bytes,
+)
+
+object __Codec_MsgFrame : salvo.WireCodec<MsgFrame> {
+    override fun enc(v: MsgFrame, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.to, out)
+        salvo.LongCodec.enc(v.actor, out)
+        salvo.LongCodec.enc(v.bits, out)
+        salvo.LongCodec.enc(v.from, out)
+        salvo.StrCodec.enc(v.proto, out)
+        salvo.BytesCodec.enc(v.payload, out)
+    }
+    override fun dec(inp: salvo.WireIn): MsgFrame = MsgFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.StrCodec.dec(inp), salvo.BytesCodec.dec(inp))
+}
+
+data class AnswerFrame(
+    val to: Long,
+    val kind: Int,
+    val id: Long,
+    val slot: Long,
+    val bits: Long,
+    val payload: salvo.platform.core.bytes.Bytes,
+)
+
+object __Codec_AnswerFrame : salvo.WireCodec<AnswerFrame> {
+    override fun enc(v: AnswerFrame, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.to, out)
+        salvo.IntCodec.enc(v.kind, out)
+        salvo.LongCodec.enc(v.id, out)
+        salvo.LongCodec.enc(v.slot, out)
+        salvo.LongCodec.enc(v.bits, out)
+        salvo.BytesCodec.enc(v.payload, out)
+    }
+    override fun dec(inp: salvo.WireIn): AnswerFrame = AnswerFrame(salvo.LongCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.BytesCodec.dec(inp))
+}
+
+data class GrantFrame(
+    val to: Long,
+    val host: Long,
+    val actor: Long,
+    val bits: Long,
+    val n: Int,
+)
+
+object __Codec_GrantFrame : salvo.WireCodec<GrantFrame> {
+    override fun enc(v: GrantFrame, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.to, out)
+        salvo.LongCodec.enc(v.host, out)
+        salvo.LongCodec.enc(v.actor, out)
+        salvo.LongCodec.enc(v.bits, out)
+        salvo.IntCodec.enc(v.n, out)
+    }
+    override fun dec(inp: salvo.WireIn): GrantFrame = GrantFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.IntCodec.dec(inp))
+}
+
+data class OpenFrame(
+    val to: Long,
+    val actor: Long,
+    val bits: Long,
+    val from: Long,
+)
+
+object __Codec_OpenFrame : salvo.WireCodec<OpenFrame> {
+    override fun enc(v: OpenFrame, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.to, out)
+        salvo.LongCodec.enc(v.actor, out)
+        salvo.LongCodec.enc(v.bits, out)
+        salvo.LongCodec.enc(v.from, out)
+    }
+    override fun dec(inp: salvo.WireIn): OpenFrame = OpenFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp))
+}
+
+data class ControlFrame(
+    val to: Long,
+    val from: Long,
+    val channel: String,
+    val payload: salvo.platform.core.bytes.Bytes,
+)
+
+object __Codec_ControlFrame : salvo.WireCodec<ControlFrame> {
+    override fun enc(v: ControlFrame, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.to, out)
+        salvo.LongCodec.enc(v.from, out)
+        salvo.StrCodec.enc(v.channel, out)
+        salvo.BytesCodec.enc(v.payload, out)
+    }
+    override fun dec(inp: salvo.WireIn): ControlFrame = ControlFrame(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.StrCodec.dec(inp), salvo.BytesCodec.dec(inp))
+}
+
+data class RemoteRef(
+    val node: Long,
+    val actor: Long,
+    val bits: Long,
+)
+
+object __Codec_RemoteRef : salvo.WireCodec<RemoteRef> {
+    override fun enc(v: RemoteRef, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.node, out)
+        salvo.LongCodec.enc(v.actor, out)
+        salvo.LongCodec.enc(v.bits, out)
+    }
+    override fun dec(inp: salvo.WireIn): RemoteRef = RemoteRef(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp))
+}
+
+data class ReplyParts(
+    val node: Long,
+    val kind: Int,
+    val id: Long,
+    val slot: Long,
+    val bits: Long,
+)
+
+object __Codec_ReplyParts : salvo.WireCodec<ReplyParts> {
+    override fun enc(v: ReplyParts, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.node, out)
+        salvo.IntCodec.enc(v.kind, out)
+        salvo.LongCodec.enc(v.id, out)
+        salvo.LongCodec.enc(v.slot, out)
+        salvo.LongCodec.enc(v.bits, out)
+    }
+    override fun dec(inp: salvo.WireIn): ReplyParts = ReplyParts(salvo.LongCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp))
+}
+
+data class ControlKey(
+    val node: Long,
+    val channel: String,
+)
+
+object __Codec_ControlKey : salvo.WireCodec<ControlKey> {
+    override fun enc(v: ControlKey, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.node, out)
+        salvo.StrCodec.enc(v.channel, out)
+    }
+    override fun dec(inp: salvo.WireIn): ControlKey = ControlKey(salvo.LongCodec.dec(inp), salvo.StrCodec.dec(inp))
+}
+
+data class Parked(
+    val from: Long,
+    val to: Long,
+    val frame: salvo.platform.core.bytes.Bytes,
+)
+
+object __Codec_Parked : salvo.WireCodec<Parked> {
+    override fun enc(v: Parked, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.from, out)
+        salvo.LongCodec.enc(v.to, out)
+        salvo.BytesCodec.enc(v.frame, out)
+    }
+    override fun dec(inp: salvo.WireIn): Parked = Parked(salvo.LongCodec.dec(inp), salvo.LongCodec.dec(inp), salvo.BytesCodec.dec(inp))
+}
+
+data class Staged(
+    val from: Long,
+    val to: salvo.platform.core.bytes.Bytes,
+    val frame: salvo.platform.core.bytes.Bytes,
+)
+
+object __Codec_Staged : salvo.WireCodec<Staged> {
+    override fun enc(v: Staged, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.from, out)
+        salvo.BytesCodec.enc(v.to, out)
+        salvo.BytesCodec.enc(v.frame, out)
+    }
+    override fun dec(inp: salvo.WireIn): Staged = Staged(salvo.LongCodec.dec(inp), salvo.BytesCodec.dec(inp), salvo.BytesCodec.dec(inp))
+}
+
+data class ExportedTask(
+    val pool: Int,
+    val body: salvo.platform.runtime.Body,
+)
+
+fun dropExportedTask(t: ExportedTask) {
+    val __destructured1 = t
+    val pool = __destructured1.pool
+    val body = __destructured1.body
+    dropBodyPlatform(body)
+}
+
+data class Found(
+    val idx: Int,
+)
+
+object __Codec_Found : salvo.WireCodec<Found> {
+    override fun enc(v: Found, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.idx, out)
+    }
+    override fun dec(inp: salvo.WireIn): Found = Found(salvo.IntCodec.dec(inp))
+}
+
+class MakeProxy
+
+object __Codec_MakeProxy : salvo.WireCodec<MakeProxy> {
+    override fun enc(v: MakeProxy, out: salvo.WireOut) {
+    }
+    override fun dec(inp: salvo.WireIn): MakeProxy = MakeProxy()
+}
+
+class MakeDead
+
+object __Codec_MakeDead : salvo.WireCodec<MakeDead> {
+    override fun enc(v: MakeDead, out: salvo.WireOut) {
+    }
+    override fun dec(inp: salvo.WireIn): MakeDead = MakeDead()
+}
+
+interface RouteTable {
+    fun nodeOfPool(pool: Int): Long
+    fun adoptPool(pool: Int, node: Long)
+    fun addNode(): Long
+    fun hosts(node: Long): Boolean
+    fun identityOf(addr: Int, pool: Int): RemoteRef
+    fun findImport(r: RemoteRef, here: Long): Union3<Found, MakeProxy, MakeDead>
+    fun registerProxy(r: RemoteRef, idx: Int, here: Long): Int
+    fun registerDead(idx: Int): Int
+    fun isProxy(addr: Int): Boolean
+    fun proxyRef(addr: Int): RemoteRef?
+    fun takeCredit(addr: Int, me: salvo.platform.runtime.Parker): Int
+    fun stage(from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes)
+    fun grant(addr: Int, pool: Int, from: Long, n: Int)
+    fun takeOutbox(): salvo.platform.core.list.MutList<Staged>
+    fun addRoute(node: Long, at: salvo.platform.core.bytes.Bytes)
+    fun setOutbound(node: Long)
+    fun hasOutbound(node: Long): Boolean
+    fun accepts(to: Long, actor: Long, claimed: Long): Boolean
+    fun received(idx: Int)
+    fun credited(r: RemoteRef, to: Long, n: Int): Boolean
+    fun held(idx: Int): Int
+    fun putTask(key: Long, t: ExportedTask)
+    fun takeTask(key: Long): ExportedTask?
+    fun watchChannel(node: Long, channel: String, sink: Int)
+    fun channelSink(node: Long, channel: String): Int
+    fun setProtocols(table: List<Pair<String, String>>)
+    fun protocols(): List<Pair<String, String>>
+    fun setPeer(node: Long, table: List<Pair<String, String>>)
+    fun peerHash(node: Long, protocol: String): String?
+    fun forgetNode(node: Long): List<Int>
+    fun creditsOf(addr: Int): Int?
+    fun setView(group: Int, members: List<Int>)
+    fun viewOf(group: Int): List<Int>
+    fun versionOf(group: Int): Long
+    fun bump(group: Int)
+    fun addViewWaiter(group: Int, seen: Long, me: salvo.platform.runtime.Parker): Long
+    fun dropViewWaiter(id: Long)
+}
+
+class __Mon_RouteTable(
+    private val inner: RouteTable,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : RouteTable {
+    override fun nodeOfPool(pool: Int): Long {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.nodeOfPool(pool) } finally { lock.unlock() }
+    }
+    override fun adoptPool(pool: Int, node: Long) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.adoptPool(pool, node) } finally { lock.unlock() }
+    }
+    override fun addNode(): Long {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.addNode() } finally { lock.unlock() }
+    }
+    override fun hosts(node: Long): Boolean {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.hosts(node) } finally { lock.unlock() }
+    }
+    override fun identityOf(addr: Int, pool: Int): RemoteRef {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.identityOf(addr, pool) } finally { lock.unlock() }
+    }
+    override fun findImport(r: RemoteRef, here: Long): Union3<Found, MakeProxy, MakeDead> {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.findImport(r, here) } finally { lock.unlock() }
+    }
+    override fun registerProxy(r: RemoteRef, idx: Int, here: Long): Int {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.registerProxy(r, idx, here) } finally { lock.unlock() }
+    }
+    override fun registerDead(idx: Int): Int {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.registerDead(idx) } finally { lock.unlock() }
+    }
+    override fun isProxy(addr: Int): Boolean {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.isProxy(addr) } finally { lock.unlock() }
+    }
+    override fun proxyRef(addr: Int): RemoteRef? {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.proxyRef(addr) } finally { lock.unlock() }
+    }
+    override fun takeCredit(addr: Int, me: salvo.platform.runtime.Parker): Int {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.takeCredit(addr, me) } finally { lock.unlock() }
+    }
+    override fun stage(from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.stage(from, to, frame) } finally { lock.unlock() }
+    }
+    override fun grant(addr: Int, pool: Int, from: Long, n: Int) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.grant(addr, pool, from, n) } finally { lock.unlock() }
+    }
+    override fun takeOutbox(): salvo.platform.core.list.MutList<Staged> {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.takeOutbox() } finally { lock.unlock() }
+    }
+    override fun addRoute(node: Long, at: salvo.platform.core.bytes.Bytes) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.addRoute(node, at) } finally { lock.unlock() }
+    }
+    override fun setOutbound(node: Long) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.setOutbound(node) } finally { lock.unlock() }
+    }
+    override fun hasOutbound(node: Long): Boolean {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.hasOutbound(node) } finally { lock.unlock() }
+    }
+    override fun accepts(to: Long, actor: Long, claimed: Long): Boolean {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.accepts(to, actor, claimed) } finally { lock.unlock() }
+    }
+    override fun received(idx: Int) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.received(idx) } finally { lock.unlock() }
+    }
+    override fun credited(r: RemoteRef, to: Long, n: Int): Boolean {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.credited(r, to, n) } finally { lock.unlock() }
+    }
+    override fun held(idx: Int): Int {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.held(idx) } finally { lock.unlock() }
+    }
+    override fun putTask(key: Long, t: ExportedTask) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.putTask(key, t) } finally { lock.unlock() }
+    }
+    override fun takeTask(key: Long): ExportedTask? {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.takeTask(key) } finally { lock.unlock() }
+    }
+    override fun watchChannel(node: Long, channel: String, sink: Int) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.watchChannel(node, channel, sink) } finally { lock.unlock() }
+    }
+    override fun channelSink(node: Long, channel: String): Int {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.channelSink(node, channel) } finally { lock.unlock() }
+    }
+    override fun setProtocols(table: List<Pair<String, String>>) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.setProtocols(table) } finally { lock.unlock() }
+    }
+    override fun protocols(): List<Pair<String, String>> {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.protocols() } finally { lock.unlock() }
+    }
+    override fun setPeer(node: Long, table: List<Pair<String, String>>) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.setPeer(node, table) } finally { lock.unlock() }
+    }
+    override fun peerHash(node: Long, protocol: String): String? {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.peerHash(node, protocol) } finally { lock.unlock() }
+    }
+    override fun forgetNode(node: Long): List<Int> {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.forgetNode(node) } finally { lock.unlock() }
+    }
+    override fun creditsOf(addr: Int): Int? {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.creditsOf(addr) } finally { lock.unlock() }
+    }
+    override fun setView(group: Int, members: List<Int>) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.setView(group, members) } finally { lock.unlock() }
+    }
+    override fun viewOf(group: Int): List<Int> {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.viewOf(group) } finally { lock.unlock() }
+    }
+    override fun versionOf(group: Int): Long {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.versionOf(group) } finally { lock.unlock() }
+    }
+    override fun bump(group: Int) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.bump(group) } finally { lock.unlock() }
+    }
+    override fun addViewWaiter(group: Int, seen: Long, me: salvo.platform.runtime.Parker): Long {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.addViewWaiter(group, seen, me) } finally { lock.unlock() }
+    }
+    override fun dropViewWaiter(id: Long) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.dropViewWaiter(id) } finally { lock.unlock() }
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun versionIn(versions: Map<Int, Long>, group: Int): Long {
+    val v = versions[group]
+    if (v != null) {
+        val n = v as Long
+        return n
+    }
+    return 0L
+}
+
+fun bumpIn(versions: MutableMap<Int, Long>, waiters: salvo.platform.core.list.MutList<ViewWaiter>, group: Int) {
+    versions.put(group, versionIn(versions, group) + 1)
+    var i = 0
+    while (i < sizePlatform(waiters)) {
+        if ((getPlatform(waiters, i) ?: throw AssertionError("salvo: value is absent at runtime.routing:171:12")).group == group) {
+            val w = (removeAtPlatform(waiters, i) ?: throw AssertionError("salvo: value is absent at runtime.routing:172:21"))
+            unparkPlatform(w.parker)
+        } else {
+            i = i + 1
+        }
+    }
+}
+
+data class ViewWaiter(
+    val group: Int,
+    val id: Long,
+    val parker: salvo.platform.runtime.Parker,
+)
+
+class Routes : RouteTable {
+    private var nodeId: Long = 0L
+    private var hosted: MutableSet<Long> = linkedSetOf<Long>().also { __s -> __s.addAll(listOf()) }
+    private var poolNode: MutableMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
+    private var bits: MutableMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
+    private var remote: MutableMap<Int, RemoteRef> = linkedMapOf<Int, RemoteRef>().also { __m -> __m.putAll(listOf()) }
+    private var proxies: MutableMap<RemoteRef, Int> = salvo.SalvoHashMap<RemoteRef, Int>(::hash__RemoteRef, ::eq__RemoteRef_RemoteRef).also { __m -> __m.putAll(listOf()) }
+    private var credits: MutableMap<Int, Int> = linkedMapOf<Int, Int>().also { __m -> __m.putAll(listOf()) }
+    private var heldN: MutableMap<Int, Int> = linkedMapOf<Int, Int>().also { __m -> __m.putAll(listOf()) }
+    private var routes: MutableMap<Long, salvo.platform.core.bytes.Bytes> = linkedMapOf<Long, salvo.platform.core.bytes.Bytes>().also { __m -> __m.putAll(listOf()) }
+    private var outbound: MutableSet<Long> = linkedSetOf<Long>().also { __s -> __s.addAll(listOf()) }
+    private var parked: salvo.platform.core.list.MutList<Parked> = mutableListOf<Parked>()
+    private var outbox: salvo.platform.core.list.MutList<Staged> = mutableListOf<Staged>()
+    private var taskKeys: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
+    private var tasks: salvo.platform.core.list.MutList<ExportedTask> = mutableListOf<ExportedTask>()
+    private var controls: MutableMap<ControlKey, Int> = salvo.SalvoHashMap<ControlKey, Int>(::hash__ControlKey, ::eq__ControlKey_ControlKey).also { __m -> __m.putAll(listOf()) }
+    private var local: List<Pair<String, String>> = listOf<Pair<String, String>>()
+    private var peers: MutableMap<Long, List<Pair<String, String>>> = linkedMapOf<Long, List<Pair<String, String>>>().also { __m -> __m.putAll(listOf()) }
+    private var deadEntry: Int = -1
+    private var creditWaiters: salvo.platform.core.list.MutList<salvo.platform.runtime.Parker> = mutableListOf<salvo.platform.runtime.Parker>()
+    private var views: MutableMap<Int, List<Int>> = linkedMapOf<Int, List<Int>>().also { __m -> __m.putAll(listOf()) }
+    private var versions: MutableMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
+    private var viewWaiters: salvo.platform.core.list.MutList<ViewWaiter> = mutableListOf<ViewWaiter>()
+    private var nextWaiter: Long = 0L
+
+    override fun nodeOfPool(pool: Int): Long {
+        return nodeIn(poolNode, nodeId, pool)
+    }
+
+    override fun adoptPool(pool: Int, node: Long) {
+        poolNode.put(pool, node)
+    }
+
+    override fun addNode(): Long {
+        val n = freshNode()
+        hosted.add(n)
+        return n
+    }
+
+    override fun hosts(node: Long): Boolean {
+        return hosted.contains(node)
+    }
+
+    override fun identityOf(addr: Int, pool: Int): RemoteRef {
+        return identityIn(remote, bits, poolNode, nodeId, addr, pool)
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+    override fun findImport(r: RemoteRef, here: Long): Union3<Found, MakeProxy, MakeDead> {
+        if (r.node == here) {
+            val idx = (r.actor).toInt()
+            val b = bits[idx]
+            if (!remote.containsKey(idx) && (b != null) && run { val known = b as Long; known == r.bits }) {
+                val known = b as Long
+                return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = idx))
+            }
+            if (deadEntry >= 0) {
+                return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = deadEntry))
+            }
+            return Union3.U3<Found, MakeProxy, MakeDead>(MakeDead())
+        }
+        val p = proxies[r]
+        if (p != null) {
+            val idx = p as Int
+            return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = idx))
+        }
+        return Union3.U2<Found, MakeProxy, MakeDead>(MakeProxy())
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+    override fun registerProxy(r: RemoteRef, idx: Int, here: Long): Int {
+        val existing = proxies[r]
+        if (existing != null) {
+            val e = existing as Int
+            return e
+        }
+        remote.put(idx, r)
+        proxies.put(r, idx)
+        credits.put(idx, 0)
+        val frame = salvo.salvoEncode(Union5.U4<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(OpenFrame(to = r.node, actor = r.actor, bits = r.bits, from = here)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
+        stageIn(routes, outbound, outbox, parked, here, r.node, frame)
+        return idx
+    }
+
+    override fun registerDead(idx: Int): Int {
+        if (deadEntry >= 0) {
+            return deadEntry
+        }
+        deadEntry = idx
+        return deadEntry
+    }
+
+    override fun isProxy(addr: Int): Boolean {
+        return remote.containsKey(addr)
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+    override fun proxyRef(addr: Int): RemoteRef? {
+        val r = remote[addr]
+        if (r != null) {
+            val found = r as RemoteRef
+            return found
+        }
+        return null
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+    override fun takeCredit(addr: Int, me: salvo.platform.runtime.Parker): Int {
+        val c = credits[addr]
+        if (c != null) {
+            val n = c as Int
+            if (n > 0) {
+                credits.put(addr, n - 1)
+                heldN.put(addr, heldIn(heldN, addr) + 1)
+                return 1
+            }
+            addPlatform(creditWaiters, me)
+            return 0
+        }
+        return -1
+    }
+
+    override fun stage(from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes) {
+        stageIn(routes, outbound, outbox, parked, from, to, frame)
+    }
+
+    override fun grant(addr: Int, pool: Int, from: Long, n: Int) {
+        heldN.put(addr, heldIn(heldN, addr) + n)
+        val me = identityIn(remote, bits, poolNode, nodeId, addr, pool)
+        val frame = salvo.salvoEncode(Union5.U3<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(GrantFrame(to = from, host = me.node, actor = me.actor, bits = me.bits, n = n)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
+        stageIn(routes, outbound, outbox, parked, me.node, from, frame)
+    }
+
+    override fun takeOutbox(): salvo.platform.core.list.MutList<Staged> {
+        val out: salvo.platform.core.list.MutList<Staged> = mutableListOf<Staged>()
+        while (sizePlatform(outbox) > 0) {
+            addPlatform(out, (removeAtPlatform(outbox, 0) ?: throw AssertionError("salvo: value is absent at runtime.routing:327:22")))
+        }
+        return out
+    }
+
+    override fun addRoute(node: Long, at: salvo.platform.core.bytes.Bytes) {
+        routes.put(node, at)
+        restage(routes, outbound, outbox, parked)
+    }
+
+    override fun setOutbound(node: Long) {
+        outbound.add(node)
+        restage(routes, outbound, outbox, parked)
+    }
+
+    override fun hasOutbound(node: Long): Boolean {
+        return outbound.contains(node)
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+    override fun accepts(to: Long, actor: Long, claimed: Long): Boolean {
+        if (!hosted.contains(to)) {
+            return false
+        }
+        val idx = (actor).toInt()
+        val b = bits[idx]
+        if (!remote.containsKey(idx) && (b != null) && run { val known = b as Long; known == claimed }) {
+            val known = b as Long
+            return true
+        }
+        return false
+    }
+
+    override fun received(idx: Int) {
+        val h = heldIn(heldN, idx)
+        if (h > 0) {
+            heldN.put(idx, h - 1)
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+    override fun credited(r: RemoteRef, to: Long, n: Int): Boolean {
+        if (!hosted.contains(to)) {
+            return false
+        }
+        val p = proxies[r]
+        if (p != null) {
+            val idx = p as Int
+            val i = idx
+            val c = credits[i]
+            var now = 0
+            if (c != null) {
+                val have = c as Int
+                now = have
+            }
+            credits.put(i, now + n)
+            var h = heldIn(heldN, i) - n
+            if (h < 0) {
+                h = 0
+            }
+            heldN.put(i, h)
+            wakeSenders(creditWaiters)
+            return true
+        }
+        return false
+    }
+
+    override fun held(idx: Int): Int {
+        return heldIn(heldN, idx)
+    }
+
+    override fun putTask(key: Long, t: ExportedTask) {
+        addPlatform(taskKeys, key)
+        addPlatform(tasks, t)
+    }
+
+    override fun takeTask(key: Long): ExportedTask? {
+        var i = 0
+        while (i < sizePlatform(taskKeys)) {
+            if ((getPlatform(taskKeys, i) ?: throw AssertionError("salvo: value is absent at runtime.routing:401:16")) == key) {
+                val _k = removeAtPlatform(taskKeys, i)
+                return removeAtPlatform(tasks, i)
+            }
+            i = i + 1
+        }
+        return null
+    }
+
+    override fun watchChannel(node: Long, channel: String, sink: Int) {
+        controls.put(ControlKey(node = node, channel = channel), sink)
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+    override fun channelSink(node: Long, channel: String): Int {
+        val s = controls[ControlKey(node = node, channel = channel)]
+        if (s != null) {
+            val sink = s as Int
+            return sink
+        }
+        return -1
+    }
+
+    override fun setProtocols(table: List<Pair<String, String>>) {
+        local = table
+    }
+
+    override fun protocols(): List<Pair<String, String>> {
+        return local
+    }
+
+    override fun setPeer(node: Long, table: List<Pair<String, String>>) {
+        peers.put(node, table)
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+    override fun peerHash(node: Long, protocol: String): String? {
+        val t = peers[node]
+        if (t != null) {
+            val table = t as List<Pair<String, String>>
+            for (entry in salvo.platform.core.list.each(table)) {
+                val (name, hash) = entry
+                if (name == protocol) {
+                    return hash
+                }
+            }
+        }
+        return null
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+    override fun forgetNode(node: Long): List<Int> {
+        val _route = routes.remove(node)
+        val _peer = peers.remove(node)
+        val gone: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
+        for (idx in salvo.platform.core.list.each(remote.keys.toMutableList())) {
+            val r = remote[idx]
+            if (r != null) {
+                val found = r as RemoteRef
+                if (found.node == node) {
+                    addPlatform(gone, idx)
+                }
+            }
+        }
+        wakeSenders(creditWaiters)
+        return gone
+    }
+
+    override fun setView(group: Int, members: List<Int>) {
+        views.put(group, members)
+        bumpIn(versions, viewWaiters, group)
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+    override fun viewOf(group: Int): List<Int> {
+        val v = views[group]
+        if (v != null) {
+            val found = v as List<Int>
+            return found
+        }
+        return listOf<Int>()
+    }
+
+    override fun versionOf(group: Int): Long {
+        return versionIn(versions, group)
+    }
+
+    override fun bump(group: Int) {
+        bumpIn(versions, viewWaiters, group)
+    }
+
+    override fun addViewWaiter(group: Int, seen: Long, me: salvo.platform.runtime.Parker): Long {
+        if (versionIn(versions, group) != seen) {
+            return -1L
+        }
+        nextWaiter = nextWaiter + 1
+        addPlatform(viewWaiters, ViewWaiter(group = group, id = nextWaiter, parker = me))
+        return nextWaiter
+    }
+
+    override fun dropViewWaiter(id: Long) {
+        var i = 0
+        while (i < sizePlatform(viewWaiters)) {
+            if ((getPlatform(viewWaiters, i) ?: throw AssertionError("salvo: value is absent at runtime.routing:496:16")).id == id) {
+                val _w = removeAtPlatform(viewWaiters, i)
+                return
+            }
+            i = i + 1
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+    override fun creditsOf(addr: Int): Int? {
+        val c = credits[addr]
+        if (c != null) {
+            val n = c as Int
+            return n
+        }
+        return null
+    }
+
+    fun init() {
+        nodeId = freshNode()
+        hosted.add(nodeId)
+        poolNode.put(0, nodeId)
+    }
+}
+
+sealed class __Priv_Routes {
+    object Init : __Priv_Routes()
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun nodeIn(poolNode: Map<Int, Long>, nodeId: Long, pool: Int): Long {
+    val n = poolNode[pool]
+    if (n != null) {
+        val v = n as Long
+        return v
+    }
+    return nodeId
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun heldIn(heldN: Map<Int, Int>, idx: Int): Int {
+    val h = heldN[idx]
+    if (h != null) {
+        val n = h as Int
+        return n
+    }
+    return 0
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun identityIn(remote: Map<Int, RemoteRef>, bits: MutableMap<Int, Long>, poolNode: Map<Int, Long>, nodeId: Long, addr: Int, pool: Int): RemoteRef {
+    val r = remote[addr]
+    if (r != null) {
+        val found = r as RemoteRef
+        return found
+    }
+    val n = nodeIn(poolNode, nodeId, pool)
+    val b = bits[addr]
+    if (b != null) {
+        val known = b as Long
+        return RemoteRef(node = n, actor = (addr).toLong(), bits = known)
+    }
+    val minted = identityBits()
+    bits.put(addr, minted)
+    return RemoteRef(node = n, actor = (addr).toLong(), bits = minted)
+}
+
+fun wakeSenders(waiters: salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>) {
+    while (sizePlatform(waiters) > 0) {
+        unparkPlatform((removeAtPlatform(waiters, 0) ?: throw AssertionError("salvo: value is absent at runtime.routing:554:16")))
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun stageIn(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Long>, outbox: salvo.platform.core.list.MutList<Staged>, parked: salvo.platform.core.list.MutList<Parked>, from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes) {
+    val ep = routes[to]
+    if (ep != null) {
+        val at = ep as salvo.platform.core.bytes.Bytes
+        if (outbound.contains(from)) {
+            addPlatform(outbox, Staged(from = from, to = at, frame = frame))
+            return
+        }
+    }
+    addPlatform(parked, Parked(from = from, to = to, frame = frame))
+}
+
+fun restage(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Long>, outbox: salvo.platform.core.list.MutList<Staged>, parked: salvo.platform.core.list.MutList<Parked>) {
+    val waiting: salvo.platform.core.list.MutList<Parked> = mutableListOf<Parked>()
+    while (sizePlatform(parked) > 0) {
+        addPlatform(waiting, (removeAtPlatform(parked, 0) ?: throw AssertionError("salvo: value is absent at runtime.routing:577:22")))
+    }
+    for (p in salvo.platform.core.list.each(waiting)) {
+        stageIn(routes, outbound, outbox, parked, p.from, p.to, p.frame)
+    }
+}
+
+fun freshNode(): Long {
+    val b = identityBits()
+    if (b < 0) {
+        return -(b + 1)
+    }
+    return b
+}
+
+fun hereNode(): Long {
+    return __moduleUse0.nodeOfPool(currentPool())
+}
+
+fun adopt(pool: Int) {
+    __moduleUse0.adoptPool(pool, hereNode())
+}
+
+fun newNode(): Long {
+    return __moduleUse0.addNode()
+}
+
+fun poolAt(node: Long, n: Int): Int {
+    val p = newPoolOf(n, -1)
+    __moduleUse0.adoptPool(p, node)
+    return p
+}
+
+fun identity(addr: Int): RemoteRef {
+    return __moduleUse0.identityOf(addr, actorPool(addr))
+}
+
+fun sameActor(a: Int, b: Int): Boolean {
+    if (a == b) {
+        return true
+    }
+    if (!__moduleUse0.isProxy(a) && !__moduleUse0.isProxy(b)) {
+        return false
+    }
+    return eq__RemoteRef_RemoteRef(identity(a), identity(b))
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun importAddr(node: Long, actor: Long, bits: Long): Int {
+    val r = RemoteRef(node = node, actor = actor, bits = bits)
+    val here = hereNode()
+    val found = __moduleUse0.findImport(r, here)
+    if (found is Union3.U1<*, *, *>) {
+        val f = found.value as Found
+        return f.idx
+    }
+    val idx = spawnInert()
+    if (found is Union3.U3<*, *, *>) {
+        killActor(idx, "unknown identity")
+        return __moduleUse0.registerDead(idx)
+    }
+    val got = __moduleUse0.registerProxy(r, idx, here)
+    if (got == idx) {
+        markProxy(idx)
+    }
+    flush()
+    return got
+}
+
+fun remote(addr: Int): Boolean {
+    return __moduleUse0.isProxy(addr)
+}
+
+fun sendRemote(addr: Int, proto: String, payload: salvo.platform.core.bytes.Bytes) {
+    val r = __moduleUse0.proxyRef(addr)
+    if (r == null) {
+        return
+    }
+    while (true) {
+        val got = __moduleUse0.takeCredit(addr, thisParkerPlatform())
+        if (got == 1) {
+            val from = hereNode()
+            val frame = salvo.salvoEncode(Union5.U1<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(MsgFrame(to = r.node, actor = r.actor, bits = r.bits, from = from, proto = proto, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
+            __moduleUse0.stage(from, r.node, frame)
+            flush()
+            return
+        }
+        if (got < 0 || mailboxDead(addr)) {
+            return
+        }
+        parkPlatform(thisParkerPlatform())
+        if (mailboxDead(addr)) {
+            return
+        }
+    }
+}
+
+fun answerRemote(t: ReplyParts, payload: salvo.platform.core.bytes.Bytes) {
+    val from = hereNode()
+    val frame = salvo.salvoEncode(Union5.U2<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(AnswerFrame(to = t.node, kind = t.kind, id = t.id, slot = t.slot, bits = t.bits, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
+    __moduleUse0.stage(from, t.node, frame)
+    flush()
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun exportReply(e: Exported): ReplyParts {
+    val __destructured2 = e
+    val kind = __destructured2.kind
+    val id = __destructured2.id
+    val slot = __destructured2.slot
+    val body = __destructured2.body
+    if (kind == 2) {
+        if (body != null) {
+            val b = body as salvo.platform.runtime.Body
+            __moduleUse0.putTask(slot, ExportedTask(pool = id, body = b))
+        }
+        return ReplyParts(node = __moduleUse0.nodeOfPool(id), kind = 2, id = slot, slot = slot, bits = 0L)
+    }
+    if (body != null) {
+        val b = body as salvo.platform.runtime.Body
+        dropBodyPlatform(b)
+    }
+    if (kind == 1) {
+        return ReplyParts(node = __moduleUse0.nodeOfPool(waiterPool(id)), kind = 1, id = (id).toLong(), slot = slot, bits = 0L)
+    }
+    val me = identity(id)
+    return ReplyParts(node = me.node, kind = 0, id = me.actor, slot = slot, bits = me.bits)
+}
+
+fun creditBack(addr: Int, pool: Int, from: Long) {
+    __moduleUse0.grant(addr, pool, from, 1)
+}
+
+fun flush() {
+    val out = __moduleUse0.takeOutbox()
+    for (s in salvo.platform.core.list.each(out)) {
+        wireOutPlatform(s.from, s.to, s.frame)
+    }
+}
+
+fun route(node: Long, at: salvo.platform.core.bytes.Bytes) {
+    __moduleUse0.addRoute(node, at)
+    flush()
+}
+
+fun outboundBound() {
+    __moduleUse0.setOutbound(hereNode())
+    flush()
+}
+
+fun connected(): Boolean {
+    return __moduleUse0.hasOutbound(hereNode())
+}
+
+fun credits(addr: Int): Int? {
+    return __moduleUse0.creditsOf(addr)
+}
+
+fun pending(addr: Int): Int {
+    if (__moduleUse0.isProxy(addr)) {
+        return __moduleUse0.held(addr)
+    }
+    return mailboxQueued(addr)
+}
+
+fun watchControl(channel: String, sink: Int) {
+    __moduleUse0.watchChannel(hereNode(), channel, sink)
+}
+
+fun sendControl(to: Long, channel: String, payload: salvo.platform.core.bytes.Bytes) {
+    val from = hereNode()
+    val frame = salvo.salvoEncode(Union5.U5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(ControlFrame(to = to, from = from, channel = channel, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
+    __moduleUse0.stage(from, to, frame)
+    flush()
+}
+
+fun controlFrame(channel: String, payload: salvo.platform.core.bytes.Bytes): salvo.platform.core.bytes.Bytes {
+    return salvo.salvoEncode(Union5.U5<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(ControlFrame(to = 0L, from = hereNode(), channel = channel, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
+}
+
+fun nodeLeft(node: Long) {
+    for (idx in salvo.platform.core.list.each(__moduleUse0.forgetNode(node))) {
+        killActor(idx, "node left")
+    }
+}
+
+fun registerProtocols(table: List<Pair<String, String>>) {
+    __moduleUse0.setProtocols(table)
+}
+
+fun localProtocols(): List<Pair<String, String>> {
+    return __moduleUse0.protocols()
+}
+
+fun setPeerProtocols(node: Long, table: List<Pair<String, String>>) {
+    __moduleUse0.setPeer(node, table)
+}
+
+fun peerProtocol(node: Long, protocol: String): String? {
+    return __moduleUse0.peerHash(node, protocol)
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun deliver(data: salvo.platform.core.bytes.Bytes): Boolean {
+    val f = salvo.salvoDecode(data, salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
+    if (f is Union5.U1<*, *, *, *, *>) {
+        val m = f?.value as MsgFrame
+        if (!__moduleUse0.accepts(m.to, m.actor, m.bits)) {
+            return false
+        }
+        val idx = (m.actor).toInt()
+        val msg = decodeMessagePlatform(idx, m.proto, m.payload)
+        if (msg != null) {
+            val v = msg as salvo.platform.runtime.Dyn
+            __moduleUse0.received(idx)
+            val _queued = deliverRemote(idx, v, m.from)
+            return true
+        }
+        return false
+    }
+    if (f is Union5.U2<*, *, *, *, *>) {
+        val a = f?.value as AnswerFrame
+        return deliverAnswer(a)
+    }
+    if (f is Union5.U3<*, *, *, *, *>) {
+        val g = f?.value as GrantFrame
+        return __moduleUse0.credited(RemoteRef(node = g.host, actor = g.actor, bits = g.bits), g.to, g.n)
+    }
+    if (f is Union5.U4<*, *, *, *, *>) {
+        val o = f?.value as OpenFrame
+        if (!__moduleUse0.accepts(o.to, o.actor, o.bits)) {
+            return false
+        }
+        val idx = (o.actor).toInt()
+        var room = mailboxRoom(idx) - __moduleUse0.held(idx)
+        if (room < 1) {
+            room = 1
+        }
+        __moduleUse0.grant(idx, actorPool(idx), o.from, room)
+        flush()
+        return true
+    }
+    if (f is Union5.U5<*, *, *, *, *>) {
+        val c = f?.value as ControlFrame
+        var node = c.to
+        if (node == (0).toLong()) {
+            node = hereNode()
+        }
+        if (!__moduleUse0.hosts(node)) {
+            return false
+        }
+        val sink = __moduleUse0.channelSink(node, c.channel)
+        if (sink < 0) {
+            return false
+        }
+        val msg = controlMessagePlatform(sink, c.from, c.payload)
+        if (msg != null) {
+            val v = msg as salvo.platform.runtime.Dyn
+            val queued = deliverRemote(sink, v, (-1).toLong())
+            return queued
+        }
+        return false
+    }
+    return false
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun deliverAnswer(a: AnswerFrame): Boolean {
+    if (!__moduleUse0.hosts(a.to)) {
+        return false
+    }
+    if (a.kind == 0) {
+        if (!__moduleUse0.accepts(a.to, a.id, a.bits)) {
+            return false
+        }
+        answer(tokenToActor((a.id).toInt(), a.slot), rawAnswerPlatform(a.payload))
+        return true
+    }
+    if (a.kind == 1) {
+        val wid = (a.id).toInt()
+        val v = decodeWaiterAnswerPlatform(wid, a.payload)
+        if (v != null) {
+            val value = v as salvo.platform.runtime.Dyn
+            answer(tokenToWaiter(wid, a.slot), value)
+            return true
+        }
+        return false
+    }
+    val t = __moduleUse0.takeTask(a.id)
+    if (t != null) {
+        val task = t as ExportedTask
+        val v = decodeTaskAnswerPlatform(a.id, a.payload)
+        val __destructured3 = task
+        val pool = __destructured3.pool
+        val body = __destructured3.body
+        if (v != null) {
+            val value = v as salvo.platform.runtime.Dyn
+            answer(mintTaskOn(pool, body), value)
+            return true
+        }
+        dropBodyPlatform(body)
+    }
+    return false
+}
+
+fun viewSet(group: Int, members: List<Int>) {
+    __moduleUse0.setView(group, members)
+}
+
+fun viewMembers(group: Int): List<Int> {
+    val left: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
+    for (m in salvo.platform.core.list.each(__moduleUse0.viewOf(group))) {
+        addPlatform(left, m)
+    }
+    val out: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
+    while (sizePlatform(left) > 0) {
+        var best = 0
+        var i = 1
+        while (i < sizePlatform(left)) {
+            if (before(identity((getPlatform(left, i) ?: throw AssertionError("salvo: value is absent at runtime.routing:937:37"))), identity((getPlatform(left, best) ?: throw AssertionError("salvo: value is absent at runtime.routing:937:68"))))) {
+                best = i
+            }
+            i = i + 1
+        }
+        addPlatform(out, (removeAtPlatform(left, best) ?: throw AssertionError("salvo: value is absent at runtime.routing:942:18")))
+    }
+    return out.toMutableList()
+}
+
+fun before(a: RemoteRef, b: RemoteRef): Boolean {
+    if (a.node != b.node) {
+        return a.node < b.node
+    }
+    return a.actor <= b.actor
+}
+
+fun viewVersion(group: Int): Long {
+    return __moduleUse0.versionOf(group)
+}
+
+fun viewRefresh(group: Int) {
+    __moduleUse0.bump(group)
+}
+
+fun viewWait(group: Int, seen: Long, nanos: Long) {
+    val me = thisParkerPlatform()
+    val id = __moduleUse0.addViewWaiter(group, seen, me)
+    if (id < 0) {
+        return
+    }
+    parkNanosPlatform(me, nanos)
+    __moduleUse0.dropViewWaiter(id)
+}
+
+fun hash__RemoteRef(value: RemoteRef): Long {
+    var h = 17L
+    h = ((h) * 31L + ((value.node).hashCode().toLong()))
+    h = ((h) * 31L + ((value.actor).hashCode().toLong()))
+    h = ((h) * 31L + ((value.bits).hashCode().toLong()))
+    return h
+}
+
+fun eq__RemoteRef_RemoteRef(a: RemoteRef, b: RemoteRef): Boolean {
+    if (!((a.node) == (b.node))) {
+        return false
+    }
+    if (!((a.actor) == (b.actor))) {
+        return false
+    }
+    if (!((a.bits) == (b.bits))) {
+        return false
+    }
+    return true
+}
+
+fun hash__ControlKey(value: ControlKey): Long {
+    var h = 17L
+    h = ((h) * 31L + ((value.node).hashCode().toLong()))
+    h = ((h) * 31L + ((value.channel).hashCode().toLong()))
+    return h
+}
+
+fun eq__ControlKey_ControlKey(a: ControlKey, b: ControlKey): Boolean {
+    if (!((a.node) == (b.node))) {
+        return false
+    }
+    if (!((a.channel) == (b.channel))) {
+        return false
+    }
+    return true
 }

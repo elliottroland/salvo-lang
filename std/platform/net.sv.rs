@@ -3,7 +3,10 @@
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5ecf120cea852ac5
 use crate::unions::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
 use crate::core_bytes::Bytes;
+use crate::core_list::at;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeEndpoint {

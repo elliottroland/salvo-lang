@@ -329,12 +329,16 @@ fn golden_unions_kotlin() {
 #[test]
 fn unions_emit_sealed_wrappers() {
     let files = generate_unions_demo();
-    let unions = files
+    // One file per arity [kt-union-wrappers].
+    let unions: String = files
         .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "unions.kt")
-        .expect("unions.kt should be generated");
-    assert!(unions.content.contains("sealed interface Union2"));
-    assert!(unions.content.contains("sealed interface Union3"));
+        .filter(|f| f.rel_path.starts_with("unions"))
+        .map(|f| f.content.clone())
+        .collect();
+    let file = |n: usize| files.iter().find(|f| f.rel_path.to_string_lossy() == format!("unions/Union{n}.kt"));
+    assert!(file(2).is_some_and(|f| f.content.contains("sealed interface Union2")));
+    assert!(file(3).is_some_and(|f| f.content.contains("sealed interface Union3")));
+    let unions = EmittedFileText { content: unions };
     // [kt-union-wrappers] The arms nest in the interface: `Union2.U1`, as
     // Rust's `Union2::U1` (user decision 2026-10-01, ABI D5).
     assert!(
@@ -4650,6 +4654,51 @@ fn pkg_prefix(tag: &str) -> String {
     format!("k_{}", tag.replace('-', "_"))
 }
 
+/// [kt-std-library] The standard library, compiled once into the test
+/// target and shared by every shard (a concurrent first build is settled by
+/// `prepare`'s rename). Reused under `SALVO_E2E_FRESH` too: it is a build
+/// artifact keyed by its own content and the `kotlinc`, not a verdict.
+fn shared_std_library() -> salvo_backend_kotlin::stdlib::StdLibrary {
+    let files = salvo_backend_kotlin::stdlib::std_library_files(&build_program(&[]))
+        .unwrap_or_else(|e| panic!("std library emission failed:\n{}", e.join("\n")));
+    salvo_backend_kotlin::stdlib::prepare(&Path::new(env!("CARGO_TARGET_TMPDIR")).join("salvo-kt-std"), files)
+        .unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// [kt-std-library] Rewrites `packages` (a case's own, `salvo.main` and the
+/// like) into the case's namespace and leaves every other `salvo.` name —
+/// std's, which the shared library declares — as it is. A package matches
+/// only as a whole dotted name.
+fn prefix_packages(content: &str, pfx: &str, packages: &[String]) -> String {
+    let mut pkgs: Vec<&String> = packages.iter().collect();
+    pkgs.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let mut out = String::with_capacity(content.len());
+    let mut i = 0;
+    let bytes = content;
+    'outer: while i < bytes.len() {
+        let before = bytes[..i].chars().next_back();
+        if before.is_none_or(|c| !ident(c) && c != '.') {
+            for p in &pkgs {
+                if bytes[i..].starts_with(p.as_str()) {
+                    let after = bytes[i + p.len()..].chars().next();
+                    if after.is_none_or(|c| !ident(c)) {
+                        out.push_str(pfx);
+                        out.push('.');
+                        out.push_str(p);
+                        i += p.len();
+                        continue 'outer;
+                    }
+                }
+            }
+        }
+        let c = bytes[i..].chars().next().unwrap();
+        out.push(c);
+        i += c.len_utf8();
+    }
+    out
+}
+
 /// Rewrites one generated file into the case's own package namespace.
 /// Blind textual rewrite: `package salvo…` declarations and every `salvo.`
 /// reference (imports and qualified names alike). A string literal
@@ -4799,60 +4848,114 @@ fn kotlinc_compiles_and_runs_every_case(shard: usize) {
     let per_chunk = pending.len().div_ceil(chunk_count);
     let chunks: Vec<&[(KotlinCase, salvo_testkit::Stamp)]> = pending.chunks(per_chunk).collect();
 
+    // [kt-std-library] std, compiled once; a case whose std files match it
+    // compiles only its own.
+    let library = shared_std_library();
+    let shared: Mutex<std::collections::HashSet<String>> = Mutex::new(Default::default());
     // Write each case's sources, prefixed, under its chunk's directory.
     let mut chunk_dirs = Vec::new();
     for (i, chunk) in chunks.iter().enumerate() {
         let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("kt-batch-{shard}-{i}"));
         let mut kt_paths = Vec::new();
+        let mut shared_paths = Vec::new();
+        // [kt-std-library] The root-package files a chunk's shared cases
+        // add beyond the library (an arity std does not use): once each.
+        let mut root_files: std::collections::BTreeMap<std::path::PathBuf, String> = Default::default();
         for (case, _) in chunk.iter() {
             let pfx = pkg_prefix(&case.tag);
-            for f in &case.files {
-                let path = dir.join("src").join(&case.tag).join(&f.rel_path);
+            let own = library.own_files(case.files.iter().map(|f| (f.rel_path.as_path(), f.content.as_str())));
+            let Some(own) = own else {
+                // Not shared: the whole program, under its own namespace.
+                for f in &case.files {
+                    let path = dir.join("src").join(&case.tag).join(&f.rel_path);
+                    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    std::fs::write(&path, prefix_content(&f.content, &pfx)).unwrap();
+                    kt_paths.push(path);
+                }
+                continue;
+            };
+            shared.lock().unwrap().insert(case.tag.clone());
+            let own: Vec<&salvo_backend_kotlin::EmittedFile> =
+                case.files.iter().filter(|f| own.contains(&f.rel_path.as_path())).collect();
+            let packages: Vec<String> = own
+                .iter()
+                .filter_map(|f| f.content.lines().find_map(|l| l.strip_prefix("package ")).map(str::to_string))
+                .filter(|p| p != "salvo")
+                .collect();
+            for f in own {
+                if f.content.lines().any(|l| l == "package salvo") {
+                    let prev = root_files.insert(f.rel_path.clone(), f.content.clone());
+                    assert!(
+                        prev.is_none_or(|p| p == f.content),
+                        "case {}: `{}` differs from another case's",
+                        case.tag,
+                        f.rel_path.display()
+                    );
+                    continue;
+                }
+                let path = dir.join("shared").join(&case.tag).join(&f.rel_path);
                 std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-                std::fs::write(&path, prefix_content(&f.content, &pfx)).unwrap();
-                kt_paths.push(path);
+                std::fs::write(&path, prefix_packages(&f.content, &pfx, &packages)).unwrap();
+                shared_paths.push(path);
             }
         }
-        chunk_dirs.push((dir, kt_paths));
+        for (rel, content) in root_files {
+            let path = dir.join("shared").join("__root").join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, content).unwrap();
+            shared_paths.push(path);
+        }
+        chunk_dirs.push((dir, kt_paths, shared_paths));
     }
 
-    // Compile the chunks in parallel, one kotlinc each.
+    // Compile the chunks in parallel: the shared cases against the library,
+    // the rest whole, one kotlinc each.
     let compile_errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
     std::thread::scope(|scope| {
-        for (dir, kt_paths) in &chunk_dirs {
-            scope.spawn(|| {
-                // [kt-wire] Every struct now carries a codec, so a batch of
-                // ~30 programs outgrew kotlinc's default heap (an OOM inside
-                // the JVM IR backend, 2026-09-26): give it room.
-                let out = Command::new("kotlinc")
-                    .env("JAVA_OPTS", "-Xmx3g")
-                    .args(kt_paths.iter().map(|p| p.as_os_str()))
-                    .arg("-d")
-                    .arg(dir.join("out"))
-                    .output()
-                    .expect("failed to run kotlinc");
-                if !out.status.success() {
-                    // The stderr names the offending files, whose paths
-                    // carry the case tags.
-                    compile_errors.lock().unwrap().push(format!(
-                        "kotlinc failed for {}:\n{}",
-                        dir.display(),
-                        String::from_utf8_lossy(&out.stderr)
-                    ));
+        for (dir, kt_paths, shared_paths) in &chunk_dirs {
+            for (paths, out, cp) in [
+                (kt_paths, dir.join("out"), None),
+                (shared_paths, dir.join("out_shared"), Some(&library.classes)),
+            ] {
+                if paths.is_empty() {
+                    continue;
                 }
-            });
+                let compile_errors = &compile_errors;
+                scope.spawn(move || {
+                    // [kt-wire] Every struct now carries a codec, so a batch of
+                    // ~30 programs outgrew kotlinc's default heap (an OOM inside
+                    // the JVM IR backend, 2026-09-26): give it room.
+                    let mut cmd = Command::new("kotlinc");
+                    cmd.env("JAVA_OPTS", "-Xmx3g").args(paths.iter().map(|p| p.as_os_str())).arg("-d").arg(&out);
+                    if let Some(cp) = cp {
+                        cmd.arg("-cp").arg(cp);
+                    }
+                    let result = cmd.output().expect("failed to run kotlinc");
+                    if !result.status.success() {
+                        // The stderr names the offending files, whose paths
+                        // carry the case tags.
+                        compile_errors.lock().unwrap().push(format!(
+                            "kotlinc failed for {}:\n{}",
+                            out.display(),
+                            String::from_utf8_lossy(&result.stderr)
+                        ));
+                    }
+                });
+            }
         }
     });
     let compile_errors = compile_errors.into_inner().unwrap();
     assert!(compile_errors.is_empty(), "{}", compile_errors.join("\n\n"));
 
+    let shared = shared.into_inner().unwrap();
+    eprintln!("[kt-std-library] {} of {} cases linked the shared std", shared.len(), pending.len());
     // Run every pending program in parallel, asserting exact stdout.
     let failures: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let passed: Mutex<Vec<usize>> = Mutex::new(Vec::new());
     let jobs: Vec<(usize, &KotlinCase, &std::path::Path)> = chunks
         .iter()
         .zip(&chunk_dirs)
-        .flat_map(|(chunk, (dir, _))| chunk.iter().map(move |(case, _)| (case, dir.as_path())))
+        .flat_map(|(chunk, (dir, _, _))| chunk.iter().map(move |(case, _)| (case, dir.as_path())))
         .enumerate()
         .map(|(i, (case, dir))| (i, case, dir))
         .collect();
@@ -4865,9 +4968,14 @@ fn kotlinc_compiles_and_runs_every_case(shard: usize) {
                     return;
                 };
                 let entry = format!("{}.{}", pkg_prefix(&case.tag), case.entry);
+                let cp = if shared.contains(&case.tag) {
+                    std::env::join_paths([dir.join("out_shared"), library.classes.clone()]).unwrap()
+                } else {
+                    dir.join("out").into_os_string()
+                };
                 let run = Command::new("kotlin")
                     .arg("-cp")
-                    .arg(dir.join("out"))
+                    .arg(cp)
                     .arg(&entry)
                     .output()
                     .expect("failed to run kotlin");
@@ -4904,7 +5012,7 @@ fn kotlinc_compiles_and_runs_every_case(shard: usize) {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
-    for (dir, _) in chunk_dirs {
+    for (dir, _, _) in chunk_dirs {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
@@ -7488,8 +7596,8 @@ fn tuples_past_three_emit_a_generated_class() {
     );
     let tuples = files
         .iter()
-        .find(|f| f.rel_path.ends_with("tuples.kt"))
-        .expect("tuples.kt is emitted for a program that names a big tuple");
+        .find(|f| f.rel_path.ends_with("tuples/Tuple5.kt"))
+        .expect("tuples/Tuple5.kt is emitted for a program that names a big tuple");
     assert!(
         tuples.content.contains("data class Tuple5<")
             && tuples.content.contains(") : SalvoTuple {")
@@ -13958,9 +14066,9 @@ fn a_parked_continuation_lowers_to_a_slot_table_kotlin() {
         "the continuation class is missing, or its captures are wrong:\n{text}"
     );
     assert!(
-        text.contains("internal var __addr: Int? = null")
+        text.contains("var __addr: Int? = null")
             && text.contains(
-                "internal val __parked: MutableMap<Long, __Cont_Fetching> = mutableMapOf()"
+                "val __parked: MutableMap<Long, __Cont_Fetching> = mutableMapOf()"
             ),
         "the handler's generated fields are missing:\n{text}"
     );
@@ -14653,4 +14761,9 @@ fn main() [use] {
 }
 "#;
     kotlin_case(generate_files(&[("main.sv", SRC)]), "effect-fn-params", "18 4 57\n")
+}
+
+/// The concatenated text of several emitted files, read like one.
+struct EmittedFileText {
+    content: String,
 }

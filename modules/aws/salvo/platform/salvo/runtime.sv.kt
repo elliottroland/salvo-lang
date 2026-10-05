@@ -16,7 +16,7 @@ import java.util.concurrent.locks.LockSupport
 // parker, and the next park would never return. One parker per thread, so
 // whoever holds a copy unparks the one the thread parks on.
 class Parker(val thread: Thread) {
-    internal val token = java.util.concurrent.atomic.AtomicBoolean(false)
+    val token = java.util.concurrent.atomic.AtomicBoolean(false)
 }
 
 private val parkers = ThreadLocal.withInitial { Parker(Thread.currentThread()) }

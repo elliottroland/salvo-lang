@@ -70,6 +70,11 @@ pub fn reachable_modules<'p>(
             .map(|u| &u.file.module)
             .collect();
     }
+    // [kt-std-library] A program of std alone is the standard library's own
+    // build: every std module is a root.
+    if roots.is_empty() {
+        roots = program.units().filter(|u| !u.file.is_test).map(|u| &u.file.module).collect();
+    }
 
     reachable_from(program, resolution, checked, roots, true)
 }

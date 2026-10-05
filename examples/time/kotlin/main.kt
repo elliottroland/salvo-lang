@@ -117,9 +117,9 @@ object __Codec___Msg_Session : salvo.WireCodec<__Msg_Session> {
 const val __PROTO_Session: String = "7ed70285b7e6568c"
 
 class Sessions(private val __dep_Timer: Timer) : Session {
-    internal val __mailboxCapacity: Int = 8
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Sessions> = mutableMapOf()
+    val __mailboxCapacity: Int = 8
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Sessions> = mutableMapOf()
 
     override fun open(started: Tick, budget: Duration, out: salvo.SalvoReply) {
         __dep_Timer.after(plus__Duration_Duration(budget, seconds(1L)), run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Sessions.Expire(started, budget, out); __r })
@@ -244,9 +244,9 @@ object __Codec___Msg_Sleeper : salvo.WireCodec<__Msg_Sleeper> {
 const val __PROTO_Sleeper: String = "2385b53950dcbd9c"
 
 class Napping(private val __dep_Timer: Timer, private val __dep_Ticker: Ticker) : Sleeper {
-    internal val __mailboxCapacity: Int = 8
-    internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Napping> = mutableMapOf()
+    val __mailboxCapacity: Int = 8
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Napping> = mutableMapOf()
 
     override fun nap(wait: Duration, out: salvo.SalvoReply) {
         __dep_Timer.after(wait, run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Napping.Woke(__dep_Ticker.tick(), out); __r })

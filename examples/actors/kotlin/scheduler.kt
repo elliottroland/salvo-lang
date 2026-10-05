@@ -168,12 +168,12 @@ object SalvoSched {
     // service reaches them through its platform fns
     // (`std/platform/runtime/routing.kt`).
 
-    internal val sinks = java.util.concurrent.ConcurrentHashMap<Int, (String) -> Any?>()
-    internal val decoders = java.util.concurrent.ConcurrentHashMap<Int, (String, ByteArray) -> Pair<Boolean, Any?>>()
-    internal val waiterDecoders = java.util.concurrent.ConcurrentHashMap<Int, (ByteArray) -> Pair<Boolean, Any?>>()
-    internal val taskDecoders = java.util.concurrent.ConcurrentHashMap<Long, (ByteArray) -> Pair<Boolean, Any?>>()
-    internal val controls = java.util.concurrent.ConcurrentHashMap<Int, (Long, ByteArray) -> Any?>()
-    internal val wires = java.util.concurrent.ConcurrentHashMap<Long, (ByteArray, ByteArray) -> Unit>()
+    val sinks = java.util.concurrent.ConcurrentHashMap<Int, (String) -> Any?>()
+    val decoders = java.util.concurrent.ConcurrentHashMap<Int, (String, ByteArray) -> Pair<Boolean, Any?>>()
+    val waiterDecoders = java.util.concurrent.ConcurrentHashMap<Int, (ByteArray) -> Pair<Boolean, Any?>>()
+    val taskDecoders = java.util.concurrent.ConcurrentHashMap<Long, (ByteArray) -> Pair<Boolean, Any?>>()
+    val controls = java.util.concurrent.ConcurrentHashMap<Int, (Long, ByteArray) -> Any?>()
+    val wires = java.util.concurrent.ConcurrentHashMap<Long, (ByteArray, ByteArray) -> Unit>()
 
     fun nodeId(): Long = hereNode()
 
@@ -305,15 +305,15 @@ object SalvoSched {
  */
 class SalvoReply internal constructor(private var token: salvo.runtime.Token?) {
     /** [addr-routable] For a token minted elsewhere: (node, kind, id, slot, bits). */
-    internal var remote: salvo.runtime.routing.ReplyParts? = null
+    var remote: salvo.runtime.routing.ReplyParts? = null
 
     /** [wire-format] How a task's answer is decoded should it return over the wire. */
-    internal var decode: (ByteArray) -> Pair<Boolean, Any?> = { _ -> Pair(false, null) }
+    var decode: (ByteArray) -> Pair<Boolean, Any?> = { _ -> Pair(false, null) }
 
     /** [platform-check] What a platform adapter checks of the value the host sends. */
-    internal var check: ((Any?) -> Any?)? = null
+    var check: ((Any?) -> Any?)? = null
 
-    internal fun takeLocal(): salvo.runtime.Token? =
+    fun takeLocal(): salvo.runtime.Token? =
         synchronized(this) {
             val t = token
             token = null

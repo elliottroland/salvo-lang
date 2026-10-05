@@ -30,6 +30,8 @@ fn project(dir: &Path) {
 
 fn salvo_in(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_salvo"))
+        // [kt-std-library] The compiled std is cached in the test target.
+        .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
         .current_dir(dir)
         .args(args)
         .output()

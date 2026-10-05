@@ -135,6 +135,24 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**A shared, compiled Kotlin std (2026-10-05, user decisions).** With names
+per module, 22 of 26 shared Kotlin std files were already byte-identical
+across six examples; what still varied was the union file (every arity the
+program used). The user chose one file per arity on both backends (over a
+fixed set in std, or a second file for a program's extra arities), and both a
+harness-side and a CLI-side cache. Built [kt-std-library]: `stdlib.rs` emits std
+alone, compiles it into a content-keyed cache entry, and checks reuse file by
+file; `Backend::prepare_run` readies it for `salvo run`/`test`; the Kotlin
+codegen driver links 42 of shard 0's 49 cases against it (the others carry a
+std file that differs, and compile whole). What fell out: Kotlin's `internal`
+does not cross compilation modules, so the emitter's `internal` fields
+(`__mailboxCapacity`, `__parked`, `__addr`) and the runtime's went public;
+union codecs moved to files of their own so a union's file does not depend on
+whether the program uses the wire. Measured: hello world 3.3s against 5.3s
+(15.7s once, building the library); the four shards 103–128s inside a fresh
+suite (185–199s before); the fresh suite 355s. Rust is left as it was (ROADMAP
+0h). The CLI tests keep their cache in the test target (`SALVO_CACHE_DIR`).
+
 **Deterministic names and explicit imports (2026-10-05, user decisions).**
 The test-speed survey found that std's generated code differed per program,
 and the user had long had trouble with numbered names (`add__3`, `next__20`):

@@ -3,6 +3,10 @@
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5ecf120cea852ac5
 use crate::unions::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::runtime_streams::__Stateful_StreamTable as _;
+use crate::runtime_streams::__Stateless_StreamTable as _;
 
 pub type StreamError = Union2<InvalidUtf8, StreamFailed>;
 
