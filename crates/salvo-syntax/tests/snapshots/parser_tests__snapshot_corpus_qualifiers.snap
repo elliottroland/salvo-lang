@@ -893,6 +893,7 @@ Module {
                                 span: 524..527,
                             },
                         },
+                        canbe_mut: false,
                         default: None,
                         span: 515..527,
                     },

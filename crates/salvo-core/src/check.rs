@@ -3155,6 +3155,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_mailbox_slot(h, &of_tys);
                     for field in &h.state {
                         self.validate_type(&field.ty);
+                        if field.canbe_mut {
+                            self.error(
+                                field.ty.span(),
+                                "`canbe Mut` is for a struct's fields [field-canbe-mut]; a \
+                                 handler's state is mutable already, so write `Mut` or nothing"
+                                    .to_string(),
+                            );
+                        }
                         self.reject_iter_field(&h.name.name, field);
                         self.check_proj_field(&h.name.name, field);
                         self.check_linear_field(&h.name.name, field);
@@ -3392,6 +3400,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_struct_cycle(s);
                     for field in &s.fields {
                         self.validate_type(&field.ty);
+                        self.check_canbe_mut_field(s, field);
                         self.reject_iter_field(&s.name.name, field);
                         // [proj-field] Any struct may hold a borrow through a
                         // `proj` field; it is then a *view*, tied to whatever
@@ -18563,6 +18572,51 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [field-canbe-mut] `name: canbe Mut T` is legal in a `canbe Mut` struct
+    /// only (elsewhere the struct value is never `Mut`, so the field never
+    /// would be), over a `T` whose declaration says `canbe Mut`, written
+    /// without a `Mut` of its own.
+    fn check_canbe_mut_field(&mut self, s: &'p StructDecl, field: &'p ast::FieldDecl) {
+        if !field.canbe_mut {
+            return;
+        }
+        let span = field.ty.span();
+        if !s.auto_qualifiers.iter().any(|q| q.name.name == "Mut") {
+            self.error(
+                span,
+                format!(
+                    "field `{}` says `canbe Mut`, but struct `{}` does not: a `{}` value is \
+                     never `Mut`, so the field never would be; declare `struct {} canbe Mut` \
+                     [field-canbe-mut]",
+                    field.name.name, s.name.name, s.name.name, s.name.name
+                ),
+            );
+            return;
+        }
+        let ty = self.lower_type(&field.ty);
+        if ty.is_unknown() {
+            return;
+        }
+        if ty.quals().iter().any(|q| q.name == "Mut") {
+            self.error(
+                span,
+                format!(
+                    "field `{}` is already `Mut`; `canbe Mut` gives a field `Mut` only when \
+                     the struct value has it, so write one or the other [field-canbe-mut]",
+                    field.name.name
+                ),
+            );
+        } else if !self.has_auto_mut(&ty) {
+            self.error(
+                span,
+                format!(
+                    "`canbe Mut` does not apply to `{ty}` (its declaration does not say \
+                     `canbe Mut`) [field-canbe-mut]"
+                ),
+            );
+        }
+    }
+
     fn has_auto_mut(&self, base: &Ty) -> bool {
         let Ty::Named { name, .. } = base.strip_quals() else {
             return false;
@@ -22717,7 +22771,24 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (i, g) in decl.generics.iter().enumerate() {
             subst.insert(g.name.clone(), args.get(i).cloned().unwrap_or(Ty::Unknown));
         }
-        Some(self.lower_type_subst(&field.ty, &subst, 0))
+        let mutable = base_ty.quals().iter().any(|q| q.name == "Mut");
+        Some(self.struct_field_ty(field, &subst, mutable))
+    }
+
+    /// [field-canbe-mut] A field's type in a struct value: the declared type
+    /// under `subst`, gaining `Mut` when the field says `canbe Mut` and the
+    /// struct value is `Mut`. Every reading of a declared field type (reads,
+    /// literals, destructuring) goes through here, so a plain struct is
+    /// immutable all the way down.
+    fn struct_field_ty(&mut self, field: &ast::FieldDecl, subst: &HashMap<String, Ty>, mutable: bool) -> Ty {
+        let ty = self.lower_type_subst(&field.ty, subst, 0);
+        if field.canbe_mut && mutable && !ty.quals().iter().any(|q| q.name == "Mut") && self.has_auto_mut(&ty) {
+            let mut quals = ty.quals().to_vec();
+            quals.push(Qual::plain("Mut", Vec::new()));
+            ty.strip_quals().clone().qualify(quals)
+        } else {
+            ty
+        }
     }
 
     /// [iter-protocol] [group-obligation] Whether this type's declaration
@@ -23920,12 +23991,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut inferred: HashMap<String, Ty> = HashMap::new();
         let mut has_spread = false;
         let mut provided: HashSet<&str> = HashSet::new();
+        // [field-canbe-mut] A `Mut` literal gives its `canbe Mut` fields `Mut`
+        // values; a plain one, plain values.
+        let lit_mut = struct_ty.quals().iter().any(|q| q.name == "Mut");
+        let mut spreads: Vec<&'p Expr> = Vec::new();
         for f in fields {
             match &f.kind {
                 StructLitFieldKind::Named { name, value } => {
                     match decl.fields.iter().find(|df| df.name.name == name.name) {
                         Some(df) => {
-                            let fty = self.lower_type_subst(&df.ty, &subst, 0);
+                            let fty = self.struct_field_ty(df, &subst, lit_mut);
                             self.check_expr(value, Some(&fty));
                             let vty = self.out.expr_ty[&self.key(value.span())].clone();
                             // [struct-literal-arg] What this field says about an
@@ -23939,7 +24014,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // earlier binding the way an argument list does.
                             if !pattern_subst.is_empty() {
                                 let pattern =
-                                    self.lower_type_subst(&df.ty, &pattern_subst, 0);
+                                    self.struct_field_ty(df, &pattern_subst, lit_mut);
                                 unify(&pattern, &vty, &mut inferred);
                             }
                             // [linear-generics] A field whose declared type
@@ -23980,9 +24055,48 @@ impl<'p, 'r> Checker<'p, 'r> {
                 StructLitFieldKind::Spread(e) => {
                     has_spread = true;
                     self.check_expr(e, None);
+                    spreads.push(e);
                 }
                 // [comptime-inline] Gone before this runs.
                 StructLitFieldKind::InlineFor { .. } => {}
+            }
+        }
+        // [field-canbe-mut] A `Mut` literal must not take a `canbe Mut` field
+        // from a plain value: the field would become mutable while whatever
+        // shares it (a `copy` of a plain value is the value itself) still
+        // reads it as immutable. A spread source must be `Mut` too, and a
+        // default (checked once, at the plain type) does not apply.
+        if lit_mut {
+            for df in decl.fields.iter().filter(|df| df.canbe_mut) {
+                if provided.contains(df.name.name.as_str()) {
+                    continue;
+                }
+                for e in &spreads {
+                    let sty = self.out.expr_ty.get(&self.key(e.span())).cloned().unwrap_or(Ty::Unknown);
+                    if !sty.is_unknown() && !sty.quals().iter().any(|q| q.name == "Mut") {
+                        self.error(
+                            e.span(),
+                            format!(
+                                "a `Mut {}` literal cannot take field `{}` (`canbe Mut`) from a \
+                                 plain `{sty}`: it would make the field mutable where the plain \
+                                 value is not; spread a `Mut` value, or give `{}` here \
+                                 [field-canbe-mut]",
+                                decl.name.name, df.name.name, df.name.name
+                            ),
+                        );
+                    }
+                }
+                if spreads.is_empty() && df.default.is_some() {
+                    self.error(
+                        span,
+                        format!(
+                            "a `Mut {}` literal must give field `{}`: its default is a plain \
+                             value and the field is `canbe Mut` [field-canbe-mut]",
+                            decl.name.name, df.name.name
+                        ),
+                    );
+                    provided.insert(&df.name.name);
+                }
             }
         }
         if !has_spread {

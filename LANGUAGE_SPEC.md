@@ -1310,6 +1310,28 @@ Conventions:
     values really being immutable [copy-fn]). Arrays remain
     index-assignable without `Mut` (status quo; `copy` performs a real
     array copy).
+* [field-canbe-mut] **`name: canbe Mut T` on a struct field**: the field is
+  `Mut T` exactly when the struct value is `Mut`, and `T` otherwise, so a
+  plain struct is immutable all the way down (user decision 2026-10-05,
+  ROADMAP §0j step 6b; built 2026-10-05). A field written `Mut T` stays
+  mutable inside a plain struct, as before.
+  * One reading for every place a declared field type is used
+    (`struct_field_ty` in the checker): a read `s.f`, a literal's expected
+    field types (and their type-argument inference), destructuring.
+  * Refused at the declaration: in a struct without `canbe Mut` (its value
+    is never `Mut`), over a type whose declaration does not say `canbe Mut`
+    (a generic `T` included), over a `T` already written `Mut`, and on a
+    handler's state.
+  * A **`Mut` literal** gives such a field a `Mut` value, and may not take it
+    from a plain value: a spread source must be `Mut`, and a default (checked
+    once, at the plain type) does not apply, so the field must be given.
+    Otherwise the field would become mutable while a plain value shares it
+    (Kotlin's `copy` of a plain value is the value itself [kt-copy]).
+  * `copy` of a `Mut` struct copies the field as the `Mut T` it is there
+    [copy-fn]; Rust's `clone` is deep already, Kotlin's copy is deep since
+    the same change [kt-copy].
+  * Backends: Rust erases `Mut`, so nothing changes; Kotlin stores both
+    shapes in one property [kt-field-canbe-mut].
 * [type-canbe-mut] `Mut` is a language-level qualifier, not a library
   declaration: any type declaration may opt into it with `canbe Mut`
   (`intrinsic type List<T> canbe Mut`), and applying `Mut` to a type whose

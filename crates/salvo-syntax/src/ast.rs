@@ -649,6 +649,10 @@ pub struct FieldDecl {
     pub docs: Vec<String>,
     pub name: Ident,
     pub ty: Type,
+    /// `name: canbe Mut T` [field-canbe-mut]: the field is `Mut T` exactly
+    /// when the struct value is `Mut`, and `T` otherwise. `ty` is the plain
+    /// `T`.
+    pub canbe_mut: bool,
     pub default: Option<Expr>,
     pub span: Span,
 }

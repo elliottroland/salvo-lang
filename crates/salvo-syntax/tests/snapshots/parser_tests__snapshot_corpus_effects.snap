@@ -290,6 +290,7 @@ Module {
                                 span: 175..178,
                             },
                         },
+                        canbe_mut: false,
                         default: Some(
                             Int {
                                 value: 0,

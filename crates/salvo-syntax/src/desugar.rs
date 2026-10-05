@@ -542,6 +542,7 @@ fn expand(
                         span: field_span,
                     },
                     ty,
+                    canbe_mut: false,
                     default: None,
                     span: field_span,
                 });
@@ -574,6 +575,7 @@ fn expand(
                         // Copy scalar, whose copy is free and whose borrow would
                         // only cost a deref [copy-scalar-free].
                         ty: if is_copy_scalar(ty) { ty.clone() } else { proj_of(ty, field_span) },
+                        canbe_mut: false,
                         default: None,
                         span: field_span,
                     });
@@ -615,6 +617,7 @@ fn expand(
             docs: field.docs.clone(),
             name: field.name.clone(),
             ty: field.ty.clone(),
+            canbe_mut: field.canbe_mut,
             // The initializer moves to the minter, where it can read the
             // parameters.
             default: None,

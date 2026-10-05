@@ -178,8 +178,11 @@ pub fn field_section(fields: &[FieldDecl], scope: &DocScope) -> Option<String> {
             })
             .unwrap_or_default();
         out.push_str(&format!(
-            "\n- `{}: {}{}`",
-            field.name.name, field.ty, default
+            "\n- `{}: {}{}{}`",
+            field.name.name,
+            if field.canbe_mut { "canbe Mut " } else { "" },
+            field.ty,
+            default
         ));
         if let Some(doc) = render(&field.docs, scope) {
             // Continuation lines are indented into the list item so a

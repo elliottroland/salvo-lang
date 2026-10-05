@@ -1034,6 +1034,8 @@ struct Emitter<'p> {
     /// reads it after the body and prepends `@Suppress("UNCHECKED_CAST")` —
     /// generated code must stay warning-free, and the author cannot edit it.
     unchecked_cast: bool,
+    /// [kt-copy] The structs whose deep copy is being built, outermost first.
+    copying: Vec<String>,
     /// Enclosing loops during emission [while-value]: the result variable
     /// a `break value` assigns before breaking (`None` for loops whose
     /// value is discarded). Innermost last.
@@ -1138,6 +1140,7 @@ impl<'p> Emitter<'p> {
             generics: HashSet::new(),
             ctor_implicits: HashSet::new(),
             unchecked_cast: false,
+            copying: Vec::new(),
             loop_results: Vec::new(),
             loop_id: 0,
             loop_destructures: Vec::new(),
@@ -1585,6 +1588,56 @@ impl<'p> Emitter<'p> {
         format!("{} {{\n{nested}}}\n{codecs}", outer.trim_end())
     }
 
+    /// [kt-field-canbe-mut] The declared Kotlin type of a struct field. A
+    /// `canbe Mut T` field holds a `T` in a plain value and a `Mut T` in a
+    /// `Mut` one, under one class, so it is declared at `T`, which works
+    /// where `Mut T`'s rendering is a subtype of `T`'s (`MutableList` of
+    /// `List`, or one class for both). Where it is not (`StringBuilder`
+    /// beside `String`) the field is refused: declared at `Any`, the data
+    /// class's equality would compare a builder by identity.
+    fn canbe_mut_field_type(&mut self, field: &salvo_syntax::ast::FieldDecl) -> String {
+        if field.canbe_mut && self.canbe_mut_drop_suffix(&field.ty).is_some() {
+            self.error(format!(
+                "the kotlin backend cannot store `canbe Mut` field `{}` yet: its type's \
+                 `Mut` form is not a subtype of the plain one [kt-field-canbe-mut]",
+                field.name.name
+            ));
+        }
+        self.emit_type(&field.ty)
+    }
+
+    /// The suffix that turns a `Mut T` into a `T` for a `canbe Mut` field's
+    /// type, when that is a real conversion [str-drop-mut].
+    fn canbe_mut_drop_suffix(&self, ty: &salvo_syntax::ast::Type) -> Option<&'static str> {
+        match ty {
+            salvo_syntax::ast::Type::Named { base, .. } => crate::intrinsics::drop_mut_suffix(&base.name.name),
+            _ => None,
+        }
+    }
+
+    /// [kt-field-canbe-mut] A read of a `canbe Mut` field: cast to the `Mut`
+    /// rendering where the checker typed it `Mut`, and through the drop where
+    /// the field is declared at `Any`. `None` for any other field.
+    fn canbe_mut_field_read(&mut self, base: &Expr, field: &str, span: Span, code: &str) -> Option<String> {
+        let base_ty = self.ty_of(base.span())?;
+        let Ty::Named { name, .. } = base_ty.strip_quals() else {
+            return None;
+        };
+        let decl = self.symbols.structs.get(name.as_str())?;
+        decl.fields.iter().find(|f| f.name.name == field && f.canbe_mut)?;
+        let read_ty = self.ty_of(span)?.clone();
+        if !read_ty.quals().iter().any(|q| q.name == "Mut") {
+            return Some(code.to_string());
+        }
+        let mut_kt = self.emit_ty(&read_ty);
+        let plain_kt = self.emit_ty(&read_ty.strip_quals().clone());
+        if mut_kt == plain_kt {
+            return Some(code.to_string());
+        }
+        self.unchecked_cast = true;
+        Some(format!("({code} as {mut_kt})"))
+    }
+
     fn emit_struct(&mut self, s: &StructDecl) -> String {
         let is_mut = s
             .auto_qualifiers
@@ -1611,7 +1664,7 @@ impl<'p> Emitter<'p> {
         let mut out = format!("\ndata class {declared_name}{generics}(\n");
         for field in &s.fields {
             let kw = if is_mut { "var" } else { "val" };
-            let ty = self.emit_type(&field.ty);
+            let ty = self.canbe_mut_field_type(field);
             let default = match &field.default {
                 Some(expr) => format!(" = {}", self.emit_expr(expr)),
                 None => String::new(),
@@ -4882,7 +4935,14 @@ impl<'p> Emitter<'p> {
                 ..
             } => self.emit_let(pattern, ty.as_ref(), value, indent),
             Stmt::Assign { target, value, .. } => {
-                let t = self.emit_expr_raw(target);
+                // An assigned field is the property itself, never a read's
+                // conversion [kt-field-canbe-mut].
+                let t = match target {
+                    Expr::Field { base, field, .. } => {
+                        format!("{}.{}", self.emit_expr(base), kt_ident(&field.name))
+                    }
+                    _ => self.emit_expr_raw(target),
+                };
                 let v = self.emit_expr(value);
                 format!("{pad}{t} = {v}\n")
             }
@@ -7208,6 +7268,12 @@ impl<'p> Emitter<'p> {
             }
             Expr::Field { base, field, span } => {
                 let code = format!("{}.{}", self.emit_expr(base), kt_ident(&field.name));
+                // [kt-field-canbe-mut] A `canbe Mut` field is stored at a type
+                // both shapes fit; a read is converted to the shape the
+                // checker gave it.
+                if let Some(code) = self.canbe_mut_field_read(base, &field.name, *span, &code) {
+                    return code;
+                }
                 // Predicate-qualifier field overrides cast + assert.
                 if let Some(cast_ty) = self.checked.field_casts.get(&(self.file_idx, *span)) {
                     let cast_ty = cast_ty.clone();
@@ -9158,27 +9224,26 @@ impl<'p> Emitter<'p> {
                     (_, None) => code,
                 });
             }
-            Ty::Named { name, args: targs } if has_mut => {
-                // A `Mut` struct whose fields are all immutable copies
-                // correctly with the data class's shallow `.copy()`.
-                if let Some(s) = self.symbols.structs.get(name.as_str()) {
-                    let subst: HashMap<String, Ty> = s
-                        .generics
-                        .iter()
-                        .map(|g| g.name.clone())
-                        .zip(targs.iter().cloned())
-                        .collect();
-                    let mut visiting = vec![name.clone()];
-                    let all_immutable = s.fields.iter().all(|field| {
-                        match salvo_core::wire::approx_ty(&field.ty, &subst) {
-                            Some(t) => self.ty_immutable(&t, &mut visiting),
-                            None => false,
-                        }
-                    });
-                    if all_immutable {
-                        return Some(format!("{code}.copy()"));
-                    }
+            Ty::Named { name, args: targs } if self.symbols.structs.contains_key(name.as_str()) => {
+                // [kt-copy] A struct copies **deeply**: the data class's
+                // `.copy(…)` with every field that is not immutable replaced
+                // by its own copy, which is what Rust's derived `clone` does.
+                // A field is typed as the value has it: a `canbe Mut` field is
+                // `Mut` in a `Mut` struct [field-canbe-mut].
+                let s = self.symbols.structs[name.as_str()];
+                if s.fields.is_empty() {
+                    return Some(code);
                 }
+                // A struct reached again inside its own copy (through a list
+                // of itself) would need a recursive copy fn; refused, not
+                // looped on.
+                if self.copying.iter().any(|n| n == name) {
+                    return None;
+                }
+                self.copying.push(name.clone());
+                let out = self.copy_struct_fields(s, targs, has_mut, &code);
+                self.copying.pop();
+                return out;
             }
             Ty::Array(elem) => {
                 if self.ty_immutable(elem, &mut Vec::new()) {
@@ -9188,6 +9253,43 @@ impl<'p> Emitter<'p> {
             _ => {}
         }
         None
+    }
+
+    /// [kt-copy] The deep copy of a struct value (see `copy_code`).
+    fn copy_struct_fields(&mut self, s: &'p StructDecl, targs: &[Ty], has_mut: bool, code: &str) -> Option<String> {
+        let name = s.name.name.clone();
+        {
+            {
+                let subst: HashMap<String, Ty> = s
+                    .generics
+                    .iter()
+                    .map(|g| g.name.clone())
+                    .zip(targs.iter().cloned())
+                    .collect();
+                self.loop_id += 1;
+                let var = format!("__s{}", self.loop_id);
+                let mut replaced = Vec::new();
+                for field in &s.fields {
+                    let fty = salvo_core::wire::approx_ty(&field.ty, &subst)?;
+                    let fty = if field.canbe_mut && has_mut {
+                        fty.qualify(vec![salvo_core::types::Qual::plain("Mut", Vec::new())])
+                    } else {
+                        fty
+                    };
+                    if self.ty_immutable(&fty, &mut vec![name.clone()]) {
+                        continue;
+                    }
+                    let fname = kt_ident(&field.name.name);
+                    let read = format!("{var}.{fname}");
+                    let copied = self.copy_code(&fty, &read)?;
+                    replaced.push(format!("{fname} = {copied}"));
+                }
+                if replaced.is_empty() {
+                    return Some(format!("{code}.copy()"));
+                }
+                Some(format!("{code}.let {{ {var} -> {var}.copy({}) }}", replaced.join(", ")))
+            }
+        }
     }
 
     /// The rendered arguments of an `intrinsic fn` call, in declaration

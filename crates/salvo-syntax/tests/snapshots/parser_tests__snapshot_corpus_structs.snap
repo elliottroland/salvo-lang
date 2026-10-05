@@ -56,6 +56,7 @@ Module {
                                 span: 36..39,
                             },
                         },
+                        canbe_mut: false,
                         default: None,
                         span: 30..39,
                     },
@@ -85,6 +86,7 @@ Module {
                             },
                             span: 54..58,
                         },
+                        canbe_mut: false,
                         default: Some(
                             Ident(
                                 Ident {
@@ -118,6 +120,7 @@ Module {
                                 span: 76..79,
                             },
                         },
+                        canbe_mut: false,
                         default: None,
                         span: 71..79,
                     },
@@ -174,6 +177,7 @@ Module {
                                 span: 114..115,
                             },
                         },
+                        canbe_mut: false,
                         default: None,
                         span: 107..115,
                     },
@@ -200,6 +204,7 @@ Module {
                                 span: 129..130,
                             },
                         },
+                        canbe_mut: false,
                         default: None,
                         span: 121..130,
                     },

@@ -1071,6 +1071,65 @@ fn main() [use] {
     run_rust_files(&files, "copy_elements", "5 1\n2 1\n");
 }
 
+/// [field-canbe-mut] The Kotlin backend's `canbe Mut` field case, run on
+/// Rust for parity (`Mut` is erased here; the checker does the work).
+#[test]
+fn rustc_compiles_and_runs_canbe_mut_field() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let src = r#"
+struct Bag canbe Mut {
+    n: Int,
+    items: canbe Mut List<Int>,
+    fixed: Mut List<Int>
+}
+
+struct Outer canbe Mut {
+    bag: canbe Mut Bag,
+    tag: Str
+}
+
+fn fill(b: Mut Bag) -> None => b: Mut {
+    add(b.items, 7)
+    b.n = b.n + 1
+}
+
+fn total(b: Bag) -> Int => b {
+    let t = b.n
+    for x in b.items {
+        t = t + x
+    }
+    return t
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let b = Mut Bag { n: 1, items: mut_list_of<Int>(), fixed: mut_list_of<Int>() }
+    add(b.items, 3)
+    fill(b)
+    let c = copy(b)
+    add(c.items, 4)
+    add(c.fixed, 9)
+    println("${size(b.items)} ${size(c.items)} ${size(b.fixed)} ${size(c.fixed)} ${total(b)}")
+    let p = Bag { n: 0, items: list_of(1, 2), fixed: mut_list_of<Int>() }
+    let q = copy(p)
+    add(q.fixed, 1)
+    println("${size(p.fixed)} ${size(q.fixed)} ${total(p)}")
+    let o = Mut Outer { bag: Mut Bag { n: 0, items: mut_list_of<Int>(), fixed: mut_list_of<Int>() }, tag: "t" }
+    add(o.bag.items, 5)
+    let o2 = copy(o)
+    add(o2.bag.items, 6)
+    println("${size(o.bag.items)} ${size(o2.bag.items)}")
+    let frozen: Bag = c
+    println("${total(frozen)}")
+}
+"#;
+    let files = generate(&[("main.sv", src)]);
+    run_rust_files(&files, "canbe_mut_field", "2 3 0 1 12\n0 1 3\n1 2\n16\n");
+}
+
 /// [cmp-carry] [col-literal] A collection literal takes its identity from the
 /// position, empty or not (ROADMAP §0j step 1).
 #[test]

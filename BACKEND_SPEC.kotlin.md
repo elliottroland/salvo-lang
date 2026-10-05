@@ -367,6 +367,16 @@ Conventions:
   read. The assert can never fire — the checker proved non-nullness and
   invalidates the fact on any mutation ([flow-place-invalidate]) — it is
   what keeps emitted Kotlin compilable ([backend-never-wrong]).
+* [kt-field-canbe-mut] A `canbe Mut T` field [field-canbe-mut] is one
+  property for both shapes of its struct, declared at the **plain** `T`'s
+  rendering (`var items: List<Int>`): a `Mut` struct stores a
+  `MutList`/`MutableList` there, which is a `List`. A read the checker typed
+  `Mut` casts back (`(b.items as salvo.platform.core.list.MutList<Int>)`,
+  under the fn's `@Suppress("UNCHECKED_CAST")` [kt-suppress-cast]); an
+  assignment target is the property itself. A type whose `Mut` rendering is
+  *not* a subtype of the plain one (`Mut Str`, a `StringBuilder`) is a
+  codegen error: declared at `Any`, the data class's equality would compare a
+  builder by identity.
 * [when-union-subject] `when` over a wrapper union lowers to Kotlin
   `when (subj)` over the sealed wrappers; kotlinc re-proves the
   exhaustiveness the checker established ([when-exhaustive]).
@@ -999,12 +1009,17 @@ nothing but the monitor.
     [col-deque] (2026-10-05: every platform type used to count as
     immutable, so a `List<Mut Counter>` copy aliased);
   * `Mut Str` → `StringBuilder(sb)` [kt-mut-str];
-  * a `Mut` struct whose fields are all transitively immutable →
-    `.copy()` (the data class's shallow copy is exact there);
+  * a struct copies **deeply** (2026-10-05, ROADMAP §0j step 6e): the data
+    class's `.copy(…)` with each field that is not transitively immutable
+    replaced by its own copy, `s.let { __s1 -> __s1.copy(items =
+    __s1.items.toMutableList()) }`, which is what Rust's derived `clone`
+    does; a `canbe Mut` field is typed as the value has it (`Mut` in a `Mut`
+    struct) [field-canbe-mut]. With no such field it is the shallow
+    `.copy()`. A struct reached again inside its own copy (a list of itself)
+    is refused rather than recursed on;
   * `T[]` with immutable `T` → `.copyOf()` (arrays are index-assignable
     without `Mut`);
-  * anything else — a map's mutable values, a `Mut` struct with a
-    `Mut`-typed field, generic `T`, `Iter`, unknown
+  * anything else — a map's mutable values, generic `T`, `Iter`, unknown
     interop types — is a codegen error [backend-never-wrong].
   * Generic struct fields are checked under the instantiation's
     substitution; struct cycles are assumed immutable along the

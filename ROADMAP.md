@@ -147,8 +147,10 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
 6. **The language the Salvo collections need.**
    - a. **Fn slots on struct declarations** ([cmp-carry]'s "a slot is
      declared by a qualifier or an intrinsic type, and nowhere else" changes).
-   - b. **`canbe Mut` on a field type**: the field is `Mut` exactly when the
-     struct value is, so a plain struct is immutable all the way down.
+   - b. ✅ **`canbe Mut` on a field type** [field-canbe-mut] (2026-10-05,
+     COMPLETED.md). Left: Kotlin refuses a `canbe Mut Str` field (a
+     `StringBuilder` is not a `String`, so one property cannot hold both
+     shapes without `Any` and identity equality) [kt-field-canbe-mut].
    - c. **Opaque structs** (`opaque struct`): in the declaring module an
      ordinary struct; elsewhere the type is usable but its fields are not (no
      literal, field read or write, spread, or destructuring). Settled: `by
@@ -176,8 +178,9 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      The general fix is the same as §0j step 7's slot rule: a std function
      must not `!` a `T?` whose `T` may itself be optional; `get`'s total
      overload could call a platform fn answering `T` directly.
-   - e. **Deep copy of structs on Kotlin**: [kt-copy] copies a `Mut` struct
-     only when all its fields are immutable. Rides on b.
+   - e. ✅ **Deep copy of structs on Kotlin** [kt-copy] (2026-10-05, with b).
+     Left: a struct reached again inside its own copy (`List<Mut Node>` in
+     `Node`) is a codegen error; it needs a generated recursive copy fn.
    - f. **Hand-written `eq`/`hash`/`to_str` beside `by auto`** on a struct:
      check what exists; a map's equality ignores order and tombstones.
    - g. **`IntBuffer`**, a platform type (`IntArray` on Kotlin, `Vec<i32>` on

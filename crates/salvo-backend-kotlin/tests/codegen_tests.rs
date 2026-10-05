@@ -4545,6 +4545,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_multi_module,
     kotlinc_compiles_and_runs_copy,
     kotlinc_compiles_and_runs_copy_elements,
+    kotlinc_compiles_and_runs_canbe_mut_field,
     kotlinc_compiles_and_runs_literal_identity,
     kotlinc_compiles_and_runs_int_wrap_and_bits,
     kotlinc_compiles_and_runs_move_modes,
@@ -5687,6 +5688,97 @@ fn main() [use] {
     println("${size(get(ls, 0)!)} ${size(get(ms, 0)!)}")
 }
 "#;
+
+/// [field-canbe-mut] [kt-field-canbe-mut] [kt-copy] A `canbe Mut` field is
+/// `Mut` exactly when its struct value is, and `copy` of a struct is deep:
+/// the copy's lists, nested structs included, are its own.
+pub const CANBE_MUT_FIELD_DEMO: &str = r#"
+struct Bag canbe Mut {
+    n: Int,
+    items: canbe Mut List<Int>,
+    fixed: Mut List<Int>
+}
+
+struct Outer canbe Mut {
+    bag: canbe Mut Bag,
+    tag: Str
+}
+
+fn fill(b: Mut Bag) -> None => b: Mut {
+    add(b.items, 7)
+    b.n = b.n + 1
+}
+
+fn total(b: Bag) -> Int => b {
+    let t = b.n
+    for x in b.items {
+        t = t + x
+    }
+    return t
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let b = Mut Bag { n: 1, items: mut_list_of<Int>(), fixed: mut_list_of<Int>() }
+    add(b.items, 3)
+    fill(b)
+    let c = copy(b)
+    add(c.items, 4)
+    add(c.fixed, 9)
+    println("${size(b.items)} ${size(c.items)} ${size(b.fixed)} ${size(c.fixed)} ${total(b)}")
+    let p = Bag { n: 0, items: list_of(1, 2), fixed: mut_list_of<Int>() }
+    let q = copy(p)
+    add(q.fixed, 1)
+    println("${size(p.fixed)} ${size(q.fixed)} ${total(p)}")
+    let o = Mut Outer { bag: Mut Bag { n: 0, items: mut_list_of<Int>(), fixed: mut_list_of<Int>() }, tag: "t" }
+    add(o.bag.items, 5)
+    let o2 = copy(o)
+    add(o2.bag.items, 6)
+    println("${size(o.bag.items)} ${size(o2.bag.items)}")
+    let frozen: Bag = c
+    println("${total(frozen)}")
+}
+"#;
+
+pub const CANBE_MUT_FIELD_EXPECTED: &str = "2 3 0 1 12\n0 1 3\n1 2\n16\n";
+
+#[test]
+fn canbe_mut_field_reads_cast_and_structs_copy_deeply() {
+    let program = build_program(&[("main.sv", CANBE_MUT_FIELD_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.kt").unwrap();
+    // Declared at the plain type, read as `Mut` through a cast.
+    assert!(main.content.contains("var items: List<Int>"), "generated:\n{}", main.content);
+    assert!(main.content.contains("(b.items as salvo.platform.core.list.MutList<Int>)"), "generated:\n{}", main.content);
+    // A deep copy replaces every mutable field.
+    assert!(main.content.contains(".copy(items = "), "generated:\n{}", main.content);
+}
+
+fn kotlinc_compiles_and_runs_canbe_mut_field() -> KotlinCase {
+    let program = build_program(&[("main.sv", CANBE_MUT_FIELD_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "canbe_mut_field", CANBE_MUT_FIELD_EXPECTED)
+}
+
+/// [kt-field-canbe-mut] A `canbe Mut Str` field would hold a `String` or a
+/// `StringBuilder` under one property: refused on Kotlin.
+#[test]
+fn canbe_mut_str_field_is_a_kotlin_error() {
+    let program = build_program(&[(
+        "bad.sv",
+        "struct Doc canbe Mut { text: canbe Mut Str }\n\nfn main() [use] -> None {\n    \
+         use StdOutConsole()\n    let d = Doc { text: \"a\" }\n    println(d.text)\n}\n",
+    )]);
+    let errors = salvo_backend_kotlin::emit_program(&program).err().expect("expected codegen errors");
+    assert!(
+        errors.iter().any(|e| e.contains("cannot store `canbe Mut` field `text`")),
+        "unexpected errors: {errors:?}"
+    );
+}
 
 #[test]
 fn copy_of_mutable_elements_is_element_wise() {

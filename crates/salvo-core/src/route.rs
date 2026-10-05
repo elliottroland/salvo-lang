@@ -531,6 +531,7 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
             docs: Vec::new(),
             name: ident("seen", spans),
             ty: named("Long", Vec::new(), spans),
+            canbe_mut: false,
             default: Some(Expr::Int { value: -1, long: true, span: spans.take() }),
             span: spans.take(),
         }],

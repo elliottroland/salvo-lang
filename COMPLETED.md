@@ -141,6 +141,35 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, steps 6b and 6e: `canbe Mut` fields and deep
+copies on Kotlin (2026-10-05, ROADMAP §0j).**
+- **`name: canbe Mut T`** [field-canbe-mut]: the field is `Mut T` exactly when
+  its struct value is `Mut`. Spelling chosen by the implementer from the
+  decision's wording (`canbe Mut` written before the field type); the AST
+  carries it as `FieldDecl::canbe_mut` with the plain type in `ty`. One
+  checker reading, `struct_field_ty`, serves reads, literals (expected types
+  and type-argument inference) and destructuring.
+- Refused: in a struct without `canbe Mut`, over a type that cannot be
+  `Mut` (a generic `T` too), over a type already written `Mut`, on handler
+  state. A `Mut` literal must give the field a `Mut` value: a spread source
+  must be `Mut` and a default (plain, checked once) does not apply, since
+  either would make mutable what a plain value may share (Kotlin's `copy` of
+  a plain value is identity).
+- **Kotlin** [kt-field-canbe-mut]: one property, declared at the plain type;
+  a read typed `Mut` casts (`as salvo.platform.core.list.MutList<Int>`). A
+  `canbe Mut Str` field is a codegen error: `StringBuilder` and `String`
+  share no type but `Any`, where the data class's equality would compare a
+  builder by identity. Rust erases `Mut` and needed nothing.
+- **Kotlin `copy` of a struct is deep** [kt-copy]: `.copy(f = <copy of f>, …)`
+  for each field that is not transitively immutable, recursing through
+  nested structs and lists (`s.let { __s1 -> __s1.copy(items =
+  __s1.items.toMutableList()) }`), so a plain struct with a `Mut List`
+  field copies too, where it used to be a codegen error. A struct reached
+  again inside its own copy is refused (ROADMAP).
+- Tests: `field_mut_tests` (typing and the refusals), the same program e2e
+  on both backends, the Kotlin rendering and the `canbe Mut Str` refusal.
+  **1706 tests.**
+
 **Integers wrap, and bit operations are functions (2026-10-05, user decisions;
 ROADMAP §0j step 2).**
 - **Bitwise operations are `bit_` functions** [op-bits] (user decision: not
@@ -21682,7 +21711,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1700; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1706; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

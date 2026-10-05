@@ -1735,6 +1735,20 @@ impl<'s> Parser<'s> {
             self.ident_value("field")?
         };
         self.expect(&TokenKind::Colon)?;
+        // [field-canbe-mut] `name: canbe Mut T`: only `Mut` may follow, since
+        // it is the one auto-qualifier a struct value carries.
+        let canbe_mut = if self.eat(&TokenKind::KwCanbe).is_some() {
+            let q = self.ident_type("`Mut`")?;
+            if q.name != "Mut" {
+                self.error(
+                    format!("only `Mut` may follow `canbe` on a field type, found `{}`", q.name),
+                    q.span,
+                );
+            }
+            true
+        } else {
+            false
+        };
         let ty = self.parse_type()?;
         let default = if self.eat(&TokenKind::Eq).is_some() {
             Some(self.parse_expr()?)
@@ -1750,6 +1764,7 @@ impl<'s> Parser<'s> {
             docs,
             name,
             ty,
+            canbe_mut,
             default,
             span,
         })

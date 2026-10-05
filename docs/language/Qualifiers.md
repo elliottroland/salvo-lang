@@ -95,6 +95,23 @@ let mutable_person = Mut Person {...person}
 mutable_person.name = "Someone else" // No problem
 ```
 
+A field holding something that can itself be `Mut` — a list, say — can follow the struct's own `Mut` with `canbe Mut` on its type: the field is `Mut` exactly when the struct value is.
+
+```
+struct Inventory canbe Mut {
+    owner: Str,
+    items: canbe Mut List<Str>
+}
+
+let shop = Mut Inventory {owner: "Ada", items: mut_list_of<Str>()}
+add(shop.items, "lamp")             // `shop.items` is a `Mut List<Str>`
+
+let frozen: Inventory = shop
+add(frozen.items, "rope")           // Compile-time error: here it is a `List<Str>`
+```
+
+So a plain `Inventory` is immutable all the way down, which a field written `items: Mut List<Str>` would not be: that list stays mutable inside any `Inventory`. A `Mut` literal gives such a field a `Mut` value, and cannot take it from a plain value by `...spread` or from a default (both would make something mutable that a plain value still shares). The struct must itself say `canbe Mut`, and the field's type must be one that can be `Mut`. `copy` of a struct copies the field with it, so the copy's list is its own.
+
 `Mut` is a general language feature, not something a library defines: it composes with every other qualifier, and backends give it meaning (mutable fields in Kotlin, `mut` bindings and `&mut` references in Rust). Besides structs, other type declarations can opt into it with the same `canbe Mut` syntax — for example, the standard library's list and string types are declared as:
 
 ```
