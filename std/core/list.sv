@@ -77,6 +77,8 @@ export qualifier Idx<T>(list: List<T>) of Int {
     // from the conservative rule that any mutation of the list strips them.
     refn add(list: Mut List<T>, elem: T) => list: preserve Idx
     refn swap(list: Mut List<T>, i: Int, j: Int) => list: preserve Idx
+    // [col-replace] A write in place moves no boundary either.
+    refn replace_at(list: Mut List<T>, index: Int, value: T) => list: preserve Idx
 }
 
 // [qual-depend] [col-noteq] The claim that an `Int` **differs from one
@@ -115,6 +117,23 @@ export fn swap<T>(list: Mut List<T>, i: Idx(list) Int, j: Idx(list) Int) [] -> N
     ignore(swap(list, i + 0, j + 0))
     return None
 }
+
+// [col-replace] The **total positional write**: puts [value] at [index] and
+// answers the element it displaced. The index is proven (`Idx(list) Int`), so
+// there is no out-of-range case to answer, and the displaced element is handed
+// back. Taking an element out of a `List<T?>` is `replace(xs, i, None)`. Not
+// yet for a list of obligations [linear-container]: `Idx` cannot claim an
+// index of a linear list, since a qualifier's type parameter cannot `canbe
+// linear` (ROADMAP §0j step 6d). A write moves no boundary, so
+// existing `Idx` claims survive it [qual-preserve].
+export fn replace<T>(list: Mut List<T>, index: Idx(list) Int, value: T) [] -> T
+=> list: Mut, list: preserve Idx, index, !value {
+    return replace_at(list, index + 0, value)
+}
+
+// The host's write; the proven index is in range.
+platform fn replace_at<T canbe linear>(list: Mut List<T>, index: Int, value: T) [] -> T
+=> list: Mut, index, !value
 
 // [col-locate] What a **position-based** algorithm needs, as a params group
 // [implicit-group]: one function turning a container and a position into the

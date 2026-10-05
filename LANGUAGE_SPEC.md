@@ -857,6 +857,13 @@ Conventions:
     list of obligations cannot lose one.
   * [col-remove-range] `remove_range(list, from, to) -> Mut List<T>`: the
     elements in `[from, to)`, clamped to the list, moved out in order.
+  * [col-replace] `replace(list, index: Idx(list) Int, value) -> T`: the
+    **total positional write** (user decision 2026-10-05, ROADMAP §0j). The
+    proven index leaves no out-of-range case, so the displaced element is
+    always handed back, and `Idx` claims survive [qual-preserve]. Taking an
+    element out of a `List<T?>` is `replace(xs, i, None)`. Not yet for a
+    linear element type: `Idx` cannot claim an index of one, because a
+    qualifier's type parameter cannot `canbe linear`.
 * [str-mut-results] **A list made from a string is the caller's own**:
   `split` and `lines` answer `Mut List<Str>` (2026-10-03, user request).
 * [str-search] `index_of(str, needle, from)` (from an offset, below 0 the

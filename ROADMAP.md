@@ -162,13 +162,25 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      *outside* the module sees an opaque struct as kind `opaque`, so `by
      auto` and codecs call the type's own `eq`/`encode` instead of walking
      fields they may not see.
-   - d. **A total positional list write**: `replace(list: Mut List<T>, i:
-     Idx(list) Int, v: T) -> T`, preserving `Idx`. The proven index removes
-     the out-of-range hole `list.sv`'s comment objects to, so it is safe for
-     linear elements, and taking from a `List<T?>` is `replace(xs, i,
-     None)`. Closes the "no positional list write" leftover. Decide together
-     with §0d's `take(place: Mut T?) -> T?` (the `Slot<T>` stand-in): the
-     same gap at a field.
+   - d. ✅ **A total positional list write**, `replace(list, i: Idx(list)
+     Int, v) -> T` [col-replace] (2026-10-05, COMPLETED.md), for non-linear
+     elements. Left: linear elements, which need `canbe linear` on a
+     qualifier's type parameter (`Idx<T canbe linear>` is refused today: "only
+     supported on functions and structs") — a small language extension to
+     confirm when picked up; and §0d's `take(place: Mut T?) -> T?`, the same
+     gap at a field.
+   - **Defect found with it** (not fixed): the total `get` over a list of
+     optionals traps on Kotlin where Rust answers `None`, because `T?` with
+     `T = Str?` flattens on the JVM and `get(list, i)!` then sees a stored
+     `None` as absence:
+     ```
+     let ys: Mut List<Str?> = mut_list_of<Str?>(None)
+     let j = 0
+     if j is Idx(ys) { println("${get(ys, j) is None}") }  // Rust: true; Kotlin: AssertionError
+     ```
+     The general fix is the same as §0j step 7's slot rule: a std function
+     must not `!` a `T?` whose `T` may itself be optional; `get`'s total
+     overload could call a platform fn answering `T` directly.
    - e. **Deep copy of structs on Kotlin**: [kt-copy] copies a `Mut` struct
      only when all its fields are immutable. Rides on b.
    - f. **Hand-written `eq`/`hash`/`to_str` beside `by auto`** on a struct:

@@ -77,6 +77,11 @@ pub fn swap_at<T>(list: &mut List<T>, i: i32, j: i32) -> bool {
     true
 }
 
+// [col-replace] The index was proven in range by the caller's `Idx` claim.
+pub fn replace_at<T>(list: &mut List<T>, index: i32, value: T) -> T {
+    std::mem::replace(&mut list[index as usize], value)
+}
+
 pub fn into_mut<T>(list: List<T>) -> List<T> {
     list
 }

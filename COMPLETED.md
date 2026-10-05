@@ -141,6 +141,14 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, step 6d: a total positional list write (2026-10-05,
+ROADMAP §0j).** `replace(list, i: Idx(list) Int, v) -> T` [col-replace]: Salvo
+over a private platform fn `replace_at`, with an `Idx` refinement so the claim
+survives. Not for linear elements yet: `Idx`'s type parameter would have to
+`canbe linear`, which qualifiers cannot declare. Writing it turned up a
+Kotlin divergence for the total `get` over a `List<T?>` (ROADMAP §0j step 6,
+recorded with its repro). Two std tests.
+
 **Shrinking the backends, step 5: the wall clock as a platform fn (2026-10-05,
 ROADMAP §0j).** `time.epoch_nanos` was an intrinsic lowered to the runtime's
 `SalvoTime`/`hosttime`; it is a `platform fn` with host files

@@ -264,3 +264,24 @@ test "any, all, count, last, is_empty and reverse" {
     reverse(xs)
     expect_eq(to_str(xs), "[3, 2, 1]")
 }
+
+// [col-replace] The total positional write answers what it displaced.
+test "replace writes in place and hands back the old element" {
+    let xs = mut_list_of(1, 2, 3)
+    let i = 1
+    if i is Idx(xs) {
+        expect_eq(replace(xs, i, 20), 2)
+    }
+    expect_eq(to_str(xs), "[1, 20, 3]")
+}
+
+// [col-replace] Taking from a list of optionals leaves `None` behind.
+test "replace with None takes an element out" {
+    let ys: Mut List<Str?> = mut_list_of<Str?>("a", "b")
+    let j = 0
+    if j is Idx(ys) {
+        let taken = replace(ys, j, None)
+        expect_eq(taken!, "a")
+    }
+    expect_eq(size(ys), 2)
+}

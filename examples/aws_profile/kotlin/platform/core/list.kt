@@ -53,6 +53,9 @@ fun <T> swapAt(list: MutList<T>, i: Int, j: Int): Boolean {
     return true
 }
 
+// [col-replace] The index was proven in range by the caller's `Idx` claim.
+fun <T> replaceAt(list: MutList<T>, index: Int, value: T): T = list.set(index, value)
+
 fun <T> intoMut(list: List<T>): MutList<T> = if (list is MutableList<T>) list else list.toMutableList()
 
 // [linear-container] Ending one that still holds elements would drop them.
