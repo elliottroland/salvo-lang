@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1679 tests green; std's own Salvo tests run inside one of them.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1698 tests green; std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -61,7 +61,11 @@ Salvo" (the runtime record, retired 2026-10-03). What is left, besides 0c, 0d, 0
 and the `test actor` follow-ups recorded below:
 
 2. **What is left of the actor, net and time intrinsics** (most went
-   2026-10-05, COMPLETED.md). Still intrinsic, each for a reason:
+   2026-10-05, COMPLETED.md). §0j schedules three of them: `encode`/`decode`
+   become Salvo codecs (step 9), the builder-taking ones become Salvo once a
+   platform fn may keep a named fn (step 6h), and `epoch_nanos` becomes a
+   platform fn (step 5); `key_hash<T>` is a candidate for a `?hash` implicit
+   after step 8. Still intrinsic, each for a reason:
    `encode`/`decode`, `protocol<E>`, `send(reply, value)` and `key_hash`
    are type-directed (they need a codec or a protocol hash per type, which a
    generic Salvo fn cannot ask for); `pool(size, sink)`, `watch`, `on_idle`,
@@ -75,45 +79,166 @@ and the `test actor` follow-ups recorded below:
    surfaces as a `ClassCastException` where the value is used. In the
    runtime a mismatch is a compiler bug either way; an exact check would need
    a type token generated code could pass.
-7. **Every collection as a platform type** — in progress: the mechanism
-   and `Bytes` are built [platform-value-type] (2026-10-04, convention (c):
-   the host names the mutable kind `Mut<Name>`, Kotlin provides `copy`).
-   `Str`, `Deque` and `List` too (types still render natively, which the host
-   types alias; `list_of`/`mut_list_of` stay intrinsic because literals and
-   spreads lower through them), all four `iterable` [platform-iterable], so
-   `Set`/`Map` declare the same and keep their native loops. `Set` is built
-   too (2026-10-05, [platform-slots]): its operations are host code, its
-   constructors still intrinsic — to make them platform fns, a std platform
-   fn has to be able to *keep* the identity fns it is given (today a fn value
-   crossing the boundary is lent for the call [platform-fn-value], kept only
-   by the runtime's own platform fns), and Rust's marker types, which give
-   static dispatch, would become values. `Map` too (2026-10-05); its `to_str`
-   is still intrinsic, because a Salvo one would need the text form of two
-   types and a fn cannot take two implicits of one name (`?to_str` for `K`
-   and for `V`) — a **DECISION** if it is to change: a renaming implicit
-   (`?value_str: (V) -> Str = to_str`), or a `ToStr` group instantiated twice.
-   The sorted pair too (2026-10-05), which completes the step apart from
-   the constructors and the two maps' `to_str`. Originally: the sorted pair, whose identity
-   slots (`Set<T>(?hash, ?eq)`) a platform type is to be allowed to declare,
-   the host receiving the functions at construction (user decision
-   2026-10-04, option (a)). Lost with `List`: printing a nested list, which
-   needs recursive implicit resolution (item 6). (User decision 2026-10-04,
-   replacing runtime step 17 and widening §12's scope, which had kept the
-   `canbe Mut` collections intrinsic): `List`, `Set`, `Map`, the sorted pair,
-   `Deque`, `Str` and `Bytes`. A `platform type` that `canbe Mut` names **two
-   host types**, one for the immutable kind and one for the mutable (Kotlin
-   `List`/`MutableList`; Rust may name one type for both, `Vec`), and the
-   builders (`list_of`, `mut_list_of`, …) are platform fns answering the one
-   or the other; the backends keep deciding how a `Mut` and a non-`Mut`
-   value is passed. To settle while building: the spelling of the two-type
-   declaration, literals (`[1, 2]`, `{…}`) lowering to the builders, value
-   semantics of `copy`, element-conditional linearity [linear-container],
-   `proj` reads and iteration fast paths, and the identity-keyed `Set`/`Map`
-   (`?hash`, `?eq` as type arguments).
+7. **Every collection as a platform type** — done for every collection
+   (2026-10-04/05, COMPLETED.md). What it left (the constructors, the two
+   maps' `to_str`) is superseded by §0j step 7: `Set`, `Map` and the sorted
+   pair become Salvo structs, `List` and `Deque` stay platform types. Lost
+   with `List` and still owed: printing a nested list (step 8).
 
 ### 0b — ✅ Three slow tests (fixed 2026-10-04, COMPLETED.md)
 
 ### 0c — ✅ Emitter defects and gaps (closed 2026-10-04, COMPLETED.md)
+
+### 0j — Shrinking the backends (user decisions 2026-10-05, not built)
+
+The aim: a third backend implements a short, straightforward list. Decided in
+one sitting; COMPLETED.md's log ("Shrinking the backends") has the decisions
+and the survey behind them, with per-site line numbers. Four principles:
+
+- **Ownership is Salvo semantics.** Core computes the ownership decisions; a
+  backend renders them, and a garbage-collected backend ignores them.
+- **Salvo code over backend code** wherever it can be written in Salvo. The
+  scalars stay intrinsic: `cmp`/`eq`/`hash`/`to_str` and the numeric
+  conversions on the primitive types, which the operators bottom out in.
+- **Salvo semantics never consult host equality, hashing or ordering.** Once
+  step 8 lands, backends stop generating host instances. A LANGUAGE_SPEC.md
+  rule to write, with a neutral label.
+- **A platform fn may keep a fn value that is named, top-level, capture-free
+  and effect-free** (the [cmp-carry] identity restriction). Kept closures stay
+  the runtime's privilege [platform-fn-value].
+
+The steps, in order. Each says what it absorbs from elsewhere in this file.
+
+1. ✅ **Defects** (2026-10-05, COMPLETED.md).
+2. **Integers: bitwise operators, shifts, and wrapping overflow.** Absorbs
+   §10's overflow row (wrapping, plus `checked_*`/`saturating_*`), with its
+   parity test; meets §9's prerequisite for a Salvo splitmix64; lets
+   `mix_hash` become Salvo. Spelling to confirm when built (`& | ^ ~ << >>`,
+   and whether a logical `>>>`).
+3. **Shared machinery in `salvo-backend`.** A `prepare(program, mode)` for the
+   front half both `emit_program_mode`s and `platform_skeletons`s repeat
+   (check, erase, report, reachability, ABI closure, module selection,
+   companions, collision and missing-host checks); `EmittedFile`,
+   `no_duplicate_paths`, ABI stamping, the owned-manifest writer and the
+   build step; the identical free helpers (`collect_mutated`,
+   `collect_declared`, `collect_is_bindings`, `bindings_read_later`,
+   `subst_ast_type`, the type-name helpers); the side-table accessors; one
+   overload-mangling policy. Kotlin's `approx_ty` (emit.rs ~9505), a copy of
+   `salvo_core::wire::approx_ty`, is deleted. Backend-prefixed labels in the
+   moved comments become neutral rules or stay with the caller. COMPLETED.md's
+   "Adding another backend" paragraph (still describing `*.<name>.sv` define
+   files) is rewritten here, for host files, ABI mirrors and the `Backend`
+   methods.
+4. **Small core facts:** mutated bindings, names declared per block, the plan
+   for each `is` condition (bindings, temps, escape), block termination;
+   overload resolution made total so `disambiguate_unchecked` (both
+   backends) goes; `Checked::use_deps`/`use_with_items` consumed instead of
+   both `handler_dep_effects` re-resolving.
+5. **Runtime files and intrinsics to std.** `hosttime`, `hoststreams`,
+   Kotlin's `bytes.kt`, Rust's `strings.rs` (float text) and `seq.rs` become
+   std/platform host files; `epoch_nanos` becomes a platform fn (§0 item 2).
+   Shrinks the recorded runtime-file-name collision to almost nothing.
+6. **The language the Salvo collections need.**
+   - a. **Fn slots on struct declarations** ([cmp-carry]'s "a slot is
+     declared by a qualifier or an intrinsic type, and nowhere else" changes).
+   - b. **`canbe Mut` on a field type**: the field is `Mut` exactly when the
+     struct value is, so a plain struct is immutable all the way down.
+   - c. **Opaque structs** (`opaque struct`): in the declaring module an
+     ordinary struct; elsewhere the type is usable but its fields are not (no
+     literal, field read or write, spread, or destructuring). Settled: `by
+     auto` instances, `copy` and codecs are generated in the module and usable
+     everywhere; another module's qualifier cannot read the fields; the host
+     class keeps its fields under the host contract; the diagnostic names the
+     type as opaque and points at its fns; a `*.test.sv` annex counts as the
+     module. Also settled (user, 2026-10-05): a comptime fn instantiated
+     *outside* the module sees an opaque struct as kind `opaque`, so `by
+     auto` and codecs call the type's own `eq`/`encode` instead of walking
+     fields they may not see.
+   - d. **A total positional list write**: `replace(list: Mut List<T>, i:
+     Idx(list) Int, v: T) -> T`, preserving `Idx`. The proven index removes
+     the out-of-range hole `list.sv`'s comment objects to, so it is safe for
+     linear elements, and taking from a `List<T?>` is `replace(xs, i,
+     None)`. Closes the "no positional list write" leftover. Decide together
+     with §0d's `take(place: Mut T?) -> T?` (the `Slot<T>` stand-in): the
+     same gap at a field.
+   - e. **Deep copy of structs on Kotlin**: [kt-copy] copies a `Mut` struct
+     only when all its fields are immutable. Rides on b.
+   - f. **Hand-written `eq`/`hash`/`to_str` beside `by auto`** on a struct:
+     check what exists; a map's equality ignores order and tombstones.
+   - g. **`IntBuffer`**, a platform type (`IntArray` on Kotlin, `Vec<i32>` on
+     Rust) for hash index tables. Specializing `Int[]` (revisiting M7) is a
+     later, separate question.
+   - h. **Platform fns keep named fns** ([platform-fn-value] widened as
+     above). Unblocks §0 item 2's builders: `pool(size, sink)`, `watch`,
+     `on_idle`, `watch_control` and `route_frames` hand the scheduler a named
+     message-building fn and become Salvo.
+   - i. **Implicits on stamped fns for generic structs** (§2c, first bullet):
+     a prerequisite of `struct Entry<K, V> : … by auto` and of codecs over
+     generic structs.
+7. **`Set`/`Map` in Salvo, then the sorted pair.** `Map<K, V>(?hash, ?eq)` is
+   the slab both runtimes share today: entries in insertion order with
+   `None` tombstones, an `IntBuffer` index with open addressing over a
+   power-of-two capacity, compaction when tombstones outnumber live entries.
+   `Set<T>` uses the same layout. `SortedSet`/`SortedMap` start as a sorted
+   list with binary search; a B-tree in an arena (`List<Node>` with `Int`
+   children) later if writes need it. `List` and `Deque` stay platform types.
+   Literals desugar in core to the std constructors. Deleted: the 22
+   constructor intrinsics; [cmp-carry]'s marker and value rendering and
+   Kotlin's `keyed_pair`; Rust's stored-implicit demand; `runtime/
+   collections.rs`, `keyed.kt`; the boundary `Shape` checks; the
+   collection type-name tables (`Mut` renders through `Mut<Name>` for
+   `canbe Mut` types). Absorbs:
+   - §0 item 7 (every collection as a platform type), replaced by this.
+   - Its **`to_str` DECISION** for the two maps: two implicits of one name
+     at different types were decided legal (2026-09-28, §16's "riding
+     along"), so `to_str(map, ?to_str: (K) -> Str, ?to_str: (V) -> Str)` is
+     the build, not a decision.
+   - The recorded **`entries`/`values` iterators over a Map**: view structs
+     over the entries, as `Enumerated` is, need no copy.
+   - Until step 9, `Set`/`Map` stay `noremote`; their codec is the entries,
+     never the slab (hash values differ by backend).
+8. **Recursive implicits (§6), then the host-equality rule.** List and tuple
+   `cmp`/`eq`/`hash`/`to_str` written in Salvo (§2c's obligation clauses, on
+   platform types rather than intrinsic types); deleted with them: the
+   interim intrinsics in `core.compare`, Rust's `struct_derivable` and its
+   `Hash`/`Eq`/`Ord` derives, Kotlin's [kt-float-eq] override and the
+   structural part of `compare.kt`.
+9. **Wire codecs in Salvo.** `encode`/`decode` (`std/codec.sv`,
+   `runtime/routing.sv`) as comptime fns over fields and arms, the `by auto`
+   way, on a byte-level platform surface over `Bytes` (write/read `Int`,
+   `Long`, `Double`, `Byte`, length-prefixed `Bytes`/`Str`). Deletes
+   `wire.kt`/`wire.rs` and every generated codec. Absorbs §2c's "`decode<T>`
+   as an implicit": the stamped codec is that implicit. Needs 6i, and 8 for
+   container fields.
+10. **Imports and runtime features from core.** Per-file references from the
+    checker replace both `imports.rs` text scans; a runtime-feature set from
+    reach replaces the emitters' `needs_*` flags. Absorbs §0h's "emit
+    runtime files only when used" and §0i's third bullet. Needs a hook for
+    names an emitter synthesizes.
+11. **Effect dispatch and copy plans** as side tables: per call, which
+    effect, member and handler; per copy site, identity, builder,
+    element-wise or platform copy.
+12. **The ownership plan, as side tables**: per parameter (moved, lent, lent
+    mutably, kept; fn-type parameters and implicits included), per read
+    (move, copy, borrow, take), per narrowing (is the subject a borrow), per
+    fn (lends mutably on its return path; which variants callers need), per
+    call (hoists). Rust code is deleted site by site as each table lands.
+    Absorbs §11 (the read-mode table says what a read produced) and §0h's
+    note that Rust's `__loc` variants depend on callers. The `rs-` rules
+    that state Salvo ownership (rs-borrows, rs-read-mode, rs-opt-borrow,
+    rs-proj-arm, rs-fn-param-convention) become neutral LANGUAGE_SPEC.md
+    rules; the Rust spellings stay in BACKEND_SPEC.rust.md.
+13. **A lowering pass for the rewrites**: argument hoists, fn variants,
+    value-position `loop`/`if`/blocks, the iterator driver; possibly fn
+    bodies only. Designed with 12's tables as its vocabulary. Absorbs the
+    recorded "where dot-notation is normalized".
+
+What a garbage-collected third backend then writes: expression, statement
+and type rendering; the `UnionN` generator and union renderers; `try`/throw;
+boundary-check rendering; struct, effect and platform-interface rendering;
+the scalar intrinsics and arrays; host files for `List`, `Deque`, `Str`,
+`Bytes`, `IntBuffer`, time and streams; `copy`; the scheduler's host
+primitives. An ownership backend also renders step 12's tables.
 
 ### 0d — Shrinking the runtime's platform surface (recorded 2026-10-02)
 
@@ -127,7 +252,8 @@ decision 2026-10-02), to be revisited once the port lands. First candidates:
    through `Mut`. Stands in for moving a linear value out of a field (gap G2):
    a core `take(place: Mut T?) -> T?` leaving `None` behind, or the checker
    accepting `let b = a.body` followed by `a.body = None` before the
-   projection ends.
+   projection ends. Decide together with §0j step 6d (the same gap at a list
+   position).
 2. **`Body`** — an activation's owned, mutable, sendable fn value (E10).
    After the cutover a real actor's body is generated dispatch, so this should
    become what the emitter produces rather than hand-written host code; a
@@ -174,7 +300,9 @@ Most of what each toolchain compiles is std and runtime code the program
 never reaches: hello world is 1,516 lines of Kotlin (8 of them `main.kt`) and
 2,832 of Rust, because pruning works per module [mod-used-only]. The plan:
 extend `salvo_core::reach` to declarations (fns by what the checker
-resolved, types by name), and emit runtime files only when used. With
+resolved, types by name), and emit runtime files only when used (that half
+is §0j step 10; §0j steps 5, 7 and 9 also move most runtime files into std,
+where per-declaration pruning reaches them). With
 [fn-emit-name] std's output no longer depends on the program, so a std edit
 would rerun only the programs that reach it. Kotlin already shares one std
 compile across programs [kt-std-library] (2026-10-05). Rust does not: it
@@ -200,29 +328,12 @@ and rejected (358s against 371s; slower on the large batches).
   would clash on Rust, unhandled.
 - A fn the emitter calls that the checker's tables do not show cannot take
   part in the clash check; two of one name from two modules is reported as an
-  internal error rather than imported over each other.
+  internal error rather than imported over each other. Closed by §0j step 10
+  (imports from the checker's references).
 - `examples/actors` calls `drop(boom)` on an `Int`; `core.seq`'s `drop` is not
   emitted there, so Rust's prelude `drop` runs (same effect on an `Int`, and
   it was so under the globs too). Worth a check that a resolved Salvo fn the
   program calls is always emitted.
-
-### 0g — Open defect: `Mut` accepted on a struct that does not `canbe Mut` (found 2026-10-05)
-
-```
-struct Cell { v: Int }
-fn main() [use] {
-    use StdOutConsole()
-    let c = Mut Cell { v: 1 }
-    c.v = 2
-    println("${c.v}")
-}
-```
-
-`salvo analyze` accepts this and Rust runs it; Kotlin emits `val v` (a struct's
-fields are `var` only under `canbe Mut`) and kotlinc refuses the assignment.
-The same write through a `for` over `mut_list_of(Cell { v: 1 })` is refused,
-as it should be. The checker should refuse `Mut Cell { … }` (and a `Mut Cell`
-type) for a struct without `canbe Mut` [type-canbe-mut].
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
@@ -395,7 +506,9 @@ left three follow-ups the user has asked for, in this order.
   Interacts with the fusion revisit (a fused value is one parameter whatever
   the row), so decide the two together. **DECISION**: single variable first,
   or the row.
-- **`decode<T>` as an implicit** — the other intrinsic whose lowering reads
+- **`decode<T>` as an implicit** — scheduled with §0j step 9: codecs become
+  comptime Salvo fns, and the stamped codec is this implicit. The reasoning
+  stands — the other intrinsic whose lowering reads
   its type argument, and the same shape as `?hash`/`?eq`: `?decode: (Bytes)
   -> T?` filled by the compiler-derived codec at the concrete call. Worth it
   beyond surface area: today `decode` in a generic body is refused by the
@@ -403,7 +516,7 @@ left three follow-ups the user has asked for, in this order.
   spot; as an implicit it becomes ordinary colouring ("add `?decode` to your
   signature"), and Kotlin — which cannot monomorphize — gets the codec passed
   in, which is its honest lowering anyway. After it, no user-visible
-  intrinsic reads a type argument. Small; do it when `decode` is next touched.
+  intrinsic reads a type argument.
 
 ### 2c — Comptime, the rest of the decided design (first slice built 2026-09-28; round 8 built 2026-09-29)
 
@@ -423,7 +536,8 @@ and added hover inside comptime fn bodies. What the decided design still owes,
 in build order:
 
 - **Implicits on stamped fns for generic structs** (ROADMAP §2c, decided
-  "from the start", built as a refusal with the remedy named). `struct
+  "from the start", built as a refusal with the remedy named; a prerequisite
+  of §0j steps 7 and 9, as step 6i). `struct
   Wrapper<T> : Ordered<self> by auto { value: T }`: a copy meeting an opaque
   `T` **records a need** instead of failing; the stamped signature gains
   `?Ordered<T>` (deduplicated by name and type); and [group-obligation]'s match
@@ -432,20 +546,24 @@ in build order:
   below. The principle it rests on is [deduce-infer]'s: a fact inferred from
   the body, printed by the language server. `Checked<T>`'s `to_str` waits on it
   [checked-type].
-- **Obligation clauses on `intrinsic type`** (decided).
-  Parsed today, not swept: `intrinsic type List<T> canbe Mut : Hashed<self>,
+- **Obligation clauses on platform types** (decided for `intrinsic type`
+  2026-09-28; the collections became platform types and, per §0j, `Set`/`Map`/
+  the sorted pair become Salvo structs, whose clauses are ordinary). For
+  `List`: `platform type List<T> canbe Mut : Hashed<self>,
   Ordered<self>, ToStr<self>` with the container identities written **in
-  Salvo** in `core.list`/`core.set`/`core.map` (`fn eq<T>(a: List<T>, b:
+  Salvo** in `core.list` (`fn eq<T>(a: List<T>, b:
   List<T>, ?Eq<T>)`), the scalars keeping their `intrinsic fn`s and declaring
   them (`intrinsic type Int : Ordered<self>, Hashed<self>, ToStr<self>`), and
   `ToStr<self>` on `List` rendering each element with its own `to_str`. Needs
-  the relaxation above and recursive implicit resolution (section 6). Until
+  the relaxation above and recursive implicit resolution (section 6); it is
+  §0j step 8. Until
   then the **interim** structural `cmp`/`eq`/`hash` intrinsics over `List` and
   2-/3-tuples in `core.compare` stand in — they relaxed the recorded "tuple key
   refused by name" limitation on both backends, and an element struct's *own*
   `cmp` is still not consulted inside a list (the Rust backend keeps
   `Hash`/`Ord` derives on structs that have the functions for exactly this).
-  Landing it deletes those intrinsics and the conditional derives.
+  Landing it deletes those intrinsics and the conditional derives, which is
+  what makes §0j's host-equality rule hold.
 - **`by` at a call** (ROADMAP §2c, decided): `mut_set_of(hash by auto, eq
   by auto)` stamps the implicit at the type the call binds — a third `by` site,
   emitted in the calling module once per (comptime fn, type), paired by
@@ -711,8 +829,9 @@ COMPLETED.md's comptime entry holds the argument):
    choice once the typed override below could produce a non-canonical leaf.)
 4. **`with` pairing propagates** [implicit-with]: `Hashed<(A, B)>` fills
    `Hashed<A>` as a pair; half a pair at any level is the existing error.
-5. **std owns container identity**, in Salvo, via obligation clauses on
-   `intrinsic type` (section 2c); the interim intrinsics and the Rust
+5. **std owns container identity**, in Salvo: obligation clauses on the
+   platform type `List` (section 2c) and ordinary Salvo instances on the
+   `Set`/`Map`/sorted structs of §0j step 7; the interim intrinsics and the Rust
    backend's conditional derives are deleted when it lands, and `xs == ys` on
    two `List<Person>` then consults `Person`'s declared `eq`.
 6. Recursion applies **everywhere resolution runs**: calls, picks,
@@ -818,9 +937,9 @@ deliberately cut, in the order the decisions put it:
   the generator* (`(text: ValidDate Str) -> …`); randomness threaded as a
   `Mut Rng` **value**, which the effect-free-resolution rule turns into a
   determinism guarantee; shrinking by replaying the generator over a shrunken draw
-  stream. Two prerequisites: std needs wrapping/bit `Long` intrinsics for a
-  pure-Salvo splitmix64 (parity by construction — a recommendation, not yet
-  decided), and step 5's implicit lift.
+  stream. Two prerequisites: wrapping and bit operations on `Long` for a
+  pure-Salvo splitmix64 (parity by construction; now §0j step 2, as
+  operators), and step 5's implicit lift.
 - **Actor testing helpers** (TF-6): `settle(p)`/`expect_settled(p)` over
   [actor-on-idle], a recording `Probe<M>` handler, `expect_fault(target, body)`
   over [actor-watch]. Needs `spawn` added to [test-body]'s implicit powers, and
@@ -861,13 +980,19 @@ Three failure classes still take the hosts' behaviour:
 - **Division by zero** → trap with our message; both hosts already trap, only the
   text differs.
 - **Integer overflow** → **wrapping**, stated in the spec, with `checked_*` /
-  `saturating_*` std functions for the cases that care. This is the JVM's
+  `saturating_*` std functions for the cases that care. Moved to §0j step 2,
+  beside the bitwise operators. This is the JVM's
   behaviour today and the cheap one on Rust. **It is the only row that changes
   what existing programs compute**, so it wants its own slice and a parity test:
   today Kotlin wraps silently while Rust refuses a constant fold and panics in
   debug.
 
 ### 11 — One read, one mode: the rendering that reports a reference
+
+Folded into §0j step 12 (2026-10-05): the ownership plan's per-read table
+tells each site what a read produces, which is the information this section
+asks the rendering to report. The record below stays as that step's first
+customer.
 
 Three slices landed 2026-09-23 [rs-read-mode]; what is left is the **refactor the
 section is named after**. The slices work because their sites know the shape they
@@ -1012,8 +1137,8 @@ forwarded by whoever drives it), and the [group-obligation] match **ignores
 trailing implicit parameters** when checking the hidden struct's `: Yield<self,
 T>` — implicits are the callee's business, resolved at the call, not part of
 the member's shape. The alternative is storing the inner `next` as a fn-valued
-field, which [rs-stored-implicit] already lowers for keyed containers; the
-implicit-on-`next` form is cleaner. A hand-written generic stage (`struct
+field, which [rs-stored-implicit] lowers today for keyed containers; that
+lowering goes with §0j step 7, so the implicit-on-`next` form is the one. A hand-written generic stage (`struct
 MapIter<It, T, U> : Yield<self, U>` with `next(p, ?Yield<It, T>)`) hits the same
 obligation gap today, so this is a prerequisite rather than a cost of the sugar.
 
@@ -1052,7 +1177,9 @@ index permits [union-arm-identity] — and whether [interp-to-str] extends to on
 ### 17 — Recursive types (DECISION, end of the queue)
 
 Investigated 2026-09-12; nothing needs it, and List-mediated recursion covers its
-customers (trees, ASTs, JSON) meanwhile. Where it stands: nothing rejects a
+customers (trees, ASTs, JSON) meanwhile. §0j's sorted containers confirm it: a
+tree there is an arena (`List<Node>` with `Int` children), which is the fast
+layout on both hosts anyway. Where it stands: nothing rejects a
 recursive type, so `struct Node { value: Int, next: Node | None }` passes the
 checker, runs on Kotlin and dies at rustc with E0072 — an accept/reject
 divergence. Recursion **through `List<T>` already works end to end on both
@@ -1214,22 +1341,13 @@ several are "revisit only if a customer appears".
   parity-safe by construction and is what the filesystem uses.
 - **Intersection types (DECISION)** — whether `Addr<A & B>`-style types join the
   language; recorded 2026-09-17 when the tuple form shipped instead.
-- **`platform type`** and **`platform effect`** — deferred by decision (the
-  second removed 2026-10-01); `platform handler` and, per the ABI decisions, `platform fn`
-  are the whole interop surface until a need arises.
+- **`platform type`** shipped (2026-10-02, [platform-type]); **`platform
+  effect`** stays removed (2026-10-01): `platform handler`, `platform fn` and
+  `platform type` are the interop surface.
 - **`const` bindings** — announced (user intent 2026-09-19), not designed. Its
   first customer is recorded: the shareable-handler taxonomy's rung 1 keys on "no
   mutable state", which today means "no fields, no `Mut` constructor parameters";
   `const` immutable fields would join the allowance.
-- **`Deque<T>`** — the honest replacement for a linked list, and the next
-  collection when a customer appears: one intrinsic type, six functions, no new
-  concepts. (A representation qualifier `Linked List<T>` was examined and
-  rejected: it would make the shared `List` surface worse, and Rust's
-  `LinkedList` has no stable cursor API.)
-- **`entries`/`values` iterators over a Map** — deferred: an entries iterator needs an
-  owned `(K, V)` and Kotlin cannot copy a generic `V`, so identity-sharing would
-  alias mutable values. The answer is probably the snapshot shape the key iterator
-  uses, over a `List<(K, V)>`.
 - **Test-suite speed** — now sequence item 0b (2026-10-02).
 - **Locators through opaque anchors, branded tokens, and the bounds-check
   mitigation ladder** — the group-borrowing ladder's recorded refinements, with
@@ -1267,7 +1385,8 @@ several are "revisit only if a customer appears".
   `export import a.B`, currently a targeted parse error. And **no example shows
   `export`**, because every program in `examples/` is a single file — a two-file
   example would fix that and would be the tree's first multi-module one.
-- **Where dot-notation is normalized** [fn-dot] — the receiver-as-argument-0
+- **Where dot-notation is normalized** [fn-dot] — scheduled with §0j step 13
+  (the lowering pass is the normalization pass below). The receiver-as-argument-0
   rewrite happens twice and never in the AST, so anything inspecting the *written*
   expression must re-derive the shift (one defect came from exactly that). Two
   shapes when it is picked up: record the normalized argument list per call span
@@ -1288,7 +1407,8 @@ several are "revisit only if a customer appears".
   mailbox on that same pool still hangs (only the `main` case is caught); a `use`
   site does not check the `[spawn]` capability; a main-pool task whose answer
   arrives after `main`'s last wait never runs, silently; an effectful discharger
-  cannot `drain` a container; there is no positional list write; `on_idle`'s
+  cannot `drain` a container; (the missing positional list write is §0j step
+  6d); `on_idle`'s
   refinements (per-pool firing, naming who is parked, a many-shot form); FC-7 host
   bridging; and the `[waitfor]` spawn-placement diagnostic still states a hazard
   the pump rule removed.
@@ -1335,7 +1455,9 @@ several are "revisit only if a customer appears".
   workaround is still a rename each time — `hosttime.{rs,kt}`, now
   `throwsignal.kt`. The durable fix, unscheduled: namespace the runtime under
   `salvo_rt/`, which touches every golden, every example and the documented
-  `kotlinc`/`rustc` invocations, so it wants its own slice.
+  `kotlinc`/`rustc` invocations, so it wants its own slice. §0j steps 5, 7 and
+  9 move most runtime files into std, which may leave too little to be worth
+  it.
 - **`to_str(Duration)` stops at seconds**, and there is no `to_str` for `Instant`
   or `Tick`: a wall-clock text form is a date (the calendar layer's), and a
   monotonic reading has no rendering beyond its number. **Cancellation is not in

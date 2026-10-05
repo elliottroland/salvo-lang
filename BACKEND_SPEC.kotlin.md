@@ -992,13 +992,19 @@ nothing but the monitor.
     (an `Int`), so its copy is the reference itself (found by `net`,
     2026-09-26).
   * `Mut List<E>` with immutable `E` → `.toMutableList()`;
+  * a `List` or `Deque` whose elements are mutable copies **element-wise**
+    (`xs.map { __c1 -> __c1.copy() }`, then `.toMutableList()` or
+    `ArrayDeque(…)`), as Rust's `clone` does; a platform collection counts
+    as immutable only when its type arguments are, and a `Deque` never does
+    [col-deque] (2026-10-05: every platform type used to count as
+    immutable, so a `List<Mut Counter>` copy aliased);
   * `Mut Str` → `StringBuilder(sb)` [kt-mut-str];
   * a `Mut` struct whose fields are all transitively immutable →
     `.copy()` (the data class's shallow copy is exact there);
   * `T[]` with immutable `T` → `.copyOf()` (arrays are index-assignable
     without `Mut`);
-  * anything else — nested mutability (`Mut List<Mut ...>`, a `Mut`
-    struct with a `Mut`-typed field), generic `T`, `Iter`, unknown
+  * anything else — a map's mutable values, a `Mut` struct with a
+    `Mut`-typed field, generic `T`, `Iter`, unknown
     interop types — is a codegen error [backend-never-wrong].
   * Generic struct fields are checked under the instantiation's
     substitution; struct cycles are assumed immutable along the

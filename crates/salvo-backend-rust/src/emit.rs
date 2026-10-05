@@ -12686,7 +12686,7 @@ impl<'p> Emitter<'p> {
                 // `List` position an empty list.
                 match self.ty_of(*span).map(|t| t.strip_quals()) {
                     Some(Ty::Named { name, .. }) if name == "Map" => {
-                        "SalvoMap::from_entries::<HostHash, HostEq, _>(vec![])".to_string()
+                        format!("SalvoMap::from_entries::<{}, _>(vec![])", self.keyed_markers(*span))
                     }
                     Some(Ty::Named { name, .. }) if name == "List" => {
                         format!("vec![{}]", items.join(", "))
@@ -14341,7 +14341,6 @@ impl<'p> Emitter<'p> {
                 &decl.name.name,
                 recv,
                 &[arg.clone()],
-                &[],
                 crate::intrinsics::Spread::None,
                 None,
                 None,
@@ -16367,21 +16366,6 @@ impl<'p> Emitter<'p> {
             // takes the intrinsic's locator form.
             let mut_lend = self.lend_loc_mode
                 && self.mut_forward_sites.contains(&(self.file_idx, span));
-            // [call-type-args] The resolved element type, for a constructor
-            // whose arguments cannot tell rustc (an empty `deque_of()`).
-            let type_args: Vec<String> = if matches!(f.name.name.as_str(), "deque_of" | "mut_deque_of") {
-                self.checked
-                    .call_type_args
-                    .get(&(self.file_idx, span))
-                    .cloned()
-                    .unwrap_or_default()
-                    .iter()
-                    .filter(|t| ty_is_concrete(t))
-                    .map(|t| self.rust_ty(t))
-                    .collect()
-            } else {
-                Vec::new()
-            };
             if f.name.name == "to_str" && matches!(recv, Some("Double" | "Float")) {
                 self.needs_str = true;
             }
@@ -16390,7 +16374,6 @@ impl<'p> Emitter<'p> {
                     &f.name.name,
                     recv,
                     &arg_code,
-                    &type_args,
                     spread,
                     ordering.as_deref(),
                     keyed_values.as_deref(),
@@ -16946,7 +16929,6 @@ impl<'p> Emitter<'p> {
             &decl.name.name,
             recv,
             params,
-            &[],
             crate::intrinsics::Spread::None,
             None,
             None,

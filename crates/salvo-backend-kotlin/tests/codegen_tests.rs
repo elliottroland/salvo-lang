@@ -4544,6 +4544,8 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_mangled_alias,
     kotlinc_compiles_and_runs_multi_module,
     kotlinc_compiles_and_runs_copy,
+    kotlinc_compiles_and_runs_copy_elements,
+    kotlinc_compiles_and_runs_literal_identity,
     kotlinc_compiles_and_runs_move_modes,
     kotlinc_compiles_and_runs_borrows,
     kotlinc_compiles_and_runs_linear,
@@ -5645,26 +5647,62 @@ fn copy_lowers_type_directedly() {
     );
 }
 
-// [kt-copy] [backend-never-wrong] Nested mutability has no correct
-// shallow copy on the JVM: codegen error, never a diverging copy.
+// [kt-copy] [backend-never-wrong] Nested mutability Kotlin cannot copy
+// correctly yet — a map's mutable values — is a codegen error, never a
+// diverging copy. (A list of mutable lists used to be the example; it
+// copies element-wise since 2026-10-05.)
 #[test]
 fn copy_of_nested_mutable_type_is_an_error() {
     let program = build_program(&[(
         "bad.sv",
         "fn main() [use] -> None {\n    use StdOutConsole\n    \
-         let xs = mut_list_of(mut_list_of(1))\n    let ys = copy(xs)\n    \
-         println(\"${ys.size()}\")\n}\n",
+         let m = mut_map_of((\"a\", mut_list_of(1)))\n    let n = copy(m)\n    \
+         println(\"${size(n)}\")\n}\n",
     )]);
     let result = salvo_backend_kotlin::emit_program(&program);
     let errors = result.err().expect("expected codegen errors");
     assert!(
-        errors
-            .iter()
-            .any(|e| e.contains(
-                "cannot `copy` a value of type `Mut NonEmpty List<Mut NonEmpty List<Int>>`"
-            )),
+        errors.iter().any(|e| e.contains("cannot `copy` a value of type `Mut Map<")),
         "unexpected errors: {errors:?}"
     );
+}
+
+/// [kt-copy] A list whose elements are mutable copies **element-wise**, as
+/// Rust's `clone` does: mutating an element of the original leaves the copy
+/// alone (ROADMAP §0j step 1; it used to alias on Kotlin).
+pub const COPY_ELEMENTS_DEMO: &str = r#"
+struct Counter canbe Mut { n: Int }
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs: List<Mut Counter> = list_of(Mut Counter { n: 1 })
+    let ys = copy(xs)
+    let e = get(xs, 0)!
+    e.n = 5
+    println("${get(xs, 0)!.n} ${get(ys, 0)!.n}")
+    let ls = mut_list_of(mut_list_of(1))
+    let ms = copy(ls)
+    add(get(ls, 0)!, 2)
+    println("${size(get(ls, 0)!)} ${size(get(ms, 0)!)}")
+}
+"#;
+
+#[test]
+fn copy_of_mutable_elements_is_element_wise() {
+    let program = build_program(&[("main.sv", COPY_ELEMENTS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.kt").unwrap();
+    assert!(main.content.contains(".map { __c"), "generated:\n{}", main.content);
+}
+
+fn kotlinc_compiles_and_runs_copy_elements() -> KotlinCase {
+    let program = build_program(&[("main.sv", COPY_ELEMENTS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "copy_elements", "5 1\n2 1\n")
 }
 
 fn kotlinc_compiles_and_runs_copy() -> KotlinCase {
@@ -5674,6 +5712,41 @@ fn kotlinc_compiles_and_runs_copy() -> KotlinCase {
     });
     let expected = "hi\n3 4\na b\n1 9\n3\n";
     kotlin_case(files, "copy", expected)
+}
+
+/// [cmp-carry] [col-literal] A collection literal takes its identity from
+/// the position, empty or not: before 2026-10-05 a literal was built with the
+/// host's hashing and the slotted annotation accepted it (ROADMAP §0j step 1).
+pub const LITERAL_IDENTITY_DEMO: &str = r#"
+fn fold_hash(s: Str) [] -> Long => s {
+    return hash(size(s))
+}
+fn fold_eq(a: Str, b: Str) [] -> Bool => a, b {
+    return size(a) == size(b)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let m: Mut Map<Str, Int>(fold_hash, fold_eq) = {"ab": 1}
+    put(m, "cd", 2)
+    let e: Mut Map<Str, Int>(fold_hash, fold_eq) = {}
+    put(e, "ab", 1)
+    put(e, "cd", 2)
+    let s: Mut Set<Str>(fold_hash, fold_eq) = {"ab"}
+    add(s, "cd")
+    let t: Mut Set<Str>(fold_hash, fold_eq) = {}
+    add(t, "ab")
+    add(t, "cd")
+    println("${size(m)} ${size(e)} ${size(s)} ${size(t)}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_literal_identity() -> KotlinCase {
+    let program = build_program(&[("main.sv", LITERAL_IDENTITY_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "literal_identity", "1 1 1 1\n")
 }
 
 // ===== S2: move-mode bindings [fate-move-mode] =====

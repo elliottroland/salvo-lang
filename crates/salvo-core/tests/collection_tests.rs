@@ -1056,3 +1056,18 @@ fn a_container_identity_must_fit_its_slot() {
     );
 }
 
+
+/// [type-canbe-mut] A struct literal's written `Mut` is validated like any
+/// written type: `Mut Cell { … }` for a struct without `canbe Mut` is refused
+/// (ROADMAP §0g: it used to pass the checker, run on Rust and fail in kotlinc).
+#[test]
+fn mut_literal_of_a_struct_without_canbe_mut_is_refused() {
+    let msgs = messages(
+        "struct Cell { v: Int }\nfn probe() -> Int {\n    let c = Mut Cell { v: 1 }\n    \
+         return c.v\n}\n",
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("`Mut` does not apply to `Cell`")),
+        "unexpected messages: {msgs:?}"
+    );
+}

@@ -7445,7 +7445,7 @@ impl<'p> Emitter<'p> {
                 // position; the checker resolved it, so follow the checked
                 // type rather than the node.
                 match self.ty_of(*span).map(|t| t.strip_quals()) {
-                    Some(Ty::Named { name, args }) if name == "Map" && args.len() == 2 => {
+                    Some(Ty::Named { name, args }) if name == "Map" && args.len() >= 2 => {
                         let (kt, vt) = (self.emit_ty(&args[0]), self.emit_ty(&args[1]));
                         match self.keyed_pair(*span) {
                             Some((h, e)) => {
@@ -7465,7 +7465,7 @@ impl<'p> Emitter<'p> {
                             format!("listOf<{}>({})", elem, items.join(", "))
                         }
                     }
-                    Some(Ty::Named { name, args }) if name == "Set" && args.len() == 1 => {
+                    Some(Ty::Named { name, args }) if name == "Set" && !args.is_empty() => {
                         {
                             let elem = self.emit_ty(&args[0]);
                             match self.keyed_pair(*span) {
@@ -7487,7 +7487,7 @@ impl<'p> Emitter<'p> {
                     .map(|(k, v)| format!("({} to {})", self.emit_expr(k), self.emit_expr(v)))
                     .collect();
                 let (kt, vt) = match self.ty_of(*span).map(|t| t.strip_quals()) {
-                    Some(Ty::Named { name, args }) if name == "Map" && args.len() == 2 => {
+                    Some(Ty::Named { name, args }) if name == "Map" && args.len() >= 2 => {
                         (self.emit_ty(&args[0]), self.emit_ty(&args[1]))
                     }
                     _ => ("Any".to_string(), "Any".to_string()),
@@ -9321,15 +9321,30 @@ impl<'p> Emitter<'p> {
             }
             // [col-deque] One class serves `Deque` and `Mut Deque`, so even a
             // plain deque may be an object someone else mutates: copy it.
-            Ty::Named { name, args: targs } if name == "Deque" => {
-                if targs.iter().all(|t| self.ty_immutable(t, &mut Vec::new())) {
-                    return Some(format!("kotlin.collections.ArrayDeque({code})"));
-                }
-            }
-            Ty::Named { name, args: targs } if has_mut && name == "List" => {
-                if targs.iter().all(|t| self.ty_immutable(t, &mut Vec::new())) {
-                    return Some(format!("{code}.toMutableList()"));
-                }
+            // [kt-copy] A list or deque copies **element-wise** when its
+            // elements are themselves mutable (`List<Mut Counter>`): a shallow
+            // copy would share the elements, which Rust's deep `clone` does
+            // not (found 2026-10-05, ROADMAP §0j step 1). An element that
+            // copies as itself leaves the container copy shallow.
+            Ty::Named { name, args: targs }
+                if (name == "Deque" || name == "List") && targs.len() == 1 =>
+            {
+                self.loop_id += 1;
+                let var = format!("__c{}", self.loop_id);
+                let elem = self.copy_code(&targs[0], &var)?;
+                let mapped = if elem == var {
+                    None
+                } else {
+                    Some(format!("{code}.map {{ {var} -> {elem} }}"))
+                };
+                return Some(match (name.as_str(), mapped) {
+                    ("Deque", Some(m)) => format!("kotlin.collections.ArrayDeque({m})"),
+                    ("Deque", None) => format!("kotlin.collections.ArrayDeque({code})"),
+                    (_, Some(m)) if has_mut => format!("{m}.toMutableList()"),
+                    (_, Some(m)) => m,
+                    (_, None) if has_mut => format!("{code}.toMutableList()"),
+                    (_, None) => code,
+                });
             }
             Ty::Named { name, args: targs } if has_mut => {
                 // A `Mut` struct whose fields are all immutable copies
@@ -9437,10 +9452,17 @@ impl<'p> Emitter<'p> {
                 // nothing reachable through it is the holder's to mutate.
                 "Addr" | "Pool" => true,
                 // [platform-type] A copy of a platform handle shares the host
-                // object by definition: the reference itself.
-                _ if self.symbols.intrinsic_types.get(name.as_str()).is_some_and(|t| t.platform) => true,
-                // A non-`Mut` list is read-only [type-canbe-mut].
-                "List" => args.iter().all(|a| self.ty_immutable(a, visiting)),
+                // object by definition: the reference itself — when nothing
+                // reachable through it is mutable. A platform *collection*
+                // is immutable only if its type arguments are (a
+                // `List<Mut Counter>` holds mutable elements), and a `Deque`
+                // never is: one class serves `Deque` and `Mut Deque`
+                // [col-deque]. This arm used to answer `true` for every
+                // platform type, which made `copy` of a list of mutable
+                // structs alias on Kotlin (ROADMAP §0j step 1).
+                _ if self.symbols.intrinsic_types.get(name.as_str()).is_some_and(|t| t.platform) => {
+                    name != "Deque" && args.iter().all(|a| self.ty_immutable(a, visiting))
+                }
                 _ => {
                     // A type alias is what it names (found 2026-09-29: a
                     // struct field of alias type — `fs.Streaming { error:

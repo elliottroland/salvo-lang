@@ -11033,6 +11033,18 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Only `Mut`: every other qualifier is a claim about the value that
     /// construction does not establish [qual-constructive].
     fn collection_lit_ty(&self, name: &str, args: Vec<Ty>, expected: Option<&Ty>) -> Ty {
+        // [cmp-carry] [col-literal] A literal takes its **identity** from the
+        // position as it takes its kind: `let s: Set<Str>(by_len, same_len) =
+        // {…}` builds the set keyed by those fns. Without this the literal was
+        // typed canonical, the unwritten-slot pattern accepted it, and the
+        // value silently kept the host's hashing (found 2026-10-05, ROADMAP
+        // §0j step 1).
+        let mut args = args;
+        if let Some(Ty::Named { name: want, args: want_args }) = expected.map(|t| t.strip_quals()) {
+            if want == name {
+                args.extend(want_args.iter().filter(|a| matches!(a, Ty::FnName(_))).cloned());
+            }
+        }
         let ty = Ty::Named {
             name: name.to_string(),
             args,
@@ -21459,7 +21471,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if let Some(Ty::Named { name, args }) =
                         expected.map(|t| t.strip_quals())
                     {
-                        if name == "Map" && args.len() == 2 {
+                        if name == "Map" && args.len() >= 2 {
                             return self.collection_lit_ty(
                                 "Map",
                                 vec![args[0].clone(), args[1].clone()],
@@ -21476,7 +21488,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
                 let expected_elem = Self::concrete_elem(match expected.map(|t| t.strip_quals()) {
-                    Some(Ty::Named { name, args }) if name == "Set" && args.len() == 1 => {
+                    Some(Ty::Named { name, args }) if name == "Set" && !args.is_empty() => {
                         Some(args[0].clone())
                     }
                     _ => None,
@@ -21516,7 +21528,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             Expr::MapLit { entries, span } => {
                 let (expected_key, expected_val) = match expected.map(|t| t.strip_quals()) {
-                    Some(Ty::Named { name, args }) if name == "Map" && args.len() == 2 => {
+                    Some(Ty::Named { name, args }) if name == "Map" && args.len() >= 2 => {
                         (
                             Self::concrete_elem(Some(args[0].clone())),
                             Self::concrete_elem(Some(args[1].clone())),
@@ -23827,6 +23839,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
+        // [type-canbe-mut] A literal's written type is validated like any
+        // other: `Mut Cell { … }` for a struct without `canbe Mut` is refused
+        // here, where it used to be accepted and only kotlinc noticed
+        // (ROADMAP §0g, fixed 2026-10-05).
+        if let Some(t) = ty {
+            self.validate_type(t);
+        }
         let annotated = ty.map(|t| self.lower_type(t)).or_else(|| expected.cloned());
         let Some(struct_ty) = annotated else {
             for f in fields {

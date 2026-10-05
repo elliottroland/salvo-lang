@@ -216,9 +216,6 @@ pub fn fn_call(
         ("array_by", Some("Int")) => {
             format!("Array<{}>({}, {})", elem(), a(0), a(1))
         }
-        ("list_by", Some("Int")) | ("mut_list_by", Some("Int")) => {
-            format!("MutableList<{}>({}, {})", elem(), a(0), a(1))
-        }
         ("set_by", Some("Int")) | ("mut_set_by", Some("Int")) => format!(
             "{}.also {{ __s -> __s.addAll((0 until ({})).map({})) }}",
             set_ctor(&elem()),

@@ -51,7 +51,6 @@ pub fn fn_call(
     name: &str,
     recv: Option<&str>,
     args: &[String],
-    type_args: &[String],
     spread: Spread,
     ordering: Option<&str>,
     // [cmp-carry] The identity as **function values** rather than marker
@@ -68,9 +67,6 @@ pub fn fn_call(
     // [backend-never-wrong].
     loc_lend: bool,
 ) -> Option<String> {
-    // Unlike Kotlin, rustc infers a `vec![]`'s element type from later
-    // use, so pinning it here would churn the output for nothing.
-    let _ = type_args;
     if loc_lend && !matches!((name, recv), ("get", Some("List")) | ("get", Some("[]"))) {
         // [rs-loc] No locator form for this intrinsic yet: `None` makes
         // the reference site report it, never a silently-read lowering.
@@ -377,7 +373,7 @@ pub fn fn_call(
         // [col-by] The generated constructors: the callback is called once
         // per index, in order. `(0..n)` yields `i32`, which is what the
         // callback's parameter is [rs-fn-param-convention].
-        ("array_by", Some("Int")) | ("list_by", Some("Int")) | ("mut_list_by", Some("Int")) => {
+        ("array_by", Some("Int")) => {
             format!("(0..({})).map({}).collect::<Vec<_>>()", a(0), a(1))
         }
         ("set_by", Some("Int")) | ("mut_set_by", Some("Int")) => {

@@ -135,6 +135,95 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, step 1: the defects (2026-10-05, ROADMAP §0j).**
+- **Kotlin `copy` aliased a list of mutable structs** (`copy(xs)` of a
+  `List<Mut Counter>` printed `5 5` where Rust printed `5 1`). `ty_immutable`'s
+  "a platform type copies as itself" arm (added with platform types,
+  2026-10-02) came before the `"List"` arm, and once the collections became
+  platform types every one of them counted as immutable. Now a platform
+  collection is immutable only when its type arguments are, a `Deque` never
+  is [col-deque], and a `List`/`Deque` of mutable elements copies
+  **element-wise** (`xs.map { __c1 -> __c1.copy() }`) [kt-copy] — which also
+  makes `copy` of a `Mut List<Mut List<Int>>` work where it used to be a
+  codegen error; the error test now uses a map of mutable lists.
+- **A collection literal ignored its position's identity**: `let s: Mut
+  Set<Str>(fold_hash, fold_eq) = {"ab"}` built a canonically hashed set on
+  both backends (the unwritten-slot pattern accepted it), and an *empty*
+  `{}` at a slotted `Map`/`Set` was refused as `Mut Set<?>` (the checker's
+  and Kotlin's literal paths compared `args.len()` against the unslotted
+  arity). `collection_lit_ty` now adopts the expected type's slots
+  [col-literal] [cmp-carry], the arity tests ignore slots, and Rust's empty
+  map takes the markers like the non-empty one.
+- **§0g closed**: a struct literal's written type is validated, so `Mut Cell
+  { … }` for a struct without `canbe Mut` is refused [type-canbe-mut].
+- Stale code gone: the `list_by`/`mut_list_by` intrinsic arms (Salvo since
+  2026-10-04), Rust's `deque_of` type-argument pinning and the unused
+  `type_args` parameter of its intrinsic table; [iter-for-native] no longer
+  calls `Set`/`Map` intrinsic.
+- Tests: element-wise copy and literal identity, e2e on both backends; the
+  `Mut` literal refusal in `collection_tests`. **1698 tests**, 1m12 warm.
+
+**Shrinking the backends: the plan (2026-10-05, user decisions; nothing built).**
+A survey of what each backend still implements after every collection became
+a value platform type, and what a third backend would have to write; the
+plan is ROADMAP §0j.
+- **Found**: the platform-type moves took every collection *member* out of
+  the backends (Kotlin `intrinsics.rs` −190 lines, Rust −230; 601 lines of
+  host files in `std/platform/core`). Left: about 560 collection lines in the
+  Kotlin crate and 1,200 in the Rust crate (constructors, literals, identity
+  carry, type-name tables, Rust element handles), plus 1,571 lines of
+  runtime containers. Outside collections and actors: about 1,500–2,000
+  lines per backend of duplicated machinery (the program driver, `lib.rs`,
+  AST walkers such as `collect_mutated` at 97% similarity), about 3,000
+  lines of Rust re-deriving ownership decisions, and runtime files that are
+  host-only code. Two defects, with repros in §0j step 1 (Kotlin `copy` of a
+  `List<Mut S>` aliases; an empty `{}` at a slotted map type is refused).
+- **What we implement ourselves today**: Rust owns all four keyed containers
+  (`SalvoMap` is an insertion-ordered slab with a `HashMap` index, `SalvoSet`
+  a map to `()`, the sorted pair a `BTreeSet`/`BTreeMap` with our comparator
+  or a sorted `Vec`); Kotlin uses `LinkedHashSet`/`LinkedHashMap` and
+  `TreeSet`/`TreeMap`, and owns only `SalvoHashSet`/`SalvoHashMap` (the same
+  slab) for a named identity.
+- **Decided** (user):
+  - Ownership facts are Salvo semantics and move into salvo-core; a backend
+    renders them. Form: side tables first, shaped as the vocabulary of a
+    later lowering pass for the rewrites (hoists, fn variants, value
+    positions). The `rs-` rules stating ownership semantics become neutral.
+  - `Set`, `Map` and the sorted pair are written in Salvo (std's `heap` is the
+    precedent: the identity in the type, passed per call as an implicit, so
+    nothing stores a fn). `List` and `Deque` stay platform types.
+  - The language grows for it, chosen to be useful beyond collections: fn
+    slots on struct declarations; `canbe Mut` on a field type (the field is
+    `Mut` exactly when the struct value is); **opaque structs** rather than
+    private fields (fields visible only in the declaring module, with the
+    settled answers in §0j step 6c, including that a comptime fn outside the
+    module sees one as kind `opaque`); a total `replace(list, i: Idx(list) Int,
+    v) -> T`; Kotlin deep copy of structs; an `IntBuffer` platform type
+    (specializing `Int[]` to `IntArray`, decision M7, revisited later);
+    bitwise operators and wrapping arithmetic; a sorted structure; an
+    entries-list wire form.
+  - A platform fn may keep a fn value only if it is named, top-level,
+    capture-free and effect-free; kept closures stay the runtime's. Kept
+    closures were rejected for the escape analysis they need, Rust's
+    `'static` captures, and the checker losing sight of when they run.
+  - Salvo code over backend code wherever it can be written in Salvo: wire
+    codecs become comptime Salvo; the scalars' `cmp`/`eq`/`hash`/`to_str` and
+    conversions stay intrinsic (the operators bottom out in them).
+  - **Salvo semantics never consult host equality, hashing or ordering**: the
+    direction for the collections and recursive implicits, after which
+    backends generate no host instances.
+- **Considered and rejected**: making the collections intrinsic again with
+  shared lowering (nothing left in the backends depends on intrinsic vs
+  platform); private fields; a sealed struct (readable fields, integrity only)
+  and integrity by a constructive qualifier, both weaker than opacity for
+  changing a representation later.
+- **Folded into §0j**: §0 item 7 (and its maps' `to_str` DECISION, already
+  answered by §16's 2026-09-28 decision that two implicits of one name at
+  different types are legal), §0g, §10's overflow row, §11, §2c's `decode`
+  as an implicit, parts of §0h and §0i, and the recorded `entries`/`values`
+  iterators, positional list write and dot-notation normalization. Two stale
+  recorded items were corrected (`Deque` and `platform type` both exist).
+
 **The noticeboard's TODOs, first batch (2026-10-05, user requests).** From
 `salvo-noticeboard/src/noticeboard/disk.sv`:
 - **A struct literal inside parentheses in a condition** parses
@@ -21508,7 +21597,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1679; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1698; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

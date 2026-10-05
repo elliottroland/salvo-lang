@@ -1136,6 +1136,11 @@ Conventions:
   * A literal **constructs**, so it adopts a `Mut` the position asks for
     (`let ys: Mut List<Int> = [4, 5]`); no other qualifier is adopted,
     since construction does not establish a claim [qual-constructive].
+  * A literal also adopts the position's **identity** [cmp-carry]: `let s:
+    Set<Str>(by_len, same_len) = {"ab"}` builds a set kept by those fns,
+    empty or not (2026-10-05; before, the literal was built with the
+    canonical identity and the slot pattern accepted it, so the value
+    silently hashed the host's way).
   * Elements **move** into the literal [deduce-consume], and a linear one
     is refused as it is in any composite [linear-composite].
   * A bracket literal still types as an **array** where the position
@@ -2634,9 +2639,9 @@ Conventions:
   * **`for` over a *generic* source** mints through the `iter` implicit a
     `?Iter<C, T>` spread brought in, recorded as `PassMember::Implicit("iter")`
     [iter-group].
-* [iter-for-native] A `for` over an **intrinsic container** (an array, a `Set`,
-  a `Map`) or an **`iterable platform type`** [platform-iterable] (`List`,
-  `Str`, `Bytes`, `Deque`) records no driver at all: the backends iterate
+* [iter-for-native] A `for` over an **array** or an **`iterable platform
+  type`** [platform-iterable] (`List`, `Str`, `Bytes`, `Deque`, `Set`, `Map`,
+  the sorted pair) records no driver at all: the backends iterate
   natively, which neither allocates a Salvo iterator nor consumes the
   subject. The language gets no special case (the rule is a declaration, not
   a name list); the fast path is the emitters'.
