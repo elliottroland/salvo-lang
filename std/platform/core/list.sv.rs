@@ -9,6 +9,8 @@ use crate::core_string::*;
 /// [platform-type] The host's `List`.
 pub use crate::platform_core_list::List;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<List<i32>>(); };
+const _: fn() = || { fn __each(x: &List<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_list::each(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &List<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_list::each(x) } fn __each_mut(x: &mut List<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_list::each_mut(x) } fn __into_each(x: List<i32>) -> impl Iterator<Item = i32> { crate::platform_core_list::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
 pub fn get_platform<T>(list: &Vec<T>, index: i32) -> Option<&T> {
     crate::platform_core_list::get(list, index)

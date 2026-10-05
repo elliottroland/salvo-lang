@@ -6,6 +6,9 @@ package salvo.platform.core.deque
 typealias Deque<T> = kotlin.collections.ArrayDeque<T>
 typealias MutDeque<T> = kotlin.collections.ArrayDeque<T>
 
+// [platform-iterable] The host's loop over a deque, front to back.
+fun <T> each(d: Deque<T>): Iterable<T> = d
+
 fun <T> emptyDeque(): MutDeque<T> = kotlin.collections.ArrayDeque()
 
 fun <T> dequeFrom(first: T, rest: Array<T>): MutDeque<T> {

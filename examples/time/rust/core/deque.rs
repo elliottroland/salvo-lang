@@ -10,6 +10,8 @@ use crate::unions::*;
 /// [platform-type] The host's `Deque`.
 pub use crate::platform_core_deque::Deque;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Deque<i32>>(); };
+const _: fn() = || { fn __each(x: &Deque<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_deque::each(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &Deque<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_deque::each(x) } fn __each_mut(x: &mut Deque<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_deque::each_mut(x) } fn __into_each(x: Deque<i32>) -> impl Iterator<Item = i32> { crate::platform_core_deque::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
 pub fn empty_deque_platform<T>() -> std::collections::VecDeque<T> {
     crate::platform_core_deque::empty_deque()
@@ -116,8 +118,7 @@ pub fn drain<T>(d: std::collections::VecDeque<T>, each: &mut impl FnMut(T)) {
 pub fn to_str__2<T: Clone>(d: &std::collections::VecDeque<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
     let mut out = mut_str(vec!["[".to_string()]);
     let mut i = 0;
-    let mut __loop1_pass = iter__3(d);
-    while let Union2::U1(mut x) = next__3(&mut __loop1_pass) {
+    for mut x in crate::platform_core_deque::each(d).map(|__x| __x.clone()) {
         if i > 0 {
             crate::core_string::append_platform(&mut out, &(", ".to_string()));
         }
@@ -130,8 +131,7 @@ pub fn to_str__2<T: Clone>(d: &std::collections::VecDeque<T>, to_str: &mut dyn F
 
 pub fn to_list<T: Clone>(d: &std::collections::VecDeque<T>, copy: &mut dyn FnMut(&T) -> T) -> Vec<T> {
     let mut out = vec![];
-    let mut __loop2_pass = iter__3(d);
-    while let Union2::U1(mut x) = next__3(&mut __loop2_pass) {
+    for mut x in crate::platform_core_deque::each(d).map(|__x| __x.clone()) {
         crate::core_list::add_platform(&mut out, copy(&x));
     }
     return out;
@@ -139,7 +139,7 @@ pub fn to_list<T: Clone>(d: &std::collections::VecDeque<T>, copy: &mut dyn FnMut
 
 pub fn to_deque<T: Clone>(list: &Vec<T>, copy: &mut dyn FnMut(&T) -> T) -> std::collections::VecDeque<T> {
     let mut out = empty_deque_platform();
-    for mut x in list.clone() {
+    for mut x in crate::platform_core_list::each(list).map(|__x| __x.clone()) {
         add_last_platform(&mut out, copy(&x));
     }
     return out;

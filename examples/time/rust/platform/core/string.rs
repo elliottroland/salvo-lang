@@ -5,6 +5,11 @@
 pub type Str = String;
 pub type MutStr = String;
 
+// [platform-iterable] The host's loop over a string: its characters.
+pub fn each(str: &String) -> std::str::Chars<'_> {
+    str.chars()
+}
+
 pub fn empty_str() -> MutStr {
     String::new()
 }

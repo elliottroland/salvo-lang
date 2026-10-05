@@ -994,7 +994,7 @@ pub fn introduce(node: &NodeId, peers: &Vec<NodeEndpoint>) {
 }
 
 pub fn leave_group(known: &SalvoMap<NodeId, Node>) {
-    for mut id in known.keys().cloned().collect::<Vec<_>>() {
+    for mut id in crate::platform_core_list::each(&(known.keys().cloned().collect::<Vec<_>>())).map(|__x| __x.clone()) {
         let mut leaving: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U3(Leaving {  });
         crate::scheduler::salvo_send_control((id.clone()).id as u64, &"".to_string(), &crate::wire::salvo_encode(&leaving));
     }
@@ -1033,7 +1033,7 @@ impl crate::net::__Stateful_NodeGroup for StaticNodeGroup {
     }
 
     fn subscribe(&mut self, w: usize) {
-        for mut id in self.known.keys().cloned().collect::<Vec<_>>() {
+        for mut id in crate::platform_core_list::each(&(self.known.keys().cloned().collect::<Vec<_>>())).map(|__x| __x.clone()) {
             let mut n = self.known.get(&id);
             if !(n.is_none()) {
                 crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined(n.unwrap().clone()), crate::net::__PROTO_NodeGroupWatcher);
@@ -1053,7 +1053,7 @@ impl StaticNodeGroup {
         let mut me = self.__dep_Transport.local_endpoint();
         let mut _connected = connect(&self.__dep_Transport, me.clone());
         crate::scheduler::salvo_watch_control(("".to_string()).clone(), (self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __d| std::boxed::Box::new(__Priv_StaticNodeGroup::Control(NodeId { id: __n as i64 }, __d)));
-        for e in &self.all {
+        for e in crate::platform_core_list::each(&self.all) {
             if !eq__2(e, &me) {
                 let mut _sent = { let __a1 = hello_frame(&self.__dep_Transport, &self.name); self.__dep_Transport.deliver(&(e.clone()), __a1) };
             }
@@ -1069,7 +1069,7 @@ impl StaticNodeGroup {
                 }
                 let mut n = Node { id: event.as_ref().unwrap().u1().clone().node.clone(), at: event.as_ref().unwrap().u1().clone().at.clone() };
                 self.known.insert(event.as_ref().unwrap().u1().clone().node.clone(), n.clone());
-                for w in &self.watchers {
+                for w in crate::platform_core_list::each(&self.watchers) {
                     crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Joined(n.clone()), crate::net::__PROTO_NodeGroupWatcher);
                 }
             }
@@ -1078,7 +1078,7 @@ impl StaticNodeGroup {
                 if n.is_none() {
                     return;
                 }
-                for w in &self.watchers {
+                for w in crate::platform_core_list::each(&self.watchers) {
                     crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Left(n.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeGroupWatcher);
                 }
             }
@@ -1174,7 +1174,7 @@ fn __decode_msg_StaticNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::sc
 
 pub fn known_nodes(known: &SalvoMap<NodeId, Node>) -> Vec<Node> {
     let mut all_known: Vec<Node> = vec![];
-    for mut id in known.keys().cloned().collect::<Vec<_>>() {
+    for mut id in crate::platform_core_list::each(&(known.keys().cloned().collect::<Vec<_>>())).map(|__x| __x.clone()) {
         let mut n = known.get(&id);
         if !(n.is_none()) {
             crate::core_list::add_platform(&mut all_known, n.unwrap().clone());
@@ -1218,7 +1218,7 @@ impl crate::net::__Stateful_NodeGroup for GossipNodeGroup {
     }
 
     fn subscribe(&mut self, w: usize) {
-        for mut id in self.known.keys().cloned().collect::<Vec<_>>() {
+        for mut id in crate::platform_core_list::each(&(self.known.keys().cloned().collect::<Vec<_>>())).map(|__x| __x.clone()) {
             let mut n = self.known.get(&id);
             if !(n.is_none()) {
                 crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined(n.unwrap().clone()), crate::net::__PROTO_NodeGroupWatcher);
@@ -1238,7 +1238,7 @@ impl GossipNodeGroup {
         let mut me = self.__dep_Transport.local_endpoint();
         let mut _connected = connect(&self.__dep_Transport, me.clone());
         crate::scheduler::salvo_watch_control(("".to_string()).clone(), (self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __d| std::boxed::Box::new(__Priv_GossipNodeGroup::Control(NodeId { id: __n as i64 }, __d)));
-        for e in &self.seeds {
+        for e in crate::platform_core_list::each(&self.seeds) {
             dial(&self.__dep_Transport, &mut self.dialed, &self.name, e.clone());
         }
     }
@@ -1251,7 +1251,7 @@ impl GossipNodeGroup {
                     return;
                 }
                 let mut others: Vec<NodeEndpoint> = vec![];
-                for mut id in self.known.keys().cloned().collect::<Vec<_>>() {
+                for mut id in crate::platform_core_list::each(&(self.known.keys().cloned().collect::<Vec<_>>())).map(|__x| __x.clone()) {
                     let mut n = self.known.get(&id);
                     if !(n.is_none()) {
                         crate::core_list::add_platform(&mut others, n.unwrap().clone().at.clone());
@@ -1262,7 +1262,7 @@ impl GossipNodeGroup {
                 self.dialed.insert(to_str__5(&event.as_ref().unwrap().u1().clone().at));
                 let mut n = Node { id: event.as_ref().unwrap().u1().clone().node.clone(), at: event.as_ref().unwrap().u1().clone().at.clone() };
                 self.known.insert(event.as_ref().unwrap().u1().clone().node.clone(), n.clone());
-                for w in &self.watchers {
+                for w in crate::platform_core_list::each(&self.watchers) {
                     crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Joined(n.clone()), crate::net::__PROTO_NodeGroupWatcher);
                 }
             }
@@ -1271,12 +1271,12 @@ impl GossipNodeGroup {
                 if n.is_none() {
                     return;
                 }
-                for w in &self.watchers {
+                for w in crate::platform_core_list::each(&self.watchers) {
                     crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Left(n.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeGroupWatcher);
                 }
             }
             Some(Union3::U3(_)) => {
-                for mut e in event.as_ref().unwrap().u3().clone().peers.clone() {
+                for mut e in crate::platform_core_list::each(&(event.as_ref().unwrap().u3().clone().peers.clone())).map(|__x| __x.clone()) {
                     dial(&self.__dep_Transport, &mut self.dialed, &self.name, e.clone());
                 }
             }
@@ -1707,10 +1707,10 @@ impl crate::net::__Stateful_ActorGroup for ActorGrouping {
             return;
         }
         mirror(&(self.__addr.expect("a handler naming its own address runs as an actor")), &self.all);
-        for w in &self.watchers {
+        for w in crate::platform_core_list::each(&self.watchers) {
             crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Joined(member.clone()), crate::net::__PROTO_ActorGroupWatcher);
         }
-        for p in &self.peers {
+        for p in crate::platform_core_list::each(&self.peers) {
             share_members(&self.name, &self.proto.hash, &(p.clone()), &(vec![member.clone()]));
         }
     }
@@ -1720,7 +1720,7 @@ impl crate::net::__Stateful_ActorGroup for ActorGrouping {
             return;
         }
         mirror(&(self.__addr.expect("a handler naming its own address runs as an actor")), &self.all);
-        for w in &self.watchers {
+        for w in crate::platform_core_list::each(&self.watchers) {
             crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Left(member.clone()), crate::net::__PROTO_ActorGroupWatcher);
         }
     }
@@ -1746,14 +1746,14 @@ impl crate::net::__Stateful_NodeGroupWatcher for ActorGrouping {
 
     fn left(&mut self, n: Node, why: String) {
         let mut gone: Vec<usize> = vec![];
-        for m in &self.all {
+        for m in crate::platform_core_list::each(&self.all) {
             if eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((m.clone()).clone()).node as i64 }), &n.id) {
                 crate::core_list::add_platform(&mut gone, m.clone());
             }
         }
-        for m in &gone {
+        for m in crate::platform_core_list::each(&gone) {
             if withdraw(&mut self.all, m.clone()) {
-                for w in &self.watchers {
+                for w in crate::platform_core_list::each(&self.watchers) {
                     crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Left(m.clone()), crate::net::__PROTO_ActorGroupWatcher);
                 }
             }
@@ -1783,10 +1783,10 @@ impl ActorGrouping {
             share_members(&self.name, &self.proto.hash, &(from.clone()), &self.all);
         }
         let mut changed = false;
-        for mut m in got.as_ref().unwrap().clone().1.clone() {
+        for mut m in crate::platform_core_list::each(&(got.as_ref().unwrap().clone().1.clone())).map(|__x| __x.clone()) {
             if admit(&mut self.all, m.clone()) {
                 changed = true;
-                for w in &self.watchers {
+                for w in crate::platform_core_list::each(&self.watchers) {
                     crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Joined(m.clone()), crate::net::__PROTO_ActorGroupWatcher);
                 }
             }
@@ -1912,7 +1912,7 @@ pub fn mirror(group: &usize, members: &Vec<usize>) {
 }
 
 pub fn admit(list: &mut Vec<usize>, a: usize) -> bool {
-    for x in &*list {
+    for x in crate::platform_core_list::each(&*list) {
         if ((crate::scheduler::salvo_addr_identity((x).clone()) == crate::scheduler::salvo_addr_identity((a).clone()))) {
             return false;
         }
@@ -1922,7 +1922,7 @@ pub fn admit(list: &mut Vec<usize>, a: usize) -> bool {
 }
 
 pub fn contains_node(list: &Vec<NodeId>, n: &NodeId) -> bool {
-    for x in list {
+    for x in crate::platform_core_list::each(list) {
         if eq__3(x, n) {
             return true;
         }
@@ -1933,7 +1933,7 @@ pub fn contains_node(list: &Vec<NodeId>, n: &NodeId) -> bool {
 pub fn withdraw(list: &mut Vec<usize>, a: usize) -> bool {
     let mut mut_index: Option<i32> = None;
     let mut i = 0;
-    for x in &*list {
+    for x in crate::platform_core_list::each(&*list) {
         if ((crate::scheduler::salvo_addr_identity((x).clone()) == crate::scheduler::salvo_addr_identity((a).clone()))) {
             mut_index = Some(i);
         }
@@ -2112,7 +2112,7 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, group: &usize, co
 
 pub fn route_view(group: &usize) -> RouteView {
     let mut members: Vec<RouteMember> = vec![];
-    for mut m in crate::scheduler::salvo_view_members((group.clone()).clone()) {
+    for mut m in crate::platform_core_list::each(&(crate::scheduler::salvo_view_members((group.clone()).clone()))).map(|__x| __x.clone()) {
         crate::core_list::add_platform(&mut members, RouteMember { addr: m.clone(), local: eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((m).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })) });
     }
     return RouteView { members: members.clone() };
@@ -2139,7 +2139,7 @@ impl crate::net::__Stateless_RouteSelector for LeastLoaded {
     fn select(&self, view: &RouteView, key: &Option<i64>) -> Option<usize> {
         let mut best: Option<RouteMember> = None;
         let mut best_pending = 0;
-        for a in &view.members {
+        for a in crate::platform_core_list::each(&view.members) {
             let mut load = crate::scheduler::salvo_pending((a.addr.clone()).clone());
             if best.is_none() {
                 best = Some(a.clone());
@@ -2283,7 +2283,7 @@ impl crate::net::__Stateful_RouteSelector for Elected {
     fn changed(&mut self, view: &RouteView) {
         self.chosen = None;
         let mut l = { let __pick2 = self.__dep_Leader.leader(); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { return } };
-        for a in &view.members {
+        for a in crate::platform_core_list::each(&view.members) {
             if eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((a.addr.clone()).clone()).node as i64 }), &l) {
                 self.chosen = Some(a.addr.clone());
                 return;

@@ -483,7 +483,7 @@ fun<T> next__10(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finish
 fun<T> toStr__2(list: List<T>, toStr: (T) -> String): String {
     val out = mutStr(arrayOf("["))
     var i = 0
-    for (x in list) {
+    for (x in salvo.platform.core.list.each(list)) {
         if (i > 0) {
             appendPlatform(out, ", ")
         }
@@ -842,7 +842,7 @@ fun lines(str: String): salvo.platform.core.list.MutList<String> {
         val _end = removeBack(parts, 1)
     }
     val out = mutableListOf<String>()
-    for (p in parts) {
+    for (p in salvo.platform.core.list.each(parts)) {
         addPlatform(out, trimSuffixPlatform(p, "\r"))
     }
     return out
@@ -958,7 +958,7 @@ __loop2!!
     println(console, "never: $never")
     val found = run {
 var __loop3: Int? = null
-for (x in listOf<Int>(0, 1, 2, 3, 4, 5)) {
+for (x in salvo.platform.core.list.each(listOf<Int>(0, 1, 2, 3, 4, 5))) {
 if (x * x > 10) {
     __loop3 = x
     break
@@ -1556,6 +1556,9 @@ package salvo.platform.core.list
 typealias List<T> = kotlin.collections.List<T>
 typealias MutList<T> = kotlin.collections.MutableList<T>
 
+// [platform-iterable] The host's loop over a list: the list itself.
+fun <T> each(list: List<T>): Iterable<T> = list
+
 fun <T> get(list: List<T>, index: Int): T? = list.getOrNull(index)
 
 fun <T> first(list: List<T>): T? = list.firstOrNull()
@@ -1629,6 +1632,9 @@ package salvo.platform.core.string
 
 typealias Str = String
 typealias MutStr = StringBuilder
+
+// [platform-iterable] The host's loop over a string, or a `Mut Str`: its characters.
+fun each(str: CharSequence): Iterable<Char> = str.asIterable()
 
 // [platform-value-type] The copy generated code makes of a `Mut Str`.
 fun copy(str: MutStr): MutStr = StringBuilder(str)

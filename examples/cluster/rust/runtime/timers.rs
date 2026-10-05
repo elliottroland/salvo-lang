@@ -179,7 +179,7 @@ impl crate::runtime_timers::__Stateful_DeadlineTable for Deadlines {
 
     fn next_deadline(&mut self) -> Option<i64> {
         let mut earliest: Option<i64> = None;
-        for at in &self.ats {
+        for at in crate::platform_core_list::each(&self.ats) {
             if ((earliest.is_none()) || *at < earliest.unwrap()) {
                 earliest = Some(at.clone());
             }

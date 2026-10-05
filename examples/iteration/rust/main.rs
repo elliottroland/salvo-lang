@@ -54,12 +54,12 @@ use crate::unions::*;
 
 pub fn describe_container(console: &crate::core_console::Console, xs: &Vec<i32>) {
     let mut sum = 0;
-    for n in xs {
+    for n in crate::platform_core_list::each(xs) {
         sum = sum + *n;
     }
     println(console, &(format!("1. list of {} sums to {}", crate::core_list::size_platform(xs), sum)));
     let mut letters = mut_str(vec![]);
-    for mut c in "salvo".to_string().chars() {
+    for mut c in crate::platform_core_string::each(&("salvo".to_string())).map(|__x| __x.clone()) {
         crate::core_string::append_platform(&mut letters, &(format!("{}.", c)));
     }
     println(console, &(format!("1. string: {}", letters)));

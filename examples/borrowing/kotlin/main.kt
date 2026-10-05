@@ -24,7 +24,7 @@ object __Codec_Fighter : salvo.WireCodec<Fighter> {
 }
 
 fun named(roster: List<Fighter>, name: String): Fighter? {
-    for (f in roster) {
+    for (f in salvo.platform.core.list.each(roster)) {
         if (f.name == name) {
             return f
         }
@@ -51,7 +51,7 @@ fun heal(f: Fighter) {
 }
 
 fun wounded(squad: List<Fighter>): Fighter? {
-    for (f in squad) {
+    for (f in salvo.platform.core.list.each(squad)) {
         if (f.hp < 10) {
             return f
         }

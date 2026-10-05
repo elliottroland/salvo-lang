@@ -608,7 +608,7 @@ fun introduce(node: NodeId, peers: List<NodeEndpoint>) {
 }
 
 fun leaveGroup(known: Map<NodeId, Node>) {
-    for (id in known.keys.toMutableList()) {
+    for (id in salvo.platform.core.list.each(known.keys.toMutableList())) {
         val leaving: Union4<Hello, Ack, Leaving, Intro> = Union4.U3<Hello, Ack, Leaving, Intro>(Leaving())
         salvo.SalvoSched.sendControl((id).id, "", (salvo.salvoEncode(leaving, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))).toByteArray())
     }
@@ -626,7 +626,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
     }
 
     override fun subscribe(w: Int) {
-        for (id in known.keys.toMutableList()) {
+        for (id in salvo.platform.core.list.each(known.keys.toMutableList())) {
             val n = known[id]
             if (!(n == null)) {
                 salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
@@ -649,7 +649,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
                 }
                 val n = Node(id = (event?.value as PeerHello).node, at = (event?.value as PeerHello).at)
                 known.put((event?.value as PeerHello).node, n)
-                for (w in watchers) {
+                for (w in salvo.platform.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
                 }
             }
@@ -658,7 +658,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
                 if (n == null) {
                     return
                 }
-                for (w in watchers) {
+                for (w in salvo.platform.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(n, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
                 }
             }
@@ -673,7 +673,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
         val me = __dep_Transport.localEndpoint()
         val _connected = connect(__dep_Transport, me)
         salvo.SalvoSched.watchControl("", __addr!!) { __n, __d -> __Priv_StaticNodeGroup.Control(NodeId(__n), salvo.SalvoBytes(__d)) }
-        for (e in all) {
+        for (e in salvo.platform.core.list.each(all)) {
             if (!eq(e, me)) {
                 val _sent = __dep_Transport.deliver(e, helloFrame(__dep_Transport, name))
             }
@@ -751,7 +751,7 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
 
 fun knownNodes(known: Map<NodeId, Node>): List<Node> {
     val allKnown: salvo.platform.core.list.MutList<Node> = mutableListOf<Node>()
-    for (id in known.keys.toMutableList()) {
+    for (id in salvo.platform.core.list.each(known.keys.toMutableList())) {
         val n = known[id]
         if (!(n == null)) {
             addPlatform(allKnown, n)
@@ -773,7 +773,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
     }
 
     override fun subscribe(w: Int) {
-        for (id in known.keys.toMutableList()) {
+        for (id in salvo.platform.core.list.each(known.keys.toMutableList())) {
             val n = known[id]
             if (!(n == null)) {
                 salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
@@ -795,7 +795,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
                     return
                 }
                 val others: salvo.platform.core.list.MutList<NodeEndpoint> = mutableListOf<NodeEndpoint>()
-                for (id in known.keys.toMutableList()) {
+                for (id in salvo.platform.core.list.each(known.keys.toMutableList())) {
                     val n = known[id]
                     if (!(n == null)) {
                         addPlatform(others, n.at)
@@ -806,7 +806,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
                 dialed.add(toStr__4((event?.value as PeerHello).at))
                 val n = Node(id = (event?.value as PeerHello).node, at = (event?.value as PeerHello).at)
                 known.put((event?.value as PeerHello).node, n)
-                for (w in watchers) {
+                for (w in salvo.platform.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
                 }
             }
@@ -815,12 +815,12 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
                 if (n == null) {
                     return
                 }
-                for (w in watchers) {
+                for (w in salvo.platform.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Left(n, "left"), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
                 }
             }
             is Union3.U3<*, *, *> -> {
-                for (e in (event?.value as PeerIntro).peers) {
+                for (e in salvo.platform.core.list.each((event?.value as PeerIntro).peers)) {
                     dial(__dep_Transport, dialed, name, e)
                 }
             }
@@ -833,7 +833,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
         val me = __dep_Transport.localEndpoint()
         val _connected = connect(__dep_Transport, me)
         salvo.SalvoSched.watchControl("", __addr!!) { __n, __d -> __Priv_GossipNodeGroup.Control(NodeId(__n), salvo.SalvoBytes(__d)) }
-        for (e in seeds) {
+        for (e in salvo.platform.core.list.each(seeds)) {
             dial(__dep_Transport, dialed, name, e)
         }
     }
@@ -1104,10 +1104,10 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
             return
         }
         mirror(__addr!!, all)
-        for (w in watchers) {
+        for (w in salvo.platform.core.list.each(watchers)) {
             salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Joined(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
         }
-        for (p in peers) {
+        for (p in salvo.platform.core.list.each(peers)) {
             shareMembers(name, proto.hash, p, listOf<Int>(member))
         }
     }
@@ -1117,7 +1117,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
             return
         }
         mirror(__addr!!, all)
-        for (w in watchers) {
+        for (w in salvo.platform.core.list.each(watchers)) {
             salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Left(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
         }
     }
@@ -1128,14 +1128,14 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
 
     override fun left(n: Node, why: String) {
         val gone: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
-        for (m in all) {
+        for (m in salvo.platform.core.list.each(all)) {
             if (eq__2(NodeId(salvo.SalvoSched.addrIdentity(m).node), n.id)) {
                 addPlatform(gone, m)
             }
         }
-        for (m in gone) {
+        for (m in salvo.platform.core.list.each(gone)) {
             if (withdraw(all, m)) {
-                for (w in watchers) {
+                for (w in salvo.platform.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Left(m), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
                 }
             }
@@ -1170,10 +1170,10 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
             shareMembers(name, proto.hash, from, all)
         }
         var changed = false
-        for (m in got.second) {
+        for (m in salvo.platform.core.list.each(got.second)) {
             if (admit(all, m)) {
                 changed = true
-                for (w in watchers) {
+                for (w in salvo.platform.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Joined(m), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
                 }
             }
@@ -1284,7 +1284,7 @@ fun mirror(group: Int, members: List<Int>) {
 }
 
 fun admit(list: salvo.platform.core.list.MutList<Int>, a: Int): Boolean {
-    for (x in list) {
+    for (x in salvo.platform.core.list.each(list)) {
         if ((salvo.SalvoSched.addrIdentity(x) == salvo.SalvoSched.addrIdentity(a))) {
             return false
         }
@@ -1294,7 +1294,7 @@ fun admit(list: salvo.platform.core.list.MutList<Int>, a: Int): Boolean {
 }
 
 fun containsNode(list: List<NodeId>, n: NodeId): Boolean {
-    for (x in list) {
+    for (x in salvo.platform.core.list.each(list)) {
         if (eq__2(x, n)) {
             return true
         }
@@ -1305,7 +1305,7 @@ fun containsNode(list: List<NodeId>, n: NodeId): Boolean {
 fun withdraw(list: salvo.platform.core.list.MutList<Int>, a: Int): Boolean {
     var mutIndex: Int? = null
     var i = 0
-    for (x in list) {
+    for (x in salvo.platform.core.list.each(list)) {
         if ((salvo.SalvoSched.addrIdentity(x) == salvo.SalvoSched.addrIdentity(a))) {
             mutIndex = i
         }
@@ -1427,7 +1427,7 @@ fun routeKeyed(route_selector: RouteSelector, group: Int, config: RouteConfig, s
 
 fun routeView(group: Int): RouteView {
     val members: salvo.platform.core.list.MutList<RouteMember> = mutableListOf<RouteMember>()
-    for (m in salvo.SalvoSched.viewMembers(group)) {
+    for (m in salvo.platform.core.list.each(salvo.SalvoSched.viewMembers(group))) {
         addPlatform(members, RouteMember(addr = m, local = eq__2(NodeId(salvo.SalvoSched.addrIdentity(m).node), NodeId(salvo.SalvoSched.hereNode()))))
     }
     return RouteView(members = members.toMutableList())
@@ -1441,7 +1441,7 @@ class LeastLoaded(private val preferLocal: Boolean) : RouteSelector {
     override fun select(view: RouteView, key: Long?): Int? {
         var best: RouteMember? = null
         var bestPending = 0
-        for (a in view.members) {
+        for (a in salvo.platform.core.list.each(view.members)) {
             val load = salvo.SalvoSched.pending(a.addr)
             if (best == null) {
                 best = a
@@ -1520,7 +1520,7 @@ class Elected(private val __dep_Leader: Leader) : RouteSelector {
     override fun changed(view: RouteView) {
         chosen = null
         val l = (__dep_Leader.leader() ?: return)
-        for (a in view.members) {
+        for (a in salvo.platform.core.list.each(view.members)) {
             if (eq__2(NodeId(salvo.SalvoSched.addrIdentity(a.addr).node), l)) {
                 chosen = a.addr
                 return

@@ -6,6 +6,11 @@
 pub type Bytes = Vec<u8>;
 pub type MutBytes = Vec<u8>;
 
+// [platform-iterable] The host's loop over a buffer: its octets.
+pub fn each(data: &Bytes) -> std::iter::Copied<std::slice::Iter<'_, u8>> {
+    data.iter().copied()
+}
+
 pub fn empty_bytes() -> Bytes {
     Vec::new()
 }

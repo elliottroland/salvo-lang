@@ -137,7 +137,7 @@ pub fn with_extension(p: &Path, ext: &String) -> Path {
 
 pub fn segments(p: &Path) -> Vec<String> {
     let mut out = vec![];
-    for mut part in crate::core_string::split_platform(&p.text, &("/".to_string())) {
+    for mut part in crate::platform_core_list::each(&(crate::core_string::split_platform(&p.text, &("/".to_string())))).map(|__x| __x.clone()) {
         if !is_empty__2(&part) {
             crate::core_list::add_platform(&mut out, part.clone());
         }

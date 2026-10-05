@@ -64,7 +64,7 @@ fun roundTrip(sqs: Sqs, console: Console, name: String) {
         is Union2.U1<*, *> -> {
             val messages: List<Message> = ((got.value as ReceiveMessageOutput).messages ?: listOf<Message>())
             println(console, "received ${sizePlatform(messages)} message(s)")
-            for (m in messages) {
+            for (m in salvo.platform.core.list.each(messages)) {
                 println(console, "  ${(m.body ?: "")}")
             }
         }
@@ -119,7 +119,7 @@ class MemSqs : Sqs {
             return
         }
         val grown = mutableListOf<String>()
-        for (b in held) {
+        for (b in salvo.platform.core.list.each(held)) {
             addPlatform(grown, b)
         }
         val id = "m${sizePlatform(grown) + 1}"
@@ -137,7 +137,7 @@ class MemSqs : Sqs {
         }
         val out = mutableListOf<Message>()
         var i = 0
-        for (b in held) {
+        for (b in salvo.platform.core.list.each(held)) {
             i = i + 1
             addPlatform(out, Message(messageId = "m$i", receiptHandle = "m$i", body = b))
         }

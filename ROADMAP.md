@@ -81,7 +81,8 @@ and the `test actor` follow-ups recorded below:
    the host names the mutable kind `Mut<Name>`, Kotlin provides `copy`).
    `Str`, `Deque` and `List` too (types still render natively, which the host
    types alias; `list_of`/`mut_list_of` stay intrinsic because literals and
-   spreads lower through them). Next `Set`, `Map` and the sorted pair, whose identity
+   spreads lower through them), all four `iterable` [platform-iterable], so
+   `Set`/`Map` declare the same and keep their native loops. Next `Set`, `Map` and the sorted pair, whose identity
    slots (`Set<T>(?hash, ?eq)`) a platform type is to be allowed to declare,
    the host receiving the functions at construction (user decision
    2026-10-04, option (a)). Lost with `List`: printing a nested list, which
@@ -152,6 +153,24 @@ Functions that would change once slices exist:
   types; decide whether they become `proj Bytes` / `proj Str` views too.
 - `Deque` → has no contiguous storage on Kotlin (`ArrayDeque` is a ring), so
   it gets no slices.
+
+### 0g — Open defect: `Mut` accepted on a struct that does not `canbe Mut` (found 2026-10-05)
+
+```
+struct Cell { v: Int }
+fn main() [use] {
+    use StdOutConsole()
+    let c = Mut Cell { v: 1 }
+    c.v = 2
+    println("${c.v}")
+}
+```
+
+`salvo analyze` accepts this and Rust runs it; Kotlin emits `val v` (a struct's
+fields are `var` only under `canbe Mut`) and kotlinc refuses the assignment.
+The same write through a `for` over `mut_list_of(Cell { v: 1 })` is refused,
+as it should be. The checker should refuse `Mut Cell { … }` (and a `Mut Cell`
+type) for a struct without `canbe Mut` [type-canbe-mut].
 
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 

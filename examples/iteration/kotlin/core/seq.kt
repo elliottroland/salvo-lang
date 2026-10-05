@@ -50,7 +50,7 @@ fun<It, T, A> reduce(it: It, init: A, f: (A, T) -> A, next: (It) -> Union2<T, Fi
 
 fun<T, U> map__2(list: List<T>, f: (T) -> U): salvo.platform.core.list.MutList<U> {
     val out = mutableListOf<U>()
-    for (x in list) {
+    for (x in salvo.platform.core.list.each(list)) {
         addPlatform(out, f(x))
     }
     return out
@@ -62,7 +62,7 @@ fun<T> filterPlatform(list: List<T>, keep: (T) -> Boolean): salvo.platform.core.
 
 fun<T, A> reduce__2(list: List<T>, init: A, f: (A, T) -> A): A {
     var acc = init
-    for (x in list) {
+    for (x in salvo.platform.core.list.each(list)) {
         acc = f(acc, x)
     }
     return acc

@@ -318,10 +318,10 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
         }
     }
     println(console, "failures: ${sizePlatform(failures)}")
-    for (kind in failures) {
+    for (kind in salvo.platform.core.list.each(failures)) {
         println(console, "  ${kindName(kind)}")
     }
-    for (name in listOf<String>("notes.txt", "notes-copy.txt", "raw.bin")) {
+    for (name in salvo.platform.core.list.each(listOf<String>("notes.txt", "notes-copy.txt", "raw.bin"))) {
         val gone = fs.delete(name)
         if (gone is Union2.U2<*, *>) {
             println(console, "delete failed: ${kindName(detach((gone.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")

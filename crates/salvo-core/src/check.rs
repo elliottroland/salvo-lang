@@ -4372,12 +4372,32 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !t.fn_slots.is_empty() {
             self.error(t.name.span, format!("`platform type {name}` declares no slots [platform-type]"));
         }
-        if let Some(o) = t.obligations.first() {
+        // [platform-iterable] `: Iter<self, T>` is the one obligation a
+        // platform type may take (checked as any type's is): it names the
+        // Salvo pass, which `iterable` then promises the host's loop agrees
+        // with. Anything else has no fields to stamp over, and comparisons
+        // are `platform fn`s.
+        if let Some(o) = t
+            .obligations
+            .iter()
+            .find(|o| o.group.name.name != "Iter" || o.by.is_some())
+        {
             self.error(
                 o.group.span,
                 format!(
-                    "`platform type {name}` cannot take an obligation clause: it has no fields to \
-                     stamp over, and its comparisons are `platform fn`s [platform-type]"
+                    "`platform type {name}` cannot take this obligation clause: it has no fields \
+                     to stamp over, and its comparisons are `platform fn`s; `: Iter<self, T>`, \
+                     without `by`, is the one it may declare [platform-type]"
+                ),
+            );
+        }
+        if t.iterable && !t.obligations.iter().any(|o| o.group.name.name == "Iter") {
+            self.error(
+                t.name.span,
+                format!(
+                    "`iterable platform type {name}` must also declare `: Iter<self, T>`: the \
+                     host's loop and Salvo's pass are two ways through one sequence, and the \
+                     clause is what makes them agree on the element type [platform-iterable]"
                 ),
             );
         }
@@ -23424,11 +23444,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .symbols
                 .intrinsic_types
                 .get(name.as_str())
-                .is_some_and(|d| {
-                    // [platform-value-type] std's value types whose host types
-                    // are the backends' own containers keep the native loop.
-                    d.intrinsic || (d.platform && matches!(name.as_str(), "List" | "Str" | "Bytes"))
-                }),
+                // [platform-iterable] An `iterable platform type` loops over
+                // its host's `each`.
+                .is_some_and(|d| d.intrinsic || (d.platform && d.iterable)),
             _ => false,
         }
     }

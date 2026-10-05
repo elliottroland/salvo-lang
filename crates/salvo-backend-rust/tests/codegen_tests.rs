@@ -1099,9 +1099,10 @@ fn move_mode_bindings_emit_real_moves() {
         "generated:\n{}",
         main.content
     );
-    // Move-mode loop: by value, no clone.
+    // Move-mode loop: by value, no clone — the host's `into_each`
+    // [platform-iterable].
     assert!(
-        main.content.contains("for mut person in persons {"),
+        main.content.contains("for mut person in crate::platform_core_list::into_each(persons) {"),
         "generated:\n{}",
         main.content
     );
@@ -1195,9 +1196,10 @@ fn borrow_mode_bindings_emit_borrows() {
         "generated:\n{}",
         main.content
     );
-    // By-reference iteration: the borrowed parameter is iterated bare.
+    // By-reference iteration: the borrowed parameter goes to the host's
+    // `each` bare [platform-iterable].
     assert!(
-        main.content.contains("for person in persons {"),
+        main.content.contains("for person in crate::platform_core_list::each(persons) {"),
         "generated:\n{}",
         main.content
     );

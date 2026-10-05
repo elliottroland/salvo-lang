@@ -9,6 +9,7 @@ use crate::core_list::*;
 /// [platform-type] The host's `Str`.
 pub use crate::platform_core_string::Str;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Str>(); };
+const _: fn() = || { fn __each(x: &Str) -> impl Iterator<Item = char> + '_ { crate::platform_core_string::each(x).map(|e| e.clone()) } let _ = __each; };
 
 pub fn empty_str_platform() -> String {
     crate::platform_core_string::empty_str()

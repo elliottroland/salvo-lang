@@ -63,7 +63,7 @@ pub fn describe__Celsius(temp: &i32) -> String {
 
 pub fn sum(list: &Vec<i32>) -> i32 {
     let mut total = 0;
-    for n in list {
+    for n in crate::platform_core_list::each(list) {
         total = total + *n;
     }
     return total;

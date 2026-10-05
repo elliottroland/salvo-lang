@@ -22,7 +22,7 @@
 // [platform-value-type] A **value platform type** (ROADMAP 0.7): the host
 // implements it — `std/platform/core/bytes.{rs,kt}` — and its copy is the
 // host's own copy. Its mutable kind is the host's `MutBytes` [platform-type].
-export platform type Bytes canbe Mut
+export iterable platform type Bytes canbe Mut : Iter<self, Byte>
 
 // The bytes of [elems], in order: `bytes_of(to_byte(0), to_byte(255))`.
 // Bytes have no literal syntax — a `[...]` literal is a `List` [col-literal] —

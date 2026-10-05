@@ -359,7 +359,12 @@ fn platform_types_are_opaque_handles_in_three_kinds() {
         // [platform-value-type] A copyable `canbe Mut` one is a value type
         // (`platform type Bytes canbe Mut`), which cannot be shared.
         ("threadsafe platform type Client canbe Mut\n", "cannot be both `threadsafe` and `canbe Mut`"),
-        ("platform type Client : Hashed<self> by auto\n", "cannot take an obligation clause"),
+        ("platform type Client : Hashed<self> by auto\n", "cannot take this obligation clause"),
+        // [platform-iterable] `Iter` is the one clause it may take, and not
+        // stamped.
+        ("platform type Client : Iter<self, Int> by auto\n", "cannot take this obligation clause"),
+        // [platform-iterable] The host's loop needs the Salvo pass beside it.
+        ("iterable platform type Bag canbe Mut\n", "must also declare `: Iter<self, T>`"),
     ];
     for (src, want) in refused {
         let errs = errors(src);

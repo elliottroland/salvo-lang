@@ -3153,7 +3153,7 @@ impl<'p> Emitter<'p> {
         }
         out.push_str("}\n");
         if !fn_fields.is_empty() {
-            out.push_str(&self.emit_fn_field_debug(s, &fn_fields));
+            out.push_str(&self.emit_fn_field_debug(s, &fn_fields, borrowing));
         }
         // [wire-format] [rs-wire] The codec, for every struct with a wire
         // form — decided by the predicate the checker refuses `encode` with,
@@ -3273,16 +3273,20 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    fn emit_fn_field_debug(&mut self, s: &StructDecl, fn_fields: &[String]) -> String {
+    /// `borrowing`: the struct carries the `'s` of its views [rs-proj-struct]
+    /// (an iterator struct over a borrowed host object, say), which the impl
+    /// repeats.
+    fn emit_fn_field_debug(&mut self, s: &StructDecl, fn_fields: &[String], borrowing: bool) -> String {
         let name = rs_ident(&s.name.name);
-        let args = if s.generics.is_empty() {
+        let lt: Vec<String> = if borrowing { vec!["'s".to_string()] } else { Vec::new() };
+        let args = if s.generics.is_empty() && !borrowing {
             String::new()
         } else {
             format!(
                 "<{}>",
-                s.generics
-                    .iter()
-                    .map(|g| g.name.clone())
+                lt.iter()
+                    .cloned()
+                    .chain(s.generics.iter().map(|g| g.name.clone()))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -3291,14 +3295,14 @@ impl<'p> Emitter<'p> {
         // impl prints the same fields, so it needs the same bound — a
         // composed pass holds its source as a `T`, and `{:?}` on it is only
         // available where the source has one.
-        let generics = if s.generics.is_empty() {
+        let generics = if s.generics.is_empty() && !borrowing {
             String::new()
         } else {
             format!(
                 "<{}>",
-                s.generics
-                    .iter()
-                    .map(|g| format!("{}: Clone + std::fmt::Debug", g.name))
+                lt.iter()
+                    .cloned()
+                    .chain(s.generics.iter().map(|g| format!("{}: Clone + std::fmt::Debug", g.name)))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -4136,12 +4140,53 @@ impl<'p> Emitter<'p> {
         if t.threadsafe {
             bounds.push("Sync");
         }
-        format!(
-            "\n/// [platform-type] The host's `{name}`.\npub use crate::{}::{name};\n\
+        let host = host_mod_name(&module);
+        let mut out = format!(
+            "\n/// [platform-type] The host's `{name}`.\npub use crate::{host}::{name};\n\
              const _: fn() = || {{ fn __contract<T: {}>() {{}} __contract::<{sample}>(); }};\n",
-            host_mod_name(&module),
             bounds.join(" + ")
-        )
+        );
+        // [platform-iterable] The host's loop, asserted at the sample: `each`
+        // yields what clones to the element, and for a container (a type
+        // with parameters) lends `&T` — `each_mut` lends `&mut T`, and
+        // `into_each` consumes the container for an owning loop.
+        if t.iterable {
+            let elem = t
+                .obligations
+                .iter()
+                .find(|o| o.group.name.name == "Iter")
+                .and_then(|o| o.group.args.get(1))
+                .map(|a| self.emit_type(a))
+                .unwrap_or_else(|| "()".to_string());
+            let elem = t.generics.iter().fold(elem, |e, g| {
+                let mut out = String::new();
+                let mut word = String::new();
+                for c in e.chars().chain(std::iter::once(' ')) {
+                    if c.is_alphanumeric() || c == '_' {
+                        word.push(c);
+                    } else {
+                        out.push_str(if word == g.name { "i32" } else { &word });
+                        word.clear();
+                        out.push(c);
+                    }
+                }
+                out.pop();
+                out
+            });
+            out.push_str(&format!(
+                "const _: fn() = || {{ fn __each(x: &{sample}) -> impl Iterator<Item = {elem}> + '_ \
+                 {{ crate::{host}::each(x).map(|e| e.clone()) }} let _ = __each; }};\n"
+            ));
+            if !t.generics.is_empty() {
+                out.push_str(&format!(
+                    "const _: fn() = || {{ fn __each_ref(x: &{sample}) -> impl Iterator<Item = &{elem}> + '_ \
+                     {{ crate::{host}::each(x) }} fn __each_mut(x: &mut {sample}) -> impl Iterator<Item = &mut {elem}> + '_ \
+                     {{ crate::{host}::each_mut(x) }} fn __into_each(x: {sample}) -> impl Iterator<Item = {elem}> \
+                     {{ crate::{host}::into_each(x) }} let _ = (__each_ref, __each_mut, __into_each); }};\n"
+                ));
+            }
+        }
+        out
     }
 
     /// [platform-type] The host's struct for a platform type, in the
@@ -4155,18 +4200,47 @@ impl<'p> Emitter<'p> {
         } else {
             ("#[derive(Clone)]\n", "copied as a handle: `Clone` (cheaply — an `Arc` inside) and `Send`")
         };
+        // [platform-iterable] The host's loop: `each` (and, for a container,
+        // `each_mut`) — what the contract assertion beside the re-export checks.
+        let each = |this: &mut Self, ty: &str, gens: &str| -> String {
+            if !t.iterable {
+                return String::new();
+            }
+            let elem = t
+                .obligations
+                .iter()
+                .find(|o| o.group.name.name == "Iter")
+                .and_then(|o| o.group.args.get(1))
+                .map(|a| this.emit_type(a))
+                .unwrap_or_else(|| "()".to_string());
+            let mut out = format!(
+                "\n// [platform-iterable] What a `for` over a `{}` loops over.\n\
+                 pub fn each{gens}(x: &{ty}) -> impl Iterator<Item = {}> + '_ {{\n    todo!(\"implement each\");\n    #[allow(unreachable_code)]\n    std::iter::empty()\n}}\n",
+                t.name.name,
+                if t.generics.is_empty() { elem.clone() } else { format!("&{elem}") }
+            );
+            if !t.generics.is_empty() {
+                out.push_str(&format!(
+                    "\npub fn each_mut{gens}(x: &mut {ty}) -> impl Iterator<Item = &mut {elem}> + '_ {{\n    todo!(\"implement each_mut\");\n    #[allow(unreachable_code)]\n    std::iter::empty()\n}}\n\
+                     \npub fn into_each{gens}(x: {ty}) -> impl Iterator<Item = {elem}> {{\n    todo!(\"implement into_each\");\n    #[allow(unreachable_code)]\n    std::iter::empty()\n}}\n"
+                ));
+            }
+            out
+        };
         // [platform-generic] A type parameter is opaque: the host may store
         // and move one, so the skeleton carries it as a phantom.
         if t.generics.is_empty() {
+            let each = each(self, &name, "");
             return format!(
-                "\n// `platform type {}`: {what} [platform-type].\n{derive}pub struct {name} {{\n}}\n",
+                "\n// `platform type {}`: {what} [platform-type].\n{derive}pub struct {name} {{\n}}\n{each}",
                 t.name.name
             );
         }
         let ps: Vec<String> = t.generics.iter().map(|g| g.name.clone()).collect();
+        let each = each(self, &format!("{name}<{}>", ps.join(", ")), &format!("<{}>", ps.iter().map(|p| format!("{p}: Send + 'static")).collect::<Vec<_>>().join(", ")));
         format!(
             "\n// `platform type {}`: {what}; its type parameters are opaque [platform-type].\n\
-             {derive}pub struct {name}<{}> {{\n    _of: std::marker::PhantomData<fn() -> ({},)>,\n}}\n",
+             {derive}pub struct {name}<{}> {{\n    _of: std::marker::PhantomData<fn() -> ({},)>,\n}}\n{each}",
             t.name.name,
             ps.iter().map(|p| format!("{p}: Send + 'static")).collect::<Vec<_>>().join(", "),
             ps.join(", ")
@@ -10616,10 +10690,15 @@ impl<'p> Emitter<'p> {
                 // A native `for` iterates data: borrowing the subject is what
                 // makes the loop variable a reference [rs-borrow-locals].
                 let iter_subject = false;
+                // [platform-iterable] The host's `each`/`each_mut`, for a
+                // subject of an `iterable platform type`.
+                let host = self.ty_of(iterable.span()).cloned().and_then(|t| self.iterable_host(&t));
                 let elem_ok = self
                     .ty_of(iterable.span())
                     .map(|t| match t.strip_quals() {
-                        Ty::Named { name, args } if name == "List" => {
+                        // `List` (the locator loop below indexes it) and any
+                        // iterable platform container whose `each` lends `&T`.
+                        Ty::Named { name, args } if name == "List" || (host.is_some() && !args.is_empty()) => {
                             args.first().is_some_and(|e| {
                                 matches!(e.strip_quals(), Ty::Named { .. })
                                     && !matches!(e.strip_quals(), Ty::Union(_))
@@ -10652,12 +10731,32 @@ impl<'p> Emitter<'p> {
                             _ => false,
                         };
                     let var = self.for_pattern_var(pattern, by_ref, indent + 1);
-                    let iter = match borrow_iter {
-                        Some(_) if writes_elem => format!("{}.iter_mut()", self.emit_expr(iterable)),
-                        Some(code) => code,
-                        None => self.emit_bound_value(iterable, iterable.span()),
+                    let iter = match (&host, borrow_iter) {
+                        // [platform-iterable] `each(&x)` lends each element,
+                        // `each_mut(&mut x)` lends it mutably, and a by-value
+                        // loop clones out of `each` — `clone` on a `&T` and on
+                        // a yielded scalar alike.
+                        (Some(m), Some(_)) if writes_elem => {
+                            format!("{m}::each_mut(&mut {})", self.emit_expr(iterable))
+                        }
+                        (Some(m), Some(code)) => format!("{m}::each({code})"),
+                        // A move-mode loop over a container consumes it:
+                        // `into_each` hands the elements over owned.
+                        (Some(m), None) if by_value && elem_ok => {
+                            format!("{m}::into_each({})", self.emit_bound_value(iterable, iterable.span()))
+                        }
+                        (Some(m), None) => {
+                            let code = match self.borrow_value(iterable) {
+                                Some(code) => code,
+                                None => format!("&({})", self.emit_expr(iterable)),
+                            };
+                            format!("{m}::each({code}).map(|__x| __x.clone())")
+                        }
+                        (None, Some(_)) if writes_elem => format!("{}.iter_mut()", self.emit_expr(iterable)),
+                        (None, Some(code)) => code,
+                        (None, None) => self.emit_bound_value(iterable, iterable.span()),
                     };
-                    let iter = self.native_for_subject(iterable, iter);
+                    let iter = if host.is_some() { iter } else { self.native_for_subject(iterable, iter) };
                     (var, iter)
                 };
                 let mut out = String::new();
@@ -10673,7 +10772,10 @@ impl<'p> Emitter<'p> {
                 let mut loc_index_loop = false;
                 if self.lend_loc_mode && producer.is_none() && pass.is_none() {
                     if let Pattern::Ident(name) = pattern {
-                        if elem_ok && self.place_is_pure(iterable) {
+                        let is_list = self
+                            .ty_of(iterable.span())
+                            .is_some_and(|t| matches!(t.strip_quals(), Ty::Named { name, .. } if name == "List") || matches!(t.strip_quals(), Ty::Array(_)));
+                        if elem_ok && is_list && self.place_is_pure(iterable) {
                             let root = self.emit_place(iterable);
                             let ivar = format!("__li{}", self.handle_seq);
                             self.handle_seq += 1;
@@ -14615,6 +14717,22 @@ impl<'p> Emitter<'p> {
     /// A `Vec` (a list or an array) is an iterator already; a `Str` is not —
     /// `String` has no `IntoIterator`, so the characters are asked for. The
     /// pass protocol never reaches here: a pass is driven by its own header.
+    /// [platform-iterable] `crate::<host module>` when `ty` is an `iterable
+    /// platform type`, whose host provides `each` and `each_mut`; records
+    /// that the host file is needed.
+    fn iterable_host(&mut self, ty: &Ty) -> Option<String> {
+        let Ty::Named { name, .. } = ty.strip_quals() else {
+            return None;
+        };
+        let decl = self.symbols.intrinsic_types.get(name.as_str())?;
+        if !(decl.platform && decl.iterable) {
+            return None;
+        }
+        let module = (*self.symbols.key_modules.get(name.as_str())?).clone();
+        self.platform_hosts.insert(module.clone());
+        Some(format!("crate::{}", host_mod_name(&module)))
+    }
+
     fn native_for_subject(&mut self, iterable: &Expr, code: String) -> String {
         let base: Option<String> = self.ty_of(iterable.span()).and_then(|t| {
             match t.strip_quals() {
@@ -14623,7 +14741,6 @@ impl<'p> Emitter<'p> {
             }
         });
         match base.as_deref() {
-            Some("Str") => format!("{code}.chars()"),
             // [col-map-iter] A map iterates its **keys** — that is what
             // `iter(map)` answers ([`MapKeyYield`]), and a `SalvoMap` is not
             // an iterator at all, so before this the emitted code did not
@@ -14717,8 +14834,21 @@ impl<'p> Emitter<'p> {
                 out.push_str(&header);
             } else {
                 let var = self.for_pattern_var(pattern.unwrap(), false, 0);
-                let iter = self.emit_expr(cond_or_iter);
-                let iter = self.native_for_subject(cond_or_iter, iter);
+                // [platform-iterable] By value, out of the host's `each`.
+                let host = self.ty_of(cond_or_iter.span()).cloned().and_then(|t| self.iterable_host(&t));
+                let iter = match host {
+                    Some(m) => {
+                        let code = match self.borrow_value(cond_or_iter) {
+                            Some(code) => code,
+                            None => format!("&({})", self.emit_expr(cond_or_iter)),
+                        };
+                        format!("{m}::each({code}).map(|__x| __x.clone())")
+                    }
+                    None => {
+                        let iter = self.emit_expr(cond_or_iter);
+                        self.native_for_subject(cond_or_iter, iter)
+                    }
+                };
                 out.push_str(&format!("for {var} in {iter} {{\n"));
             }
         } else {

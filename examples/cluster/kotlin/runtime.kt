@@ -1371,17 +1371,17 @@ fun quiet(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.pla
     if (externals > 0) {
         return false
     }
-    for (p in pools) {
+    for (p in salvo.platform.core.list.each(pools)) {
         if (sizePlatform(p.tasks) > 0) {
             return false
         }
     }
-    for (a in actors) {
+    for (a in salvo.platform.core.list.each(actors)) {
         if (!a.running && !a.dead && !(deliverable(a.slots, a.gate) == null)) {
             return false
         }
     }
-    for (w in waiters) {
+    for (w in salvo.platform.core.list.each(waiters)) {
         if (w.waiting > 0 && w.filled) {
             return false
         }
@@ -1400,7 +1400,7 @@ fun fireIdle(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.
         val token = __destructured19.token
         var gates = 0
         var tokens = (getPlatform(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:1132:27")).owed
-        for (a in actors) {
+        for (a in salvo.platform.core.list.each(actors)) {
             if (a.pool == pool) {
                 tokens = tokens + a.owed
                 if (!(a.gate == null) && !a.dead) {
@@ -1414,14 +1414,14 @@ fun fireIdle(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.
 
 fun deadlockReport(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.platform.core.list.MutList<WaiterRec>, own: Int): String {
     val occupied: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
-    for (w in waiters) {
+    for (w in salvo.platform.core.list.each(waiters)) {
         if (w.waiting > 0 && w.waitingActor >= 0) {
             addPlatform(occupied, "actor ${w.waitingActor}")
         }
     }
     val gated: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     var i = 0
-    for (a in actors) {
+    for (a in salvo.platform.core.list.each(actors)) {
         if (!(a.gate == null) && !a.dead) {
             addPlatform(gated, "actor $i")
         }
@@ -1568,7 +1568,7 @@ fun wakeEvery(pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun wakeWaiters(waiters: salvo.platform.core.list.MutList<WaiterRec>) {
-    for (w in waiters) {
+    for (w in salvo.platform.core.list.each(waiters)) {
         if (w.waiting > 0 && (w.parker != null)) {
             val p = w.parker as salvo.platform.runtime.Parker
             unparkPlatform(p)
@@ -1581,7 +1581,7 @@ fun retireIfDone(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salv
     if (!p.dedicated || p.retired || sizePlatform(p.tasks) > 0 || p.owed > 0) {
         return
     }
-    for (a in actors) {
+    for (a in salvo.platform.core.list.each(actors)) {
         if (a.pool == pool && !a.dead) {
             return
         }

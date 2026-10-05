@@ -14,6 +14,7 @@ use crate::unions::*;
 /// [platform-type] The host's `Str`.
 pub use crate::platform_core_string::Str;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Str>(); };
+const _: fn() = || { fn __each(x: &Str) -> impl Iterator<Item = char> + '_ { crate::platform_core_string::each(x).map(|e| e.clone()) } let _ = __each; };
 
 pub fn mut_str(parts: Vec<String>) -> String {
     let mut out = empty_str_platform();
@@ -193,7 +194,7 @@ pub fn lines(str: &String) -> Vec<String> {
         let mut _end = remove_back(&mut parts, 1);
     }
     let mut out = vec![];
-    for p in &parts {
+    for p in crate::platform_core_list::each(&parts) {
         crate::core_list::add_platform(&mut out, trim_suffix_platform(p, &("\r".to_string())));
     }
     return out;

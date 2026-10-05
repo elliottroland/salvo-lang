@@ -9,6 +9,8 @@ use crate::core_string::*;
 /// [platform-type] The host's `Deque`.
 pub use crate::platform_core_deque::Deque;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Deque<i32>>(); };
+const _: fn() = || { fn __each(x: &Deque<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_deque::each(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &Deque<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_deque::each(x) } fn __each_mut(x: &mut Deque<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_deque::each_mut(x) } fn __into_each(x: Deque<i32>) -> impl Iterator<Item = i32> { crate::platform_core_deque::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
 pub fn empty_deque_platform<T>() -> std::collections::VecDeque<T> {
     crate::platform_core_deque::empty_deque()

@@ -1057,6 +1057,24 @@ fn threadsafe_on_a_non_handler_is_an_error_naming_the_form() {
     );
 }
 
+/// [platform-iterable] `iterable` is a claim about a host type, so only
+/// `platform type` may follow `iterable platform`; on one it sets the flag,
+/// and elsewhere `iterable` is an ordinary name.
+#[test]
+fn iterable_belongs_on_a_platform_type() {
+    let (_, diagnostics) = salvo_syntax::parse_module("iterable platform fn f() [] -> Int\n");
+    assert!(
+        diagnostics.iter().any(|d| d.is_error()
+            && d.message.contains("expected `type` after `iterable platform`")),
+        "{:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let (module, diagnostics) =
+        salvo_syntax::parse_module("export iterable platform type Bag canbe Mut : Iter<self, Int>\nfn iterable() -> Int {\n    return 1\n}\n");
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    assert!(module.items.iter().any(|i| matches!(i, salvo_syntax::ast::Item::Type(t) if t.iterable && t.platform && t.exported)));
+}
+
 /// [threadsafe-platform] Contextual, like `actor` and `send`: `threadsafe`
 /// stays an ordinary identifier everywhere but directly before `platform`.
 #[test]

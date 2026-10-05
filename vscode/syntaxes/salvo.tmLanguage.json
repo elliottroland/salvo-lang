@@ -114,7 +114,7 @@
         {
           "comment": "the export modifier — a keyword by position, not a reserved word",
           "name": "keyword.declaration.salvo",
-          "match": "\\bexport(?=\\s+(fn|struct|effect|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe)\\b)"
+          "match": "\\bexport(?=\\s+(fn|struct|effect|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe|iterable)\\b)"
         },
         {
           "comment": "the actor-effect modifier — a keyword by position, not a reserved word",

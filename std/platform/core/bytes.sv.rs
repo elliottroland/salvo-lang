@@ -9,6 +9,7 @@ use crate::core_string::*;
 /// [platform-type] The host's `Bytes`.
 pub use crate::platform_core_bytes::Bytes;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Bytes>(); };
+const _: fn() = || { fn __each(x: &Bytes) -> impl Iterator<Item = u8> + '_ { crate::platform_core_bytes::each(x).map(|e| e.clone()) } let _ = __each; };
 
 pub fn empty_bytes_platform() -> Bytes {
     crate::platform_core_bytes::empty_bytes()

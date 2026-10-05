@@ -13,7 +13,7 @@
 // [platform-value-type] A value platform type (ROADMAP 0.7): the host
 // implements it in `std/platform/core/string.{rs,kt}`, and names the mutable
 // kind `MutStr`.
-export platform type Str canbe Mut
+export iterable platform type Str canbe Mut : Iter<self, Char>
 
 // Builds a mutable string from [parts] (concatenated in order). A string
 // *literal* is a `Str`, never a `Mut Str`: mutability is asked for here,

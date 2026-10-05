@@ -11,6 +11,7 @@ use crate::unions::*;
 /// [platform-type] The host's `Bytes`.
 pub use crate::platform_core_bytes::Bytes;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Bytes>(); };
+const _: fn() = || { fn __each(x: &Bytes) -> impl Iterator<Item = u8> + '_ { crate::platform_core_bytes::each(x).map(|e| e.clone()) } let _ = __each; };
 
 pub fn bytes_of(elems: Vec<u8>) -> Bytes {
     let mut out = empty_bytes_platform();

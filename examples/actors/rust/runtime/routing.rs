@@ -1015,7 +1015,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         let mut t = self.peers.get(&node);
         if t.is_some() {
             let mut table = t.unwrap();
-            for mut entry in table.clone() {
+            for mut entry in crate::platform_core_list::each(table).map(|__x| __x.clone()) {
                 let (mut name, mut hash) = entry.clone();
                 if name == protocol.clone() {
                     return Some(hash.clone());
@@ -1029,7 +1029,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         let mut _route = self.routes.remove(&node);
         let mut _peer = self.peers.remove(&node);
         let mut gone: Vec<i32> = vec![];
-        for mut idx in self.remote.keys().cloned().collect::<Vec<_>>() {
+        for mut idx in crate::platform_core_list::each(&(self.remote.keys().cloned().collect::<Vec<_>>())).map(|__x| __x.clone()) {
             let mut r = self.remote.get(&idx);
             if r.is_some() {
                 let mut found = r.unwrap();
@@ -1165,7 +1165,7 @@ pub fn restage(routes: &SalvoMap<i64, Bytes>, outbound: &SalvoSet<i64>, outbox: 
     while crate::core_list::size_platform(parked) > 0 {
         crate::core_list::add_platform(&mut waiting, crate::core_list::remove_at_platform(parked, 0).expect("salvo: value is absent at runtime.routing:577:22"));
     }
-    for mut p in waiting.clone() {
+    for mut p in crate::platform_core_list::each(&(waiting)).map(|__x| __x.clone()) {
         stage_in(routes, outbound, outbox, parked, p.from, p.to, p.frame.clone());
     }
 }
@@ -1296,7 +1296,7 @@ pub fn credit_back(addr: i32, pool: i32, from: i64) {
 
 pub fn flush() {
     let mut out = __module_use_0().take_outbox();
-    for s in &out {
+    for s in crate::platform_core_list::each(&out) {
         wire_out_platform(s.from, s.to.clone(), s.frame.clone());
     }
 }
@@ -1342,7 +1342,7 @@ pub fn control_frame(channel: String, payload: Bytes) -> Bytes {
 }
 
 pub fn node_left(node: i64) {
-    for mut idx in __module_use_0().forget_node(node) {
+    for mut idx in crate::platform_core_list::each(&(__module_use_0().forget_node(node))).map(|__x| __x.clone()) {
         kill_actor(idx.clone(), "node left".to_string());
     }
 }
@@ -1470,7 +1470,7 @@ pub fn view_set(group: i32, members: Vec<i32>) {
 
 pub fn view_members(group: i32) -> Vec<i32> {
     let mut left: Vec<i32> = vec![];
-    for mut m in __module_use_0().view_of(group) {
+    for mut m in crate::platform_core_list::each(&(__module_use_0().view_of(group))).map(|__x| __x.clone()) {
         crate::core_list::add_platform(&mut left, m.clone());
     }
     let mut out: Vec<i32> = vec![];

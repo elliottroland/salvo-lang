@@ -34,7 +34,7 @@ pub fn reduce<It: Clone, T: Clone, A: Clone>(it: &mut It, init: &A, f: &mut impl
 
 pub fn map__2<T: Clone, U: Clone>(list: &Vec<T>, f: &mut impl FnMut(&T) -> U) -> Vec<U> {
     let mut out = vec![];
-    for mut x in list.clone() {
+    for mut x in crate::platform_core_list::each(list).map(|__x| __x.clone()) {
         crate::core_list::add_platform(&mut out, f(&x));
     }
     return out;
@@ -46,7 +46,7 @@ pub fn filter_platform<T: Clone>(list: &Vec<T>, keep: &mut dyn FnMut(&T) -> bool
 
 pub fn reduce__2<T: Clone, A: Clone>(list: &Vec<T>, init: A, f: &mut impl FnMut(&A, &T) -> A) -> A {
     let mut acc = init.clone();
-    for mut x in list.clone() {
+    for mut x in crate::platform_core_list::each(list).map(|__x| __x.clone()) {
         acc = f(&acc, &x);
     }
     return acc;

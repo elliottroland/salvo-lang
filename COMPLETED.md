@@ -135,6 +135,31 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`iterable platform type` (2026-10-05, user decision).** The `List` step had
+kept the native `for` over `List`, `Str` and `Bytes` by naming them in the
+checker; the user asked for a declaration instead. Options put: a bare
+modifier taking the element type from the type's `iter` (a), `iterable(T)`
+(b), or `: Iter<self, T>` alone (c); and for the host, either its type being
+natively iterable (i) or host fns the loop calls (ii). The user chose (a) and
+(ii), and added that an `iterable` type must also declare `: Iter<self, T>`
+(which a platform type may now take on its own), so the two ways through the
+sequence agree; names `each`/`each_mut`. Kotlin's `each` answers `Iterable<T>`
+(an `Iterator` would also have worked, through the stdlib's
+`Iterator.iterator()` extension; `Iterable` lets the host hand back its
+collection). Built: the contextual modifier, the checker rules, `each`/
+`each_mut`/`into_each` lowering on Rust and `each` on Kotlin, the Rust
+contract assertions, skeleton stubs, and the four std types (`Deque` gains
+the native loop; `Str` and `Bytes` lose their emitter special cases). Rust
+needed a third fn the decision did not name: `into_each`, for a move-mode
+loop that consumes a container, which `each` plus a clone would have turned
+into a copy. What fell out: an `iter fn` over a host type made a struct with a
+`'s` lifetime whose hand-written `Debug` impl omitted it (E0726), fixed; and
+`Mut Cell { … }` on a struct without `canbe Mut` is accepted by the checker
+and refused by kotlinc (ROADMAP 0g, open). New tests:
+`an_iterable_platform_type_loops_over_its_hosts_each` (CLI, both backends),
+`iterable_belongs_on_a_platform_type` (parser), and refusals in
+`platform_types_are_opaque_handles_in_three_kinds`.
+
 **`List` as a value platform type (2026-10-04, ROADMAP 0.7).** `core.list`'s
 operations are host code (`std/platform/core/list.*`), and `core.seq`'s
 `filter` over a `List` too (`platform/core/seq.*`); `map`/`reduce` over a

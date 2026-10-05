@@ -89,6 +89,11 @@ pub const ACTOR_MODIFIER: &str = "actor";
 /// else — and the only word it may precede is `platform`.
 pub const THREADSAFE_MODIFIER: &str = "threadsafe";
 
+/// [platform-iterable] The contextual modifier declaring that a platform
+/// type's host loops natively: `iterable platform type List<T> : Iter<self,
+/// T>` (user decision 2026-10-05). Only `platform type` may follow it.
+pub const ITERABLE_MODIFIER: &str = "iterable";
+
 /// [noremote] The contextual modifier that keeps a type off the wire:
 /// `noremote struct Canvas { … }`, `noremote intrinsic type Pool` (user
 /// decision 2026-09-26). Every type is serializable by default; this is the
@@ -864,6 +869,36 @@ impl<'s> Parser<'s> {
                     }
                 }
             }
+            // [platform-iterable] `iterable platform type List<T> : Iter<self,
+            // T>`. Contextual, like `threadsafe`.
+            TokenKind::Ident(name)
+                if name == ITERABLE_MODIFIER
+                    && matches!(self.peek_at(1).kind, TokenKind::KwPlatform) =>
+            {
+                let span = self.peek().span;
+                self.bump();
+                self.bump();
+                if !self.at(&TokenKind::KwType) {
+                    let found = self.kind().describe();
+                    self.error(
+                        format!(
+                            "expected `type` after `iterable platform`, found {found}: \
+                             native iteration is a claim about a host type, so it belongs \
+                             on a `platform type` [platform-iterable]"
+                        ),
+                        span,
+                    );
+                    return None;
+                }
+                let item = self.parse_platform_type(false, false)?;
+                match item {
+                    Item::Type(mut t) => {
+                        t.iterable = true;
+                        Some(Item::Type(t))
+                    }
+                    other => Some(other),
+                }
+            }
             TokenKind::KwEffect => self.parse_effect().map(Item::Effect),
             // [actor-effect-kind] `actor effect E { … }`: an actor protocol.
             // Contextual — at item level a bare identifier is otherwise a
@@ -1131,6 +1166,7 @@ impl<'s> Parser<'s> {
             comptime: false,
             platform: false,
             threadsafe: false,
+            iterable: false,
             docs,
             intrinsic,
             linear,

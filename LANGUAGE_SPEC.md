@@ -71,7 +71,7 @@ Conventions:
     [col-hashed-ordered], because a key that can be mutated under its map is
     a bug no diagnostic would catch later.
   * `for b in data` iterates the bytes natively on both backends
-    [iter-for-native]; `BytesYield` is the iterator the combinators drive
+    [iter-for-native] [platform-iterable]; `BytesYield` is the iterator the combinators drive
     [iter-protocol].
 * [lit-numeric] Numeric literals: `1` is `Int`; `1L` is `Long`; `1.2` is
   `Double`; `1.2f` is `Float`. Underscore separators are allowed anywhere
@@ -2622,11 +2622,12 @@ Conventions:
   * **`for` over a *generic* source** mints through the `iter` implicit a
     `?Iter<C, T>` spread brought in, recorded as `PassMember::Implicit("iter")`
     [iter-group].
-* [iter-for-native] A `for` over an **intrinsic container** — a list, an array,
-  a `Str` — records no driver at all: the backends iterate their own data
-  natively, which neither allocates an iterator nor consumes the subject. The
-  language gets no special case (the rule is "intrinsic container", not a name
-  list); the fast path is the emitters'.
+* [iter-for-native] A `for` over an **intrinsic container** (an array, a `Set`,
+  a `Map`) or an **`iterable platform type`** [platform-iterable] (`List`,
+  `Str`, `Bytes`, `Deque`) records no driver at all: the backends iterate
+  natively, which neither allocates a Salvo iterator nor consumes the
+  subject. The language gets no special case (the rule is a declaration, not
+  a name list); the fast path is the emitters'.
 * [iter-protocol] The pull iteration protocol is declared in std
   (`std/core/iterator.sv`), not built into the compiler: an **iterator
   struct** is a value some `next` accepts, and `next` reports
@@ -8561,12 +8562,28 @@ replaced the working document TESTING.md).
     fn's Rust wrapper is called through its module's path
     (`crate::core_string::size_platform`), since two modules' wrappers of
     one name are ambiguous through glob imports.
+  * [platform-iterable] **`iterable platform type List<T> canbe Mut :
+    Iter<self, T>`: a `for` over one is the host's own loop** (user decision
+    2026-10-05). The modifier is contextual and only `platform type` may
+    follow it; the declaration must also take `: Iter<self, T>`, the one
+    obligation a platform type may take (without `by`, and allowed without
+    `iterable` too), so Salvo's iterator and the host's loop agree on the
+    element type and a generic fn over `Iter` still finds a pass. The host
+    provides **`each(x)`**: Kotlin an `Iterable<T>`; Rust an `Iterator` over
+    `&T` for a type with parameters and over whatever clones to the element
+    otherwise (`Str`'s `chars()`), and for a type with parameters also
+    **`each_mut(&mut x)`** over `&mut T` (a loop writing a field of its
+    element, [for-elem-write]) and **`into_each(x)`** over owned elements (a
+    loop that consumes the container). Rust asserts all three against the
+    obligation's element type beside the re-export, and `salvo platform
+    generate` writes their stubs. `List`, `Str`, `Bytes` and `Deque` are
+    iterable; a by-value loop over an elementless one clones out of `each`.
   * **Always `noremote`** [noremote] — a host object has no wire form, and
     the wire predicate says so for a struct holding one — and
     sendable [actor-sendable] (Rust: `Send + 'static`), so a handle may sit
     in actor state or travel in a local message.
-  * **Refused**: slots, an obligation clause (`by auto` has no fields;
-    comparisons are platform fns), an alias.
+  * **Refused**: slots, an obligation clause other than `: Iter<self, T>`
+    (`by auto` has no fields; comparisons are platform fns), an alias.
   * [platform-generic] **Type parameters are opaque to the host** (2026-10-02,
     runtime E1): `platform type Cell<T canbe linear>` and `platform fn
     erase<T canbe linear>(v: T) -> Dyn`. The host may store a `T`, move it

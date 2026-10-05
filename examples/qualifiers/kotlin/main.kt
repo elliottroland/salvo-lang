@@ -30,7 +30,7 @@ fun describe__Celsius(temp: Int): String {
 
 fun sum(list: List<Int>): Int {
     var total = 0
-    for (n in list) {
+    for (n in salvo.platform.core.list.each(list)) {
         total = total + n
     }
     return total

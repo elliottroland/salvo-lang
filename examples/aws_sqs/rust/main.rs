@@ -124,7 +124,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
         Union2::U1(_) => {
             let mut messages: Vec<Message> = if got.u1().clone().messages.is_some() { got.u1().clone().messages.as_ref().unwrap().clone() } else { vec![] };
             println(console, &(format!("received {} message(s)", crate::core_list::size_platform(&messages))));
-            for m in &messages {
+            for m in crate::platform_core_list::each(&messages) {
                 println(console, &(format!("  {}", if m.body.is_some() { m.body.as_ref().unwrap().clone() } else { "".to_string() })));
             }
         }
@@ -190,7 +190,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
             return;
         }
         let mut grown = vec![];
-        for mut b in held.unwrap().clone() {
+        for mut b in crate::platform_core_list::each(&(held.unwrap().clone())).map(|__x| __x.clone()) {
             crate::core_list::add_platform(&mut grown, b.clone());
         }
         let mut id = format!("m{}", crate::core_list::size_platform(&grown) + 1);
@@ -208,7 +208,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
         }
         let mut out = vec![];
         let mut i = 0;
-        for mut b in held.unwrap().clone() {
+        for mut b in crate::platform_core_list::each(&(held.unwrap().clone())).map(|__x| __x.clone()) {
             i = i + 1;
             crate::core_list::add_platform(&mut out, Message { message_id: Some(format!("m{}", i)), receipt_handle: Some(format!("m{}", i)), body: Some(b.clone()), md5_of_body: None, attributes: None, md5_of_message_attributes: None, message_attributes: None });
         }

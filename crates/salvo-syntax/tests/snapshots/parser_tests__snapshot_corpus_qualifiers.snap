@@ -440,6 +440,7 @@ Module {
                 comptime: false,
                 platform: false,
                 threadsafe: false,
+                iterable: false,
                 name: Ident {
                     name: "Result",
                     span: 237..243,

@@ -796,6 +796,10 @@ nothing but the monitor.
   re-exported — and a copy is the reference itself (`ty_immutable` answers
   true: the handle shares the object by definition). The skeleton is `class
   Name {}` with a comment stating the kind's contract.
+  * [platform-iterable] A `for` over an `iterable platform type` is `for (x in
+    salvo.platform.<m>.each(xs))`; `each` answers an `Iterable<T>`, which a
+    host may satisfy with the collection itself. `Str`'s takes a
+    `CharSequence`, so a `Mut Str` (a `StringBuilder`) loops too.
 * [kt-platform-host] [platform-tree] [cli-platform] The host file for module
   `M` is `platform/<M>.kt`, and its Kotlin package is
   **`salvo.platform.<M>`** — not `salvo.<M>`. Kotlin names a file's facade

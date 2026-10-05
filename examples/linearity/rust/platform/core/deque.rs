@@ -7,6 +7,19 @@ use std::collections::VecDeque;
 pub type Deque<T> = VecDeque<T>;
 pub type MutDeque<T> = VecDeque<T>;
 
+// [platform-iterable] The host's loop over a deque, front to back.
+pub fn each<T>(d: &Deque<T>) -> std::collections::vec_deque::Iter<'_, T> {
+    d.iter()
+}
+
+pub fn each_mut<T>(d: &mut Deque<T>) -> std::collections::vec_deque::IterMut<'_, T> {
+    d.iter_mut()
+}
+
+pub fn into_each<T>(d: Deque<T>) -> std::collections::vec_deque::IntoIter<T> {
+    d.into_iter()
+}
+
 pub fn empty_deque<T>() -> Deque<T> {
     VecDeque::new()
 }

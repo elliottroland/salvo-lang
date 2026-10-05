@@ -1830,17 +1830,17 @@ pub fn quiet(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools: &m
     if externals > 0 {
         return false;
     }
-    for p in &*pools {
+    for p in crate::platform_core_list::each(&*pools) {
         if crate::core_deque::size_platform(&p.tasks) > 0 {
             return false;
         }
     }
-    for a in &*actors {
+    for a in crate::platform_core_list::each(&*actors) {
         if !a.running && !a.dead && !(deliverable(&a.slots, &a.gate).is_none()) {
             return false;
         }
     }
-    for w in &*waiters {
+    for w in crate::platform_core_list::each(&*waiters) {
         if w.waiting > 0 && w.filled {
             return false;
         }
@@ -1860,7 +1860,7 @@ pub fn fire_idle(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools
         let mut token = __destructured19.token;
         let mut gates = 0;
         let mut tokens = crate::core_list::get_platform(pools, pool).expect("salvo: value is absent at runtime:1132:27").owed;
-        for a in &*actors {
+        for a in crate::platform_core_list::each(&*actors) {
             if a.pool == pool {
                 tokens = tokens + a.owed;
                 if !(a.gate.is_none()) && !a.dead {
@@ -1874,14 +1874,14 @@ pub fn fire_idle(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools
 
 pub fn deadlock_report(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, own: i32) -> String {
     let mut occupied: Vec<String> = vec![];
-    for w in &*waiters {
+    for w in crate::platform_core_list::each(&*waiters) {
         if w.waiting > 0 && w.waiting_actor >= 0 {
             crate::core_list::add_platform(&mut occupied, format!("actor {}", w.waiting_actor));
         }
     }
     let mut gated: Vec<String> = vec![];
     let mut i = 0;
-    for a in &*actors {
+    for a in crate::platform_core_list::each(&*actors) {
         if !(a.gate.is_none()) && !a.dead {
             crate::core_list::add_platform(&mut gated, format!("actor {}", i));
         }
@@ -2032,7 +2032,7 @@ pub fn wake_every(pools: &mut Vec<PoolRec>, pool: i32) {
 }
 
 pub fn wake_waiters(waiters: &mut Vec<WaiterRec>) {
-    for w in &*waiters {
+    for w in crate::platform_core_list::each(&*waiters) {
         if w.waiting > 0 && (w.parker.is_some()) {
             let mut p = w.parker.as_ref().unwrap().clone();
             unpark_platform(&(p.clone()));
@@ -2046,7 +2046,7 @@ pub fn retire_if_done(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, pool
     if !pools[__h28].dedicated || pools[__h28].retired || crate::core_deque::size_platform(&pools[__h28].tasks) > 0 || pools[__h28].owed > 0 {
         return;
     }
-    for a in &*actors {
+    for a in crate::platform_core_list::each(&*actors) {
         if a.pool == pool && !a.dead {
             return;
         }

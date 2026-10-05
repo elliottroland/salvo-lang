@@ -1596,6 +1596,13 @@ facts worth knowing") and keeps the history ("One shape for effects").
   `+ Sync` for `threadsafe`, no `Clone` for `linear`), which makes a host
   type breaking it rustc's error at that line. The skeleton is `pub struct
   Name {}` with `#[derive(Clone)]` for the copyable kinds.
+  * [platform-iterable] A `for` over an `iterable platform type` is `for x in
+    crate::platform_<m>::each(&xs)` (by reference), `each_mut(&mut xs)` when
+    the body writes a field of the element, `into_each(xs)` for a move-mode
+    loop over a container, and `each(&xs).map(|__x| __x.clone())` for any
+    other by-value loop, including a value-position one. The contract asserts
+    each signature at a sample instantiation (`i32` for every parameter).
+    The locator variant's indexed loop [rs-loc] stays `List`'s.
 * [rs-effects] [fn-contract] An effect member's fn-valued parameter is
   `&mut dyn FnMut(…)`, and a `once` one `Box<dyn FnOnce(…) + '_>` boxed at
   the call (`member_fn_param_ty`): effect traits are used as `dyn`, and an

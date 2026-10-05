@@ -5,6 +5,19 @@
 pub type List<T> = Vec<T>;
 pub type MutList<T> = Vec<T>;
 
+// [platform-iterable] The host's loop over a list, by reference.
+pub fn each<T>(list: &List<T>) -> std::slice::Iter<'_, T> {
+    list.iter()
+}
+
+pub fn each_mut<T>(list: &mut List<T>) -> std::slice::IterMut<'_, T> {
+    list.iter_mut()
+}
+
+pub fn into_each<T>(list: List<T>) -> std::vec::IntoIter<T> {
+    list.into_iter()
+}
+
 pub fn get<T>(list: &List<T>, index: i32) -> Option<&T> {
     if index < 0 { None } else { list.get(index as usize) }
 }

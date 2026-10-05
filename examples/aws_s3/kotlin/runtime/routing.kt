@@ -767,7 +767,7 @@ class Routes : RouteTable {
         val t = peers[node]
         if (t != null) {
             val table = t as List<Pair<String, String>>
-            for (entry in table) {
+            for (entry in salvo.platform.core.list.each(table)) {
                 val (name, hash) = entry
                 if (name == protocol) {
                     return hash
@@ -782,7 +782,7 @@ class Routes : RouteTable {
         val _route = routes.remove(node)
         val _peer = peers.remove(node)
         val gone: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
-        for (idx in remote.keys.toMutableList()) {
+        for (idx in salvo.platform.core.list.each(remote.keys.toMutableList())) {
             val r = remote[idx]
             if (r != null) {
                 val found = r as RemoteRef
@@ -921,7 +921,7 @@ fun restage(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Lo
     while (sizePlatform(parked) > 0) {
         addPlatform(waiting, (removeAtPlatform(parked, 0) ?: throw AssertionError("salvo: value is absent at runtime.routing:577:22")))
     }
-    for (p in waiting) {
+    for (p in salvo.platform.core.list.each(waiting)) {
         stageIn(routes, outbound, outbox, parked, p.from, p.to, p.frame)
     }
 }
@@ -1054,7 +1054,7 @@ fun creditBack(addr: Int, pool: Int, from: Long) {
 
 fun flush() {
     val out = __moduleUse0.takeOutbox()
-    for (s in out) {
+    for (s in salvo.platform.core.list.each(out)) {
         wireOutPlatform(s.from, s.to, s.frame)
     }
 }
@@ -1100,7 +1100,7 @@ fun controlFrame(channel: String, payload: salvo.platform.core.bytes.Bytes): sal
 }
 
 fun nodeLeft(node: Long) {
-    for (idx in __moduleUse0.forgetNode(node)) {
+    for (idx in salvo.platform.core.list.each(__moduleUse0.forgetNode(node))) {
         killActor(idx, "node left")
     }
 }
@@ -1230,7 +1230,7 @@ fun viewSet(group: Int, members: List<Int>) {
 
 fun viewMembers(group: Int): List<Int> {
     val left: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
-    for (m in __moduleUse0.viewOf(group)) {
+    for (m in salvo.platform.core.list.each(__moduleUse0.viewOf(group))) {
         addPlatform(left, m)
     }
     val out: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()

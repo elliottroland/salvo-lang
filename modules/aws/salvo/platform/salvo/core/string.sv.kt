@@ -10,6 +10,9 @@ package salvo.platform.core.string
 typealias Str = String
 typealias MutStr = StringBuilder
 
+// [platform-iterable] The host's loop over a string, or a `Mut Str`: its characters.
+fun each(str: CharSequence): Iterable<Char> = str.asIterable()
+
 // [platform-value-type] The copy generated code makes of a `Mut Str`.
 fun copy(str: MutStr): MutStr = StringBuilder(str)
 

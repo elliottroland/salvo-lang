@@ -111,15 +111,10 @@ fun<T> drain(d: kotlin.collections.ArrayDeque<T>, each: (T) -> Unit) {
     endEmptyPlatform(m)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> toStr(d: kotlin.collections.ArrayDeque<T>, toStr: (T) -> String): String {
     val out = mutStr(arrayOf("["))
     var i = 0
-    var __loop1_pass = iter__3(d)
-    while (true) {
-        val __loop1_step = next__3(__loop1_pass)
-        if (__loop1_step !is Union2.U1<*, *>) { break }
-        val x = __loop1_step.value as T
+    for (x in salvo.platform.core.deque.each(d)) {
         if (i > 0) {
             appendPlatform(out, ", ")
         }
@@ -130,14 +125,9 @@ fun<T> toStr(d: kotlin.collections.ArrayDeque<T>, toStr: (T) -> String): String 
     return out.toString()
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> toList(d: kotlin.collections.ArrayDeque<T>, copy: (T) -> T): List<T> {
     val out = mutableListOf<T>()
-    var __loop2_pass = iter__3(d)
-    while (true) {
-        val __loop2_step = next__3(__loop2_pass)
-        if (__loop2_step !is Union2.U1<*, *>) { break }
-        val x = __loop2_step.value as T
+    for (x in salvo.platform.core.deque.each(d)) {
         addPlatform(out, copy(x))
     }
     return out
@@ -145,7 +135,7 @@ fun<T> toList(d: kotlin.collections.ArrayDeque<T>, copy: (T) -> T): List<T> {
 
 fun<T> toDeque(list: List<T>, copy: (T) -> T): kotlin.collections.ArrayDeque<T> {
     val out = emptyDequePlatform<T>()
-    for (x in list) {
+    for (x in salvo.platform.core.list.each(list)) {
         addLastPlatform(out, copy(x))
     }
     return out

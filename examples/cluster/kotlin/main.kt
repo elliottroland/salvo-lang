@@ -294,7 +294,7 @@ class Indexing(private val words: List<String>) : Search {
 
     override fun query(word: String, out: salvo.SalvoReply) {
         var n = 0
-        for (w in words) {
+        for (w in salvo.platform.core.list.each(words)) {
             if (((w) == (word))) {
                 n = n + 1
             }
@@ -588,7 +588,7 @@ class Gathering : Gather {
         addLastPlatform(pending, out)
         left = sizePlatform(members)
         total = 0
-        for (m in members) {
+        for (m in salvo.platform.core.list.each(members)) {
             salvo.SalvoSched.sendWire(m, __Msg_Search.Query(word, run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Gathering.Partial(); __r }), __PROTO_Search, __Codec___Msg_Search)
         }
     }
@@ -778,7 +778,7 @@ class Racing : Race {
 
     override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) {
         addLastPlatform(pending, out)
-        for (m in members) {
+        for (m in salvo.platform.core.list.each(members)) {
             salvo.SalvoSched.sendWire(m, __Msg_Lookup.Lookup(key, run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Racing.First(); __r }), __PROTO_Lookup, __Codec___Msg_Lookup)
         }
     }
@@ -868,7 +868,7 @@ class LastHost(private val nodes: Int, private val me: NodeEndpoint) : Leader {
         }
         var bestHost = me.host
         var best = NodeId(salvo.SalvoSched.hereNode())
-        for (n in peers) {
+        for (n in salvo.platform.core.list.each(peers)) {
             if (salvo.__salvoCompare(n.at.host, bestHost) > 0) {
                 bestHost = n.at.host
                 best = n.id
@@ -889,7 +889,7 @@ fun freshId(sequencer: Sequencer): String {
 
 fun checkout(inventory: Inventory, console: Console, skus: List<String>) {
     val shards: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
-    for (sku in skus) {
+    for (sku in salvo.platform.core.list.each(skus)) {
         val answer = run {
             val (out, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })

@@ -397,7 +397,7 @@ fun<T> next__10(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finish
 fun<T> toStr__2(list: List<T>, toStr: (T) -> String): String {
     val out = mutStr(arrayOf("["))
     var i = 0
-    for (x in list) {
+    for (x in salvo.platform.core.list.each(list)) {
         if (i > 0) {
             appendPlatform(out, ", ")
         }

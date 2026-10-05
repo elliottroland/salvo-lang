@@ -11,6 +11,8 @@ use crate::unions::*;
 /// [platform-type] The host's `List`.
 pub use crate::platform_core_list::List;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<List<i32>>(); };
+const _: fn() = || { fn __each(x: &List<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_list::each(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &List<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_list::each(x) } fn __each_mut(x: &mut List<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_list::each_mut(x) } fn __into_each(x: List<i32>) -> impl Iterator<Item = i32> { crate::platform_core_list::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
 pub fn list_by<T: Clone>(size: i32, init: &mut impl FnMut(i32) -> T) -> Vec<T> {
     return mut_list_by(size, init);
@@ -417,7 +419,7 @@ pub fn next__10<'a, T: Clone>(__p: &mut __Iter_enumerate_rev_List<'a, T>) -> Uni
 pub fn to_str__3<T: Clone>(list: &Vec<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
     let mut out = mut_str(vec!["[".to_string()]);
     let mut i = 0;
-    for mut x in list.clone() {
+    for mut x in crate::platform_core_list::each(list).map(|__x| __x.clone()) {
         if i > 0 {
             crate::core_string::append_platform(&mut out, &(", ".to_string()));
         }

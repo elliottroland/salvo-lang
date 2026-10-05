@@ -14,7 +14,7 @@
 // [platform-value-type] A value platform type (ROADMAP 0.7): the host
 // implements it in `std/platform/core/deque.{rs,kt}` and names the mutable
 // kind `MutDeque`.
-export platform type Deque<T canbe linear> canbe Mut
+export iterable platform type Deque<T canbe linear> canbe Mut : Iter<self, T>
 
 // The host's primitives, from which the constructors below are built.
 platform fn empty_deque<T canbe linear>() [] -> Mut Deque<T>

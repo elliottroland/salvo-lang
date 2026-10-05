@@ -2521,10 +2521,27 @@ impl<'p> Emitter<'p> {
         } else {
             format!("<{}>", t.generics.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", "))
         };
-        format!(
+        let mut out = format!(
             "\n// `platform type {}`: {what} [platform-type].\nclass {}{params} {{\n}}\n",
             t.name.name, t.name.name
-        )
+        );
+        // [platform-iterable] The host's loop: an `Iterable` of the element.
+        if t.iterable {
+            let elem = t
+                .obligations
+                .iter()
+                .find(|o| o.group.name.name == "Iter")
+                .and_then(|o| o.group.args.get(1))
+                .map(|a| self.emit_type(a))
+                .unwrap_or_else(|| "Any".to_string());
+            let fn_params = if params.is_empty() { String::new() } else { format!("{params} ") };
+            out.push_str(&format!(
+                "\n// [platform-iterable] What a `for` over a `{}` loops over.\n\
+                 fun {fn_params}each(x: {}{params}): Iterable<{elem}> = TODO(\"implement each\")\n",
+                t.name.name, t.name.name
+            ));
+        }
+        out
     }
 
     fn platform_fn_body(&mut self, f: &FnDecl, indent: usize) -> String {
@@ -10150,6 +10167,20 @@ impl<'p> Emitter<'p> {
             Some(Ty::Named { name, .. }) => Some(name.clone()),
             _ => None,
         };
+        // [platform-iterable] An `iterable platform type` loops over its
+        // host's `each`, an `Iterable`.
+        if let Some(name) = base.as_deref() {
+            let iterable = self
+                .symbols
+                .intrinsic_types
+                .get(name)
+                .is_some_and(|d| d.platform && d.iterable);
+            if iterable {
+                if let Some(module) = self.platform_type_module(name) {
+                    return format!("{}.each({code})", host_package(&module));
+                }
+            }
+        }
         match base.as_deref() {
             Some("Map") | Some("SortedMap") => format!("{code}.keys"),
             _ => code,

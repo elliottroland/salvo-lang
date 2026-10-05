@@ -180,7 +180,7 @@ fun lines(str: String): salvo.platform.core.list.MutList<String> {
         val _end = removeBack(parts, 1)
     }
     val out = mutableListOf<String>()
-    for (p in parts) {
+    for (p in salvo.platform.core.list.each(parts)) {
         addPlatform(out, trimSuffixPlatform(p, "\r"))
     }
     return out

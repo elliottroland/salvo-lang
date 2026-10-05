@@ -136,7 +136,7 @@ fun withExtension(p: Path, ext: String): Path {
 
 fun segments(p: Path): salvo.platform.core.list.MutList<String> {
     val out = mutableListOf<String>()
-    for (part in splitPlatform(p.text, "/")) {
+    for (part in salvo.platform.core.list.each(splitPlatform(p.text, "/"))) {
         if (!isEmpty__2(part)) {
             addPlatform(out, part)
         }

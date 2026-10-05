@@ -386,10 +386,10 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
         }
     }
     println(console, &(format!("failures: {}", crate::core_list::size_platform(&failures))));
-    for mut kind in failures.clone() {
+    for mut kind in crate::platform_core_list::each(&failures).map(|__x| __x.clone()) {
         println(console, &(format!("  {}", kind_name(&(kind.clone())))));
     }
-    for mut name in vec!["notes.txt".to_string(), "notes-copy.txt".to_string(), "raw.bin".to_string()] {
+    for mut name in crate::platform_core_list::each(&(vec!["notes.txt".to_string(), "notes-copy.txt".to_string(), "raw.bin".to_string()])).map(|__x| __x.clone()) {
         let mut gone = fs.delete(&name);
         if matches!(gone, Union2::U2(_)) {
             println(console, &(format!("delete failed: {}", kind_name(&(detach((match gone { Union2::U2(__v) => __v, _ => unreachable!() })))))));

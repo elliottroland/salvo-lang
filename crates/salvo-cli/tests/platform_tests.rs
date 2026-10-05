@@ -593,6 +593,103 @@ class HostApply : ApplyPlatform {
     __stamp.verified();
 }
 
+/// [platform-iterable] A customer's `iterable platform type`: `salvo platform
+/// generate` writes the `each` stub beside the type, a `for` over a value
+/// loops over the host's `each`, and a generic fn walking it through
+/// `Iter<self, Int>` gets the Salvo pass — the two agreeing on the elements.
+#[test]
+fn an_iterable_platform_type_loops_over_its_hosts_each() {
+    let Some(__stamp) = e2e_stamp("an_iterable_platform_type_loops_over_its_hosts_each", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    const HOST_SV: &str = r#"export iterable platform type Bag : Iter<self, Int>
+export platform fn bag_of(a: Int, b: Int) [] -> Bag
+export platform fn bag_size(b: Bag) [] -> Int => b
+export platform fn bag_at(b: Bag, i: Int) [] -> Int => b
+
+export iter fn iter(b: Bag) -> Emitted Int | Finished {
+    state {
+        at: Int = 0
+    }
+    if at >= bag_size(b) {
+        return finished()
+    }
+    at = at + 1
+    return emitted(bag_at(b, at - 1))
+}
+"#;
+    const MAIN_SV: &str = r#"import host
+
+fn main() [use] {
+    use StdOutConsole()
+    let b = bag_of(3, 4)
+    for x in b {
+        println("each ${x}")
+    }
+    println("pass ${to_list(iter(b))}")
+}
+"#;
+    const HOST_RS: &str = r#"use crate::host::*;
+
+#[derive(Clone)]
+pub struct Bag {
+    items: Vec<i32>,
+}
+
+pub fn bag_of(a: i32, b: i32) -> Bag {
+    Bag { items: vec![a, b] }
+}
+
+pub fn bag_size(b: &Bag) -> i32 {
+    b.items.len() as i32
+}
+
+pub fn bag_at(b: &Bag, i: i32) -> i32 {
+    b.items[i as usize]
+}
+
+pub fn each(x: &Bag) -> impl Iterator<Item = i32> + '_ {
+    x.items.iter().copied()
+}
+"#;
+    const HOST_KT: &str = r#"package salvo.platform.host
+
+import salvo.host.*
+
+class Bag(val items: List<Int>)
+
+fun bagOf(a: Int, b: Int): Bag = Bag(listOf(a, b))
+fun bagSize(b: Bag): Int = b.items.size
+fun bagAt(b: Bag, i: Int): Int = b.items[i]
+
+fun each(x: Bag): Iterable<Int> = x.items
+"#;
+    for (backend, tool, ext, sig, implementation) in [
+        ("kotlin", "kotlinc", "kt", "fun each(x: Bag): Iterable<Int>", HOST_KT),
+        ("rust", "rustc", "rs", "pub fn each(x: &Bag) -> impl Iterator<Item = i32> + '_", HOST_RS),
+    ] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("iterable_{backend}"));
+        project(&dir);
+        fs::write(dir.join("host.sv"), HOST_SV).unwrap();
+        fs::write(dir.join("main.sv"), MAIN_SV).unwrap();
+        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
+        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
+        let path = dir.join("platform").join(format!("host.{ext}"));
+        let skeleton = fs::read_to_string(&path).unwrap();
+        assert!(skeleton.contains(sig), "{backend} skeleton lacks `{sig}`:\n{skeleton}");
+        fs::write(&path, implementation).unwrap();
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "each 3\neach 4\npass [3, 4]\n", "{backend}: {stderr}");
+    }
+    __stamp.verified();
+}
+
 /// [platform-generic] Generic platform types and fns on both backends: the
 /// host stores, moves and hands back an opaque `T` (Rust bounds it `Send +
 /// 'static`, never `Clone`), which is enough to write an erased payload

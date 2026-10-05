@@ -626,7 +626,7 @@ impl crate::__Stateless_Search for Indexing {
 
     fn query(&self, word: String, out: crate::scheduler::SalvoReply) {
         let mut n = 0;
-        for w in &self.words {
+        for w in crate::platform_core_list::each(&self.words) {
             if ((&w[..] == &word[..])) {
                 n = n + 1;
             }
@@ -1084,7 +1084,7 @@ impl crate::__Stateful_Gather for Gathering {
         crate::core_deque::add_last_platform(&mut self.pending, out);
         self.left = crate::core_list::size_platform(&members);
         self.total = 0;
-        for m in &members {
+        for m in crate::platform_core_list::each(&members) {
             crate::scheduler::salvo_send_wire(m.clone(), crate::__Msg_Search::Query(word.clone(), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Gathering::Partial); __r }), crate::__PROTO_Search);
         }
     }
@@ -1382,7 +1382,7 @@ impl crate::__Stateful_Race for Racing {
 
     fn race(&mut self, key: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
         crate::core_deque::add_last_platform(&mut self.pending, out);
-        for m in &members {
+        for m in crate::platform_core_list::each(&members) {
             crate::scheduler::salvo_send_wire(m.clone(), crate::__Msg_Lookup::Lookup(key.clone(), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Racing::First); __r }), crate::__PROTO_Lookup);
         }
     }
@@ -1504,7 +1504,7 @@ impl crate::net::__Stateless_Leader for LastHost {
         };
         let mut best_host = self.me.host.clone();
         let mut best = NodeId { id: crate::scheduler::salvo_here_node() as i64 };
-        for n in &peers {
+        for n in crate::platform_core_list::each(&peers) {
             if ((Ord::cmp(&n.at.host[..], &best_host[..]) as i32) > 0) {
                 best_host = n.at.host.clone();
                 best = n.id.clone();
@@ -1525,7 +1525,7 @@ pub fn fresh_id(sequencer: &crate::Sequencer) -> String {
 
 pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Console, skus: &Vec<String>) {
     let mut shards: Vec<String> = vec![];
-    for sku in skus {
+    for sku in crate::platform_core_list::each(skus) {
         let mut answer = {
             let (mut out, __wid) = crate::scheduler::salvo_waiter();
             crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));

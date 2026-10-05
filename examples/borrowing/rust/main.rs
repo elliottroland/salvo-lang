@@ -70,7 +70,7 @@ impl crate::wire::__Wire for Fighter {
 }
 
 pub fn named<'a>(roster: &'a Vec<Fighter>, name: &String) -> Option<&'a Fighter> {
-    for f in roster {
+    for f in crate::platform_core_list::each(roster) {
         if f.name.clone() == name.clone() {
             return Some(f);
         }
@@ -98,7 +98,7 @@ pub fn heal(f: &mut Fighter) {
 }
 
 pub fn wounded(squad: &mut Vec<Fighter>) -> Option<&Fighter> {
-    for f in &*squad {
+    for f in crate::platform_core_list::each(&*squad) {
         if f.hp < 10 {
             return Some(f);
         }

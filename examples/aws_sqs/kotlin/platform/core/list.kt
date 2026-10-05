@@ -6,6 +6,9 @@ package salvo.platform.core.list
 typealias List<T> = kotlin.collections.List<T>
 typealias MutList<T> = kotlin.collections.MutableList<T>
 
+// [platform-iterable] The host's loop over a list: the list itself.
+fun <T> each(list: List<T>): Iterable<T> = list
+
 fun <T> get(list: List<T>, index: Int): T? = list.getOrNull(index)
 
 fun <T> first(list: List<T>): T? = list.firstOrNull()

@@ -261,6 +261,10 @@ pub struct TypeDecl {
     /// [platform-type] `threadsafe platform type Parker`: the handle may be
     /// used from several threads at once (Rust adds `Sync`).
     pub threadsafe: bool,
+    /// [platform-iterable] `iterable platform type List<T> : Iter<self, T>`:
+    /// a `for` over a value of it is the host's own loop, over the host's
+    /// `each` (and, on Rust, `each_mut`) rather than the Salvo pass.
+    pub iterable: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// [linear-container] Per-parameter `canbe` opt-ins, exactly as a

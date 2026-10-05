@@ -14,12 +14,12 @@ import salvo.core.string.*
 
 fun describeContainer(console: Console, xs: List<Int>) {
     var sum = 0
-    for (n in xs) {
+    for (n in salvo.platform.core.list.each(xs)) {
         sum = sum + n
     }
     println(console, "1. list of ${sizePlatform(xs)} sums to $sum")
     val letters = mutStr(arrayOf())
-    for (c in "salvo") {
+    for (c in salvo.platform.core.string.each("salvo")) {
         appendPlatform(letters, "$c.")
     }
     println(console, "1. string: ${letters.toString()}")

@@ -12,7 +12,7 @@
 // implements it in `std/platform/core/list.{rs,kt}` and names the mutable
 // kind `MutList`. The constructors stay intrinsic for now, since list
 // literals and spreads lower through them.
-export platform type List<T canbe linear> canbe Mut
+export iterable platform type List<T canbe linear> canbe Mut : Iter<self, T>
 
 // Constructors, in two shapes [col-of-nonempty] (user decision 2026-09-23).
 // Writing a *first* element establishes `NonEmpty` **by construction**, so no

@@ -11,6 +11,9 @@ package salvo.platform.core.bytes
 typealias Bytes = salvo.SalvoBytes
 typealias MutBytes = salvo.SalvoBytes
 
+// [platform-iterable] The host's loop over a buffer: its octets.
+fun each(data: Bytes): Iterable<UByte> = Iterable { data.iterator() }
+
 // [platform-value-type] The copy generated code makes where Salvo copies a
 // buffer: a new one, since the buffer can be written.
 fun copy(data: Bytes): MutBytes = salvo.SalvoBytes(data)

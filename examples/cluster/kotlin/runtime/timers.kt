@@ -118,7 +118,7 @@ class Deadlines : DeadlineTable {
 
     override fun nextDeadline(): Long? {
         var earliest: Long? = null
-        for (at in ats) {
+        for (at in salvo.platform.core.list.each(ats)) {
             if ((earliest == null) || at < earliest) {
                 earliest = at
             }
