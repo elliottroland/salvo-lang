@@ -145,8 +145,8 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    `to_str` for floats, which is a small step of its own. The recorded
    runtime-file-name collision shrinks as these go.
 6. **The language the Salvo collections need.**
-   - a. **Fn slots on struct declarations** ([cmp-carry]'s "a slot is
-     declared by a qualifier or an intrinsic type, and nowhere else" changes).
+   - a. ✅ **Fn slots on struct declarations** [struct-slot] (2026-10-05,
+     COMPLETED.md).
    - b. ✅ **`canbe Mut` on a field type** [field-canbe-mut] (2026-10-05,
      COMPLETED.md). Left: Kotlin refuses a `canbe Mut Str` field (a
      `StringBuilder` is not a `String`, so one property cannot hold both
@@ -192,7 +192,36 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      message-building fn and become Salvo.
    - i. **Implicits on stamped fns for generic structs** (§2c, first bullet):
      a prerequisite of `struct Entry<K, V> : … by auto` and of codecs over
-     generic structs.
+     generic structs. **Blocked on a DECISION** (found 2026-10-05): inside a
+     body with an implicit `cmp: (T, T) -> Int`, does `cmp(a.n, b.n)` at
+     `Int` reach the module's `cmp(Int, Int)`? [implicit-param] says the
+     implicit shadows the fns of its name; the checker lets the call resolve
+     to the global (`carry_tests::one_binder_accepts_two_arguments_that_agree`
+     relies on it); both emitters render it through the implicit, so the
+     program fails in rustc/kotlinc. A stamped `cmp` for `struct Wrapper<T>
+     { value: T, n: Int }` needs both. Options: (A) an implicit joins
+     resolution by argument types: the call goes through the implicit when
+     its parameters fit, and to the visible fns otherwise; the checker
+     records which, and emitters qualify a global whose name an implicit
+     shadows in the target (recommended: it is what the checker and that test
+     already do, and two implicits of one name at different types, decided
+     2026-09-28, already need a choice by type). (B) Keep shadowing, and give
+     the stamper another way to reach the field's fn (an alias spelling for
+     implicit parameters, or refusing a mix of generic and concrete fields).
+     (C) Shadowing plus a module selector at the call (`cmp@core.basic(…)`),
+     which a stamper cannot know for an arbitrary field type. The same answer
+     fixes the defect below.
+   - **Defect found with it** (not fixed, waits on the DECISION above): a call
+     through a fn-typed local or implicit checks its arguments against
+     nothing, so `fn g(f: (Str) -> Int) -> Int { return f(1) }` is accepted and
+     rustc/kotlinc refuse the output. A check comparing base shapes is a dozen
+     lines in the local-call arm of `check_call`; it fails the one test above,
+     which is why it waits.
+   - **Also found** (not fixed): `a < b` on a struct whose `cmp` is generic
+     with implicits (`fn cmp<T>(a: Wrapper<T>, b: Wrapper<T>, ?Ordered<T>)`)
+     emits the call without the implicit argument on both backends
+     (`cmp(&a, &b)`), where an explicit `cmp(a, b)` passes it: the operator's
+     resolution does not record `implicit_args`.
 7. **`Set`/`Map` in Salvo, then the sorted pair.** `Map<K, V>(?hash, ?eq)` is
    the slab both runtimes share today: entries in insertion order with
    `None` tombstones, an `IntBuffer` index with open addressing over a

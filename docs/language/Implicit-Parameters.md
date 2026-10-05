@@ -192,6 +192,21 @@ Dropping the claim is safe rather than silently wrong: the operations demand
 it, and a plain value never gets it back by subtyping — you lose access,
 never correctness.
 
+A **struct** can declare slots the same way, when the structure is a type of
+its own rather than a claim on a list:
+
+```
+struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
+    items: canbe Mut List<T>
+}
+
+fn push<T>(r: Mut Ranked<T>(?cmp), x: T) -> None => r: Mut, !x { … }
+```
+
+No `Ranked` value stores the function: the type carries it, a function over the
+struct captures it through `?cmp`, and `Ranked<Int>(backwards)` and
+`Ranked<Int>(cmp)` refuse to mix exactly as two heaps do.
+
 ## Worked example: `std`'s heap
 
 `import heap` brings a binary heap that is **not a container**: it is a claim

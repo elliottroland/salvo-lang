@@ -526,7 +526,12 @@ the blanket rule:
 * [readonly-return] A wholesale projection returns `&T`, `Option<&T>` or
   `Union2<&T, Finished>`. One reference parameter: lifetime elision. More:
   `'a` is generated onto **every** source parameter (`proj(a, b)`)
-  and the return. A returned projection of a `&mut` pass parameter that is
+  and the return. Implicit parameters count: one rendered `&mut dyn FnMut`
+  is a second reference, so `top(r: Ranked<T>(?cmp)) -> (proj(r) T)?`, whose
+  binder is captured from `r`'s type [cmp-binder], names `'a` (2026-10-05;
+  it was E0106, and the retag landed on the captured implicit, because entry
+  positions were measured against `f.params`, which a captured binder is not
+  in). A returned projection of a `&mut` pass parameter that is
   itself a borrowing struct names the *struct's* source lifetime instead
   (`next(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished>`
   [rs-proj-struct]), so the reborrow of `p` is free for the next turn.

@@ -316,6 +316,10 @@ pub struct StructDecl {
     /// instantiation puts a linear type in a field the parameter reaches
     /// (user decision 2026-09-12).
     pub generic_canbe: Vec<(Ident, TypeRef)>,
+    /// [struct-slot] [cmp-carry] The **slot list**, as a type declaration
+    /// has it: `struct Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) -> Bool)`.
+    /// The identity is carried by the struct's *type*; no value stores it.
+    pub fn_slots: Vec<SlotDecl>,
     /// Obligations [group-obligation]: `params` groups this type promises
     /// to satisfy, written `: Group<Args>` after the generics and before
     /// `canbe`. Each member of each named group must have a matching

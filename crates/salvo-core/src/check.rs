@@ -3395,6 +3395,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Struct(s) => {
                     let saved = self.enter_generics(&s.generics);
                     self.in_comptime_decl = s.comptime;
+                    self.check_fn_slots(&s.name.name, &s.fn_slots, &s.generics);
                     self.validate_auto_quals(&s.auto_qualifiers);
                     self.check_obligations(s);
                     self.check_struct_cycle(s);
@@ -16498,16 +16499,15 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// arguments written beside it: `SortedSet<Str>(?cmp)` wants
     /// `(Str, Str) -> Int`.
     fn type_slot_ty(&mut self, name: &str, type_args: &[Ty], index: usize) -> Option<Ty> {
-        let decl = self.symbols.intrinsic_types.get(name).copied()?;
+        let (_, decl_generics) = self.slotted_type(name)?;
         let slots = self.type_fn_slots(name);
         let want = slots.get(index)?.ty.clone();
-        let subst: HashMap<String, Ty> = decl
-            .generics
+        let subst: HashMap<String, Ty> = decl_generics
             .iter()
             .map(|g| g.name.clone())
             .zip(type_args.iter().cloned())
             .collect();
-        let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+        let generics: HashSet<String> = decl_generics.iter().map(|g| g.name.clone()).collect();
         Some(substitute_vars(&want, &subst, &generics))
     }
 
@@ -16646,14 +16646,24 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [cmp-carry] The same for an `intrinsic type`.
     fn type_fn_slots(&mut self, name: &str) -> Vec<FnSlotInfo> {
-        let Some(decl) = self.symbols.intrinsic_types.get(name).copied() else {
+        let Some((slots, generics)) = self.slotted_type(name) else {
             return Vec::new();
         };
-        if decl.fn_slots.is_empty() {
+        if slots.is_empty() {
             return Vec::new();
         }
-        let generics = decl.generics.clone();
-        self.expand_slots(&decl.fn_slots, &generics)
+        let generics = generics.to_vec();
+        self.expand_slots(slots, &generics)
+    }
+
+    /// [cmp-carry] [struct-slot] The slot list and type parameters of a type
+    /// declaration that may have slots: an `intrinsic type` or a struct.
+    fn slotted_type(&self, name: &str) -> Option<(&'p [ast::SlotDecl], &'p [Ident])> {
+        if let Some(decl) = self.symbols.intrinsic_types.get(name).copied() {
+            return Some((&decl.fn_slots, &decl.generics));
+        }
+        let decl: &'p StructDecl = self.symbols.structs.get(name).copied()?;
+        Some((&decl.fn_slots, &decl.generics))
     }
 
     /// [cmp-carry] Expands a declaration's slot list under its own type
@@ -17122,7 +17132,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let arity = written_in
                     .opaque_types
                     .get(name)
-                    .map_or(0, |d| d.generics.len());
+                    .map(|d| d.generics.len())
+                    .or_else(|| written_in.structs.get(name).map(|d| d.generics.len()))
+                    .unwrap_or(0);
                 self.lower_identity_args(&base.args, &base.value_args, Some(arity), &slots, subst, depth)
             }
         };

@@ -912,6 +912,7 @@ Module {
                 },
                 generics: [],
                 generic_canbe: [],
+                fn_slots: [],
                 obligations: [
                     Obligation {
                         by: None,
@@ -3506,6 +3507,7 @@ Module {
                 },
                 generics: [],
                 generic_canbe: [],
+                fn_slots: [],
                 obligations: [],
                 auto_qualifiers: [],
                 fields: [

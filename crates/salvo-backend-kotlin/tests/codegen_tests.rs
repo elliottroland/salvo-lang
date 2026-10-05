@@ -4546,6 +4546,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_copy,
     kotlinc_compiles_and_runs_copy_elements,
     kotlinc_compiles_and_runs_canbe_mut_field,
+    kotlinc_compiles_and_runs_struct_slot,
     kotlinc_compiles_and_runs_literal_identity,
     kotlinc_compiles_and_runs_int_wrap_and_bits,
     kotlinc_compiles_and_runs_move_modes,
@@ -5762,6 +5763,60 @@ fn kotlinc_compiles_and_runs_canbe_mut_field() -> KotlinCase {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "canbe_mut_field", CANBE_MUT_FIELD_EXPECTED)
+}
+
+/// [struct-slot] [cmp-carry] [cmp-binder] A struct with a fn slot: the
+/// ordering lives in the type, every fn over it captures the binder, and
+/// nothing is stored. Shared with the Rust backend's run.
+pub const STRUCT_SLOT_DEMO: &str = r#"
+struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
+    items: canbe Mut List<T>
+}
+
+fn ranked<T>(?cmp: (T, T) -> Int) [] -> Mut Ranked<T>(?cmp) {
+    return Mut Ranked<T>(?cmp) { items: mut_list_of<T>() }
+}
+
+fn push<T>(r: Mut Ranked<T>(?cmp), x: T) [] -> None => r: Mut, !x {
+    let i = 0
+    while i < size(r.items) {
+        let y = get(r.items, i)!
+        if x < y {
+            break
+        }
+        i = i + 1
+    }
+    insert_at(r.items, i, x)
+}
+
+fn top<T>(r: Ranked<T>(?cmp)) [] -> (proj(r) T)? => r {
+    return get(r.items, 0)
+}
+
+fn backwards(a: Int, b: Int) [] -> Int {
+    return cmp(b, a)
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let up = ranked<Int>()
+    push(up, 3)
+    push(up, 1)
+    push(up, 2)
+    let down = ranked<Int>(cmp = backwards)
+    push(down, 3)
+    push(down, 1)
+    push(down, 2)
+    println("${up.items} ${down.items} ${top(up)!} ${top(down)!}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_struct_slot() -> KotlinCase {
+    let program = build_program(&[("main.sv", STRUCT_SLOT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "struct_slot", "[1, 2, 3] [3, 2, 1] 1 3\n")
 }
 
 /// [kt-field-canbe-mut] A `canbe Mut Str` field would hold a `String` or a

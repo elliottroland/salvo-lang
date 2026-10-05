@@ -141,6 +141,22 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, step 6a: fn slots on structs (2026-10-05, ROADMAP
+§0j).** [struct-slot]: `struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut { … }`,
+parsed as a type declaration's slot list (generics or a `(…)` block). The
+checker reads a struct's slots wherever it read an intrinsic type's (one
+`slotted_type`), so identities in the type, binder capture, literal adoption
+and the mismatch error all came free; the type renderers already dropped
+identities. Fell out on Rust: a captured binder is a trailing `&mut dyn
+FnMut` that `f.params` does not list, so a `proj(r)` return over it was
+E0106 (elision counted one reference) and the `'a` retag measured entry
+positions against `f.params` and tagged the implicit; positions are now
+leading extras plus the written index, and implicit references count
+[readonly-return]. Found and recorded for 6i: whether an implicit shadows
+the fns of its name (ROADMAP §0j 6i, a DECISION), with two defects that wait
+on it. Tests: the identity and mismatch in `carry_tests`, one program e2e on
+both backends. **1708 tests.**
+
 **Shrinking the backends, steps 6b and 6e: `canbe Mut` fields and deep
 copies on Kotlin (2026-10-05, ROADMAP §0j).**
 - **`name: canbe Mut T`** [field-canbe-mut]: the field is `Mut T` exactly when
@@ -21711,7 +21727,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1706; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1708; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

@@ -1226,8 +1226,8 @@ impl<'s> Parser<'s> {
             let (name, span) = slot_name_span(slot);
             self.error(
                 format!(
-                    "`?{name}` declares a function slot, which only a qualifier or an \
-                     `intrinsic type` may have [cmp-carry]"
+                    "`?{name}` declares a function slot, which only a qualifier, a \
+                     struct or an `intrinsic type` may have [cmp-carry]"
                 ),
                 span,
             );
@@ -1450,7 +1450,19 @@ impl<'s> Parser<'s> {
         // [linear-generics] Structs take per-parameter `canbe` opt-ins too
         // (user decision 2026-09-12): `struct Box<T canbe linear>` is the
         // conditional-container declaration.
-        let (generics, generic_canbe) = self.parse_generics_canbe();
+        // [struct-slot] And fn slots, as a type declaration has them
+        // [cmp-carry]: `struct Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) ->
+        // Bool)`.
+        let (generics, generic_canbe, mut fn_slots) = self.parse_generics_slots();
+        let (block_slots, value_slots) = self.parse_slot_block();
+        fn_slots.extend(block_slots);
+        for v in &value_slots {
+            self.error(
+                "a value slot belongs to a qualifier, not a type: only a \
+                 claim can depend on another value",
+                v.span,
+            );
+        }
         // `: Yield<self, Str>` — obligation groups this type satisfies
         // [group-obligation]. Before `canbe`, because `:` states what the
         // type must *provide* while `canbe` states what it may be qualified
@@ -1526,6 +1538,7 @@ impl<'s> Parser<'s> {
             fns,
             generics,
             generic_canbe,
+            fn_slots,
             obligations,
             auto_qualifiers,
             fields,

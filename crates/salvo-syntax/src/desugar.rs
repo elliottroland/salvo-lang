@@ -662,6 +662,7 @@ fn expand(
         exported: f.exported,
         name: pass_name.clone(),
         generic_canbe: Vec::new(),
+        fn_slots: Vec::new(),
         generics: f.generics.clone(),
         obligations: vec![Obligation {
             by: None,

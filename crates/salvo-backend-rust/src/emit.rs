@@ -6232,6 +6232,32 @@ impl<'p> Emitter<'p> {
             }
         }
 
+        // [readonly-return] Where a written parameter's entry sits: after the
+        // leading extras (self, effects), before the trailing implicits — a
+        // binder *captured* from a slot [cmp-binder] is an implicit no
+        // written parameter stands for, so `f.params` cannot be the measure.
+        // And an implicit rendered as a reference counts against lifetime
+        // elision like any other reference parameter.
+        let fixed_count = f.params.iter().filter(|p| !p.implicit).count();
+        let leading_extras = params.len().saturating_sub(fixed_count + self.implicits.len());
+        ref_param_count += params[params.len().saturating_sub(self.implicits.len())..]
+            .iter()
+            .filter(|e| e.contains(": &"))
+            .count();
+        let fixed_index: Vec<usize> = {
+            let mut n = 0;
+            f.params
+                .iter()
+                .map(|p| {
+                    let at = n;
+                    if !p.implicit {
+                        n += 1;
+                    }
+                    at
+                })
+                .collect()
+        };
+        let entry_of = |i: usize| leading_extras + fixed_index.get(i).copied().unwrap_or(i);
         // [rs-proj-lends] An implicit's lent position borrows under `'c`, the
         // enclosing fn's own borrow of the parameter the position is named
         // after: that parameter must be kept here (a consumed one has no
@@ -6374,11 +6400,7 @@ impl<'p> Emitter<'p> {
             let lt = if derived_is_borrowing_struct {
                 lifetime_generics = "'s".to_string();
                 if let Some(i) = derived_param_idx {
-                    let idx = if params.len() > f.params.len() {
-                        params.len() - f.params.len() + i
-                    } else {
-                        i
-                    };
+                    let idx = entry_of(i);
                     if let Some(entry) = params.get_mut(idx) {
                         *entry = entry.replacen("<'_", "<'s", 1);
                     }
@@ -6400,12 +6422,7 @@ impl<'p> Emitter<'p> {
                     })
                     .unwrap_or_else(|| derived_param_idx.into_iter().collect());
                 for i in sources {
-                    let idx = if params.len() > f.params.len() {
-                        // Leading self/effect params shift positions.
-                        params.len() - f.params.len() + i
-                    } else {
-                        i
-                    };
+                    let idx = entry_of(i);
                     if let Some(entry) = params.get_mut(idx) {
                         // One retag only: the `&mut` arm's output starts
                         // with `: &`, so a second pass would double the
@@ -6484,11 +6501,7 @@ impl<'p> Emitter<'p> {
                 .and_then(|k| self.checked.fn_lends.get(&k).cloned())
                 .unwrap_or_default();
             let lent_inner_lifetime = lent.iter().any(|&i| {
-                let idx = if params.len() > f.params.len() {
-                    params.len() - f.params.len() + i
-                } else {
-                    i
-                };
+                let idx = entry_of(i);
                 params.get(idx).is_some_and(|e| e.contains("<'_"))
             });
             if rendered.contains("<'_")
@@ -6497,11 +6510,7 @@ impl<'p> Emitter<'p> {
             {
                 lifetime_generics = "'a".to_string();
                 for &i in &lent {
-                    let idx = if params.len() > f.params.len() {
-                        params.len() - f.params.len() + i
-                    } else {
-                        i
-                    };
+                    let idx = entry_of(i);
                     if let Some(entry) = params.get_mut(idx) {
                         *entry = if entry.contains("<'_") {
                             entry.replacen("<'_", "<'a", 1)

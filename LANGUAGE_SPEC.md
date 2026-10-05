@@ -4183,10 +4183,22 @@ Conventions:
     prints, they substitute like type arguments, and no value ever has one as
     its type — an identity that reached a backend's type renderer is an error,
     not output [backend-never-wrong].
-  * **A slot is declared by a qualifier or an `intrinsic type`**, and nowhere
-    else. On a *fn* the binder binds bare in the signature instead (below), so
-    a `?name:` in a fn's generics list is an error naming the two places it
-    belongs: the parameter list, and the types the binder is written in.
+  * **A slot is declared by a qualifier, a type declaration (`intrinsic` or
+    `platform type`) or a struct** [struct-slot], and nowhere else. On a *fn*
+    the binder binds bare in the signature instead (below), so a `?name:` in a
+    fn's generics list is an error naming the two places it belongs: the
+    parameter list, and the types the binder is written in.
+  * [struct-slot] **A struct's slots** (user decision 2026-10-05, ROADMAP §0j
+    step 6a; built 2026-10-05): `struct Ranked<T>(?cmp: (T, T) -> Int) canbe
+    Mut { items: canbe Mut List<T> }`, in the generics or a `(…)` block after
+    them, as a type declaration writes them. The identity is in the type and
+    nowhere else: no value stores it, so the backends render nothing for it
+    (the type renderers drop identities), and every fn over the struct takes
+    it through its binder [cmp-binder], captured from the parameter's type
+    (`fn push<T>(r: Mut Ranked<T>(?cmp), x: T)`). A literal adopts its
+    position's identity like any type (`Mut Ranked<T>(?cmp) { … }`). The
+    checker reads a struct's slot list wherever it reads a type's
+    (`slotted_type`).
   * **Type arguments first, slots after** — one positional reading for a
     qualifier and a keyed type alike (user decision 2026-09-22):
     `Heap<Person>(cmp@Person) Mut List<Person>`, `SortedSet<Str>(my_cmp)`. A

@@ -873,3 +873,44 @@ fn an_empty_literal_argument_still_needs_its_type() {
         "an empty literal determines nothing: {errs:?}"
     );
 }
+
+/// [struct-slot] [cmp-carry] A **struct** declares fn slots as a type
+/// declaration does: the identity is in the type, so two differently ordered
+/// values refuse to mix, and a fn over the struct captures the binder from its
+/// parameter [cmp-binder].
+const RANKED: &str = r#"
+struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
+    items: canbe Mut List<T>
+}
+
+fn ranked<T>(?cmp: (T, T) -> Int) [] -> Mut Ranked<T>(?cmp) {
+    return Mut Ranked<T>(?cmp) { items: mut_list_of<T>() }
+}
+
+fn better<T>(r: Ranked<T>(?cmp), a: T, b: T) [] -> Bool => r, a, b {
+    return cmp(a, b) < 0
+}
+
+fn backwards(a: Int, b: Int) [] -> Int {
+    return cmp(b, a)
+}
+"#;
+
+#[test]
+fn a_struct_slot_carries_its_identity_in_the_type() {
+    let ok = format!(
+        "{RANKED}\nfn use_it() [] -> Bool {{\n    let up = ranked<Int>()\n    \
+         let down = ranked<Int>(cmp = backwards)\n    return better(up, 1, 2) && better(down, 1, 2)\n}}\n"
+    );
+    let errs = errors(&ok);
+    assert!(errs.is_empty(), "{errs:?}");
+    let mixed = format!(
+        "{RANKED}\nfn mix() [] -> None {{\n    let down = ranked<Int>(cmp = backwards)\n    \
+         let up: Ranked<Int>(cmp) = down\n}}\n"
+    );
+    let errs = errors(&mixed);
+    assert!(
+        errs.iter().any(|e| e.contains("expected `Ranked<Int>(cmp)`, found `Mut Ranked<Int>(backwards)`")),
+        "{errs:?}"
+    );
+}

@@ -1130,6 +1130,61 @@ fn main() [use] -> None {
     run_rust_files(&files, "canbe_mut_field", "2 3 0 1 12\n0 1 3\n1 2\n16\n");
 }
 
+/// [struct-slot] [cmp-binder] A struct with a fn slot, run on Rust: a
+/// captured binder is a trailing reference parameter, which counts against
+/// lifetime elision for `top`'s `proj(r)` return [readonly-return].
+#[test]
+fn rustc_compiles_and_runs_struct_slot() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let src = r#"
+struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
+    items: canbe Mut List<T>
+}
+
+fn ranked<T>(?cmp: (T, T) -> Int) [] -> Mut Ranked<T>(?cmp) {
+    return Mut Ranked<T>(?cmp) { items: mut_list_of<T>() }
+}
+
+fn push<T>(r: Mut Ranked<T>(?cmp), x: T) [] -> None => r: Mut, !x {
+    let i = 0
+    while i < size(r.items) {
+        let y = get(r.items, i)!
+        if x < y {
+            break
+        }
+        i = i + 1
+    }
+    insert_at(r.items, i, x)
+}
+
+fn top<T>(r: Ranked<T>(?cmp)) [] -> (proj(r) T)? => r {
+    return get(r.items, 0)
+}
+
+fn backwards(a: Int, b: Int) [] -> Int {
+    return cmp(b, a)
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let up = ranked<Int>()
+    push(up, 3)
+    push(up, 1)
+    push(up, 2)
+    let down = ranked<Int>(cmp = backwards)
+    push(down, 3)
+    push(down, 1)
+    push(down, 2)
+    println("${up.items} ${down.items} ${top(up)!} ${top(down)!}")
+}
+"#;
+    let files = generate(&[("main.sv", src)]);
+    run_rust_files(&files, "struct_slot", "[1, 2, 3] [3, 2, 1] 1 3\n");
+}
+
 /// [cmp-carry] [col-literal] A collection literal takes its identity from the
 /// position, empty or not (ROADMAP §0j step 1).
 #[test]
