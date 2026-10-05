@@ -43,7 +43,7 @@ A test body is an ordinary block with an entry point's powers. It may `use` hand
 test "a missing file reports its path" {
     use MemFs()
     let outcome = try {
-        read_to_str("/nothing")
+        read_to_str(path("/nothing"))
     }
     expect(outcome is Thrown, "reading a missing file fails")
 }

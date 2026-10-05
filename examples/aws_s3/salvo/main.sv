@@ -15,6 +15,7 @@
 import aws
 import aws.s3
 import fs
+import fs.path
 import fs.mem
 import stream
 
@@ -31,7 +32,7 @@ fn describe(e: S3Failure) [] -> Str => e {
 
 // The size of the file at [path], or absent when it cannot be read — which
 // `put_object` then refuses, since a streamed body must say its length.
-fn size_of(path: Str) [Fs] -> Long? => path {
+fn size_of(path: Path) [Fs] -> Long? => path {
     let info = metadata(path)
     when info {
         is Ok { return info.size }
@@ -45,7 +46,7 @@ fn size_of(path: Str) [Fs] -> Long? => path {
 // PutObject from a file. The input holds the stream, so it is linear: it is
 // handed on whole, and the handler closes the body. The host streams the body
 // as it reads it, so the file's size goes with it as `content_length`.
-fn upload(bucket: Str, key: Str, path: Str, length: Long?) [S3, Fs, Console] => bucket, key, path, !length {
+fn upload(bucket: Str, key: Str, path: Path, length: Long?) [S3, Fs, Console] => bucket, key, path, !length {
     let opened = open_read(path)
     if opened is Err {
         println("open ${path}: ${detach(opened)}")
@@ -62,7 +63,7 @@ fn upload(bucket: Str, key: Str, path: Str, length: Long?) [S3, Fs, Console] => 
 
 // GetObject to a file. The output holds the body, so it is linear too: take
 // the stream out, and `pipe` copies it into the file and closes both.
-fn download(bucket: Str, key: Str, path: Str) [S3, Fs, Console] => bucket, key, path {
+fn download(bucket: Str, key: Str, path: Path) [S3, Fs, Console] => bucket, key, path {
     let got = waitfor r: Reply<Ok GetObjectOutput | Err Checked<S3Failure>> {
         get_object(GetObjectInput { bucket: copy(bucket), key: copy(key) }, r)
     }
@@ -92,9 +93,9 @@ fn download(bucket: Str, key: Str, path: Str) [S3, Fs, Console] => bucket, key, 
 
 // Puts a file, gets it back into another, and prints what arrived.
 fn round_trip(key: Str) [S3, Fs, Console] => key {
-    upload("notes", copy(key), "notes.txt", size_of("notes.txt"))
-    download("notes", copy(key), "back.txt")
-    let back = read_to_str("back.txt")
+    upload("notes", copy(key), path("notes.txt"), size_of(path("notes.txt")))
+    download("notes", copy(key), path("back.txt"))
+    let back = read_to_str(path("back.txt"))
     when back {
         is Ok {
             println("back.txt: ${size(back)} bytes")
@@ -146,7 +147,7 @@ handler MemS3() [Streams] of S3 {
 fn main() [use] {
     use StdOutConsole()
     use MemFs()
-    let written = write_str("notes.txt", "hello from Salvo\nsecond line\n")
+    let written = write_str(path("notes.txt"), "hello from Salvo\nsecond line\n")
     if written is Err {
         println("write: ${detach(written)}")
         return None
@@ -160,7 +161,7 @@ fn main() [use] {
         round_trip("greeting.txt")
         // Without its length a streamed body is refused, by the fake as by
         // the host, so a test finds the mistake before production does.
-        upload("notes", "unsized.txt", "notes.txt", None)
+        upload("notes", "unsized.txt", path("notes.txt"), None)
         println("calls: ${calls()}")
     }
 
@@ -170,6 +171,6 @@ fn main() [use] {
         use MemS3()
         round_trip("greeting.txt")
         // A modeled error arrives as `S3Error` with the model's code.
-        download("notes", "missing.txt", "missing.txt")
+        download("notes", "missing.txt", path("missing.txt"))
     }
 }

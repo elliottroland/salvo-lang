@@ -15,6 +15,7 @@ import aws
 import aws.s3
 import aws.s3.host
 import fs
+import fs.path
 import fs.host
 import stream
 import stream.host
@@ -31,7 +32,7 @@ fn describe(e: S3Failure) [] -> Str => e {
 
 // The size of the file at [path], or absent when it cannot be read — which
 // `put_object` then refuses, since a streamed body must say its length.
-fn size_of(path: Str) [Fs] -> Long? => path {
+fn size_of(path: Path) [Fs] -> Long? => path {
     let info = metadata(path)
     when info {
         is Ok { return info.size }
@@ -44,7 +45,7 @@ fn size_of(path: Str) [Fs] -> Long? => path {
 
 // PutObject from a file: the stream `open_read` minted is the body, streamed
 // as it is read, so the file's size goes with it as `content_length`.
-fn upload(bucket: Str, key: Str, path: Str, length: Long?) [S3, Fs, Console] => bucket, key, path, !length {
+fn upload(bucket: Str, key: Str, path: Path, length: Long?) [S3, Fs, Console] => bucket, key, path, !length {
     let opened = open_read(path)
     if opened is Err {
         println("open ${path}: ${detach(opened)}")
@@ -61,7 +62,7 @@ fn upload(bucket: Str, key: Str, path: Str, length: Long?) [S3, Fs, Console] => 
 
 // GetObject to a file: `pipe` copies the response body into the file without
 // blocking a worker, and closes both.
-fn download(bucket: Str, key: Str, path: Str) [S3, Fs, Console] => bucket, key, path {
+fn download(bucket: Str, key: Str, path: Path) [S3, Fs, Console] => bucket, key, path {
     let got = waitfor r: Reply<Ok GetObjectOutput | Err Checked<S3Failure>> {
         get_object(GetObjectInput { bucket: copy(bucket), key: copy(key) }, r)
     }
@@ -100,25 +101,25 @@ fn main() [use] {
         region: Region { code: "eu-west-1" },
         endpoint: "http://localhost:4566"
     })
-    let made = create_dirs("out")
+    let made = create_dirs(path("out"))
     if made is Err {
         println("create out/: ${detach(made)}")
         return None
     }
-    let written = write_str("out/upload.txt", "hello from Salvo\nsecond line\n")
+    let written = write_str(path("out/upload.txt"), "hello from Salvo\nsecond line\n")
     if written is Err {
         println("write: ${detach(written)}")
         return None
     }
-    upload("salvo-demo", "greeting.txt", "out/upload.txt", size_of("out/upload.txt"))
+    upload("salvo-demo", "greeting.txt", path("out/upload.txt"), size_of(path("out/upload.txt")))
     // Without its length a streamed body is refused, and nothing is sent.
-    upload("salvo-demo", "unsized.txt", "out/upload.txt", None)
-    download("salvo-demo", "greeting.txt", "out/download.txt")
-    let back = read_to_str("out/download.txt")
+    upload("salvo-demo", "unsized.txt", path("out/upload.txt"), None)
+    download("salvo-demo", "greeting.txt", path("out/download.txt"))
+    let back = read_to_str(path("out/download.txt"))
     when back {
         is Ok { print("out/download.txt says:\n${back}") }
         is Err { println("read back: ${detach(back)}") }
     }
     // A modeled error arrives as its own arm of `S3Error`.
-    download("salvo-demo", "missing.txt", "out/missing.txt")
+    download("salvo-demo", "missing.txt", path("out/missing.txt"))
 }

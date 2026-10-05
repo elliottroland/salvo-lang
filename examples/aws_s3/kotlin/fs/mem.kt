@@ -38,16 +38,9 @@ import salvo.fs.NotFound
 import salvo.fs.PathEscapes
 import salvo.fs.PermissionDenied
 import salvo.fs.Streaming
-import salvo.fs.createDirs
-import salvo.fs.delete
-import salvo.fs.exists
-import salvo.fs.listDir
-import salvo.fs.metadata
-import salvo.fs.openAppend
-import salvo.fs.openRead
-import salvo.fs.openReadAt
-import salvo.fs.openWrite
-import salvo.fs.renamePath
+import salvo.fs.path.Path
+import salvo.fs.path.path
+import salvo.fs.path.toStr
 import salvo.stream.End
 import salvo.stream.InStream
 import salvo.stream.InvalidUtf8
@@ -91,20 +84,22 @@ class MemFs : Fs, salvo.stream.Streams {
     private var reads: salvo.platform.core.map.MutMap<Long, MemRead> = linkedMapOf<Long, MemRead>().also { __m -> __m.putAll(listOf()) }
     private var writes: salvo.platform.core.map.MutMap<Long, MemWrite> = linkedMapOf<Long, MemWrite>().also { __m -> __m.putAll(listOf()) }
 
-    override fun openRead(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        val content = getPlatform__core_map(files, path)
+    override fun openRead(path: Path): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        val pathText = toStr(path)
+        val content = getPlatform__core_map(files, pathText)
         if (content == null) {
-            return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
+            return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = pathText)))))
         }
         val handle = freshHandle()
-        putPlatform(reads, handle, MemRead(source = path, data = content, at = 0, failed = false))
+        putPlatform(reads, handle, MemRead(source = pathText, data = content, at = 0, failed = false))
         return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
 
-    override fun openReadAt(path: String, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        val content = getPlatform__core_map(files, path)
+    override fun openReadAt(path: Path, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        val pathText = toStr(path)
+        val content = getPlatform__core_map(files, pathText)
         if (content == null) {
-            return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
+            return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = pathText)))))
         }
         var at = (offset).toInt()
         if (at < 0) {
@@ -115,56 +110,61 @@ class MemFs : Fs, salvo.stream.Streams {
             at = end
         }
         val handle = freshHandle()
-        putPlatform(reads, handle, MemRead(source = path, data = content, at = at, failed = false))
+        putPlatform(reads, handle, MemRead(source = pathText, data = content, at = at, failed = false))
         return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
 
-    override fun openWrite(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    override fun openWrite(path: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        val pathText = toStr(path)
         val handle = freshHandle()
         val empty = mutBytes(arrayOf())
-        putPlatform(writes, handle, MemWrite(path = path, buffer = empty))
+        putPlatform(writes, handle, MemWrite(path = pathText, buffer = empty))
         return Union2.U1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
     }
 
-    override fun openAppend(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        val existing = getPlatform__core_map(files, path)
+    override fun openAppend(path: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        val pathText = toStr(path)
+        val existing = getPlatform__core_map(files, pathText)
         val start = mutBytes(arrayOf())
         if (existing == null) {
         } else {
             appendPlatform__core_bytes(start, existing)
         }
         val handle = freshHandle()
-        putPlatform(writes, handle, MemWrite(path = path, buffer = start))
+        putPlatform(writes, handle, MemWrite(path = pathText, buffer = start))
         return Union2.U1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
     }
 
-    override fun exists(path: String): Boolean {
-        if (containsKeyPlatform(files, path)) {
+    override fun exists(path: Path): Boolean {
+        val pathText = toStr(path)
+        if (containsKeyPlatform(files, pathText)) {
             return true
         }
-        return fsHasChildren(files, path)
+        return fsHasChildren(files, pathText)
     }
 
-    override fun metadata(path: String): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        val content = getPlatform__core_map(files, path)
+    override fun metadata(path: Path): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        val pathText = toStr(path)
+        val content = getPlatform__core_map(files, pathText)
         if (content == null) {
-            if (fsHasChildren(files, path)) {
+            if (fsHasChildren(files, pathText)) {
                 return Union2.U1<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(FileInfo(size = 0L, isDir = true)))
             }
-            return Union2.U2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
+            return Union2.U2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = pathText)))))
         }
         return Union2.U1<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(FileInfo(size = (sizePlatform(content)).toLong(), isDir = false)))
     }
 
-    override fun listDir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        if (containsKeyPlatform(files, path)) {
-            return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U4<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotADirectory(path = path)))))
+    override fun listDir(path: Path): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        val pathText = toStr(path)
+        if (containsKeyPlatform(files, pathText)) {
+            return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U4<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotADirectory(path = pathText)))))
         }
-        if (!fsHasChildren(files, path)) {
-            return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
+        if (!fsHasChildren(files, pathText)) {
+            return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = pathText)))))
         }
         val names: salvo.platform.core.set.MutSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
-        val prefix = "$path/"
+        val prefix = "$pathText/"
         for (key in salvo.platform.core.map.each(files)) {
             if (startsWithPlatform(key, prefix)) {
                 val rest = trimPrefixPlatform(key, prefix)
@@ -183,29 +183,33 @@ class MemFs : Fs, salvo.stream.Streams {
         return Union2.U1<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(sorted))
     }
 
-    override fun createDirs(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    override fun createDirs(path: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        val pathText = toStr(path)
         return Union2.U1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
     }
 
-    override fun delete(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        if (containsKeyPlatform(files, path)) {
-            removePlatform(files, path)
+    override fun delete(path: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        val pathText = toStr(path)
+        if (containsKeyPlatform(files, pathText)) {
+            removePlatform(files, pathText)
             return Union2.U1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
         }
-        if (fsHasChildren(files, path)) {
-            return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(IoError(path = path, message = "directory not empty")))))
+        if (fsHasChildren(files, pathText)) {
+            return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(IoError(path = pathText, message = "directory not empty")))))
         }
-        return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
+        return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = pathText)))))
     }
 
-    override fun renamePath(from: String, to: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        val content = getPlatform__core_map(files, from)
+    override fun renamePath(from: Path, to: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        val fromText = toStr(from)
+        val toText = toStr(to)
+        val content = getPlatform__core_map(files, fromText)
         if (content == null) {
-            return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = from)))))
+            return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = fromText)))))
         }
         val bytes: salvo.platform.core.bytes.Bytes = content
-        removePlatform(files, from)
-        putPlatform(files, to, bytes)
+        removePlatform(files, fromText)
+        putPlatform(files, toText, bytes)
         return Union2.U1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
     }
 
@@ -344,7 +348,7 @@ fun memFindNewline(data: salvo.platform.core.bytes.Bytes, from: Int): Int {
     val end = sizePlatform(data)
     var i = from
     while (i < end) {
-        if (((getPlatform__core_bytes(data, i) ?: throw AssertionError("salvo: value is absent at fs.mem:311:19"))).toInt() == 10) {
+        if (((getPlatform__core_bytes(data, i) ?: throw AssertionError("salvo: value is absent at fs.mem:323:19"))).toInt() == 10) {
             return i
         }
         i = i + 1
@@ -364,7 +368,7 @@ fun memAppend(writes: salvo.platform.core.map.MutMap<Long, MemWrite>, handle: Lo
 fun memReadState(reads: Map<Long, MemRead>, handle: Long): MemRead {
     val open = getPlatform__core_map(reads, handle)
     if (open == null) {
-        throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:338:9"))
+        throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:350:9"))
     }
     return MemRead(source = open.source, data = open.data, at = open.at, failed = open.failed)
 }
@@ -372,7 +376,7 @@ fun memReadState(reads: Map<Long, MemRead>, handle: Long): MemRead {
 fun memWriteState(writes: Map<Long, MemWrite>, handle: Long): MemWrite {
     val open = getPlatform__core_map(writes, handle)
     if (open == null) {
-        throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:346:9"))
+        throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:358:9"))
     }
     return MemWrite(path = open.path, buffer = open.buffer)
 }
@@ -389,7 +393,7 @@ fun memReadLine(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lo
         return null
     }
     val stop = memFindNewline(bytes, at)
-    val line = (slicePlatform(bytes, at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:370:16"))
+    val line = (slicePlatform(bytes, at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:382:16"))
     var nextAt = stop
     if (stop < end) {
         nextAt = stop + 1
@@ -411,7 +415,7 @@ fun memReadAll(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lon
     }
     val bytes: salvo.platform.core.bytes.Bytes = open.data
     val end = sizePlatform(bytes)
-    val rest = (slicePlatform(bytes, open.at, end) ?: throw AssertionError("salvo: value is absent at fs.mem:394:16"))
+    val rest = (slicePlatform(bytes, open.at, end) ?: throw AssertionError("salvo: value is absent at fs.mem:406:16"))
     val text = strOfBytesPlatform(rest)
     if (text == null) {
         putPlatform(reads, handle, MemRead(source = source, data = bytes, at = end, failed = true))
@@ -436,7 +440,7 @@ fun memReadBytes(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: L
     if (stop > end) {
         stop = end
     }
-    val taken = (slicePlatform(bytes, open.at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:420:17"))
+    val taken = (slicePlatform(bytes, open.at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:432:17"))
     putPlatform(reads, handle, MemRead(source = source, data = bytes, at = stop, failed = false))
     return Union2.U1<salvo.platform.core.bytes.Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(taken))
 }

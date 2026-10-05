@@ -22,16 +22,9 @@ use crate::fs::PermissionDenied;
 use crate::fs::Streaming;
 use crate::fs::__Stateful_Fs as _;
 use crate::fs::__Stateless_Fs as _;
-use crate::fs::create_dirs;
-use crate::fs::delete;
-use crate::fs::exists;
-use crate::fs::list_dir;
-use crate::fs::metadata;
-use crate::fs::open_append;
-use crate::fs::open_read;
-use crate::fs::open_read_at;
-use crate::fs::open_write;
-use crate::fs::rename_path;
+use crate::fs_path::Path;
+use crate::fs_path::path;
+use crate::fs_path::to_str;
 use crate::stream::End;
 use crate::stream::InStream;
 use crate::stream::InvalidUtf8;
@@ -104,20 +97,22 @@ impl MemFs {
 
 impl crate::fs::__Stateful_Fs for MemFs {
 
-    fn open_read(&mut self, path: &String) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut content = crate::core_map::get_platform(&self.files, path);
+    fn open_read(&mut self, path: &Path) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut content = crate::core_map::get_platform(&self.files, &path_text);
         if content.is_none() {
-            return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path.clone() }))));
+            return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path_text.clone() }))));
         }
         let mut handle = fresh_handle();
-        crate::core_map::put_platform(&mut self.reads, handle.clone(), MemRead { source: path.clone(), data: content.unwrap().clone(), at: 0, failed: false });
+        crate::core_map::put_platform(&mut self.reads, handle.clone(), MemRead { source: path_text.clone(), data: content.unwrap().clone(), at: 0, failed: false });
         return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(InStream { handle: handle.clone() }));
     }
 
-    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut content = crate::core_map::get_platform(&self.files, path);
+    fn open_read_at(&mut self, path: &Path, offset: i64) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut content = crate::core_map::get_platform(&self.files, &path_text);
         if content.is_none() {
-            return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path.clone() }))));
+            return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path_text.clone() }))));
         }
         let mut at = ((offset) as i32);
         if at < 0 {
@@ -128,56 +123,61 @@ impl crate::fs::__Stateful_Fs for MemFs {
             at = end;
         }
         let mut handle = fresh_handle();
-        crate::core_map::put_platform(&mut self.reads, handle.clone(), MemRead { source: path.clone(), data: content.unwrap().clone(), at: at, failed: false });
+        crate::core_map::put_platform(&mut self.reads, handle.clone(), MemRead { source: path_text.clone(), data: content.unwrap().clone(), at: at, failed: false });
         return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(InStream { handle: handle.clone() }));
     }
 
-    fn open_write(&mut self, path: &String) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    fn open_write(&mut self, path: &Path) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
         let mut handle = fresh_handle();
         let mut empty = mut_bytes(vec![]);
-        crate::core_map::put_platform(&mut self.writes, handle.clone(), MemWrite { path: path.clone(), buffer: empty });
+        crate::core_map::put_platform(&mut self.writes, handle.clone(), MemWrite { path: path_text.clone(), buffer: empty });
         return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(OutStream { handle: handle.clone() }));
     }
 
-    fn open_append(&mut self, path: &String) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut existing = crate::core_map::get_platform(&self.files, path);
+    fn open_append(&mut self, path: &Path) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut existing = crate::core_map::get_platform(&self.files, &path_text);
         let mut start = mut_bytes(vec![]);
         if existing.is_none() {
         } else {
             crate::core_bytes::append_platform(&mut start, existing.unwrap());
         }
         let mut handle = fresh_handle();
-        crate::core_map::put_platform(&mut self.writes, handle.clone(), MemWrite { path: path.clone(), buffer: start });
+        crate::core_map::put_platform(&mut self.writes, handle.clone(), MemWrite { path: path_text.clone(), buffer: start });
         return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(OutStream { handle: handle.clone() }));
     }
 
-    fn exists(&mut self, path: &String) -> bool {
-        if crate::core_map::contains_key_platform(&self.files, path) {
+    fn exists(&mut self, path: &Path) -> bool {
+        let mut path_text = to_str(path);
+        if crate::core_map::contains_key_platform(&self.files, &path_text) {
             return true;
         }
-        return fs_has_children(&self.files, path);
+        return fs_has_children(&self.files, &path_text);
     }
 
-    fn metadata(&mut self, path: &String) -> Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut content = crate::core_map::get_platform(&self.files, path);
+    fn metadata(&mut self, path: &Path) -> Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut content = crate::core_map::get_platform(&self.files, &path_text);
         if content.is_none() {
-            if fs_has_children(&self.files, path) {
+            if fs_has_children(&self.files, &path_text) {
                 return Union2::<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(FileInfo { size: 0i64, is_dir: true }));
             }
-            return Union2::<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path.clone() }))));
+            return Union2::<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path_text.clone() }))));
         }
         return Union2::<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(FileInfo { size: ((crate::core_bytes::size_platform(content.unwrap())) as i64), is_dir: false }));
     }
 
-    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        if crate::core_map::contains_key_platform(&self.files, path) {
-            return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U4(NotADirectory { path: path.clone() }))));
+    fn list_dir(&mut self, path: &Path) -> Union2<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        if crate::core_map::contains_key_platform(&self.files, &path_text) {
+            return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U4(NotADirectory { path: path_text.clone() }))));
         }
-        if !fs_has_children(&self.files, path) {
-            return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path.clone() }))));
+        if !fs_has_children(&self.files, &path_text) {
+            return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path_text.clone() }))));
         }
         let mut names: SalvoSet<String> = SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]);
-        let mut prefix = format!("{}/", path.clone());
+        let mut prefix = format!("{}/", path_text);
         for key in crate::platform_core_map::each(&self.files) {
             if crate::core_string::starts_with_platform(key, &prefix) {
                 let mut rest = crate::core_string::trim_prefix_platform(key, &prefix);
@@ -196,29 +196,33 @@ impl crate::fs::__Stateful_Fs for MemFs {
         return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(sorted));
     }
 
-    fn create_dirs(&mut self, path: &String) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    fn create_dirs(&mut self, path: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
         return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(()));
     }
 
-    fn delete(&mut self, path: &String) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        if crate::core_map::contains_key_platform(&self.files, path) {
-            crate::core_map::remove_platform(&mut self.files, path);
+    fn delete(&mut self, path: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        if crate::core_map::contains_key_platform(&self.files, &path_text) {
+            crate::core_map::remove_platform(&mut self.files, &path_text);
             return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(()));
         }
-        if fs_has_children(&self.files, path) {
-            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U6(IoError { path: path.clone(), message: "directory not empty".to_string() }))));
+        if fs_has_children(&self.files, &path_text) {
+            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U6(IoError { path: path_text.clone(), message: "directory not empty".to_string() }))));
         }
-        return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path.clone() }))));
+        return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path_text.clone() }))));
     }
 
-    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut content = crate::core_map::get_platform(&self.files, from);
+    fn rename_path(&mut self, from: &Path, to: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut from_text = to_str(from);
+        let mut to_text = to_str(to);
+        let mut content = crate::core_map::get_platform(&self.files, &from_text);
         if content.is_none() {
-            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: from.clone() }))));
+            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: from_text.clone() }))));
         }
         let mut bytes: Bytes = content.unwrap().clone();
-        crate::core_map::remove_platform(&mut self.files, from);
-        crate::core_map::put_platform(&mut self.files, to.clone(), bytes);
+        crate::core_map::remove_platform(&mut self.files, &from_text);
+        crate::core_map::put_platform(&mut self.files, to_text.clone(), bytes);
         return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(()));
     }
 }
@@ -357,7 +361,7 @@ pub fn mem_find_newline(data: &Bytes, from: i32) -> i32 {
     let mut end = crate::core_bytes::size_platform(data);
     let mut i = from;
     while i < end {
-        if (((crate::core_bytes::get_platform(data, i).expect("salvo: value is absent at fs.mem:311:19")) as i32) == 10) {
+        if (((crate::core_bytes::get_platform(data, i).expect("salvo: value is absent at fs.mem:323:19")) as i32) == 10) {
             return i;
         }
         i = i + 1;
@@ -377,7 +381,7 @@ pub fn mem_append(writes: &mut SalvoMap<i64, MemWrite>, handle: i64, data: &Byte
 pub fn mem_read_state(reads: &SalvoMap<i64, MemRead>, handle: i64) -> MemRead {
     let mut open = crate::core_map::get_platform(reads, &handle);
     if open.is_none() {
-        panic!("salvo: {} at fs.mem:338:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
+        panic!("salvo: {} at fs.mem:350:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
     }
     return MemRead { source: open.unwrap().clone().source.clone(), data: open.unwrap().clone().data.clone(), at: open.unwrap().clone().at, failed: open.unwrap().clone().failed };
 }
@@ -385,7 +389,7 @@ pub fn mem_read_state(reads: &SalvoMap<i64, MemRead>, handle: i64) -> MemRead {
 pub fn mem_write_state(writes: &SalvoMap<i64, MemWrite>, handle: i64) -> MemWrite {
     let mut open = crate::core_map::get_platform(writes, &handle);
     if open.is_none() {
-        panic!("salvo: {} at fs.mem:346:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
+        panic!("salvo: {} at fs.mem:358:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
     }
     return MemWrite { path: open.unwrap().clone().path.clone(), buffer: open.unwrap().clone().buffer.clone() };
 }
@@ -402,7 +406,7 @@ pub fn mem_read_line(reads: &mut SalvoMap<i64, MemRead>, handle: i64) -> Option<
         return None;
     }
     let mut stop = mem_find_newline(&bytes, *at);
-    let mut line = crate::core_bytes::slice_platform(&bytes, *at, stop).expect("salvo: value is absent at fs.mem:370:16");
+    let mut line = crate::core_bytes::slice_platform(&bytes, *at, stop).expect("salvo: value is absent at fs.mem:382:16");
     let mut next_at = stop;
     if stop < end {
         next_at = stop + 1;
@@ -424,7 +428,7 @@ pub fn mem_read_all(reads: &mut SalvoMap<i64, MemRead>, handle: i64) -> Union2<S
     }
     let mut bytes: Bytes = open.data.clone();
     let mut end = crate::core_bytes::size_platform(&bytes);
-    let mut rest = crate::core_bytes::slice_platform(&bytes, open.at, end).expect("salvo: value is absent at fs.mem:394:16");
+    let mut rest = crate::core_bytes::slice_platform(&bytes, open.at, end).expect("salvo: value is absent at fs.mem:406:16");
     let mut text = crate::core_bytes::str_of_bytes_platform(&rest);
     if text.is_none() {
         crate::core_map::put_platform(reads, handle.clone(), MemRead { source: source.clone(), data: bytes, at: end, failed: true });
@@ -449,7 +453,7 @@ pub fn mem_read_bytes(reads: &mut SalvoMap<i64, MemRead>, handle: i64, max: i32)
     if stop > end {
         stop = end;
     }
-    let mut taken = crate::core_bytes::slice_platform(&bytes, open.at, stop).expect("salvo: value is absent at fs.mem:420:17");
+    let mut taken = crate::core_bytes::slice_platform(&bytes, open.at, stop).expect("salvo: value is absent at fs.mem:432:17");
     crate::core_map::put_platform(reads, handle.clone(), MemRead { source: source.clone(), data: bytes, at: stop, failed: false });
     return Union2::<Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(taken));
 }

@@ -875,9 +875,11 @@ Conventions:
   trailing `/` is not doubled), `parent` (`None` above the top; `parent(/a)` is
   `/`), `file_name`, `extension` and `stem` (a lone leading dot is not an
   extension), `with_extension`, `segments` (empty ones dropped) and
-  `is_absolute`. Separators are `/` on every backend. Nothing touches a disk;
-  `fs` has a `Path` overload of each operation and one-shot, forwarding the
-  text.
+  `is_absolute`. Separators are `/` on every backend. Nothing touches a disk.
+  **`fs` takes paths only as `Path`s** (user decision 2026-10-05): the `Fs`
+  members, the one-shots, `MemFs`, `RestrictedFs(root: Path)`. The host layer
+  below (`RawFs`) and the `FsError` structs keep text: the first is the
+  platform boundary, the second a report.
 * [col-span] `core.string` declares `struct Span { start: Int, end: Int }`
   — a struct, not a tuple, because a qualifier cannot apply to a tuple
   [qual-union-arm] — and `qualifier SpanOf(str: Str) of Span`
@@ -4277,7 +4279,7 @@ Conventions:
   before the first byte, or `Err Checked<StreamError>` when it ends inside a
   number or value, or the bytes do not decode as the type asked for. The
   codec is an implicit (`?encode: (v: T) -> Bytes`, `?decode: (data: Bytes)
-  -> T?`), filled at the caller's concrete type by `net`'s `encode`/`decode`
+  -> T?`), filled at the caller's concrete type by `codec`'s `encode`/`decode`
   — which the caller imports — since a wire form is the instantiation's and a
   generic body may not name it [noremote]. Both backends lower `encode`/
   `decode` as a value at the type of the position they fill, as they do for
@@ -5901,7 +5903,7 @@ between endpoints and delivers what arrives into the scheduler.
     of the `send fn` members in declaration order, each its parameters.
   * **Decoding is total**: a malformed input — truncated, a tag out of
     range, invalid UTF-8, trailing bytes — answers `None`, never a trap.
-  * The surface is std `net`'s `encode<T>(value: T) -> Bytes` and
+  * The surface is std `codec`'s (`net`'s until 2026-10-05) `encode<T>(value: T) -> Bytes` and
     `decode<T>(data: Bytes) -> T?` (written `decode<Point>(data)`, since
     only the type argument says what to read), both **refused at the call**
     for a type with no wire form, naming what stops it. A generic `T` is
@@ -7545,7 +7547,7 @@ between endpoints and delivers what arrives into the scheduler.
     union-arm alternative for the two-things case. Neither is a customer
     shape; extend if one appears.
   * **The casualty that remains** is the composed linear iterator (a wrapper iterator
-    over `open_lines("a")` stores its source in an unopted field). The
+    over `open_lines(path("a"))` stores its source in an unopted field). The
     fallible-open shape `Ok InStream | Err Checked<FsError>` was the other one and
     shipped with phase 4 [linear-union-arm].
 * [linear-container] **A container is linear exactly when its element type

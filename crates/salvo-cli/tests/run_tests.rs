@@ -907,6 +907,7 @@ fn streams_pipe_without_blocking_on_both_backends() {
 }
 
 const PIPE_PROGRAM: &str = r#"import fs
+import fs.path
 import fs.host
 import fs.mem
 import stream
@@ -921,7 +922,7 @@ fn describe(r: Ok Long | Err Checked<StreamError>) [] -> Str => !r {
 
 // GetObject-to-a-file's shape: a stream from somewhere, into a file, without
 // blocking a worker.
-fn copy_in(body: InStream, path: Str) [Fs] -> Str => !body, path {
+fn copy_in(body: InStream, path: Path) [Fs] -> Str => !body, path {
     let out = open_write(path)
     when out {
         is Ok {
@@ -940,26 +941,26 @@ fn copy_in(body: InStream, path: Str) [Fs] -> Str => !body, path {
 
 fn run() [Fs, Console] {
     let body = from_bytes(to_bytes("hello, streams\nsecond line\n"))
-    println(copy_in(body, "piped.txt"))
-    let back = read_lines("piped.txt")
+    println(copy_in(body, path("piped.txt")))
+    let back = read_lines(path("piped.txt"))
     when back {
         is Ok { println("lines: ${back}") }
         is Err { println("read: ${detach(back)}") }
     }
     // A file is a body too: PutObject-from-a-file's shape.
-    let file = open_read("piped.txt")
+    let file = open_read(path("piped.txt"))
     when file {
-        is Ok { println(copy_in(file, "piped2.txt")) }
+        is Ok { println(copy_in(file, path("piped2.txt"))) }
         is Err { println("reopen: ${detach(file)}") }
     }
-    let n = read_to_str("piped2.txt")
+    let n = read_to_str(path("piped2.txt"))
     when n {
         is Ok { println("copy of the copy: ${byte_size(n)} bytes") }
         is Err { println("read2: ${detach(n)}") }
     }
-    let a = delete("piped.txt")
+    let a = delete(path("piped.txt"))
     if a is Err { ignore(a) }
-    let b = delete("piped2.txt")
+    let b = delete(path("piped2.txt"))
     if b is Err { ignore(b) }
 }
 
@@ -1315,7 +1316,8 @@ fn type_names_clash_across_modules_on_both_backends() {
     let Some(__stamp) = e2e_stamp("type_names_clash", &["rustc", "kotlinc"]) else { return };
     let dir = work_dir("type_clash");
     fs::create_dir_all(dir.join("lib")).unwrap();
-    fs::write(dir.join("lib/a.sv"), r#"// A `Token` with a wire form and auto equality, and an effect named like
+    fs::write(dir.join("lib/a.sv"), r#"import codec
+// A `Token` with a wire form and auto equality, and an effect named like
 // std's `time.Clock`.
 import net
 

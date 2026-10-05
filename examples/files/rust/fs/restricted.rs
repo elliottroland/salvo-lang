@@ -12,16 +12,9 @@ use crate::fs::PermissionDenied;
 use crate::fs::Streaming;
 use crate::fs::__Stateful_Fs as _;
 use crate::fs::__Stateless_Fs as _;
-use crate::fs::create_dirs;
-use crate::fs::delete;
-use crate::fs::exists;
-use crate::fs::list_dir;
-use crate::fs::metadata;
-use crate::fs::open_append;
-use crate::fs::open_read;
-use crate::fs::open_read_at;
-use crate::fs::open_write;
-use crate::fs::rename_path;
+use crate::fs_path::Path;
+use crate::fs_path::path;
+use crate::fs_path::to_str;
 use crate::stream::InStream;
 use crate::stream::OutStream;
 use crate::stream::__Stateful_Streams as _;
@@ -57,7 +50,7 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
     let mut parts: Vec<String> = vec![];
     let mut j = crate::core_list::size_platform(&kept) - 1;
     while j >= 0 {
-        crate::core_list::add_platform(&mut parts, crate::core_list::get_platform(&kept, j).expect("salvo: value is absent at fs.restricted:58:24").clone());
+        crate::core_list::add_platform(&mut parts, crate::core_list::get_platform(&kept, j).expect("salvo: value is absent at fs.restricted:59:24").clone());
         j = j - 1;
     }
     let mut rel = crate::core_string::join_platform(&parts, &("/".to_string()));
@@ -73,13 +66,13 @@ pub fn fs_escaped(path: &String) -> Checked<Union7<NotFound, PermissionDenied, A
 
 #[derive(Clone)]
 pub struct RestrictedFs {
-    root: String,
+    root: Path,
     __dep_Fs: crate::fs::Fs,
     __dep_Streams: crate::stream::Streams,
 }
 
 impl RestrictedFs {
-    pub fn new(root: String, __dep_Fs: crate::fs::Fs, __dep_Streams: crate::stream::Streams) -> Self {
+    pub fn new(root: Path, __dep_Fs: crate::fs::Fs, __dep_Streams: crate::stream::Streams) -> Self {
         Self {
             root,
             __dep_Fs,
@@ -90,87 +83,98 @@ impl RestrictedFs {
 
 impl crate::fs::__Stateless_Fs for RestrictedFs {
 
-    fn open_read(&self, path: &String) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut real = fs_resolve(&self.root, path);
+    fn open_read(&self, path: &Path) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut real = fs_resolve(&(to_str(&self.root)), &path_text);
         if real.is_none() {
-            return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(path)));
+            return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(&path_text)));
         }
-        return self.__dep_Fs.open_read(real.as_ref().unwrap());
+        return self.__dep_Fs.open_read(&(Path { text: real.as_ref().unwrap().clone() }));
     }
 
-    fn open_read_at(&self, path: &String, offset: i64) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut real = fs_resolve(&self.root, path);
+    fn open_read_at(&self, path: &Path, offset: i64) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut real = fs_resolve(&(to_str(&self.root)), &path_text);
         if real.is_none() {
-            return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(path)));
+            return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(&path_text)));
         }
-        return self.__dep_Fs.open_read_at(real.as_ref().unwrap(), offset);
+        return self.__dep_Fs.open_read_at(&(Path { text: real.as_ref().unwrap().clone() }), offset);
     }
 
-    fn open_write(&self, path: &String) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut real = fs_resolve(&self.root, path);
+    fn open_write(&self, path: &Path) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut real = fs_resolve(&(to_str(&self.root)), &path_text);
         if real.is_none() {
-            return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(path)));
+            return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(&path_text)));
         }
-        return self.__dep_Fs.open_write(real.as_ref().unwrap());
+        return self.__dep_Fs.open_write(&(Path { text: real.as_ref().unwrap().clone() }));
     }
 
-    fn open_append(&self, path: &String) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut real = fs_resolve(&self.root, path);
+    fn open_append(&self, path: &Path) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut real = fs_resolve(&(to_str(&self.root)), &path_text);
         if real.is_none() {
-            return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(path)));
+            return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(&path_text)));
         }
-        return self.__dep_Fs.open_append(real.as_ref().unwrap());
+        return self.__dep_Fs.open_append(&(Path { text: real.as_ref().unwrap().clone() }));
     }
 
-    fn exists(&self, path: &String) -> bool {
-        let mut real = fs_resolve(&self.root, path);
+    fn exists(&self, path: &Path) -> bool {
+        let mut path_text = to_str(path);
+        let mut real = fs_resolve(&(to_str(&self.root)), &path_text);
         if real.is_none() {
             return false;
         }
-        return self.__dep_Fs.exists(real.as_ref().unwrap());
+        return self.__dep_Fs.exists(&(Path { text: real.as_ref().unwrap().clone() }));
     }
 
-    fn metadata(&self, path: &String) -> Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut real = fs_resolve(&self.root, path);
+    fn metadata(&self, path: &Path) -> Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut real = fs_resolve(&(to_str(&self.root)), &path_text);
         if real.is_none() {
-            return Union2::<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(path)));
+            return Union2::<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(&path_text)));
         }
-        return self.__dep_Fs.metadata(real.as_ref().unwrap());
+        return self.__dep_Fs.metadata(&(Path { text: real.as_ref().unwrap().clone() }));
     }
 
-    fn list_dir(&self, path: &String) -> Union2<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut real = fs_resolve(&self.root, path);
+    fn list_dir(&self, path: &Path) -> Union2<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut real = fs_resolve(&(to_str(&self.root)), &path_text);
         if real.is_none() {
-            return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(path)));
+            return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(&path_text)));
         }
-        return self.__dep_Fs.list_dir(real.as_ref().unwrap());
+        return self.__dep_Fs.list_dir(&(Path { text: real.as_ref().unwrap().clone() }));
     }
 
-    fn create_dirs(&self, path: &String) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut real = fs_resolve(&self.root, path);
+    fn create_dirs(&self, path: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut real = fs_resolve(&(to_str(&self.root)), &path_text);
         if real.is_none() {
-            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(path)));
+            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(&path_text)));
         }
-        return self.__dep_Fs.create_dirs(real.as_ref().unwrap());
+        return self.__dep_Fs.create_dirs(&(Path { text: real.as_ref().unwrap().clone() }));
     }
 
-    fn delete(&self, path: &String) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut real = fs_resolve(&self.root, path);
+    fn delete(&self, path: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut real = fs_resolve(&(to_str(&self.root)), &path_text);
         if real.is_none() {
-            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(path)));
+            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(&path_text)));
         }
-        return self.__dep_Fs.delete(real.as_ref().unwrap());
+        return self.__dep_Fs.delete(&(Path { text: real.as_ref().unwrap().clone() }));
     }
 
-    fn rename_path(&self, from: &String, to: &String) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut real_from = fs_resolve(&self.root, from);
+    fn rename_path(&self, from: &Path, to: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut from_text = to_str(from);
+        let mut to_text = to_str(to);
+        let mut real_from = fs_resolve(&(to_str(&self.root)), &from_text);
         if real_from.is_none() {
-            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(from)));
+            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(&from_text)));
         }
-        let mut real_to = fs_resolve(&self.root, to);
+        let mut real_to = fs_resolve(&(to_str(&self.root)), &to_text);
         if real_to.is_none() {
-            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(to)));
+            return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(fs_escaped(&to_text)));
         }
-        return self.__dep_Fs.rename_path(real_from.as_ref().unwrap(), real_to.as_ref().unwrap());
+        return self.__dep_Fs.rename_path(&(Path { text: real_from.as_ref().unwrap().clone() }), &(Path { text: real_to.as_ref().unwrap().clone() }));
     }
 }

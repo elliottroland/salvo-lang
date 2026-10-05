@@ -2206,11 +2206,11 @@ fn an_fs_failure_must_be_acknowledged() {
     let dir = src_dir("fs_checked");
     let program = |body: &str| {
         format!(
-            "import fs\nimport fs.host\nimport stream.host\n\n\
+            "import fs\nimport fs.path\nimport fs.host\nimport stream.host\n\n\
              fn main() [use] -> None {{\n    use StdOutConsole()\n    \
              use HostRawStreams()\n    use DefaultStreams()\n    \
              use HostRawFs()\n    use DefaultFs()\n    \
-             let text = read_to_str(\"nope.txt\")\n    \
+             let text = read_to_str(path(\"nope.txt\"))\n    \
              when text {{\n        is Ok {{ println(text) }}\n        \
              is Err {{ {body} }}\n    }}\n}}\n"
         )

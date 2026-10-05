@@ -9,7 +9,7 @@ Both are **imported, not implicit**: `import fs` brings the path surface and `im
 A program that reads a file declares `[Fs]` and nothing else:
 
 ```
-fn first_line(path: Str) [Fs] -> Ok Str | Err Checked<FsError> => path {
+fn first_line(path: Path) [Fs] -> Ok Str | Err Checked<FsError> => path {
     let opened = open_read(path)
     if opened is Err {
         return opened                    // the error travels; it still owes
@@ -37,7 +37,7 @@ Four things in that function are the language's, not the library's:
 Reading the lines is ordinary iteration, over an iterator that owns the stream:
 
 ```
-fn print_file(path: Str) [Fs, Console] -> None => path {
+fn print_file(path: Path) [Fs, Console] -> None => path {
     let opened = open_read(path)
     if opened is Err {
         println("cannot read ${path}: ${to_str(detach(opened))}")
@@ -60,6 +60,7 @@ The composition root is where the filesystem is chosen — streams first, since 
 
 ```
 import fs
+import fs.path
 import fs.host
 import stream.host
 
@@ -69,7 +70,7 @@ fn main() [use] {
     use DefaultStreams()  // Salvo: discharges the tokens, maps the errors
     use HostRawFs()       // the host's files, registered into that table
     use DefaultFs()       // Salvo: mints the tokens, maps the errors
-    let text = read_to_str("notes.txt")
+    let text = read_to_str(path("notes.txt"))
     when text {
         is Ok { println(text) }
         is Err { println(to_str(detach(text))) }
@@ -129,6 +130,7 @@ Two more handlers ship beside the surface, each in its own module, and neither i
 
 ```
 import fs
+import fs.path
 import fs.mem
 import fs.restricted
 
@@ -136,7 +138,7 @@ fn main() [use] {
     use StdOutConsole()
     use MemFs()                      // a filesystem in memory: no host, no disk
     if true {
-        use RestrictedFs("notes")    // ...scoped to one directory, for this block
+        use RestrictedFs(path("notes"))    // ...scoped to one directory, for this block
         // code in here writes "a.txt" and cannot reach "../secret.txt"
     }
 }
@@ -163,15 +165,15 @@ let backup = with_extension(db, "bak")
 let log = join(path("/var/log"), "board.log")
 ```
 
-Every `fs` operation and one-shot takes a `Path` as well as a `Str`, so code that keeps its paths as values never spells `to_str`. A `Path` is only text: nothing about it touches a disk, and the separator is `/` on every backend.
+Every `fs` operation and one-shot takes its paths as `Path`s, and only as `Path`s — `MemFs` and `RestrictedFs(root)` included — so a path is never confused with any other string. An error still reports the path as text. A `Path` is only text: nothing about it touches a disk, and the separator is `/` on every backend.
 
 ## Numbers and values in a stream
 
 `write_int`, `write_long`, `read_int` and `read_long` write and read fixed-width numbers, big-endian. `write_value(out, v)` writes any value with a wire form [noremote] in Salvo's canonical encoding, behind its length, and `read_value<T>(in)` reads one back — which is what a file of records needs:
 
 ```
-import net.encode
-import net.decode
+import codec.encode
+import codec.decode
 
 let _n = write_value(out, Notice { id: "a1", body: "hello" })
 let back = read_value<Notice>(input)   // Ok Notice | End | Err Checked<StreamError>

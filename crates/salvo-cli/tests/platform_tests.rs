@@ -456,7 +456,7 @@ fun close(c: Cursor) {}
     let dir = work_dir("ptype_wire");
     project(&dir);
     fs::write(dir.join("host.sv"), HOST_SV).unwrap();
-    fs::write(dir.join("main.sv"), "import host\nimport net\n\nfn main() [] {\n    let _b = encode(new_tally(1))\n}\n").unwrap();
+    fs::write(dir.join("main.sv"), "import host\nimport codec\n\nfn main() [] {\n    let _b = encode(new_tally(1))\n}\n").unwrap();
     let out = salvo_in(&dir, &["analyze", "--src", "."]);
     let all = String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
     assert!(all.contains("`Tally` is declared `noremote`"), "{all}");

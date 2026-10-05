@@ -19,6 +19,7 @@
 // approximated.
 
 import fs
+import fs.path
 import stream
 
 // What an open read stream is: what it reads — a snapshot of the file's bytes
@@ -36,20 +37,22 @@ export handler MemFs of Fs, Streams {
     reads: Mut Map<Long, MemRead> = mut_map_of()
     writes: Mut Map<Long, MemWrite> = mut_map_of()
 
-    fn open_read(path: Str) -> Ok InStream | Err Checked<FsError> => path {
-        let content = get(files, path)
+    fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let content = get(files, path_text)
         if content is None {
-            return err(checked<FsError>(NotFound { path: copy(path) }))
+            return err(checked<FsError>(NotFound { path: copy(path_text) }))
         }
         let handle = fresh_handle()
-        put(reads, copy(handle), MemRead { source: copy(path), data: copy(content), at: 0, failed: false })
+        put(reads, copy(handle), MemRead { source: copy(path_text), data: copy(content), at: 0, failed: false })
         return ok(InStream { handle: copy(handle) })
     }
 
-    fn open_read_at(path: Str, offset: Long) -> Ok InStream | Err Checked<FsError> => path {
-        let content = get(files, path)
+    fn open_read_at(path: Path, offset: Long) -> Ok InStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let content = get(files, path_text)
         if content is None {
-            return err(checked<FsError>(NotFound { path: copy(path) }))
+            return err(checked<FsError>(NotFound { path: copy(path_text) }))
         }
         // A seek is a byte offset and nothing else — landing between the bytes
         // of a character is legal here exactly as it is on the host, and the
@@ -63,19 +66,21 @@ export handler MemFs of Fs, Streams {
             at = end
         }
         let handle = fresh_handle()
-        put(reads, copy(handle), MemRead { source: copy(path), data: copy(content), at: at, failed: false })
+        put(reads, copy(handle), MemRead { source: copy(path_text), data: copy(content), at: at, failed: false })
         return ok(InStream { handle: copy(handle) })
     }
 
-    fn open_write(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
+    fn open_write(path: Path) -> Ok OutStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
         let handle = fresh_handle()
         let empty = mut_bytes()
-        put(writes, copy(handle), MemWrite { path: copy(path), buffer: empty })
+        put(writes, copy(handle), MemWrite { path: copy(path_text), buffer: empty })
         return ok(OutStream { handle: copy(handle) })
     }
 
-    fn open_append(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
-        let existing = get(files, path)
+    fn open_append(path: Path) -> Ok OutStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let existing = get(files, path_text)
         let start = mut_bytes()
         if existing is None {
             // Nothing there yet: appending starts from empty.
@@ -83,39 +88,42 @@ export handler MemFs of Fs, Streams {
             start.append(existing)
         }
         let handle = fresh_handle()
-        put(writes, copy(handle), MemWrite { path: copy(path), buffer: start })
+        put(writes, copy(handle), MemWrite { path: copy(path_text), buffer: start })
         return ok(OutStream { handle: copy(handle) })
     }
 
-    fn exists(path: Str) -> Bool => path {
-        if contains_key(files, path) {
+    fn exists(path: Path) -> Bool => path {
+        let path_text = to_str(path)
+        if contains_key(files, path_text) {
             return true
         }
-        return fs_has_children(files, path)
+        return fs_has_children(files, path_text)
     }
 
-    fn metadata(path: Str) -> Ok FileInfo | Err Checked<FsError> => path {
-        let content = get(files, path)
+    fn metadata(path: Path) -> Ok FileInfo | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let content = get(files, path_text)
         if content is None {
-            if fs_has_children(files, path) {
+            if fs_has_children(files, path_text) {
                 return ok(FileInfo { size: 0, is_dir: true })
             }
-            return err(checked<FsError>(NotFound { path: copy(path) }))
+            return err(checked<FsError>(NotFound { path: copy(path_text) }))
         }
         return ok(FileInfo { size: to_long(size(content)), is_dir: false })
     }
 
-    fn list_dir(path: Str) -> Ok List<Str> | Err Checked<FsError> => path {
-        if contains_key(files, path) {
-            return err(checked<FsError>(NotADirectory { path: copy(path) }))
+    fn list_dir(path: Path) -> Ok List<Str> | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        if contains_key(files, path_text) {
+            return err(checked<FsError>(NotADirectory { path: copy(path_text) }))
         }
-        if !fs_has_children(files, path) {
-            return err(checked<FsError>(NotFound { path: copy(path) }))
+        if !fs_has_children(files, path_text) {
+            return err(checked<FsError>(NotFound { path: copy(path_text) }))
         }
         // A `Set` keeps insertion order and does the deduplication, so the
         // sorted list below is the same on both backends [col-insertion-order].
         let names: Mut Set<Str> = mut_set_of()
-        let prefix = "${path}/"
+        let prefix = "${path_text}/"
         for key in files {
             if starts_with(key, prefix) {
                 let rest = trim_prefix(key, prefix)
@@ -134,31 +142,35 @@ export handler MemFs of Fs, Streams {
         return ok(sorted)
     }
 
-    fn create_dirs(path: Str) -> Ok None | Err Checked<FsError> => path {
+    fn create_dirs(path: Path) -> Ok None | Err Checked<FsError> => path {
+        let path_text = to_str(path)
         // Directories are implicit here: there is nothing to create, and
         // reporting success is what the host does for an existing tree.
         return ok(None)
     }
 
-    fn delete(path: Str) -> Ok None | Err Checked<FsError> => path {
-        if contains_key(files, path) {
-            remove(files, path)
+    fn delete(path: Path) -> Ok None | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        if contains_key(files, path_text) {
+            remove(files, path_text)
             return ok(None)
         }
-        if fs_has_children(files, path) {
-            return err(checked<FsError>(IoError { path: copy(path), message: "directory not empty" }))
+        if fs_has_children(files, path_text) {
+            return err(checked<FsError>(IoError { path: copy(path_text), message: "directory not empty" }))
         }
-        return err(checked<FsError>(NotFound { path: copy(path) }))
+        return err(checked<FsError>(NotFound { path: copy(path_text) }))
     }
 
-    fn rename_path(from: Str, to: Str) -> Ok None | Err Checked<FsError> => from, to {
-        let content = get(files, from)
+    fn rename_path(from: Path, to: Path) -> Ok None | Err Checked<FsError> => from, to {
+        let from_text = to_str(from)
+        let to_text = to_str(to)
+        let content = get(files, from_text)
         if content is None {
-            return err(checked<FsError>(NotFound { path: copy(from) }))
+            return err(checked<FsError>(NotFound { path: copy(from_text) }))
         }
         let bytes: Bytes = copy(content)
-        remove(files, from)
-        put(files, copy(to), bytes)
+        remove(files, from_text)
+        put(files, copy(to_text), bytes)
         return ok(None)
     }
 

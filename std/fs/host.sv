@@ -12,6 +12,7 @@
 // must not arrive with the surface.
 
 import fs
+import fs.path
 import stream
 
 // ===== the raw seam =====
@@ -55,76 +56,87 @@ export effect RawFs {
 export platform handler HostRawFs of RawFs
 
 export handler DefaultFs [RawFs] of Fs {
-    fn open_read(path: Str) -> Ok InStream | Err Checked<FsError> => path {
-        let r = raw_open_read(path)
+    fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let r = raw_open_read(path_text)
         when r {
             is Ok { return ok(InStream { handle: r }) }
             is Err { return err(checked<FsError>(r)) }
         }
     }
 
-    fn open_read_at(path: Str, offset: Long) -> Ok InStream | Err Checked<FsError> => path {
-        let r = raw_open_read_at(path, offset)
+    fn open_read_at(path: Path, offset: Long) -> Ok InStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let r = raw_open_read_at(path_text, offset)
         when r {
             is Ok { return ok(InStream { handle: r }) }
             is Err { return err(checked<FsError>(r)) }
         }
     }
 
-    fn open_write(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
-        let r = raw_open_write(path)
+    fn open_write(path: Path) -> Ok OutStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let r = raw_open_write(path_text)
         when r {
             is Ok { return ok(OutStream { handle: r }) }
             is Err { return err(checked<FsError>(r)) }
         }
     }
 
-    fn open_append(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
-        let r = raw_open_append(path)
+    fn open_append(path: Path) -> Ok OutStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let r = raw_open_append(path_text)
         when r {
             is Ok { return ok(OutStream { handle: r }) }
             is Err { return err(checked<FsError>(r)) }
         }
     }
 
-    fn exists(path: Str) -> Bool => path {
-        return raw_exists(path)
+    fn exists(path: Path) -> Bool => path {
+        let path_text = to_str(path)
+        return raw_exists(path_text)
     }
 
-    fn metadata(path: Str) -> Ok FileInfo | Err Checked<FsError> => path {
-        let r = raw_metadata(path)
+    fn metadata(path: Path) -> Ok FileInfo | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let r = raw_metadata(path_text)
         when r {
             is Ok { return ok(r) }
             is Err { return err(checked<FsError>(r)) }
         }
     }
 
-    fn list_dir(path: Str) -> Ok List<Str> | Err Checked<FsError> => path {
-        let r = raw_list_dir(path)
+    fn list_dir(path: Path) -> Ok List<Str> | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let r = raw_list_dir(path_text)
         when r {
             is Ok { return ok(r) }
             is Err { return err(checked<FsError>(r)) }
         }
     }
 
-    fn create_dirs(path: Str) -> Ok None | Err Checked<FsError> => path {
-        let r = raw_create_dirs(path)
+    fn create_dirs(path: Path) -> Ok None | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let r = raw_create_dirs(path_text)
         when r {
             is Ok { return ok(None) }
             is Err { return err(checked<FsError>(r)) }
         }
     }
 
-    fn delete(path: Str) -> Ok None | Err Checked<FsError> => path {
-        let r = raw_delete(path)
+    fn delete(path: Path) -> Ok None | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let r = raw_delete(path_text)
         when r {
             is Ok { return ok(None) }
             is Err { return err(checked<FsError>(r)) }
         }
     }
 
-    fn rename_path(from: Str, to: Str) -> Ok None | Err Checked<FsError> => from, to {
-        let r = raw_rename_path(from, to)
+    fn rename_path(from: Path, to: Path) -> Ok None | Err Checked<FsError> => from, to {
+        let from_text = to_str(from)
+        let to_text = to_str(to)
+        let r = raw_rename_path(from_text, to_text)
         when r {
             is Ok { return ok(None) }
             is Err { return err(checked<FsError>(r)) }

@@ -1,4 +1,4 @@
-// [test-file] The tests of module `fs`: the `Path` overloads [path-type].
+// [test-file] The tests of module `fs`, which takes paths as `Path`s [path-type].
 
 import fs.mem
 import fs.path

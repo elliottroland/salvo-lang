@@ -41,9 +41,12 @@ import salvo.fs.PermissionDenied
 import salvo.fs.Streaming
 import salvo.fs.__Mon_Fs
 import salvo.fs.mem.MemFs
-import salvo.fs.readToStr__Str
+import salvo.fs.path.Path
+import salvo.fs.path.path
+import salvo.fs.path.toStr as toStr__fs_path
+import salvo.fs.readToStr
 import salvo.fs.toStr as toStr__fs
-import salvo.fs.writeStr__Str_Str
+import salvo.fs.writeStr
 import salvo.stream.InStream
 import salvo.stream.InvalidUtf8
 import salvo.stream.OutStream
@@ -66,7 +69,7 @@ fun describe(e: Union2<S3Error, AwsError>): String {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun sizeOf(fs: Fs, streams: salvo.stream.Streams, path: String): Long? {
+fun sizeOf(fs: Fs, streams: salvo.stream.Streams, path: Path): Long? {
     val info = fs.metadata(path)
     when (info) {
         is Union2.U1<*, *> -> {
@@ -80,10 +83,10 @@ fun sizeOf(fs: Fs, streams: salvo.stream.Streams, path: String): Long? {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun upload(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, bucket: String, key: String, path: String, length: Long?) {
+fun upload(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, bucket: String, key: String, path: Path, length: Long?) {
     val opened = fs.openRead(path)
     if (opened is Union2.U2<*, *>) {
-        println(console, "open $path: ${toStr__fs(detach((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+        println(console, "open ${toStr__fs_path(path)}: ${toStr__fs(detach((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         return
     }
     val put = run {
@@ -103,7 +106,7 @@ fun upload(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, buck
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun download(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, bucket: String, key: String, path: String) {
+fun download(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, bucket: String, key: String, path: Path) {
     val got = run {
         val (r, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> Pair(false, null) })
@@ -120,7 +123,7 @@ fun download(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, bu
     println(console, "get $key: ${(contentLength ?: -1L)} bytes")
     val target = fs.openWrite(path)
     if (target is Union2.U2<*, *>) {
-        println(console, "open $path: ${toStr__fs(detach((target.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+        println(console, "open ${toStr__fs_path(path)}: ${toStr__fs(detach((target.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         val closed = streams.close__InStream(body)
         if (closed is Union2.U2<*, *>) {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
@@ -135,7 +138,7 @@ fun download(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, bu
     }
     when (copied) {
         is Union2.U1<*, *> -> {
-            println(console, "piped ${(copied.value as Long)} bytes into $path")
+            println(console, "piped ${(copied.value as Long)} bytes into ${toStr__fs_path(path)}")
         }
         is Union2.U2<*, *> -> {
             println(console, "pipe: ${toStr__stream(detach((copied.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
@@ -145,9 +148,9 @@ fun download(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, bu
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun roundTrip(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, key: String) {
-    upload(s3, fs, console, streams, "notes", key, "notes.txt", sizeOf(fs, streams, "notes.txt"))
-    download(s3, fs, console, streams, "notes", key, "back.txt")
-    val back = readToStr__Str(fs, streams, "back.txt")
+    upload(s3, fs, console, streams, "notes", key, path("notes.txt"), sizeOf(fs, streams, path("notes.txt")))
+    download(s3, fs, console, streams, "notes", key, path("back.txt"))
+    val back = readToStr(fs, streams, path("back.txt"))
     when (back) {
         is Union2.U1<*, *> -> {
             println(console, "back.txt: ${sizePlatform__core_string((back.value as String))} bytes")
@@ -204,7 +207,7 @@ fun main() {
     val __l = java.util.concurrent.locks.ReentrantLock()
     val fs: Fs = __Mon_Fs(__h, __l)
     val streams: salvo.stream.Streams = salvo.stream.__Mon_Streams(__h, __l)
-    val written = writeStr__Str_Str(fs, streams, "notes.txt", "hello from Salvo\nsecond line\n")
+    val written = writeStr(fs, streams, path("notes.txt"), "hello from Salvo\nsecond line\n")
     if (written is Union2.U2<*, *>) {
         println(console, "write: ${toStr__fs(detach((written.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         return
@@ -216,13 +219,13 @@ fun main() {
         val s3: S3 = __Mon_S3(__h2, __l2)
         val s3_calls: S3Calls = __Mon_S3Calls(__h2, __l2)
         roundTrip(s3, fs, console, streams, "greeting.txt")
-        upload(s3, fs, console, streams, "notes", "unsized.txt", "notes.txt", null)
+        upload(s3, fs, console, streams, "notes", "unsized.txt", path("notes.txt"), null)
         println(console, "calls: ${toStr__core_list(s3_calls.calls(), { __i0 -> __i0 })}")
     }
     println(console, "-- MemS3 --")
     if (true) {
         val s32: S3 = __Mon_S3(MemS3(streams))
         roundTrip(s32, fs, console, streams, "greeting.txt")
-        download(s32, fs, console, streams, "notes", "missing.txt", "missing.txt")
+        download(s32, fs, console, streams, "notes", "missing.txt", path("missing.txt"))
     }
 }

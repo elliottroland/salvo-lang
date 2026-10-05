@@ -346,7 +346,7 @@ export fn write_long(s: OutStream, v: Long) [Streams] -> Long => s {
 
 // [stream-values] Writes [v] in the canonical encoding [wire-encoding],
 // behind its length as a 4-byte `Int`, so [read_value] knows where it ends;
-// answers the bytes written. The codec is an implicit, `net`'s `encode` at
+// answers the bytes written. The codec is an implicit, `codec`'s `encode` at
 // the caller's concrete type: a wire form is the instantiation's, so a
 // generic body cannot name it [noremote].
 export fn write_value<T>(s: OutStream, v: T, ?encode: (v: T) -> Bytes) [Streams] -> Long
@@ -372,7 +372,7 @@ export fn read_long(s: InStream) [Streams] -> Ok Long | End | Err Checked<Stream
 }
 
 // [stream-values] Reads a value [write_value] wrote: its length, then that
-// many bytes, decoded as a `T` by the implicit `decode` (`net`'s, at the
+// many bytes, decoded as a `T` by the implicit `decode` (`codec`'s, at the
 // caller's type).
 export fn read_value<T>(s: InStream, ?decode: (data: Bytes) -> T?) [Streams] -> Ok T | End | Err Checked<StreamError>
 => s {

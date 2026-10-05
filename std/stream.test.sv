@@ -2,8 +2,9 @@
 
 import fs
 import fs.mem
-import net.encode
-import net.decode
+import fs.path
+import codec.encode
+import codec.decode
 
 test "fresh handles never repeat" {
     let a = fresh_handle()
@@ -46,7 +47,7 @@ test "receive reads a buffer to its end" {
 // count, and the file holds what went in.
 test "pipe copies a stream into a file" {
     use MemFs()
-    let out = open_write("copy.txt")
+    let out = open_write(path("copy.txt"))
     when out {
         is Ok {
             let moved = waitfor done: Reply<Ok Long | Err Checked<StreamError>> {
@@ -65,7 +66,7 @@ test "pipe copies a stream into a file" {
             expect(false, "could not open")
         }
     }
-    let back = read_to_str("copy.txt")
+    let back = read_to_str(path("copy.txt"))
     when back {
         is Ok { expect_eq(back, "a\nb\n") }
         is Err {
@@ -124,7 +125,7 @@ fn done(r: Ok None | Err Checked<StreamError>) [] -> None => !r {
 
 test "numbers and values round-trip through a file" {
     use MemFs()
-    let opened = open_write("/recs")
+    let opened = open_write(path("/recs"))
     if opened is Err {
         ignore(opened)
         throw(Failure { message: "open failed" })
@@ -134,7 +135,7 @@ test "numbers and values round-trip through a file" {
     let _b = write_long(out, 1099511627776L)
     let _c = write_value(out, Rec { id: "x", n: -7L })
     done(close(out))
-    let reading = open_read("/recs")
+    let reading = open_read(path("/recs"))
     if reading is Err {
         ignore(reading)
         throw(Failure { message: "reopen failed" })

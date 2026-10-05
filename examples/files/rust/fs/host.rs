@@ -13,16 +13,9 @@ use crate::fs::PermissionDenied;
 use crate::fs::Streaming;
 use crate::fs::__Stateful_Fs as _;
 use crate::fs::__Stateless_Fs as _;
-use crate::fs::create_dirs;
-use crate::fs::delete;
-use crate::fs::exists;
-use crate::fs::list_dir;
-use crate::fs::metadata;
-use crate::fs::open_append;
-use crate::fs::open_read;
-use crate::fs::open_read_at;
-use crate::fs::open_write;
-use crate::fs::rename_path;
+use crate::fs_path::Path;
+use crate::fs_path::path;
+use crate::fs_path::to_str;
 use crate::stream::InStream;
 use crate::stream::OutStream;
 use crate::stream::__Stateful_Streams as _;
@@ -330,8 +323,9 @@ impl DefaultFs {
 
 impl crate::fs::__Stateless_Fs for DefaultFs {
 
-    fn open_read(&self, path: &String) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut r = self.__dep_RawFs.raw_open_read(path);
+    fn open_read(&self, path: &Path) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut r = self.__dep_RawFs.raw_open_read(&path_text);
         match r {
             Union2::U1(_) => {
                 return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(InStream { handle: *r.u1() }));
@@ -342,8 +336,9 @@ impl crate::fs::__Stateless_Fs for DefaultFs {
         }
     }
 
-    fn open_read_at(&self, path: &String, offset: i64) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut r = self.__dep_RawFs.raw_open_read_at(path, offset);
+    fn open_read_at(&self, path: &Path, offset: i64) -> Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut r = self.__dep_RawFs.raw_open_read_at(&path_text, offset);
         match r {
             Union2::U1(_) => {
                 return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(InStream { handle: *r.u1() }));
@@ -354,8 +349,9 @@ impl crate::fs::__Stateless_Fs for DefaultFs {
         }
     }
 
-    fn open_write(&self, path: &String) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut r = self.__dep_RawFs.raw_open_write(path);
+    fn open_write(&self, path: &Path) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut r = self.__dep_RawFs.raw_open_write(&path_text);
         match r {
             Union2::U1(_) => {
                 return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(OutStream { handle: *r.u1() }));
@@ -366,8 +362,9 @@ impl crate::fs::__Stateless_Fs for DefaultFs {
         }
     }
 
-    fn open_append(&self, path: &String) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut r = self.__dep_RawFs.raw_open_append(path);
+    fn open_append(&self, path: &Path) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut r = self.__dep_RawFs.raw_open_append(&path_text);
         match r {
             Union2::U1(_) => {
                 return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(OutStream { handle: *r.u1() }));
@@ -378,12 +375,14 @@ impl crate::fs::__Stateless_Fs for DefaultFs {
         }
     }
 
-    fn exists(&self, path: &String) -> bool {
-        return self.__dep_RawFs.raw_exists(path);
+    fn exists(&self, path: &Path) -> bool {
+        let mut path_text = to_str(path);
+        return self.__dep_RawFs.raw_exists(&path_text);
     }
 
-    fn metadata(&self, path: &String) -> Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut r = self.__dep_RawFs.raw_metadata(path);
+    fn metadata(&self, path: &Path) -> Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut r = self.__dep_RawFs.raw_metadata(&path_text);
         match r {
             Union2::U1(_) => {
                 return Union2::<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(r.u1().clone()));
@@ -394,8 +393,9 @@ impl crate::fs::__Stateless_Fs for DefaultFs {
         }
     }
 
-    fn list_dir(&self, path: &String) -> Union2<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut r = self.__dep_RawFs.raw_list_dir(path);
+    fn list_dir(&self, path: &Path) -> Union2<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut r = self.__dep_RawFs.raw_list_dir(&path_text);
         match r {
             Union2::U1(_) => {
                 return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(r.u1().clone()));
@@ -406,8 +406,9 @@ impl crate::fs::__Stateless_Fs for DefaultFs {
         }
     }
 
-    fn create_dirs(&self, path: &String) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut r = self.__dep_RawFs.raw_create_dirs(path);
+    fn create_dirs(&self, path: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut r = self.__dep_RawFs.raw_create_dirs(&path_text);
         match r {
             Union2::U1(_) => {
                 return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(()));
@@ -418,8 +419,9 @@ impl crate::fs::__Stateless_Fs for DefaultFs {
         }
     }
 
-    fn delete(&self, path: &String) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut r = self.__dep_RawFs.raw_delete(path);
+    fn delete(&self, path: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut path_text = to_str(path);
+        let mut r = self.__dep_RawFs.raw_delete(&path_text);
         match r {
             Union2::U1(_) => {
                 return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(()));
@@ -430,8 +432,10 @@ impl crate::fs::__Stateless_Fs for DefaultFs {
         }
     }
 
-    fn rename_path(&self, from: &String, to: &String) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut r = self.__dep_RawFs.raw_rename_path(from, to);
+    fn rename_path(&self, from: &Path, to: &Path) -> Union2<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+        let mut from_text = to_str(from);
+        let mut to_text = to_str(to);
+        let mut r = self.__dep_RawFs.raw_rename_path(&from_text, &to_text);
         match r {
             Union2::U1(_) => {
                 return Union2::<(), Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(()));

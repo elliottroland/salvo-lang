@@ -21,6 +21,7 @@
 // Resolution is right to left, counting the `..` segments still owed, which
 // is how `a/../b` stays inside while `../b` does not — and needs no stack.
 import fs
+import fs.path
 import stream
 
 fn fs_resolve(root: Str, path: Str) [] -> Str? => root, path {
@@ -70,91 +71,102 @@ fn fs_escaped(path: Str) [] -> Checked<FsError> => path {
     return checked<FsError>(PathEscapes { path: copy(path) })
 }
 
-export handler RestrictedFs(root: Str) [Fs] of Fs {
-    fn open_read(path: Str) -> Ok InStream | Err Checked<FsError> => path {
-        let real = fs_resolve(root, path)
+export handler RestrictedFs(root: Path) [Fs] of Fs {
+    fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let real = fs_resolve(to_str(root), path_text)
         if real is None {
-            return err(fs_escaped(path))
+            return err(fs_escaped(path_text))
         }
-        return open_read(real)
+        return open_read(Path { text: real })
     }
 
-    fn open_read_at(path: Str, offset: Long) -> Ok InStream | Err Checked<FsError> => path {
-        let real = fs_resolve(root, path)
+    fn open_read_at(path: Path, offset: Long) -> Ok InStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let real = fs_resolve(to_str(root), path_text)
         if real is None {
-            return err(fs_escaped(path))
+            return err(fs_escaped(path_text))
         }
-        return open_read_at(real, offset)
+        return open_read_at(Path { text: real }, offset)
     }
 
-    fn open_write(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
-        let real = fs_resolve(root, path)
+    fn open_write(path: Path) -> Ok OutStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let real = fs_resolve(to_str(root), path_text)
         if real is None {
-            return err(fs_escaped(path))
+            return err(fs_escaped(path_text))
         }
-        return open_write(real)
+        return open_write(Path { text: real })
     }
 
-    fn open_append(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
-        let real = fs_resolve(root, path)
+    fn open_append(path: Path) -> Ok OutStream | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let real = fs_resolve(to_str(root), path_text)
         if real is None {
-            return err(fs_escaped(path))
+            return err(fs_escaped(path_text))
         }
-        return open_append(real)
+        return open_append(Path { text: real })
     }
 
     // A refused path simply does not exist, since the answer is a `Bool` with
     // nowhere to put a reason.
-    fn exists(path: Str) -> Bool => path {
-        let real = fs_resolve(root, path)
+    fn exists(path: Path) -> Bool => path {
+        let path_text = to_str(path)
+        let real = fs_resolve(to_str(root), path_text)
         if real is None {
             return false
         }
-        return exists(real)
+        return exists(Path { text: real })
     }
 
-    fn metadata(path: Str) -> Ok FileInfo | Err Checked<FsError> => path {
-        let real = fs_resolve(root, path)
+    fn metadata(path: Path) -> Ok FileInfo | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let real = fs_resolve(to_str(root), path_text)
         if real is None {
-            return err(fs_escaped(path))
+            return err(fs_escaped(path_text))
         }
-        return metadata(real)
+        return metadata(Path { text: real })
     }
 
-    fn list_dir(path: Str) -> Ok List<Str> | Err Checked<FsError> => path {
-        let real = fs_resolve(root, path)
+    fn list_dir(path: Path) -> Ok List<Str> | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let real = fs_resolve(to_str(root), path_text)
         if real is None {
-            return err(fs_escaped(path))
+            return err(fs_escaped(path_text))
         }
-        return list_dir(real)
+        return list_dir(Path { text: real })
     }
 
-    fn create_dirs(path: Str) -> Ok None | Err Checked<FsError> => path {
-        let real = fs_resolve(root, path)
+    fn create_dirs(path: Path) -> Ok None | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let real = fs_resolve(to_str(root), path_text)
         if real is None {
-            return err(fs_escaped(path))
+            return err(fs_escaped(path_text))
         }
-        return create_dirs(real)
+        return create_dirs(Path { text: real })
     }
 
-    fn delete(path: Str) -> Ok None | Err Checked<FsError> => path {
-        let real = fs_resolve(root, path)
+    fn delete(path: Path) -> Ok None | Err Checked<FsError> => path {
+        let path_text = to_str(path)
+        let real = fs_resolve(to_str(root), path_text)
         if real is None {
-            return err(fs_escaped(path))
+            return err(fs_escaped(path_text))
         }
-        return delete(real)
+        return delete(Path { text: real })
     }
 
     // Both ends are checked: a rename is two paths, and either may escape.
-    fn rename_path(from: Str, to: Str) -> Ok None | Err Checked<FsError> => from, to {
-        let real_from = fs_resolve(root, from)
+    fn rename_path(from: Path, to: Path) -> Ok None | Err Checked<FsError> => from, to {
+        let from_text = to_str(from)
+        let to_text = to_str(to)
+        let real_from = fs_resolve(to_str(root), from_text)
         if real_from is None {
-            return err(fs_escaped(from))
+            return err(fs_escaped(from_text))
         }
-        let real_to = fs_resolve(root, to)
+        let real_to = fs_resolve(to_str(root), to_text)
         if real_to is None {
-            return err(fs_escaped(to))
+            return err(fs_escaped(to_text))
         }
-        return rename_path(real_from, real_to)
+        return rename_path(Path { text: real_from }, Path { text: real_to })
     }
 }

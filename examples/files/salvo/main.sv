@@ -27,6 +27,7 @@
 // host's implementations, and the two doubles. A whole-module import names one
 // module, so each is its own line [mod-import-module].
 import fs
+import fs.path
 import fs.host
 import fs.mem
 import fs.restricted
@@ -65,12 +66,12 @@ fn kind_name(kind: StreamError) [] -> Str => kind {
 fn workflow() [Fs, Console] -> None {
     // 1. A whole file in one call, and back again. The one-shots open, work
     //    and close, so no token reaches this code at all.
-    let wrote = write_str("notes.txt", "alpha\nbeta\ngamma\n")
+    let wrote = write_str(path("notes.txt"), "alpha\nbeta\ngamma\n")
     when wrote {
         is Ok { println("wrote ${wrote} bytes") }
         is Err { println("write failed: ${kind_name(detach(wrote))}") }
     }
-    let text = read_to_str("notes.txt")
+    let text = read_to_str(path("notes.txt"))
     when text {
         is Ok { println("read back ${byte_size(text)} bytes") }
         is Err { println("read failed: ${kind_name(detach(text))}") }
@@ -79,7 +80,7 @@ fn workflow() [Fs, Console] -> None {
     // 2. The lines, as a sequence. `lines(s)` moves the stream's obligation
     //    into the iterator, so closing the iterator is closing the file — and
     //    `for` drives it like any other iterator.
-    let opened = open_read("notes.txt")
+    let opened = open_read(path("notes.txt"))
     when opened {
         is Ok {
             let p = lines(opened)
@@ -97,7 +98,7 @@ fn workflow() [Fs, Console] -> None {
     // 3. Appending through a stream. `position` answers the byte offset —
     //    bytes, not characters, on every backend — and `write_line` answers
     //    how many bytes it took.
-    let out = open_append("notes.txt")
+    let out = open_append(path("notes.txt"))
     when out {
         is Ok {
             let w: OutStream = out
@@ -114,7 +115,7 @@ fn workflow() [Fs, Console] -> None {
 
             // 4. Reading that record back. Streams are forward-only, so a
             //    ranged *open* replaces a seek.
-            let resumed = open_read_at("notes.txt", at)
+            let resumed = open_read_at(path("notes.txt"), at)
             when resumed {
                 is Ok {
                     let s: InStream = resumed
@@ -138,7 +139,7 @@ fn workflow() [Fs, Console] -> None {
     //    of every byte API here — and a `Byte` is an unsigned octet, built
     //    from an `Int` with `to_byte` (which keeps the low 8 bits) and read
     //    back into one with `to_int`.
-    let bin = open_write("raw.bin")
+    let bin = open_write(path("raw.bin"))
     when bin {
         is Ok {
             let w: OutStream = bin
@@ -155,7 +156,7 @@ fn workflow() [Fs, Console] -> None {
         }
         is Err { println("raw open failed: ${kind_name(detach(bin))}") }
     }
-    let raw = open_read("raw.bin")
+    let raw = open_read(path("raw.bin"))
     when raw {
         is Ok {
             let s: InStream = raw
@@ -182,7 +183,7 @@ fn workflow() [Fs, Console] -> None {
     // 6. Opening between the bytes of a character is a *seek*, not a decode:
     //    it succeeds, and the strict UTF-8 decode afterwards is what fails.
     //    The failure is recorded too, so `close` reports it a second time.
-    let split = open_read_at("raw.bin", 5)
+    let split = open_read_at(path("raw.bin"), 5)
     when split {
         is Ok {
             let s: InStream = split
@@ -204,7 +205,7 @@ fn workflow() [Fs, Console] -> None {
     //    a loop reuses one buffer instead of allocating a payload per step —
     //    and because it appends rather than overwrites, `size(buf)` is always
     //    the data and there is no "first n bytes are meaningful" convention.
-    let held = open_read("raw.bin")
+    let held = open_read(path("raw.bin"))
     when held {
         is Ok {
             let s: InStream = held
@@ -241,7 +242,7 @@ fn workflow() [Fs, Console] -> None {
     }
     // The same idea for text: `read_line_to` appends the next line to a
     // builder of yours, so a line per iteration costs no new string.
-    let lined = open_read("notes.txt")
+    let lined = open_read(path("notes.txt"))
     when lined {
         is Ok {
             let s: InStream = lined
@@ -270,7 +271,7 @@ fn workflow() [Fs, Console] -> None {
     // 8. Or let an iterator do the loop: `chunks` is to bytes what `lines` is
     //    to text, and each step is a fresh buffer — an iterator that handed
     //    back its own would have the next step overwrite what you are holding.
-    let ch = open_chunks("raw.bin", 4)
+    let ch = open_chunks(path("raw.bin"), 4)
     when ch {
         is Ok {
             let p = ch
@@ -290,12 +291,12 @@ fn workflow() [Fs, Console] -> None {
     // 9. And the one-shots, where the buffer is std's business: `copy_file`
     //    moves a whole file through one reused buffer, and `read_to_bytes`
     //    hands back the lot.
-    let copied = copy_file("notes.txt", "notes-copy.txt")
+    let copied = copy_file(path("notes.txt"), path("notes-copy.txt"))
     when copied {
         is Ok { println("copied ${copied} bytes") }
         is Err { println("copy failed: ${kind_name(detach(copied))}") }
     }
-    let whole = read_to_bytes("raw.bin")
+    let whole = read_to_bytes(path("raw.bin"))
     when whole {
         is Ok { println("raw.bin is ${size(whole)} bytes: ${to_hex(whole)}") }
         is Err { println("byte read failed: ${kind_name(detach(whole))}") }
@@ -305,12 +306,12 @@ fn workflow() [Fs, Console] -> None {
     //    (nothing linear may live in a composite), so `detach` hands back the
     //    bare `FsError` — which is the whole reason it exists.
     let failures: Mut List<FsError> = mut_list_of()
-    let missing = read_to_str("nope.txt")
+    let missing = read_to_str(path("nope.txt"))
     when missing {
         is Ok { println("unexpected: ${missing}") }
         is Err { failures.add(detach(missing)) }
     }
-    let not_a_dir = list_dir("notes.txt")
+    let not_a_dir = list_dir(path("notes.txt"))
     when not_a_dir {
         is Ok { println("unexpected: ${not_a_dir}") }
         is Err { failures.add(detach(not_a_dir)) }
@@ -322,7 +323,7 @@ fn workflow() [Fs, Console] -> None {
 
     // 11. Tidying up: the same calls whichever filesystem answered.
     for name in ["notes.txt", "notes-copy.txt", "raw.bin"] {
-        let gone = delete(name)
+        let gone = delete(path(name))
         if gone is Err {
             println("delete failed: ${kind_name(detach(gone))}")
         }
@@ -335,22 +336,22 @@ fn workflow() [Fs, Console] -> None {
 // `../secret.txt` climbs out; an absolute path is refused rather than rebased,
 // because it says where it wants to be and that is not the sandbox's to grant.
 fn sandbox_edges() [Fs, Console] -> None {
-    let inside = write_str("sub/../probe.txt", "inside\n")
+    let inside = write_str(path("sub/../probe.txt"), "inside\n")
     when inside {
         is Ok { println("through `..`: wrote ${inside} bytes") }
         is Err { println("through `..`: ${kind_name(detach(inside))}") }
     }
-    let up = read_to_str("../secret.txt")
+    let up = read_to_str(path("../secret.txt"))
     when up {
         is Ok { println("unexpected: read outside the sandbox") }
         is Err { println("climbing out: ${kind_name(detach(up))}") }
     }
-    let absolute = read_to_str("/etc/hosts")
+    let absolute = read_to_str(path("/etc/hosts"))
     when absolute {
         is Ok { println("unexpected: an absolute path resolved") }
         is Err { println("absolute path: ${kind_name(detach(absolute))}") }
     }
-    let probe = "probe.txt"
+    let probe = path("probe.txt")
     println("probe still there: ${exists(probe)}")
     let gone = delete(probe)
     if gone is Err {
@@ -371,7 +372,7 @@ fn main() [use] -> None {
     use HostRawFs()
     use DefaultFs()
 
-    let root = "tmp/files-example"
+    let root = path("tmp/files-example")
     let made = create_dirs(root)
     if made is Err {
         println("cannot create the working directory: ${kind_name(detach(made))}")

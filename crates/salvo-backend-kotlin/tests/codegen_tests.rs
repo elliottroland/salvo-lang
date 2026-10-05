@@ -9135,6 +9135,7 @@ fn kotlinc_compiles_and_runs_the_tcp_transport_on_localhost() -> KotlinCase {
 /// The Rust backend's `WIRE_DEMO`, verbatim, with the same expected hex — the
 /// byte-for-byte parity assertion for the wire [wire-format] [kt-wire].
 const WIRE_DEMO: &str = r#"import net
+import codec
 
 struct Point { x: Int, y: Long }
 struct Tag { name: Str }
@@ -9209,6 +9210,7 @@ fn kotlinc_compiles_and_runs_the_wire_format() -> KotlinCase {
 
 /// The Rust backend's `NODES_DEMO`, verbatim [addr-routable].
 const NODES_DEMO: &str = r#"import net
+import codec
 import time
 
 actor effect Counter {
@@ -12094,6 +12096,7 @@ fn bytes_is_a_value_platform_type() {
 /// `position` after a ranged open, and a failure path acknowledged once.
 const FS_PROGRAM: &str = r#"
 import fs
+import fs.path
 import fs.host
 import stream
 import stream.host
@@ -12122,14 +12125,14 @@ fn main() [use] -> None {
     use HostRawFs()
     use DefaultFs()
 
-    let dir = "__DIR__"
+    let dir = Path { text: "__DIR__" }
     let made = create_dirs(dir)
     when made {
         is Ok { println("made") }
         is Err { println("made: ${describe(detach(made))}") }
     }
 
-    let path = "__DIR__/notes.txt"
+    let path = Path { text: "__DIR__/notes.txt" }
     let written = write_str(path, "alpha\nbeta\ngamma\n")
     when written {
         is Ok { println("wrote ${written}") }
@@ -12178,7 +12181,7 @@ fn main() [use] -> None {
         is Err { println("tail: ${describe(detach(tail))}") }
     }
 
-    let missing = read_to_str("__DIR__/nope.txt")
+    let missing = read_to_str(Path { text: "__DIR__/nope.txt" })
     when missing {
         is Ok { println("unexpected") }
         is Err { println("missing: ${describe(detach(missing))}") }
@@ -12195,7 +12198,7 @@ fn main() [use] -> None {
     // back exactly. `to_byte` keeps the low 8 bits and a `Byte` is unsigned on
     // both backends, so 255 prints as 255 on both — a signed byte would print
     // -1 on one of them [backend-parity].
-    let out = open_write("__DIR__/raw.bin")
+    let out = open_write(Path { text: "__DIR__/raw.bin" })
     when out {
         is Ok {
             let w: OutStream = out
@@ -12211,7 +12214,7 @@ fn main() [use] -> None {
         }
         is Err { println("raw open: ${describe(detach(out))}") }
     }
-    let raw = open_read("__DIR__/raw.bin")
+    let raw = open_read(Path { text: "__DIR__/raw.bin" })
     when raw {
         is Ok {
             let s: InStream = raw
@@ -12238,7 +12241,7 @@ fn main() [use] -> None {
     // Opening between the bytes of a character is a *seek*, not a decode: it
     // succeeds, and the strict decode afterwards is what fails — recorded, so
     // `close` reports it too [fs-errors-at-close].
-    let split = open_read_at("__DIR__/raw.bin", 5)
+    let split = open_read_at(Path { text: "__DIR__/raw.bin" }, 5)
     when split {
         is Ok {
             let s: InStream = split
@@ -12258,7 +12261,7 @@ fn main() [use] -> None {
 
     // [fs-read-to] The fill-a-buffer read: one buffer, cleared and refilled,
     // instead of a payload per step.
-    let held = open_read("__DIR__/raw.bin")
+    let held = open_read(Path { text: "__DIR__/raw.bin" })
     when held {
         is Ok {
             let s: InStream = held
@@ -12292,7 +12295,7 @@ fn main() [use] -> None {
         is Err { println("filled open: ${describe(detach(held))}") }
     }
     // The chunk pass: `for` over a stream's bytes, a fresh buffer per step.
-    let ch = open_chunks("__DIR__/raw.bin", 4)
+    let ch = open_chunks(Path { text: "__DIR__/raw.bin" }, 4)
     when ch {
         is Ok {
             let p = ch
@@ -12336,22 +12339,22 @@ fn main() [use] -> None {
     }
     // The one-shots that own the buffer: a whole-file copy and a whole-file
     // byte read, with no stream and no buffer in sight.
-    let copied = copy_file(path, "__DIR__/copy.txt")
+    let copied = copy_file(path, Path { text: "__DIR__/copy.txt" })
     when copied {
         is Ok { println("copied ${copied}") }
         is Err { println("copied: ${describe(detach(copied))}") }
     }
-    let all_bytes = read_to_bytes("__DIR__/copy.txt")
+    let all_bytes = read_to_bytes(Path { text: "__DIR__/copy.txt" })
     when all_bytes {
         is Ok { println("copy holds ${size(all_bytes)} bytes") }
         is Err { println("copy read: ${describe(detach(all_bytes))}") }
     }
-    let gone_copy = delete("__DIR__/copy.txt")
+    let gone_copy = delete(Path { text: "__DIR__/copy.txt" })
     when gone_copy {
         is Ok { println("copy deleted") }
         is Err { println("copy deleted: ${describe(detach(gone_copy))}") }
     }
-    let gone_bin = delete("__DIR__/raw.bin")
+    let gone_bin = delete(Path { text: "__DIR__/raw.bin" })
     when gone_bin {
         is Ok { println("raw deleted") }
         is Err { println("raw deleted: ${describe(detach(gone_bin))}") }
@@ -12463,7 +12466,7 @@ fn kotlinc_compiles_and_runs_the_fs_surface() -> KotlinCase {
 /// [fs-double] [effect-intercept] `MemFs` fakes the whole of `Fs` — streams
 /// included — so this program has **no host handler at all** and touches no
 /// disk, which is the point of putting the stream operations on the effect.
-/// Then `RestrictedFs("notes")` intercepts it for the length of a block, so
+/// Then `RestrictedFs(root)` intercepts it for the length of a block, so
 /// the containment logic is tested over memory too.
 ///
 /// The byte offsets are the hazard the fake exists to get right: `position`
@@ -12473,6 +12476,7 @@ fn kotlinc_compiles_and_runs_the_fs_surface() -> KotlinCase {
 /// characters would let this test pass and production break.
 const MEMFS_PROGRAM: &str = r#"
 import fs
+import fs.path
 import fs.mem
 import fs.restricted
 import stream
@@ -12500,7 +12504,7 @@ fn describe(e: StreamError) [] -> Str => e {
     return "other"
 }
 
-fn read_and_say(label: Str, path: Str) [Fs, Console] -> None => label, path {
+fn read_and_say(label: Str, path: Path) [Fs, Console] -> None => label, path {
     let text = read_to_str(path)
     when text {
         is Ok { println("${label}: ${size(text)}") }
@@ -12514,13 +12518,13 @@ fn main() [use] -> None {
     // included, so this program touches no disk.
     use MemFs()
 
-    let wrote = write_str("notes/a.txt", "alpha\nbeta\ngamma\n")
+    let wrote = write_str(path("notes/a.txt"), "alpha\nbeta\ngamma\n")
     when wrote {
         is Ok { println("wrote ${wrote}") }
         is Err { println("wrote: ${describe(detach(wrote))}") }
     }
 
-    let lines = read_lines("notes/a.txt")
+    let lines = read_lines(path("notes/a.txt"))
     when lines {
         is Ok { println("lines: ${lines}") }
         is Err { println("lines: ${describe(detach(lines))}") }
@@ -12528,7 +12532,7 @@ fn main() [use] -> None {
 
     // The byte offset the fake has to agree with the host about: "alpha\n" is
     // six bytes, and the position after reading "beta\n" is eleven.
-    let tail = open_read_at("notes/a.txt", 6)
+    let tail = open_read_at(path("notes/a.txt"), 6)
     when tail {
         is Ok {
             let s: InStream = tail
@@ -12547,7 +12551,7 @@ fn main() [use] -> None {
         is Err { println("at 6: ${describe(detach(tail))}") }
     }
 
-    let listed = list_dir("notes")
+    let listed = list_dir(path("notes"))
     when listed {
         is Ok { println("dir: ${listed}") }
         is Err { println("dir: ${describe(detach(listed))}") }
@@ -12558,7 +12562,7 @@ fn main() [use] -> None {
     // back exactly. `to_byte` keeps the low 8 bits and a `Byte` is unsigned on
     // both backends, so 255 prints as 255 on both — a signed byte would print
     // -1 on one of them [backend-parity].
-    let out = open_write("notes/raw.bin")
+    let out = open_write(path("notes/raw.bin"))
     when out {
         is Ok {
             let w: OutStream = out
@@ -12574,7 +12578,7 @@ fn main() [use] -> None {
         }
         is Err { println("raw open: ${describe(detach(out))}") }
     }
-    let raw = open_read("notes/raw.bin")
+    let raw = open_read(path("notes/raw.bin"))
     when raw {
         is Ok {
             let s: InStream = raw
@@ -12601,7 +12605,7 @@ fn main() [use] -> None {
     // Opening between the bytes of a character is a *seek*, not a decode: it
     // succeeds, and the strict decode afterwards is what fails — recorded, so
     // `close` reports it too [fs-errors-at-close].
-    let split = open_read_at("notes/raw.bin", 5)
+    let split = open_read_at(path("notes/raw.bin"), 5)
     when split {
         is Ok {
             let s: InStream = split
@@ -12621,7 +12625,7 @@ fn main() [use] -> None {
 
     // [fs-read-to] The fill-a-buffer read: one buffer, cleared and refilled,
     // instead of a payload per step.
-    let held = open_read("notes/raw.bin")
+    let held = open_read(path("notes/raw.bin"))
     when held {
         is Ok {
             let s: InStream = held
@@ -12655,7 +12659,7 @@ fn main() [use] -> None {
         is Err { println("filled open: ${describe(detach(held))}") }
     }
     // The chunk pass: `for` over a stream's bytes, a fresh buffer per step.
-    let ch = open_chunks("notes/raw.bin", 4)
+    let ch = open_chunks(path("notes/raw.bin"), 4)
     when ch {
         is Ok {
             let p = ch
@@ -12673,7 +12677,7 @@ fn main() [use] -> None {
         is Err { println("pass open: ${describe(detach(ch))}") }
     }
     // And the text side of `read_to`: a line per iteration, one builder.
-    let lined = open_read("notes/a.txt")
+    let lined = open_read(path("notes/a.txt"))
     when lined {
         is Ok {
             let s: InStream = lined
@@ -12699,22 +12703,22 @@ fn main() [use] -> None {
     }
     // The one-shots that own the buffer: a whole-file copy and a whole-file
     // byte read, with no stream and no buffer in sight.
-    let copied = copy_file("notes/a.txt", "notes/copy.txt")
+    let copied = copy_file(path("notes/a.txt"), path("notes/copy.txt"))
     when copied {
         is Ok { println("copied ${copied}") }
         is Err { println("copied: ${describe(detach(copied))}") }
     }
-    let all_bytes = read_to_bytes("notes/copy.txt")
+    let all_bytes = read_to_bytes(path("notes/copy.txt"))
     when all_bytes {
         is Ok { println("copy holds ${size(all_bytes)} bytes") }
         is Err { println("copy read: ${describe(detach(all_bytes))}") }
     }
-    let gone_copy = delete("notes/copy.txt")
+    let gone_copy = delete(path("notes/copy.txt"))
     when gone_copy {
         is Ok { println("copy deleted") }
         is Err { println("copy deleted: ${describe(detach(gone_copy))}") }
     }
-    let gone_bin = delete("notes/raw.bin")
+    let gone_bin = delete(path("notes/raw.bin"))
     when gone_bin {
         is Ok { println("raw deleted") }
         is Err { println("raw deleted: ${describe(detach(gone_bin))}") }
@@ -12723,14 +12727,14 @@ fn main() [use] -> None {
     // The restriction, over the same memory, for the length of the block: an
     // interceptor wraps the handler already registered.
     if true {
-        use RestrictedFs("notes")
-        read_and_say("inside", "a.txt")
-        read_and_say("through ..", "sub/../a.txt")
-        read_and_say("escape", "../secret.txt")
-        read_and_say("absolute", "/etc/hosts")
+        use RestrictedFs(path("notes"))
+        read_and_say("inside", path("a.txt"))
+        read_and_say("through ..", path("sub/../a.txt"))
+        read_and_say("escape", path("../secret.txt"))
+        read_and_say("absolute", path("/etc/hosts"))
     }
     // Out of the block the unrestricted filesystem answers again.
-    read_and_say("unrestricted", "notes/a.txt")
+    read_and_say("unrestricted", path("notes/a.txt"))
 }
 "#;
 

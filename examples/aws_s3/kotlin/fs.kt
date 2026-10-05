@@ -12,7 +12,6 @@ import salvo.core.result.err
 import salvo.core.result.ok
 import salvo.fs.path.Path
 import salvo.fs.path.path
-import salvo.fs.path.toStr as toStr__fs_path
 import salvo.stream.Chunks
 import salvo.stream.InStream
 import salvo.stream.InvalidUtf8
@@ -164,68 +163,68 @@ object __Codec_FileInfo : salvo.WireCodec<FileInfo> {
 }
 
 interface Fs {
-    fun openRead(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun openReadAt(path: String, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun openWrite(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun openAppend(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun exists(path: String): Boolean
-    fun metadata(path: String): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun listDir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun createDirs(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun delete(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
-    fun renamePath(from: String, to: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun openRead(path: Path): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun openReadAt(path: Path, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun openWrite(path: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun openAppend(path: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun exists(path: Path): Boolean
+    fun metadata(path: Path): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun listDir(path: Path): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun createDirs(path: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun delete(path: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
+    fun renamePath(from: Path, to: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>
 }
 
 class __Mon_Fs(
     private val inner: Fs,
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Fs {
-    override fun openRead(path: String): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    override fun openRead(path: Path): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.openRead(path) } finally { lock.unlock() }
     }
-    override fun openReadAt(path: String, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    override fun openReadAt(path: Path, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.openReadAt(path, offset) } finally { lock.unlock() }
     }
-    override fun openWrite(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    override fun openWrite(path: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.openWrite(path) } finally { lock.unlock() }
     }
-    override fun openAppend(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    override fun openAppend(path: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.openAppend(path) } finally { lock.unlock() }
     }
-    override fun exists(path: String): Boolean {
+    override fun exists(path: Path): Boolean {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.exists(path) } finally { lock.unlock() }
     }
-    override fun metadata(path: String): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    override fun metadata(path: Path): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.metadata(path) } finally { lock.unlock() }
     }
-    override fun listDir(path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    override fun listDir(path: Path): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.listDir(path) } finally { lock.unlock() }
     }
-    override fun createDirs(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    override fun createDirs(path: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.createDirs(path) } finally { lock.unlock() }
     }
-    override fun delete(path: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    override fun delete(path: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.delete(path) } finally { lock.unlock() }
     }
-    override fun renamePath(from: String, to: String): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+    override fun renamePath(from: Path, to: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.renamePath(from, to) } finally { lock.unlock() }
@@ -233,7 +232,7 @@ class __Mon_Fs(
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun openLines__Str(fs: Fs, streams: salvo.stream.Streams, path: String): Union2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+fun openLines(fs: Fs, streams: salvo.stream.Streams, path: Path): Union2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     val opened = fs.openRead(path)
     if (opened is Union2.U2<*, *>) {
         return Union2.U2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
@@ -242,7 +241,7 @@ fun openLines__Str(fs: Fs, streams: salvo.stream.Streams, path: String): Union2<
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun openChunks__Str_Int(fs: Fs, streams: salvo.stream.Streams, path: String, size: Int): Union2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+fun openChunks(fs: Fs, streams: salvo.stream.Streams, path: Path, size: Int): Union2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     val opened = fs.openRead(path)
     if (opened is Union2.U2<*, *>) {
         return Union2.U2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
@@ -251,7 +250,7 @@ fun openChunks__Str_Int(fs: Fs, streams: salvo.stream.Streams, path: String, siz
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun readToStr__Str(fs: Fs, streams: salvo.stream.Streams, path: String): Union2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+fun readToStr(fs: Fs, streams: salvo.stream.Streams, path: Path): Union2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     val opened = fs.openRead(path)
     if (opened is Union2.U2<*, *>) {
         return Union2.U2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
@@ -273,7 +272,7 @@ fun readToStr__Str(fs: Fs, streams: salvo.stream.Streams, path: String): Union2<
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun readLines__Str(fs: Fs, streams: salvo.stream.Streams, path: String): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+fun readLines(fs: Fs, streams: salvo.stream.Streams, path: Path): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     val opened = fs.openRead(path)
     if (opened is Union2.U2<*, *>) {
         return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
@@ -295,7 +294,7 @@ fun readLines__Str(fs: Fs, streams: salvo.stream.Streams, path: String): Union2<
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun writeStr__Str_Str(fs: Fs, streams: salvo.stream.Streams, path: String, content: String): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+fun writeStr(fs: Fs, streams: salvo.stream.Streams, path: Path, content: String): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     val opened = fs.openWrite(path)
     if (opened is Union2.U2<*, *>) {
         return Union2.U2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
@@ -310,7 +309,7 @@ fun writeStr__Str_Str(fs: Fs, streams: salvo.stream.Streams, path: String, conte
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun readToBytes__Str(fs: Fs, streams: salvo.stream.Streams, path: String): Union2<salvo.platform.core.bytes.Bytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+fun readToBytes(fs: Fs, streams: salvo.stream.Streams, path: Path): Union2<salvo.platform.core.bytes.Bytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     val opened = fs.openRead(path)
     if (opened is Union2.U2<*, *>) {
         return Union2.U2<salvo.platform.core.bytes.Bytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
@@ -334,7 +333,7 @@ fun readToBytes__Str(fs: Fs, streams: salvo.stream.Streams, path: String): Union
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun writeBytesTo__Str_Bytes(fs: Fs, streams: salvo.stream.Streams, path: String, data: salvo.platform.core.bytes.Bytes): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+fun writeBytesTo(fs: Fs, streams: salvo.stream.Streams, path: Path, data: salvo.platform.core.bytes.Bytes): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     val opened = fs.openWrite(path)
     if (opened is Union2.U2<*, *>) {
         return Union2.U2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
@@ -349,7 +348,7 @@ fun writeBytesTo__Str_Bytes(fs: Fs, streams: salvo.stream.Streams, path: String,
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun copyFile__Str_Str(fs: Fs, streams: salvo.stream.Streams, from: String, to: String): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
+fun copyFile(fs: Fs, streams: salvo.stream.Streams, from: Path, to: Path): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
     val opened = fs.openRead(from)
     if (opened is Union2.U2<*, *>) {
         return Union2.U2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>))
@@ -386,76 +385,4 @@ fun copyFile__Str_Str(fs: Fs, streams: salvo.stream.Streams, from: String, to: S
         return Union2.U2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(fsStreamError((shutS.value as Checked<Union2<InvalidUtf8, StreamFailed>>))))
     }
     return Union2.U1<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok((moved.value as Long)))
-}
-
-fun openRead(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.openRead(toStr__fs_path(p))
-}
-
-fun openReadAt(fs: Fs, streams: salvo.stream.Streams, p: Path, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.openReadAt(toStr__fs_path(p), offset)
-}
-
-fun openWrite(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.openWrite(toStr__fs_path(p))
-}
-
-fun openAppend(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.openAppend(toStr__fs_path(p))
-}
-
-fun exists(fs: Fs, streams: salvo.stream.Streams, p: Path): Boolean {
-    return fs.exists(toStr__fs_path(p))
-}
-
-fun metadata(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.metadata(toStr__fs_path(p))
-}
-
-fun listDir(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.listDir(toStr__fs_path(p))
-}
-
-fun createDirs(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.createDirs(toStr__fs_path(p))
-}
-
-fun delete(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.delete(toStr__fs_path(p))
-}
-
-fun openLines__Path(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<Lines, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return openLines__Str(fs, streams, toStr__fs_path(p))
-}
-
-fun openChunks__Path_Int(fs: Fs, streams: salvo.stream.Streams, p: Path, size: Int): Union2<Chunks, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return openChunks__Str_Int(fs, streams, toStr__fs_path(p), size)
-}
-
-fun readToStr__Path(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<String, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return readToStr__Str(fs, streams, toStr__fs_path(p))
-}
-
-fun readLines__Path(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return readLines__Str(fs, streams, toStr__fs_path(p))
-}
-
-fun writeStr__Path_Str(fs: Fs, streams: salvo.stream.Streams, p: Path, content: String): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return writeStr__Str_Str(fs, streams, toStr__fs_path(p), content)
-}
-
-fun readToBytes__Path(fs: Fs, streams: salvo.stream.Streams, p: Path): Union2<salvo.platform.core.bytes.Bytes, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return readToBytes__Str(fs, streams, toStr__fs_path(p))
-}
-
-fun writeBytesTo__Path_Bytes(fs: Fs, streams: salvo.stream.Streams, p: Path, data: salvo.platform.core.bytes.Bytes): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return writeBytesTo__Str_Bytes(fs, streams, toStr__fs_path(p), data)
-}
-
-fun renamePath(fs: Fs, streams: salvo.stream.Streams, from: Path, to: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return fs.renamePath(toStr__fs_path(from), toStr__fs_path(to))
-}
-
-fun copyFile__Path_Path(fs: Fs, streams: salvo.stream.Streams, from: Path, to: Path): Union2<Long, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-    return copyFile__Str_Str(fs, streams, toStr__fs_path(from), toStr__fs_path(to))
 }

@@ -156,7 +156,7 @@ noremote struct Canvas { surface: GpuSurface }    // process-local: no wire form
 struct Frame { title: Str, canvas: Canvas }       // therefore none either — transitively
 ```
 
-`encode(value)` answers the bytes and `decode<Point>(data)` reads them back (`None` when the bytes are not a well-formed `Point`); both are refused at the call for a type with no wire form, naming the field or declaration that stops it. std's process-local handles — `Pool`, the file streams — are `noremote` by declaration; a function value and a `proj` view are, by construction. Keyed containers (`Set`, `Map`) have no wire form yet: send a `List` of the entries.
+`encode(value)` answers the bytes and `decode<Point>(data)` reads them back (both from `import codec`) (`None` when the bytes are not a well-formed `Point`); both are refused at the call for a type with no wire form, naming the field or declaration that stops it. std's process-local handles — `Pool`, the file streams — are `noremote` by declaration; a function value and a `proj` view are, by construction. Keyed containers (`Set`, `Map`) have no wire form yet: send a `List` of the entries.
 
 Every actor protocol whose payloads all have a wire form also has a **canonical hash** — over its members' shape, with structs expanded to their fields, so a renamed struct is the same protocol and a reordered field is not. Two nodes may talk on a protocol exactly when their hashes agree, and that is settled when the nodes meet, never at decode: an exhaustive `when` has no arm for a message it has never heard of, so the language cannot decode leniently and refuses early instead.
 

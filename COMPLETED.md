@@ -162,8 +162,15 @@ invariant).
 - Go-to-definition on fields already worked, chains included (new test); the
   TODO's line has two typos (`out_strema`, `md`), which is why it did not
   resolve there.
-Waiting on the user: moving `encode`/`decode` out of `net`, and `Fs` taking
-only `Path`.
+Then, on the user's answers: `encode`/`decode` moved from `net` to a
+top-level `codec` module (`std/codec.sv`; `net` imports it), and `fs` takes
+paths only as `Path`s — `Fs`'s members, the one-shots, `MemFs` and
+`RestrictedFs(root: Path)`; the `Str` overloads and the forwarding block
+went. `RawFs` (the host boundary) and the `FsError` structs keep text. Swept:
+std's tests, `examples/files`, `examples/aws_s3`, the Files and Testing
+pages, and the inline programs of the codegen, analyze and run tests. A local
+named `path` shadows the `path` fn, so a few test programs build theirs as
+`Path { text: … }`.
 
 **Most actor and net intrinsics as Salvo; `Addr`/`Reply`/`Pool` stay
 intrinsic (2026-10-05, user decisions, ROADMAP 0.2 and 0.3).** Started on 0.3
