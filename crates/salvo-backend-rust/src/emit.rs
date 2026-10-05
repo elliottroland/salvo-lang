@@ -15596,20 +15596,15 @@ impl<'p> Emitter<'p> {
             self.symbols.fns_matching_arity(name, args.len())
         };
         if !fn_cands.is_empty() {
-            let Some(f) = disambiguate_unchecked(self, &fn_cands, |f| f.params.as_slice(), args)
-            else {
-                self.error(format!(
-                    "call to `{name}` is ambiguous here: multiple same-arity \
-                     overloads match and the checker did not resolve the \
-                     overload; annotate the argument types"
-                ));
-                return "todo!()".to_string();
-            };
-            if f.intrinsic {
-                return self.emit_intrinsic_call(f, args, span);
-            }
-            let key = self.key_of_fn(f);
-            return self.emit_fn_call(name, f, key, args, named, span);
+            // [call-resolve] The checker resolves every call to a declared fn;
+            // an unresolved one reaching here is a compiler defect, reported
+            // rather than guessed at by argument shapes (the old by-shape
+            // fallback was never reached by the suite; removed 2026-10-05,
+            // ROADMAP §0j step 4).
+            self.error(format!(
+                "internal: the checker did not resolve the call to `{name}`"
+            ));
+            return "todo!()".to_string();
         }
 
         // 4. Local callable / interop. A call through a fn-typed value
@@ -18152,44 +18147,6 @@ fn is_fn_group(ty: &Type) -> bool {
 
 fn recv_name(decl: &FnDecl) -> Option<&str> {
     decl.params.first().and_then(|p| type_base_name(&p.ty))
-}
-
-/// Narrows same-arity unchecked-call candidates by comparing the checked
-/// argument types' base names against the declared parameter types.
-/// `None` unless exactly one candidate survives — ambiguous dispatch must
-/// error, never guess [backend-never-wrong].
-fn disambiguate_unchecked<'p, T: Copy>(
-    em: &Emitter<'p>,
-    candidates: &[T],
-    params: impl Fn(T) -> &'p [Param],
-    args: &[&Expr],
-) -> Option<T> {
-    if candidates.len() == 1 {
-        return Some(candidates[0]);
-    }
-    let survivors: Vec<T> = candidates
-        .iter()
-        .copied()
-        .filter(|c| {
-            params(*c).iter().zip(args).all(|(p, a)| {
-                let Some(pb) = type_base_name(&p.ty) else {
-                    return true;
-                };
-                let Some(at) = em.ty_of(a.span()) else {
-                    return true;
-                };
-                match ty_base_name(at) {
-                    Some(ab) => pb == ab,
-                    None => true,
-                }
-            })
-        })
-        .collect();
-    if survivors.len() == 1 {
-        Some(survivors[0])
-    } else {
-        None
-    }
 }
 
 /// Whether an AST type carries the `Mut` qualifier [rs-borrows].

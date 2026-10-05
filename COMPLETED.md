@@ -141,6 +141,16 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, step 4: no call is resolved by shape (2026-10-05,
+ROADMAP §0j).** Both emitters had a third rung for a call the checker had not
+resolved: pick among same-arity fns by comparing argument base names
+(`disambiguate_unchecked`). A probe over the whole suite showed it was never
+reached, so it is now an internal error naming the call [call-resolve] —
+the checker sees every call, and a gap is a defect to report rather than a
+guess. The walkers step 4 also listed are already one copy (step 3), and
+`handler_dep_effects` renders declared types rather than resolving them, so
+they stay.
+
 **Shrinking the backends, step 3: shared emission machinery (2026-10-05,
 ROADMAP §0j).** About 1,800 lines left the two emitters for 900 in
 `salvo-backend`:

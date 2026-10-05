@@ -125,11 +125,15 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    (`in_abi` against `abi_modules_or_project`) and should be one rule;
    `effect_param_name`/`disambiguate_unchecked` (near-identical; the second
    goes in step 4).
-4. **Small core facts:** mutated bindings, names declared per block, the plan
-   for each `is` condition (bindings, temps, escape), block termination;
-   overload resolution made total so `disambiguate_unchecked` (both
-   backends) goes; `Checked::use_deps`/`use_with_items` consumed instead of
-   both `handler_dep_effects` re-resolving.
+4. ✅ **Small core facts** (2026-10-05, COMPLETED.md): overload resolution is
+   total, so the emitters' by-shape fallback is gone. Examined and left: the
+   mutated/declared/`is`-binding walkers are one copy in `salvo-backend` since
+   step 3, which removed the duplication a core table would have; and
+   `handler_dep_effects` *renders* the declaration's dependency list rather
+   than re-resolving it, so `Checked::use_deps` matters only for a generic
+   dependency, which both backends refuse. Still small and open: one
+   termination predicate (Rust `block_terminates`, Kotlin
+   `block_returns_early`).
 5. **Runtime files and intrinsics to std.** `hosttime`, `hoststreams`,
    Kotlin's `bytes.kt`, Rust's `strings.rs` (float text) and `seq.rs` become
    std/platform host files; `epoch_nanos` becomes a platform fn (§0 item 2).
