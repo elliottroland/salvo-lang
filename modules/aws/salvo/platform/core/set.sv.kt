@@ -9,9 +9,45 @@ import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
 import salvo.core.list.at
+import salvo.core.string.appendPlatform
+import salvo.core.string.mutStr
+
+fun<T> addPlatform(set: salvo.platform.core.set.MutSet<T>, elem: T): Boolean {
+    return salvo.platform.core.set.add(set, elem)
+}
+
+fun<T> removePlatform(set: salvo.platform.core.set.MutSet<T>, elem: T): Boolean {
+    return salvo.platform.core.set.remove(set, elem)
+}
+
+fun<T> containsPlatform(set: Set<T>, elem: T): Boolean {
+    return salvo.platform.core.set.contains(set, elem)
+}
+
+fun<T> sizePlatform(set: Set<T>): Int {
+    return salvo.platform.core.set.size(set)
+}
+
+fun<T> toStr(set: Set<T>, toStr: (T) -> String): String {
+    val out = mutStr(arrayOf("{"))
+    var i = 0
+    for (x in salvo.platform.core.set.each(set)) {
+        if (i > 0) {
+            appendPlatform(out, ", ")
+        }
+        appendPlatform(out, toStr(x))
+        i = i + 1
+    }
+    appendPlatform(out, "}")
+    return out.toString()
+}
+
+fun<T> toListPlatform(set: Set<T>): List<T> {
+    return salvo.platform.core.set.toList(set)
+}
 
 fun<T> iter(set: Set<T>): SetYield<T> {
-    return SetYield(items = set.toMutableList(), at = 0)
+    return SetYield(items = toListPlatform(set), at = 0)
 }
 
 data class SetYield<T>(
@@ -37,5 +73,5 @@ fun<T> next(p: SetYield<T>): Union2<T, Finished> {
 }
 
 fun<T> NonEmpty_qualifies(set: Set<T>): Boolean {
-    return set.size > 0
+    return sizePlatform(set) > 0
 }

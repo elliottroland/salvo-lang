@@ -3,7 +3,7 @@ package salvo.main
 import salvo.*
 import salvo.core.console.Console
 import salvo.core.console.println
-import salvo.core.list.addPlatform
+import salvo.core.list.addPlatform as addPlatform__core_list
 import salvo.core.list.addSorted
 import salvo.core.list.at
 import salvo.core.list.binarySearch
@@ -12,11 +12,15 @@ import salvo.core.list.listBy
 import salvo.core.list.mutSort
 import salvo.core.list.sizePlatform as sizePlatform__core_list
 import salvo.core.list.sort
-import salvo.core.list.toStr
+import salvo.core.list.toStr as toStr__core_list
 import salvo.core.map.iter as iter__core_map
 import salvo.core.map.next as next__core_map
+import salvo.core.set.addPlatform as addPlatform__core_set
 import salvo.core.set.iter as iter__core_set
 import salvo.core.set.next as next__core_set
+import salvo.core.set.sizePlatform as sizePlatform__core_set
+import salvo.core.set.toListPlatform
+import salvo.core.set.toStr as toStr__core_set
 import salvo.core.string.sizePlatform as sizePlatform__core_string
 
 data class Point(
@@ -57,14 +61,14 @@ fun main() {
     val primes = listOf<Int>(2, 3, 5, 7)
     val vowels = linkedSetOf<String>("a", "e", "i", "o", "u")
     val ages = linkedMapOf<String, Int>(("ada" to 36), ("grace" to 45))
-    println(console, "1. list ${toStr(primes, { __i0 -> (__i0).toString() })}")
-    println(console, "1. set ${vowels.joinToString(", ", "{", "}")} of ${vowels.size}")
+    println(console, "1. list ${toStr__core_list(primes, { __i0 -> (__i0).toString() })}")
+    println(console, "1. set ${toStr__core_set(vowels, { __i0 -> __i0 })} of ${sizePlatform__core_set(vowels)}")
     println(console, "1. map ${ages.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
     val note: Note = Note(text = "still a struct literal")
     println(console, "1. struct ${note.text}")
-    val seen: MutableSet<String> = linkedSetOf<String>()
-    seen.add("first")
-    println(console, "1. empty then filled ${seen.joinToString(", ", "{", "}")}")
+    val seen: salvo.platform.core.set.MutSet<String> = linkedSetOf<String>()
+    addPlatform__core_set(seen, "first")
+    println(console, "1. empty then filled ${toStr__core_set(seen, { __i0 -> __i0 })}")
     val tally: MutableMap<String, Int> = linkedMapOf<String, Int>().also { __m -> __m.putAll(listOf(Pair("pear", 1), Pair("apple", 2))) }
     tally.put("fig", 3)
     tally.put("pear", 99)
@@ -75,10 +79,10 @@ fun main() {
     if (smallest != null) {
         println(console, "2. min is cheap here $smallest")
     }
-    val corners: MutableSet<Point> = linkedSetOf<Point>()
-    corners.add(Point(x = 0, y = 0))
-    val again = corners.add(Point(x = 0, y = 0))
-    println(console, "3. struct key: size ${corners.size}, second add $again")
+    val corners: salvo.platform.core.set.MutSet<Point> = linkedSetOf<Point>()
+    addPlatform__core_set(corners, Point(x = 0, y = 0))
+    val again = addPlatform__core_set(corners, Point(x = 0, y = 0))
+    println(console, "3. struct key: size ${sizePlatform__core_set(corners)}, second add $again")
     val labels: MutableMap<Point, String> = linkedMapOf<Point, String>()
     labels.put(Point(x = 1, y = 1), "diagonal")
     val found = labels[Point(x = 1, y = 1)]
@@ -96,19 +100,19 @@ fun main() {
     val notesEqual = eq__Note_Note(n1, n2)
     println(console, "4. plain struct equality $notesEqual")
     val squares = listBy(4, { i -> i * i })
-    println(console, "5. generated ${toStr(squares, { __i0 -> (__i0).toString() })}")
+    println(console, "5. generated ${toStr__core_list(squares, { __i0 -> (__i0).toString() })}")
     val deduped = linkedSetOf<Int>().also { __s -> __s.addAll(primes) }
-    println(console, "5. to_set ${deduped.joinToString(", ", "{", "}")}")
+    println(console, "5. to_set ${toStr__core_set(deduped, { __i0 -> (__i0).toString() })}")
     val words = listOf<String>("alpha", "be")
     val lengths = linkedMapOf<String, Int>().also { __m -> words.map({ w -> Pair(w, sizePlatform__core_string(w)) }).forEach { __e -> __m.put(__e.first, __e.second) } }
     println(console, "5. to_map with a rule ${lengths.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
     val filled = listOf<String>("ada", "grace")
     println(console, "6. first is ${first(filled)}, no optional")
     val growing: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
-    addPlatform(growing, 7)
+    addPlatform__core_list(growing, 7)
     println(console, "6. after add, first is ${first(growing)}")
     val ordered = sort(listOf<Int>(40, 10, 30, 20), { __i0, __i1 -> (__i0).compareTo(__i1) })
-    println(console, "6. sorted ${toStr(ordered, { __i0 -> (__i0).toString() })}")
+    println(console, "6. sorted ${toStr__core_list(ordered, { __i0 -> (__i0).toString() })}")
     var __is1 = binarySearch(ordered, 30, { __i0, __i1 -> (__i0).compareTo(__i1) })
     if (__is1 != null) {
         val at = __is1 as Int
@@ -117,16 +121,16 @@ fun main() {
     val live: salvo.platform.core.list.MutList<Int> = mutSort(listOf<Int>(10, 30), { __i0, __i1 -> (__i0).compareTo(__i1) })
     addSorted(live, 20, { __i0, __i1 -> (__i0).compareTo(__i1) })
     addSorted(live, 5, { __i0, __i1 -> (__i0).compareTo(__i1) })
-    println(console, "6. still sorted ${toStr(live, { __i0 -> (__i0).toString() })}")
+    println(console, "6. still sorted ${toStr__core_list(live, { __i0 -> (__i0).toString() })}")
     val bylen = sort(listOf<String>("alpha", "be", "z"), ::byLen)
-    println(console, "6. by length ${toStr(bylen, { __i0 -> __i0 })}")
+    println(console, "6. by length ${toStr__core_list(bylen, { __i0 -> __i0 })}")
     var __is2 = binarySearch(bylen, "hi", ::byLen)
     if (__is2 != null) {
         val atLen = __is2 as Int
         println(console, "6. a two-letter word at $atLen")
     }
-    val unique = deduped.toMutableList()
-    println(console, "6. distinct ${toStr(unique, { __i0 -> (__i0).toString() })} of ${countUnique(unique)}")
+    val unique = toListPlatform(deduped)
+    println(console, "6. distinct ${toStr__core_list(unique, { __i0 -> (__i0).toString() })} of ${countUnique(unique)}")
     var __loop1_pass = iter__core_set(vowels)
     while (true) {
         val __loop1_step = next__core_set(__loop1_pass)

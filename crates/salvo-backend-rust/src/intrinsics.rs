@@ -409,27 +409,11 @@ pub fn fn_call(
         ("set_of", Some("[]")) | ("mut_set_of", Some("[]")) => {
             set_ctor(format!("vec![{}]", args.join(", ")))
         }
-        // The element is *moved* in, so it is spliced owned; `contains` and
-        // `remove` only read theirs, so those borrow [rs-borrows].
-        ("add", Some("Set")) => format!("{}.insert({})", a(0), a(1)),
-        ("remove", Some("Set")) => format!("{}.remove(&{})", a(0), a(1)),
-        ("contains", Some("Set")) => format!("{}.contains(&{})", a(0), a(1)),
-        ("size", Some("Set")) => format!("({}.len() as i32)", a(0)),
-        // [col-insertion-order] The runtime type's `iter` is insertion
-        // order, so the list is that order. Cloned: the set keeps its
-        // elements, the list gets its own.
-        ("to_list", Some("Set")) => {
-            format!("{}.iter().cloned().collect::<Vec<_>>()", a(0))
-        }
         // [col-key-eligible] An owned read of a snapshot element — a clone
         // here, where Kotlin can share the reference.
         ("snapshot_at", Some("List")) => {
             format!("{}.get({}).cloned()", a(0), index(1))
         }
-        // [col-to-str] `{1, 2, 3}`, insertion-ordered — the runtime type's
-        // `Display` is the language's format, so both backends agree
-        // [backend-parity].
-        ("to_str", Some("Set")) => format!("{}.to_string()", a(0)),
 
         // core.sorted ----------------------------------------------------
         // [col-sorted] `BTreeSet`/`BTreeMap` keep their keys in order, and

@@ -18,7 +18,7 @@
 //
 // Own module rather than part of `core.list` so a program that never uses a
 // set emits no code for it [mod-used-only].
-export intrinsic type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut
+export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut : Iter<self, T>
 
 // Constructor. The elements are stored in the new set, so they are moved: a
 // variadic tail is owned, and needs no entry in the clause [deduce-syntax].
@@ -48,26 +48,37 @@ export intrinsic fn to_set<T>(list: List<T>, ?Hashed<T>) [] -> Set<T>(?hash, ?eq
 // takes ownership of [elem], so it is moved; the set itself is mutated,
 // which is why its surviving qualifiers are listed exhaustively
 // [deduce-syntax].
-export intrinsic fn add<T>(set: Mut Set<T>, elem: T) [] -> Bool => set: Mut, !elem
+export platform fn add<T>(set: Mut Set<T>, elem: T) [] -> Bool => set: Mut, !elem
 
 // Removes an element, reporting whether it was there. [elem] is only read —
 // hashed and compared — so it is kept, not moved: removing by a value you
 // still hold is the normal case. The surviving elements keep their order
 // [col-insertion-order].
-export intrinsic fn remove<T>(set: Mut Set<T>, elem: T) [] -> Bool => set: Mut, elem
+export platform fn remove<T>(set: Mut Set<T>, elem: T) [] -> Bool => set: Mut, elem
 
 // Whether the set holds an element equal to [elem].
-export intrinsic fn contains<T>(set: Set<T>, elem: T) [] -> Bool => set, elem
+export platform fn contains<T>(set: Set<T>, elem: T) [] -> Bool => set, elem
 
 // Returns the number of elements in the set
-export intrinsic fn size<T>(set: Set<T>) [] -> Int => set
+export platform fn size<T>(set: Set<T>) [] -> Int => set
 
 // The text form of a set, for string interpolation [interp-to-str]:
 // `{1, 2, 3}` in insertion order — the set *literal* that would build it,
-// which is the same shape `to_str` of a list follows [col-to-str]. An
-// `intrinsic` rather than Salvo code because rendering the *elements* is
-// the backend's own formatting.
-export intrinsic fn to_str<T>(set: Set<T>) [] -> Str => set
+// which is the same shape `to_str` of a list follows [col-to-str]. Each
+// element renders by its own `to_str` [platform-value-type].
+export fn to_str<T>(set: Set<T>, ?to_str: (x: T) -> Str) [] -> Str => set {
+    let out = mut_str("{")
+    let i = 0
+    for x in set {
+        if i > 0 {
+            append(out, ", ")
+        }
+        append(out, to_str(x))
+        i = i + 1
+    }
+    append(out, "}")
+    return out
+}
 
 
 // [col-distinct] The claim that a list holds no duplicates. Mint-only: there
@@ -85,7 +96,7 @@ export qualifier Distinct<T> of List<T> with NonEmpty, Sorted
 // [col-insertion-order] The elements as a list, in insertion order — which
 // is also what makes a set iterable, below. A set holds no duplicates, so
 // neither does the list [col-distinct].
-export intrinsic fn to_list<T>(set: Set<T>) [] -> +Distinct List<T> => set
+export platform fn to_list<T>(set: Set<T>) [] -> +Distinct List<T> => set
 
 // Reads an element **owned** out of a snapshot the iterator owns.
 //

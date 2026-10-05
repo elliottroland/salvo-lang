@@ -82,7 +82,13 @@ and the `test actor` follow-ups recorded below:
    `Str`, `Deque` and `List` too (types still render natively, which the host
    types alias; `list_of`/`mut_list_of` stay intrinsic because literals and
    spreads lower through them), all four `iterable` [platform-iterable], so
-   `Set`/`Map` declare the same and keep their native loops. Next `Set`, `Map` and the sorted pair, whose identity
+   `Set`/`Map` declare the same and keep their native loops. `Set` is built
+   too (2026-10-05, [platform-slots]): its operations are host code, its
+   constructors still intrinsic — to make them platform fns, a std platform
+   fn has to be able to *keep* the identity fns it is given (today a fn value
+   crossing the boundary is lent for the call [platform-fn-value], kept only
+   by the runtime's own platform fns), and Rust's marker types, which give
+   static dispatch, would become values. Next `Map` and the sorted pair, whose identity
    slots (`Set<T>(?hash, ?eq)`) a platform type is to be allowed to declare,
    the host receiving the functions at construction (user decision
    2026-10-04, option (a)). Lost with `List`: printing a nested list, which

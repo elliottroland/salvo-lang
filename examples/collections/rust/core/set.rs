@@ -4,9 +4,50 @@ use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
 use crate::core_list::at;
+use crate::core_string::mut_str;
+
+/// [platform-type] The host's `Set`.
+pub use crate::platform_core_set::Set;
+const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<Set<i32>>(); };
+const _: fn() = || { fn __each(x: &Set<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_set::each(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &Set<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_set::each(x) } fn __each_mut(x: &mut Set<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_set::each_mut(x) } fn __into_each(x: Set<i32>) -> impl Iterator<Item = i32> { crate::platform_core_set::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
+
+pub fn add_platform<T: Clone>(set: &mut SalvoSet<T>, elem: T) -> bool {
+    crate::platform_core_set::add(set, elem)
+}
+
+pub fn remove_platform<T: Clone>(set: &mut SalvoSet<T>, elem: &T) -> bool {
+    crate::platform_core_set::remove(set, elem)
+}
+
+pub fn contains_platform<T: Clone>(set: &SalvoSet<T>, elem: &T) -> bool {
+    crate::platform_core_set::contains(set, elem)
+}
+
+pub fn size_platform<T: Clone>(set: &SalvoSet<T>) -> i32 {
+    crate::platform_core_set::size(set)
+}
+
+pub fn to_str<T: Clone>(set: &SalvoSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+    let mut out = mut_str(vec!["{".to_string()]);
+    let mut i = 0;
+    for mut x in crate::platform_core_set::each(set).map(|__x| __x.clone()) {
+        if i > 0 {
+            crate::core_string::append_platform(&mut out, &(", ".to_string()));
+        }
+        crate::core_string::append_platform(&mut out, &(to_str(&x)));
+        i = i + 1;
+    }
+    crate::core_string::append_platform(&mut out, &("}".to_string()));
+    return out;
+}
+
+pub fn to_list_platform<T: Clone>(set: &SalvoSet<T>) -> Vec<T> {
+    crate::platform_core_set::to_list(set)
+}
 
 pub fn iter<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
-    return SetYield { items: set.iter().cloned().collect::<Vec<_>>(), at: 0 };
+    return SetYield { items: to_list_platform(set), at: 0 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -38,5 +79,5 @@ pub fn next<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
 }
 
 pub fn NonEmpty__Set_qualifies<T: Clone>(set: &SalvoSet<T>) -> bool {
-    return (set.len() as i32) > 0;
+    return size_platform(set) > 0;
 }

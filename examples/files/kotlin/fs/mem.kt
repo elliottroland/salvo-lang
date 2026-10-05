@@ -15,6 +15,8 @@ import salvo.core.list.at
 import salvo.core.list.sort
 import salvo.core.result.err
 import salvo.core.result.ok
+import salvo.core.set.addPlatform
+import salvo.core.set.toListPlatform
 import salvo.core.sorted.max
 import salvo.core.string.appendPlatform as appendPlatform__core_string
 import salvo.core.string.byteSizePlatform
@@ -157,7 +159,7 @@ class MemFs : Fs, salvo.stream.Streams {
         if (!fsHasChildren(files, path)) {
             return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
         }
-        val names: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
+        val names: salvo.platform.core.set.MutSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
         val prefix = "$path/"
         for (key in files.keys) {
             if (startsWithPlatform(key, prefix)) {
@@ -170,10 +172,10 @@ class MemFs : Fs, salvo.stream.Streams {
                         name = head
                     }
                 }
-                names.add(name)
+                addPlatform(names, name)
             }
         }
-        val sorted: List<String> = sort(names.toMutableList(), { __i0, __i1 -> salvo.__salvoCompare(__i0, __i1) })
+        val sorted: List<String> = sort(toListPlatform(names), { __i0, __i1 -> salvo.__salvoCompare(__i0, __i1) })
         return Union2.U1<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(sorted))
     }
 

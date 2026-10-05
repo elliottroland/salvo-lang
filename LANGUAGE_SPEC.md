@@ -8562,7 +8562,7 @@ replaced the working document TESTING.md).
     (deep), `Debug`, `PartialEq`, `Eq` and `Hash`, so a struct holding one
     still derives. A value type keeps its canonical wire form where the
     encoding defines one [wire-format] (`Bytes`); otherwise it is `noremote`.
-    `Bytes`, `Str`, `Deque` and `List` are built; `Set`, `Map` and the sorted
+    `Bytes`, `Str`, `Deque`, `List` and `Set` are built; `Map` and the sorted
     pair follow. `list_of`/`mut_list_of` stay intrinsic, since literals and
     spreads lower through them.
     For the collections (user decisions 2026-10-04): **std's own platform
@@ -8604,7 +8604,16 @@ replaced the working document TESTING.md).
     the wire predicate says so for a struct holding one — and
     sendable [actor-sendable] (Rust: `Send + 'static`), so a handle may sit
     in actor state or travel in a local message.
-  * **Refused**: slots, an obligation clause other than `: Iter<self, T>`
+  * [platform-slots] **Identity slots** are allowed on a copyable platform
+    type (user decision 2026-10-04): `platform type Set<T>(?hash: (T) -> Long,
+    ?eq: (T, T) -> Bool)`, part of the type as on any type declaration
+    [cmp-carry]. The value carries its identities, and the host type is what
+    keeps them (`SalvoSet`/`SalvoHashSet`). A value type with slots promises
+    no `Hash` on Rust, since it is not a key [col-key-eligible]. `linear`
+    refuses slots. The constructors that *fill* the slots (`set_of`, `set_by`,
+    `to_set`, literals) stay intrinsic for now, since the emitters choose a
+    marker type or a value per identity there (ROADMAP 0.7).
+  * **Refused**: an obligation clause other than `: Iter<self, T>`
     (`by auto` has no fields; comparisons are platform fns), an alias.
   * [platform-generic] **Type parameters are opaque to the host** (2026-10-02,
     runtime E1): `platform type Cell<T canbe linear>` and `platform fn

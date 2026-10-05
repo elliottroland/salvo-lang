@@ -33,6 +33,8 @@ pub mod throw;
 pub mod platform_core_console;
 #[path = "platform/core/list.rs"]
 pub mod platform_core_list;
+#[path = "platform/core/set.rs"]
+pub mod platform_core_set;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 

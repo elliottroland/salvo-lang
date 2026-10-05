@@ -592,9 +592,45 @@ import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
 import salvo.core.list.at
+import salvo.core.string.appendPlatform
+import salvo.core.string.mutStr
+
+fun<T> addPlatform(set: salvo.platform.core.set.MutSet<T>, elem: T): Boolean {
+    return salvo.platform.core.set.add(set, elem)
+}
+
+fun<T> removePlatform(set: salvo.platform.core.set.MutSet<T>, elem: T): Boolean {
+    return salvo.platform.core.set.remove(set, elem)
+}
+
+fun<T> containsPlatform(set: Set<T>, elem: T): Boolean {
+    return salvo.platform.core.set.contains(set, elem)
+}
+
+fun<T> sizePlatform(set: Set<T>): Int {
+    return salvo.platform.core.set.size(set)
+}
+
+fun<T> toStr(set: Set<T>, toStr: (T) -> String): String {
+    val out = mutStr(arrayOf("{"))
+    var i = 0
+    for (x in salvo.platform.core.set.each(set)) {
+        if (i > 0) {
+            appendPlatform(out, ", ")
+        }
+        appendPlatform(out, toStr(x))
+        i = i + 1
+    }
+    appendPlatform(out, "}")
+    return out.toString()
+}
+
+fun<T> toListPlatform(set: Set<T>): List<T> {
+    return salvo.platform.core.set.toList(set)
+}
 
 fun<T> iter(set: Set<T>): SetYield<T> {
-    return SetYield(items = set.toMutableList(), at = 0)
+    return SetYield(items = toListPlatform(set), at = 0)
 }
 
 data class SetYield<T>(
@@ -620,7 +656,7 @@ fun<T> next(p: SetYield<T>): Union2<T, Finished> {
 }
 
 fun<T> NonEmpty_qualifies(set: Set<T>): Boolean {
-    return set.size > 0
+    return sizePlatform(set) > 0
 }
 
 // ===== core/sorted.kt =====
@@ -1560,6 +1596,30 @@ fun <T> insertSortedBy(list: MutList<T>, elem: T, cmp: (T, T) -> Int) {
 
 fun <T> searchSortedBy(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? =
     list.indexOfFirst { cmp(it, elem) >= 0 }.let { if (it >= 0 && cmp(list[it], elem) == 0) it else null }
+
+// ===== platform/core/set.kt =====
+// [platform-value-type] std's set, for `core.set`'s `platform type Set<T>(?hash,
+// ?eq) canbe Mut` (ROADMAP 0.7): Kotlin's insertion-ordered sets — a
+// `LinkedHashSet`, or the runtime's `SalvoHashSet` when the type names its
+// identities [platform-slots].
+package salvo.platform.core.set
+
+typealias Set<T> = kotlin.collections.Set<T>
+typealias MutSet<T> = kotlin.collections.MutableSet<T>
+
+// [platform-iterable] The host's loop over a set: the set itself.
+fun <T> each(set: Set<T>): Iterable<T> = set
+
+fun <T> add(set: MutSet<T>, elem: T): Boolean = set.add(elem)
+
+fun <T> remove(set: MutSet<T>, elem: T): Boolean = set.remove(elem)
+
+fun <T> contains(set: Set<T>, elem: T): Boolean = set.contains(elem)
+
+fun <T> size(set: Set<T>): Int = set.size
+
+// In insertion order [col-insertion-order].
+fun <T> toList(set: Set<T>): MutableList<T> = set.toMutableList()
 
 // ===== platform/core/string.kt =====
 // [platform-value-type] std's string, for `core.string`'s

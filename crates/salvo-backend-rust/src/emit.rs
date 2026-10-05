@@ -4170,7 +4170,12 @@ impl<'p> Emitter<'p> {
         // [platform-value-type] A value type is printed, compared and hashed
         // as part of the structs holding it, and copied deeply by `Clone`.
         if !t.linear && t.auto_qualifiers.iter().any(|q| q.name.name == "Mut") {
-            bounds.extend(["std::fmt::Debug", "PartialEq", "Eq", "std::hash::Hash"]);
+            bounds.extend(["std::fmt::Debug", "PartialEq", "Eq"]);
+            // [platform-slots] A container keyed by identities is not itself a
+            // key [col-key-eligible], so it promises no `Hash`.
+            if t.fn_slots.is_empty() {
+                bounds.push("std::hash::Hash");
+            }
         }
         if t.threadsafe {
             bounds.push("Sync");

@@ -135,6 +135,19 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`Set` as a value platform type (2026-10-05, ROADMAP 0.7).** The first
+platform type with identity slots [platform-slots]: `iterable platform type
+Set<T>(?hash, ?eq) canbe Mut : Iter<self, T>`, over the runtime containers
+that already carry their identities (`SalvoSet` on Rust, `LinkedHashSet` or
+`SalvoHashSet` on Kotlin), which the host files alias. `add`, `remove`,
+`contains`, `size` and `to_list` are platform fns, `to_str` Salvo over
+`?to_str`; 6 lowerings per backend went. The constructors stay intrinsic
+(ROADMAP 0.7 says why). What fell out: the Rust value-type contract asked
+`Hash` of a set, which has none and needs none; and `for x in set` on Rust,
+broken since 2026-10-05's [platform-iterable] (`SalvoSet` is not an
+iterator), works again through the host's `each`. A set's `each_mut` is
+`unreachable!`: its elements are keys.
+
 **A shared, compiled Kotlin std (2026-10-05, user decisions).** With names
 per module, 22 of 26 shared Kotlin std files were already byte-identical
 across six examples; what still varied was the union file (every arity the

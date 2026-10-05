@@ -1265,7 +1265,7 @@ impl GossipNodeGroup {
                     introduce(&(id.clone()), &(vec![event.as_ref().unwrap().u1().clone().at.clone()]));
                 }
                 introduce(&(event.as_ref().unwrap().u1().clone().node.clone()), &others);
-                self.dialed.insert(to_str__NodeEndpoint(&event.as_ref().unwrap().u1().clone().at));
+                crate::core_set::add_platform(&mut self.dialed, to_str__NodeEndpoint(&event.as_ref().unwrap().u1().clone().at));
                 let mut n = Node { id: event.as_ref().unwrap().u1().clone().node.clone(), at: event.as_ref().unwrap().u1().clone().at.clone() };
                 self.known.insert(event.as_ref().unwrap().u1().clone().node.clone(), n.clone());
                 for w in crate::platform_core_list::each(&self.watchers) {
@@ -1375,13 +1375,13 @@ fn __decode_msg_GossipNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::sc
 }
 
 pub fn dial(transport: &crate::net::Transport, dialed: &mut SalvoSet<String>, group: &String, e: NodeEndpoint) {
-    if eq__NodeEndpoint_NodeEndpoint(&e, &(transport.local_endpoint())) || dialed.contains(&to_str__NodeEndpoint(&e)) {
+    if eq__NodeEndpoint_NodeEndpoint(&e, &(transport.local_endpoint())) || crate::core_set::contains_platform(dialed, &(to_str__NodeEndpoint(&e))) {
         return;
     }
-    dialed.insert(to_str__NodeEndpoint(&e));
+    crate::core_set::add_platform(dialed, to_str__NodeEndpoint(&e));
     let mut sent = { let __a1 = hello_frame(transport, group); transport.deliver(&(e.clone()), __a1) };
     if matches!(sent, Union2::U2(_)) {
-        let mut _forgot = dialed.remove(&to_str__NodeEndpoint(&e));
+        let mut _forgot = crate::core_set::remove_platform(dialed, &(to_str__NodeEndpoint(&e)));
     }
 }
 
@@ -2531,7 +2531,7 @@ impl MemNetwork {
 impl crate::net::__Stateful_MemNet for MemNetwork {
 
     fn attach(&mut self, at: NodeEndpoint, sink: usize) {
-        self.dead.remove(&at);
+        crate::core_set::remove_platform(&mut self.dead, &at);
         self.listeners.insert(at, sink);
     }
 
@@ -2540,7 +2540,7 @@ impl crate::net::__Stateful_MemNet for MemNetwork {
     }
 
     fn route(&mut self, from: NodeEndpoint, to: NodeEndpoint, out: crate::scheduler::SalvoReply) {
-        if self.dead.contains(&to) || self.cuts.contains(&cut_key(&from, &to)) {
+        if crate::core_set::contains_platform(&self.dead, &to) || crate::core_set::contains_platform(&self.cuts, &(cut_key(&from, &to))) {
             crate::scheduler::salvo_reply_wire::<Option<usize>>(out, None);
             return;
         }
@@ -2554,18 +2554,18 @@ impl crate::net::__Stateful_MemNet for MemNetwork {
     }
 
     fn partition(&mut self, a: NodeEndpoint, b: NodeEndpoint) {
-        self.cuts.insert(cut_key(&a, &b));
-        self.cuts.insert(cut_key(&b, &a));
+        crate::core_set::add_platform(&mut self.cuts, cut_key(&a, &b));
+        crate::core_set::add_platform(&mut self.cuts, cut_key(&b, &a));
     }
 
     fn heal(&mut self, a: NodeEndpoint, b: NodeEndpoint) {
-        self.cuts.remove(&cut_key(&a, &b));
-        self.cuts.remove(&cut_key(&b, &a));
+        crate::core_set::remove_platform(&mut self.cuts, &(cut_key(&a, &b)));
+        crate::core_set::remove_platform(&mut self.cuts, &(cut_key(&b, &a)));
     }
 
     fn kill(&mut self, node: NodeEndpoint) {
         self.listeners.remove(&node);
-        self.dead.insert(node);
+        crate::core_set::add_platform(&mut self.dead, node);
     }
 
     fn delivered(&mut self, out: crate::scheduler::SalvoReply) {

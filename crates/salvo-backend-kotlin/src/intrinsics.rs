@@ -274,26 +274,11 @@ pub fn fn_call(
         ("set_of", Some("[]")) | ("mut_set_of", Some("[]")) => {
             format!("{}.also {{ __s -> __s.addAll(listOf({})) }}", set_ctor(&elem()), args.join(", "))
         }
-        // `add`/`remove` already report whether the set changed, which is
-        // what Salvo's `Bool` returns mean.
-        ("add", Some("Set")) => format!("{}.add({})", a(0), a(1)),
-        ("remove", Some("Set")) => format!("{}.remove({})", a(0), a(1)),
-        ("contains", Some("Set")) => format!("{}.contains({})", a(0), a(1)),
-        ("size", Some("Set")) => format!("{}.size", a(0)),
-        // [col-insertion-order] A `LinkedHashSet` iterates in insertion
-        // order, so the list is that order.
-        ("to_list", Some("Set")) => format!("{}.toMutableList()", a(0)),
         // [col-key-eligible] An owned read of a snapshot element. Identity
         // is the copy here because element/key types are the immutable
         // intrinsic types, which is what `copy` of a generic cannot assume
         // [kt-copy].
         ("snapshot_at", Some("List")) => format!("{}.getOrNull({})", a(0), a(1)),
-        // [col-to-str] `{1, 2, 3}` — the set literal's own shape, written
-        // out rather than left to the JVM's `toString` so both backends
-        // print the same text [backend-parity].
-        ("to_str", Some("Set")) => {
-            format!("{}.joinToString(\", \", \"{{\", \"}}\")", a(0))
-        }
 
         // core.sorted ----------------------------------------------------
         // [cmp-carry] The comparator a sorted collection is built with: the

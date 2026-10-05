@@ -4369,8 +4369,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// handle would not mean what it means for a struct.
     fn check_platform_type(&mut self, t: &'p ast::TypeDecl) {
         let name = &t.name.name;
-        if !t.fn_slots.is_empty() {
-            self.error(t.name.span, format!("`platform type {name}` declares no slots [platform-type]"));
+        // [platform-slots] Identity slots (`Set<T>(?hash, ?eq)`) are allowed
+        // (user decision 2026-10-04): they are part of the type, as on any
+        // type declaration, and the identity a value carries is the host's
+        // to keep. A linear handle has no use for one.
+        if !t.fn_slots.is_empty() && t.linear {
+            self.error(t.name.span, format!("`linear platform type {name}` declares no slots [platform-slots]"));
         }
         // [platform-iterable] `: Iter<self, T>` is the one obligation a
         // platform type may take (checked as any type's is): it names the

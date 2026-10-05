@@ -189,10 +189,10 @@ impl crate::fs::__Stateful_Fs for MemFs {
                         name = head.as_ref().unwrap().clone();
                     }
                 }
-                Some(names.insert(name.clone()));
+                Some(crate::core_set::add_platform(&mut names, name.clone()));
             }
         }
-        let mut sorted: Vec<String> = sort::<String>(&(names.iter().cloned().collect::<Vec<_>>()), &mut |__i0, __i1| (Ord::cmp(&__i0[..], &__i1[..]) as i32));
+        let mut sorted: Vec<String> = sort::<String>(&(crate::core_set::to_list_platform(&names)), &mut |__i0, __i1| (Ord::cmp(&__i0[..], &__i1[..]) as i32));
         return Union2::<Vec<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(sorted));
     }
 

@@ -822,12 +822,12 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
 
     fn add_node(&mut self) -> i64 {
         let mut n = fresh_node();
-        self.hosted.insert(n.clone());
+        crate::core_set::add_platform(&mut self.hosted, n.clone());
         return n;
     }
 
     fn hosts(&mut self, node: i64) -> bool {
-        return self.hosted.contains(&node);
+        return crate::core_set::contains_platform(&self.hosted, &node);
     }
 
     fn identity_of(&mut self, addr: i32, pool: i32) -> RemoteRef {
@@ -930,16 +930,16 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn set_outbound(&mut self, node: i64) {
-        self.outbound.insert(node);
+        crate::core_set::add_platform(&mut self.outbound, node);
         restage(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked);
     }
 
     fn has_outbound(&mut self, node: i64) -> bool {
-        return self.outbound.contains(&node);
+        return crate::core_set::contains_platform(&self.outbound, &node);
     }
 
     fn accepts(&mut self, to: i64, actor: i64, claimed: i64) -> bool {
-        if !self.hosted.contains(&to) {
+        if !crate::core_set::contains_platform(&self.hosted, &to) {
             return false;
         }
         let mut idx = ((actor) as i32);
@@ -959,7 +959,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn credited(&mut self, r: RemoteRef, to: i64, n: i32) -> bool {
-        if !self.hosted.contains(&to) {
+        if !crate::core_set::contains_platform(&self.hosted, &to) {
             return false;
         }
         let mut p = self.proxies.get(&r);
@@ -1117,7 +1117,7 @@ impl Routes {
 
     fn init(&mut self) {
         self.node_id = fresh_node();
-        self.hosted.insert(self.node_id.clone());
+        crate::core_set::add_platform(&mut self.hosted, self.node_id.clone());
         self.pool_node.insert(0, self.node_id.clone());
     }
 }
@@ -1171,7 +1171,7 @@ pub fn stage_in(routes: &SalvoMap<i64, Bytes>, outbound: &SalvoSet<i64>, outbox:
     let mut ep = routes.get(&to);
     if ep.is_some() {
         let mut at = ep.unwrap();
-        if outbound.contains(&from) {
+        if crate::core_set::contains_platform(outbound, &from) {
             crate::core_list::add_platform(outbox, Staged { from: from, to: at.clone(), frame: frame });
             return;
         }

@@ -33,6 +33,8 @@ pub mod platform_core_console;
 pub mod platform_core_list;
 #[path = "platform/core/seq.rs"]
 pub mod platform_core_seq;
+#[path = "platform/core/set.rs"]
+pub mod platform_core_set;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
