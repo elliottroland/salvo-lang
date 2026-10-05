@@ -3,6 +3,9 @@
 //! Each target language implements [`Backend`]. Backends are registered in a
 //! [`BackendRegistry`] and selected by name (`salvo compile --backend kotlin`).
 
+pub mod driver;
+pub mod emit_util;
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};

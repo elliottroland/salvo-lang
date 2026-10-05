@@ -115,20 +115,16 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    parity test; meets §9's prerequisite for a Salvo splitmix64; lets
    `mix_hash` become Salvo. Spelling to confirm when built (`& | ^ ~ << >>`,
    and whether a logical `>>>`).
-3. **Shared machinery in `salvo-backend`.** A `prepare(program, mode)` for the
-   front half both `emit_program_mode`s and `platform_skeletons`s repeat
-   (check, erase, report, reachability, ABI closure, module selection,
-   companions, collision and missing-host checks); `EmittedFile`,
-   `no_duplicate_paths`, ABI stamping, the owned-manifest writer and the
-   build step; the identical free helpers (`collect_mutated`,
-   `collect_declared`, `collect_is_bindings`, `bindings_read_later`,
-   `subst_ast_type`, the type-name helpers); the side-table accessors; one
-   overload-mangling policy. Kotlin's `approx_ty` (emit.rs ~9505), a copy of
-   `salvo_core::wire::approx_ty`, is deleted. Backend-prefixed labels in the
-   moved comments become neutral rules or stay with the caller. COMPLETED.md's
-   "Adding another backend" paragraph (still describing `*.<name>.sv` define
-   files) is rewritten here, for host files, ABI mirrors and the `Backend`
-   methods.
+3. **Shared machinery in `salvo-backend`** — mostly built 2026-10-05
+   (COMPLETED.md): `driver.rs` (check, erase, resolve, reach) and
+   `emit_util.rs` (23 shared walkers and helpers, `EmittedFile`, ABI
+   stamping, file writing). Left: the side-table accessors (`ty_of`,
+   `repr_of`, `coercion_of`, … — a shared `CheckedView` both emitters hold);
+   one overload-mangling policy (`rust_fn_name` beside `kotlin_fn_name`);
+   module selection for ABI mode, which differs slightly between the two
+   (`in_abi` against `abi_modules_or_project`) and should be one rule;
+   `effect_param_name`/`disambiguate_unchecked` (near-identical; the second
+   goes in step 4).
 4. **Small core facts:** mutated bindings, names declared per block, the plan
    for each `is` condition (bindings, temps, escape), block termination;
    overload resolution made total so `disambiguate_unchecked` (both

@@ -112,7 +112,8 @@ crates/
 ├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
 │   └── tests/corpus/     # language-docs-example .sv files + insta snapshots
 ├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs/deduce.rs/reach.rs
-├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
+├── salvo-backend/        # Backend trait, BackendRegistry, BackendError; driver.rs (the
+│                         #   shared front half of emission), emit_util.rs (shared helpers)
 ├── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
 ├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
 └── salvo-testkit/        # dev-dependency for the test crates: toolchain probing
@@ -122,11 +123,16 @@ std/                      # stdlib: core/ (basic, string, list, set, map, sorted
 vscode/                   # VS Code extension: LSP client + generated TextMate grammar
 ```
 
-Adding another backend = new crate implementing `salvo_backend::Backend`,
-register it in `salvo-cli/src/main.rs`, write `*.<name>.sv` define files
-next to the std modules, and add a `BACKEND_SPEC.<name>.md`. Std embedding
-already filters define files per backend at load time
-(`SourceSet::classify`).
+Adding another backend = a new crate implementing `salvo_backend::Backend`
+(`emit`, `entry_hint`, `platform_skeletons`, `platform_abi`,
+`write_host_manifest`, `prepare_run`, `program_command`), registered in
+`salvo-cli/src/main.rs`, with a `BACKEND_SPEC.<name>.md` and its own label
+prefix. The emitter starts from `salvo_backend::driver` (check, erase, resolve,
+reach) and `salvo_backend::emit_util` (shared walkers, `EmittedFile`, ABI
+stamping, file writing); it lowers every `intrinsic` std declares (its
+`intrinsics.rs`), and writes a host file per std platform module
+(`std/platform/**/<m>.<ext>`) beside the generated ABI mirrors
+(`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
 
@@ -134,6 +140,30 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Shrinking the backends, step 3: shared emission machinery (2026-10-05,
+ROADMAP §0j).** About 1,800 lines left the two emitters for 900 in
+`salvo-backend`:
+- `driver.rs`: `check_for_emission` (check, render diagnostics, erase
+  effect-only generics), `resolve_for_emission` (the copy's symbols and
+  resolution, its written type keys), `reach` (reachable modules, the ABI
+  closure, platform effects, what an ABI root carries in full) and
+  `check_for_skeletons`. Both `emit_program_mode`s and `platform_skeletons`s
+  start from it.
+- `emit_util.rs`: `EmittedFile`, the 23 free helpers the emitters had byte for
+  byte (`collect_mutated`, `collect_declared`, `collect_is_bindings`,
+  `bindings_read_later`, `subst_ast_type`, the type-name helpers,
+  `no_duplicate_paths`, `module_produces_code`, …), and the `lib.rs`
+  boilerplate (`write_emitted`, `stamp_abi_files` with the shared
+  `ABI_HEADER`, `remove_if_ours`). Their comments lost the `rs-` labels.
+- Kotlin's `approx_ty`, a copy of `salvo_core::wire::approx_ty`, is gone.
+- Fell out: Kotlin's `collect_declared_expr` missed a dozen expression kinds
+  Rust's covered (asserts, elvis, `return`, `when` conditions, scoped calls,
+  `try` bodies); both now use Rust's, so generated-name hygiene on Kotlin sees
+  locals declared inside them.
+- The "Adding another backend" paragraph above is rewritten for today's
+  surface. Left for step 3: the side-table accessors, one mangling policy,
+  one ABI module-selection rule.
 
 **Shrinking the backends, step 1: the defects (2026-10-05, ROADMAP §0j).**
 - **Kotlin `copy` aliased a list of mutable structs** (`copy(xs)` of a
