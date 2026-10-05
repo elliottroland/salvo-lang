@@ -88,7 +88,12 @@ and the `test actor` follow-ups recorded below:
    fn has to be able to *keep* the identity fns it is given (today a fn value
    crossing the boundary is lent for the call [platform-fn-value], kept only
    by the runtime's own platform fns), and Rust's marker types, which give
-   static dispatch, would become values. Next `Map` and the sorted pair, whose identity
+   static dispatch, would become values. `Map` too (2026-10-05); its `to_str`
+   is still intrinsic, because a Salvo one would need the text form of two
+   types and a fn cannot take two implicits of one name (`?to_str` for `K`
+   and for `V`) — a **DECISION** if it is to change: a renaming implicit
+   (`?value_str: (V) -> Str = to_str`), or a `ToStr` group instantiated twice.
+   Next the sorted pair, whose identity
    slots (`Set<T>(?hash, ?eq)`) a platform type is to be allowed to declare,
    the host receiving the functions at construction (user decision
    2026-10-04, option (a)). Lost with `List`: printing a nested list, which

@@ -53,6 +53,8 @@ pub mod platform_core_console;
 pub mod platform_core_deque;
 #[path = "platform/core/list.rs"]
 pub mod platform_core_list;
+#[path = "platform/core/map.rs"]
+pub mod platform_core_map;
 #[path = "platform/core/set.rs"]
 pub mod platform_core_set;
 #[path = "platform/core/string.rs"]
@@ -186,15 +188,15 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
 
     fn create_queue(&mut self, input: CreateQueueInput, reply: crate::scheduler::SalvoReply) {
         let mut url = format!("mem://{}", input.queue_name.clone());
-        if !self.queues.contains_key(&url) {
-            self.queues.insert(url.clone(), vec![]);
+        if !crate::core_map::contains_key_platform(&self.queues, &url) {
+            crate::core_map::put_platform(&mut self.queues, url.clone(), vec![]);
         }
         crate::scheduler::salvo_reply_wire::<Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(CreateQueueOutput { queue_url: Some(url) })));
     }
 
     fn get_queue_url(&mut self, input: GetQueueUrlInput, reply: crate::scheduler::SalvoReply) {
         let mut url = format!("mem://{}", input.queue_name.clone());
-        if !self.queues.contains_key(&url) {
+        if !crate::core_map::contains_key_platform(&self.queues, &url) {
             crate::scheduler::salvo_reply_wire::<Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(url))))));
             return;
         }
@@ -202,7 +204,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
     }
 
     fn send_message(&mut self, input: SendMessageInput, reply: crate::scheduler::SalvoReply) {
-        let mut held = self.queues.get(&input.queue_url);
+        let mut held = crate::core_map::get_platform(&self.queues, &input.queue_url);
         if held.is_none() {
             crate::scheduler::salvo_reply_wire::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(input.queue_url.clone()))))));
             return;
@@ -214,12 +216,12 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
         let mut id = format!("m{}", crate::core_list::size_platform(&grown) + 1);
         crate::core_list::add_platform(&mut grown, input.message_body.clone());
         let mut stored: Vec<String> = grown;
-        self.queues.insert(input.queue_url.clone(), stored);
+        crate::core_map::put_platform(&mut self.queues, input.queue_url.clone(), stored);
         crate::scheduler::salvo_reply_wire::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(SendMessageOutput { message_id: Some(id), md5_of_message_body: None, md5_of_message_attributes: None, md5_of_message_system_attributes: None, sequence_number: None })));
     }
 
     fn receive_message(&mut self, input: ReceiveMessageInput, reply: crate::scheduler::SalvoReply) {
-        let mut held = self.queues.get(&input.queue_url);
+        let mut held = crate::core_map::get_platform(&self.queues, &input.queue_url);
         if held.is_none() {
             (reply).send(std::boxed::Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(input.queue_url.clone())))))));
             return;
@@ -239,11 +241,11 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
     }
 
     fn delete_queue(&mut self, input: DeleteQueueInput, reply: crate::scheduler::SalvoReply) {
-        if !self.queues.contains_key(&input.queue_url) {
+        if !crate::core_map::contains_key_platform(&self.queues, &input.queue_url) {
             crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<(), Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(input.queue_url.clone()))))));
             return;
         }
-        self.queues.remove(&input.queue_url);
+        crate::core_map::remove_platform(&mut self.queues, &input.queue_url);
         crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<(), Checked<Union2<SqsError, AwsError>>>::U1(ok(())));
     }
 }

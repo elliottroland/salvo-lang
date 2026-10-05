@@ -59,6 +59,8 @@ pub mod platform_core_console;
 pub mod platform_core_deque;
 #[path = "platform/core/list.rs"]
 pub mod platform_core_list;
+#[path = "platform/core/map.rs"]
+pub mod platform_core_map;
 #[path = "platform/core/seq.rs"]
 pub mod platform_core_seq;
 #[path = "platform/core/set.rs"]

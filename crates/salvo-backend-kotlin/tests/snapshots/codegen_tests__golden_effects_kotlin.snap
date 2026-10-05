@@ -533,17 +533,58 @@ import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
 import salvo.core.list.at
+import salvo.core.list.drain as drain__core_list
+
+fun<K, V> getPlatform(map: Map<K, V>, key: K): V? {
+    return salvo.platform.core.map.get(map, key)
+}
+
+fun<K, V> putPlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V) {
+    return salvo.platform.core.map.put(map, key, value)
+}
+
+fun<K, V> replacePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V): V? {
+    return salvo.platform.core.map.replace(map, key, value)
+}
+
+fun<K, V> removePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K): V? {
+    return salvo.platform.core.map.remove(map, key)
+}
+
+fun<K, V> containsKeyPlatform(map: Map<K, V>, key: K): Boolean {
+    return salvo.platform.core.map.containsKey(map, key)
+}
 
 fun<K, V> KeyOf_qualifies(key: K, map: Map<K, V>): Boolean {
-    return map.containsKey(key)
+    return containsKeyPlatform(map, key)
+}
+
+fun<K, V> getPresentPlatform(map: Map<K, V>, key: K): V {
+    return salvo.platform.core.map.getPresent(map, key)
 }
 
 fun<K, V> get(map: Map<K, V>, key: K): V {
-    return map[key]!!
+    return getPresentPlatform(map, key)
+}
+
+fun<K, V> sizePlatform(map: Map<K, V>): Int {
+    return salvo.platform.core.map.size(map)
+}
+
+fun<K, V> drain(map: Map<K, V>, each: (V) -> Unit) {
+    drain__core_list(intoValuesPlatform(map), each)
+}
+
+fun<K, V> intoValuesPlatform(map: Map<K, V>): List<V> {
+    return salvo.platform.core.map.intoValues(map)
+}
+
+fun<K, V> keysPlatform(map: Map<K, V>): List<K> {
+    return salvo.platform.core.map.keys(map)
 }
 
 fun<K, V> iter(map: Map<K, V>): MapKeyYield<K> {
-    return MapKeyYield(items = map.keys.toMutableList(), at = 0)
+    return MapKeyYield(items = keysPlatform(map), at = 0)
 }
 
 data class MapKeyYield<K>(
@@ -569,7 +610,7 @@ fun<K> next(p: MapKeyYield<K>): Union2<K, Finished> {
 }
 
 fun<K, V> NonEmpty_qualifies(map: Map<K, V>): Boolean {
-    return map.size > 0
+    return sizePlatform(map) > 0
 }
 
 // ===== core/set.kt =====
@@ -1555,6 +1596,42 @@ fun <T> insertSortedBy(list: MutList<T>, elem: T, cmp: (T, T) -> Int) {
 
 fun <T> searchSortedBy(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? =
     list.indexOfFirst { cmp(it, elem) >= 0 }.let { if (it >= 0 && cmp(list[it], elem) == 0) it else null }
+
+// ===== platform/core/map.kt =====
+// [platform-value-type] std's map, for `core.map`'s `platform type Map<K,
+// V>(?hash, ?eq) canbe Mut` (ROADMAP 0.7): Kotlin's insertion-ordered maps — a
+// `LinkedHashMap`, or the runtime's `SalvoHashMap` when the type names its
+// identities [platform-slots].
+package salvo.platform.core.map
+
+typealias Map<K, V> = kotlin.collections.Map<K, V>
+typealias MutMap<K, V> = kotlin.collections.MutableMap<K, V>
+
+// [platform-iterable] [col-map-iter] The host's loop over a map: its keys.
+fun <K, V> each(map: Map<K, V>): Iterable<K> = map.keys
+
+fun <K, V> get(map: Map<K, V>, key: K): V? = map[key]
+
+// The claim proved the key present [qual-depend].
+@Suppress("UNCHECKED_CAST")
+fun <K, V> getPresent(map: Map<K, V>, key: K): V = map[key] as V
+
+fun <K, V> put(map: MutMap<K, V>, key: K, value: V) {
+    map[key] = value
+}
+
+fun <K, V> replace(map: MutMap<K, V>, key: K, value: V): V? = map.put(key, value)
+
+fun <K, V> remove(map: MutMap<K, V>, key: K): V? = map.remove(key)
+
+fun <K, V> containsKey(map: Map<K, V>, key: K): Boolean = map.containsKey(key)
+
+fun <K, V> size(map: Map<K, V>): Int = map.size
+
+fun <K, V> keys(map: Map<K, V>): MutableList<K> = map.keys.toMutableList()
+
+// [linear-container] The values, in insertion order.
+fun <K, V> intoValues(map: Map<K, V>): MutableList<V> = map.values.toMutableList()
 
 // ===== platform/core/set.kt =====
 // [platform-value-type] std's set, for `core.set`'s `platform type Set<T>(?hash,

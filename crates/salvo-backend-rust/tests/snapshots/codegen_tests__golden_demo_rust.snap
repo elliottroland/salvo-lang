@@ -599,17 +599,64 @@ use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
 use crate::core_list::at;
+use crate::core_list::drain as drain__core_list;
+
+/// [platform-type] The host's `Map`.
+pub use crate::platform_core_map::Map;
+const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<Map<i32, i32>>(); };
+const _: fn() = || { fn __each(x: &Map<i32, i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_map::each(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &Map<i32, i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_map::each(x) } fn __each_mut(x: &mut Map<i32, i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_map::each_mut(x) } fn __into_each(x: Map<i32, i32>) -> impl Iterator<Item = i32> { crate::platform_core_map::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
+
+pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> Option<&'a V> {
+    crate::platform_core_map::get(map, key)
+}
+
+pub fn put_platform<K: Clone, V: Clone>(map: &mut SalvoMap<K, V>, key: K, value: V) {
+    crate::platform_core_map::put(map, key, value)
+}
+
+pub fn replace_platform<K: Clone, V>(map: &mut SalvoMap<K, V>, key: K, value: V) -> Option<V> {
+    crate::platform_core_map::replace(map, key, value)
+}
+
+pub fn remove_platform<K: Clone, V>(map: &mut SalvoMap<K, V>, key: &K) -> Option<V> {
+    crate::platform_core_map::remove(map, key)
+}
+
+pub fn contains_key_platform<K: Clone, V: Clone>(map: &SalvoMap<K, V>, key: &K) -> bool {
+    crate::platform_core_map::contains_key(map, key)
+}
 
 pub fn KeyOf_qualifies<K: Clone, V: Clone>(key: &K, map: &SalvoMap<K, V>) -> bool {
-    return map.contains_key(&key);
+    return contains_key_platform(map, key);
+}
+
+pub fn get_present_platform<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V {
+    crate::platform_core_map::get_present(map, key)
 }
 
 pub fn get<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V {
-    return map.get(&key).unwrap();
+    return get_present_platform(map, key);
+}
+
+pub fn size_platform<K: Clone, V>(map: &SalvoMap<K, V>) -> i32 {
+    crate::platform_core_map::size(map)
+}
+
+pub fn drain<K: Clone, V>(map: SalvoMap<K, V>, each: &mut impl FnMut(V)) {
+    drain__core_list(into_values_platform(map), each);
+}
+
+pub fn into_values_platform<K: Clone, V>(map: SalvoMap<K, V>) -> Vec<V> {
+    crate::platform_core_map::into_values(map)
+}
+
+pub fn keys_platform<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> Vec<K> {
+    crate::platform_core_map::keys(map)
 }
 
 pub fn iter<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
-    return MapKeyYield { items: map.keys().cloned().collect::<Vec<_>>(), at: 0 };
+    return MapKeyYield { items: keys_platform(map), at: 0 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -641,7 +688,7 @@ pub fn next<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
 }
 
 pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> bool {
-    return (map.len() as i32) > 0;
+    return size_platform(map) > 0;
 }
 
 // ===== core/set.rs =====
@@ -1018,6 +1065,8 @@ pub mod core_string;
 pub mod platform_core_console;
 #[path = "platform/core/list.rs"]
 pub mod platform_core_list;
+#[path = "platform/core/map.rs"]
+pub mod platform_core_map;
 #[path = "platform/core/set.rs"]
 pub mod platform_core_set;
 #[path = "platform/core/string.rs"]
@@ -2880,6 +2929,68 @@ pub fn insert_sorted_by<T>(list: &mut List<T>, elem: T, cmp: &mut dyn FnMut(&T, 
 pub fn search_sorted_by<T>(list: &List<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Option<i32> {
     let at = list.partition_point(|x| cmp(x, elem) < 0);
     if at < list.len() && cmp(&list[at], elem) == 0 { Some(at as i32) } else { None }
+}
+
+// ===== platform/core/map.rs =====
+// [platform-value-type] std's map, for `core.map`'s `platform type Map<K,
+// V>(?hash, ?eq) canbe Mut` (ROADMAP 0.7): the runtime's insertion-ordered
+// `SalvoMap`, which carries the identities it was built with
+// [platform-slots]. `Mut Map` is the same type, passed as `&mut`.
+
+pub type Map<K, V> = crate::collections::SalvoMap<K, V>;
+pub type MutMap<K, V> = crate::collections::SalvoMap<K, V>;
+
+// [platform-iterable] [col-map-iter] The host's loop over a map: its keys,
+// in insertion order.
+pub fn each<K, V>(map: &Map<K, V>) -> impl Iterator<Item = &K> + '_ {
+    map.keys()
+}
+
+pub fn each_mut<K, V>(_map: &mut Map<K, V>) -> std::iter::Empty<&mut K> {
+    // A key is written in place nowhere: it would move in the map.
+    unreachable!("salvo: a map's keys are not written in place")
+}
+
+pub fn into_each<K: Clone, V>(map: Map<K, V>) -> std::vec::IntoIter<K> {
+    map.keys().cloned().collect::<Vec<K>>().into_iter()
+}
+
+pub fn get<'a, K, V>(map: &'a Map<K, V>, key: &K) -> Option<&'a V> {
+    map.get(key)
+}
+
+// The claim proved the key present [qual-depend].
+pub fn get_present<'a, K, V>(map: &'a Map<K, V>, key: &K) -> &'a V {
+    map.get(key).expect("salvo: a `KeyOf` key is absent")
+}
+
+pub fn put<K, V>(map: &mut Map<K, V>, key: K, value: V) {
+    map.insert(key, value);
+}
+
+pub fn replace<K, V>(map: &mut Map<K, V>, key: K, value: V) -> Option<V> {
+    map.replace(key, value)
+}
+
+pub fn remove<K, V>(map: &mut Map<K, V>, key: &K) -> Option<V> {
+    map.remove(key)
+}
+
+pub fn contains_key<K, V>(map: &Map<K, V>, key: &K) -> bool {
+    map.contains_key(key)
+}
+
+pub fn size<K, V>(map: &Map<K, V>) -> i32 {
+    map.len() as i32
+}
+
+pub fn keys<K: Clone, V>(map: &Map<K, V>) -> Vec<K> {
+    map.keys().cloned().collect()
+}
+
+// [linear-container] The values, owned, in insertion order.
+pub fn into_values<K, V>(map: Map<K, V>) -> Vec<V> {
+    map.into_values()
 }
 
 // ===== platform/core/set.rs =====

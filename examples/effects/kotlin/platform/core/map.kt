@@ -1,0 +1,34 @@
+// [platform-value-type] std's map, for `core.map`'s `platform type Map<K,
+// V>(?hash, ?eq) canbe Mut` (ROADMAP 0.7): Kotlin's insertion-ordered maps — a
+// `LinkedHashMap`, or the runtime's `SalvoHashMap` when the type names its
+// identities [platform-slots].
+package salvo.platform.core.map
+
+typealias Map<K, V> = kotlin.collections.Map<K, V>
+typealias MutMap<K, V> = kotlin.collections.MutableMap<K, V>
+
+// [platform-iterable] [col-map-iter] The host's loop over a map: its keys.
+fun <K, V> each(map: Map<K, V>): Iterable<K> = map.keys
+
+fun <K, V> get(map: Map<K, V>, key: K): V? = map[key]
+
+// The claim proved the key present [qual-depend].
+@Suppress("UNCHECKED_CAST")
+fun <K, V> getPresent(map: Map<K, V>, key: K): V = map[key] as V
+
+fun <K, V> put(map: MutMap<K, V>, key: K, value: V) {
+    map[key] = value
+}
+
+fun <K, V> replace(map: MutMap<K, V>, key: K, value: V): V? = map.put(key, value)
+
+fun <K, V> remove(map: MutMap<K, V>, key: K): V? = map.remove(key)
+
+fun <K, V> containsKey(map: Map<K, V>, key: K): Boolean = map.containsKey(key)
+
+fun <K, V> size(map: Map<K, V>): Int = map.size
+
+fun <K, V> keys(map: Map<K, V>): MutableList<K> = map.keys.toMutableList()
+
+// [linear-container] The values, in insertion order.
+fun <K, V> intoValues(map: Map<K, V>): MutableList<V> = map.values.toMutableList()

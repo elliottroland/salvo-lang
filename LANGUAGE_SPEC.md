@@ -8562,8 +8562,13 @@ replaced the working document TESTING.md).
     (deep), `Debug`, `PartialEq`, `Eq` and `Hash`, so a struct holding one
     still derives. A value type keeps its canonical wire form where the
     encoding defines one [wire-format] (`Bytes`); otherwise it is `noremote`.
-    `Bytes`, `Str`, `Deque`, `List` and `Set` are built; `Map` and the sorted
-    pair follow. `list_of`/`mut_list_of` stay intrinsic, since literals and
+    `Bytes`, `Str`, `Deque`, `List`, `Set` and `Map` are built; the sorted
+    pair follows. A `Map` iterates its keys through its host's `each`
+    [col-map-iter], and its `to_str` stays intrinsic: rendering keys *and*
+    values in Salvo needs two `to_str`s, and implicits resolve by name.
+    On Rust an argument reading a place another argument lends `&mut` is
+    hoisted into a `let` [rs-borrows], since a free fn gets no two-phase
+    borrow (`put(m, k, size(m))`). `list_of`/`mut_list_of` stay intrinsic, since literals and
     spreads lower through them.
     For the collections (user decisions 2026-10-04): **std's own platform
     fns may answer a borrow** of the one parameter the result names

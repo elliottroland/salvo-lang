@@ -17679,6 +17679,35 @@ impl<'p> Emitter<'p> {
                 self.hoist_effect_args(Some(&threaded), rendered)
             }
         };
+        // [rs-borrows] An argument reading a place another argument lends
+        // mutably (`put(m, k, size(m))` → `put(&mut m, k, size(&m))`) is
+        // hoisted into a `let` first: a method call's receiver gets Rust's
+        // two-phase borrow, and a free fn's `&mut` argument does not (E0502).
+        // Found when `Map`'s `put` became a platform fn (2026-10-05).
+        let args = {
+            let lent: Vec<String> = args
+                .iter()
+                .filter_map(|c| c.strip_prefix("&mut ").map(|r| r.trim().to_string()))
+                .filter(|r| !r.starts_with('*') && !r.starts_with('('))
+                .collect();
+            if lent.is_empty() {
+                args
+            } else {
+                let mut out = Vec::new();
+                for code in args {
+                    let is_lend = code.strip_prefix("&mut ").is_some_and(|r| lent.contains(&r.trim().to_string()));
+                    if !is_lend && lent.iter().any(|l| code.contains(l.as_str())) {
+                        self.hoist_id += 1;
+                        let name = format!("__a{}", self.hoist_id);
+                        prelude.push(format!("let {name} = {code};"));
+                        out.push(name);
+                    } else {
+                        out.push(code);
+                    }
+                }
+                out
+            }
+        };
         all.extend(args);
         // [implicit-resolve] The implicit parameters, in the callee's order:
         // ordinary trailing arguments of fn type.

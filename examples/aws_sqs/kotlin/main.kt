@@ -33,6 +33,10 @@ import salvo.core.console.println
 import salvo.core.list.addPlatform
 import salvo.core.list.sizePlatform
 import salvo.core.list.toStr
+import salvo.core.map.containsKeyPlatform
+import salvo.core.map.getPlatform
+import salvo.core.map.putPlatform
+import salvo.core.map.removePlatform
 import salvo.core.result.err
 import salvo.core.result.ok
 
@@ -114,19 +118,19 @@ fun noQueue(url: String): SqsError {
 }
 
 class MemSqs : Sqs {
-    private var queues: MutableMap<String, List<String>> = linkedMapOf<String, List<String>>().also { __m -> __m.putAll(listOf()) }
+    private var queues: salvo.platform.core.map.MutMap<String, List<String>> = linkedMapOf<String, List<String>>().also { __m -> __m.putAll(listOf()) }
 
     override fun createQueue(input: CreateQueueInput, reply: salvo.SalvoReply) {
         val url = "mem://${input.queueName}"
-        if (!queues.containsKey(url)) {
-            queues.put(url, listOf<String>())
+        if (!containsKeyPlatform(queues, url)) {
+            putPlatform(queues, url, listOf<String>())
         }
         salvo.SalvoSched.replyWire(reply, Union2.U1<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>(ok(CreateQueueOutput(queueUrl = url))), salvo.Union2Codec(__Codec_CreateQueueOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 
     override fun getQueueUrl(input: GetQueueUrlInput, reply: salvo.SalvoReply) {
         val url = "mem://${input.queueName}"
-        if (!queues.containsKey(url)) {
+        if (!containsKeyPlatform(queues, url)) {
             salvo.SalvoSched.replyWire(reply, Union2.U2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(Union2.U1<SqsError, AwsError>(noQueue(url))))), salvo.Union2Codec(__Codec_GetQueueUrlOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
             return
         }
@@ -134,7 +138,7 @@ class MemSqs : Sqs {
     }
 
     override fun sendMessage(input: SendMessageInput, reply: salvo.SalvoReply) {
-        val held = queues[input.queueUrl]
+        val held = getPlatform(queues, input.queueUrl)
         if (held == null) {
             salvo.SalvoSched.replyWire(reply, Union2.U2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(Union2.U1<SqsError, AwsError>(noQueue(input.queueUrl))))), salvo.Union2Codec(__Codec_SendMessageOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
             return
@@ -146,12 +150,12 @@ class MemSqs : Sqs {
         val id = "m${sizePlatform(grown) + 1}"
         addPlatform(grown, input.messageBody)
         val stored: List<String> = grown
-        queues.put(input.queueUrl, stored)
+        putPlatform(queues, input.queueUrl, stored)
         salvo.SalvoSched.replyWire(reply, Union2.U1<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>(ok(SendMessageOutput(messageId = id))), salvo.Union2Codec(__Codec_SendMessageOutput, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 
     override fun receiveMessage(input: ReceiveMessageInput, reply: salvo.SalvoReply) {
-        val held = queues[input.queueUrl]
+        val held = getPlatform(queues, input.queueUrl)
         if (held == null) {
             reply.send(Union2.U2<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(Union2.U1<SqsError, AwsError>(noQueue(input.queueUrl))))))
             return
@@ -171,11 +175,11 @@ class MemSqs : Sqs {
     }
 
     override fun deleteQueue(input: DeleteQueueInput, reply: salvo.SalvoReply) {
-        if (!queues.containsKey(input.queueUrl)) {
+        if (!containsKeyPlatform(queues, input.queueUrl)) {
             salvo.SalvoSched.replyWire(reply, Union2.U2<Unit, Checked<Union2<SqsError, AwsError>>>(err(checked<Union2<SqsError, AwsError>>(Union2.U1<SqsError, AwsError>(noQueue(input.queueUrl))))), salvo.Union2Codec(salvo.UnitCodec, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
             return
         }
-        queues.remove(input.queueUrl)
+        removePlatform(queues, input.queueUrl)
         salvo.SalvoSched.replyWire(reply, Union2.U1<Unit, Checked<Union2<SqsError, AwsError>>>(ok(Unit)), salvo.Union2Codec(salvo.UnitCodec, __Codec_Checked(salvo.Union2Codec(__Codec_SqsError, __Codec_AwsError))))
     }
 }

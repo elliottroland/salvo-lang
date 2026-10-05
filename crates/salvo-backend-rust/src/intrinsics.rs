@@ -471,32 +471,6 @@ pub fn fn_call(
         ("map_of", Some("[]")) | ("mut_map_of", Some("[]")) => {
             map_ctor(format!("vec![{}]", args.join(", ")))
         }
-        // `get` borrows the value out of the map (`Option<&V>`): the
-        // declaration is `(proj(map) V)?`, so a caller who wants to
-        // keep it says `copy` [copy-opt-in].
-        ("get", Some("Map")) => format!("{}.get(&{})", a(0), a(1)),
-        // [qual-depend] The total read behind `get(map, key: KeyOf(map) K)`:
-        // the claim proved presence, so the unwrap cannot fire.
-        ("get_present", Some("Map")) => format!("{}.get(&{}).unwrap()", a(0), a(1)),
-        ("put", Some("Map")) => format!("{}.insert({}, {})", a(0), a(1), a(2)),
-        // [linear-container] The displacing write: what was there comes back
-        // instead of being dropped.
-        ("replace", Some("Map")) => format!("{}.replace({}, {})", a(0), a(1), a(2)),
-        // Hands the value back owned, which is what `-> V?` promises.
-        ("remove", Some("Map")) => format!("{}.remove(&{})", a(0), a(1)),
-        // [linear-container] The terminal: the map is consumed and its values
-        // — never its keys, which were not obligations — are handed over one
-        // at a time, in insertion order.
-        ("drain", Some("Map")) => {
-            format!("{}.into_values().into_iter().for_each({})", a(0), a(1))
-        }
-        ("contains_key", Some("Map")) => format!("{}.contains_key(&{})", a(0), a(1)),
-        ("size", Some("Map")) => format!("({}.len() as i32)", a(0)),
-        // [col-insertion-order] The runtime type's `keys` is insertion
-        // order.
-        ("keys", Some("Map")) => {
-            format!("{}.keys().cloned().collect::<Vec<_>>()", a(0))
-        }
         // [col-to-str] `{a: 1, b: 2}`.
         ("to_str", Some("Map")) => format!("{}.to_string()", a(0)),
 

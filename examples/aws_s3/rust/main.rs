@@ -69,6 +69,8 @@ pub mod platform_core_console;
 pub mod platform_core_deque;
 #[path = "platform/core/list.rs"]
 pub mod platform_core_list;
+#[path = "platform/core/map.rs"]
+pub mod platform_core_map;
 #[path = "platform/core/set.rs"]
 pub mod platform_core_set;
 #[path = "platform/core/string.rs"]
@@ -256,12 +258,12 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
         }
         let mut data: Bytes = buf;
         let mut tag = format!("\"{}\"", crate::core_bytes::size_platform(&data));
-        self.objects.insert(format!("{}/{}", bucket, key), data);
+        crate::core_map::put_platform(&mut self.objects, format!("{}/{}", bucket, key), data);
         crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U1(ok(PutObjectOutput { e_tag: Some(tag), expiration: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, server_side_encryption: None, version_id: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, ssekms_encryption_context: None, bucket_key_enabled: None, size: None, request_charged: None })));
     }
 
     fn get_object(&mut self, input: GetObjectInput, reply: crate::scheduler::SalvoReply) {
-        let mut found = self.objects.get(&format!("{}/{}", input.bucket.clone(), input.key.clone()));
+        let mut found = crate::core_map::get_platform(&self.objects, &(format!("{}/{}", input.bucket.clone(), input.key.clone())));
         if found.is_none() {
             (reply).send(std::boxed::Box::new(Union2::<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U1(S3Error { code: "NoSuchKey".to_string(), message: "The specified key does not exist.".to_string(), status: 404, request_id: None, storage_class: None, access_tier: None }))))));
             return;

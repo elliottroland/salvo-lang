@@ -63,6 +63,8 @@ pub mod platform_core_bytes;
 pub mod platform_core_deque;
 #[path = "salvo/platform/core/list.sv.rs"]
 pub mod platform_core_list;
+#[path = "salvo/platform/core/map.sv.rs"]
+pub mod platform_core_map;
 #[path = "salvo/platform/core/set.sv.rs"]
 pub mod platform_core_set;
 #[path = "salvo/platform/core/string.sv.rs"]

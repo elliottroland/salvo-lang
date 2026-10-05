@@ -22,7 +22,7 @@
 //
 // Own module so a program that never uses a map emits nothing for it
 // [mod-used-only].
-export intrinsic type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut
+export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, K>
 
 // Constructor, from entries written as pairs: `map_of(("a", 1), ("b", 2))`.
 // The keys and values are stored in the new map, so they are moved: a
@@ -61,7 +61,7 @@ export intrinsic fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V), ?Hashe
 // a view into the map, like [get] on a list — so reading a map copies
 // nothing and a caller that wants to keep the value says `copy`
 // [copy-opt-in]. The key is only read, so it is kept.
-export intrinsic fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj(map) V)? => map, key
+export platform fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj(map) V)? => map, key
 
 // Stores [value] under [key], replacing any value already there. The map
 // takes ownership of both, so both are moved; a key that is already present
@@ -71,14 +71,14 @@ export intrinsic fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj(map) V)? => ma
 // replaced — which is why it is closed to linear values: storing one under an
 // occupied key would discard an obligation in silence. [replace] is the form
 // that hands the displaced value back, and the diagnostic names it.
-export intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
+export platform fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
 => map: Mut, !key, !value
 
 // [linear-container] Stores [value] under [key] and answers what was there,
 // or `None` for a fresh key: [put] with the displaced value handed back
 // instead of dropped, which is the only shape a map of obligations can have a
 // write in.
-export intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?
+export platform fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?
 => map: Mut, !key, !value
 
 // Removes the entry under [key] and hands its value back, or `None` when
@@ -89,10 +89,10 @@ export intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value
 // [linear-container] This is take-by-move, so it is how an obligation leaves
 // a map: the `V?` shape makes the absence check the union narrow
 // [linear-union-arm], and nothing is aliased or dropped on the way.
-export intrinsic fn remove<K, V canbe linear>(map: Mut Map<K, V>, key: K) [] -> V? => map: Mut, key
+export platform fn remove<K, V canbe linear>(map: Mut Map<K, V>, key: K) [] -> V? => map: Mut, key
 
 // Whether the map holds an entry under [key].
-export intrinsic fn contains_key<K, V>(map: Map<K, V>, key: K) [] -> Bool => map, key
+export platform fn contains_key<K, V>(map: Map<K, V>, key: K) [] -> Bool => map, key
 
 // [qual-depend] The claim that a key is **present in one particular map** —
 // the first dependent qualifier: its value slot names the map the claim is
@@ -114,7 +114,7 @@ export qualifier KeyOf<K, V>(map: Map<K, V>) of K {
 
 // The lowering behind the total [get]: a presence the claim already proved.
 // Private — the claim is the only door.
-intrinsic fn get_present<K, V>(map: Map<K, V>, key: K) [] -> proj(map) V => map, key
+platform fn get_present<K, V>(map: Map<K, V>, key: K) [] -> proj(map) V => map, key
 
 // [qual-depend] The **total** read: a key carrying the claim answers the
 // value itself — the `None` arm was paid where the key was tested. Ranked
@@ -124,24 +124,32 @@ export fn get<K, V>(map: Map<K, V>, key: KeyOf(map) K) [] -> proj(map) V => map,
 }
 
 // Returns the number of entries in the map
-export intrinsic fn size<K, V canbe linear>(map: Map<K, V>) [] -> Int => map
+export platform fn size<K, V canbe linear>(map: Map<K, V>) [] -> Int => map
 
 // [linear-container] The **terminal**, as a list's [drain] is: consumes the
 // map and hands every value to [each], in insertion order. The keys go with
 // the map — they were never obligations — so what the callback sees is the
 // values, one at a time, each moved in.
-export intrinsic fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> None) [] -> None
-=>[each] !x => !map, each
+export fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> None) [] -> None
+=>[each] !x => !map, each {
+    drain(into_values(map), each)
+}
+
+// [linear-container] The values, in insertion order, out of a map it consumes:
+// what [drain] is written with.
+platform fn into_values<K, V canbe linear>(map: Map<K, V>) [] -> List<V> => !map
 
 // The text form of a map, for string interpolation [interp-to-str]:
 // `{a: 1, b: 2}` in insertion order — the map *literal* that would build it
-// [col-to-str].
+// [col-to-str]. Still an intrinsic: in Salvo it would need the `to_str` of
+// two types at once, and implicits resolve by name, so a fn cannot take two
+// `?to_str`s (ROADMAP 0.7).
 export intrinsic fn to_str<K, V>(map: Map<K, V>) [] -> Str => map
 
 
 // [col-insertion-order] The keys, in insertion order — which is also what
 // makes a map iterable, below.
-export intrinsic fn keys<K, V>(map: Map<K, V>) [] -> List<K> => map
+export platform fn keys<K, V>(map: Map<K, V>) [] -> List<K> => map
 
 // [iter-mint] A fresh iterator over the map's **keys**, in insertion order.
 //

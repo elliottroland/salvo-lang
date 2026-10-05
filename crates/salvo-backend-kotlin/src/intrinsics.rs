@@ -353,26 +353,6 @@ pub fn fn_call(
             ),
             args.join(", ")
         ),
-        // Absence is `null`, never a default [type-nullable].
-        ("get", Some("Map")) => format!("{}[{}]", a(0), a(1)),
-        // [qual-depend] The total read behind `get(map, key: KeyOf(map) K)`:
-        // the claim proved presence, so the `!!` cannot fire.
-        ("get_present", Some("Map")) => format!("{}[{}]!!", a(0), a(1)),
-        ("put", Some("Map")) => format!("{}.put({}, {})", a(0), a(1), a(2)),
-        // [linear-container] `put` answers the previous value on the JVM
-        // already, which is exactly `replace`'s contract; the two differ only
-        // in what Salvo lets you *do* with the answer.
-        ("replace", Some("Map")) => format!("{}.put({}, {})", a(0), a(1), a(2)),
-        // `remove` already answers the removed value or `null`.
-        ("remove", Some("Map")) => format!("{}.remove({})", a(0), a(1)),
-        // [linear-container] The terminal: the values, in insertion order,
-        // each handed to the callback. Over a snapshot, as a list's drain is.
-        ("drain", Some("Map")) => format!("({}).values.toList().forEach({})", a(0), a(1)),
-        ("contains_key", Some("Map")) => format!("{}.containsKey({})", a(0), a(1)),
-        ("size", Some("Map")) => format!("{}.size", a(0)),
-        // [col-insertion-order] A `LinkedHashMap`'s keys are in insertion
-        // order, so the list is that order.
-        ("keys", Some("Map")) => format!("{}.keys.toMutableList()", a(0)),
         // [col-to-str] `{a: 1, b: 2}` — the map literal's shape. Kotlin's
         // own `toString` renders `{a=1}`, so the separator is written out.
         ("to_str", Some("Map")) => format!(

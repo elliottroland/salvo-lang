@@ -29,6 +29,8 @@ pub mod core_string;
 pub mod platform_core_console;
 #[path = "platform/core/list.rs"]
 pub mod platform_core_list;
+#[path = "platform/core/map.rs"]
+pub mod platform_core_map;
 #[path = "platform/core/set.rs"]
 pub mod platform_core_set;
 #[path = "platform/core/string.rs"]
@@ -111,8 +113,8 @@ pub fn main() {
     crate::core_set::add_platform(&mut seen, "first".to_string());
     println(&console, &(format!("1. empty then filled {}", to_str__core_set::<String>(&seen, &mut |__i0| format!("{}", __i0)))));
     let mut tally: SalvoMap<String, i32> = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![("pear".to_string(), 1), ("apple".to_string(), 2)]);
-    tally.insert("fig".to_string(), 3);
-    tally.insert("pear".to_string(), 99);
+    crate::core_map::put_platform(&mut tally, "fig".to_string(), 3);
+    crate::core_map::put_platform(&mut tally, "pear".to_string(), 99);
     println(&console, &(format!("2. insertion order kept {}", tally.to_string())));
     let mut ranked: SalvoSortedSet<String> = SalvoSortedSet::from_elements::<HostOrd, _>(vec!["pear".to_string(), "apple".to_string(), "fig".to_string()]);
     println(&console, &(format!("2. key order {}", format!("{{{}}}", ranked.to_vec().iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
@@ -125,8 +127,8 @@ pub fn main() {
     let mut again = crate::core_set::add_platform(&mut corners, Point { x: 0, y: 0 });
     println(&console, &(format!("3. struct key: size {}, second add {}", crate::core_set::size_platform(&corners), again)));
     let mut labels: SalvoMap<Point, String> = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]);
-    labels.insert(Point { x: 1, y: 1 }, "diagonal".to_string());
-    let mut found = labels.get(&Point { x: 1, y: 1 });
+    crate::core_map::put_platform(&mut labels, Point { x: 1, y: 1 }, "diagonal".to_string());
+    let mut found = crate::core_map::get_platform(&labels, &(Point { x: 1, y: 1 }));
     if found.is_some() {
         println(&console, &(format!("3. looked up by value {}", found.unwrap().clone())));
     }
@@ -179,7 +181,7 @@ pub fn main() {
     println(&console, &("".to_string()));
     let mut __loop2_pass = iter__core_map(&ages);
     while let Union2::U1(mut name) = next__core_map(&mut __loop2_pass) {
-        let mut age = ages.get(&name);
+        let mut age = crate::core_map::get_platform(&ages, &name);
         if age.is_some() {
             println(&console, &(format!("7. {} is {}", name, *age.unwrap())));
         }

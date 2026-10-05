@@ -13,8 +13,10 @@ import salvo.core.list.mutSort
 import salvo.core.list.sizePlatform as sizePlatform__core_list
 import salvo.core.list.sort
 import salvo.core.list.toStr as toStr__core_list
+import salvo.core.map.getPlatform
 import salvo.core.map.iter as iter__core_map
 import salvo.core.map.next as next__core_map
+import salvo.core.map.putPlatform
 import salvo.core.set.addPlatform as addPlatform__core_set
 import salvo.core.set.iter as iter__core_set
 import salvo.core.set.next as next__core_set
@@ -69,9 +71,9 @@ fun main() {
     val seen: salvo.platform.core.set.MutSet<String> = linkedSetOf<String>()
     addPlatform__core_set(seen, "first")
     println(console, "1. empty then filled ${toStr__core_set(seen, { __i0 -> __i0 })}")
-    val tally: MutableMap<String, Int> = linkedMapOf<String, Int>().also { __m -> __m.putAll(listOf(Pair("pear", 1), Pair("apple", 2))) }
-    tally.put("fig", 3)
-    tally.put("pear", 99)
+    val tally: salvo.platform.core.map.MutMap<String, Int> = linkedMapOf<String, Int>().also { __m -> __m.putAll(listOf(Pair("pear", 1), Pair("apple", 2))) }
+    putPlatform(tally, "fig", 3)
+    putPlatform(tally, "pear", 99)
     println(console, "2. insertion order kept ${tally.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
     val ranked: java.util.SortedSet<String> = java.util.TreeSet<String>(salvo.SalvoCanonicalOrder).also { __s -> __s.addAll(listOf("pear", "apple", "fig")) }
     println(console, "2. key order ${ranked.joinToString(", ", "{", "}")}")
@@ -83,9 +85,9 @@ fun main() {
     addPlatform__core_set(corners, Point(x = 0, y = 0))
     val again = addPlatform__core_set(corners, Point(x = 0, y = 0))
     println(console, "3. struct key: size ${sizePlatform__core_set(corners)}, second add $again")
-    val labels: MutableMap<Point, String> = linkedMapOf<Point, String>()
-    labels.put(Point(x = 1, y = 1), "diagonal")
-    val found = labels[Point(x = 1, y = 1)]
+    val labels: salvo.platform.core.map.MutMap<Point, String> = linkedMapOf<Point, String>()
+    putPlatform(labels, Point(x = 1, y = 1), "diagonal")
+    val found = getPlatform(labels, Point(x = 1, y = 1))
     if (found != null) {
         println(console, "3. looked up by value $found")
     }
@@ -144,7 +146,7 @@ fun main() {
         val __loop2_step = next__core_map(__loop2_pass)
         if (__loop2_step !is Union2.U1<*, *>) { break }
         val name = __loop2_step.value as String
-        val age = ages[name]
+        val age = getPlatform(ages, name)
         if (age != null) {
             println(console, "7. $name is $age")
         }

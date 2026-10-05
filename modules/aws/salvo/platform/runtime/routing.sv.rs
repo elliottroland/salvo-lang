@@ -720,7 +720,7 @@ impl RouteTable {
 }
 
 pub fn version_in(versions: &SalvoMap<i32, i64>, group: i32) -> i64 {
-    let mut v = versions.get(&group);
+    let mut v = crate::core_map::get_platform(versions, &group);
     if v.is_some() {
         let mut n = *v.unwrap();
         return n.clone();
@@ -729,7 +729,7 @@ pub fn version_in(versions: &SalvoMap<i32, i64>, group: i32) -> i64 {
 }
 
 pub fn bump_in(versions: &mut SalvoMap<i32, i64>, waiters: &mut Vec<ViewWaiter>, group: i32) {
-    versions.insert(group.clone(), version_in(versions, group.clone()) + ((1) as i64));
+    crate::core_map::put_platform(versions, group.clone(), version_in(versions, group.clone()) + ((1) as i64));
     let mut i = 0;
     while i < crate::core_list::size_platform(waiters) {
         if crate::core_list::get_platform(waiters, i).expect("salvo: value is absent at runtime.routing:171:12").group == group {
@@ -821,7 +821,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn adopt_pool(&mut self, pool: i32, node: i64) {
-        self.pool_node.insert(pool, node);
+        crate::core_map::put_platform(&mut self.pool_node, pool, node);
     }
 
     fn add_node(&mut self) -> i64 {
@@ -841,8 +841,8 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     fn find_import(&mut self, r: &RemoteRef, here: i64) -> Union3<Found, MakeProxy, MakeDead> {
         if r.node == here {
             let mut idx = ((r.actor) as i32);
-            let mut b = self.bits.get(&idx);
-            if !self.remote.contains_key(&idx) && (b.is_some()) && { let mut known = *b.unwrap();  known == r.bits } {
+            let mut b = crate::core_map::get_platform(&self.bits, &idx);
+            if !crate::core_map::contains_key_platform(&self.remote, &idx) && (b.is_some()) && { let mut known = *b.unwrap();  known == r.bits } {
                 let mut known = *b.unwrap();
                 return Union3::<Found, MakeProxy, MakeDead>::U1(Found { idx: idx });
             }
@@ -851,7 +851,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
             }
             return Union3::<Found, MakeProxy, MakeDead>::U3(MakeDead {  });
         }
-        let mut p = self.proxies.get(&r);
+        let mut p = crate::core_map::get_platform(&self.proxies, r);
         if p.is_some() {
             let mut idx = *p.unwrap();
             return Union3::<Found, MakeProxy, MakeDead>::U1(Found { idx: idx.clone() });
@@ -860,14 +860,14 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn register_proxy(&mut self, r: RemoteRef, idx: i32, here: i64) -> i32 {
-        let mut existing = self.proxies.get(&r);
+        let mut existing = crate::core_map::get_platform(&self.proxies, &r);
         if existing.is_some() {
             let mut e = *existing.unwrap();
             return e.clone();
         }
-        self.remote.insert(idx.clone(), r.clone());
-        self.proxies.insert(r.clone(), idx.clone());
-        self.credits.insert(idx.clone(), 0);
+        crate::core_map::put_platform(&mut self.remote, idx.clone(), r.clone());
+        crate::core_map::put_platform(&mut self.proxies, r.clone(), idx.clone());
+        crate::core_map::put_platform(&mut self.credits, idx.clone(), 0);
         let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U4(OpenFrame { to: r.node, actor: r.actor, bits: r.bits, from: here.clone() }));
         stage_in(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked, here, r.node, frame);
         return idx;
@@ -882,11 +882,11 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn is_proxy(&mut self, addr: i32) -> bool {
-        return self.remote.contains_key(&addr);
+        return crate::core_map::contains_key_platform(&self.remote, &addr);
     }
 
     fn proxy_ref(&mut self, addr: i32) -> Option<RemoteRef> {
-        let mut r = self.remote.get(&addr);
+        let mut r = crate::core_map::get_platform(&self.remote, &addr);
         if r.is_some() {
             let mut found = r.unwrap();
             return Some(found.clone());
@@ -895,12 +895,12 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn take_credit(&mut self, addr: i32, me: Parker) -> i32 {
-        let mut c = self.credits.get(&addr);
+        let mut c = crate::core_map::get_platform(&self.credits, &addr);
         if c.is_some() {
             let mut n = *c.unwrap();
             if n > 0 {
-                self.credits.insert(addr.clone(), n - 1);
-                self.held_n.insert(addr.clone(), held_in(&self.held_n, addr.clone()) + 1);
+                crate::core_map::put_platform(&mut self.credits, addr.clone(), n - 1);
+                { let __a1 = held_in(&self.held_n, addr.clone()) + 1; crate::core_map::put_platform(&mut self.held_n, addr.clone(), __a1) };
                 return 1;
             }
             crate::core_list::add_platform(&mut self.credit_waiters, me);
@@ -914,7 +914,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn grant(&mut self, addr: i32, pool: i32, from: i64, n: i32) {
-        self.held_n.insert(addr.clone(), held_in(&self.held_n, addr.clone()) + n);
+        { let __a1 = held_in(&self.held_n, addr.clone()) + n; crate::core_map::put_platform(&mut self.held_n, addr.clone(), __a1) };
         let mut me = identity_in(&self.remote, &mut self.bits, &self.pool_node, self.node_id, addr.clone(), pool);
         let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U3(GrantFrame { to: from.clone(), host: me.node, actor: me.actor, bits: me.bits, n: n }));
         stage_in(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked, me.node, from, frame);
@@ -923,13 +923,13 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     fn take_outbox(&mut self) -> Vec<Staged> {
         let mut out: Vec<Staged> = vec![];
         while crate::core_list::size_platform(&self.outbox) > 0 {
-            crate::core_list::add_platform(&mut out, crate::core_list::remove_at_platform(&mut self.outbox, 0).expect("salvo: value is absent at runtime.routing:327:22"));
+            { let __a1 = crate::core_list::remove_at_platform(&mut self.outbox, 0).expect("salvo: value is absent at runtime.routing:327:22"); crate::core_list::add_platform(&mut out, __a1) };
         }
         return out;
     }
 
     fn add_route(&mut self, node: i64, at: Bytes) {
-        self.routes.insert(node, at);
+        crate::core_map::put_platform(&mut self.routes, node, at);
         restage(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked);
     }
 
@@ -947,8 +947,8 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
             return false;
         }
         let mut idx = ((actor) as i32);
-        let mut b = self.bits.get(&idx);
-        if !self.remote.contains_key(&idx) && (b.is_some()) && { let mut known = *b.unwrap();  known == claimed } {
+        let mut b = crate::core_map::get_platform(&self.bits, &idx);
+        if !crate::core_map::contains_key_platform(&self.remote, &idx) && (b.is_some()) && { let mut known = *b.unwrap();  known == claimed } {
             let mut known = *b.unwrap();
             return true;
         }
@@ -958,7 +958,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     fn received(&mut self, idx: i32) {
         let mut h = held_in(&self.held_n, idx.clone());
         if h > 0 {
-            self.held_n.insert(idx, h - 1);
+            crate::core_map::put_platform(&mut self.held_n, idx, h - 1);
         }
     }
 
@@ -966,22 +966,22 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         if !crate::core_set::contains_platform(&self.hosted, &to) {
             return false;
         }
-        let mut p = self.proxies.get(&r);
+        let mut p = crate::core_map::get_platform(&self.proxies, &r);
         if p.is_some() {
             let mut idx = *p.unwrap();
             let mut i = idx.clone();
-            let mut c = self.credits.get(&i);
+            let mut c = crate::core_map::get_platform(&self.credits, &i);
             let mut now = 0;
             if c.is_some() {
                 let mut have = *c.unwrap();
                 now = have.clone();
             }
-            self.credits.insert(i.clone(), now + n);
+            crate::core_map::put_platform(&mut self.credits, i.clone(), now + n);
             let mut h = held_in(&self.held_n, i.clone()) - n;
             if h < 0 {
                 h = 0;
             }
-            self.held_n.insert(i, h);
+            crate::core_map::put_platform(&mut self.held_n, i, h);
             wake_senders(&mut self.credit_waiters);
             return true;
         }
@@ -1010,11 +1010,11 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn watch_channel(&mut self, node: i64, channel: String, sink: i32) {
-        self.controls.insert(ControlKey { node: node, channel: channel }, sink);
+        crate::core_map::put_platform(&mut self.controls, ControlKey { node: node, channel: channel }, sink);
     }
 
     fn channel_sink(&mut self, node: i64, channel: &String) -> i32 {
-        let mut s = self.controls.get(&ControlKey { node: node.clone(), channel: channel.clone() });
+        let mut s = crate::core_map::get_platform(&self.controls, &(ControlKey { node: node.clone(), channel: channel.clone() }));
         if s.is_some() {
             let mut sink = *s.unwrap();
             return sink.clone();
@@ -1031,11 +1031,11 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn set_peer(&mut self, node: i64, table: Vec<(String, String)>) {
-        self.peers.insert(node, table);
+        crate::core_map::put_platform(&mut self.peers, node, table);
     }
 
     fn peer_hash(&mut self, node: i64, protocol: &String) -> Option<String> {
-        let mut t = self.peers.get(&node);
+        let mut t = crate::core_map::get_platform(&self.peers, &node);
         if t.is_some() {
             let mut table = t.unwrap();
             for mut entry in crate::platform_core_list::each(table).map(|__x| __x.clone()) {
@@ -1049,11 +1049,11 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn forget_node(&mut self, node: i64) -> Vec<i32> {
-        let mut _route = self.routes.remove(&node);
-        let mut _peer = self.peers.remove(&node);
+        let mut _route = crate::core_map::remove_platform(&mut self.routes, &node);
+        let mut _peer = crate::core_map::remove_platform(&mut self.peers, &node);
         let mut gone: Vec<i32> = vec![];
-        for mut idx in crate::platform_core_list::each(&(self.remote.keys().cloned().collect::<Vec<_>>())).map(|__x| __x.clone()) {
-            let mut r = self.remote.get(&idx);
+        for mut idx in crate::platform_core_list::each(&(crate::core_map::keys_platform(&self.remote))).map(|__x| __x.clone()) {
+            let mut r = crate::core_map::get_platform(&self.remote, &idx);
             if r.is_some() {
                 let mut found = r.unwrap();
                 if found.node == node {
@@ -1066,12 +1066,12 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn set_view(&mut self, group: i32, members: Vec<i32>) {
-        self.views.insert(group.clone(), members);
+        crate::core_map::put_platform(&mut self.views, group.clone(), members);
         bump_in(&mut self.versions, &mut self.view_waiters, group);
     }
 
     fn view_of(&mut self, group: i32) -> Vec<i32> {
-        let mut v = self.views.get(&group);
+        let mut v = crate::core_map::get_platform(&self.views, &group);
         if v.is_some() {
             let mut found = v.unwrap();
             return found.clone();
@@ -1108,7 +1108,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn credits_of(&mut self, addr: i32) -> Option<i32> {
-        let mut c = self.credits.get(&addr);
+        let mut c = crate::core_map::get_platform(&self.credits, &addr);
         if c.is_some() {
             let mut n = *c.unwrap();
             return Some(n.clone());
@@ -1122,7 +1122,7 @@ impl Routes {
     fn init(&mut self) {
         self.node_id = fresh_node();
         crate::core_set::add_platform(&mut self.hosted, self.node_id.clone());
-        self.pool_node.insert(0, self.node_id.clone());
+        crate::core_map::put_platform(&mut self.pool_node, 0, self.node_id.clone());
     }
 }
 
@@ -1131,7 +1131,7 @@ pub enum __Priv_Routes {
 }
 
 pub fn node_in(pool_node: &SalvoMap<i32, i64>, node_id: i64, pool: i32) -> i64 {
-    let mut n = pool_node.get(&pool);
+    let mut n = crate::core_map::get_platform(pool_node, &pool);
     if n.is_some() {
         let mut v = *n.unwrap();
         return v.clone();
@@ -1140,7 +1140,7 @@ pub fn node_in(pool_node: &SalvoMap<i32, i64>, node_id: i64, pool: i32) -> i64 {
 }
 
 pub fn held_in(held_n: &SalvoMap<i32, i32>, idx: i32) -> i32 {
-    let mut h = held_n.get(&idx);
+    let mut h = crate::core_map::get_platform(held_n, &idx);
     if h.is_some() {
         let mut n = *h.unwrap();
         return n.clone();
@@ -1149,19 +1149,19 @@ pub fn held_in(held_n: &SalvoMap<i32, i32>, idx: i32) -> i32 {
 }
 
 pub fn identity_in(remote: &SalvoMap<i32, RemoteRef>, bits: &mut SalvoMap<i32, i64>, pool_node: &SalvoMap<i32, i64>, node_id: i64, addr: i32, pool: i32) -> RemoteRef {
-    let mut r = remote.get(&addr);
+    let mut r = crate::core_map::get_platform(remote, &addr);
     if r.is_some() {
         let mut found = r.unwrap();
         return found.clone();
     }
     let mut n = node_in(pool_node, node_id, pool);
-    let mut b = bits.get(&addr);
+    let mut b = crate::core_map::get_platform(bits, &addr);
     if b.is_some() {
         let mut known = *b.unwrap();
         return RemoteRef { node: n, actor: ((addr) as i64), bits: known.clone() };
     }
     let mut minted = identity_bits();
-    bits.insert(addr.clone(), minted.clone());
+    crate::core_map::put_platform(bits, addr.clone(), minted.clone());
     return RemoteRef { node: n, actor: ((addr) as i64), bits: minted };
 }
 
@@ -1172,7 +1172,7 @@ pub fn wake_senders(waiters: &mut Vec<Parker>) {
 }
 
 pub fn stage_in(routes: &SalvoMap<i64, Bytes>, outbound: &SalvoSet<i64>, outbox: &mut Vec<Staged>, parked: &mut Vec<Parked>, from: i64, to: i64, frame: Bytes) {
-    let mut ep = routes.get(&to);
+    let mut ep = crate::core_map::get_platform(routes, &to);
     if ep.is_some() {
         let mut at = ep.unwrap();
         if crate::core_set::contains_platform(outbound, &from) {
@@ -1506,7 +1506,7 @@ pub fn view_members(group: i32) -> Vec<i32> {
             }
             i = i + 1;
         }
-        crate::core_list::add_platform(&mut out, crate::core_list::remove_at_platform(&mut left, best).expect("salvo: value is absent at runtime.routing:942:18"));
+        { let __a1 = crate::core_list::remove_at_platform(&mut left, best).expect("salvo: value is absent at runtime.routing:942:18"); crate::core_list::add_platform(&mut out, __a1) };
     }
     return out.clone();
 }

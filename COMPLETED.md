@@ -135,6 +135,17 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`Map` as a value platform type (2026-10-05, ROADMAP 0.7).** `iterable
+platform type Map<K, V canbe linear>(?hash, ?eq) canbe Mut : Iter<self, K>`
+over `SalvoMap`/`LinkedHashMap`; `get`, `get_present`, `put`, `replace`,
+`remove`, `contains_key`, `size`, `keys` and a private `into_values` are
+platform fns, and `drain` is Salvo over `into_values` and the list's
+`drain`. 9 lowerings per backend went. `to_str` stayed intrinsic (ROADMAP
+0.7: two implicits of one name). What fell out on Rust: `put(&mut m, k,
+held_in(&m, k) + 1)` is E0502 — the intrinsic had been a method call, whose
+receiver Rust two-phase-borrows; the call emitter now hoists an argument that
+reads a place another argument lends mutably.
+
 **`Set` as a value platform type (2026-10-05, ROADMAP 0.7).** The first
 platform type with identity slots [platform-slots]: `iterable platform type
 Set<T>(?hash, ?eq) canbe Mut : Iter<self, T>`, over the runtime containers

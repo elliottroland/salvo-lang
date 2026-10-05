@@ -318,7 +318,7 @@ impl crate::stream_host::__Stateless_RawStreams for HostRawStreams {
 
     fn raw_write(&self, handle: i64, text: &String) -> i64 {
         let mut e = checkout_out(handle.clone());
-        let mut n = write(&mut e, &(crate::core_bytes::to_bytes_platform(text)));
+        let mut n = { let __a1 = &(crate::core_bytes::to_bytes_platform(text)); write(&mut e, __a1) };
         checkin_out(handle, e);
         return n;
     }
