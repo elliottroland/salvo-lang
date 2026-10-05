@@ -6,7 +6,7 @@
 // host is a number and nothing else.
 
 use std::sync::OnceLock;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 /// [time-ticker] The monotonic clock, in nanoseconds from an arbitrary
 /// origin — this process's first reading, established here.
@@ -23,16 +23,4 @@ pub fn salvo_mono_nanos() -> i64 {
     static ORIGIN: OnceLock<Instant> = OnceLock::new();
     let origin = ORIGIN.get_or_init(Instant::now);
     Instant::now().duration_since(*origin).as_nanos() as i64
-}
-
-/// [time-clock] The wall clock, in nanoseconds since the Unix epoch.
-///
-/// Before 1970 answers a negative number rather than saturating at zero,
-/// which is what a signed epoch reading means on the Kotlin side too — the
-/// two backends must agree on the number, not merely on its sign.
-pub fn salvo_epoch_nanos() -> i64 {
-    match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(since) => since.as_nanos() as i64,
-        Err(before) => -(before.duration().as_nanos() as i64),
-    }
 }

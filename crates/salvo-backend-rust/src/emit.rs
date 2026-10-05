@@ -88,14 +88,6 @@ pub fn emit_abi(
     emit_program_mode(program, entry, true).map(|(files, _)| files)
 }
 
-/// [platform-abi] Whether `module` is the project's own (not std, not a
-/// dependency): its implementation file is mounted in the host crate.
-fn abi_modules_or_project(program: &Program, module: &ModulePath) -> bool {
-    program
-        .units()
-        .any(|u| u.file.module == *module && (!u.file.is_std || u.file.is_shadow) && u.file.dependency.is_none())
-}
-
 /// [platform-abi] The host-facing trait of an effect's platform handlers:
 /// `EPlatform` (`&mut self`), or `EPlatformSync` (`&self`) for `threadsafe`.
 fn platform_trait_name(effect: &str, threadsafe: bool) -> String {
@@ -141,7 +133,7 @@ fn emit_program_mode(
                 u.ast.items.iter().any(|i| abi_item_name(i).is_some_and(|n| c.contains(n)))
                     // A module declaring platform items is mounted even when
                     // nothing of it is kept: its implementation file imports it.
-                    || (abi_modules_or_project(program, &u.file.module)
+                    || (is_project_module(program, &u.file.module)
                         && !salvo_core::platform_declarations(u.ast).is_empty())
             }) || (abi_full.contains(&u.file.module) && module_produces_code(u.ast))
         })
@@ -385,7 +377,14 @@ fn emit_program_mode(
         // sits beside, never another tree's companions.
         // [runtime-sched] …except the runtime's own, which the core it
         // carries calls.
-        if abi && !(comp.platform && abi_full.contains(&comp.module)) {
+        // [platform-fn] …and the host file of any other emitted std or
+        // dependency module, whose generated wrappers call into it (found
+        // 2026-10-05 when `time` gained a platform fn).
+        if abi
+            && !(comp.platform
+                && (abi_full.contains(&comp.module)
+                    || (abi_modules.contains(&comp.module) && !is_project_module(program, &comp.module))))
+        {
             continue;
         }
         if !abi && !reachable.contains(&comp.module) {
@@ -436,7 +435,7 @@ fn emit_program_mode(
     if abi {
         for unit in program.units() {
             let module = &unit.file.module;
-            if !abi_modules_or_project(program, module)
+            if !is_project_module(program, module)
                 || salvo_core::platform_declarations(unit.ast).is_empty()
             {
                 continue;
@@ -16167,15 +16166,6 @@ impl<'p> Emitter<'p> {
                 )
             {
                 self.needs_collections = true;
-            }
-            // [time-types] [rs-time] The two clock readings live in their own
-            // runtime module, so a program that reads a clock mounts it — and
-            // one that never asks the time carries nothing.
-            if matches!(
-                f.name.name.as_str(),
-                "monotonic_nanos" | "epoch_nanos"
-            ) {
-                self.needs_time = true;
             }
             // [fn-variadic] How the variadic tail arrived, which decides the
             // shape the constructor lowering wants. A lone `...spread`

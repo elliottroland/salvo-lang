@@ -299,7 +299,14 @@ fn emit_program_mode(
     for comp in &program.companions {
         // [runtime-sched] A host project carries only the runtime's own
         // implementation file, which the core it carries calls.
-        if abi && !(comp.platform && abi_full.contains(&comp.module)) {
+        // [platform-fn] …and the host file of any other emitted std or
+        // dependency module, whose generated wrappers call into it (found
+        // 2026-10-05 when `time` gained a platform fn).
+        if abi
+            && !(comp.platform
+                && (abi_full.contains(&comp.module)
+                    || (emitted_modules.contains(&comp.module) && !is_project_module(program, &comp.module))))
+        {
             continue;
         }
         if !abi && !reachable.contains(&comp.module) {
@@ -9043,15 +9050,6 @@ impl<'p> Emitter<'p> {
             // code-unit order where Salvo's `Str` order is code point.
             if f.name.name == "cmp" && matches!(recv, Some("Str" | "List" | "()")) {
                 self.needs_compare = true;
-            }
-            // [time-types] [kt-time] The two clock readings live in their own
-            // runtime object, so a program that reads a clock gets it and one
-            // that never asks the time carries nothing.
-            if matches!(
-                f.name.name.as_str(),
-                "monotonic_nanos" | "epoch_nanos"
-            ) {
-                self.needs_time = true;
             }
             // [cmp-carry] A keyed container kept by a *named* ordering needs a
             // runtime container with a slot for one, which this backend does not

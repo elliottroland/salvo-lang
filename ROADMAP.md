@@ -134,10 +134,18 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    dependency, which both backends refuse. Still small and open: one
    termination predicate (Rust `block_terminates`, Kotlin
    `block_returns_early`).
-5. **Runtime files and intrinsics to std.** `hosttime`, `hoststreams`,
-   Kotlin's `bytes.kt`, Rust's `strings.rs` (float text) and `seq.rs` become
-   std/platform host files; `epoch_nanos` becomes a platform fn (§0 item 2).
-   Shrinks the recorded runtime-file-name collision to almost nothing.
+5. **Runtime files and intrinsics to std** — `epoch_nanos` is a platform fn
+   with host files `std/platform/time.{kt,rs}` (2026-10-05, COMPLETED.md).
+   The runtime files turned out to be used by other runtime code, so each
+   moves with what uses it: `hosttime`'s monotonic clock with the scheduler
+   (the runtime host files and `scheduler.*` call it; §0d), Kotlin's
+   `bytes.kt` (`SalvoBytes`) and Rust's `wire.rs` with step 9 (the codecs and
+   the stream table use them), Rust's `seq.rs` (`salvo_pair_mut`) with step 12
+   (element handles), `hoststreams` with the stream table's host code. Rust's
+   `strings.rs` (float text) is used by the emitter's interpolation; it can
+   become a platform fn of `core.string` once interpolation lowers through
+   `to_str` for floats, which is a small step of its own. The recorded
+   runtime-file-name collision shrinks as these go.
 6. **The language the Salvo collections need.**
    - a. **Fn slots on struct declarations** ([cmp-carry]'s "a slot is
      declared by a qualifier or an intrinsic type, and nowhere else" changes).

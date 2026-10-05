@@ -25,3 +25,7 @@ impl crate::wire::__Wire for Instant {
         })
     }
 }
+
+pub fn epoch_nanos_platform() -> i64 {
+    crate::platform_time::epoch_nanos()
+}

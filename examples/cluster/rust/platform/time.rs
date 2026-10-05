@@ -1,0 +1,14 @@
+// [time-clock] [platform-fn] `time`'s host code: the wall clock, in
+// nanoseconds since the Unix epoch (ROADMAP §0j step 5; it was an intrinsic
+// lowered to the runtime's `hosttime`). Before 1970 answers a negative number
+// rather than saturating at zero, which is what a signed epoch reading means
+// on the Kotlin side too: the two backends agree on the number.
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+pub fn epoch_nanos() -> i64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(since) => since.as_nanos() as i64,
+        Err(before) => -(before.duration().as_nanos() as i64),
+    }
+}

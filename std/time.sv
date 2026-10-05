@@ -341,7 +341,7 @@ export fn monotonic_nanos() [] -> Long {
 
 // [time-clock] The wall clock's reading, in nanoseconds since the Unix epoch.
 // The plumbing under [DefaultClock]; bind [Clock] instead.
-export intrinsic fn epoch_nanos() [] -> Long
+export platform fn epoch_nanos() [] -> Long
 
 // ---------------------------------------------------------------- timer ----
 

@@ -75,6 +75,8 @@ pub mod platform_net;
 pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
+#[path = "platform/time.rs"]
+pub mod platform_time;
 
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;

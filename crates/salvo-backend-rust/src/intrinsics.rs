@@ -299,7 +299,6 @@ pub fn fn_call(
         // to the time surface. Everything else (`Duration`, `between`, the
         // correlation `DefaultClock` keeps) is ordinary Salvo over these.
         // [stream-handle] One counter for every stream table in the process.
-        ("epoch_nanos", None) => "crate::hosttime::salvo_epoch_nanos()".to_string(),
         // [col-of-nonempty] The constructors match on the *name*, because the
         // first parameter no longer identifies them: the empty one has none and
         // the element one starts with a `T`. Three call shapes reach here.

@@ -141,6 +141,19 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, step 5: the wall clock as a platform fn (2026-10-05,
+ROADMAP §0j).** `time.epoch_nanos` was an intrinsic lowered to the runtime's
+`SalvoTime`/`hosttime`; it is a `platform fn` with host files
+`std/platform/time.{kt,rs}`, and the clock code left both runtime files and
+both intrinsic tables (with the dead `needs_time` trigger, whose two names
+were no longer intrinsics). Found on the way: an ABI root (`modules/aws`)
+carried the *ABI mirror* of a std module with platform fns but not that
+module's *host file*, which its wrappers call — a std host file was carried
+only for the runtime closure. Now any std or dependency module the root
+writes carries its host file too (shared `is_project_module` in
+`emit_util`). The other runtime files did not move: each is used by other
+runtime code, so it goes with that (ROADMAP §0j step 5).
+
 **Shrinking the backends, step 4: no call is resolved by shape (2026-10-05,
 ROADMAP §0j).** Both emitters had a third rung for a call the checker had not
 resolved: pick among same-arity fns by comparing argument base names

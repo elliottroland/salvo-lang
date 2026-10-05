@@ -61,6 +61,8 @@ pub mod platform_core_string;
 pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
+#[path = "platform/time.rs"]
+pub mod platform_time;
 
 use crate::core_actor::Idle;
 use crate::core_actor::__Stateful_Faults as _;

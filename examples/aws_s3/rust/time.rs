@@ -330,7 +330,7 @@ impl DefaultClock {
     pub fn new() -> Self {
         Self {
             base_tick: monotonic_nanos(),
-            base_epoch: crate::hosttime::salvo_epoch_nanos(),
+            base_epoch: epoch_nanos_platform(),
         }
     }
 }
@@ -338,7 +338,7 @@ impl DefaultClock {
 impl crate::time::__Stateful_Clock for DefaultClock {
 
     fn now(&mut self) -> Instant {
-        return Instant { nanos: crate::hosttime::salvo_epoch_nanos() };
+        return Instant { nanos: epoch_nanos_platform() };
     }
 
     fn to_instant(&mut self, at: &Tick) -> Instant {
@@ -352,6 +352,10 @@ impl crate::time::__Stateful_Clock for DefaultClock {
 
 pub fn monotonic_nanos() -> i64 {
     return now_nanos();
+}
+
+pub fn epoch_nanos_platform() -> i64 {
+    crate::platform_time::epoch_nanos()
 }
 
 #[derive(Clone, Debug, PartialEq)]

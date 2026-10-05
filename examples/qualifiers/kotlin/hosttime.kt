@@ -17,12 +17,4 @@ object SalvoTime {
     // differs between the backends — as the language says it may — while
     // every `between` answers the same span.
     fun monoNanos(): Long = System.nanoTime()
-
-    // [time-clock] The wall clock, in nanoseconds since the Unix epoch.
-    // `java.time.Instant` carries seconds plus a nanosecond field, so this is
-    // the precise reading rather than `currentTimeMillis()` scaled up.
-    fun epochNanos(): Long {
-        val now = java.time.Instant.now()
-        return now.epochSecond * 1_000_000_000L + now.nano.toLong()
-    }
 }

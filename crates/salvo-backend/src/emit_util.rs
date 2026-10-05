@@ -873,3 +873,12 @@ pub fn remove_if_ours(path: &std::path::Path, header: &str) -> std::io::Result<(
 pub fn as_pairs(files: Vec<EmittedFile>) -> Vec<(std::path::PathBuf, String)> {
     files.into_iter().map(|f| (f.rel_path, f.content)).collect()
 }
+
+/// [platform-abi] Whether `module` is the project's own (not std, not a
+/// dependency): its implementation file is mounted in a host project, where
+/// a std or dependency module's host file is carried as a copy.
+pub fn is_project_module(program: &salvo_core::Program, module: &salvo_core::ModulePath) -> bool {
+    program
+        .units()
+        .any(|u| u.file.module == *module && (!u.file.is_std || u.file.is_shadow) && u.file.dependency.is_none())
+}

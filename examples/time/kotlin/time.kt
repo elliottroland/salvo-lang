@@ -224,10 +224,10 @@ class DefaultTicker : Ticker {
 
 class DefaultClock : Clock {
     private var baseTick: Long = monotonicNanos()
-    private var baseEpoch: Long = salvo.SalvoTime.epochNanos()
+    private var baseEpoch: Long = epochNanosPlatform()
 
     override fun now(): Instant {
-        return Instant(nanos = salvo.SalvoTime.epochNanos())
+        return Instant(nanos = epochNanosPlatform())
     }
 
     override fun toInstant(at: Tick): Instant {
@@ -241,6 +241,10 @@ class DefaultClock : Clock {
 
 fun monotonicNanos(): Long {
     return nowNanos()
+}
+
+fun epochNanosPlatform(): Long {
+    return salvo.platform.time.epochNanos()
 }
 
 data class Fired(

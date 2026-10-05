@@ -15,3 +15,7 @@ object __Codec_Instant : salvo.WireCodec<Instant> {
     }
     override fun dec(inp: salvo.WireIn): Instant = Instant(salvo.LongCodec.dec(inp))
 }
+
+fun epochNanosPlatform(): Long {
+    return salvo.platform.time.epochNanos()
+}

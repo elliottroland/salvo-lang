@@ -177,7 +177,6 @@ pub fn fn_call(
         // `Long` of nanoseconds — the whole of the host's contribution to the
         // time surface, matching `time.rs` number for number.
         // [stream-handle] One counter for every stream table in the process.
-        ("epoch_nanos", None) => "salvo.SalvoTime.epochNanos()".to_string(),
         // core.list ------------------------------------------------------
         // The element type is spelled out: `listOf()` with no arguments
         // leaves kotlinc with nothing to infer from

@@ -77,6 +77,8 @@ pub mod platform_runtime_routing;
 pub mod platform_runtime_streams;
 #[path = "salvo/platform/runtime.sv.rs"]
 pub mod platform_runtime;
+#[path = "salvo/platform/time.sv.rs"]
+pub mod platform_time;
 #[path = "aws/s3/host.rs"]
 pub mod platform_aws_s3_host;
 #[path = "aws/sqs/host.rs"]

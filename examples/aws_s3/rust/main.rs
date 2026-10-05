@@ -83,6 +83,8 @@ pub mod platform_runtime_routing;
 pub mod platform_runtime_streams;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
+#[path = "platform/time.rs"]
+pub mod platform_time;
 
 use crate::collections::*;
 use crate::unions::*;
