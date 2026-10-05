@@ -4,11 +4,6 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.runtime.routing
 
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.string.*
-import salvo.runtime.*
 
 // [mod-use] The module's `use` #0, bound on first use.
 private val __moduleUse0: RouteTable by lazy {

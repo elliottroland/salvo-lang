@@ -2,10 +2,6 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5ecf120cea852ac5
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_list::*;
-use crate::core_string::*;
 
 pub fn filter_platform<T: Clone>(list: &Vec<T>, keep: &mut dyn FnMut(&T) -> bool) -> Vec<T> {
     crate::platform_core_seq::filter(list, keep)

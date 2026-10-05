@@ -60,22 +60,38 @@ pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
 
-use crate::aws::*;
-use crate::aws_sqs::*;
 use crate::collections::*;
-use crate::core_actor::*;
-use crate::core_bytes::*;
-use crate::core_checked::*;
-use crate::core_console::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_result::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
 use crate::unions::*;
+use crate::aws::AwsError;
+use crate::aws_sqs::CreateQueueInput;
+use crate::aws_sqs::CreateQueueOutput;
+use crate::aws_sqs::DeleteMessageInput;
+use crate::aws_sqs::DeleteQueueInput;
+use crate::aws_sqs::FakeSqs;
+use crate::aws_sqs::GetQueueUrlInput;
+use crate::aws_sqs::GetQueueUrlOutput;
+use crate::aws_sqs::Message;
+use crate::aws_sqs::ReceiveMessageInput;
+use crate::aws_sqs::ReceiveMessageOutput;
+use crate::aws_sqs::SendMessageInput;
+use crate::aws_sqs::SendMessageOutput;
+use crate::aws_sqs::SqsError;
+use crate::aws_sqs::__Stateful_Sqs as _;
+use crate::aws_sqs::__Stateful_SqsCalls as _;
+use crate::aws_sqs::__Stateless_Sqs as _;
+use crate::aws_sqs::__Stateless_SqsCalls as _;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_checked::Checked;
+use crate::core_checked::checked;
+use crate::core_checked::detach;
+use crate::core_console::ConsolePlatformSync as _;
+use crate::core_console::__Stateful_Console as _;
+use crate::core_console::__Stateless_Console as _;
+use crate::core_console::println;
+use crate::core_list::to_str;
+use crate::core_result::err;
+use crate::core_result::ok;
 
 pub fn describe(e: &Union2<SqsError, AwsError>) -> String {
     if matches!(e, Union2::U2(_)) {
@@ -239,7 +255,7 @@ pub fn main() {
         let sqs2 = crate::aws_sqs::Sqs::share_locked(__inst.clone());
         let sqs_calls = crate::aws_sqs::SqsCalls::share_locked(__inst.clone());
         round_trip(&sqs2, &console, &("orders".to_string()));
-        println(&console, &(format!("calls: {}", to_str__3(&sqs_calls.calls(), &mut |__i0| format!("{}", __i0)))));
+        println(&console, &(format!("calls: {}", to_str(&sqs_calls.calls(), &mut |__i0| format!("{}", __i0)))));
     }
     println(&console, &("-- MemSqs --".to_string()));
     if true {

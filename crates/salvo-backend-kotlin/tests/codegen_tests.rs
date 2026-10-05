@@ -194,10 +194,10 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
 
 /// Emits one source (plus std) — the Rust backend's `generate` by another
 /// name, since this crate's `generate_demo` is fixed to `DEMO`.
-/// The mangled name of an overload in emitted text: the identifier starting
-/// with `prefix` (`fun eq__`) whose definition is followed by `signature`.
-/// Overload indices depend on how many overloads std declares, so a test
-/// that means "the mangling is kept" reads the index rather than pinning it.
+/// The emitted name of an overload in emitted text: the identifier starting
+/// with `prefix` (`fun eq`) whose definition is followed by `signature`.
+/// Names are per module since 2026-10-05 [fn-emit-name], so this reads the
+/// one a test's own module gives, plain or suffixed.
 fn mangled_name(text: &str, prefix: &str, signature: &str) -> String {
     let mut at = 0;
     while let Some(i) = text[at..].find(prefix) {
@@ -532,7 +532,7 @@ fn golden_qualifiers_kotlin() {
     insta::assert_snapshot!(combined);
 }
 
-// [is-qualifies] [kt-qual-mangling] [qual-field-override]
+// [is-qualifies] [fn-emit-name] [qual-field-override]
 #[test]
 fn qualifiers_lower_to_predicates_and_mangled_overloads() {
     let files = generate_qualifiers_demo();
@@ -554,11 +554,11 @@ fn qualifiers_lower_to_predicates_and_mangled_overloads() {
     // call to it and the unqualified call to the base name.
     assert!(main
         .content
-        .contains("fun fullName__Surname(person: Person): String"));
+        .contains("fun fullName__SurnamePerson(person: Person): String"));
     assert!(main
         .content
-        .contains("println(console, fullName__Surname(person))"));
-    assert!(main.content.contains("println(console, fullName(person))"));
+        .contains("println(console, fullName__SurnamePerson(person))"));
+    assert!(main.content.contains("println(console, fullName__Person(person))"));
     // Field overrides cast + assert at the access site.
     assert!(main.content.contains("(person.surname as String)"));
     // `while x is T` lowers with a per-iteration binding.
@@ -1658,8 +1658,8 @@ fn a_raw_pass_is_driven_in_place_with_no_finally() {
         "expected no finally splice and no loop local, got:\n{src}"
     );
     assert!(
-        // Suffixed: std declares a `close` too [fs-surface].
-        src.contains("close__4(console, lines)"),
+        // Plain: the program's module declares one `close` [fn-emit-name].
+        src.contains("close(console, lines)"),
         "expected the program's own explicit close:\n{src}"
     );
 }
@@ -1881,7 +1881,7 @@ export fn main() [use] -> None {
         main.content
     );
     assert!(
-        main.content.contains("describe__Positive(make())"),
+        main.content.contains("describe__PositiveInt(make())"),
         "content: {}",
         main.content
     );
@@ -3608,14 +3608,14 @@ fn a_mixed_identity_fill_pairs_both_slots() {
     assert!(
         kt.contains(&format!(
             "salvo.SalvoHashSet<Point>(::byX, ::{})",
-            mangled_name(&kt, "fun eq__", "(a: Point, b: Point)")
+            mangled_name(&kt, "fun eq", "(a: Point, b: Point)")
         )),
         "the written hash pairs with the generated eq: {kt}"
     );
     assert!(
         kt.contains(&format!(
             "salvo.SalvoHashMap<Point, Int>(::byX, ::{})",
-            mangled_name(&kt, "fun eq__", "(a: Point, b: Point)")
+            mangled_name(&kt, "fun eq", "(a: Point, b: Point)")
         )),
         "and for a map too: {kt}"
     );
@@ -5194,8 +5194,9 @@ fn modules_get_packages_and_generated_imports() {
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
     assert!(main.content.starts_with("package salvo.main\n"));
-    assert!(main.content.contains("import salvo.core.console.*"));
-    assert!(main.content.contains("import salvo.geometry.*"));
+    // One import per name used [kt-imports].
+    assert!(main.content.contains("import salvo.core.console.println"), "{}", main.content);
+    assert!(main.content.contains("import salvo.geometry.area"), "{}", main.content);
     let geometry = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "geometry.kt")
@@ -5232,7 +5233,7 @@ fn main() [use] -> None {
     assert!(main.content.contains("rectArea(3, 4)"));
 }
 
-// [kt-imports] [kt-qual-mangling] An aliased import of a fn with a
+// [kt-imports] [fn-emit-name] An aliased import of a fn with a
 // mangled qualified overload emits one alias import per overload symbol,
 // and aliased call sites keep the mangling suffix.
 const MANGLED_ALIAS_MAIN: &str = r#"
@@ -5277,10 +5278,10 @@ fn aliased_import_of_mangled_overload_keeps_suffix() {
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
     for needle in [
-        "import salvo.lib.shout as holler",
-        "import salvo.lib.shout__Loud as holler__Loud",
-        "holler(\"hi\")",
-        "holler__Loud(l)",
+        "import salvo.lib.shout__Str as holler__Str",
+        "import salvo.lib.shout__LoudStr as holler__LoudStr",
+        "holler__Str(\"hi\")",
+        "holler__LoudStr(l)",
     ] {
         assert!(
             main.content.contains(needle),
@@ -7839,7 +7840,7 @@ fn main() [use] -> None {
 // [name-dot] [kt-nested-dot-name] Dot-named structs emit as *nested*
 // classes (never `inner`) and are referenced with the dotted name;
 // a dot-named qualifier canonicalizes to its flat spelling in a mangled
-// overload name [kt-qual-mangling].
+// overload name [fn-emit-name].
 fn dot_names_emit_nested_classes() -> KotlinCase {
     let program = build_program(&[("main.sv", DOT_NAMES)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -7881,7 +7882,7 @@ fn dot_names_emit_nested_classes() -> KotlinCase {
     );
     // Mangling flattens the dot into a single identifier.
     assert!(
-        main.content.contains("fun label__EnvironmentTag("),
+        main.content.contains("fun label__EnvironmentTagStr("),
         "generated:\n{}",
         main.content
     );
@@ -9843,12 +9844,12 @@ fn every_emitted_overload_gets_its_own_kotlin_name() {
         .expect("main.kt emitted")
         .content;
     assert!(
-        main.contains("fun twice(p: ListYield<Int>") && main.contains("fun twice__2(xs: List<Int>"),
+        main.contains("fun twice__ListYield_Fn(p: ListYield<Int>") && main.contains("fun twice__List_Fn(xs: List<Int>"),
         "expected the second overload to be renamed in:\n{main}"
     );
     // The delegation calls the *other* overload, by its own name.
     assert!(
-        main.contains("return twice("),
+        main.contains("return twice__ListYield_Fn("),
         "expected the delegation to reach the pass overload in:\n{main}"
     );
 }
@@ -10046,7 +10047,7 @@ fn implicit_parameters_lower_to_trailing_fn_parameters() {
         // its own ([time-types], `times(Duration, Long)`), and overload
         // mangling is program-wide — so a user fn sharing the name takes a
         // suffix whether or not the module is imported [kt-fn-mangling].
-        "total(listOf<Int>(2, 3, 4), ::times__2, ::one)",
+        "total(listOf<Int>(2, 3, 4), ::times, ::one)",
     ] {
         assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
     }
@@ -10432,7 +10433,7 @@ fn mut_str_lowers_to_a_string_builder() {
     // and at an operator — a bare name takes the suffix without parens.
     assert!(main.contains("shout(b.toString())"), "unexpected:\n{main}");
     assert!(
-        main.contains("\"size: ${sizePlatform(b.toString())}\""),
+        main.contains("\"size: ${sizePlatform__core_string(b.toString())}\""),
         "unexpected:\n{main}"
     );
     assert!(
@@ -10646,7 +10647,7 @@ fn sequence_functions_lower_to_collection_operations() {
     // The generic overload for a pass subject gets the resolved `next` as its
     // implicit argument.
     assert!(
-        main.contains("map(iter(arr), { n -> n + 1 }, ::next)"),
+        main.contains("map__It_Fn(iter__core_array(arr), { n -> n + 1 }, ::next__core_array)"),
         "expected the resolved `next` as the implicit in:\n{main}"
     );
     // A `params` group is not a value: nothing *declares* `Yield`.
@@ -10755,7 +10756,7 @@ fn scope_selectors_and_renames_are_erased() {
     // both `label`s are mangled, since they are overloads of one name
     // [kt-fn-mangling].
     assert!(
-        main.contains("${label__Even(n)} ${label__Small(n)}"),
+        main.contains("${label__EvenInt(n)} ${label__SmallInt(n)}"),
         "unexpected:\n{main}"
     );
     // A call reaching past a local of the same name needs nothing special
@@ -11737,16 +11738,16 @@ fn effect_member_overloads_get_distinct_names() {
         .expect("main.kt");
     let src = &main.content;
     for expected in [
-        "fun close(f: InFile): String",
-        "fun close__2(f: OutFile): String",
+        "fun close__InFile(f: InFile): String",
+        "fun close__OutFile(f: OutFile): String",
         "fun describe(f: InFile): String",
-        "override fun close(f: InFile): String {",
-        "override fun close__2(f: OutFile): String {",
+        "override fun close__InFile(f: InFile): String {",
+        "override fun close__OutFile(f: OutFile): String {",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
     assert!(
-        src.contains(".close(InFile(") && src.contains(".close__2(OutFile("),
+        src.contains(".close__InFile(InFile(") && src.contains(".close__OutFile(OutFile("),
         "expected both call sites to name their own overload, got:\n{src}"
     );
 }
@@ -12310,7 +12311,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
         "expected the stream effect in:\n{streams}"
     );
     assert!(
-        streams.contains("fun close__2(streams: Streams, p: Lines)"),
+        streams.contains("fun close__Lines(streams: Streams, p: Lines)"),
         "expected the pass discharger as a fn named `close` in:\n{streams}"
     );
     // The host seam is its own module [mod-used-only]: a program that never

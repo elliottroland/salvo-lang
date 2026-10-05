@@ -1,15 +1,18 @@
-use crate::core_actor::*;
-use crate::core_array::*;
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::runtime::*;
-use crate::runtime_timers::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_list::at;
+use crate::runtime::RuntimeHostPlatformSync as _;
+use crate::runtime::__Stateful_RuntimeHost as _;
+use crate::runtime::__Stateful_SchedTable as _;
+use crate::runtime::__Stateless_RuntimeHost as _;
+use crate::runtime::__Stateless_SchedTable as _;
+use crate::runtime::now_nanos;
+use crate::runtime_timers::__Stateful_DeadlineTable as _;
+use crate::runtime_timers::__Stateful_Wheel as _;
+use crate::runtime_timers::__Stateless_DeadlineTable as _;
+use crate::runtime_timers::__Stateless_Wheel as _;
+use crate::runtime_timers::advance;
+use crate::runtime_timers::after_nanos;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Duration {
@@ -99,11 +102,11 @@ pub fn to_seconds(d: &Duration) -> i64 {
     return d.nanos / 1000000000i64;
 }
 
-pub fn plus(d1: &Duration, d2: &Duration) -> Duration {
+pub fn plus__Duration_Duration(d1: &Duration, d2: &Duration) -> Duration {
     return Duration { nanos: d1.nanos + d2.nanos };
 }
 
-pub fn minus(d1: &Duration, d2: &Duration) -> Duration {
+pub fn minus__Duration_Duration(d1: &Duration, d2: &Duration) -> Duration {
     return Duration { nanos: d1.nanos - d2.nanos };
 }
 
@@ -118,10 +121,10 @@ pub fn abs(d: Duration) -> Duration {
     return d;
 }
 
-pub fn to_str__10(d: &Duration) -> String {
+pub fn to_str(d: &Duration) -> String {
     if d.nanos < ((0) as i64) {
         let mut positive = Duration { nanos: 0i64 - d.nanos };
-        return format!("-{}", to_str__10(&positive));
+        return format!("-{}", to_str(&positive));
     }
     if d.nanos == ((0) as i64) {
         return "0s".to_string();
@@ -162,27 +165,27 @@ pub fn to_epoch_second(at: &Instant) -> i64 {
     return at.nanos / 1000000000i64;
 }
 
-pub fn between(start: &Instant, end: &Instant) -> Duration {
+pub fn between__Instant_Instant(start: &Instant, end: &Instant) -> Duration {
     return Duration { nanos: end.nanos - start.nanos };
 }
 
-pub fn between__2(start: &Tick, end: &Tick) -> Duration {
+pub fn between__Tick_Tick(start: &Tick, end: &Tick) -> Duration {
     return Duration { nanos: end.nanos - start.nanos };
 }
 
-pub fn plus__2(at: &Instant, d: &Duration) -> Instant {
+pub fn plus__Instant_Duration(at: &Instant, d: &Duration) -> Instant {
     return Instant { nanos: at.nanos + d.nanos };
 }
 
-pub fn minus__2(at: &Instant, d: &Duration) -> Instant {
+pub fn minus__Instant_Duration(at: &Instant, d: &Duration) -> Instant {
     return Instant { nanos: at.nanos - d.nanos };
 }
 
-pub fn plus__3(at: &Tick, d: &Duration) -> Tick {
+pub fn plus__Tick_Duration(at: &Tick, d: &Duration) -> Tick {
     return Tick { nanos: at.nanos + d.nanos };
 }
 
-pub fn minus__3(at: &Tick, d: &Duration) -> Tick {
+pub fn minus__Tick_Duration(at: &Tick, d: &Duration) -> Tick {
     return Tick { nanos: at.nanos - d.nanos };
 }
 
@@ -297,7 +300,7 @@ impl Clock {
 }
 
 pub fn elapsed(ticker: &crate::time::Ticker, since: &Tick) -> Duration {
-    return between__2(since, &(ticker.tick()));
+    return between__Tick_Tick(since, &(ticker.tick()));
 }
 
 #[derive(Clone)]
@@ -770,7 +773,7 @@ pub fn earliest_due(deadlines: &Vec<i64>, target: i64) -> Option<i32> {
     return Some(best);
 }
 
-pub fn cmp__2(a: &Duration, b: &Duration) -> i32 {
+pub fn cmp__Duration_Duration(a: &Duration, b: &Duration) -> i32 {
     let mut c__c1 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
     if c__c1 != 0 {
         return c__c1;
@@ -778,20 +781,20 @@ pub fn cmp__2(a: &Duration, b: &Duration) -> i32 {
     return 0;
 }
 
-pub fn hash__7(value: &Duration) -> i64 {
+pub fn hash__Duration(value: &Duration) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__8(a: &Duration, b: &Duration) -> bool {
+pub fn eq__Duration_Duration(a: &Duration, b: &Duration) -> bool {
     if !((a.nanos) == (b.nanos)) {
         return false;
     }
     return true;
 }
 
-pub fn cmp__3(a: &Instant, b: &Instant) -> i32 {
+pub fn cmp__Instant_Instant(a: &Instant, b: &Instant) -> i32 {
     let mut c__c1 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
     if c__c1 != 0 {
         return c__c1;
@@ -799,20 +802,20 @@ pub fn cmp__3(a: &Instant, b: &Instant) -> i32 {
     return 0;
 }
 
-pub fn hash__8(value: &Instant) -> i64 {
+pub fn hash__Instant(value: &Instant) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__9(a: &Instant, b: &Instant) -> bool {
+pub fn eq__Instant_Instant(a: &Instant, b: &Instant) -> bool {
     if !((a.nanos) == (b.nanos)) {
         return false;
     }
     return true;
 }
 
-pub fn cmp__4(a: &Tick, b: &Tick) -> i32 {
+pub fn cmp__Tick_Tick(a: &Tick, b: &Tick) -> i32 {
     let mut c__c1 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
     if c__c1 != 0 {
         return c__c1;
@@ -820,13 +823,13 @@ pub fn cmp__4(a: &Tick, b: &Tick) -> i32 {
     return 0;
 }
 
-pub fn hash__9(value: &Tick) -> i64 {
+pub fn hash__Tick(value: &Tick) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__10(a: &Tick, b: &Tick) -> bool {
+pub fn eq__Tick_Tick(a: &Tick, b: &Tick) -> bool {
     if !((a.nanos) == (b.nanos)) {
         return false;
     }

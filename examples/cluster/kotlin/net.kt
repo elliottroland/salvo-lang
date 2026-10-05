@@ -1,19 +1,22 @@
 package salvo.net
 
 import salvo.*
-import salvo.core.actor.*
-import salvo.core.array.*
-import salvo.core.bytes.*
-import salvo.core.checked.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.result.*
-import salvo.core.seq.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.time.*
+import salvo.core.checked.detach
+import salvo.core.list.addPlatform
+import salvo.core.list.all
+import salvo.core.list.at
+import salvo.core.list.count
+import salvo.core.list.getPlatform
+import salvo.core.list.last
+import salvo.core.list.partition
+import salvo.core.list.removeAtPlatform
+import salvo.core.list.sizePlatform
+import salvo.core.result.err
+import salvo.core.result.ok
+import salvo.core.seq.count
+import salvo.time.Duration
+import salvo.time.__Codec_Duration
+import salvo.time.nanos
 
 data class NodeEndpoint(
     val host: String,
@@ -28,7 +31,7 @@ object __Codec_NodeEndpoint : salvo.WireCodec<NodeEndpoint> {
     override fun dec(inp: salvo.WireIn): NodeEndpoint = NodeEndpoint(salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun toStr__4(e: NodeEndpoint): String {
+fun toStr__NodeEndpoint(e: NodeEndpoint): String {
     return "${e.host}:${e.port}"
 }
 
@@ -63,13 +66,13 @@ object NetErrors {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun toStr__5(e: Union2<Unreachable, WireFailed>): String {
+fun toStr__NetError(e: Union2<Unreachable, WireFailed>): String {
     when (e) {
         is Union2.U1<*, *> -> {
-            return "unreachable: ${toStr__4((e.value as Unreachable).to)}"
+            return "unreachable: ${toStr__NodeEndpoint((e.value as Unreachable).to)}"
         }
         is Union2.U2<*, *> -> {
-            return "wire failed to ${toStr__4((e.value as WireFailed).to)}: ${(e.value as WireFailed).reason}"
+            return "wire failed to ${toStr__NodeEndpoint((e.value as WireFailed).to)}: ${(e.value as WireFailed).reason}"
         }
     }
 }
@@ -333,11 +336,11 @@ class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
     }
 }
 
-fun connect(transport: Transport, me: NodeEndpoint): Boolean {
-    return connect__2(transport, me, salvo.SalvoSched.pool(1))
+fun connect__NodeEndpoint(transport: Transport, me: NodeEndpoint): Boolean {
+    return connect__NodeEndpoint_Pool(transport, me, salvo.SalvoSched.pool(1))
 }
 
-fun connect__2(transport: Transport, me: NodeEndpoint, on: Int): Boolean {
+fun connect__NodeEndpoint_Pool(transport: Transport, me: NodeEndpoint, on: Int): Boolean {
     if (salvo.SalvoSched.connected()) {
         return false
     }
@@ -615,7 +618,7 @@ fun leaveGroup(known: Map<NodeId, Node>) {
 }
 
 class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoint>, private val __dep_Transport: Transport) : NodeGroup {
-    private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__2, ::eq__2).also { __m -> __m.putAll(listOf()) }
+    private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__NodeId, ::eq__NodeId_NodeId).also { __m -> __m.putAll(listOf()) }
     private var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     internal val __mailboxCapacity: Int = 64
     internal var __addr: Int? = null
@@ -671,10 +674,10 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
 
     fun init() {
         val me = __dep_Transport.localEndpoint()
-        val _connected = connect(__dep_Transport, me)
+        val _connected = connect__NodeEndpoint(__dep_Transport, me)
         salvo.SalvoSched.watchControl("", __addr!!) { __n, __d -> __Priv_StaticNodeGroup.Control(NodeId(__n), salvo.SalvoBytes(__d)) }
         for (e in salvo.platform.core.list.each(all)) {
-            if (!eq(e, me)) {
+            if (!eq__NodeEndpoint_NodeEndpoint(e, me)) {
                 val _sent = __dep_Transport.deliver(e, helloFrame(__dep_Transport, name))
             }
         }
@@ -761,7 +764,7 @@ fun knownNodes(known: Map<NodeId, Node>): List<Node> {
 }
 
 class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndpoint>, private val __dep_Transport: Transport) : NodeGroup {
-    private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__2, ::eq__2).also { __m -> __m.putAll(listOf()) }
+    private var known: MutableMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__NodeId, ::eq__NodeId_NodeId).also { __m -> __m.putAll(listOf()) }
     private var dialed: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
     private var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     internal val __mailboxCapacity: Int = 64
@@ -803,7 +806,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
                     introduce(id, listOf<NodeEndpoint>((event?.value as PeerHello).at))
                 }
                 introduce((event?.value as PeerHello).node, others)
-                dialed.add(toStr__4((event?.value as PeerHello).at))
+                dialed.add(toStr__NodeEndpoint((event?.value as PeerHello).at))
                 val n = Node(id = (event?.value as PeerHello).node, at = (event?.value as PeerHello).at)
                 known.put((event?.value as PeerHello).node, n)
                 for (w in salvo.platform.core.list.each(watchers)) {
@@ -831,7 +834,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
 
     fun init() {
         val me = __dep_Transport.localEndpoint()
-        val _connected = connect(__dep_Transport, me)
+        val _connected = connect__NodeEndpoint(__dep_Transport, me)
         salvo.SalvoSched.watchControl("", __addr!!) { __n, __d -> __Priv_GossipNodeGroup.Control(NodeId(__n), salvo.SalvoBytes(__d)) }
         for (e in salvo.platform.core.list.each(seeds)) {
             dial(__dep_Transport, dialed, name, e)
@@ -908,13 +911,13 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
 }
 
 fun dial(transport: Transport, dialed: MutableSet<String>, group: String, e: NodeEndpoint) {
-    if (eq(e, transport.localEndpoint()) || dialed.contains(toStr__4(e))) {
+    if (eq__NodeEndpoint_NodeEndpoint(e, transport.localEndpoint()) || dialed.contains(toStr__NodeEndpoint(e))) {
         return
     }
-    dialed.add(toStr__4(e))
+    dialed.add(toStr__NodeEndpoint(e))
     val sent = transport.deliver(e, helloFrame(transport, group))
     if (sent is Union2.U2<*, *>) {
-        val _forgot = dialed.remove(toStr__4(e))
+        val _forgot = dialed.remove(toStr__NodeEndpoint(e))
     }
 }
 
@@ -1075,13 +1078,13 @@ fun shareMembers(name: String, hash: String, node: NodeId, members: List<Int>) {
     salvo.SalvoSched.sendControl((node).id, name, (salvo.salvoEncode(Pair(hash, members), salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec)))).toByteArray())
 }
 
-fun actorGroup(nodes: Int, protocol: () -> Protocol): Int {
+fun actorGroup__Addr(nodes: Int, protocol: () -> Protocol): Int {
     val proto = protocol()
     val name = proto.name
-    return actorGroup__2(name, nodes, protocol)
+    return actorGroup__Str_Addr(name, nodes, protocol)
 }
 
-fun actorGroup__2(name: String, nodes: Int, protocol: () -> Protocol): Int {
+fun actorGroup__Str_Addr(name: String, nodes: Int, protocol: () -> Protocol): Int {
     val (group, watcher) = run { val __h = ActorGrouping(name, protocol()); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.pool(1), __h.__mailboxCapacity, __Actor_ActorGrouping(__h), __Actor_ActorGrouping.__DECODE); salvo.SalvoSched.send(__a, __Priv_ActorGrouping.Init); Pair(__a, __a) }
     salvo.SalvoSched.sendWire(nodes, __Msg_NodeGroup.Subscribe(watcher), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
     return group
@@ -1129,7 +1132,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
     override fun left(n: Node, why: String) {
         val gone: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
         for (m in salvo.platform.core.list.each(all)) {
-            if (eq__2(NodeId(salvo.SalvoSched.addrIdentity(m).node), n.id)) {
+            if (eq__NodeId_NodeId(NodeId(salvo.SalvoSched.addrIdentity(m).node), n.id)) {
                 addPlatform(gone, m)
             }
         }
@@ -1295,7 +1298,7 @@ fun admit(list: salvo.platform.core.list.MutList<Int>, a: Int): Boolean {
 
 fun containsNode(list: List<NodeId>, n: NodeId): Boolean {
     for (x in salvo.platform.core.list.each(list)) {
-        if (eq__2(x, n)) {
+        if (eq__NodeId_NodeId(x, n)) {
             return true
         }
     }
@@ -1393,11 +1396,11 @@ object __Codec_RoutePick : salvo.WireCodec<RoutePick> {
     override fun dec(inp: salvo.WireIn): RoutePick = RoutePick(salvo.AddrCodec.dec(inp), salvo.LongCodec.dec(inp))
 }
 
-fun routePick(route_selector: RouteSelector, group: Int, config: RouteConfig, seen: Long): RoutePick {
+fun routePick__Addr_RouteConfig_Long(route_selector: RouteSelector, group: Int, config: RouteConfig, seen: Long): RoutePick {
     return routeKeyed(route_selector, group, config, seen, null)
 }
 
-fun routePick__2(route_selector: RouteSelector, group: Int, config: RouteConfig, seen: Long, key: Long): RoutePick {
+fun routePick__Addr_RouteConfig_Long_Long(route_selector: RouteSelector, group: Int, config: RouteConfig, seen: Long, key: Long): RoutePick {
     return routeKeyed(route_selector, group, config, seen, key)
 }
 
@@ -1428,7 +1431,7 @@ fun routeKeyed(route_selector: RouteSelector, group: Int, config: RouteConfig, s
 fun routeView(group: Int): RouteView {
     val members: salvo.platform.core.list.MutList<RouteMember> = mutableListOf<RouteMember>()
     for (m in salvo.platform.core.list.each(salvo.SalvoSched.viewMembers(group))) {
-        addPlatform(members, RouteMember(addr = m, local = eq__2(NodeId(salvo.SalvoSched.addrIdentity(m).node), NodeId(salvo.SalvoSched.hereNode()))))
+        addPlatform(members, RouteMember(addr = m, local = eq__NodeId_NodeId(NodeId(salvo.SalvoSched.addrIdentity(m).node), NodeId(salvo.SalvoSched.hereNode()))))
     }
     return RouteView(members = members.toMutableList())
 }
@@ -1521,7 +1524,7 @@ class Elected(private val __dep_Leader: Leader) : RouteSelector {
         chosen = null
         val l = (__dep_Leader.leader() ?: return)
         for (a in salvo.platform.core.list.each(view.members)) {
-            if (eq__2(NodeId(salvo.SalvoSched.addrIdentity(a.addr).node), l)) {
+            if (eq__NodeId_NodeId(NodeId(salvo.SalvoSched.addrIdentity(a.addr).node), l)) {
                 chosen = a.addr
                 return
             }
@@ -1648,9 +1651,9 @@ object __Codec___Msg_MemNet : salvo.WireCodec<__Msg_MemNet> {
 const val __PROTO_MemNet: String = "2815c14392023d5e"
 
 class MemNetwork : MemNet {
-    private var listeners: MutableMap<NodeEndpoint, Int> = salvo.SalvoHashMap<NodeEndpoint, Int>(::hash, ::eq).also { __m -> __m.putAll(listOf()) }
+    private var listeners: MutableMap<NodeEndpoint, Int> = salvo.SalvoHashMap<NodeEndpoint, Int>(::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint).also { __m -> __m.putAll(listOf()) }
     private var cuts: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
-    private var dead: MutableSet<NodeEndpoint> = salvo.SalvoHashSet<NodeEndpoint>(::hash, ::eq).also { __s -> __s.addAll(listOf()) }
+    private var dead: MutableSet<NodeEndpoint> = salvo.SalvoHashSet<NodeEndpoint>(::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint).also { __s -> __s.addAll(listOf()) }
     private var count: Int = 0
     internal val __mailboxCapacity: Int = 64
     internal var __addr: Int? = null
@@ -1798,7 +1801,7 @@ class MemTransport(private val me: NodeEndpoint, private val net: Int) : Transpo
 }
 
 fun cutKey(a: NodeEndpoint, b: NodeEndpoint): String {
-    return "${toStr__4(a)}>${toStr__4(b)}"
+    return "${toStr__NodeEndpoint(a)}>${toStr__NodeEndpoint(b)}"
 }
 
 fun cmp(a: NodeEndpoint, b: NodeEndpoint): Int {
@@ -1813,14 +1816,14 @@ fun cmp(a: NodeEndpoint, b: NodeEndpoint): Int {
     return 0
 }
 
-fun hash(value: NodeEndpoint): Long {
+fun hash__NodeEndpoint(value: NodeEndpoint): Long {
     var h = 17L
     h = ((h) * 31L + ((value.host).hashCode().toLong()))
     h = ((h) * 31L + ((value.port).hashCode().toLong()))
     return h
 }
 
-fun eq(a: NodeEndpoint, b: NodeEndpoint): Boolean {
+fun eq__NodeEndpoint_NodeEndpoint(a: NodeEndpoint, b: NodeEndpoint): Boolean {
     if (!((a.host) == (b.host))) {
         return false
     }
@@ -1830,31 +1833,31 @@ fun eq(a: NodeEndpoint, b: NodeEndpoint): Boolean {
     return true
 }
 
-fun hash__2(value: NodeId): Long {
+fun hash__NodeId(value: NodeId): Long {
     var h = 17L
     h = ((h) * 31L + ((value.id).hashCode().toLong()))
     return h
 }
 
-fun eq__2(a: NodeId, b: NodeId): Boolean {
+fun eq__NodeId_NodeId(a: NodeId, b: NodeId): Boolean {
     if (!((a.id) == (b.id))) {
         return false
     }
     return true
 }
 
-fun hash__3(value: Node): Long {
+fun hash__Node(value: Node): Long {
     var h = 17L
-    h = ((h) * 31L + (hash__2(value.id)))
-    h = ((h) * 31L + (hash(value.at)))
+    h = ((h) * 31L + (hash__NodeId(value.id)))
+    h = ((h) * 31L + (hash__NodeEndpoint(value.at)))
     return h
 }
 
-fun eq__3(a: Node, b: Node): Boolean {
-    if (!eq__2(a.id, b.id)) {
+fun eq__Node_Node(a: Node, b: Node): Boolean {
+    if (!eq__NodeId_NodeId(a.id, b.id)) {
         return false
     }
-    if (!eq(a.at, b.at)) {
+    if (!eq__NodeEndpoint_NodeEndpoint(a.at, b.at)) {
         return false
     }
     return true

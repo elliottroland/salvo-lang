@@ -109,10 +109,19 @@ Conventions:
     [rs-mut-str], each emitted only when the program needs it. (The lazy
     `iter.rs` runtime went with the `yield fn` deletion, 2026-09-10:
     iteration emits inline pass drives [rs-iter-pass], no runtime file.)
-* [rs-imports] Files get generated `use` items: `use crate::<mod>::*;`
-  per foreign *emitted* module whose names the file uses, and
-  `use crate::unions::*;` / `use crate::strings::*;`
-  when the file touches union wrappers or the string helpers. An aliased
+* [rs-imports] Files get generated `use` items **one per name** (user
+  decision 2026-10-05): `use crate::<mod>::<name>;` for each Salvo
+  declaration of a foreign emitted module the file's text mentions, written
+  after every module is emitted (`imports.rs` reads the names each module
+  declares and each file mentions off the emitted text). A fn the emitter
+  calls is imported from the module the checker resolved it to, under its own
+  name or `<name>__<module>` when the file uses the same emitted name from two
+  modules, or from another module and its own [fn-emit-name]. Every trait of
+  a module the file draws on is imported `as _`, since a method call names no
+  trait. Platform fn wrappers are still called by their module path
+  (`crate::core_list::size_platform`). The runtime files keep their globs —
+  `use crate::unions::*;` / `use crate::strings::*;` and the rest — since they
+  declare no Salvo name. An aliased
   Salvo import of a Rust-visible item emits
   `use crate::<mod>::<name> as <alias>;` and call sites keep the alias.
   Intrinsic lowerings name everything by absolute path [intrinsic-fn], so
@@ -1060,16 +1069,12 @@ the blanket rule:
   the declared representation: `person.surname.as_ref().unwrap().clone()`
   for a `T?` field narrowed to `T` (the cast-and-assert of
   [qual-field-override]; a wrong override panics on `unwrap`).
-* [rs-fn-mangling] Rust has no overloading: when several fns *with
-  bodies* share a name, the qualified-overload suffix rule of
-  [kt-qual-mangling] applies first (`full_name__Surname`), and any
-  overloads still colliding after erasure get a deterministic positional
-  suffix (`name__2`, `name__3`, ... in declaration order; the first
-  keeps the base name). Call sites resolved by the checker use the same
-  mangled name; unchecked arity-fallback calls share Kotlin's known
-  mangling gap. Kotlin applies the identical rule for a different reason
-  — it *has* overloading, and would resolve by its own lattice
-  [kt-fn-mangling].
+* [rs-fn-mangling] Rust has no overloading: every overload a module emits
+  gets its own name by the shared rule [fn-emit-name] (`full_name__Person`,
+  `full_name__SurnamePerson`), at its declaration and at every call the
+  checker resolved; unchecked arity-fallback calls share Kotlin's known gap.
+  Kotlin follows the same rule for a different reason — it *has*
+  overloading, and would resolve by its own lattice [kt-fn-mangling].
 * [implicit-param] [implicit-resolve] An implicit parameter emits as an
   ordinary trailing parameter, rendered like any fn-typed one:
   `&mut impl FnMut(..) -> R` [fn-contract]. The call site passes what
@@ -1210,8 +1215,9 @@ the blanket rule:
       fixed rather than kept for phase 4: a member consuming a **linear**
       token is the shape `Fs.close(s: InStream) => !s` has, and a `&T`
       parameter made the handler clone the token it was meant to consume.
-  * [effect-member-overload] **An overloaded member name is suffixed**
-    (`close`, `close__2`, …) — Rust cannot overload a trait method at all.
+  * [effect-member-overload] **An overloaded member name is suffixed** by its
+    parameter types [fn-emit-name] (`close__InStream`, `close__OutStream`) —
+    Rust cannot overload a trait method at all.
     The name comes from `salvo_core::effect_member_name`, so the trait, every
     handler impl, the handle's forwarding impl, the host skeletons and the
     call sites cannot disagree, and the Kotlin backend picks the same names.
@@ -1505,7 +1511,7 @@ facts worth knowing") and keeps the history ("One shape for effects").
   `control_frame`, `node_left`, `local_protocols`, `set_peer_protocols`,
   `peer_protocol`, `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
   `actor_group<E>` is ordinary Salvo since 2026-09-28 [actor-group] (two
-  overloads, `actor_group` and `actor_group__2` in the output).
+  overloads, `actor_group__Addr` and `actor_group__Str_Addr` in the output).
 * [rs-wire] [route-stub] Runtime: the views live in the routing service
   (`runtime.routing`'s `view_set`, `view_members` sorted by `(node, actor)`,
   `view_version`, `view_refresh`, `view_wait`); `salvo_key_hash` (FNV-1a 64
@@ -1732,9 +1738,10 @@ facts worth knowing") and keeps the history ("One shape for effects").
 * [rs-fn-mangling] [qual-overload] The same collision, one level up: two
   qualifiers may share a name over different subject types, and since
   qualifiers are erased [qual-erasure] both would emit `Q_qualifies`. The
-  subject's base name disambiguates — `Filled__List_qualifies` — and only when
-  the name is actually overloaded, so a program with one `Filled` emits the
-  plain `Filled_qualifies` it always did. The predicate call site resolves the
+  subject's base name disambiguates — `Filled__List_qualifies` — **always**
+  since 2026-10-05 [fn-emit-name], so whether another module declares a
+  qualifier of the name does not change this one's; a qualifier with a generic
+  subject keeps `Q_qualifies`. The predicate call site resolves the
   same declaration from the subject in hand, so the two agree by construction.
   Kotlin needs no equivalent: the JVM overloads on the parameter type.
 

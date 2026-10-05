@@ -4,7 +4,6 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.core.console
 
-import salvo.core.string.*
 
 interface Console {
     fun print(message: String)

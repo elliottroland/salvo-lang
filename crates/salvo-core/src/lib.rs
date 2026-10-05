@@ -15,6 +15,7 @@ pub mod expand;
 pub mod lends;
 pub mod literal;
 pub mod lock;
+pub mod naming;
 pub mod manifest;
 pub mod place;
 pub mod platform;

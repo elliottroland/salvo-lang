@@ -1,12 +1,16 @@
 package salvo.main
 
-import salvo.core.console.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.core.console.Console
+import salvo.core.console.println
+import salvo.core.deque.addLastPlatform
+import salvo.core.deque.drain
+import salvo.core.deque.mutDequeOf
+import salvo.core.deque.removeFirstPlatform
+import salvo.core.deque.sizePlatform
+import salvo.core.list.first
+import salvo.core.map.next
+import salvo.core.set.next
+import salvo.core.string.next
 
 data class Ticket(
     val id: Int,

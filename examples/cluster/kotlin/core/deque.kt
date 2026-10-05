@@ -1,14 +1,14 @@
 package salvo.core.deque
 
 import salvo.*
-import salvo.core.array.*
-import salvo.core.bytes.*
-import salvo.core.iterator.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.addPlatform
+import salvo.core.list.at
+import salvo.core.list.first
+import salvo.core.string.appendPlatform
+import salvo.core.string.mutStr
 
 fun<T> emptyDequePlatform(): salvo.platform.core.deque.MutDeque<T> {
     return salvo.platform.core.deque.emptyDeque()
@@ -30,13 +30,13 @@ fun<T> dequeOf(): kotlin.collections.ArrayDeque<T> {
     return emptyDequePlatform<T>()
 }
 
-fun<T> dequeOf__2(first: T): kotlin.collections.ArrayDeque<T> {
+fun<T> dequeOf__T(first: T): kotlin.collections.ArrayDeque<T> {
     val d = emptyDequePlatform<T>()
     addLastPlatform(d, first)
     return d
 }
 
-fun<T> dequeOf__3(first: T, rest: Array<T>): kotlin.collections.ArrayDeque<T> {
+fun<T> dequeOf__T_TArray(first: T, rest: Array<T>): kotlin.collections.ArrayDeque<T> {
     return dequeFromPlatform(first, rest)
 }
 
@@ -44,13 +44,13 @@ fun<T> mutDequeOf(): salvo.platform.core.deque.MutDeque<T> {
     return emptyDequePlatform<T>()
 }
 
-fun<T> mutDequeOf__2(first: T): salvo.platform.core.deque.MutDeque<T> {
+fun<T> mutDequeOf__T(first: T): salvo.platform.core.deque.MutDeque<T> {
     val d = emptyDequePlatform<T>()
     addLastPlatform(d, first)
     return d
 }
 
-fun<T> mutDequeOf__3(first: T, rest: Array<T>): salvo.platform.core.deque.MutDeque<T> {
+fun<T> mutDequeOf__T_TArray(first: T, rest: Array<T>): salvo.platform.core.deque.MutDeque<T> {
     return dequeFromPlatform(first, rest)
 }
 
@@ -142,7 +142,7 @@ fun<T> toDeque(list: List<T>, copy: (T) -> T): kotlin.collections.ArrayDeque<T> 
     return out
 }
 
-fun<T> iter__3(d: kotlin.collections.ArrayDeque<T>): DequeYield<T> {
+fun<T> iter(d: kotlin.collections.ArrayDeque<T>): DequeYield<T> {
     return DequeYield(items = d, at = 0)
 }
 
@@ -151,7 +151,7 @@ data class DequeYield<T>(
     var at: Int,
 )
 
-fun<T> next__3(p: DequeYield<T>): Union2<T, Finished> {
+fun<T> next__DequeYield(p: DequeYield<T>): Union2<T, Finished> {
     val elem = getPlatform(p.items, p.at)
     if (elem == null) {
         return Union2.U2<T, Finished>(finished())
@@ -169,7 +169,7 @@ fun<T> reversed(d: kotlin.collections.ArrayDeque<T>): __Iter_reversed_Deque<T> {
     return __Iter_reversed_Deque(d = d, at = sizePlatform(d) - 1)
 }
 
-fun<T> next__4(__p: __Iter_reversed_Deque<T>): Union2<T, Finished> {
+fun<T> next__Iter_reversed_Deque(__p: __Iter_reversed_Deque<T>): Union2<T, Finished> {
     val elem = getPlatform(__p.d, __p.at)
     if (elem == null) {
         return Union2.U2<T, Finished>(finished())

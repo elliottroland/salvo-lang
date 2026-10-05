@@ -1,19 +1,14 @@
 package salvo.core.sorted
 
-import salvo.core.array.*
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.seq.*
-import salvo.core.set.*
-import salvo.core.string.*
+import salvo.core.list.at
+import salvo.core.map.MapKeyYield
+import salvo.core.set.SetYield
 
-fun<T> iter__7(set: java.util.SortedSet<T>): SetYield<T> {
+fun<T> iter__SortedSet(set: java.util.SortedSet<T>): SetYield<T> {
     return SetYield(items = set.toMutableList(), at = 0)
 }
 
-fun<K, V> iter__8(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
+fun<K, V> iter__SortedMap(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }
 

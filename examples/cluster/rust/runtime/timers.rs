@@ -1,15 +1,30 @@
-use crate::core_actor::*;
-use crate::core_array::*;
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::runtime::*;
-use crate::time::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_list::at;
+use crate::core_list::drain;
+use crate::runtime::Parker;
+use crate::runtime::RuntimeHostPlatformSync as _;
+use crate::runtime::__Stateful_RuntimeHost as _;
+use crate::runtime::__Stateful_SchedTable as _;
+use crate::runtime::__Stateless_RuntimeHost as _;
+use crate::runtime::__Stateless_SchedTable as _;
+use crate::runtime::main_pool;
+use crate::runtime::mint_task_on;
+use crate::runtime::now_nanos;
+use crate::runtime::on_clock;
+use crate::runtime::set_virtual_now;
+use crate::runtime::virtual_runtime;
+use crate::time::Fired;
+use crate::time::Tick;
+use crate::time::__Stateful_Clock as _;
+use crate::time::__Stateful_Ticker as _;
+use crate::time::__Stateful_Timer as _;
+use crate::time::__Stateful_TimerCtl as _;
+use crate::time::__Stateless_Clock as _;
+use crate::time::__Stateless_Ticker as _;
+use crate::time::__Stateless_Timer as _;
+use crate::time::__Stateless_TimerCtl as _;
+use crate::time::nanos;
 
 /// [mod-use] The module's `use` #0, bound on first use.
 fn __module_use_0() -> &'static crate::runtime_timers::DeadlineTable {
@@ -206,7 +221,7 @@ impl crate::runtime_timers::__Stateful_DeadlineTable for Deadlines {
 }
 
 pub fn answer_all(mut due: Vec<crate::scheduler::SalvoReply>, now: i64) {
-    drain__2(due, &mut (|r| crate::scheduler::salvo_reply_wire::<Fired>(r, Fired { at: Tick { nanos: now.clone() } })));
+    drain(due, &mut (|r| crate::scheduler::salvo_reply_wire::<Fired>(r, Fired { at: Tick { nanos: now.clone() } })));
 }
 
 pub trait __Stateless_Wheel: Send + Sync {

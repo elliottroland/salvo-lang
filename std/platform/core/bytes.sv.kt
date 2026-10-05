@@ -4,9 +4,6 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.core.bytes
 
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.string.*
 
 fun emptyBytesPlatform(): salvo.platform.core.bytes.MutBytes {
     return salvo.platform.core.bytes.emptyBytes()

@@ -20,6 +20,8 @@ use salvo_core::{ModulePath, Program, Symbols};
 use salvo_syntax::ast::*;
 use salvo_syntax::Span;
 
+use crate::imports::{explicit_imports, IMPORTS_MARK};
+
 pub struct EmittedFile {
     /// Path relative to the target dir, e.g. `core/console.rs`.
     pub rel_path: std::path::PathBuf,
@@ -311,6 +313,9 @@ fn emit_program_mode(
     }
 
     let mut files = Vec::new();
+    let fn_names = std::rc::Rc::new(salvo_core::naming::FnNames::compute(program));
+    errors.extend(fn_names.errors.iter().cloned());
+    let mut import_plans: Vec<(usize, ModulePath, BTreeSet<ModulePath>, BTreeMap<String, (ModulePath, String)>)> = Vec::new();
     let mut union_sizes: BTreeSet<usize> = BTreeSet::new();
     // [platform-handler] [platform-tree] Modules whose host companion a
     // `use` of a platform handler needs; checked once every file is emitted.
@@ -349,8 +354,11 @@ fn emit_program_mode(
             &checked,
             file_idx,
         );
+        let (generated, deps) = generated;
         let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
         emitter.generated_imports = generated;
+        emitter.fn_names = fn_names.clone();
+        emitter.clashing = fn_names.clashing(program, &checked, file_idx);
         emitter.root_module = root_module;
         emitter.effect_paths = effect_paths.clone();
         emitter.module_paths = module_paths.clone();
@@ -374,8 +382,11 @@ fn emit_program_mode(
             rel_path.push(part);
         }
         rel_path.set_extension(if abi { "sv.rs" } else { "rs" });
+        import_plans.push((files.len(), unit.file.module.clone(), deps, std::mem::take(&mut emitter.fn_aliases)));
         files.push(EmittedFile { rel_path, content });
     }
+    // [rs-imports] One `use` per foreign name each file's text mentions.
+    explicit_imports(&mut files, &import_plans, &module_prefixes);
     if !union_sizes.is_empty() {
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("unions.rs"),
@@ -954,9 +965,10 @@ fn relative_path(from_dir: &std::path::Path, target: &std::path::Path) -> String
     out
 }
 
-/// The generated `use` items of one file [rs-imports]: a glob per foreign
-/// emitted module whose names the file uses, plus alias imports for
-/// aliased Salvo imports of Rust-visible items.
+/// The generated `use` items of one file [rs-imports]: the alias imports for
+/// aliased Salvo imports of Rust-visible items, and the foreign emitted
+/// modules whose names the file may use — which `explicit_imports` turns
+/// into one `use` per name the emitted text actually mentions.
 fn generated_imports(
     ast: &Module,
     own: &ModulePath,
@@ -966,23 +978,17 @@ fn generated_imports(
     program: &Program,
     checked: &Checked,
     file_idx: usize,
-) -> BTreeSet<String> {
+) -> (BTreeSet<String>, BTreeSet<ModulePath>) {
     let mut imports = BTreeSet::new();
-    let module_use = |module: &ModulePath| -> Option<String> {
-        if Some(module) == root_module {
-            // Root-module items live at the crate root.
-            Some("use crate::*;".to_string())
-        } else {
-            mod_names
-                .get(module)
-                .map(|m| format!("use crate::{}::*;", rs_ident(m)))
-        }
+    let mut deps: BTreeSet<ModulePath> = BTreeSet::new();
+    let module_use = |module: &ModulePath| -> Option<ModulePath> {
+        (Some(module) == root_module || mod_names.contains_key(module)).then(|| module.clone())
     };
     for name in salvo_core::reach::used_names(ast) {
         for module in scope.name_origins.get(name).into_iter().flatten() {
             if *module != own {
-                if let Some(import) = module_use(module) {
-                    imports.insert(import);
+                if let Some(m) = module_use(module) {
+                    deps.insert(m);
                 }
             }
         }
@@ -996,8 +1002,8 @@ fn generated_imports(
     // emitted text.
     for module in scope.name_origins.get("Finished").into_iter().flatten() {
         if *module != own {
-            if let Some(import) = module_use(module) {
-                imports.insert(import);
+            if let Some(m) = module_use(module) {
+                deps.insert(m);
             }
         }
     }
@@ -1008,8 +1014,8 @@ fn generated_imports(
     for dep in salvo_core::reach::resolved_dep_files(checked, file_idx) {
         let Some(unit) = program.units().nth(dep) else { continue };
         if unit.file.module != *own {
-            if let Some(import) = module_use(&unit.file.module) {
-                imports.insert(import);
+            if let Some(m) = module_use(&unit.file.module) {
+                deps.insert(m);
             }
         }
     }
@@ -1048,7 +1054,7 @@ fn generated_imports(
             rs_ident(alias_name)
         ));
     }
-    imports
+    (imports, deps)
 }
 
 /// [rs-mut-str] String helpers for the `Mut Str` mutators std declares that
@@ -1553,6 +1559,14 @@ struct Emitter<'p> {
     proj_arm_ctors: Vec<String>,
     taken_names: HashSet<String>,
     generated_imports: BTreeSet<String>,
+    /// [fn-emit-name] Every top-level fn's emitted name, per module.
+    fn_names: std::rc::Rc<salvo_core::naming::FnNames>,
+    /// [rs-imports] The foreign fns this file calls under an alias
+    /// (`FnNames::clashing`).
+    clashing: HashSet<(ModulePath, String)>,
+    /// [rs-imports] Foreign fns this file calls under an alias, because
+    /// another visible module emits the same name: alias → (module, name).
+    fn_aliases: BTreeMap<String, (ModulePath, String)>,
     /// [rs-crate] The module that became the crate root (the one declaring
     /// `main`), so a path to a top-level fn can be spelled correctly:
     /// `crate::…` for it, `crate::<mounted>::…` for every other module.
@@ -2422,6 +2436,9 @@ impl<'p> Emitter<'p> {
             },
             taken_names: HashSet::new(),
             generated_imports: BTreeSet::new(),
+            fn_names: std::rc::Rc::new(salvo_core::naming::FnNames::compute(program)),
+            clashing: HashSet::new(),
+            fn_aliases: BTreeMap::new(),
             root_module: None,
             generated_items: Vec::new(),
             ordering_markers: BTreeMap::new(),
@@ -2962,6 +2979,9 @@ impl<'p> Emitter<'p> {
                 out.push('\n');
             }
         }
+        // [rs-imports] Where `explicit_imports` writes the file's `use`s of
+        // Salvo declarations, once every module's items are known.
+        out.push_str(IMPORTS_MARK);
         out.push_str(&body);
         // Generated items go last: they are plain items
         // and Rust has no ordering requirement, so nothing above needs to
@@ -5639,17 +5659,12 @@ impl<'p> Emitter<'p> {
     /// overloading, and qualifiers are erased [qual-erasure], so two
     /// same-named qualifiers over different subjects would both emit
     /// `Q_qualifies` and collide (E0428). The subject's base name
-    /// disambiguates — and only when it has to, the way fn mangling only
-    /// fires on a real collision [rs-fn-mangling].
+    /// disambiguates, always [fn-emit-name]: whether another module declares
+    /// a qualifier of the same name must not change this one's name.
     fn qualifier_member_name(&self, q: &QualifierDecl, member: &str) -> String {
-        let overloaded = self
-            .symbols
-            .qualifiers
-            .get(q.name.name.as_str())
-            .is_some_and(|ds| ds.len() > 1);
-        match (overloaded, salvo_core::refine::of_base(&q.of, &q.generics)) {
-            (true, Some(subject)) => format!("{}__{subject}_{member}", q.name.name),
-            _ => format!("{}_{member}", q.name.name),
+        match salvo_core::refine::of_base(&q.of, &q.generics) {
+            Some(subject) => format!("{}__{}_{member}", q.name.name.replace('.', ""), subject.replace('.', "")),
+            None => format!("{}_{member}", q.name.name.replace('.', "")),
         }
     }
 
@@ -6818,11 +6833,9 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// The Rust name for a top-level fn [rs-fn-mangling]: Rust has no
-    /// overloading, so after the qualifier-suffix rule (shared with
-    /// Kotlin, [kt-qual-mangling]) any *still*-colliding overloads with
-    /// bodies get positional suffixes (`name__2`, `name__3`, ... in
-    /// declaration order).
+    /// The Rust name for a top-level fn [rs-fn-mangling]: its module's name
+    /// for it [fn-emit-name], or the alias a clash in this file needs
+    /// [rs-imports].
     fn rust_fn_name(&mut self, decl: &FnDecl) -> String {
         // [platform-fn] The program calls the wrapper, `<name>_platform`; the
         // implementation keeps the real name (user decision 2026-10-01).
@@ -6844,70 +6857,45 @@ impl<'p> Emitter<'p> {
                 _ => wrapper,
             };
         }
-        let name = decl.name.name.clone();
-        let overloads: Vec<&FnDecl> = match self.symbols.fns.get(name.as_str()) {
-            // [obligation-by] A generated structural member has no body and is
-            // still emitted, so it takes part in mangling like any overload —
-            // without this, three `auto Eq` structs would all emit `eq`.
-            Some(o) if o.len() > 1 => o
-                .iter()
-                .filter(|f| f.body.is_some() || f.platform)
-                .copied()
-                .collect(),
-            _ => return rs_ident(&name),
+        // [fn-emit-name] The module's own name for it, then [rs-imports] an
+        // alias when this file sees the same name from another module.
+        let emitted = self.fn_names.get(decl).unwrap_or(&decl.name.name).to_string();
+        let Some(module) = self.fn_names.module_of(decl).cloned() else {
+            return rs_ident(&emitted);
         };
-        if overloads.len() <= 1 {
-            return rs_ident(&name);
+        let own = self.program.files[self.file_idx].module.clone();
+        if module == own {
+            return rs_ident(&emitted);
         }
-        // Qualifier-suffix pass: an overload whose erased signature
-        // collides with another's gets its qualifier suffix.
-        let mangled: Vec<String> = overloads
-            .iter()
-            .map(|f| {
-                let suffix = qual_suffix(f);
-                if suffix.is_empty() {
-                    return name.clone();
+        let name = decl.name.name.as_str();
+        let clashes = self.fn_names.module_emits(&own, name, &emitted)
+            || self.clashing.contains(&(module.clone(), emitted.clone()));
+        if !clashes {
+            // [rs-imports] Imported from the module the call resolved to,
+            // which a scan of the text could not tell when two modules the
+            // file imports from both declare the name.
+            let plain = rs_ident(&emitted);
+            // A second module's fn of this name that the checker's tables did
+            // not show (a call the emitter synthesized) would be imported
+            // over the first: refused rather than guessed [backend-never-wrong].
+            if let Some((other, _)) = self.fn_aliases.get(&plain) {
+                if *other != module {
+                    self.error(format!(
+                        "internal: `{plain}` is called from both `{}` and `{}` here, and the \
+                         second call was not foreseen when choosing import aliases [fn-emit-name]",
+                        other.0.join("."),
+                        module.0.join(".")
+                    ));
                 }
-                let mine = self.erased_sig(f);
-                let collides = overloads.iter().any(|other| {
-                    !std::ptr::eq(*other as *const FnDecl, *f as *const FnDecl)
-                        && self.erased_sig(other) == mine
-                });
-                if collides {
-                    format!("{name}__{suffix}")
-                } else {
-                    name.clone()
-                }
-            })
-            .collect();
-        // Positional pass over what still collides.
-        let mut final_names = mangled.clone();
-        for i in 0..final_names.len() {
-            let dup_before = mangled[..i].iter().filter(|m| **m == mangled[i]).count();
-            if dup_before > 0 {
-                final_names[i] = format!("{}__{}", mangled[i], dup_before + 1);
             }
+            self.fn_aliases.insert(plain.clone(), (module, plain.clone()));
+            return plain;
         }
-        for (f, final_name) in overloads.iter().zip(&final_names) {
-            if std::ptr::eq(*f as *const FnDecl, decl as *const FnDecl) {
-                return rs_ident(final_name);
-            }
-        }
-        rs_ident(&name)
+        let alias = rs_ident(&format!("{emitted}__{}", module.0.join("_")));
+        self.fn_aliases.insert(alias.clone(), (module, rs_ident(&emitted)));
+        alias
     }
 
-    /// The erased parameter signature, for overload collision detection.
-    fn erased_sig(&mut self, decl: &FnDecl) -> String {
-        let saved = self.enter_generics(&decl.generics);
-        let sig = decl
-            .params
-            .iter()
-            .map(|p| self.emit_type(&p.ty))
-            .collect::<Vec<_>>()
-            .join(",");
-        self.generics = saved;
-        sig
-    }
 
     /// Generic parameters with the blanket `Clone` bound [rs-borrows], plus
     /// `'static`: every Salvo type is owned data with no lifetime of its
@@ -18700,24 +18688,6 @@ fn is_none_type(ty: &Type) -> bool {
     matches!(ty, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == "None")
 }
 
-/// The qualifier names on a fn's parameter types, joined for
-/// overload-mangling suffixes [rs-fn-mangling].
-fn qual_suffix(decl: &FnDecl) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    for p in &decl.params {
-        match &p.ty {
-            Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
-                for q in qualifiers {
-                    // Dot-names canonicalize to their flattened spelling:
-                    // a mangled fn name is a single identifier [name-dot].
-                    parts.push(q.name.name.replace('.', ""));
-                }
-            }
-            _ => {}
-        }
-    }
-    parts.join("_")
-}
 
 /// Substitutes generic parameters in an AST type (alias expansion).
 fn subst_ast_type(ty: &Type, map: &HashMap<&str, &Type>) -> Type {

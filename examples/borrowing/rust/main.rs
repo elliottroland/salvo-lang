@@ -36,16 +36,23 @@ pub mod platform_core_seq;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
-use crate::collections::*;
-use crate::core_console::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_seq::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
 use crate::seq::*;
+use crate::core_console::ConsolePlatformSync as _;
+use crate::core_console::__Stateful_Console as _;
+use crate::core_console::__Stateless_Console as _;
+use crate::core_console::println;
+use crate::core_list::Idx__Int_qualifies;
+use crate::core_list::ListYield;
+use crate::core_list::NotEq__Int_qualifies;
+use crate::core_list::at;
+use crate::core_list::at__loc;
+use crate::core_list::get;
+use crate::core_list::iter;
+use crate::core_list::next__ListYield;
+use crate::core_list::to_str;
+use crate::core_list::update2;
+use crate::core_list::update;
+use crate::core_seq::filter;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fighter {
@@ -193,15 +200,15 @@ pub fn main() {
     println(&console, &(format!("1. found {}, hp {}", ada.name.clone(), ada.hp)));
     let mut names: Vec<String> = vec![];
     crate::core_list::add_platform(&mut names, ada.name.clone());
-    println(&console, &(format!("1. copied out {}", to_str__3::<String>(&names, &mut |__i0| format!("{}", __i0)))));
+    println(&console, &(format!("1. copied out {}", to_str::<String>(&names, &mut |__i0| format!("{}", __i0)))));
     let mut w = window(&roster);
     w.at = 1;
     println(&console, &(format!("1. window at {}: {}", w.at, peek(&w).expect("salvo: value is absent at main:206:38").name.clone())));
-    let mut pass = iter__4(&roster);
+    let mut pass = iter(&roster);
     let mut standing = filter::<ListYield<'_, Fighter>, &Fighter>(&mut pass, &mut (|f: &&Fighter| {
     let f = *f; 
     f.hp > 10
-}), &mut |__i0| next__5(__i0));
+}), &mut |__i0| next__ListYield(__i0));
     println(&console, &(format!("1. {} of {} still standing", crate::core_list::size_platform(&standing), crate::core_list::size_platform(&roster))));
     let mut bench: Vec<Fighter> = vec![Fighter { name: "Cy".to_string(), hp: 12, energy: 2 }];
     crate::core_list::add_platform(&mut bench, Fighter { name: "Dee".to_string(), hp: 6, energy: 7 });
@@ -218,7 +225,7 @@ pub fn main() {
     println(&console, &(format!("2. after the searches: {} {}", crate::core_list::get_platform(&squad, 0).expect("salvo: value is absent at main:244:39").hp, crate::core_list::get_platform(&squad, 1).expect("salvo: value is absent at main:244:60").hp)));
     let mut i = 0;
     let mut j = 1;
-    if NotEq_qualifies(j, i) {
+    if NotEq__Int_qualifies(j, i) {
         let __h4 = (i) as usize;
         squad.get(__h4).expect("salvo: value is absent at main:260:17");
         let __h5 = (j) as usize;
@@ -228,22 +235,22 @@ pub fn main() {
         let (__pm6, __pm7) = salvo_pair_mut(&mut squad[..], __h4, __h5).expect("salvo: value is absent at main:264:9");
         duel(__pm6, __pm7);
     }
-    if Idx_qualifies(i, &squad) {
-        if Idx_qualifies(j, &squad) {
+    if Idx__Int_qualifies(i, &squad) {
+        if Idx__Int_qualifies(j, &squad) {
             update(&mut squad, &i, &mut (|f: &mut Fighter| {
     f.energy = f.energy + 1;
 }));
-            if NotEq_qualifies(j, i) {
+            if NotEq__Int_qualifies(j, i) {
                 update2(&mut squad, &i, &j, &mut (|a: &mut Fighter, b: &mut Fighter| {
     a.energy = a.energy + 100;
     b.energy = b.energy + 200;
 }));
             }
-            println(&console, &(format!("3. {} {} (total reads: `Idx` survived)", get__Idx(&squad, &i).energy, get__Idx(&squad, &j).energy)));
+            println(&console, &(format!("3. {} {} (total reads: `Idx` survived)", get(&squad, &i).energy, get(&squad, &j).energy)));
         }
     }
-    if Idx_qualifies(i, &squad) {
-        if Idx_qualifies(j, &squad) {
+    if Idx__Int_qualifies(i, &squad) {
+        if Idx__Int_qualifies(j, &squad) {
             strike(&mut squad, (i) as usize, (j) as usize);
             strike(&mut squad, (i) as usize, (i) as usize);
         }
@@ -255,5 +262,5 @@ pub fn main() {
     let mut camp = Camp { supplies: 10, banners: vec!["red".to_string()] };
     spend(&mut camp, 3);
     hoist(&mut camp, "blue".to_string());
-    println(&console, &(format!("5. supplies {}, banners {}", camp.supplies, to_str__3::<String>(&camp.banners, &mut |__i0| format!("{}", __i0)))));
+    println(&console, &(format!("5. supplies {}, banners {}", camp.supplies, to_str::<String>(&camp.banners, &mut |__i0| format!("{}", __i0)))));
 }

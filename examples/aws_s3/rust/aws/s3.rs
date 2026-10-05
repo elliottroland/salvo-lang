@@ -1,19 +1,28 @@
-use crate::aws::*;
 use crate::collections::*;
-use crate::core_actor::*;
-use crate::core_bytes::*;
-use crate::core_checked::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_other::*;
-use crate::core_result::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::stream::*;
-use crate::time::*;
 use crate::unions::*;
+use crate::aws::AwsError;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_bytes::bytes_of;
+use crate::core_checked::Checked;
+use crate::core_checked::checked;
+use crate::core_checked::ignore;
+use crate::core_result::err;
+use crate::core_result::ok;
+use crate::stream::InStream;
+use crate::stream::InvalidUtf8;
+use crate::stream::StreamFailed;
+use crate::stream::__Stateful_Streams as _;
+use crate::stream::__Stateless_Streams as _;
+use crate::time::Instant;
+use crate::time::__Stateful_Clock as _;
+use crate::time::__Stateful_Ticker as _;
+use crate::time::__Stateful_Timer as _;
+use crate::time::__Stateful_TimerCtl as _;
+use crate::time::__Stateless_Clock as _;
+use crate::time::__Stateless_Ticker as _;
+use crate::time::__Stateless_Timer as _;
+use crate::time::__Stateless_TimerCtl as _;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PutObjectInput {
@@ -67,8 +76,8 @@ pub struct PutObjectInput {
     pub expected_bucket_owner: Option<String>,
 }
 
-pub fn close__4(streams: &crate::stream::Streams, value: PutObjectInput) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
-    return streams.close(value.body);
+pub fn close__PutObjectInput(streams: &crate::stream::Streams, value: PutObjectInput) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    return streams.close__InStream(value.body);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -275,8 +284,8 @@ pub struct GetObjectOutput {
     pub object_lock_event_hold_duration_years: Option<i32>,
 }
 
-pub fn close__5(streams: &crate::stream::Streams, value: GetObjectOutput) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
-    return streams.close(value.body);
+pub fn close__GetObjectOutput(streams: &crate::stream::Streams, value: GetObjectOutput) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    return streams.close__InStream(value.body);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -443,7 +452,7 @@ impl crate::aws_s3::__Stateful_S3 for FakeS3 {
     fn put_object(&mut self, input: PutObjectInput, reply: crate::scheduler::SalvoReply) {
         crate::core_list::add_platform(&mut self.recorded, "put_object".to_string());
         let mut r#unsized = input.content_length.is_none();
-        let mut closed = close__4(&self.__dep_Streams, input);
+        let mut closed = close__PutObjectInput(&self.__dep_Streams, input);
         if matches!(closed, Union2::U2(_)) {
             ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
         }

@@ -4,9 +4,6 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.core.list
 
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.string.*
 
 fun<T> getPlatform(list: List<T>, index: Int): T? {
     return salvo.platform.core.list.get(list, index)

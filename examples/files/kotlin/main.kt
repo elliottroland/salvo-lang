@@ -1,26 +1,61 @@
 package salvo.main
 
 import salvo.*
-import salvo.core.bytes.*
-import salvo.core.checked.*
-import salvo.core.console.*
-import salvo.core.deque.*
-import salvo.core.iterator.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.result.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.fs.*
-import salvo.fs.host.*
-import salvo.fs.mem.*
-import salvo.fs.restricted.*
-import salvo.stream.*
-import salvo.stream.host.*
+import salvo.core.bytes.bytesOf
+import salvo.core.bytes.clearPlatform as clearPlatform__core_bytes
+import salvo.core.bytes.mutBytes
+import salvo.core.bytes.sizePlatform as sizePlatform__core_bytes
+import salvo.core.bytes.toHexPlatform
+import salvo.core.bytes.toStrPlatform
+import salvo.core.checked.Checked
+import salvo.core.checked.detach
+import salvo.core.console.Console
+import salvo.core.console.println
+import salvo.core.iterator.Finished
+import salvo.core.list.addPlatform
+import salvo.core.list.at
+import salvo.core.list.sizePlatform as sizePlatform__core_list
+import salvo.core.list.toStr
+import salvo.core.string.byteSizePlatform
+import salvo.core.string.clearPlatform as clearPlatform__core_string
+import salvo.core.string.mutStr
+import salvo.core.string.sizePlatform as sizePlatform__core_string
+import salvo.fs.AlreadyExists
+import salvo.fs.Fs
+import salvo.fs.IoError
+import salvo.fs.NotADirectory
+import salvo.fs.NotFound
+import salvo.fs.PathEscapes
+import salvo.fs.PermissionDenied
+import salvo.fs.Streaming
+import salvo.fs.__Mon_Fs
+import salvo.fs.copyFile__Str_Str
+import salvo.fs.host.DefaultFs
+import salvo.fs.host.RawFs
+import salvo.fs.host.__Mon_RawFs
+import salvo.fs.mem.MemFs
+import salvo.fs.openChunks__Str_Int
+import salvo.fs.readToBytes__Str
+import salvo.fs.readToStr__Str
+import salvo.fs.restricted.RestrictedFs
+import salvo.fs.writeStr__Str_Str
+import salvo.stream.Chunks
+import salvo.stream.InStream
+import salvo.stream.InvalidUtf8
+import salvo.stream.OutStream
+import salvo.stream.StreamFailed
+import salvo.stream.close__Chunks
+import salvo.stream.close__Lines
+import salvo.stream.host.DefaultStreams
+import salvo.stream.host.HostRawStreams
+import salvo.stream.host.RawStreams
+import salvo.stream.host.kind
+import salvo.stream.lines
+import salvo.stream.next__Chunks
+import salvo.stream.next__Lines
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun kindName(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): String {
+fun kindName__FsError(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): String {
     if (kind is Union7.U1<*, *, *, *, *, *, *>) {
         return "not found"
     }
@@ -31,12 +66,12 @@ fun kindName(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirecto
         return "escapes the sandbox"
     }
     if (kind is Union7.U7<*, *, *, *, *, *, *>) {
-        return kindName__2((kind.value as Streaming).error)
+        return kindName__StreamError((kind.value as Streaming).error)
     }
     return "other"
 }
 
-fun kindName__2(kind: Union2<InvalidUtf8, StreamFailed>): String {
+fun kindName__StreamError(kind: Union2<InvalidUtf8, StreamFailed>): String {
     if (kind is Union2.U1<*, *>) {
         return "not valid UTF-8"
     }
@@ -45,53 +80,53 @@ fun kindName__2(kind: Union2<InvalidUtf8, StreamFailed>): String {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
-    val wrote = writeStr(fs, streams, "notes.txt", "alpha\nbeta\ngamma\n")
+    val wrote = writeStr__Str_Str(fs, streams, "notes.txt", "alpha\nbeta\ngamma\n")
     when (wrote) {
         is Union2.U1<*, *> -> {
             println(console, "wrote ${(wrote.value as Long)} bytes")
         }
         is Union2.U2<*, *> -> {
-            println(console, "write failed: ${kindName(detach((wrote.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "write failed: ${kindName__FsError(detach((wrote.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
-    val text = readToStr(fs, streams, "notes.txt")
+    val text = readToStr__Str(fs, streams, "notes.txt")
     when (text) {
         is Union2.U1<*, *> -> {
             println(console, "read back ${byteSizePlatform((text.value as String))} bytes")
         }
         is Union2.U2<*, *> -> {
-            println(console, "read failed: ${kindName(detach((text.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "read failed: ${kindName__FsError(detach((text.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
     val opened = fs.openRead("notes.txt")
     when (opened) {
         is Union2.U1<*, *> -> {
-            val p = lines__2((opened.value as InStream))
+            val p = lines((opened.value as InStream))
             while (true) {
-                val __loop1_step = next__21(streams, p)
+                val __loop1_step = next__Lines(streams, p)
                 if (__loop1_step !is Union2.U1<String, Finished>) { break }
                 val line = __loop1_step.value
                 println(console, "line: $line")
             }
-            val closed = close__2(streams, p)
+            val closed = close__Lines(streams, p)
             if (closed is Union2.U2<*, *>) {
-                println(console, "close failed: ${kindName__2(detach((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                println(console, "close failed: ${kindName__StreamError(detach((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
             }
         }
         is Union2.U2<*, *> -> {
-            println(console, "open failed: ${kindName(detach((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "open failed: ${kindName__FsError(detach((opened.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
     val out = fs.openAppend("notes.txt")
     when (out) {
         is Union2.U1<*, *> -> {
             val w: OutStream = (out.value as OutStream)
-            val at = streams.position__2(w)
+            val at = streams.position__OutStream(w)
             val n = streams.writeLine(w, "delta")
             println(console, "appended $n bytes at offset $at")
-            val shut = streams.close__2(w)
+            val shut = streams.close__OutStream(w)
             if (shut is Union2.U2<*, *>) {
-                println(console, "close failed: ${kindName__2(detach((shut.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                println(console, "close failed: ${kindName__StreamError(detach((shut.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
             }
             val resumed = fs.openReadAt("notes.txt", at)
             when (resumed) {
@@ -106,18 +141,18 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
                             println(console, "at $at: end of file")
                         }
                     }
-                    val done = streams.close(s)
+                    val done = streams.close__InStream(s)
                     if (done is Union2.U2<*, *>) {
-                        println(console, "close failed: ${kindName__2(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                        println(console, "close failed: ${kindName__StreamError(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
                     }
                 }
                 is Union2.U2<*, *> -> {
-                    println(console, "reopen failed: ${kindName(detach((resumed.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+                    println(console, "reopen failed: ${kindName__FsError(detach((resumed.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
                 }
             }
         }
         is Union2.U2<*, *> -> {
-            println(console, "append failed: ${kindName(detach((out.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "append failed: ${kindName__FsError(detach((out.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
     val bin = fs.openWrite("raw.bin")
@@ -128,13 +163,13 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
             val n = streams.writeBytes(w, data)
             val m = streams.write(w, "hé")
             println(console, "wrote $n raw bytes and $m encoded")
-            val shut = streams.close__2(w)
+            val shut = streams.close__OutStream(w)
             if (shut is Union2.U2<*, *>) {
-                println(console, "close failed: ${kindName__2(detach((shut.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                println(console, "close failed: ${kindName__StreamError(detach((shut.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
             }
         }
         is Union2.U2<*, *> -> {
-            println(console, "raw open failed: ${kindName(detach((bin.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "raw open failed: ${kindName__FsError(detach((bin.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
     val raw = fs.openRead("raw.bin")
@@ -147,7 +182,7 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
                     println(console, "first three: ${toStrPlatform((head.value as salvo.platform.core.bytes.Bytes))} = ${toHexPlatform((head.value as salvo.platform.core.bytes.Bytes))}")
                 }
                 is Union2.U2<*, *> -> {
-                    println(console, "byte read failed: ${kindName__2(detach((head.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                    println(console, "byte read failed: ${kindName__StreamError(detach((head.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
                 }
             }
             val tail = streams.readAll(s)
@@ -156,16 +191,16 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
                     println(console, "the rest, as text: ${(tail.value as String)}")
                 }
                 is Union2.U2<*, *> -> {
-                    println(console, "decode failed: ${kindName__2(detach((tail.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                    println(console, "decode failed: ${kindName__StreamError(detach((tail.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
                 }
             }
-            val done = streams.close(s)
+            val done = streams.close__InStream(s)
             if (done is Union2.U2<*, *>) {
-                println(console, "close failed: ${kindName__2(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                println(console, "close failed: ${kindName__StreamError(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
             }
         }
         is Union2.U2<*, *> -> {
-            println(console, "raw read failed: ${kindName(detach((raw.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "raw read failed: ${kindName__FsError(detach((raw.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
     val split = fs.openReadAt("raw.bin", 5L)
@@ -178,21 +213,21 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
                     println(console, "unexpected: ${(broken.value as String)} decoded")
                 }
                 is Union2.U2<*, *> -> {
-                    println(console, "mid-character: ${kindName__2(detach((broken.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                    println(console, "mid-character: ${kindName__StreamError(detach((broken.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
                 }
             }
-            val done = streams.close(s)
+            val done = streams.close__InStream(s)
             when (done) {
                 is Union2.U1<*, *> -> {
                     println(console, "unexpected: the failure was not recorded")
                 }
                 is Union2.U2<*, *> -> {
-                    println(console, "and again at close: ${kindName__2(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                    println(console, "and again at close: ${kindName__StreamError(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
                 }
             }
         }
         is Union2.U2<*, *> -> {
-            println(console, "split open failed: ${kindName(detach((split.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "split open failed: ${kindName__FsError(detach((split.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
     val held = fs.openRead("raw.bin")
@@ -204,8 +239,8 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
             var moved = 0
             var reading = true
             while (reading) {
-                clearPlatform(buf)
-                val got = streams.readTo(s, buf, 4)
+                clearPlatform__core_bytes(buf)
+                val got = streams.readTo__InStream_Bytes_Int(s, buf, 4)
                 when (got) {
                     is Union2.U1<*, *> -> {
                         val n: Int = (got.value as Int)
@@ -217,19 +252,19 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
                         }
                     }
                     is Union2.U2<*, *> -> {
-                        println(console, "fill failed: ${kindName__2(detach((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                        println(console, "fill failed: ${kindName__StreamError(detach((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
                         reading = false
                     }
                 }
             }
             println(console, "filled $moved bytes in $steps reads, one buffer")
-            val done = streams.close(s)
+            val done = streams.close__InStream(s)
             if (done is Union2.U2<*, *>) {
-                println(console, "close failed: ${kindName__2(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                println(console, "close failed: ${kindName__StreamError(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
             }
         }
         is Union2.U2<*, *> -> {
-            println(console, "fill open failed: ${kindName(detach((held.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "fill open failed: ${kindName__FsError(detach((held.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
     val lined = fs.openRead("notes.txt")
@@ -240,66 +275,66 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
             var longest = 0
             var reading = true
             while (reading) {
-                clearPlatform(line)
+                clearPlatform__core_string(line)
                 if (streams.readLineTo(s, line)) {
-                    if (sizePlatform(line.toString()) > longest) {
-                        longest = sizePlatform(line.toString())
+                    if (sizePlatform__core_string(line.toString()) > longest) {
+                        longest = sizePlatform__core_string(line.toString())
                     }
                 } else {
                     reading = false
                 }
             }
             println(console, "longest line: $longest characters")
-            val done = streams.close(s)
+            val done = streams.close__InStream(s)
             if (done is Union2.U2<*, *>) {
-                println(console, "close failed: ${kindName__2(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                println(console, "close failed: ${kindName__StreamError(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
             }
         }
         is Union2.U2<*, *> -> {
-            println(console, "lines open failed: ${kindName(detach((lined.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "lines open failed: ${kindName__FsError(detach((lined.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
-    val ch = openChunks(fs, streams, "raw.bin", 4)
+    val ch = openChunks__Str_Int(fs, streams, "raw.bin", 4)
     when (ch) {
         is Union2.U1<*, *> -> {
             val p = (ch.value as Chunks)
             var seen = 0
             while (true) {
-                val __loop2_step = next__22(streams, p)
+                val __loop2_step = next__Chunks(streams, p)
                 if (__loop2_step !is Union2.U1<salvo.platform.core.bytes.Bytes, Finished>) { break }
                 val chunk = __loop2_step.value
-                seen = seen + sizePlatform(chunk)
+                seen = seen + sizePlatform__core_bytes(chunk)
             }
             println(console, "chunks saw $seen bytes")
-            val done = close__3(streams, p)
+            val done = close__Chunks(streams, p)
             if (done is Union2.U2<*, *>) {
-                println(console, "close failed: ${kindName__2(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
+                println(console, "close failed: ${kindName__StreamError(detach((done.value as Checked<Union2<InvalidUtf8, StreamFailed>>)))}")
             }
         }
         is Union2.U2<*, *> -> {
-            println(console, "chunks failed: ${kindName(detach((ch.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "chunks failed: ${kindName__FsError(detach((ch.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
-    val copied = copyFile(fs, streams, "notes.txt", "notes-copy.txt")
+    val copied = copyFile__Str_Str(fs, streams, "notes.txt", "notes-copy.txt")
     when (copied) {
         is Union2.U1<*, *> -> {
             println(console, "copied ${(copied.value as Long)} bytes")
         }
         is Union2.U2<*, *> -> {
-            println(console, "copy failed: ${kindName(detach((copied.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "copy failed: ${kindName__FsError(detach((copied.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
-    val whole = readToBytes(fs, streams, "raw.bin")
+    val whole = readToBytes__Str(fs, streams, "raw.bin")
     when (whole) {
         is Union2.U1<*, *> -> {
-            println(console, "raw.bin is ${sizePlatform((whole.value as salvo.platform.core.bytes.Bytes))} bytes: ${toHexPlatform((whole.value as salvo.platform.core.bytes.Bytes))}")
+            println(console, "raw.bin is ${sizePlatform__core_bytes((whole.value as salvo.platform.core.bytes.Bytes))} bytes: ${toHexPlatform((whole.value as salvo.platform.core.bytes.Bytes))}")
         }
         is Union2.U2<*, *> -> {
-            println(console, "byte read failed: ${kindName(detach((whole.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "byte read failed: ${kindName__FsError(detach((whole.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
     val failures: salvo.platform.core.list.MutList<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = mutableListOf<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>()
-    val missing = readToStr(fs, streams, "nope.txt")
+    val missing = readToStr__Str(fs, streams, "nope.txt")
     when (missing) {
         is Union2.U1<*, *> -> {
             println(console, "unexpected: ${(missing.value as String)}")
@@ -311,20 +346,20 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
     val notADir = fs.listDir("notes.txt")
     when (notADir) {
         is Union2.U1<*, *> -> {
-            println(console, "unexpected: ${toStr__2((notADir.value as List<String>), { __i0 -> __i0 })}")
+            println(console, "unexpected: ${toStr((notADir.value as List<String>), { __i0 -> __i0 })}")
         }
         is Union2.U2<*, *> -> {
             addPlatform(failures, detach((notADir.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))
         }
     }
-    println(console, "failures: ${sizePlatform(failures)}")
+    println(console, "failures: ${sizePlatform__core_list(failures)}")
     for (kind in salvo.platform.core.list.each(failures)) {
-        println(console, "  ${kindName(kind)}")
+        println(console, "  ${kindName__FsError(kind)}")
     }
     for (name in salvo.platform.core.list.each(listOf<String>("notes.txt", "notes-copy.txt", "raw.bin"))) {
         val gone = fs.delete(name)
         if (gone is Union2.U2<*, *>) {
-            println(console, "delete failed: ${kindName(detach((gone.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "delete failed: ${kindName__FsError(detach((gone.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
     println(console, "cleaned up")
@@ -332,38 +367,38 @@ fun workflow(fs: Fs, console: Console, streams: salvo.stream.Streams) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun sandboxEdges(fs: Fs, console: Console, streams: salvo.stream.Streams) {
-    val inside = writeStr(fs, streams, "sub/../probe.txt", "inside\n")
+    val inside = writeStr__Str_Str(fs, streams, "sub/../probe.txt", "inside\n")
     when (inside) {
         is Union2.U1<*, *> -> {
             println(console, "through `..`: wrote ${(inside.value as Long)} bytes")
         }
         is Union2.U2<*, *> -> {
-            println(console, "through `..`: ${kindName(detach((inside.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "through `..`: ${kindName__FsError(detach((inside.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
-    val up = readToStr(fs, streams, "../secret.txt")
+    val up = readToStr__Str(fs, streams, "../secret.txt")
     when (up) {
         is Union2.U1<*, *> -> {
             println(console, "unexpected: read outside the sandbox")
         }
         is Union2.U2<*, *> -> {
-            println(console, "climbing out: ${kindName(detach((up.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "climbing out: ${kindName__FsError(detach((up.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
-    val absolute = readToStr(fs, streams, "/etc/hosts")
+    val absolute = readToStr__Str(fs, streams, "/etc/hosts")
     when (absolute) {
         is Union2.U1<*, *> -> {
             println(console, "unexpected: an absolute path resolved")
         }
         is Union2.U2<*, *> -> {
-            println(console, "absolute path: ${kindName(detach((absolute.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+            println(console, "absolute path: ${kindName__FsError(detach((absolute.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         }
     }
     val probe = "probe.txt"
     println(console, "probe still there: ${fs.exists(probe)}")
     val gone = fs.delete(probe)
     if (gone is Union2.U2<*, *>) {
-        println(console, "delete failed: ${kindName(detach((gone.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+        println(console, "delete failed: ${kindName__FsError(detach((gone.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
     }
 }
 
@@ -378,7 +413,7 @@ fun main() {
     val root = "tmp/files-example"
     val made = fs.createDirs(root)
     if (made is Union2.U2<*, *>) {
-        println(console, "cannot create the working directory: ${kindName(detach((made.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+        println(console, "cannot create the working directory: ${kindName__FsError(detach((made.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
         return
     }
     println(console, "-- the real filesystem, scoped to one directory --")
@@ -389,7 +424,7 @@ fun main() {
     }
     val gone = fs.delete(root)
     if (gone is Union2.U2<*, *>) {
-        println(console, "cleanup failed: ${kindName(detach((gone.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
+        println(console, "cleanup failed: ${kindName__FsError(detach((gone.value as Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>)))}")
     }
     println(console, "-- the same code, with no disk at all --")
     if (true) {

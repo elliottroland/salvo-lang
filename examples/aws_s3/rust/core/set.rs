@@ -1,14 +1,11 @@
 use crate::collections::*;
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
 use crate::unions::*;
+use crate::core_iterator::Finished;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
+use crate::core_list::at;
 
-pub fn iter__6<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
+pub fn iter<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
     return SetYield { items: set.iter().cloned().collect::<Vec<_>>(), at: 0 };
 }
 
@@ -31,7 +28,7 @@ impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetYield<
     }
 }
 
-pub fn next__19<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());

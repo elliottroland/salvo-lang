@@ -1,10 +1,10 @@
 package salvo.core.array
 
 import salvo.*
-import salvo.core.iterator.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.sorted.*
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.at
 
 fun<T> iter(array: Array<T>): ArrayYield<T> {
     return ArrayYield(items = array, at = 0)

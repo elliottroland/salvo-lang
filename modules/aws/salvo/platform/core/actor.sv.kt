@@ -4,7 +4,6 @@
 // salvo-abi 1 023a4214a13ba612
 package salvo.core.actor
 
-import salvo.core.string.*
 
 data class Mailbox(
     val capacity: Int,

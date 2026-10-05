@@ -135,6 +135,38 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Deterministic names and explicit imports (2026-10-05, user decisions).**
+The test-speed survey found that std's generated code differed per program,
+and the user had long had trouble with numbered names (`add__3`, `next__20`):
+every overload of a name across the whole program was numbered in
+declaration order, so adding a fn anywhere renamed fns elsewhere. Options put:
+per-module names with cross-module calls by path; suffixes from parameter
+types; full signature mangling; qualifying only ambiguous calls. The user
+chose type suffixes per module, **explicit imports instead of globs**, an
+alias where two modules' names meet in one file, and **no numbers at all** —
+emission must be deterministic, and a case the rule cannot name is to be
+designed, not numbered. Built [fn-emit-name]: `salvo_core::naming` names
+every fn per module — plain when unique, else `name__<suffix>` from the
+parameters' base types, then qualifiers, then type arguments, then both, then
+implicit names — and is an error when nothing tells overloads apart (none in
+std or the tests). Effect member overloads follow it (`close__InStream`
+replaced `close__2`); Rust predicate qualifiers always carry their subject
+(`NonEmpty__List_qualifies`). Imports [rs-imports] [kt-imports] are written
+after every module is emitted, one per name, from what each module's text
+declares and each file's text mentions; fns are imported from the module the
+checker resolved them to, aliased `<name>__<module>` only when the file
+really uses that name from two modules (or from another and its own) —
+decided from the checker's resolutions, since deciding from visibility
+aliased `iter` in nearly every file. Runtime files keep their globs. What fell
+out: Rust needs every trait of an imported module `as _` (method calls name
+no trait); Kotlin needs a name several modules declare as a fn imported from
+each (that is how `Q_qualifies` overloads), and a platform wrapper imported
+like a fn, since a callable reference (`::addPlatform`) cannot spell a package
+path. Two dozen tests pinned the old names and were updated; a leading
+`__` of a generated type name is dropped in a suffix
+(`next__Iter_reversed_List`). Leftovers in ROADMAP 0i; the pruning plan the
+survey led to in 0h.
+
 **`iterable platform type` (2026-10-05, user decision).** The `List` step had
 kept the native `for` over `List`, `Str` and `Bytes` by naming them in the
 checker; the user asked for a declaration instead. Options put: a bare

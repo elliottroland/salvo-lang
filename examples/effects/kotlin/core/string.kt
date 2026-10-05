@@ -1,11 +1,13 @@
 package salvo.core.string
 
 import salvo.*
-import salvo.core.iterator.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.addPlatform
+import salvo.core.list.at
+import salvo.core.list.removeBack
+import salvo.core.list.sizePlatform as sizePlatform__core_list
 
 fun mutStr(parts: Array<String>): salvo.platform.core.string.MutStr {
     val out = emptyStrPlatform()
@@ -31,7 +33,7 @@ fun charAtPlatform(str: String, index: Int): Char? {
     return salvo.platform.core.string.charAt(str, index)
 }
 
-fun iter__9(str: String): StrYield {
+fun iter(str: String): StrYield {
     return StrYield(text = str, at = 0)
 }
 
@@ -40,7 +42,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__20(p: StrYield): Union2<Char, Finished> {
+fun next(p: StrYield): Union2<Char, Finished> {
     val chr = charAtPlatform(p.text, p.at)
     if (chr == null) {
         return Union2.U2<Char, Finished>(finished())
@@ -57,7 +59,7 @@ fun indexOfPlatform(str: String, needle: String): Int? {
     return salvo.platform.core.string.indexOf(str, needle)
 }
 
-fun indexOf__2(str: String, needle: String, from: Int): Int? {
+fun indexOf(str: String, needle: String, from: Int): Int? {
     return indexOfFromPlatform(str, needle, from)
 }
 
@@ -158,7 +160,7 @@ fun clearPlatform(str: salvo.platform.core.string.MutStr) {
     return salvo.platform.core.string.clear(str)
 }
 
-fun isEmpty__2(str: String): Boolean {
+fun isEmpty(str: String): Boolean {
     return sizePlatform(str) == 0
 }
 
@@ -174,7 +176,7 @@ fun repeat(str: String, n: Int): String {
 
 fun lines(str: String): salvo.platform.core.list.MutList<String> {
     val parts = splitPlatform(str, "\n")
-    if (sizePlatform(parts) > 1 && endsWithPlatform(str, "\n")) {
+    if (sizePlatform__core_list(parts) > 1 && endsWithPlatform(str, "\n")) {
         val _end = removeBack(parts, 1)
     }
     val out = mutableListOf<String>()

@@ -4,7 +4,6 @@
 // salvo-abi 1 023a4214a13ba612
 package salvo.aws.sqs.host
 
-import salvo.aws.*
-import salvo.aws.sqs.*
+import salvo.aws.AwsConfig
 
 class __Platform_HostSqs(config: AwsConfig) : salvo.aws.sqs.__Platform_Sqs(salvo.platform.aws.sqs.host.HostSqs(config))

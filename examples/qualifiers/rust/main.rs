@@ -32,13 +32,11 @@ pub mod platform_core_list;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
-use crate::core_console::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
+use crate::core_console::ConsolePlatformSync as _;
+use crate::core_console::__Stateful_Console as _;
+use crate::core_console::__Stateless_Console as _;
+use crate::core_console::println;
+use crate::core_list::first;
 
 pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
     return crate::core_list::size_platform(list) > 0;
@@ -53,11 +51,11 @@ pub fn celsius(degrees: i32) -> i32 {
     return degrees;
 }
 
-pub fn describe(temp: i32) -> String {
+pub fn describe__Int(temp: i32) -> String {
     return format!("{} (no unit)", temp);
 }
 
-pub fn describe__Celsius(temp: &i32) -> String {
+pub fn describe__CelsiusInt(temp: &i32) -> String {
     return format!("{}°C", *temp);
 }
 
@@ -103,15 +101,15 @@ pub fn touch(request: &mut Request) {
     request.touches = request.touches + 1;
 }
 
-pub fn handle(request: &Request) -> String {
+pub fn handle__Request(request: &Request) -> String {
     return format!("plain {}", request.path.clone());
 }
 
-pub fn handle__Authenticated(request: &Request) -> String {
+pub fn handle__AuthenticatedRequest(request: &Request) -> String {
     return format!("authenticated {}", request.path.clone());
 }
 
-pub fn handle__Fresh(request: &Request) -> String {
+pub fn handle__FreshRequest(request: &Request) -> String {
     return format!("fresh {}", request.path.clone());
 }
 
@@ -126,9 +124,9 @@ pub fn main() {
     }
     let mut plain = 21;
     let mut warm = celsius(21);
-    println(&console, &(format!("2. {} vs {}", describe(plain), describe__Celsius(&warm))));
+    println(&console, &(format!("2. {} vs {}", describe__Int(plain), describe__CelsiusInt(&warm))));
     if true {
-        println(&console, &(format!("2. widened: {}", describe(warm))));
+        println(&console, &(format!("2. widened: {}", describe__Int(warm))));
     }
     println(&console, &(format!("3. sum {}, head still {}", sum(&xs), head(&xs))));
     compact(&mut xs);
@@ -136,8 +134,8 @@ pub fn main() {
     println(&console, &(format!("3. after compact and add, head is {}", head(&xs))));
     let mut session = authenticate(Request { path: "/orders".to_string(), touches: 0 });
     let mut fresh = freshen(Request { path: "/health".to_string(), touches: 0 });
-    println(&console, &(format!("4. before: {} / {}", handle__Authenticated(&session), handle__Fresh(&fresh))));
+    println(&console, &(format!("4. before: {} / {}", handle__AuthenticatedRequest(&session), handle__FreshRequest(&fresh))));
     touch(&mut session);
     touch(&mut fresh);
-    println(&console, &(format!("4. after:  {} / {}", handle__Authenticated(&session), handle(&fresh))));
+    println(&console, &(format!("4. after:  {} / {}", handle__AuthenticatedRequest(&session), handle__Request(&fresh))));
 }

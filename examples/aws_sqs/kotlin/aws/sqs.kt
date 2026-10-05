@@ -1,17 +1,12 @@
 package salvo.aws.sqs
 
 import salvo.*
-import salvo.aws.*
-import salvo.core.actor.*
-import salvo.core.bytes.*
-import salvo.core.checked.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.other.*
-import salvo.core.result.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.aws.AwsError
+import salvo.aws.__Codec_AwsError
+import salvo.core.checked.Checked
+import salvo.core.checked.__Codec_Checked
+import salvo.core.list.addPlatform
+import salvo.core.result.ok
 
 data class CreateQueueInput(
     val queueName: String,

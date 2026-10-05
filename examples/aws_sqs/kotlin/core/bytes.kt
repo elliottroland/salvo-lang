@@ -1,13 +1,10 @@
 package salvo.core.bytes
 
 import salvo.*
-import salvo.core.deque.*
-import salvo.core.iterator.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.at
 
 fun bytesOf(elems: Array<UByte>): salvo.platform.core.bytes.Bytes {
     val out = emptyBytesPlatform()
@@ -81,7 +78,7 @@ fun toHexPlatform(data: salvo.platform.core.bytes.Bytes): String {
     return salvo.platform.core.bytes.toHex(data)
 }
 
-fun iter__2(data: salvo.platform.core.bytes.Bytes): BytesYield {
+fun iter(data: salvo.platform.core.bytes.Bytes): BytesYield {
     return BytesYield(data = data, at = 0)
 }
 
@@ -90,7 +87,7 @@ data class BytesYield(
     var at: Int,
 )
 
-fun next__2(p: BytesYield): Union2<UByte, Finished> {
+fun next(p: BytesYield): Union2<UByte, Finished> {
     val b = getPlatform(p.data, p.at)
     if (b == null) {
         return Union2.U2<UByte, Finished>(finished())

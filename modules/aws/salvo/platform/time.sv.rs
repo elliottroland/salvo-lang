@@ -2,16 +2,13 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
-use crate::core_actor::*;
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::runtime::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::runtime::RuntimeHostPlatformSync as _;
+use crate::runtime::__Stateful_RuntimeHost as _;
+use crate::runtime::__Stateful_SchedTable as _;
+use crate::runtime::__Stateless_RuntimeHost as _;
+use crate::runtime::__Stateless_SchedTable as _;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Instant {

@@ -4,10 +4,6 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.runtime
 
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.string.*
 
 // [mod-use] The module's `use` #0, bound on first use.
 private val __moduleUse0: RuntimeHost by lazy {

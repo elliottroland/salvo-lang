@@ -1,15 +1,31 @@
 package salvo.runtime.streams
 
 import salvo.*
-import salvo.core.actor.*
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.runtime.*
+import salvo.core.bytes.appendPlatform
+import salvo.core.bytes.bytesOf
+import salvo.core.bytes.getPlatform as getPlatform__core_bytes
+import salvo.core.bytes.indexOfPlatform
+import salvo.core.bytes.mutBytes
+import salvo.core.bytes.next
+import salvo.core.bytes.sizePlatform as sizePlatform__core_bytes
+import salvo.core.bytes.slicePlatform
+import salvo.core.bytes.strOfBytesPlatform
+import salvo.core.list.addPlatform
+import salvo.core.list.all
+import salvo.core.list.at
+import salvo.core.list.getPlatform as getPlatform__core_list
+import salvo.core.list.removeAtPlatform
+import salvo.core.list.sizePlatform as sizePlatform__core_list
+import salvo.core.map.next
+import salvo.core.set.next
+import salvo.core.sorted.max
+import salvo.core.string.next
+import salvo.runtime.externalBegin
+import salvo.runtime.externalEnd
+import salvo.runtime.parkPlatform
+import salvo.runtime.startThreadPlatform
+import salvo.runtime.thisParkerPlatform
+import salvo.runtime.unparkPlatform
 
 // [mod-use] The module's `use` #0, bound on first use.
 private val __moduleUse0: StreamTable by lazy {
@@ -263,8 +279,8 @@ class Streams : StreamTable {
 
     override fun takePending(handle: Long): Pending? {
         var i = 0
-        while (i < sizePlatform(pending)) {
-            if ((getPlatform(pending, i) ?: throw AssertionError("salvo: value is absent at runtime.streams:193:16")).handle == handle) {
+        while (i < sizePlatform__core_list(pending)) {
+            if ((getPlatform__core_list(pending, i) ?: throw AssertionError("salvo: value is absent at runtime.streams:193:16")).handle == handle) {
                 return removeAtPlatform(pending, i)
             }
             i = i + 1
@@ -275,8 +291,8 @@ class Streams : StreamTable {
 
 fun indexIn(keys: List<Long>, handle: Long): Int {
     var i = 0
-    while (i < sizePlatform(keys)) {
-        if ((getPlatform(keys, i) ?: throw AssertionError("salvo: value is absent at runtime.streams:207:12")) == handle) {
+    while (i < sizePlatform__core_list(keys)) {
+        if ((getPlatform__core_list(keys, i) ?: throw AssertionError("salvo: value is absent at runtime.streams:207:12")) == handle) {
             return i
         }
         i = i + 1
@@ -289,7 +305,7 @@ fun unbusy(busy: salvo.platform.core.list.MutList<Long>, waiting: salvo.platform
     if (at >= 0) {
         val _h = removeAtPlatform(busy, at)
     }
-    while (sizePlatform(waiting) > 0) {
+    while (sizePlatform__core_list(waiting) > 0) {
         unparkPlatform((removeAtPlatform(waiting, 0) ?: throw AssertionError("salvo: value is absent at runtime.streams:224:16")))
     }
 }
@@ -398,7 +414,7 @@ fun record(e: InEntry, message: String): Fault {
 }
 
 fun takeAhead(e: InEntry, n: Int): salvo.platform.core.bytes.Bytes {
-    val all = sizePlatform(e.ahead)
+    val all = sizePlatform__core_bytes(e.ahead)
     val front = (slicePlatform(e.ahead, 0, n) ?: bytesOf(arrayOf()))
     val rest = (slicePlatform(e.ahead, n, all) ?: bytesOf(arrayOf()))
     e.ahead = mutBytes(arrayOf(rest))
@@ -432,8 +448,8 @@ fun readLine(e: InEntry): Read {
         if (at != null) {
             val i = at as Int
             val line = takeAhead(e, i + 1)
-            var n = sizePlatform(line) - 1
-            if (n > 0 && ((getPlatform(line, n - 1) ?: throw AssertionError("salvo: value is absent at runtime.streams:362:32"))).toInt() == 13) {
+            var n = sizePlatform__core_bytes(line) - 1
+            if (n > 0 && ((getPlatform__core_bytes(line, n - 1) ?: throw AssertionError("salvo: value is absent at runtime.streams:362:32"))).toInt() == 13) {
                 n = n - 1
             }
             return Read(data = (slicePlatform(line, 0, n) ?: bytesOf(arrayOf())), end = false, fault = null)
@@ -443,11 +459,11 @@ fun readLine(e: InEntry): Read {
             val message = got.error as String
             return Read(data = bytesOf(arrayOf()), end = true, fault = record(e, message))
         }
-        if (sizePlatform(got.data) == 0) {
-            if (sizePlatform(e.ahead) == 0) {
+        if (sizePlatform__core_bytes(got.data) == 0) {
+            if (sizePlatform__core_bytes(e.ahead) == 0) {
                 return Read(data = bytesOf(arrayOf()), end = true, fault = null)
             }
-            val rest = takeAhead(e, sizePlatform(e.ahead))
+            val rest = takeAhead(e, sizePlatform__core_bytes(e.ahead))
             return Read(data = rest, end = false, fault = null)
         }
         appendPlatform(e.ahead, got.data)
@@ -461,17 +477,17 @@ fun readAll(e: InEntry): Read {
         val f = e.failed as Fault
         return Read(data = bytesOf(arrayOf()), end = true, fault = f)
     }
-    val out = mutBytes(arrayOf(takeAhead(e, sizePlatform(e.ahead))))
+    val out = mutBytes(arrayOf(takeAhead(e, sizePlatform__core_bytes(e.ahead))))
     while (true) {
         val got = hostReadPlatform(e.host, 65536)
         if (got.error != null) {
             val message = got.error as String
             return Read(data = bytesOf(arrayOf()), end = true, fault = record(e, message))
         }
-        if (sizePlatform(got.data) == 0) {
+        if (sizePlatform__core_bytes(got.data) == 0) {
             return Read(data = salvo.platform.core.bytes.copy(out), end = true, fault = null)
         }
-        e.position = e.position + (sizePlatform(got.data)).toLong()
+        e.position = e.position + (sizePlatform__core_bytes(got.data)).toLong()
         appendPlatform(out, got.data)
     }
     return readAll(e)
@@ -486,10 +502,10 @@ fun readUpTo(e: InEntry, max: Int): Read {
     if (max <= 0) {
         return Read(data = bytesOf(arrayOf()), end = false, fault = null)
     }
-    if (sizePlatform(e.ahead) > 0) {
+    if (sizePlatform__core_bytes(e.ahead) > 0) {
         var n = max
-        if (sizePlatform(e.ahead) < n) {
-            n = sizePlatform(e.ahead)
+        if (sizePlatform__core_bytes(e.ahead) < n) {
+            n = sizePlatform__core_bytes(e.ahead)
         }
         return Read(data = takeAhead(e, n), end = false, fault = null)
     }
@@ -498,8 +514,8 @@ fun readUpTo(e: InEntry, max: Int): Read {
         val message = got.error as String
         return Read(data = bytesOf(arrayOf()), end = true, fault = record(e, message))
     }
-    e.position = e.position + (sizePlatform(got.data)).toLong()
-    return Read(data = got.data, end = sizePlatform(got.data) == 0, fault = null)
+    e.position = e.position + (sizePlatform__core_bytes(got.data)).toLong()
+    return Read(data = got.data, end = sizePlatform__core_bytes(got.data) == 0, fault = null)
 }
 
 fun decode(e: InEntry, data: salvo.platform.core.bytes.Bytes): String? {
@@ -526,12 +542,12 @@ fun write(e: OutEntry, data: salvo.platform.core.bytes.Bytes): Long {
         recordOut(e, message)
         return 0L
     }
-    e.position = e.position + (sizePlatform(data)).toLong()
-    return (sizePlatform(data)).toLong()
+    e.position = e.position + (sizePlatform__core_bytes(data)).toLong()
+    return (sizePlatform__core_bytes(data)).toLong()
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun flush__2(e: OutEntry): Fault? {
+fun flush(e: OutEntry): Fault? {
     val failed = hostFlushPlatform(e.host)
     if (failed != null) {
         val message = failed as String

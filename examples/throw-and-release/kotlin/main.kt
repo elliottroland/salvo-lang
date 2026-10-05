@@ -1,14 +1,10 @@
 package salvo.main
 
 import salvo.*
-import salvo.core.console.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.result.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.throw_.*
+import salvo.core.console.Console
+import salvo.core.console.println
+import salvo.core.string.parseIntPlatform
+import salvo.core.string.sizePlatform
 
 data class FileHandle(
     val name: String,
@@ -26,7 +22,7 @@ fun openFile(console: Console, name: String): FileHandle {
     return FileHandle(name = name)
 }
 
-fun close__4(console: Console, handle: FileHandle) {
+fun close(console: Console, handle: FileHandle) {
     println(console, "1. close ${handle.name}")
     (handle).let {}
 }
@@ -36,10 +32,10 @@ fun readSize(console: Console, name: String, want: Int): Int {
     val handle = openFile(console, name)
     if (want > thereIs) {
         println(console, "1. asked for more than there is")
-        close__4(console, handle)
+        close(console, handle)
         return thereIs
     }
-    close__4(console, handle)
+    close(console, handle)
     return want
 }
 
@@ -62,7 +58,7 @@ fun portOf(config: String): Int {
 fun portFromFile(console: Console, name: String, text: String): Int {
     val handle = openFile(console, name)
     val from = handle.name
-    close__4(console, handle)
+    close(console, handle)
     println(console, "2. reading a port out of $from")
     return parsePort(text)
 }

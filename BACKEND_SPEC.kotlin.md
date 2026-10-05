@@ -9,7 +9,7 @@ Conventions:
 * Rules repeated from LANGUAGE_SPEC.md keep their label; the sub-bullets
   here are the *Kotlin-specific* decisions, additive to the core rule.
 * New Kotlin-only rules are prefixed `kt-`. Like all rule labels, they are
-  referenced from code and tests (`grep -rn '\[kt-qual-mangling\]'`).
+  referenced from code and tests (`grep -rn '\[kt-fn-mangling\]'`).
 
 ## Assertions
 
@@ -40,18 +40,29 @@ Conventions:
     found the day it left `core` (2026-09-26). Identifiers keep the backquote
     form; only path segments mangle, because a package is not an identifier
     position.
-* [kt-imports] Files get generated Kotlin imports: a wildcard
-  `import salvo.<module>.*` per foreign *emitted* module whose names the
-  file uses (the own module and `import salvo.*` for union wrappers round
-  it out). An aliased Salvo
+* [kt-imports] Files get generated Kotlin imports, **one per name** (user
+  decision 2026-10-05): `import salvo.<module>.<name>` for each Salvo
+  declaration of a foreign emitted module the file's text mentions, written
+  after every module is emitted (`imports.rs`: the names each module
+  declares and each file mentions are read off the emitted text). A fn the
+  emitter calls is imported from the module the checker resolved it to, under
+  its own name, or under `<name>__<module>` when the file uses a fn of the
+  same emitted name from two modules, or from another module and its own
+  ([fn-emit-name]; the clash is decided from the checker's resolutions, so a
+  name visible but unused never renames one that is used). A platform fn's
+  wrapper is named and imported the same way (`sizePlatform__core_list`). A
+  name several modules declare as a fn is imported from each — how a
+  predicate qualifier's `Q_qualifies` still overloads by subject — and one
+  where any is a class from none. Extension fns are imported wherever their
+  name appears. Only `import salvo.*`, the runtime package, stays a wildcard:
+  it declares no Salvo name. An aliased Salvo
   import of a Kotlin-visible item (fn with body, struct, effect, handler)
   emits `import salvo.<module>.<name> as <alias>`, and call sites keep
   the alias; intrinsics (whose lowerings are fully qualified, so they
   pull in no import [intrinsic-fn]), type aliases, and qualifiers need no
   alias import.
-  * An aliased import of a *mangled* qualified overload
-    ([kt-qual-mangling]) would map to the unmangled name — known gap in
-    the same class as unchecked-context mangling.
+  * An aliased import of a suffixed overload keeps the suffix on the alias
+    (`shout__Str as holler__Str`), one import per overload [fn-emit-name].
 * [kt-entry] `fn main() [use]` emits as `fun main()` with *no* effect
   parameters; the entry point is `salvo.<module>.MainKt` (`main.sv` →
   `salvo.main.MainKt`; the CLI prints it after compiling).
@@ -255,7 +266,7 @@ Conventions:
   rule uses), which is why a name the emitter writes in several places agrees
   with itself. Not mapped: type names (already capitalized), names the
   emitter synthesizes (`random_int` for a `Random<Int>` effect parameter,
-  `__p`, `__Iter_…`), overload suffixes after `__` (`readTo__2`), and the
+  `__p`, `__Iter_…`), overload suffixes after `__` (`readTo__InStream`), and the
   `TODO("implement E.member")` messages, which quote Salvo. Rust keeps snake
   case. Hand-written host code follows: std's `platform/*.kt` override
   `rawReadLine`, not `raw_read_line`.
@@ -514,12 +525,10 @@ Conventions:
     *state* qualifiers, since `Mut` is the one qualifier that does not
     erase.
 * [kt-fn-mangling] **Overload dispatch is the checker's, and Kotlin must not
-  get a second opinion.** Whenever a name has more than one emitted
-  overload, each gets a unique Kotlin name, by exactly the rule
-  [rs-fn-mangling] states: the `__Qual` suffix where it disambiguates,
-  then positional suffixes (`name__2`, `name__3`, ... in declaration
-  order; the first keeps the base name) for whatever still collides. Both
-  backends therefore choose the same names.
+  get a second opinion.** Every overload a module emits has a Kotlin name of
+  its own, by the shared rule [fn-emit-name] (`label__EvenInt`,
+  `fullName__SurnamePerson`), and a file never imports two fns under one name
+  [kt-imports], so Kotlin never resolves between Salvo overloads.
   * Sharing a name is unsound even when the erased parameter *strings*
     differ, because Kotlin then resolves by **Kotlin's** type lattice:
     two Salvo types with no subtype relation at all can map onto Kotlin
@@ -527,15 +536,11 @@ Conventions:
     what a former `Iter<T>` mapped to). A delegation whose argument lowered to
     the same Kotlin type therefore re-resolved to the *delegating* overload:
     infinite recursion, with no diagnostic anywhere [backend-never-wrong].
-  * Unchecked (arity-fallback) calls to a mangled overload would emit the
+  * Unchecked (arity-fallback) calls to a suffixed overload would emit the
     base name — known leftover, shared with [rs-fn-mangling].
-* [kt-qual-mangling] The suffix itself: overloads identical after erasure
-  get a deterministic `__Qual` on the qualified overload
-  (`full_name__Surname`), applied consistently at declarations and
-  checker-resolved call sites.
-  * The collision test compares *emitted* Kotlin parameter strings, so
-    the `Mut List` → `MutableList` mapping naturally avoids false
-    collisions.
+  * A predicate qualifier's `Q_qualifies` keeps the plain name and overloads
+    on the JVM parameter type (`[is-qualifies]`); a qualifier is declared once
+    per subject.
 * [kt-nested-dot-name] A dot-named struct [name-dot] emits as a Kotlin
   **nested** class inside its namespace class — never `inner`, which
   would capture an outer instance and could not be constructed on its
@@ -555,7 +560,7 @@ Conventions:
   * Dot-named *qualifiers* emit nothing (qualifiers erase
     [qual-erasure]); they only reach output through mangling, where the
     dot canonicalizes to the flat spelling
-    (`label__EnvironmentTag`) [kt-qual-mangling].
+    (`label__EnvironmentTag`) [fn-emit-name].
 * [is-qualifies] Each predicate qualifier's `qualifies` fn emits as a
   top-level `fun Q_qualifies(...)`; a predicate `is` check becomes a call
   (multiple qualifiers `&&`-chain).
@@ -809,8 +814,9 @@ nothing but the monitor.
   * The program's entry class is always the generated module's facade,
     `salvo.<M>.<Facade>Kt` (`entry_hint`): since platform effects were
     removed (2026-10-01) the host never owns `main`.
-* [effect-member-overload] **An overloaded member name is suffixed**
-  (`close`, `close__2`, …) even though Kotlin has overloading: it would
+* [effect-member-overload] **An overloaded member name is suffixed** by its
+  parameter types, by the rule fns follow [fn-emit-name] (`close__InStream`,
+  `close__OutStream`), even though Kotlin has overloading: it would
   resolve by *Kotlin's* type lattice rather than Salvo's, which is exactly
   the [kt-fn-mangling] hazard one level down. The name comes from
   `salvo_core::effect_member_name`, so the interface, every handler override,
@@ -849,7 +855,7 @@ nothing but the monitor.
   `<T>` and called without type arguments, and the resolver and symbol table
   are both rebuilt over the copy, since `kotlin_fn_name` matches declarations
   by address between them (an alias import of a mangled overload
-  [kt-qual-mangling] lost its suffix when they disagreed). Runtime:
+  [fn-emit-name] lost its suffix when they disagreed). Runtime:
   `pending(addr)`; and, since 2026-10-02, the CONTROL frame std's group
   protocols travel as — `controls`, `watchControl(channel, sink, build)`,
   `sendControl`, `controlFrame`, `nodeLeft`, `localProtocols`,

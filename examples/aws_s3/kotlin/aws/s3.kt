@@ -1,19 +1,21 @@
 package salvo.aws.s3
 
 import salvo.*
-import salvo.aws.*
-import salvo.core.actor.*
-import salvo.core.bytes.*
-import salvo.core.checked.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.other.*
-import salvo.core.result.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.stream.*
-import salvo.time.*
+import salvo.aws.AwsError
+import salvo.aws.__Codec_AwsError
+import salvo.core.bytes.bytesOf
+import salvo.core.checked.Checked
+import salvo.core.checked.__Codec_Checked
+import salvo.core.checked.checked
+import salvo.core.checked.ignore
+import salvo.core.list.addPlatform
+import salvo.core.result.err
+import salvo.core.result.ok
+import salvo.stream.InStream
+import salvo.stream.InvalidUtf8
+import salvo.stream.StreamFailed
+import salvo.time.Instant
+import salvo.time.__Codec_Instant
 
 data class PutObjectInput(
     val acl: String? = null,
@@ -66,8 +68,8 @@ data class PutObjectInput(
     val expectedBucketOwner: String? = null,
 )
 
-fun close__4(streams: salvo.stream.Streams, value: PutObjectInput): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
-    return streams.close(value.body)
+fun close__PutObjectInput(streams: salvo.stream.Streams, value: PutObjectInput): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    return streams.close__InStream(value.body)
 }
 
 data class PutObjectOutput(
@@ -222,8 +224,8 @@ data class GetObjectOutput(
     val objectLockEventHoldDurationYears: Int? = null,
 )
 
-fun close__5(streams: salvo.stream.Streams, value: GetObjectOutput): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
-    return streams.close(value.body)
+fun close__GetObjectOutput(streams: salvo.stream.Streams, value: GetObjectOutput): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    return streams.close__InStream(value.body)
 }
 
 data class S3Error(
@@ -296,7 +298,7 @@ class FakeS3(private val __dep_salvo_stream_Streams: salvo.stream.Streams) : S3,
     override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) {
         addPlatform(recorded, "put_object")
         val unsized = input.contentLength == null
-        val closed = close__4(__dep_salvo_stream_Streams, input)
+        val closed = close__PutObjectInput(__dep_salvo_stream_Streams, input)
         if (closed is Union2.U2<*, *>) {
             ignore((closed.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }

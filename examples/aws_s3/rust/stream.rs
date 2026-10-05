@@ -1,19 +1,30 @@
-use crate::core_actor::*;
-use crate::core_bytes::*;
-use crate::core_checked::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_result::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::runtime_streams::*;
 use crate::unions::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_bytes::Bytes;
+use crate::core_bytes::mut_bytes;
+use crate::core_checked::Checked;
+use crate::core_checked::checked;
+use crate::core_checked::ignore;
+use crate::core_iterator::Finished;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
+use crate::core_list::first;
+use crate::core_result::err;
+use crate::core_result::ok;
+use crate::core_sorted::max;
+use crate::runtime_streams::__Stateful_StreamTable as _;
+use crate::runtime_streams::__Stateless_StreamTable as _;
+use crate::runtime_streams::decode;
+use crate::runtime_streams::flush;
+use crate::runtime_streams::fresh_handle as fresh_handle__runtime_streams;
+use crate::runtime_streams::read_all;
+use crate::runtime_streams::read_line;
+use crate::runtime_streams::receive;
+use crate::runtime_streams::write;
 
-pub fn fresh_handle__2() -> i64 {
-    return fresh_handle();
+pub fn fresh_handle() -> i64 {
+    return fresh_handle__runtime_streams();
 }
 
 pub type StreamError = Union2<InvalidUtf8, StreamFailed>;
@@ -63,7 +74,7 @@ impl crate::wire::__Wire for StreamFailed {
     }
 }
 
-pub fn to_str__8(kind: &Union2<InvalidUtf8, StreamFailed>) -> String {
+pub fn to_str(kind: &Union2<InvalidUtf8, StreamFailed>) -> String {
     match kind {
         Union2::U1(_) => {
             return format!("not valid UTF-8: {}", kind.u1().clone().source.clone());
@@ -103,28 +114,28 @@ impl crate::wire::__Wire for End {
     }
 }
 
-pub fn close(streams: &crate::stream::Streams, p: Packet) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
+pub fn close__Packet(streams: &crate::stream::Streams, p: Packet) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
     let __destructured1 = p;
     let mut bytes = __destructured1.bytes;
     let mut stream = __destructured1.stream;
-    return streams.close(stream);
+    return streams.close__InStream(stream);
 }
 
 pub trait __Stateless_Streams: Send + Sync {
     fn read_line(&self, s: &InStream) -> Option<String>;
     fn read_all(&self, s: &InStream) -> Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn read_bytes(&self, s: &InStream, max: i32) -> Union2<Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>;
-    fn read_to(&self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>;
-    fn read_to__2(&self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn read_to__InStream_Bytes_Int(&self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn read_to__InStream_Str(&self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn read_line_to(&self, s: &InStream, buf: &mut String) -> bool;
-    fn position(&self, s: &InStream) -> i64;
-    fn close(&self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn position__InStream(&self, s: &InStream) -> i64;
+    fn close__InStream(&self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn write(&self, s: &OutStream, text: &String) -> i64;
     fn write_line(&self, s: &OutStream, text: &String) -> i64;
     fn write_bytes(&self, s: &OutStream, data: &Bytes) -> i64;
-    fn position__2(&self, s: &OutStream) -> i64;
+    fn position__OutStream(&self, s: &OutStream) -> i64;
     fn flush(&self, s: &OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
-    fn close__2(&self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn close__OutStream(&self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn receive(&self, s: InStream, reply: crate::scheduler::SalvoReply);
     fn from_bytes(&self, data: Bytes) -> InStream;
 }
@@ -133,17 +144,17 @@ pub trait __Stateful_Streams: Send {
     fn read_line(&mut self, s: &InStream) -> Option<String>;
     fn read_all(&mut self, s: &InStream) -> Union2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>;
-    fn read_to(&mut self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>;
-    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn read_to__InStream_Bytes_Int(&mut self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn read_to__InStream_Str(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn read_line_to(&mut self, s: &InStream, buf: &mut String) -> bool;
-    fn position(&mut self, s: &InStream) -> i64;
-    fn close(&mut self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn position__InStream(&mut self, s: &InStream) -> i64;
+    fn close__InStream(&mut self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn write(&mut self, s: &OutStream, text: &String) -> i64;
     fn write_line(&mut self, s: &OutStream, text: &String) -> i64;
     fn write_bytes(&mut self, s: &OutStream, data: &Bytes) -> i64;
-    fn position__2(&mut self, s: &OutStream) -> i64;
+    fn position__OutStream(&mut self, s: &OutStream) -> i64;
     fn flush(&mut self, s: &OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
-    fn close__2(&mut self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
+    fn close__OutStream(&mut self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>>;
     fn receive(&mut self, s: InStream, reply: crate::scheduler::SalvoReply);
     fn from_bytes(&mut self, data: Bytes) -> InStream;
 }
@@ -197,16 +208,16 @@ impl Streams {
             __Inner_Streams::Locked(h) => h.lock().unwrap().read_bytes(s, max),
         }
     }
-    pub fn read_to(&self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    pub fn read_to__InStream_Bytes_Int(&self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         match &self.inner {
-            __Inner_Streams::Shared(h) => h.read_to(s, buf, max),
-            __Inner_Streams::Locked(h) => h.lock().unwrap().read_to(s, buf, max),
+            __Inner_Streams::Shared(h) => h.read_to__InStream_Bytes_Int(s, buf, max),
+            __Inner_Streams::Locked(h) => h.lock().unwrap().read_to__InStream_Bytes_Int(s, buf, max),
         }
     }
-    pub fn read_to__2(&self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    pub fn read_to__InStream_Str(&self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         match &self.inner {
-            __Inner_Streams::Shared(h) => h.read_to__2(s, buf),
-            __Inner_Streams::Locked(h) => h.lock().unwrap().read_to__2(s, buf),
+            __Inner_Streams::Shared(h) => h.read_to__InStream_Str(s, buf),
+            __Inner_Streams::Locked(h) => h.lock().unwrap().read_to__InStream_Str(s, buf),
         }
     }
     pub fn read_line_to(&self, s: &InStream, buf: &mut String) -> bool {
@@ -215,16 +226,16 @@ impl Streams {
             __Inner_Streams::Locked(h) => h.lock().unwrap().read_line_to(s, buf),
         }
     }
-    pub fn position(&self, s: &InStream) -> i64 {
+    pub fn position__InStream(&self, s: &InStream) -> i64 {
         match &self.inner {
-            __Inner_Streams::Shared(h) => h.position(s),
-            __Inner_Streams::Locked(h) => h.lock().unwrap().position(s),
+            __Inner_Streams::Shared(h) => h.position__InStream(s),
+            __Inner_Streams::Locked(h) => h.lock().unwrap().position__InStream(s),
         }
     }
-    pub fn close(&self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    pub fn close__InStream(&self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
         match &self.inner {
-            __Inner_Streams::Shared(h) => h.close(s),
-            __Inner_Streams::Locked(h) => h.lock().unwrap().close(s),
+            __Inner_Streams::Shared(h) => h.close__InStream(s),
+            __Inner_Streams::Locked(h) => h.lock().unwrap().close__InStream(s),
         }
     }
     pub fn write(&self, s: &OutStream, text: &String) -> i64 {
@@ -245,10 +256,10 @@ impl Streams {
             __Inner_Streams::Locked(h) => h.lock().unwrap().write_bytes(s, data),
         }
     }
-    pub fn position__2(&self, s: &OutStream) -> i64 {
+    pub fn position__OutStream(&self, s: &OutStream) -> i64 {
         match &self.inner {
-            __Inner_Streams::Shared(h) => h.position__2(s),
-            __Inner_Streams::Locked(h) => h.lock().unwrap().position__2(s),
+            __Inner_Streams::Shared(h) => h.position__OutStream(s),
+            __Inner_Streams::Locked(h) => h.lock().unwrap().position__OutStream(s),
         }
     }
     pub fn flush(&self, s: &OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
@@ -257,10 +268,10 @@ impl Streams {
             __Inner_Streams::Locked(h) => h.lock().unwrap().flush(s),
         }
     }
-    pub fn close__2(&self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    pub fn close__OutStream(&self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
         match &self.inner {
-            __Inner_Streams::Shared(h) => h.close__2(s),
-            __Inner_Streams::Locked(h) => h.lock().unwrap().close__2(s),
+            __Inner_Streams::Shared(h) => h.close__OutStream(s),
+            __Inner_Streams::Locked(h) => h.lock().unwrap().close__OutStream(s),
         }
     }
     pub fn receive(&self, s: InStream, reply: crate::scheduler::SalvoReply) {
@@ -291,7 +302,7 @@ pub fn pipe_step(mut streams: crate::stream::Streams, to: OutStream, done: crate
             { let __a1 = ({ let __e0 = streams.clone(); let __c0 = to; let __c1 = done; let __c2 = moved + written; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), std::boxed::Box::new(move |__v| pipe_step(__e0.clone(), __c0, __c1, __c2, *__v.downcast::<Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>>().expect("the awaited answer"))), (|_| None)) }); streams.receive(stream, __a1) };
         }
         Union3::U2(_) => {
-            let mut closed = streams.close__2(to);
+            let mut closed = streams.close__OutStream(to);
             match closed {
                 Union2::U1(_) => {
                     crate::scheduler::salvo_reply_wire::<Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>>(done, Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(moved)));
@@ -302,7 +313,7 @@ pub fn pipe_step(mut streams: crate::stream::Streams, to: OutStream, done: crate
             }
         }
         Union3::U3(_) => {
-            let mut closed = streams.close__2(to);
+            let mut closed = streams.close__OutStream(to);
             match closed {
                 Union2::U1(_) => {
                 }
@@ -320,11 +331,11 @@ pub struct Lines {
     pub s: InStream,
 }
 
-pub fn lines__2(s: InStream) -> Lines {
+pub fn lines(s: InStream) -> Lines {
     return Lines { s: s };
 }
 
-pub fn next__21(streams: &crate::stream::Streams, p: &mut Lines) -> Union2<String, Finished> {
+pub fn next__Lines(streams: &crate::stream::Streams, p: &mut Lines) -> Union2<String, Finished> {
     let mut line = streams.read_line(&p.s);
     match line {
         Some(_) => {
@@ -336,8 +347,8 @@ pub fn next__21(streams: &crate::stream::Streams, p: &mut Lines) -> Union2<Strin
     }
 }
 
-pub fn close__2(streams: &crate::stream::Streams, p: Lines) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
-    return streams.close(p.s);
+pub fn close__Lines(streams: &crate::stream::Streams, p: Lines) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    return streams.close__InStream(p.s);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -350,7 +361,7 @@ pub fn chunks(s: InStream, size: i32) -> Chunks {
     return Chunks { s: s, size: size };
 }
 
-pub fn next__22(streams: &crate::stream::Streams, p: &mut Chunks) -> Union2<Bytes, Finished> {
+pub fn next__Chunks(streams: &crate::stream::Streams, p: &mut Chunks) -> Union2<Bytes, Finished> {
     let mut got = streams.read_bytes(&p.s, p.size);
     if matches!(got, Union2::U2(_)) {
         ignore((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
@@ -363,8 +374,8 @@ pub fn next__22(streams: &crate::stream::Streams, p: &mut Chunks) -> Union2<Byte
     return Union2::<Bytes, Finished>::U1(emitted(data));
 }
 
-pub fn close__3(streams: &crate::stream::Streams, p: Chunks) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
-    return streams.close(p.s);
+pub fn close__Chunks(streams: &crate::stream::Streams, p: Chunks) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    return streams.close__InStream(p.s);
 }
 
 pub fn stream_chunk_size() -> i32 {
@@ -375,7 +386,7 @@ pub fn fill_from(streams: &crate::stream::Streams, s: &InStream, buf: &mut Bytes
     let mut total: i64 = 0i64;
     let mut reading = true;
     while reading {
-        let mut got = streams.read_to(s, buf, stream_chunk_size());
+        let mut got = streams.read_to__InStream_Bytes_Int(s, buf, stream_chunk_size());
         if matches!(got, Union2::U2(_)) {
             return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
@@ -394,7 +405,7 @@ pub fn copy_stream(streams: &crate::stream::Streams, s: &InStream, w: &OutStream
     let mut copying = true;
     while copying {
         crate::core_bytes::clear_platform(&mut buf);
-        let mut got = streams.read_to(s, &mut buf, stream_chunk_size());
+        let mut got = streams.read_to__InStream_Bytes_Int(s, &mut buf, stream_chunk_size());
         if matches!(got, Union2::U2(_)) {
             return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
         }

@@ -1,17 +1,37 @@
 package salvo.fs.restricted
 
 import salvo.*
-import salvo.core.bytes.*
-import salvo.core.checked.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.result.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.fs.*
-import salvo.stream.*
+import salvo.core.checked.Checked
+import salvo.core.checked.checked
+import salvo.core.list.addPlatform
+import salvo.core.list.getPlatform
+import salvo.core.list.sizePlatform as sizePlatform__core_list
+import salvo.core.result.err
+import salvo.core.string.joinPlatform
+import salvo.core.string.sizePlatform as sizePlatform__core_string
+import salvo.core.string.splitPlatform
+import salvo.core.string.startsWithPlatform
+import salvo.fs.AlreadyExists
+import salvo.fs.FileInfo
+import salvo.fs.Fs
+import salvo.fs.IoError
+import salvo.fs.NotADirectory
+import salvo.fs.NotFound
+import salvo.fs.PathEscapes
+import salvo.fs.PermissionDenied
+import salvo.fs.Streaming
+import salvo.fs.createDirs
+import salvo.fs.delete
+import salvo.fs.exists
+import salvo.fs.listDir
+import salvo.fs.metadata
+import salvo.fs.openAppend
+import salvo.fs.openRead
+import salvo.fs.openReadAt
+import salvo.fs.openWrite
+import salvo.fs.renamePath
+import salvo.stream.InStream
+import salvo.stream.OutStream
 
 fun fsResolve(root: String, path: String): String? {
     if (startsWithPlatform(path, "/")) {
@@ -20,13 +40,13 @@ fun fsResolve(root: String, path: String): String? {
     val segs = splitPlatform(path, "/")
     val kept: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     var skip = 0
-    var i = sizePlatform(segs) - 1
+    var i = sizePlatform__core_list(segs) - 1
     while (i >= 0) {
         val seg = (getPlatform(segs, i) ?: throw AssertionError("salvo: value is absent at fs.restricted:35:19"))
         if (seg == "..") {
             skip = skip + 1
         } else {
-            if (sizePlatform(seg) == 0 || seg == ".") {
+            if (sizePlatform__core_string(seg) == 0 || seg == ".") {
             } else {
                 if (skip > 0) {
                     skip = skip - 1
@@ -41,13 +61,13 @@ fun fsResolve(root: String, path: String): String? {
         return null
     }
     val parts: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
-    var j = sizePlatform(kept) - 1
+    var j = sizePlatform__core_list(kept) - 1
     while (j >= 0) {
         addPlatform(parts, (getPlatform(kept, j) ?: throw AssertionError("salvo: value is absent at fs.restricted:58:24")))
         j = j - 1
     }
     val rel = joinPlatform(parts, "/")
-    if (sizePlatform(rel) == 0) {
+    if (sizePlatform__core_string(rel) == 0) {
         return root
     }
     return "$root/$rel"

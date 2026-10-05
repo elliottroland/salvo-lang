@@ -1,15 +1,16 @@
 package salvo.core.seq
 
 import salvo.*
-import salvo.core.iterator.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.addPlatform
+import salvo.core.map.next
+import salvo.core.set.next
+import salvo.core.string.next
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T, U> map(it: It, f: (T) -> U, next: (It) -> Union2<T, Finished>): salvo.platform.core.list.MutList<U> {
+fun<It, T, U> map__It_Fn(it: It, f: (T) -> U, next: (It) -> Union2<T, Finished>): salvo.platform.core.list.MutList<U> {
     val out = mutableListOf<U>()
     while (true) {
         val __loop1_step = next(it)
@@ -35,7 +36,7 @@ fun<It, T> filter(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, Finished
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T, A> reduce(it: It, init: A, f: (A, T) -> A, next: (It) -> Union2<T, Finished>): A {
+fun<It, T, A> reduce__It_A_Fn(it: It, init: A, f: (A, T) -> A, next: (It) -> Union2<T, Finished>): A {
     var acc = init
     while (true) {
         val __loop3_step = next(it)
@@ -46,7 +47,7 @@ fun<It, T, A> reduce(it: It, init: A, f: (A, T) -> A, next: (It) -> Union2<T, Fi
     return acc
 }
 
-fun<T, U> map__2(list: List<T>, f: (T) -> U): salvo.platform.core.list.MutList<U> {
+fun<T, U> map__List_Fn(list: List<T>, f: (T) -> U): salvo.platform.core.list.MutList<U> {
     val out = mutableListOf<U>()
     for (x in salvo.platform.core.list.each(list)) {
         addPlatform(out, f(x))
@@ -58,7 +59,7 @@ fun<T> filterPlatform(list: List<T>, keep: (T) -> Boolean): salvo.platform.core.
     return salvo.platform.core.seq.filter(list, keep)
 }
 
-fun<T, A> reduce__2(list: List<T>, init: A, f: (A, T) -> A): A {
+fun<T, A> reduce__List_A_Fn(list: List<T>, init: A, f: (A, T) -> A): A {
     var acc = init
     for (x in salvo.platform.core.list.each(list)) {
         acc = f(acc, x)
@@ -100,7 +101,7 @@ data class Mapping<It, T, U>(
 )
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T, U> next__13(m: Mapping<It, T, U>): Union2<U, Finished> {
+fun<It, T, U> next__Mapping(m: Mapping<It, T, U>): Union2<U, Finished> {
     val step = m.step
     val x = step(m.src)
     if (x is Union2.U2<*, *>) {
@@ -122,7 +123,7 @@ data class Filtering<It, T>(
 )
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T> next__14(t: Filtering<It, T>): Union2<T, Finished> {
+fun<It, T> next__Filtering(t: Filtering<It, T>): Union2<T, Finished> {
     val step = t.step
     val keep = t.keep
     while (true) {
@@ -147,7 +148,7 @@ data class Taking<It, T>(
     var left: Int,
 )
 
-fun<It, T> next__15(t: Taking<It, T>): Union2<T, Finished> {
+fun<It, T> next__Taking(t: Taking<It, T>): Union2<T, Finished> {
     if (t.left <= 0) {
         return Union2.U2<T, Finished>(finished())
     }
@@ -168,7 +169,7 @@ data class TakingWhile<It, T>(
 )
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T> next__16(t: TakingWhile<It, T>): Union2<T, Finished> {
+fun<It, T> next__TakingWhile(t: TakingWhile<It, T>): Union2<T, Finished> {
     if (t.done) {
         return Union2.U2<T, Finished>(finished())
     }
@@ -196,7 +197,7 @@ data class Skipping<It, T>(
     var left: Int,
 )
 
-fun<It, T> next__17(t: Skipping<It, T>): Union2<T, Finished> {
+fun<It, T> next__Skipping(t: Skipping<It, T>): Union2<T, Finished> {
     val step = t.step
     while (t.left > 0) {
         t.left = t.left - 1
@@ -220,7 +221,7 @@ data class SkippingWhile<It, T>(
 )
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T> next__18(t: SkippingWhile<It, T>): Union2<T, Finished> {
+fun<It, T> next__SkippingWhile(t: SkippingWhile<It, T>): Union2<T, Finished> {
     val step = t.step
     if (t.started) {
         return step(t.src)
@@ -244,7 +245,7 @@ fun<It, T> skippingWhile(it: It, skip: (T) -> Boolean, next: (It) -> Union2<T, F
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T> toList__2(it: It, next: (It) -> Union2<T, Finished>): salvo.platform.core.list.MutList<T> {
+fun<It, T> toList(it: It, next: (It) -> Union2<T, Finished>): salvo.platform.core.list.MutList<T> {
     val out = mutableListOf<T>()
     while (true) {
         val __loop6_step = next(it)
@@ -256,7 +257,7 @@ fun<It, T> toList__2(it: It, next: (It) -> Union2<T, Finished>): salvo.platform.
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T> count__2(it: It, next: (It) -> Union2<T, Finished>): Int {
+fun<It, T> count(it: It, next: (It) -> Union2<T, Finished>): Int {
     var n = 0
     while (true) {
         val __loop7_step = next(it)

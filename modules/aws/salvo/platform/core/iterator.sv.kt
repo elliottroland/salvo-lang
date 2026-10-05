@@ -4,6 +4,7 @@
 // salvo-abi 1 023a4214a13ba612
 package salvo.core.iterator
 
+
 class Finished
 
 object __Codec_Finished : salvo.WireCodec<Finished> {

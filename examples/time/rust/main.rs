@@ -56,23 +56,57 @@ pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
 
-use crate::core_actor::*;
-use crate::core_console::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_string::*;
-use crate::time::*;
+use crate::core_actor::Idle;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_console::ConsolePlatformSync as _;
+use crate::core_console::__Stateful_Console as _;
+use crate::core_console::__Stateless_Console as _;
+use crate::core_console::println;
+use crate::core_list::at;
+use crate::time::DefaultClock;
+use crate::time::DefaultTicker;
+use crate::time::Duration;
+use crate::time::Fired;
+use crate::time::ManualTime;
+use crate::time::Tick;
+use crate::time::__Actor_ManualTime;
+use crate::time::__DECODE_ManualTime;
+use crate::time::__Stateful_Clock as _;
+use crate::time::__Stateful_Ticker as _;
+use crate::time::__Stateful_Timer as _;
+use crate::time::__Stateful_TimerCtl as _;
+use crate::time::__Stateless_Clock as _;
+use crate::time::__Stateless_Ticker as _;
+use crate::time::__Stateless_Timer as _;
+use crate::time::__Stateless_TimerCtl as _;
+use crate::time::__Stub_Timer;
+use crate::time::between__Tick_Tick;
+use crate::time::cmp__Duration_Duration;
+use crate::time::elapsed;
+use crate::time::epoch_milli;
+use crate::time::millis;
+use crate::time::minus__Duration_Duration;
+use crate::time::minutes;
+use crate::time::nanos;
+use crate::time::plus__Duration_Duration;
+use crate::time::plus__Instant_Duration;
+use crate::time::seconds;
+use crate::time::times;
+use crate::time::to_epoch_second;
+use crate::time::to_millis;
+use crate::time::to_str;
 
 pub fn verdict(started: &Tick, at: &Tick, budget: &Duration) -> String {
-    let mut took = between__2(started, at);
-    if cmp__2(&took, budget) > 0 {
-        return format!("late by {}", to_str__10(&minus(&took, budget)));
+    let mut took = between__Tick_Tick(started, at);
+    if cmp__Duration_Duration(&took, budget) > 0 {
+        return format!("late by {}", to_str(&minus__Duration_Duration(&took, budget)));
     }
-    return format!("in time, {} to spare", to_str__10(&minus(budget, &took)));
+    return format!("in time, {} to spare", to_str(&minus__Duration_Duration(budget, &took)));
 }
 
 pub fn overdue(ticker: &crate::time::Ticker, started: &Tick, budget: &Duration) -> bool {
-    return cmp__2(&(elapsed(ticker, started)), budget) > 0;
+    return cmp__Duration_Duration(&(elapsed(ticker, started)), budget) > 0;
 }
 
 pub struct SteppingTicker {
@@ -227,7 +261,7 @@ impl Sessions {
 impl crate::__Stateful_Session for Sessions {
 
     fn open(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply) {
-        self.__dep_Timer.after(plus(&budget, &(seconds(1i64))), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Sessions::Expire(started, budget, out)); __r });
+        self.__dep_Timer.after(plus__Duration_Duration(&budget, &(seconds(1i64))), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Sessions::Expire(started, budget, out)); __r });
     }
 
     fn expire(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired) {
@@ -454,7 +488,7 @@ impl crate::__Stateful_Sleeper for Napping {
     }
 
     fn woke(&mut self, started: Tick, out: crate::scheduler::SalvoReply, f: Fired) {
-        crate::scheduler::salvo_reply_wire::<String>(out, format!("napped {}", to_str__10(&elapsed(&self.__dep_Ticker, &started))));
+        crate::scheduler::salvo_reply_wire::<String>(out, format!("napped {}", to_str(&elapsed(&self.__dep_Ticker, &started))));
     }
 }
 
@@ -521,9 +555,9 @@ pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Session".to_string(), crate::__PROTO_Session.to_string()), ("Sleeper".to_string(), crate::__PROTO_Sleeper.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string()), ("Wheel".to_string(), crate::runtime_timers::__PROTO_Wheel.to_string())]);
     let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let mut budget = millis(1500i64);
-    println(&console, &(format!("budget {}, doubled {}, in millis {}", to_str__10(&budget), to_str__10(&times(&budget, 2i64)), to_millis(&budget))));
+    println(&console, &(format!("budget {}, doubled {}, in millis {}", to_str(&budget), to_str(&times(&budget, 2i64)), to_millis(&budget))));
     let mut stamp = epoch_milli(1700000000000i64);
-    println(&console, &(format!("stamp {}s, a minute later {}s", to_epoch_second(&stamp), to_epoch_second(&(plus__2(&stamp, &(minutes(1i64))))))));
+    println(&console, &(format!("stamp {}s, a minute later {}s", to_epoch_second(&stamp), to_epoch_second(&(plus__Instant_Duration(&stamp, &(minutes(1i64))))))));
     let clock = crate::time::Clock::locked(DefaultClock::new());
     let ticker = crate::time::Ticker::shared(DefaultTicker::new());
     println(&console, &(format!("wall clock is set: {}", to_epoch_second(&(clock.now())) > ((1600000000) as i64))));

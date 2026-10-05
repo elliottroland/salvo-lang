@@ -1,5 +1,6 @@
 package salvo.core.checked
 
+
 data class Checked<T>(
     val value: T,
 )

@@ -1,6 +1,5 @@
 package salvo.core.console
 
-import salvo.core.string.*
 
 interface Console {
     fun print(message: String)

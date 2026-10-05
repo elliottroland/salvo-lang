@@ -34,9 +34,12 @@ pub mod platform_core_list;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
-use crate::aws::*;
-use crate::core_console::*;
-use crate::core_iterator::*;
+use crate::aws::ProfileCredentials;
+use crate::aws::to_str;
+use crate::core_console::ConsolePlatformSync as _;
+use crate::core_console::__Stateful_Console as _;
+use crate::core_console::__Stateless_Console as _;
+use crate::core_console::println;
 
 pub fn main() {
     let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
@@ -44,5 +47,5 @@ pub fn main() {
     println(&console, &(format!("profile: {}", creds.profile.clone())));
     println(&console, &(format!("path:    {}", creds.path.clone())));
     let mut staging = ProfileCredentials { profile: "staging".to_string(), path: "/etc/aws/credentials".to_string() };
-    println(&console, &(format!("{}", to_str__11(&staging))));
+    println(&console, &(format!("{}", to_str(&staging))));
 }

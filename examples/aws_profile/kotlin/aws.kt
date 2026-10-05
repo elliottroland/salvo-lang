@@ -1,7 +1,8 @@
 package salvo.aws
 
 import salvo.*
-import salvo.core.string.*
+import salvo.core.string.appendPlatform
+import salvo.core.string.mutStr
 
 data class ProfileCredentials(
     val profile: String = "default",
@@ -78,7 +79,7 @@ object __Codec_AwsError : salvo.WireCodec<AwsError> {
     override fun dec(inp: salvo.WireIn): AwsError = AwsError(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp))
 }
 
-fun toStr__10(value: ProfileCredentials): String {
+fun toStr(value: ProfileCredentials): String {
     val out: salvo.platform.core.string.MutStr = mutStr(arrayOf("ProfileCredentials {"))
     appendPlatform(out, " ")
     appendPlatform(out, "profile: ${value.profile}")

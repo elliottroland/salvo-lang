@@ -1,4 +1,3 @@
-use crate::core_iterator::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Checked<T> {

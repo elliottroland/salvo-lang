@@ -1,23 +1,45 @@
 package salvo.main
 
 import salvo.*
-import salvo.core.array.*
-import salvo.core.console.*
-import salvo.core.iterator.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.range.*
-import salvo.core.seq.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.core.array.next
+import salvo.core.console.Console
+import salvo.core.console.println
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.addPlatform
+import salvo.core.list.at
+import salvo.core.list.count
+import salvo.core.list.getPlatform
+import salvo.core.list.iter as iter__core_list
+import salvo.core.list.next__ListYield
+import salvo.core.list.sizePlatform as sizePlatform__core_list
+import salvo.core.map.next
+import salvo.core.range.next
+import salvo.core.range.next as next__core_range
+import salvo.core.range.range__Int_Int_Int
+import salvo.core.seq.count
+import salvo.core.seq.filter
+import salvo.core.seq.filterPlatform
+import salvo.core.seq.mapTo
+import salvo.core.seq.map__It_Fn
+import salvo.core.seq.map__List_Fn
+import salvo.core.seq.reduce__It_A_Fn
+import salvo.core.seq.reduce__List_A_Fn
+import salvo.core.set.next
+import salvo.core.string.appendPlatform
+import salvo.core.string.iter as iter__core_string
+import salvo.core.string.mutStr
+import salvo.core.string.next
+import salvo.core.string.next as next__core_string
+import salvo.core.string.sizePlatform as sizePlatform__core_string
 
 fun describeContainer(console: Console, xs: List<Int>) {
     var sum = 0
     for (n in salvo.platform.core.list.each(xs)) {
         sum = sum + n
     }
-    println(console, "1. list of ${sizePlatform(xs)} sums to $sum")
+    println(console, "1. list of ${sizePlatform__core_list(xs)} sums to $sum")
     val letters = mutStr(arrayOf())
     for (c in salvo.platform.core.string.each("salvo")) {
         appendPlatform(letters, "$c.")
@@ -46,7 +68,7 @@ fun countdown(from: Int): Countdown {
     return Countdown(at = from)
 }
 
-fun next__23(p: Countdown): Union2<Int, Finished> {
+fun next__Countdown(p: Countdown): Union2<Int, Finished> {
     if (p.at <= 0) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -67,7 +89,7 @@ fun skip(p: Countdown): Union2<Int, Finished> {
 fun take(console: Console, p: Countdown, count: Int) {
     var seen = 0
     while (true) {
-        val __loop1_step = next__23(p)
+        val __loop1_step = next__Countdown(p)
         if (__loop1_step !is Union2.U1<Int, Finished>) { break }
         val n = __loop1_step.value
         println(console, "2. got $n")
@@ -95,7 +117,7 @@ fun halving(start: Int): __Iter_halving_Int {
     return __Iter_halving_Int(start = start, at = start)
 }
 
-fun next__24(__p: __Iter_halving_Int): Union2<Int, Finished> {
+fun next__Iter_halving_Int(__p: __Iter_halving_Int): Union2<Int, Finished> {
     if (__p.at <= 0) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -124,11 +146,11 @@ data class __Iter_iter_Bag(
     var at: Int,
 )
 
-fun iter__10(bag: Bag): __Iter_iter_Bag {
+fun iter(bag: Bag): __Iter_iter_Bag {
     return __Iter_iter_Bag(items = bag.items, at = 0)
 }
 
-fun next__25(__p: __Iter_iter_Bag): Union2<Int, Finished> {
+fun next__Iter_iter_Bag(__p: __Iter_iter_Bag): Union2<Int, Finished> {
     val e = getPlatform(__p.items, __p.at)
     if (e == null) {
         return Union2.U2<Int, Finished>(finished())
@@ -158,7 +180,7 @@ fun fibs(count: Int): __Iter_fibs_Int {
     return __Iter_fibs_Int(count = count, a = 0, b = 1, made = 0)
 }
 
-fun next__26(console: Console, __p: __Iter_fibs_Int): Union2<Int, Finished> {
+fun next__Iter_fibs_Int(console: Console, __p: __Iter_fibs_Int): Union2<Int, Finished> {
     if (__p.made >= __p.count) {
         println(console, "3. finished")
         return Union2.U2<Int, Finished>(finished())
@@ -188,7 +210,7 @@ fun naturals(from: Int): __Iter_naturals_Int {
     return __Iter_naturals_Int(from = from, at = from)
 }
 
-fun next__27(__p: __Iter_naturals_Int): Union2<Int, Finished> {
+fun next__Iter_naturals_Int(__p: __Iter_naturals_Int): Union2<Int, Finished> {
     val now = __p.at
     __p.at = __p.at + 1
     return Union2.U1<Int, Finished>(emitted(now))
@@ -220,7 +242,7 @@ fun<C, __It0> total(c: C, iter: (C) -> __It0, next: (__It0) -> Union2<Int, Finis
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<__It0> first__2(it: __It0, next: (__It0) -> Union2<Int, Finished>): Int {
+fun<__It0> first(it: __It0, next: (__It0) -> Union2<Int, Finished>): Int {
     while (true) {
         val __loop4_step = next(it)
         if (__loop4_step !is Union2.U1<*, *>) { break }
@@ -237,7 +259,7 @@ fun main() {
     describeContainer(console, xs)
     val p = countdown(5)
     take(console, p, 2)
-    println(console, "2. rest sums to ${sumOf(p, ::next__23)}")
+    println(console, "2. rest sums to ${sumOf(p, ::next__Countdown)}")
     val q = countdown(6)
     while (true) {
         val __loop5_step = skip(q)
@@ -247,33 +269,33 @@ fun main() {
     }
     var __loop6_pass = halving(20)
     while (true) {
-        val __loop6_step = next__24(__loop6_pass)
+        val __loop6_step = next__Iter_halving_Int(__loop6_pass)
         if (__loop6_step !is Union2.U1<Int, Finished>) { break }
         val n = __loop6_step.value
         println(console, "2b. halving $n")
     }
     val hp = halving(20)
-    println(console, "2b. summed from a held iterator: ${sumOf(hp, ::next__24)}")
-    println(console, "2b. first from a pattern-typed fn: ${first__2(halvingFromTen(), ::next__24)}")
+    println(console, "2b. summed from a held iterator: ${sumOf(hp, ::next__Iter_halving_Int)}")
+    println(console, "2b. first from a pattern-typed fn: ${first(halvingFromTen(), ::next__Iter_halving_Int)}")
     val bag = Bag(items = listOf<Int>(7, 8))
-    var __loop7_pass = iter__10(bag)
+    var __loop7_pass = iter(bag)
     while (true) {
-        val __loop7_step = next__25(__loop7_pass)
+        val __loop7_step = next__Iter_iter_Bag(__loop7_pass)
         if (__loop7_step !is Union2.U1<Int, Finished>) { break }
         val n = __loop7_step.value
         println(console, "2c. bag $n")
     }
-    println(console, "2c. total of a bag ${total(bag, ::iter__10, ::next__25)}, of a list ${total(xs, ::iter__4, ::next__5)}")
+    println(console, "2c. total of a bag ${total(bag, ::iter, ::next__Iter_iter_Bag)}, of a list ${total(xs, ::iter__core_list, ::next__ListYield)}")
     var __loop8_pass = fibs(6)
     while (true) {
-        val __loop8_step = next__26(console, __loop8_pass)
+        val __loop8_step = next__Iter_fibs_Int(console, __loop8_pass)
         if (__loop8_step !is Union2.U1<Int, Finished>) { break }
         val n = __loop8_step.value
         println(console, "3. fib $n")
     }
     var __loop9_pass = naturals(10)
     while (true) {
-        val __loop9_step = next__27(__loop9_pass)
+        val __loop9_step = next__Iter_naturals_Int(__loop9_pass)
         if (__loop9_step !is Union2.U1<Int, Finished>) { break }
         val n = __loop9_step.value
         if (n > 12) {
@@ -281,23 +303,23 @@ fun main() {
         }
         println(console, "3. natural $n")
     }
-    val doubled = map__2(xs, { n -> n * 2 })
+    val doubled = map__List_Fn(xs, { n -> n * 2 })
     val odd = filterPlatform(xs, { n -> n % 2 == 1 })
-    val total = reduce__2(xs, 0, { acc, n -> acc + n })
-    println(console, "5. list: ${sizePlatform(doubled)} doubled, ${sizePlatform(odd)} odd, total $total")
+    val total = reduce__List_A_Fn(xs, 0, { acc, n -> acc + n })
+    println(console, "5. list: ${sizePlatform__core_list(doubled)} doubled, ${sizePlatform__core_list(odd)} odd, total $total")
     val words = listOf<String>("ann", "bo", "carol")
-    val lengths = map(iter__4(words), { w -> sizePlatform(w) }, ::next__5)
-    println(console, "5. lengths: ${reduce(iter__4(lengths), 0, { acc, n -> acc + n }, ::next__5)}")
+    val lengths = map__It_Fn(iter__core_list(words), { w -> sizePlatform__core_string(w) }, ::next__ListYield)
+    println(console, "5. lengths: ${reduce__It_A_Fn(iter__core_list(lengths), 0, { acc, n -> acc + n }, ::next__ListYield)}")
     val word = "iteration"
-    val vowels = filter(iter__9(word), { c -> c == 'i' || c == 'o' }, ::next__20)
-    println(console, "5. vowels: ${sizePlatform(vowels)}")
-    println(console, "5. halving total ${reduce(halving(20), 0, { acc, n -> acc + n }, ::next__24)}")
-    val collected = mapTo(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, ::addPlatform, ::next__23)
-    println(console, "6. collected ${sizePlatform(collected)}")
+    val vowels = filter(iter__core_string(word), { c -> c == 'i' || c == 'o' }, ::next__core_string)
+    println(console, "5. vowels: ${sizePlatform__core_list(vowels)}")
+    println(console, "5. halving total ${reduce__It_A_Fn(halving(20), 0, { acc, n -> acc + n }, ::next__Iter_halving_Int)}")
+    val collected = mapTo(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, ::addPlatform, ::next__Countdown)
+    println(console, "6. collected ${sizePlatform__core_list(collected)}")
     val evens = mutStr(arrayOf())
-    var __loop10_pass = range(0, 10, 2)
+    var __loop10_pass = range__Int_Int_Int(0, 10, 2)
     while (true) {
-        val __loop10_step = next__12(__loop10_pass)
+        val __loop10_step = next__core_range(__loop10_pass)
         if (__loop10_step !is Union2.U1<Int, Finished>) { break }
         val i = __loop10_step.value
         appendPlatform(evens, "$i ")

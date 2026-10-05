@@ -4,7 +4,6 @@
 // salvo-abi 1 023a4214a13ba612
 package salvo.aws.s3.host
 
-import salvo.aws.*
-import salvo.aws.s3.*
+import salvo.aws.AwsConfig
 
 class __Platform_HostS3(config: AwsConfig) : salvo.aws.s3.__Platform_S3(salvo.platform.aws.s3.host.HostS3(config))

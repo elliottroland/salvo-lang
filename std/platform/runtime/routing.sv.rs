@@ -2,11 +2,11 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5ecf120cea852ac5
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_list::*;
-use crate::core_string::*;
-use crate::runtime::*;
+use crate::core_bytes::Bytes;
+use crate::runtime::Dyn;
+use crate::runtime::RuntimeHostPlatformSync as _;
+use crate::runtime::__Stateful_RuntimeHost as _;
+use crate::runtime::__Stateless_RuntimeHost as _;
 
 /// [mod-use] The module's `use` #0, bound on first use.
 fn __module_use_0() -> &'static crate::runtime_routing::RouteTable {

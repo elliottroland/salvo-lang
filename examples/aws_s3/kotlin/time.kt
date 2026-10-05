@@ -1,15 +1,13 @@
 package salvo.time
 
-import salvo.core.actor.*
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.runtime.*
-import salvo.runtime.timers.*
+import salvo.core.list.addPlatform
+import salvo.core.list.at
+import salvo.core.list.getPlatform
+import salvo.core.list.removeAtPlatform
+import salvo.core.list.sizePlatform
+import salvo.runtime.nowNanos
+import salvo.runtime.timers.advance
+import salvo.runtime.timers.afterNanos
 
 data class Duration(
     val nanos: Long,
@@ -84,11 +82,11 @@ fun toSeconds(d: Duration): Long {
     return d.nanos / 1000000000L
 }
 
-fun plus(d1: Duration, d2: Duration): Duration {
+fun plus__Duration_Duration(d1: Duration, d2: Duration): Duration {
     return Duration(nanos = d1.nanos + d2.nanos)
 }
 
-fun minus(d1: Duration, d2: Duration): Duration {
+fun minus__Duration_Duration(d1: Duration, d2: Duration): Duration {
     return Duration(nanos = d1.nanos - d2.nanos)
 }
 
@@ -103,10 +101,10 @@ fun abs(d: Duration): Duration {
     return d
 }
 
-fun toStr__9(d: Duration): String {
+fun toStr(d: Duration): String {
     if (d.nanos < 0) {
         val positive = Duration(nanos = 0L - d.nanos)
-        return "-${toStr__9(positive)}"
+        return "-${toStr(positive)}"
     }
     if (d.nanos == (0).toLong()) {
         return "0s"
@@ -147,27 +145,27 @@ fun toEpochSecond(at: Instant): Long {
     return at.nanos / 1000000000L
 }
 
-fun between(start: Instant, end: Instant): Duration {
+fun between__Instant_Instant(start: Instant, end: Instant): Duration {
     return Duration(nanos = end.nanos - start.nanos)
 }
 
-fun between__2(start: Tick, end: Tick): Duration {
+fun between__Tick_Tick(start: Tick, end: Tick): Duration {
     return Duration(nanos = end.nanos - start.nanos)
 }
 
-fun plus__2(at: Instant, d: Duration): Instant {
+fun plus__Instant_Duration(at: Instant, d: Duration): Instant {
     return Instant(nanos = at.nanos + d.nanos)
 }
 
-fun minus__2(at: Instant, d: Duration): Instant {
+fun minus__Instant_Duration(at: Instant, d: Duration): Instant {
     return Instant(nanos = at.nanos - d.nanos)
 }
 
-fun plus__3(at: Tick, d: Duration): Tick {
+fun plus__Tick_Duration(at: Tick, d: Duration): Tick {
     return Tick(nanos = at.nanos + d.nanos)
 }
 
-fun minus__3(at: Tick, d: Duration): Tick {
+fun minus__Tick_Duration(at: Tick, d: Duration): Tick {
     return Tick(nanos = at.nanos - d.nanos)
 }
 
@@ -214,7 +212,7 @@ class __Mon_Clock(
 }
 
 fun elapsed(ticker: Ticker, since: Tick): Duration {
-    return between__2(since, ticker.tick())
+    return between__Tick_Tick(since, ticker.tick())
 }
 
 class DefaultTicker : Ticker {
@@ -503,7 +501,7 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
     return best
 }
 
-fun cmp__2(a: Duration, b: Duration): Int {
+fun cmp__Duration_Duration(a: Duration, b: Duration): Int {
     val c__c1 = (a.nanos).compareTo(b.nanos)
     if (c__c1 != 0) {
         return c__c1
@@ -511,20 +509,20 @@ fun cmp__2(a: Duration, b: Duration): Int {
     return 0
 }
 
-fun hash__7(value: Duration): Long {
+fun hash__Duration(value: Duration): Long {
     var h = 17L
     h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
     return h
 }
 
-fun eq__7(a: Duration, b: Duration): Boolean {
+fun eq__Duration_Duration(a: Duration, b: Duration): Boolean {
     if (!((a.nanos) == (b.nanos))) {
         return false
     }
     return true
 }
 
-fun cmp__3(a: Instant, b: Instant): Int {
+fun cmp__Instant_Instant(a: Instant, b: Instant): Int {
     val c__c1 = (a.nanos).compareTo(b.nanos)
     if (c__c1 != 0) {
         return c__c1
@@ -532,20 +530,20 @@ fun cmp__3(a: Instant, b: Instant): Int {
     return 0
 }
 
-fun hash__8(value: Instant): Long {
+fun hash__Instant(value: Instant): Long {
     var h = 17L
     h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
     return h
 }
 
-fun eq__8(a: Instant, b: Instant): Boolean {
+fun eq__Instant_Instant(a: Instant, b: Instant): Boolean {
     if (!((a.nanos) == (b.nanos))) {
         return false
     }
     return true
 }
 
-fun cmp__4(a: Tick, b: Tick): Int {
+fun cmp__Tick_Tick(a: Tick, b: Tick): Int {
     val c__c1 = (a.nanos).compareTo(b.nanos)
     if (c__c1 != 0) {
         return c__c1
@@ -553,13 +551,13 @@ fun cmp__4(a: Tick, b: Tick): Int {
     return 0
 }
 
-fun hash__9(value: Tick): Long {
+fun hash__Tick(value: Tick): Long {
     var h = 17L
     h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
     return h
 }
 
-fun eq__9(a: Tick, b: Tick): Boolean {
+fun eq__Tick_Tick(a: Tick, b: Tick): Boolean {
     if (!((a.nanos) == (b.nanos))) {
         return false
     }

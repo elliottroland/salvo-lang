@@ -1,19 +1,60 @@
 package salvo.main
 
-import salvo.core.actor.*
-import salvo.core.array.*
-import salvo.core.bytes.*
-import salvo.core.console.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.range.*
-import salvo.core.seq.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.net.*
-import salvo.time.*
+import salvo.core.array.next
+import salvo.core.bytes.next
+import salvo.core.console.Console
+import salvo.core.console.println
+import salvo.core.deque.addLastPlatform
+import salvo.core.deque.mutDequeOf
+import salvo.core.deque.removeFirstPlatform
+import salvo.core.list.addPlatform
+import salvo.core.list.all
+import salvo.core.list.at
+import salvo.core.list.first
+import salvo.core.list.getPlatform
+import salvo.core.list.sizePlatform
+import salvo.core.map.next
+import salvo.core.range.next
+import salvo.core.set.next
+import salvo.core.string.next
+import salvo.core.string.splitPlatform
+import salvo.net.Elected
+import salvo.net.Leader
+import salvo.net.MemNetwork
+import salvo.net.MemTransport
+import salvo.net.Node
+import salvo.net.NodeEndpoint
+import salvo.net.NodeId
+import salvo.net.Protocol
+import salvo.net.RouteConfig
+import salvo.net.RouteSelector
+import salvo.net.Sharded
+import salvo.net.StaticNodeGroup
+import salvo.net.Transport
+import salvo.net.__Actor_MemNetwork
+import salvo.net.__Actor_StaticNodeGroup
+import salvo.net.__Codec_Node
+import salvo.net.__Codec___Msg_ActorGroup
+import salvo.net.__Codec___Msg_NodeGroup
+import salvo.net.__Mon_RouteSelector
+import salvo.net.__Msg_ActorGroup
+import salvo.net.__Msg_NodeGroup
+import salvo.net.__PROTO_ActorGroup
+import salvo.net.__PROTO_NodeGroup
+import salvo.net.__Priv_StaticNodeGroup
+import salvo.net.actorGroup__Addr
+import salvo.net.defaultRouteConfig
+import salvo.net.eq__NodeId_NodeId
+import salvo.net.routePick__Addr_RouteConfig_Long
+import salvo.net.routePick__Addr_RouteConfig_Long_Long
+import salvo.time.DefaultTimer
+import salvo.time.Fired
+import salvo.time.__Actor_DefaultTimer
+import salvo.time.__Codec_Fired
+import salvo.time.__Codec___Msg_Timer
+import salvo.time.__Msg_Timer
+import salvo.time.__PROTO_Timer
+import salvo.time.millis
 
 interface Sequencer {
     fun next(out: salvo.SalvoReply)
@@ -905,7 +946,7 @@ fun checkout(inventory: Inventory, console: Console, skus: List<String>) {
     println(console, "  apple and pear on one shard: ${(((getPlatform(shards, 0) ?: throw AssertionError("salvo: value is absent at main:225:50"))) == ((getPlatform(shards, 1) ?: throw AssertionError("salvo: value is absent at main:225:67"))))}")
 }
 
-fun count__3(search: Search, word: String): Int {
+fun count(search: Search, word: String): Int {
     return run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
@@ -997,13 +1038,13 @@ class Booting(private val at: NodeEndpoint, private val all: List<NodeEndpoint>,
         val p = salvo.SalvoSched.pool(1)
         val group = run { val __h = StaticNodeGroup("cluster", all, __dep_Transport); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, __Priv_StaticNodeGroup.Init); __a }
         nodes = group
-        val seq = actorGroup(group, { Protocol("Sequencer", salvo.main.__PROTO_Sequencer) })
+        val seq = actorGroup__Addr(group, { Protocol("Sequencer", salvo.main.__PROTO_Sequencer) })
         val mine = run { val __spawned = run { val __h = Sequencing("b"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); __a }; salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
-        val stock = actorGroup(group, { Protocol("Inventory", salvo.main.__PROTO_Inventory) })
+        val stock = actorGroup__Addr(group, { Protocol("Inventory", salvo.main.__PROTO_Inventory) })
         run { val __spawned = run { val __h = Stocking("shard-b"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE); __a }; salvo.SalvoSched.sendWire(stock, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
-        val index = actorGroup(group, { Protocol("Search", salvo.main.__PROTO_Search) })
+        val index = actorGroup__Addr(group, { Protocol("Search", salvo.main.__PROTO_Search) })
         run { val __spawned = run { val __h = Indexing(listOf<String>("salvo", "actors", "salvo", "nodes")); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); __a }; salvo.SalvoSched.sendWire(index, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
-        val looks = actorGroup(group, { Protocol("Lookup", salvo.main.__PROTO_Lookup) })
+        val looks = actorGroup__Addr(group, { Protocol("Lookup", salvo.main.__PROTO_Lookup) })
         val timer = run { val __h = DefaultTimer(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_DefaultTimer(__h), __Actor_DefaultTimer.__DECODE); __a }
         run { val __spawned = run { val __h = SlowLooking("b (slow)", timer); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_SlowLooking(__h), __Actor_SlowLooking.__DECODE); __a }; salvo.SalvoSched.sendWire(looks, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
         salvo.SalvoSched.replyWire(done, mine, salvo.AddrCodec)
@@ -1085,13 +1126,13 @@ fun main() {
     val transport: Transport = MemTransport(a, network)
     val p = salvo.SalvoSched.pool(2)
     val nodes = run { val __h = StaticNodeGroup("cluster", all, transport); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, __Priv_StaticNodeGroup.Init); __a }
-    val seq = actorGroup(nodes, { Protocol("Sequencer", salvo.main.__PROTO_Sequencer) })
+    val seq = actorGroup__Addr(nodes, { Protocol("Sequencer", salvo.main.__PROTO_Sequencer) })
     run { val __spawned = run { val __h = Sequencing("a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); __a }; salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
-    val stock = actorGroup(nodes, { Protocol("Inventory", salvo.main.__PROTO_Inventory) })
+    val stock = actorGroup__Addr(nodes, { Protocol("Inventory", salvo.main.__PROTO_Inventory) })
     run { val __spawned = run { val __h = Stocking("shard-a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE); __a }; salvo.SalvoSched.sendWire(stock, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
-    val index = actorGroup(nodes, { Protocol("Search", salvo.main.__PROTO_Search) })
+    val index = actorGroup__Addr(nodes, { Protocol("Search", salvo.main.__PROTO_Search) })
     run { val __spawned = run { val __h = Indexing(listOf<String>("salvo", "is", "salvo")); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); __a }; salvo.SalvoSched.sendWire(index, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
-    val looks = actorGroup(nodes, { Protocol("Lookup", salvo.main.__PROTO_Lookup) })
+    val looks = actorGroup__Addr(nodes, { Protocol("Lookup", salvo.main.__PROTO_Lookup) })
     run { val __spawned = run { val __h = Looking("a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Looking(__h), __Actor_Looking.__DECODE); __a }; salvo.SalvoSched.sendWire(looks, salvo.net.__Msg_ActorGroup.Join(__spawned), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __spawned }
     val pb = salvo.SalvoSched.poolAt((NodeId(salvo.SalvoSched.newNode())).id, 1)
     val booter = run { val __h = Booting(b, all, network, MemTransport(b, network)); val __a = salvo.SalvoSched.spawn(pb, __h.__mailboxCapacity, __Actor_Booting(__h), __Actor_Booting.__DECODE); __a }
@@ -1115,14 +1156,14 @@ fun main() {
         salvo.SalvoSched.sendWire(seq, __Msg_ActorGroup.Members(out), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Int>
     })}")
-    println(console, "singleton (b's sequencer is remote: ${!eq__2(NodeId(salvo.SalvoSched.addrIdentity(remoteSeq).node), NodeId(salvo.SalvoSched.hereNode()))}):")
+    println(console, "singleton (b's sequencer is remote: ${!eq__NodeId_NodeId(NodeId(salvo.SalvoSched.addrIdentity(remoteSeq).node), NodeId(salvo.SalvoSched.hereNode()))}):")
     val leader: Leader = LastHost(nodes, a)
     twoIds(leader, console, seq)
     println(console, "sharded:")
     shop(console, stock)
     println(console, "scatter:")
     val search: Search = Scattering(index, run { val __h = Gathering(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Gathering(__h), __Actor_Gathering.__DECODE); __a })
-    println(console, "  salvo: ${count__3(search, "salvo")}, actors: ${count__3(search, "actors")}, none: ${count__3(search, "none")}")
+    println(console, "  salvo: ${count(search, "salvo")}, actors: ${count(search, "actors")}, none: ${count(search, "none")}")
     println(console, "hedge:")
     val lookup: Lookup = Hedging(looks, run { val __h = Racing(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Racing(__h), __Actor_Racing.__DECODE); __a })
     println(console, "  ${find(lookup, "k1")}")
@@ -1150,7 +1191,7 @@ class __Route_Inventory(private val group: Int, private val config: RouteConfig,
     internal val __parked: MutableMap<Long, __Cont___Route_Inventory> = mutableMapOf()
 
     override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
-        val __pick = routePick__2(__dep_RouteSelector, group, config, seen, salvo.SalvoSched.keyHash(salvo.salvoEncode(sku, salvo.StrCodec).toByteArray()))
+        val __pick = routePick__Addr_RouteConfig_Long_Long(__dep_RouteSelector, group, config, seen, salvo.SalvoSched.keyHash(salvo.salvoEncode(sku, salvo.StrCodec).toByteArray()))
         seen = __pick.version
         salvo.SalvoSched.sendWire(__pick.to, __Msg_Inventory.Reserve(sku, qty, out), __PROTO_Inventory, __Codec___Msg_Inventory)
     }
@@ -1207,7 +1248,7 @@ class __Route_Lookup(private val group: Int, private val config: RouteConfig, pr
     internal val __parked: MutableMap<Long, __Cont___Route_Lookup> = mutableMapOf()
 
     override fun lookup(key: String, out: salvo.SalvoReply) {
-        val __pick = routePick(__dep_RouteSelector, group, config, seen)
+        val __pick = routePick__Addr_RouteConfig_Long(__dep_RouteSelector, group, config, seen)
         seen = __pick.version
         salvo.SalvoSched.sendWire(__pick.to, __Msg_Lookup.Lookup(key, out), __PROTO_Lookup, __Codec___Msg_Lookup)
     }
@@ -1264,7 +1305,7 @@ class __Route_Search(private val group: Int, private val config: RouteConfig, pr
     internal val __parked: MutableMap<Long, __Cont___Route_Search> = mutableMapOf()
 
     override fun query(word: String, out: salvo.SalvoReply) {
-        val __pick = routePick(__dep_RouteSelector, group, config, seen)
+        val __pick = routePick__Addr_RouteConfig_Long(__dep_RouteSelector, group, config, seen)
         seen = __pick.version
         salvo.SalvoSched.sendWire(__pick.to, __Msg_Search.Query(word, out), __PROTO_Search, __Codec___Msg_Search)
     }
@@ -1321,7 +1362,7 @@ class __Route_Sequencer(private val group: Int, private val config: RouteConfig,
     internal val __parked: MutableMap<Long, __Cont___Route_Sequencer> = mutableMapOf()
 
     override fun next(out: salvo.SalvoReply) {
-        val __pick = routePick(__dep_RouteSelector, group, config, seen)
+        val __pick = routePick__Addr_RouteConfig_Long(__dep_RouteSelector, group, config, seen)
         seen = __pick.version
         salvo.SalvoSched.sendWire(__pick.to, __Msg_Sequencer.Next(out), __PROTO_Sequencer, __Codec___Msg_Sequencer)
     }

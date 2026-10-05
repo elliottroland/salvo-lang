@@ -2,11 +2,15 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5ecf120cea852ac5
-use crate::core_list::*;
-use crate::core_string::*;
-use crate::fs::*;
-use crate::stream::*;
 use crate::unions::*;
+use crate::fs::AlreadyExists;
+use crate::fs::FileInfo;
+use crate::fs::IoError;
+use crate::fs::NotADirectory;
+use crate::fs::NotFound;
+use crate::fs::PathEscapes;
+use crate::fs::PermissionDenied;
+use crate::fs::Streaming;
 
 pub trait __Stateless_RawFs: Send + Sync {
     fn raw_open_read(&self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;

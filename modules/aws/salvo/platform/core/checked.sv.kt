@@ -4,6 +4,7 @@
 // salvo-abi 1 023a4214a13ba612
 package salvo.core.checked
 
+
 data class Checked<T>(
     val value: T,
 )

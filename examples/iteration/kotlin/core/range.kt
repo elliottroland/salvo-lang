@@ -1,13 +1,9 @@
 package salvo.core.range
 
 import salvo.*
-import salvo.core.array.*
-import salvo.core.iterator.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.seq.*
-import salvo.core.set.*
-import salvo.core.string.*
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
 
 data class __Iter_range_Int_Int_Int(
     var start: Int,
@@ -26,11 +22,11 @@ object __Codec___Iter_range_Int_Int_Int : salvo.WireCodec<__Iter_range_Int_Int_I
     override fun dec(inp: salvo.WireIn): __Iter_range_Int_Int_Int = __Iter_range_Int_Int_Int(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun range(start: Int, end: Int, step: Int): __Iter_range_Int_Int_Int {
+fun range__Int_Int_Int(start: Int, end: Int, step: Int): __Iter_range_Int_Int_Int {
     return __Iter_range_Int_Int_Int(start = start, end = end, step = step, i = start)
 }
 
-fun next__12(__p: __Iter_range_Int_Int_Int): Union2<Int, Finished> {
+fun next(__p: __Iter_range_Int_Int_Int): Union2<Int, Finished> {
     val next = __p.i
     return when {
         __p.step == 0 -> {
@@ -49,7 +45,7 @@ fun next__12(__p: __Iter_range_Int_Int_Int): Union2<Int, Finished> {
     }.let { when (it) { is Union2.U1<*, *> -> Union2.U2<Int, Finished>(it.value as Finished); is Union2.U2<*, *> -> Union2.U1<Int, Finished>(it.value as Int); } }
 }
 
-fun range__2(start: Int, end: Int): __Iter_range_Int_Int_Int {
+fun range__Int_Int(start: Int, end: Int): __Iter_range_Int_Int_Int {
     val step = when {
         start < end -> {
             1
@@ -61,11 +57,11 @@ fun range__2(start: Int, end: Int): __Iter_range_Int_Int_Int {
             0
         }
     }
-    return range(start, end, step)
+    return range__Int_Int_Int(start, end, step)
 }
 
-fun range__3(end: Int): __Iter_range_Int_Int_Int {
-    return range__2(0, end)
+fun range__Int(end: Int): __Iter_range_Int_Int_Int {
+    return range__Int_Int(0, end)
 }
 
 fun InRange_qualifies(n: Int, lo: Int, hi: Int): Boolean {

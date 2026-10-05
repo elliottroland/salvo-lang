@@ -1,14 +1,20 @@
-use crate::core_actor::*;
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::runtime::*;
 use crate::unions::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_bytes::Bytes;
+use crate::core_bytes::bytes_of;
+use crate::core_bytes::mut_bytes;
+use crate::core_list::all;
+use crate::core_list::at;
+use crate::core_sorted::max;
+use crate::runtime::Parker;
+use crate::runtime::RuntimeHostPlatformSync as _;
+use crate::runtime::__Stateful_RuntimeHost as _;
+use crate::runtime::__Stateful_SchedTable as _;
+use crate::runtime::__Stateless_RuntimeHost as _;
+use crate::runtime::__Stateless_SchedTable as _;
+use crate::runtime::external_begin;
+use crate::runtime::external_end;
 
 /// [mod-use] The module's `use` #0, bound on first use.
 fn __module_use_0() -> &'static crate::runtime_streams::StreamTable {
@@ -666,7 +672,7 @@ pub fn write(e: &mut OutEntry, data: &Bytes) -> i64 {
     return ((crate::core_bytes::size_platform(data)) as i64);
 }
 
-pub fn flush__2(e: &mut OutEntry) -> Option<Fault> {
+pub fn flush(e: &mut OutEntry) -> Option<Fault> {
     let mut failed = host_flush_platform(&mut e.host);
     if failed.is_some() {
         let mut message = failed.as_ref().unwrap().clone();

@@ -1,7 +1,9 @@
 package salvo.main
 
-import salvo.aws.*
-import salvo.core.console.*
+import salvo.aws.ProfileCredentials
+import salvo.aws.toStr
+import salvo.core.console.Console
+import salvo.core.console.println
 
 fun main() {
     val console: Console = salvo.core.console.__Platform_StdOutConsole()
@@ -9,5 +11,5 @@ fun main() {
     println(console, "profile: ${creds.profile}")
     println(console, "path:    ${creds.path}")
     val staging = ProfileCredentials(profile = "staging", path = "/etc/aws/credentials")
-    println(console, "${toStr__10(staging)}")
+    println(console, "${toStr(staging)}")
 }

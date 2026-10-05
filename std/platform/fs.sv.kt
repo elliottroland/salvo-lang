@@ -5,11 +5,10 @@
 package salvo.fs
 
 import salvo.*
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.string.*
-import salvo.stream.*
+import salvo.stream.InvalidUtf8
+import salvo.stream.StreamFailed
+import salvo.stream.__Codec_InvalidUtf8
+import salvo.stream.__Codec_StreamFailed
 
 // Factories for the host: one per arm of the union [platform-factory].
 object FsErrors {

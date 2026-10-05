@@ -1,13 +1,7 @@
-use crate::core_array::*;
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_seq::*;
-use crate::core_set::*;
-use crate::core_string::*;
 use crate::unions::*;
+use crate::core_iterator::Finished;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct __Iter_range_Int_Int_Int {
@@ -34,11 +28,11 @@ impl crate::wire::__Wire for __Iter_range_Int_Int_Int {
     }
 }
 
-pub fn range(start: i32, end: i32, step: i32) -> __Iter_range_Int_Int_Int {
+pub fn range__Int_Int_Int(start: i32, end: i32, step: i32) -> __Iter_range_Int_Int_Int {
     return __Iter_range_Int_Int_Int { start: start, end: end, step: step, i: start };
 }
 
-pub fn next__12(__p: &mut __Iter_range_Int_Int_Int) -> Union2<i32, Finished> {
+pub fn next(__p: &mut __Iter_range_Int_Int_Int) -> Union2<i32, Finished> {
     let mut next = __p.i;
     return (match if __p.step == 0 {
         Union2::<Finished, i32>::U1(finished())
@@ -52,7 +46,7 @@ pub fn next__12(__p: &mut __Iter_range_Int_Int_Int) -> Union2<i32, Finished> {
     } { Union2::U1(__v) => Union2::<i32, Finished>::U2(__v), Union2::U2(__v) => Union2::<i32, Finished>::U1(__v), });
 }
 
-pub fn range__2(start: i32, end: i32) -> __Iter_range_Int_Int_Int {
+pub fn range__Int_Int(start: i32, end: i32) -> __Iter_range_Int_Int_Int {
     let mut step = if start < end {
         1
     } else if start > end {
@@ -60,13 +54,13 @@ pub fn range__2(start: i32, end: i32) -> __Iter_range_Int_Int_Int {
     } else {
         0
     };
-    return range(start, end, step);
+    return range__Int_Int_Int(start, end, step);
 }
 
-pub fn range__3(end: i32) -> __Iter_range_Int_Int_Int {
-    return range__2(0, end);
+pub fn range__Int(end: i32) -> __Iter_range_Int_Int_Int {
+    return range__Int_Int(0, end);
 }
 
-pub fn InRange_qualifies(n: i32, lo: i32, hi: i32) -> bool {
+pub fn InRange__Int_qualifies(n: i32, lo: i32, hi: i32) -> bool {
     return n >= lo && n <= hi;
 }

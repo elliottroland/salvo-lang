@@ -1,10 +1,10 @@
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
 use crate::unions::*;
+use crate::core_iterator::Finished;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
+use crate::core_list::at;
+use crate::core_list::first;
+use crate::core_string::mut_str;
 
 /// [platform-type] The host's `Deque`.
 pub use crate::platform_core_deque::Deque;
@@ -32,13 +32,13 @@ pub fn deque_of<T>() -> std::collections::VecDeque<T> {
     return empty_deque_platform();
 }
 
-pub fn deque_of__2<T>(first: T) -> std::collections::VecDeque<T> {
+pub fn deque_of__T<T>(first: T) -> std::collections::VecDeque<T> {
     let mut d = empty_deque_platform();
     add_last_platform(&mut d, first);
     return d;
 }
 
-pub fn deque_of__3<T: Clone>(first: T, rest: Vec<T>) -> std::collections::VecDeque<T> {
+pub fn deque_of__T_TArray<T: Clone>(first: T, rest: Vec<T>) -> std::collections::VecDeque<T> {
     return deque_from_platform(first, rest);
 }
 
@@ -46,13 +46,13 @@ pub fn mut_deque_of<T>() -> std::collections::VecDeque<T> {
     return empty_deque_platform();
 }
 
-pub fn mut_deque_of__2<T>(first: T) -> std::collections::VecDeque<T> {
+pub fn mut_deque_of__T<T>(first: T) -> std::collections::VecDeque<T> {
     let mut d = empty_deque_platform();
     add_last_platform(&mut d, first);
     return d;
 }
 
-pub fn mut_deque_of__3<T: Clone>(first: T, rest: Vec<T>) -> std::collections::VecDeque<T> {
+pub fn mut_deque_of__T_TArray<T: Clone>(first: T, rest: Vec<T>) -> std::collections::VecDeque<T> {
     return deque_from_platform(first, rest);
 }
 
@@ -114,7 +114,7 @@ pub fn drain<T>(d: std::collections::VecDeque<T>, each: &mut impl FnMut(T)) {
     end_empty_platform(m);
 }
 
-pub fn to_str__2<T: Clone>(d: &std::collections::VecDeque<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+pub fn to_str<T: Clone>(d: &std::collections::VecDeque<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
     let mut out = mut_str(vec!["[".to_string()]);
     let mut i = 0;
     for mut x in crate::platform_core_deque::each(d).map(|__x| __x.clone()) {
@@ -144,7 +144,7 @@ pub fn to_deque<T: Clone>(list: &Vec<T>, copy: &mut dyn FnMut(&T) -> T) -> std::
     return out;
 }
 
-pub fn iter__3<T: Clone>(d: &std::collections::VecDeque<T>) -> DequeYield<'_, T> {
+pub fn iter<T: Clone>(d: &std::collections::VecDeque<T>) -> DequeYield<'_, T> {
     return DequeYield { items: d, at: 0 };
 }
 
@@ -154,7 +154,7 @@ pub struct DequeYield<'s, T> {
     pub at: i32,
 }
 
-pub fn next__3<'s, T: Clone>(p: &mut DequeYield<'s, T>) -> Union2<&'s T, Finished> {
+pub fn next__DequeYield<'s, T: Clone>(p: &mut DequeYield<'s, T>) -> Union2<&'s T, Finished> {
     let mut elem = get_platform(&p.items, p.at);
     if elem.is_none() {
         return Union2::U2(finished());
@@ -173,7 +173,7 @@ pub fn reversed<T: Clone>(d: &std::collections::VecDeque<T>) -> __Iter_reversed_
     return __Iter_reversed_Deque { d: d, at: size_platform(d) - 1 };
 }
 
-pub fn next__4<'s, T: Clone>(__p: &mut __Iter_reversed_Deque<'s, T>) -> Union2<&'s T, Finished> {
+pub fn next__Iter_reversed_Deque<'s, T: Clone>(__p: &mut __Iter_reversed_Deque<'s, T>) -> Union2<&'s T, Finished> {
     let mut elem = get_platform(&__p.d, __p.at);
     if elem.is_none() {
         return Union2::U2(finished());

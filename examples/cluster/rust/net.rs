@@ -1,19 +1,25 @@
 use crate::collections::*;
-use crate::core_actor::*;
-use crate::core_array::*;
-use crate::core_bytes::*;
-use crate::core_checked::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_result::*;
-use crate::core_seq::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::time::*;
 use crate::unions::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_bytes::Bytes;
+use crate::core_checked::detach;
+use crate::core_list::all;
+use crate::core_list::at;
+use crate::core_list::last;
+use crate::core_list::partition;
+use crate::core_result::err;
+use crate::core_result::ok;
+use crate::time::Duration;
+use crate::time::__Stateful_Clock as _;
+use crate::time::__Stateful_Ticker as _;
+use crate::time::__Stateful_Timer as _;
+use crate::time::__Stateful_TimerCtl as _;
+use crate::time::__Stateless_Clock as _;
+use crate::time::__Stateless_Ticker as _;
+use crate::time::__Stateless_Timer as _;
+use crate::time::__Stateless_TimerCtl as _;
+use crate::time::nanos;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeEndpoint {
@@ -34,7 +40,7 @@ impl crate::wire::__Wire for NodeEndpoint {
     }
 }
 
-pub fn to_str__5(e: &NodeEndpoint) -> String {
+pub fn to_str__NodeEndpoint(e: &NodeEndpoint) -> String {
     return format!("{}:{}", e.host.clone(), e.port);
 }
 
@@ -85,13 +91,13 @@ impl NetError {
     }
 }
 
-pub fn to_str__6(e: &Union2<Unreachable, WireFailed>) -> String {
+pub fn to_str__NetError(e: &Union2<Unreachable, WireFailed>) -> String {
     match e {
         Union2::U1(_) => {
-            return format!("unreachable: {}", to_str__5(&e.u1().clone().to));
+            return format!("unreachable: {}", to_str__NodeEndpoint(&e.u1().clone().to));
         }
         Union2::U2(_) => {
-            return format!("wire failed to {}: {}", to_str__5(&e.u2().clone().to), e.u2().clone().reason.clone());
+            return format!("wire failed to {}: {}", to_str__NodeEndpoint(&e.u2().clone().to), e.u2().clone().reason.clone());
         }
     }
 }
@@ -567,11 +573,11 @@ fn __decode_msg_Receiving(proto: &str, payload: &[u8]) -> Option<crate::schedule
     None
 }
 
-pub fn connect(transport: &crate::net::Transport, me: NodeEndpoint) -> bool {
-    return connect__2(transport, me, crate::scheduler::salvo_pool(((1) as usize)));
+pub fn connect__NodeEndpoint(transport: &crate::net::Transport, me: NodeEndpoint) -> bool {
+    return connect__NodeEndpoint_Pool(transport, me, crate::scheduler::salvo_pool(((1) as usize)));
 }
 
-pub fn connect__2(transport: &crate::net::Transport, me: NodeEndpoint, on: usize) -> bool {
+pub fn connect__NodeEndpoint_Pool(transport: &crate::net::Transport, me: NodeEndpoint, on: usize) -> bool {
     if crate::scheduler::salvo_connected() {
         return false;
     }
@@ -1051,10 +1057,10 @@ impl StaticNodeGroup {
 
     fn init(&mut self) {
         let mut me = self.__dep_Transport.local_endpoint();
-        let mut _connected = connect(&self.__dep_Transport, me.clone());
+        let mut _connected = connect__NodeEndpoint(&self.__dep_Transport, me.clone());
         crate::scheduler::salvo_watch_control(("".to_string()).clone(), (self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __d| std::boxed::Box::new(__Priv_StaticNodeGroup::Control(NodeId { id: __n as i64 }, __d)));
         for e in crate::platform_core_list::each(&self.all) {
-            if !eq__2(e, &me) {
+            if !eq__NodeEndpoint_NodeEndpoint(e, &me) {
                 let mut _sent = { let __a1 = hello_frame(&self.__dep_Transport, &self.name); self.__dep_Transport.deliver(&(e.clone()), __a1) };
             }
         }
@@ -1236,7 +1242,7 @@ impl GossipNodeGroup {
 
     fn init(&mut self) {
         let mut me = self.__dep_Transport.local_endpoint();
-        let mut _connected = connect(&self.__dep_Transport, me.clone());
+        let mut _connected = connect__NodeEndpoint(&self.__dep_Transport, me.clone());
         crate::scheduler::salvo_watch_control(("".to_string()).clone(), (self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __d| std::boxed::Box::new(__Priv_GossipNodeGroup::Control(NodeId { id: __n as i64 }, __d)));
         for e in crate::platform_core_list::each(&self.seeds) {
             dial(&self.__dep_Transport, &mut self.dialed, &self.name, e.clone());
@@ -1259,7 +1265,7 @@ impl GossipNodeGroup {
                     introduce(&(id.clone()), &(vec![event.as_ref().unwrap().u1().clone().at.clone()]));
                 }
                 introduce(&(event.as_ref().unwrap().u1().clone().node.clone()), &others);
-                self.dialed.insert(to_str__5(&event.as_ref().unwrap().u1().clone().at));
+                self.dialed.insert(to_str__NodeEndpoint(&event.as_ref().unwrap().u1().clone().at));
                 let mut n = Node { id: event.as_ref().unwrap().u1().clone().node.clone(), at: event.as_ref().unwrap().u1().clone().at.clone() };
                 self.known.insert(event.as_ref().unwrap().u1().clone().node.clone(), n.clone());
                 for w in crate::platform_core_list::each(&self.watchers) {
@@ -1369,13 +1375,13 @@ fn __decode_msg_GossipNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::sc
 }
 
 pub fn dial(transport: &crate::net::Transport, dialed: &mut SalvoSet<String>, group: &String, e: NodeEndpoint) {
-    if eq__2(&e, &(transport.local_endpoint())) || dialed.contains(&to_str__5(&e)) {
+    if eq__NodeEndpoint_NodeEndpoint(&e, &(transport.local_endpoint())) || dialed.contains(&to_str__NodeEndpoint(&e)) {
         return;
     }
-    dialed.insert(to_str__5(&e));
+    dialed.insert(to_str__NodeEndpoint(&e));
     let mut sent = { let __a1 = hello_frame(transport, group); transport.deliver(&(e.clone()), __a1) };
     if matches!(sent, Union2::U2(_)) {
-        let mut _forgot = dialed.remove(&to_str__5(&e));
+        let mut _forgot = dialed.remove(&to_str__NodeEndpoint(&e));
     }
 }
 
@@ -1658,19 +1664,19 @@ pub fn share_members(name: &String, hash: &String, node: &NodeId, members: &Vec<
     crate::scheduler::salvo_send_control((node.clone()).id as u64, &name.clone(), &crate::wire::salvo_encode(&(hash.clone(), members.clone())));
 }
 
-pub fn actor_group(nodes: usize, protocol: &mut dyn FnMut() -> Protocol) -> usize {
+pub fn actor_group__Addr(nodes: usize, protocol: &mut dyn FnMut() -> Protocol) -> usize {
     let mut proto = protocol();
     let mut name = proto.name.clone();
-    return actor_group__2(name, nodes, &mut *protocol);
+    return actor_group__Str_Addr(name, nodes, &mut *protocol);
 }
 
-pub fn actor_group__2(name: String, nodes: usize, protocol: &mut dyn FnMut() -> Protocol) -> usize {
+pub fn actor_group__Str_Addr(name: String, nodes: usize, protocol: &mut dyn FnMut() -> Protocol) -> usize {
     let (mut group, mut watcher) = ({ let __h = ActorGrouping::new(name, protocol()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_pool(((1) as usize)), __cap as usize, std::boxed::Box::new(__Actor_ActorGrouping::new(__h)), __DECODE_ActorGrouping); crate::scheduler::salvo_send(__a, std::boxed::Box::new(__Priv_ActorGrouping::Init)); (__a, __a) });
     crate::scheduler::salvo_send_wire(nodes, crate::net::__Msg_NodeGroup::Subscribe(watcher), crate::net::__PROTO_NodeGroup);
     return group;
 }
 
-pub fn join__2(group: &usize, member: usize) {
+pub fn join(group: &usize, member: usize) {
     crate::scheduler::salvo_send_wire(group.clone(), crate::net::__Msg_ActorGroup::Join(member), crate::net::__PROTO_ActorGroup);
 }
 
@@ -1747,7 +1753,7 @@ impl crate::net::__Stateful_NodeGroupWatcher for ActorGrouping {
     fn left(&mut self, n: Node, why: String) {
         let mut gone: Vec<usize> = vec![];
         for m in crate::platform_core_list::each(&self.all) {
-            if eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((m.clone()).clone()).node as i64 }), &n.id) {
+            if eq__NodeId_NodeId(&(NodeId { id: crate::scheduler::salvo_addr_identity((m.clone()).clone()).node as i64 }), &n.id) {
                 crate::core_list::add_platform(&mut gone, m.clone());
             }
         }
@@ -1923,7 +1929,7 @@ pub fn admit(list: &mut Vec<usize>, a: usize) -> bool {
 
 pub fn contains_node(list: &Vec<NodeId>, n: &NodeId) -> bool {
     for x in crate::platform_core_list::each(list) {
-        if eq__3(x, n) {
+        if eq__NodeId_NodeId(x, n) {
             return true;
         }
     }
@@ -2078,11 +2084,11 @@ impl crate::wire::__Wire for RoutePick {
     }
 }
 
-pub fn route_pick(route_selector: &crate::net::RouteSelector, group: &usize, config: &RouteConfig, seen: i64) -> RoutePick {
+pub fn route_pick__Addr_RouteConfig_Long(route_selector: &crate::net::RouteSelector, group: &usize, config: &RouteConfig, seen: i64) -> RoutePick {
     return route_keyed(route_selector, group, config, seen, None);
 }
 
-pub fn route_pick__2(route_selector: &crate::net::RouteSelector, group: &usize, config: &RouteConfig, seen: i64, key: i64) -> RoutePick {
+pub fn route_pick__Addr_RouteConfig_Long_Long(route_selector: &crate::net::RouteSelector, group: &usize, config: &RouteConfig, seen: i64, key: i64) -> RoutePick {
     return route_keyed(route_selector, group, config, seen, Some(key));
 }
 
@@ -2113,7 +2119,7 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, group: &usize, co
 pub fn route_view(group: &usize) -> RouteView {
     let mut members: Vec<RouteMember> = vec![];
     for mut m in crate::platform_core_list::each(&(crate::scheduler::salvo_view_members((group.clone()).clone()))).map(|__x| __x.clone()) {
-        crate::core_list::add_platform(&mut members, RouteMember { addr: m.clone(), local: eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((m).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })) });
+        crate::core_list::add_platform(&mut members, RouteMember { addr: m.clone(), local: eq__NodeId_NodeId(&(NodeId { id: crate::scheduler::salvo_addr_identity((m).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })) });
     }
     return RouteView { members: members.clone() };
 }
@@ -2284,7 +2290,7 @@ impl crate::net::__Stateful_RouteSelector for Elected {
         self.chosen = None;
         let mut l = { let __pick2 = self.__dep_Leader.leader(); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { return } };
         for a in crate::platform_core_list::each(&view.members) {
-            if eq__3(&(NodeId { id: crate::scheduler::salvo_addr_identity((a.addr.clone()).clone()).node as i64 }), &l) {
+            if eq__NodeId_NodeId(&(NodeId { id: crate::scheduler::salvo_addr_identity((a.addr.clone()).clone()).node as i64 }), &l) {
                 self.chosen = Some(a.addr.clone());
                 return;
             }
@@ -2692,7 +2698,7 @@ impl crate::net::__Stateless_Transport for MemTransport {
 }
 
 pub fn cut_key(a: &NodeEndpoint, b: &NodeEndpoint) -> String {
-    return format!("{}>{}", to_str__5(a), to_str__5(b));
+    return format!("{}>{}", to_str__NodeEndpoint(a), to_str__NodeEndpoint(b));
 }
 
 pub fn cmp(a: &NodeEndpoint, b: &NodeEndpoint) -> i32 {
@@ -2707,14 +2713,14 @@ pub fn cmp(a: &NodeEndpoint, b: &NodeEndpoint) -> i32 {
     return 0;
 }
 
-pub fn hash(value: &NodeEndpoint) -> i64 {
+pub fn hash__NodeEndpoint(value: &NodeEndpoint) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.host[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.port), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__2(a: &NodeEndpoint, b: &NodeEndpoint) -> bool {
+pub fn eq__NodeEndpoint_NodeEndpoint(a: &NodeEndpoint, b: &NodeEndpoint) -> bool {
     if !(&a.host[..] == &b.host[..]) {
         return false;
     }
@@ -2724,31 +2730,31 @@ pub fn eq__2(a: &NodeEndpoint, b: &NodeEndpoint) -> bool {
     return true;
 }
 
-pub fn hash__2(value: &NodeId) -> i64 {
+pub fn hash__NodeId(value: &NodeId) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.id), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__3(a: &NodeId, b: &NodeId) -> bool {
+pub fn eq__NodeId_NodeId(a: &NodeId, b: &NodeId) -> bool {
     if !((a.id) == (b.id)) {
         return false;
     }
     return true;
 }
 
-pub fn hash__3(value: &Node) -> i64 {
+pub fn hash__Node(value: &Node) -> i64 {
     let mut h = 17i64;
-    h = ((h).wrapping_mul(31).wrapping_add(hash__2(&value.id)));
-    h = ((h).wrapping_mul(31).wrapping_add(hash(&value.at)));
+    h = ((h).wrapping_mul(31).wrapping_add(hash__NodeId(&value.id)));
+    h = ((h).wrapping_mul(31).wrapping_add(hash__NodeEndpoint(&value.at)));
     return h;
 }
 
-pub fn eq__4(a: &Node, b: &Node) -> bool {
-    if !eq__3(&a.id, &b.id) {
+pub fn eq__Node_Node(a: &Node, b: &Node) -> bool {
+    if !eq__NodeId_NodeId(&a.id, &b.id) {
         return false;
     }
-    if !eq__2(&a.at, &b.at) {
+    if !eq__NodeEndpoint_NodeEndpoint(&a.at, &b.at) {
         return false;
     }
     return true;
@@ -2756,20 +2762,20 @@ pub fn eq__4(a: &Node, b: &Node) -> bool {
 
 pub struct __Hash_hash__NodeId_NodeId;
 impl SalvoHash<NodeId> for __Hash_hash__NodeId_NodeId {
-    fn hash(__v: &NodeId) -> i64 { hash__2(__v) }
+    fn hash(__v: &NodeId) -> i64 { hash__NodeId(__v) }
 }
 
 pub struct __Eq_eq__NodeId_NodeId;
 impl SalvoEq<NodeId> for __Eq_eq__NodeId_NodeId {
-    fn eq(__a: &NodeId, __b: &NodeId) -> bool { eq__3(__a, __b) }
+    fn eq(__a: &NodeId, __b: &NodeId) -> bool { eq__NodeId_NodeId(__a, __b) }
 }
 
 pub struct __Hash_hash__NodeEndpoint_NodeEndpoint;
 impl SalvoHash<NodeEndpoint> for __Hash_hash__NodeEndpoint_NodeEndpoint {
-    fn hash(__v: &NodeEndpoint) -> i64 { hash(__v) }
+    fn hash(__v: &NodeEndpoint) -> i64 { hash__NodeEndpoint(__v) }
 }
 
 pub struct __Eq_eq__NodeEndpoint_NodeEndpoint;
 impl SalvoEq<NodeEndpoint> for __Eq_eq__NodeEndpoint_NodeEndpoint {
-    fn eq(__a: &NodeEndpoint, __b: &NodeEndpoint) -> bool { eq__2(__a, __b) }
+    fn eq(__a: &NodeEndpoint, __b: &NodeEndpoint) -> bool { eq__NodeEndpoint_NodeEndpoint(__a, __b) }
 }

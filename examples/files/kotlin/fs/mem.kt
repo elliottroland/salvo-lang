@@ -1,18 +1,54 @@
 package salvo.fs.mem
 
 import salvo.*
-import salvo.core.actor.*
-import salvo.core.bytes.*
-import salvo.core.checked.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.result.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.fs.*
-import salvo.stream.*
+import salvo.core.bytes.appendPlatform as appendPlatform__core_bytes
+import salvo.core.bytes.getPlatform
+import salvo.core.bytes.mutBytes
+import salvo.core.bytes.sizePlatform
+import salvo.core.bytes.slicePlatform
+import salvo.core.bytes.strOfBytesPlatform
+import salvo.core.bytes.toBytesPlatform
+import salvo.core.checked.Checked
+import salvo.core.checked.checked
+import salvo.core.checked.ignore
+import salvo.core.list.at
+import salvo.core.list.sort
+import salvo.core.result.err
+import salvo.core.result.ok
+import salvo.core.sorted.max
+import salvo.core.string.appendPlatform as appendPlatform__core_string
+import salvo.core.string.byteSizePlatform
+import salvo.core.string.indexOfPlatform
+import salvo.core.string.startsWithPlatform
+import salvo.core.string.substrPlatform
+import salvo.core.string.trimPrefixPlatform
+import salvo.core.string.trimSuffixPlatform
+import salvo.fs.AlreadyExists
+import salvo.fs.FileInfo
+import salvo.fs.Fs
+import salvo.fs.IoError
+import salvo.fs.NotADirectory
+import salvo.fs.NotFound
+import salvo.fs.PathEscapes
+import salvo.fs.PermissionDenied
+import salvo.fs.Streaming
+import salvo.fs.createDirs
+import salvo.fs.delete
+import salvo.fs.exists
+import salvo.fs.listDir
+import salvo.fs.metadata
+import salvo.fs.openAppend
+import salvo.fs.openRead
+import salvo.fs.openReadAt
+import salvo.fs.openWrite
+import salvo.fs.renamePath
+import salvo.stream.End
+import salvo.stream.InStream
+import salvo.stream.InvalidUtf8
+import salvo.stream.OutStream
+import salvo.stream.Packet
+import salvo.stream.StreamFailed
+import salvo.stream.freshHandle
 
 data class MemRead(
     val source: String,
@@ -54,7 +90,7 @@ class MemFs : Fs, salvo.stream.Streams {
         if (content == null) {
             return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = path)))))
         }
-        val handle = freshHandle__2()
+        val handle = freshHandle()
         reads.put(handle, MemRead(source = path, data = content, at = 0, failed = false))
         return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
@@ -72,13 +108,13 @@ class MemFs : Fs, salvo.stream.Streams {
         if (at > end) {
             at = end
         }
-        val handle = freshHandle__2()
+        val handle = freshHandle()
         reads.put(handle, MemRead(source = path, data = content, at = at, failed = false))
         return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
 
     override fun openWrite(path: String): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        val handle = freshHandle__2()
+        val handle = freshHandle()
         val empty = mutBytes(arrayOf())
         writes.put(handle, MemWrite(path = path, buffer = empty))
         return Union2.U1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
@@ -89,9 +125,9 @@ class MemFs : Fs, salvo.stream.Streams {
         val start = mutBytes(arrayOf())
         if (existing == null) {
         } else {
-            appendPlatform(start, existing)
+            appendPlatform__core_bytes(start, existing)
         }
-        val handle = freshHandle__2()
+        val handle = freshHandle()
         writes.put(handle, MemWrite(path = path, buffer = start))
         return Union2.U1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
     }
@@ -180,24 +216,24 @@ class MemFs : Fs, salvo.stream.Streams {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun readTo(s: InStream, buf: salvo.platform.core.bytes.MutBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun readTo__InStream_Bytes_Int(s: InStream, buf: salvo.platform.core.bytes.MutBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val got = memReadBytes(reads, s.handle, max)
         if (got is Union2.U2<*, *>) {
             return Union2.U2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
         val data: salvo.platform.core.bytes.Bytes = (got.value as salvo.platform.core.bytes.Bytes)
-        appendPlatform(buf, data)
+        appendPlatform__core_bytes(buf, data)
         return Union2.U1<Int, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(sizePlatform(data)))
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun readTo__2(s: InStream, buf: salvo.platform.core.string.MutStr): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun readTo__InStream_Str(s: InStream, buf: salvo.platform.core.string.MutStr): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val got = memReadAll(reads, s.handle)
         if (got is Union2.U2<*, *>) {
             return Union2.U2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
         }
         val text: String = (got.value as String)
-        appendPlatform(buf, text)
+        appendPlatform__core_string(buf, text)
         return Union2.U1<Long, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(byteSizePlatform(text)))
     }
 
@@ -205,7 +241,7 @@ class MemFs : Fs, salvo.stream.Streams {
         val line = memReadLine(reads, s.handle)
         when {
             line != null -> {
-                appendPlatform(buf, line)
+                appendPlatform__core_string(buf, line)
                 return true
             }
             else -> {
@@ -214,11 +250,11 @@ class MemFs : Fs, salvo.stream.Streams {
         }
     }
 
-    override fun position(s: InStream): Long {
+    override fun position__InStream(s: InStream): Long {
         return (memReadState(reads, s.handle).at).toLong()
     }
 
-    override fun close(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun close__InStream(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val open = memReadState(reads, s.handle)
         val failed = open.failed
         val source = open.source
@@ -252,7 +288,7 @@ class MemFs : Fs, salvo.stream.Streams {
     }
 
     override fun fromBytes(data: salvo.platform.core.bytes.Bytes): InStream {
-        val handle = freshHandle__2()
+        val handle = freshHandle()
         reads.put(handle, MemRead(source = "<bytes>", data = data, at = 0, failed = false))
         return InStream(handle = handle)
     }
@@ -269,7 +305,7 @@ class MemFs : Fs, salvo.stream.Streams {
         return memAppend(writes, s.handle, data)
     }
 
-    override fun position__2(s: OutStream): Long {
+    override fun position__OutStream(s: OutStream): Long {
         return (sizePlatform(memWriteState(writes, s.handle).buffer)).toLong()
     }
 
@@ -279,7 +315,7 @@ class MemFs : Fs, salvo.stream.Streams {
         return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
     }
 
-    override fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun close__OutStream(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val open = memWriteState(writes, s.handle)
         files.put(open.path, open.buffer)
         writes.remove(s.handle)
@@ -313,7 +349,7 @@ fun memFindNewline(data: salvo.platform.core.bytes.Bytes, from: Int): Int {
 fun memAppend(writes: MutableMap<Long, MemWrite>, handle: Long, data: salvo.platform.core.bytes.Bytes): Long {
     val open = memWriteState(writes, handle)
     val grown = mutBytes(arrayOf(open.buffer))
-    appendPlatform(grown, data)
+    appendPlatform__core_bytes(grown, data)
     val buffer: salvo.platform.core.bytes.Bytes = grown
     writes.put(handle, MemWrite(path = open.path, buffer = buffer))
     return (sizePlatform(data)).toLong()

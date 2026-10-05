@@ -36,14 +36,13 @@ pub mod platform_core_list;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
-use crate::core_console::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
+use crate::core_console::ConsolePlatformSync as _;
+use crate::core_console::__Stateful_Console as _;
+use crate::core_console::__Stateless_Console as _;
+use crate::core_console::println;
+use crate::core_deque::drain;
+use crate::core_deque::mut_deque_of;
+use crate::core_list::first;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ticket {

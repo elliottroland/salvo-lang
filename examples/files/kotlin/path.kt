@@ -1,13 +1,13 @@
 package salvo.path
 
-import salvo.core.actor.*
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.core.list.addPlatform
+import salvo.core.string.endsWithPlatform
+import salvo.core.string.isEmpty
+import salvo.core.string.sizePlatform
+import salvo.core.string.splitLast
+import salvo.core.string.splitPlatform
+import salvo.core.string.startsWithPlatform
+import salvo.core.string.trimSuffixPlatform
 
 data class Path(
     val text: String,
@@ -24,7 +24,7 @@ fun path(text: String): Path {
     return Path(text = text)
 }
 
-fun toStr__6(p: Path): String {
+fun toStr(p: Path): String {
     return p.text
 }
 
@@ -32,8 +32,8 @@ fun isAbsolute(p: Path): Boolean {
     return startsWithPlatform(p.text, "/")
 }
 
-fun join__2(p: Path, child: String): Path {
-    if (startsWithPlatform(child, "/") || isEmpty__2(p.text)) {
+fun join__Path_Str(p: Path, child: String): Path {
+    if (startsWithPlatform(child, "/") || isEmpty(p.text)) {
         return path(child)
     }
     if (endsWithPlatform(p.text, "/")) {
@@ -42,8 +42,8 @@ fun join__2(p: Path, child: String): Path {
     return path("${p.text}/$child")
 }
 
-fun join__3(p: Path, child: Path): Path {
-    return join__2(p, child.text)
+fun join__Path_Path(p: Path, child: Path): Path {
+    return join__Path_Str(p, child.text)
 }
 
 fun parent(p: Path): Path? {
@@ -53,7 +53,7 @@ fun parent(p: Path): Path? {
         return null
     }
     val (dir, _name) = cut
-    if (isEmpty__2(dir)) {
+    if (isEmpty(dir)) {
         if (startsWithPlatform(text, "/") && sizePlatform(text) > 1) {
             return path("/")
         }
@@ -66,13 +66,13 @@ fun fileName(p: Path): String? {
     val text = trimTrailingSlashes(p.text)
     val cut = splitLast(text, "/")
     if (cut == null) {
-        if (isEmpty__2(text)) {
+        if (isEmpty(text)) {
             return null
         }
         return text
     }
     val (_dir, name) = cut
-    if (isEmpty__2(name)) {
+    if (isEmpty(name)) {
         return null
     }
     return name
@@ -88,7 +88,7 @@ fun extension(p: Path): String? {
             return null
         }
         val (stem, ext) = cut
-        if (isEmpty__2(stem)) {
+        if (isEmpty(stem)) {
             return null
         }
         return ext
@@ -106,7 +106,7 @@ fun stem(p: Path): String? {
             return n
         }
         val (stem, _ext) = cut
-        if (isEmpty__2(stem)) {
+        if (isEmpty(stem)) {
             return n
         }
         return stem
@@ -119,7 +119,7 @@ fun withExtension(p: Path, ext: String): Path {
     val s = stem(p)
     if (s != null) {
         val base = s as String
-        val name = if (isEmpty__2(ext)) {
+        val name = if (isEmpty(ext)) {
             base
         } else {
             "$base.$ext"
@@ -127,7 +127,7 @@ fun withExtension(p: Path, ext: String): Path {
         val up = parent(p)
         if (up != null) {
             val dir = up as Path
-            return join__2(dir, name)
+            return join__Path_Str(dir, name)
         }
         return path(name)
     }
@@ -137,7 +137,7 @@ fun withExtension(p: Path, ext: String): Path {
 fun segments(p: Path): salvo.platform.core.list.MutList<String> {
     val out = mutableListOf<String>()
     for (part in salvo.platform.core.list.each(splitPlatform(p.text, "/"))) {
-        if (!isEmpty__2(part)) {
+        if (!isEmpty(part)) {
             addPlatform(out, part)
         }
     }
@@ -152,13 +152,13 @@ fun trimTrailingSlashes(text: String): String {
     return t
 }
 
-fun hash__4(value: Path): Long {
+fun hash(value: Path): Long {
     var h = 17L
     h = ((h) * 31L + ((value.text).hashCode().toLong()))
     return h
 }
 
-fun eq__4(a: Path, b: Path): Boolean {
+fun eq(a: Path, b: Path): Boolean {
     if (!((a.text) == (b.text))) {
         return false
     }

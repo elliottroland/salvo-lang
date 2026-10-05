@@ -5,10 +5,14 @@
 package salvo.fs.host
 
 import salvo.*
-import salvo.core.list.*
-import salvo.core.string.*
-import salvo.fs.*
-import salvo.stream.*
+import salvo.fs.AlreadyExists
+import salvo.fs.FileInfo
+import salvo.fs.IoError
+import salvo.fs.NotADirectory
+import salvo.fs.NotFound
+import salvo.fs.PathEscapes
+import salvo.fs.PermissionDenied
+import salvo.fs.Streaming
 
 interface RawFs {
     fun rawOpenRead(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>

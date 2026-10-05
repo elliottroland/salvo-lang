@@ -1,11 +1,8 @@
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
 use crate::unions::*;
+use crate::core_iterator::Finished;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
+use crate::core_list::at;
 
 /// [platform-type] The host's `Bytes`.
 pub use crate::platform_core_bytes::Bytes;
@@ -84,7 +81,7 @@ pub fn to_hex_platform(data: &Bytes) -> String {
     crate::platform_core_bytes::to_hex(data)
 }
 
-pub fn iter__2(data: &Bytes) -> BytesYield<'_> {
+pub fn iter(data: &Bytes) -> BytesYield<'_> {
     return BytesYield { data: data, at: 0 };
 }
 
@@ -94,7 +91,7 @@ pub struct BytesYield<'s> {
     pub at: i32,
 }
 
-pub fn next__2(p: &mut BytesYield<'_>) -> Union2<u8, Finished> {
+pub fn next(p: &mut BytesYield<'_>) -> Union2<u8, Finished> {
     let mut b = get_platform(&p.data, p.at);
     if b.is_none() {
         return Union2::<u8, Finished>::U2(finished());

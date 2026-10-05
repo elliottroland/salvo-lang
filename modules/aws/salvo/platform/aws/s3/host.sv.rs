@@ -2,9 +2,10 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
-use crate::aws::*;
-use crate::aws_s3::*;
-use crate::core_iterator::*;
+use crate::aws::AwsConfig;
+use crate::aws_s3::S3PlatformSync as _;
+use crate::aws_s3::__Stateful_S3 as _;
+use crate::aws_s3::__Stateless_S3 as _;
 
 pub type __Platform_HostS3 = crate::aws_s3::__Platform_S3<crate::platform_aws_s3_host::HostS3>;
 

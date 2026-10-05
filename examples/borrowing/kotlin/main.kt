@@ -1,12 +1,20 @@
 package salvo.main
 
-import salvo.core.console.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.seq.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.core.console.Console
+import salvo.core.console.println
+import salvo.core.list.Idx_qualifies
+import salvo.core.list.NotEq_qualifies
+import salvo.core.list.addPlatform
+import salvo.core.list.at
+import salvo.core.list.get
+import salvo.core.list.getPlatform
+import salvo.core.list.iter
+import salvo.core.list.next__ListYield
+import salvo.core.list.sizePlatform
+import salvo.core.list.toStr
+import salvo.core.list.update
+import salvo.core.list.update2
+import salvo.core.seq.filter
 
 data class Fighter(
     var name: String,
@@ -125,14 +133,14 @@ fun main() {
     println(console, "1. found ${ada.name}, hp ${ada.hp}")
     val names: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     addPlatform(names, ada.name)
-    println(console, "1. copied out ${toStr__2(names, { __i0 -> __i0 })}")
+    println(console, "1. copied out ${toStr(names, { __i0 -> __i0 })}")
     val w = window(roster)
     w.at = 1
     println(console, "1. window at ${w.at}: ${(peek(w) ?: throw AssertionError("salvo: value is absent at main:206:38")).name}")
-    val pass = iter__4(roster)
+    val pass = iter(roster)
     val standing = filter(pass, { f: Fighter ->
     f.hp > 10
-}, ::next__5)
+}, ::next__ListYield)
     println(console, "1. ${sizePlatform(standing)} of ${sizePlatform(roster)} still standing")
     val bench: salvo.platform.core.list.MutList<Fighter> = mutableListOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2))
     addPlatform(bench, Fighter(name = "Dee", hp = 6, energy = 7))
@@ -183,5 +191,5 @@ fun main() {
     val banners = camp.banners
     spend(camp, 3)
     hoist(camp, "blue")
-    println(console, "5. supplies ${camp.supplies}, banners ${toStr__2(banners, { __i0 -> __i0 })}")
+    println(console, "5. supplies ${camp.supplies}, banners ${toStr(banners, { __i0 -> __i0 })}")
 }

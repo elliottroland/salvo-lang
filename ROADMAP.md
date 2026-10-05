@@ -154,6 +154,41 @@ Functions that would change once slices exist:
 - `Deque` → has no contiguous storage on Kotlin (`ArrayDeque` is a ring), so
   it gets no slices.
 
+### 0h — Test speed: prune per declaration (user: "eventually", 2026-10-05)
+
+Measured 2026-10-05: a fresh nextest run is ~6 minutes with all 10 slots busy
+throughout (about 3,330 slot-seconds: Kotlin codegen 1,068, Rust 821, CLI
+1,374); one Kotlin shard takes 48–54s alone and 185–199s inside the suite.
+Most of what each toolchain compiles is std and runtime code the program
+never reaches: hello world is 1,516 lines of Kotlin (8 of them `main.kt`) and
+2,832 of Rust, because pruning works per module [mod-used-only]. The plan:
+extend `salvo_core::reach` to declarations (fns by what the checker
+resolved, types by name), and emit runtime files only when used. With
+[fn-emit-name] std's output no longer depends on the program, so a std edit
+would rerun only the programs that reach it, and one std compile could be
+shared across a Kotlin batch. Also open, the user's call: CLI test stamps
+keyed by generated content rather than by the `salvo` binary, so a cached run
+is a sound pre-commit check. `-XX:TieredStopAtLevel=1` for kotlinc was tried
+and rejected (358s against 371s; slower on the large batches).
+
+### 0i — Leftovers of deterministic names (2026-10-05)
+
+- Rust calls a platform fn's wrapper by its module path
+  (`crate::core_list::size_platform`) while Kotlin imports it like any fn
+  (`sizePlatform`, `sizePlatform__core_list` on a clash): Rust's `__loc`
+  locator variants hang off the wrapper's name, which an alias would break.
+- A Kotlin predicate qualifier keeps `Q_qualifies` and overloads on the JVM
+  parameter type; Rust names it by its subject (`NonEmpty__List_qualifies`).
+  Both deterministic; two modules declaring one qualifier over one subject
+  would clash on Rust, unhandled.
+- A fn the emitter calls that the checker's tables do not show cannot take
+  part in the clash check; two of one name from two modules is reported as an
+  internal error rather than imported over each other.
+- `examples/actors` calls `drop(boom)` on an `Int`; `core.seq`'s `drop` is not
+  emitted there, so Rust's prelude `drop` runs (same effect on an `Int`, and
+  it was so under the globs too). Worth a check that a resolved Salvo fn the
+  program calls is always emitted.
+
 ### 0g — Open defect: `Mut` accepted on a struct that does not `canbe Mut` (found 2026-10-05)
 
 ```

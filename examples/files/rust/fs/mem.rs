@@ -1,18 +1,46 @@
 use crate::collections::*;
-use crate::core_actor::*;
-use crate::core_bytes::*;
-use crate::core_checked::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_result::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::fs::*;
-use crate::stream::*;
 use crate::unions::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_bytes::Bytes;
+use crate::core_bytes::mut_bytes;
+use crate::core_checked::Checked;
+use crate::core_checked::checked;
+use crate::core_checked::ignore;
+use crate::core_list::at;
+use crate::core_list::sort;
+use crate::core_result::err;
+use crate::core_result::ok;
+use crate::core_sorted::max;
+use crate::fs::AlreadyExists;
+use crate::fs::FileInfo;
+use crate::fs::IoError;
+use crate::fs::NotADirectory;
+use crate::fs::NotFound;
+use crate::fs::PathEscapes;
+use crate::fs::PermissionDenied;
+use crate::fs::Streaming;
+use crate::fs::__Stateful_Fs as _;
+use crate::fs::__Stateless_Fs as _;
+use crate::fs::create_dirs;
+use crate::fs::delete;
+use crate::fs::exists;
+use crate::fs::list_dir;
+use crate::fs::metadata;
+use crate::fs::open_append;
+use crate::fs::open_read;
+use crate::fs::open_read_at;
+use crate::fs::open_write;
+use crate::fs::rename_path;
+use crate::stream::End;
+use crate::stream::InStream;
+use crate::stream::InvalidUtf8;
+use crate::stream::OutStream;
+use crate::stream::Packet;
+use crate::stream::StreamFailed;
+use crate::stream::__Stateful_Streams as _;
+use crate::stream::__Stateless_Streams as _;
+use crate::stream::fresh_handle;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MemRead {
@@ -81,7 +109,7 @@ impl crate::fs::__Stateful_Fs for MemFs {
         if content.is_none() {
             return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U2(err(checked(Union7::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>::U1(NotFound { path: path.clone() }))));
         }
-        let mut handle = fresh_handle__2();
+        let mut handle = fresh_handle();
         self.reads.insert(handle.clone(), MemRead { source: path.clone(), data: content.unwrap().clone(), at: 0, failed: false });
         return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(InStream { handle: handle.clone() }));
     }
@@ -99,13 +127,13 @@ impl crate::fs::__Stateful_Fs for MemFs {
         if at > end {
             at = end;
         }
-        let mut handle = fresh_handle__2();
+        let mut handle = fresh_handle();
         self.reads.insert(handle.clone(), MemRead { source: path.clone(), data: content.unwrap().clone(), at: at, failed: false });
         return Union2::<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(InStream { handle: handle.clone() }));
     }
 
     fn open_write(&mut self, path: &String) -> Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
-        let mut handle = fresh_handle__2();
+        let mut handle = fresh_handle();
         let mut empty = mut_bytes(vec![]);
         self.writes.insert(handle.clone(), MemWrite { path: path.clone(), buffer: empty });
         return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(OutStream { handle: handle.clone() }));
@@ -118,7 +146,7 @@ impl crate::fs::__Stateful_Fs for MemFs {
         } else {
             crate::core_bytes::append_platform(&mut start, existing.unwrap());
         }
-        let mut handle = fresh_handle__2();
+        let mut handle = fresh_handle();
         self.writes.insert(handle.clone(), MemWrite { path: path.clone(), buffer: start });
         return Union2::<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>::U1(ok(OutStream { handle: handle.clone() }));
     }
@@ -209,7 +237,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
         return mem_read_bytes(&mut self.reads, s.handle, max);
     }
 
-    fn read_to(&mut self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    fn read_to__InStream_Bytes_Int(&mut self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         let mut got = mem_read_bytes(&mut self.reads, s.handle, max);
         if matches!(got, Union2::U2(_)) {
             return Union2::<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
@@ -219,7 +247,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
         return Union2::<i32, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(crate::core_bytes::size_platform(&data)));
     }
 
-    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    fn read_to__InStream_Str(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         let mut got = mem_read_all(&mut self.reads, s.handle);
         if matches!(got, Union2::U2(_)) {
             return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
@@ -242,11 +270,11 @@ impl crate::stream::__Stateful_Streams for MemFs {
         }
     }
 
-    fn position(&mut self, s: &InStream) -> i64 {
+    fn position__InStream(&mut self, s: &InStream) -> i64 {
         return ((mem_read_state(&self.reads, s.handle).at) as i64);
     }
 
-    fn close(&mut self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    fn close__InStream(&mut self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
         let mut open = mem_read_state(&self.reads, s.handle);
         let mut failed = open.failed;
         let mut source = open.source.clone();
@@ -279,7 +307,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
     }
 
     fn from_bytes(&mut self, data: Bytes) -> InStream {
-        let mut handle = fresh_handle__2();
+        let mut handle = fresh_handle();
         self.reads.insert(handle.clone(), MemRead { source: "<bytes>".to_string(), data: data, at: 0, failed: false });
         return InStream { handle: handle.clone() };
     }
@@ -296,7 +324,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
         return mem_append(&mut self.writes, s.handle, &(data.clone()));
     }
 
-    fn position__2(&mut self, s: &OutStream) -> i64 {
+    fn position__OutStream(&mut self, s: &OutStream) -> i64 {
         return ((crate::core_bytes::size_platform(&mem_write_state(&self.writes, s.handle).buffer)) as i64);
     }
 
@@ -306,7 +334,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
         return Union2::<(), Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(()));
     }
 
-    fn close__2(&mut self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    fn close__OutStream(&mut self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
         let mut open = mem_write_state(&self.writes, s.handle);
         self.files.insert(open.path.clone(), open.buffer.clone());
         self.writes.remove(&s.handle);

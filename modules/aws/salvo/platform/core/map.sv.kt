@@ -5,23 +5,20 @@
 package salvo.core.map
 
 import salvo.*
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.iterator.*
-import salvo.core.list.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.at
 
 fun<K, V> KeyOf_qualifies(key: K, map: Map<K, V>): Boolean {
     return map.containsKey(key)
 }
 
-fun<K, V> get__2(map: Map<K, V>, key: K): V {
+fun<K, V> get(map: Map<K, V>, key: K): V {
     return map[key]!!
 }
 
-fun<K, V> iter__5(map: Map<K, V>): MapKeyYield<K> {
+fun<K, V> iter(map: Map<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }
 
@@ -38,7 +35,7 @@ class __Codec_MapKeyYield<K>(private val __c_K: salvo.WireCodec<K>) : salvo.Wire
     override fun dec(inp: salvo.WireIn): MapKeyYield<K> = MapKeyYield(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<K> next__11(p: MapKeyYield<K>): Union2<K, Finished> {
+fun<K> next(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
         return Union2.U2<K, Finished>(finished())

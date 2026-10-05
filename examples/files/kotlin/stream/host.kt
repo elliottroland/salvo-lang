@@ -1,18 +1,42 @@
 package salvo.stream.host
 
 import salvo.*
-import salvo.core.actor.*
-import salvo.core.bytes.*
-import salvo.core.checked.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.result.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.runtime.streams.*
-import salvo.stream.*
+import salvo.core.bytes.appendPlatform as appendPlatform__core_bytes
+import salvo.core.bytes.sizePlatform
+import salvo.core.bytes.toBytesPlatform
+import salvo.core.checked.Checked
+import salvo.core.checked.checked
+import salvo.core.list.at
+import salvo.core.list.count
+import salvo.core.result.err
+import salvo.core.result.ok
+import salvo.core.sorted.max
+import salvo.core.string.appendPlatform as appendPlatform__core_string
+import salvo.runtime.streams.Chunk
+import salvo.runtime.streams.__Codec_Chunk
+import salvo.runtime.streams.checkinIn
+import salvo.runtime.streams.checkinOut
+import salvo.runtime.streams.checkoutIn
+import salvo.runtime.streams.checkoutOut
+import salvo.runtime.streams.closeIn
+import salvo.runtime.streams.closeOut
+import salvo.runtime.streams.decode
+import salvo.runtime.streams.flush
+import salvo.runtime.streams.readAll
+import salvo.runtime.streams.readLine
+import salvo.runtime.streams.readUpTo
+import salvo.runtime.streams.receive
+import salvo.runtime.streams.registerBytes
+import salvo.runtime.streams.write
+import salvo.stream.End
+import salvo.stream.InStream
+import salvo.stream.InvalidUtf8
+import salvo.stream.OutStream
+import salvo.stream.Packet
+import salvo.stream.StreamFailed
+import salvo.stream.__Codec_End
+import salvo.stream.__Codec_InvalidUtf8
+import salvo.stream.__Codec_StreamFailed
 
 interface RawStreams {
     fun rawReadLine(handle: Long): String?
@@ -176,7 +200,7 @@ class HostRawStreams : RawStreams {
             val f = r.fault as salvo.runtime.streams.Fault
             return Union2.U2<Int, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, f)))
         }
-        appendPlatform(buf, r.data)
+        appendPlatform__core_bytes(buf, r.data)
         return Union2.U1<Int, Union2<InvalidUtf8, StreamFailed>>(ok(sizePlatform(r.data)))
     }
 
@@ -195,7 +219,7 @@ class HostRawStreams : RawStreams {
         checkinIn(handle, e)
         if (text != null) {
             val t = text as String
-            appendPlatform(buf, t)
+            appendPlatform__core_string(buf, t)
             return Union2.U1<Long, Union2<InvalidUtf8, StreamFailed>>(ok(count))
         }
         return Union2.U2<Long, Union2<InvalidUtf8, StreamFailed>>(err(kind(source, salvo.runtime.streams.Fault(utf8 = true, message = ""))))
@@ -206,7 +230,7 @@ class HostRawStreams : RawStreams {
         val line = nextLine(handle)
         if (line != null) {
             val t = line as String
-            appendPlatform(buf, t)
+            appendPlatform__core_string(buf, t)
             return true
         }
         return false
@@ -256,7 +280,7 @@ class HostRawStreams : RawStreams {
     override fun rawFlush(handle: Long): Union2<Unit, Union2<InvalidUtf8, StreamFailed>> {
         val e = checkoutOut(handle)
         val source = e.source
-        val failed = flush__2(e)
+        val failed = flush(e)
         checkinOut(handle, e)
         if (failed != null) {
             val f = failed as salvo.runtime.streams.Fault
@@ -350,7 +374,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : salvo.stream.St
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun readTo(s: InStream, buf: salvo.platform.core.bytes.MutBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun readTo__InStream_Bytes_Int(s: InStream, buf: salvo.platform.core.bytes.MutBytes, max: Int): Union2<Int, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawReadToBytes(s.handle, buf, max)
         when (r) {
             is Union2.U1<*, *> -> {
@@ -363,7 +387,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : salvo.stream.St
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun readTo__2(s: InStream, buf: salvo.platform.core.string.MutStr): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun readTo__InStream_Str(s: InStream, buf: salvo.platform.core.string.MutStr): Union2<Long, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawReadToStr(s.handle, buf)
         when (r) {
             is Union2.U1<*, *> -> {
@@ -379,12 +403,12 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : salvo.stream.St
         return __dep_RawStreams.rawReadLineToStr(s.handle, buf)
     }
 
-    override fun position(s: InStream): Long {
+    override fun position__InStream(s: InStream): Long {
         return __dep_RawStreams.rawReadPosition(s.handle)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun close(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun close__InStream(s: InStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawCloseRead(s.handle)
         (s).let {}
         when (r) {
@@ -420,7 +444,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : salvo.stream.St
         return __dep_RawStreams.rawWriteBytes(s.handle, data)
     }
 
-    override fun position__2(s: OutStream): Long {
+    override fun position__OutStream(s: OutStream): Long {
         return __dep_RawStreams.rawWritePosition(s.handle)
     }
 
@@ -438,7 +462,7 @@ class DefaultStreams(private val __dep_RawStreams: RawStreams) : salvo.stream.St
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-    override fun close__2(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    override fun close__OutStream(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val r = __dep_RawStreams.rawCloseWrite(s.handle)
         (s).let {}
         when (r) {

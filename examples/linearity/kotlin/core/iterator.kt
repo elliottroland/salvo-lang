@@ -1,5 +1,6 @@
 package salvo.core.iterator
 
+
 class Finished
 
 object __Codec_Finished : salvo.WireCodec<Finished> {

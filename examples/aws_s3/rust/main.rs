@@ -78,25 +78,48 @@ pub mod platform_runtime_streams;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
 
-use crate::aws::*;
-use crate::aws_s3::*;
 use crate::collections::*;
-use crate::core_actor::*;
-use crate::core_bytes::*;
-use crate::core_checked::*;
-use crate::core_console::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_result::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::fs::*;
-use crate::fs_mem::*;
-use crate::stream::*;
 use crate::unions::*;
+use crate::aws::AwsError;
+use crate::aws_s3::FakeS3;
+use crate::aws_s3::GetObjectInput;
+use crate::aws_s3::GetObjectOutput;
+use crate::aws_s3::PutObjectInput;
+use crate::aws_s3::PutObjectOutput;
+use crate::aws_s3::S3Error;
+use crate::aws_s3::__Stateful_S3 as _;
+use crate::aws_s3::__Stateful_S3Calls as _;
+use crate::aws_s3::__Stateless_S3 as _;
+use crate::aws_s3::__Stateless_S3Calls as _;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_bytes::Bytes;
+use crate::core_bytes::mut_bytes;
+use crate::core_checked::Checked;
+use crate::core_checked::checked;
+use crate::core_checked::detach;
+use crate::core_checked::ignore;
+use crate::core_console::ConsolePlatformSync as _;
+use crate::core_console::__Stateful_Console as _;
+use crate::core_console::__Stateless_Console as _;
+use crate::core_console::println;
+use crate::core_list::to_str as to_str__core_list;
+use crate::core_result::err;
+use crate::core_result::ok;
+use crate::fs::__Stateful_Fs as _;
+use crate::fs::__Stateless_Fs as _;
+use crate::fs::metadata;
+use crate::fs::read_to_str__Str;
+use crate::fs::to_str as to_str__fs;
+use crate::fs::write_str__Str_Str;
+use crate::fs_mem::MemFs;
+use crate::stream::InvalidUtf8;
+use crate::stream::StreamFailed;
+use crate::stream::__Stateful_Streams as _;
+use crate::stream::__Stateless_Streams as _;
+use crate::stream::fill_from;
+use crate::stream::pipe;
+use crate::stream::to_str as to_str__stream;
 
 pub fn describe(e: &Union2<S3Error, AwsError>) -> String {
     if matches!(e, Union2::U2(_)) {
@@ -124,7 +147,7 @@ pub fn size_of(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &Stri
 pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::core_console::Console, streams: &crate::stream::Streams, bucket: &String, key: &String, path: &String, length: Option<i64>) {
     let mut opened = fs.open_read(path);
     if matches!(opened, Union2::U2(_)) {
-        println(console, &(format!("open {}: {}", path.clone(), to_str__4(&detach((match opened { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+        println(console, &(format!("open {}: {}", path.clone(), to_str__fs(&detach((match opened { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         return;
     }
     let mut put = {
@@ -160,8 +183,8 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::cor
     println(console, &(format!("get {}: {} bytes", key.clone(), if content_length.is_some() { content_length.unwrap() } else { -1i64 })));
     let mut target = fs.open_write(path);
     if matches!(target, Union2::U2(_)) {
-        println(console, &(format!("open {}: {}", path.clone(), to_str__4(&detach((match target { Union2::U2(__v) => __v, _ => unreachable!() }))))));
-        let mut closed = streams.close(body);
+        println(console, &(format!("open {}: {}", path.clone(), to_str__fs(&detach((match target { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+        let mut closed = streams.close__InStream(body);
         if matches!(closed, Union2::U2(_)) {
             ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
@@ -178,7 +201,7 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::cor
             println(console, &(format!("piped {} bytes into {}", *copied.u1(), path.clone())));
         }
         Union2::U2(_) => {
-            println(console, &(format!("pipe: {}", to_str__8(&detach((match copied { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+            println(console, &(format!("pipe: {}", to_str__stream(&detach((match copied { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         }
     }
 }
@@ -186,14 +209,14 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::cor
 pub fn round_trip(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::core_console::Console, streams: &crate::stream::Streams, key: &String) {
     { let __a1 = size_of(fs, streams, &("notes.txt".to_string())); upload(s3, fs, console, streams, &("notes".to_string()), &(key.clone()), &("notes.txt".to_string()), __a1) };
     download(s3, fs, console, streams, &("notes".to_string()), &(key.clone()), &("back.txt".to_string()));
-    let mut back = read_to_str(fs, streams, &("back.txt".to_string()));
+    let mut back = read_to_str__Str(fs, streams, &("back.txt".to_string()));
     match back {
         Union2::U1(_) => {
             println(console, &(format!("back.txt: {} bytes", crate::core_string::size_platform(back.u1()))));
             console.print(back.u1());
         }
         Union2::U2(_) => {
-            println(console, &(format!("back.txt: {}", to_str__4(&detach((match back { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+            println(console, &(format!("back.txt: {}", to_str__fs(&detach((match back { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         }
     }
 }
@@ -221,12 +244,12 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
         let mut body = __destructured2.body;
         let mut buf = mut_bytes(vec![]);
         let mut filled = fill_from(&self.__dep_Streams, &body, &mut buf);
-        let mut closed = self.__dep_Streams.close(body);
+        let mut closed = self.__dep_Streams.close__InStream(body);
         if matches!(closed, Union2::U2(_)) {
             ignore((match closed { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         if matches!(filled, Union2::U2(_)) {
-            crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U2(AwsError { code: "StreamFailed".to_string(), message: format!("{}", to_str__8(&detach((match filled { Union2::U2(__v) => __v, _ => unreachable!() })))) })))));
+            crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U2(AwsError { code: "StreamFailed".to_string(), message: format!("{}", to_str__stream(&detach((match filled { Union2::U2(__v) => __v, _ => unreachable!() })))) })))));
             return;
         }
         let mut data: Bytes = buf;
@@ -253,9 +276,9 @@ pub fn main() {
     let __inst = std::sync::Arc::new(std::sync::Mutex::new(MemFs::new()));
     let fs2 = crate::fs::Fs::share_locked(__inst.clone());
     let streams = crate::stream::Streams::share_locked(__inst.clone());
-    let mut written = write_str(&fs2, &streams, &("notes.txt".to_string()), &("hello from Salvo\nsecond line\n".to_string()));
+    let mut written = write_str__Str_Str(&fs2, &streams, &("notes.txt".to_string()), &("hello from Salvo\nsecond line\n".to_string()));
     if matches!(written, Union2::U2(_)) {
-        println(&console, &(format!("write: {}", to_str__4(&detach((match written { Union2::U2(__v) => __v, _ => unreachable!() }))))));
+        println(&console, &(format!("write: {}", to_str__fs(&detach((match written { Union2::U2(__v) => __v, _ => unreachable!() }))))));
         return;
     }
     println(&console, &("-- FakeS3 --".to_string()));
@@ -265,7 +288,7 @@ pub fn main() {
         let s3_calls = crate::aws_s3::S3Calls::share_locked(__inst2.clone());
         round_trip(&s32, &fs2, &console, &streams, &("greeting.txt".to_string()));
         upload(&s32, &fs2, &console, &streams, &("notes".to_string()), &("unsized.txt".to_string()), &("notes.txt".to_string()), None);
-        println(&console, &(format!("calls: {}", to_str__3(&s3_calls.calls(), &mut |__i0| format!("{}", __i0)))));
+        println(&console, &(format!("calls: {}", to_str__core_list(&s3_calls.calls(), &mut |__i0| format!("{}", __i0)))));
     }
     println(&console, &("-- MemS3 --".to_string()));
     if true {

@@ -32,9 +32,10 @@ pub mod platform_core_list;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
-use crate::core_console::*;
-use crate::core_iterator::*;
-use crate::core_string::*;
+use crate::core_console::ConsolePlatformSync as _;
+use crate::core_console::__Stateful_Console as _;
+use crate::core_console::__Stateless_Console as _;
+use crate::core_console::println;
 
 pub trait __Stateless_Clock: Send + Sync {
     fn now(&self) -> i32;

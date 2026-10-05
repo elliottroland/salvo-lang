@@ -4,10 +4,6 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.core.seq
 
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.string.*
 
 fun<T> filterPlatform(list: List<T>, keep: (T) -> Boolean): salvo.platform.core.list.MutList<T> {
     return salvo.platform.core.seq.filter(list, keep)

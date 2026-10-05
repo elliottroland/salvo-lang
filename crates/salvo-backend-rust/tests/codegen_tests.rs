@@ -39,10 +39,10 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
     }
 }
 
-/// The mangled name of an overload in emitted text: the identifier starting
-/// with `prefix` (`fn eq__`) whose definition is followed by `signature`.
-/// Overload indices depend on how many overloads std declares, so a test
-/// that means "the mangling is kept" reads the index rather than pinning it.
+/// The emitted name of an overload in emitted text: the identifier starting
+/// with `prefix` (`fn eq`) whose definition is followed by `signature`.
+/// Names are per module since 2026-10-05 [fn-emit-name], so this reads the
+/// one a test's own module gives, plain or suffixed.
 fn mangled_name(text: &str, prefix: &str, signature: &str) -> String {
     let mut at = 0;
     while let Some(i) = text[at..].find(prefix) {
@@ -496,19 +496,21 @@ fn qualifiers_lower_to_predicates_and_mangled_fns() {
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .unwrap();
-    // Predicate qualifiers become top-level fns taking borrows.
+    // Predicate qualifiers become top-level fns taking borrows, named with
+    // their subject [fn-emit-name].
     assert!(main
         .content
-        .contains("pub fn Surname_qualifies(person: &Person) -> bool"));
+        .contains("pub fn Surname__Person_qualifies(person: &Person) -> bool"), "{}", main.content);
     assert!(main
         .content
-        .contains("pub fn Positive_qualifies(int: i32) -> bool"));
-    assert!(main.content.contains("if Surname_qualifies(person)"));
-    assert!(main.content.contains("if Positive_qualifies(n)"));
-    // The qualified overload is mangled.
+        .contains("pub fn Positive__Int_qualifies(int: i32) -> bool"));
+    assert!(main.content.contains("if Surname__Person_qualifies(person)"));
+    assert!(main.content.contains("if Positive__Int_qualifies(n)"));
+    // The overloads are named by their parameter types, the qualifier
+    // included where it is what tells them apart.
     assert!(main
         .content
-        .contains("pub fn full_name__Surname(person: &Person) -> String"));
+        .contains("pub fn full_name__SurnamePerson(person: &Person) -> String"), "{}", main.content);
     // Field overrides read out of the declared representation.
     assert!(main
         .content
@@ -835,9 +837,10 @@ fn crate_layout_mounts_only_used_modules() {
         .content
         .contains("#[path = \"core/console.rs\"]\npub mod core_console;"));
     assert!(!main.content.contains("pub mod unused;"));
-    // Generated imports.
-    assert!(main.content.contains("use crate::geometry::*;"));
-    assert!(main.content.contains("use crate::core_console::*;"));
+    // Generated imports: one per name used [rs-imports].
+    assert!(main.content.contains("use crate::geometry::area;"), "{}", main.content);
+    assert!(main.content.contains("use crate::core_console::println;"), "{}", main.content);
+    assert!(!main.content.contains("use crate::geometry::*;"), "{}", main.content);
 }
 
 #[test]
@@ -951,7 +954,7 @@ export fn main() [use] -> None {
     // The Positive overload wins at the call site (reads borrow
     // [rs-borrows], hence the mangled fn taking `&i32`).
     assert!(
-        main.content.contains("describe__Positive(&"),
+        main.content.contains("describe__PositiveInt(&"),
         "content: {}",
         main.content
     );
@@ -1285,17 +1288,15 @@ fn discard_lowers_to_drop() {
         .expect("main.rs emitted");
     // [linear-discard] A linear value's discharge is its own `close`; what
     // `discard` still lowers to is `drop`, for the non-linear values it is
-    // now the escape hatch for. The name carries a suffix because std
-    // declares a `close` too (the `Lines` discharger [fs-surface]) — one
-    // name, one overload set, and the emitters spell every overload after
-    // the first apart.
+    // now the escape hatch for. Plain: the program's module declares one
+    // `close`, and std's do not take part [fn-emit-name].
     assert!(
-        main.content.contains("close__4(h)"),
+        main.content.contains("close(h)"),
         "generated:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("close__4(temp)"),
+        main.content.contains("close(temp)"),
         "generated:\n{}",
         main.content
     );
@@ -3235,7 +3236,7 @@ fn dot_names_flatten() {
         main.content
     );
     assert!(
-        main.content.contains("pub fn label__EnvironmentTag("),
+        main.content.contains("pub fn label__EnvironmentTagStr("),
         "generated:\n{}",
         main.content
     );
@@ -4556,8 +4557,8 @@ fn a_raw_pass_is_driven_in_place_and_closed_explicitly() {
         main.content
     );
     assert!(
-        // Suffixed: std declares a `close` too [fs-surface].
-        main.content.contains("close__4(console, lines);"),
+        // Plain: the program's module declares one `close` [fn-emit-name].
+        main.content.contains("close(console, lines);"),
         "expected the program's own explicit close:\n{}",
         main.content
     );
@@ -4918,11 +4919,12 @@ fn implicit_parameters_lower_to_trailing_fn_arguments() {
         // A resolved default is passed as an adapter closure over the fn,
         // which bridges the position's convention to the callee's own: `add`
         // takes its `Int`s by value, so the adapter clones out of the
-        // borrows (free for a scalar). (`add__3`: core declares `add`s too.)
-        "&mut |__i0, __i1| add__3((__i0).clone(), (__i1).clone())",
+        // borrows (free for a scalar). Plain names: the program's module
+        // declares one of each [fn-emit-name].
+        "&mut |__i0, __i1| add((__i0).clone(), (__i1).clone())",
         // The same bridging for an override written at the call site
         // [implicit-override].
-        "&mut |__i0, __i1| times__2((__i0).clone(), (__i1).clone())",
+        "&mut |__i0, __i1| times((__i0).clone(), (__i1).clone())",
         // Forwarding reborrows the enclosing fn's own parameter.
         "&mut *add",
     ] {
@@ -6067,10 +6069,10 @@ fn a_mutable_use_of_a_narrowed_place_borrows_the_storage() {
     let src = &main.content;
     for needle in [
         // The optional, and the `state` slot inside the generated pass.
-        "next__5(p.as_mut().unwrap())",
-        "next__5(__p.inner.as_mut().unwrap())",
+        "next__ListYield(p.as_mut().unwrap())",
+        "next__ListYield(__p.inner.as_mut().unwrap())",
         // The union arm.
-        "next__5(q.u1_mut())",
+        "next__ListYield(q.u1_mut())",
         // The assignment base.
         "r.as_mut().unwrap().at = 2",
     ] {
@@ -7367,15 +7369,15 @@ fn scope_selectors_and_renames_are_erased() {
         !main.contains("label_small"),
         "unexpected rename in:\n{main}"
     );
-    // `@core.list` is std's `size`, mangled because this program declares its
-    // own [rs-fn-mangling].
+    // `@core.list` is std's `size`, a platform fn's wrapper called by its
+    // module's path.
     assert!(
-        main.contains("size_platform(&xs)"),
+        main.contains("crate::core_list::size_platform(&xs)"),
         "expected the core lowering:\n{main}"
     );
     // The renamed overload is called by its declaration's mangled name.
     assert!(
-        main.contains("label__Small(&n)") || main.contains("label__Small(n)"),
+        main.contains("label__SmallInt(&n)") || main.contains("label__SmallInt(n)"),
         "unexpected:\n{main}"
     );
     // The shadowed call goes through the crate path.
@@ -9299,25 +9301,25 @@ fn effect_member_overloads_get_distinct_names() {
         .expect("main.rs")
         .content;
     for expected in [
-        // The trait: `close`, then `close__2`, and the un-overloaded member
-        // keeps its own name. [rs-borrows] The **consuming** overloads take
-        // their parameter by value (`=> !f`) while the keeping `describe`
-        // borrows — a member's written clause is its whole contract.
-        "fn close(&mut self, f: InFile) -> String;",
-        "fn close__2(&mut self, f: OutFile) -> String;",
+        // The trait: each `close` suffixed by its parameter's type
+        // [fn-emit-name], and the un-overloaded member keeps its own name.
+        // [rs-borrows] The **consuming** overloads take their parameter by
+        // value (`=> !f`) while the keeping `describe` borrows — a member's
+        // written clause is its whole contract.
+        "fn close__InFile(&mut self, f: InFile) -> String;",
+        "fn close__OutFile(&mut self, f: OutFile) -> String;",
         "fn describe(&mut self, f: &InFile) -> String;",
         // The handler implements both under the trait's names, with the
         // trait's modes.
         "impl crate::__Stateless_Vault for Files {",
-        "fn close(&self, f: InFile) -> String {",
-        "fn close__2(&self, f: OutFile) -> String {",
+        "fn close__InFile(&self, f: InFile) -> String {",
+        "fn close__OutFile(&self, f: OutFile) -> String {",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
-    // The call sites: the `InFile` one takes the base name, the `OutFile` one
-    // (written with the `@Vault` selector) the suffixed name.
+    // The call sites, the `OutFile` one written with the `@Vault` selector.
     assert!(
-        src.contains(".close(InFile {") && src.contains(".close__2(OutFile {"),
+        src.contains(".close__InFile(InFile {") && src.contains(".close__OutFile(OutFile {"),
         "expected both call sites to name their own overload and pass the \
          consumed argument owned, got:\n{src}"
     );
@@ -9495,13 +9497,13 @@ fn a_linear_token_is_discharged_by_an_effect_member() {
     for expected in [
         // The consuming overloads own their token; the mutating members
         // borrow it mutably.
-        "fn close(&mut self, s: InTape) -> String;",
-        "fn close__2(&mut self, s: OutTape) -> String;",
+        "fn close__InTape(&mut self, s: InTape) -> String;",
+        "fn close__OutTape(&mut self, s: OutTape) -> String;",
         "fn read_line(&mut self, s: &mut InTape) -> String;",
         // A discharged token is dropped, so `discard` emits nothing that
         // could resurrect it: the value simply ends there. (The handler is
         // stateless, so its receiver is `&self` [rs-handle].)
-        "fn close(&self, s: InTape) -> String {",
+        "fn close__InTape(&self, s: InTape) -> String {",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -9948,12 +9950,12 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
     for expected in [
         "pub trait __Stateful_Streams: Send {",
         // The token is consumed: by value, not `&InStream`.
-        "fn close(&mut self, s: InStream)",
+        "fn close__InStream(&mut self, s: InStream)",
         // …and kept members borrow it.
         "fn read_line(&mut self, s: &InStream) -> Option<String>",
         // [effect-available] One overload set: the pass's discharger is a
         // *fn* named `close`, beside the two members of that name.
-        "pub fn close__2(streams: &crate::stream::Streams, p: Lines)",
+        "pub fn close__Lines(streams: &crate::stream::Streams, p: Lines)",
     ] {
         assert!(
             surface.contains(expected),
@@ -14495,12 +14497,9 @@ fn a_mixed_identity_fill_pairs_both_slots() {
         "and for a map too: {rust}"
     );
     // Each marker calls its identity by the name that identity is *emitted*
-    // under: the generated structural member is mangled (`eq__N`, N being
-    // however many `eq` overloads std happens to declare before it), and a
-    // marker that lost the mangling was rustc's E0425 in the value path
-    // beside it. Read the index off the emitted definition rather than
-    // pinning it, so a new `auto Hashed` struct in std does not break this.
-    let mangled_eq = mangled_name(&rust, "fn eq__", "(a: &Point, b: &Point)");
+    // under [fn-emit-name]; a marker that lost it was rustc's E0425 in the
+    // value path beside it.
+    let mangled_eq = mangled_name(&rust, "fn eq", "(a: &Point, b: &Point)");
     assert!(
         rust.contains(&format!(
             "fn eq(__a: &Point, __b: &Point) -> bool {{ {mangled_eq}(__a, __b) }}"
@@ -14646,7 +14645,7 @@ fn a_held_identity_is_shared_and_a_written_one_owned() {
         rust.contains("std::sync::Arc::new(move |__i0| by_x(__i0))")
             && rust.contains(&format!(
                 "std::sync::Arc::new(move |__i0, __i1| {}(__i0, __i1))",
-                mangled_name(&rust, "fn eq__", "(a: &Point, b: &Point)")
+                mangled_name(&rust, "fn eq", "(a: &Point, b: &Point)")
             )),
         "written fills at kept positions are owned, and keep their mangling: {rust}"
     );
@@ -15069,7 +15068,7 @@ fn a_loops_temporary_subject_is_hoisted() {
         main.content
     );
     assert!(
-        main.content.contains("let mut __loop1_pass = iter__4(&__t1);"),
+        main.content.contains("let mut __loop1_pass = iter(&__t1);"),
         "…and the pass must borrow the local:\n{}",
         main.content
     );
@@ -15237,7 +15236,7 @@ fn a_qualified_argument_still_binds_an_implicits_type_variable() {
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     // Both calls fill `?next` from `core.list`, not from the sibling `Sib`.
     assert_eq!(
-        main.content.matches("next__5(").count(),
+        main.content.matches("next__ListYield(").count(),
         2,
         "both calls must drive the list's `next`:\n{}",
         main.content

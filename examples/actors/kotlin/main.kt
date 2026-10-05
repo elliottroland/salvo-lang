@@ -1,14 +1,20 @@
 package salvo.main
 
-import salvo.core.actor.*
-import salvo.core.bytes.*
-import salvo.core.console.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.core.actor.Exit
+import salvo.core.actor.__Codec_Exit
+import salvo.core.bytes.next
+import salvo.core.console.Console
+import salvo.core.console.println
+import salvo.core.deque.addLastPlatform
+import salvo.core.deque.drain
+import salvo.core.deque.mutDequeOf
+import salvo.core.deque.removeFirstPlatform
+import salvo.core.list.first
+import salvo.core.list.getPlatform
+import salvo.core.map.next
+import salvo.core.set.next
+import salvo.core.string.next
+import salvo.core.string.sizePlatform
 
 interface Counter {
     fun bump(n: Int)

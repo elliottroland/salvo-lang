@@ -1,6 +1,5 @@
-use crate::core_iterator::*;
-use crate::core_string::*;
 use crate::unions::*;
+use crate::core_string::mut_str;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProfileCredentials {
@@ -119,7 +118,7 @@ impl crate::wire::__Wire for AwsError {
     }
 }
 
-pub fn to_str__11(value: &ProfileCredentials) -> String {
+pub fn to_str(value: &ProfileCredentials) -> String {
     let mut out: String = mut_str(vec!["ProfileCredentials {".to_string()]);
     crate::core_string::append_platform(&mut out, &(" ".to_string()));
     crate::core_string::append_platform(&mut out, &(format!("profile: {}", value.profile.clone())));

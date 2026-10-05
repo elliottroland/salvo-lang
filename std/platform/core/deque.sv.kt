@@ -4,9 +4,6 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.core.deque
 
-import salvo.core.bytes.*
-import salvo.core.list.*
-import salvo.core.string.*
 
 fun<T> emptyDequePlatform(): salvo.platform.core.deque.MutDeque<T> {
     return salvo.platform.core.deque.emptyDeque()

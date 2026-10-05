@@ -221,42 +221,50 @@ fn reachable_from<'p>(
 ///
 /// Answers *file* indices, which each backend maps to its own module naming.
 pub fn resolved_dep_files(checked: &crate::check::Checked, file_idx: usize) -> HashSet<usize> {
-    let mut out: HashSet<usize> = HashSet::new();
+    let mut out: HashSet<usize> = resolved_fn_keys(checked, file_idx).into_iter().map(|k| k.file).collect();
+    out.remove(&file_idx);
+    out
+}
+
+/// [fn-emit-name] Every fn the checker resolved a use of in `file_idx` to —
+/// the tables `resolved_dep_files` reads, kept at the declaration.
+pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> HashSet<crate::FnKey> {
+    let mut out: HashSet<crate::FnKey> = HashSet::new();
     let mine = |key: &&(usize, salvo_syntax::Span)| key.0 == file_idx;
     // Calls, and fn *names* used any other way (a fn passed by value, a
     // callee, a declaration site) [fn-ref-table].
     for (_, fn_key) in checked.call_fn.iter().filter(|(k, _)| mine(k)) {
-        out.insert(fn_key.file);
+        out.insert(*fn_key);
     }
     for (_, fn_key) in checked.fn_refs.iter().filter(|(k, _)| mine(k)) {
-        out.insert(fn_key.file);
+        out.insert(*fn_key);
     }
     // [implicit-resolve] What fills an implicit position — `?cmp`, `?hash`,
     // a group's `next` — is a function the emitted call hands over.
     for (_, args) in checked.implicit_args.iter().filter(|(k, _)| mine(k)) {
         for arg in args {
             if let crate::check::ImplicitArg::Resolved { key, .. } = arg {
-                out.insert(key.file);
+                out.insert(*key);
             }
         }
     }
     // [cmp-groups] An operator names nothing: `a < b` resolves to a `cmp`.
     for (_, via) in checked.comparisons.iter().filter(|(k, _)| mine(k)) {
         if let crate::check::CompareVia::Call(key) = via {
-            out.insert(key.file);
+            out.insert(*key);
         }
     }
     // [interp-to-str] [interp-struct] The text form an interpolation resolved.
     for (_, fn_key) in checked.interp_to_str.iter().filter(|(k, _)| mine(k)) {
-        out.insert(fn_key.file);
+        out.insert(*fn_key);
     }
     // [iter-resolve] The `next` a `for` drives and the `iter` it mints with.
     for (_, driver) in checked.for_drivers.iter().filter(|(k, _)| mine(k)) {
         if let Some(key) = driver.next.key() {
-            out.insert(key.file);
+            out.insert(key);
         }
         if let Some(crate::PassMember::Fn(key)) = driver.mint {
-            out.insert(key.file);
+            out.insert(key);
         }
     }
     // [cmp-carry] An identity a keyed container carries reaches this answer
@@ -265,7 +273,6 @@ pub fn resolved_dep_files(checked: &crate::check::Checked, file_idx: usize) -> H
     // keyed by (name, subject), so scanning it whole made every program
     // depend on every identity any program mentioned (an empty `main` emitted
     // the sequence helpers, which is how it was caught).
-    out.remove(&file_idx);
     out
 }
 

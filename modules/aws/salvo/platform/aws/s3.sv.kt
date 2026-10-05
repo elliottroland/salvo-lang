@@ -5,17 +5,11 @@
 package salvo.aws.s3
 
 import salvo.*
-import salvo.aws.*
-import salvo.core.actor.*
-import salvo.core.bytes.*
-import salvo.core.checked.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.stream.*
-import salvo.time.*
+import salvo.aws.AwsError
+import salvo.core.checked.Checked
+import salvo.stream.InStream
+import salvo.time.Instant
+import salvo.time.__Codec_Instant
 
 data class PutObjectInput(
     val acl: String? = null,

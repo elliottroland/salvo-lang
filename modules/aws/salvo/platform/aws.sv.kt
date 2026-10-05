@@ -5,8 +5,6 @@
 package salvo.aws
 
 import salvo.*
-import salvo.core.bytes.*
-import salvo.core.string.*
 
 data class ProfileCredentials(
     val profile: String = "default",

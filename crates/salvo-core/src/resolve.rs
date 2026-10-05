@@ -1112,7 +1112,7 @@ impl<'e, 'p> AddCtx<'e, 'p> {
 /// * nothing visible here may carry the *concatenated* name, because the
 ///   Rust backend flattens `Ns.Name` to `NsName` — and the same
 ///   concatenation is what overload mangling embeds
-///   [kt-qual-mangling] [rs-fn-mangling]. Checked against the whole
+///   [fn-emit-name] [rs-fn-mangling]. Checked against the whole
 ///   scope, so an imported `NsName` counts.
 /// * module path segments must be lowercase, so an import path splits
 ///   into module prefix and item name unambiguously [name-casing].

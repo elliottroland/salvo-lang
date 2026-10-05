@@ -52,16 +52,16 @@ pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
 
-use crate::core_actor::*;
-use crate::core_bytes::*;
-use crate::core_console::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
+use crate::core_actor::Exit;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_console::ConsolePlatformSync as _;
+use crate::core_console::__Stateful_Console as _;
+use crate::core_console::__Stateless_Console as _;
+use crate::core_console::println;
+use crate::core_deque::drain;
+use crate::core_deque::mut_deque_of;
+use crate::core_list::first;
 
 pub trait __Stateless_Counter: Send + Sync {
     fn bump(&self, n: i32);

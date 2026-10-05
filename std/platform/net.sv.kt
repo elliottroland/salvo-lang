@@ -5,11 +5,6 @@
 package salvo.net
 
 import salvo.*
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.seq.*
-import salvo.core.string.*
 
 data class NodeEndpoint(
     val host: String,

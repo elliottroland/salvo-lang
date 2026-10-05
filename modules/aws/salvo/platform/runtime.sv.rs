@@ -2,16 +2,16 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
-use crate::core_actor::*;
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
 use crate::unions::*;
+use crate::core_actor::Exit;
+use crate::core_actor::Idle;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_deque::drain as drain__core_deque;
+use crate::core_deque::mut_deque_of;
+use crate::core_list::any;
+use crate::core_list::at;
+use crate::core_list::drain as drain__core_list;
 
 /// [mod-use] The module's `use` #0, bound on first use.
 fn __module_use_0() -> &'static crate::runtime::RuntimeHost {
@@ -415,8 +415,8 @@ pub fn drop_actor_rec(a: ActorRec) {
     let mut ready = __destructured4.ready;
     let mut proxy = __destructured4.proxy;
     drop_slot_platform(body);
-    drain(queue, &mut (|e| drop_entry(e)));
-    drain__2(watchers, &mut (|t| drop_token(t)));
+    drain__core_deque(queue, &mut (|e| drop_entry(e)));
+    drain__core_list(watchers, &mut (|t| drop_token(t)));
 }
 
 
@@ -513,7 +513,7 @@ pub fn drop_pool_rec(p: PoolRec) {
     let mut owed = __destructured7.owed;
     let mut dedicated = __destructured7.dedicated;
     let mut retired = __destructured7.retired;
-    drain(tasks, &mut (|t| drop_task_run(t)));
+    drain__core_deque(tasks, &mut (|t| drop_task_run(t)));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1267,7 +1267,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             let mut t = __is3.unwrap();
             deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, erase_platform(Exit { reason: reason.clone() }));
         }
-        drain__2(watchers, &mut (|t| drop_token(t)));
+        drain__core_list(watchers, &mut (|t| drop_token(t)));
     }
 
     fn mint_actor(&mut self, addr: i32, gated: bool) -> Token {
@@ -1469,7 +1469,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             let mut t = __is6.unwrap();
             deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, erase_platform(Exit { reason: reason.clone() }));
         }
-        drain__2(watchers, &mut (|t| drop_token(t)));
+        drain__core_list(watchers, &mut (|t| drop_token(t)));
         retire_if_done(&mut self.actors, &mut self.pools, pool.clone());
         wake_all_pools(&mut self.pools);
     }

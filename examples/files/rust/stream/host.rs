@@ -1,17 +1,39 @@
-use crate::core_actor::*;
-use crate::core_bytes::*;
-use crate::core_checked::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_result::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::runtime_streams::*;
-use crate::stream::*;
 use crate::unions::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_bytes::Bytes;
+use crate::core_checked::Checked;
+use crate::core_checked::checked;
+use crate::core_list::at;
+use crate::core_list::count;
+use crate::core_result::err;
+use crate::core_result::ok;
+use crate::core_sorted::max;
+use crate::runtime_streams::Chunk;
+use crate::runtime_streams::__Stateful_StreamTable as _;
+use crate::runtime_streams::__Stateless_StreamTable as _;
+use crate::runtime_streams::checkin_in;
+use crate::runtime_streams::checkin_out;
+use crate::runtime_streams::checkout_in;
+use crate::runtime_streams::checkout_out;
+use crate::runtime_streams::close_in;
+use crate::runtime_streams::close_out;
+use crate::runtime_streams::decode;
+use crate::runtime_streams::flush;
+use crate::runtime_streams::read_all;
+use crate::runtime_streams::read_line;
+use crate::runtime_streams::read_up_to;
+use crate::runtime_streams::receive;
+use crate::runtime_streams::register_bytes;
+use crate::runtime_streams::write;
+use crate::stream::End;
+use crate::stream::InStream;
+use crate::stream::InvalidUtf8;
+use crate::stream::OutStream;
+use crate::stream::Packet;
+use crate::stream::StreamFailed;
+use crate::stream::__Stateful_Streams as _;
+use crate::stream::__Stateless_Streams as _;
 
 pub trait __Stateless_RawStreams: Send + Sync {
     fn raw_read_line(&self, handle: i64) -> Option<String>;
@@ -318,7 +340,7 @@ impl crate::stream_host::__Stateless_RawStreams for HostRawStreams {
     fn raw_flush(&self, handle: i64) -> Union2<(), Union2<InvalidUtf8, StreamFailed>> {
         let mut e = checkout_out(handle.clone());
         let mut source = e.source.clone();
-        let mut failed = flush__2(&mut e);
+        let mut failed = flush(&mut e);
         checkin_out(handle, e);
         if failed.is_some() {
             let mut f = failed.as_ref().unwrap().clone();
@@ -419,7 +441,7 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         }
     }
 
-    fn read_to(&self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    fn read_to__InStream_Bytes_Int(&self, s: &InStream, buf: &mut Bytes, max: i32) -> Union2<i32, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         let mut r = self.__dep_RawStreams.raw_read_to_bytes(s.handle, buf, max);
         match r {
             Union2::U1(_) => {
@@ -431,7 +453,7 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         }
     }
 
-    fn read_to__2(&self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    fn read_to__InStream_Str(&self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         let mut r = self.__dep_RawStreams.raw_read_to_str(s.handle, buf);
         match r {
             Union2::U1(_) => {
@@ -447,11 +469,11 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         return self.__dep_RawStreams.raw_read_line_to_str(s.handle, buf);
     }
 
-    fn position(&self, s: &InStream) -> i64 {
+    fn position__InStream(&self, s: &InStream) -> i64 {
         return self.__dep_RawStreams.raw_read_position(s.handle);
     }
 
-    fn close(&self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    fn close__InStream(&self, s: InStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
         let mut r = self.__dep_RawStreams.raw_close_read(s.handle);
         drop(s);
         match r {
@@ -486,7 +508,7 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         return self.__dep_RawStreams.raw_write_bytes(s.handle, data);
     }
 
-    fn position__2(&self, s: &OutStream) -> i64 {
+    fn position__OutStream(&self, s: &OutStream) -> i64 {
         return self.__dep_RawStreams.raw_write_position(s.handle);
     }
 
@@ -502,7 +524,7 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         }
     }
 
-    fn close__2(&self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
+    fn close__OutStream(&self, s: OutStream) -> Union2<(), Checked<Union2<InvalidUtf8, StreamFailed>>> {
         let mut r = self.__dep_RawStreams.raw_close_write(s.handle);
         drop(s);
         match r {

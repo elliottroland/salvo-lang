@@ -1,11 +1,11 @@
 package salvo.main
 
-import salvo.core.console.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.core.console.Console
+import salvo.core.console.println
+import salvo.core.list.addPlatform
+import salvo.core.list.first
+import salvo.core.list.getPlatform
+import salvo.core.list.sizePlatform
 
 fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
     return sizePlatform(list) > 0
@@ -20,11 +20,11 @@ fun celsius(degrees: Int): Int {
     return degrees
 }
 
-fun describe(temp: Int): String {
+fun describe__Int(temp: Int): String {
     return "$temp (no unit)"
 }
 
-fun describe__Celsius(temp: Int): String {
+fun describe__CelsiusInt(temp: Int): String {
     return "$temp°C"
 }
 
@@ -64,15 +64,15 @@ fun touch(request: Request) {
     request.touches = request.touches + 1
 }
 
-fun handle(request: Request): String {
+fun handle__Request(request: Request): String {
     return "plain ${request.path}"
 }
 
-fun handle__Authenticated(request: Request): String {
+fun handle__AuthenticatedRequest(request: Request): String {
     return "authenticated ${request.path}"
 }
 
-fun handle__Fresh(request: Request): String {
+fun handle__FreshRequest(request: Request): String {
     return "fresh ${request.path}"
 }
 
@@ -87,9 +87,9 @@ fun main() {
     }
     val plain = 21
     val warm = celsius(21)
-    println(console, "2. ${describe(plain)} vs ${describe__Celsius(warm)}")
+    println(console, "2. ${describe__Int(plain)} vs ${describe__CelsiusInt(warm)}")
     if (true) {
-        println(console, "2. widened: ${describe(warm)}")
+        println(console, "2. widened: ${describe__Int(warm)}")
     }
     println(console, "3. sum ${sum(xs)}, head still ${head(xs)}")
     compact(xs)
@@ -97,8 +97,8 @@ fun main() {
     println(console, "3. after compact and add, head is ${head(xs)}")
     val session = authenticate(Request(path = "/orders", touches = 0))
     val fresh = freshen(Request(path = "/health", touches = 0))
-    println(console, "4. before: ${handle__Authenticated(session)} / ${handle__Fresh(fresh)}")
+    println(console, "4. before: ${handle__AuthenticatedRequest(session)} / ${handle__FreshRequest(fresh)}")
     touch(session)
     touch(fresh)
-    println(console, "4. after:  ${handle__Authenticated(session)} / ${handle(fresh)}")
+    println(console, "4. after:  ${handle__AuthenticatedRequest(session)} / ${handle__Request(fresh)}")
 }

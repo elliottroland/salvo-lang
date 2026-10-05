@@ -5,11 +5,6 @@
 package salvo.stream
 
 import salvo.*
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.string.*
-import salvo.runtime.streams.*
 
 // Factories for the host: one per arm of the union [platform-factory].
 object StreamErrors {

@@ -1,16 +1,33 @@
 package salvo.runtime.routing
 
 import salvo.*
-import salvo.core.actor.*
-import salvo.core.array.*
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.runtime.*
+import salvo.core.list.addPlatform
+import salvo.core.list.at
+import salvo.core.list.getPlatform
+import salvo.core.list.removeAtPlatform
+import salvo.core.list.sizePlatform
+import salvo.runtime.Exported
+import salvo.runtime.actorPool
+import salvo.runtime.answer
+import salvo.runtime.currentPool
+import salvo.runtime.deliverRemote
+import salvo.runtime.dropBodyPlatform
+import salvo.runtime.identityBits
+import salvo.runtime.killActor
+import salvo.runtime.mailboxDead
+import salvo.runtime.mailboxQueued
+import salvo.runtime.mailboxRoom
+import salvo.runtime.markProxy
+import salvo.runtime.mintTaskOn
+import salvo.runtime.newPoolOf
+import salvo.runtime.parkNanosPlatform
+import salvo.runtime.parkPlatform
+import salvo.runtime.spawnInert
+import salvo.runtime.thisParkerPlatform
+import salvo.runtime.tokenToActor
+import salvo.runtime.tokenToWaiter
+import salvo.runtime.unparkPlatform
+import salvo.runtime.waiterPool
 
 // [mod-use] The module's `use` #0, bound on first use.
 private val __moduleUse0: RouteTable by lazy {
@@ -519,7 +536,7 @@ class Routes : RouteTable {
     private var poolNode: MutableMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
     private var bits: MutableMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
     private var remote: MutableMap<Int, RemoteRef> = linkedMapOf<Int, RemoteRef>().also { __m -> __m.putAll(listOf()) }
-    private var proxies: MutableMap<RemoteRef, Int> = salvo.SalvoHashMap<RemoteRef, Int>(::hash__5, ::eq__5).also { __m -> __m.putAll(listOf()) }
+    private var proxies: MutableMap<RemoteRef, Int> = salvo.SalvoHashMap<RemoteRef, Int>(::hash__RemoteRef, ::eq__RemoteRef_RemoteRef).also { __m -> __m.putAll(listOf()) }
     private var credits: MutableMap<Int, Int> = linkedMapOf<Int, Int>().also { __m -> __m.putAll(listOf()) }
     private var heldN: MutableMap<Int, Int> = linkedMapOf<Int, Int>().also { __m -> __m.putAll(listOf()) }
     private var routes: MutableMap<Long, salvo.platform.core.bytes.Bytes> = linkedMapOf<Long, salvo.platform.core.bytes.Bytes>().also { __m -> __m.putAll(listOf()) }
@@ -528,7 +545,7 @@ class Routes : RouteTable {
     private var outbox: salvo.platform.core.list.MutList<Staged> = mutableListOf<Staged>()
     private var taskKeys: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
     private var tasks: salvo.platform.core.list.MutList<ExportedTask> = mutableListOf<ExportedTask>()
-    private var controls: MutableMap<ControlKey, Int> = salvo.SalvoHashMap<ControlKey, Int>(::hash__6, ::eq__6).also { __m -> __m.putAll(listOf()) }
+    private var controls: MutableMap<ControlKey, Int> = salvo.SalvoHashMap<ControlKey, Int>(::hash__ControlKey, ::eq__ControlKey_ControlKey).also { __m -> __m.putAll(listOf()) }
     private var local: List<Pair<String, String>> = listOf<Pair<String, String>>()
     private var peers: MutableMap<Long, List<Pair<String, String>>> = linkedMapOf<Long, List<Pair<String, String>>>().also { __m -> __m.putAll(listOf()) }
     private var deadEntry: Int = -1
@@ -964,7 +981,7 @@ fun sameActor(a: Int, b: Int): Boolean {
     if (!__moduleUse0.isProxy(a) && !__moduleUse0.isProxy(b)) {
         return false
     }
-    return eq__5(identity(a), identity(b))
+    return eq__RemoteRef_RemoteRef(identity(a), identity(b))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -1274,7 +1291,7 @@ fun viewWait(group: Int, seen: Long, nanos: Long) {
     __moduleUse0.dropViewWaiter(id)
 }
 
-fun hash__5(value: RemoteRef): Long {
+fun hash__RemoteRef(value: RemoteRef): Long {
     var h = 17L
     h = ((h) * 31L + ((value.node).hashCode().toLong()))
     h = ((h) * 31L + ((value.actor).hashCode().toLong()))
@@ -1282,7 +1299,7 @@ fun hash__5(value: RemoteRef): Long {
     return h
 }
 
-fun eq__5(a: RemoteRef, b: RemoteRef): Boolean {
+fun eq__RemoteRef_RemoteRef(a: RemoteRef, b: RemoteRef): Boolean {
     if (!((a.node) == (b.node))) {
         return false
     }
@@ -1295,14 +1312,14 @@ fun eq__5(a: RemoteRef, b: RemoteRef): Boolean {
     return true
 }
 
-fun hash__6(value: ControlKey): Long {
+fun hash__ControlKey(value: ControlKey): Long {
     var h = 17L
     h = ((h) * 31L + ((value.node).hashCode().toLong()))
     h = ((h) * 31L + ((value.channel).hashCode().toLong()))
     return h
 }
 
-fun eq__6(a: ControlKey, b: ControlKey): Boolean {
+fun eq__ControlKey_ControlKey(a: ControlKey, b: ControlKey): Boolean {
     if (!((a.node) == (b.node))) {
         return false
     }

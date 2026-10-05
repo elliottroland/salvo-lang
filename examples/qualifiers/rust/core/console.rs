@@ -1,5 +1,3 @@
-use crate::core_iterator::*;
-use crate::core_string::*;
 
 pub trait __Stateless_Console: Send + Sync {
     fn print(&self, message: &String);

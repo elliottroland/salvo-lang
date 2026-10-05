@@ -12,7 +12,7 @@
 //! code [backend-never-wrong]): tuples beyond Pair/Triple, multi-spread
 //! struct literals.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use salvo_core::check::{Checked, Coercion, PredicateCheck, UnionTest};
 use salvo_core::types::{FnId, Ty};
@@ -199,6 +199,10 @@ fn emit_program_mode(
     }
 
     let mut files = Vec::new();
+    let fn_names = std::rc::Rc::new(salvo_core::naming::FnNames::compute(program));
+    errors.extend(fn_names.errors.iter().cloned());
+    let mut import_plans: Vec<(usize, ModulePath, BTreeSet<ModulePath>, BTreeMap<String, (ModulePath, String)>)> =
+        Vec::new();
     let mut union_sizes: BTreeSet<usize> = BTreeSet::new();
     // [kt-tuple-class] The tuple arities past `Pair`/`Triple` the program
     // names, which `tuples.kt` declares a class for.
@@ -238,9 +242,17 @@ fn emit_program_mode(
             &emitted_modules,
         );
         emitter.generated_imports = generated;
+        emitter.fn_names = fn_names.clone();
+        emitter.clashing = fn_names.clashing(program, &checked, file_idx);
         emitter.abi_keep = if abi_full.contains(&unit.file.module) { None } else { closure.clone() };
         emitter.platform_effects = platform_effects.clone();
         let content = emitter.emit_module(unit.ast);
+        import_plans.push((
+            files.len(),
+            unit.file.module.clone(),
+            std::mem::take(&mut emitter.dep_modules),
+            std::mem::take(&mut emitter.fn_aliases),
+        ));
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
         tuple_sizes.extend(emitter.tuple_sizes);
@@ -259,6 +271,8 @@ fn emit_program_mode(
         rel_path.set_extension(if abi { "sv.kt" } else { "kt" });
         files.push(EmittedFile { rel_path, content });
     }
+    // [kt-imports] One import per foreign name each file's text mentions.
+    crate::imports::explicit_imports(&mut files, &import_plans, kotlin_package);
     if !union_sizes.is_empty() {
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("unions.kt"),
@@ -1207,6 +1221,16 @@ struct Emitter<'p> {
     /// Generated Kotlin imports for this file [kt-imports] (wildcards for
     /// referenced foreign modules, aliases for aliased imports).
     generated_imports: BTreeSet<String>,
+    /// [kt-imports] The foreign emitted modules this file may name, which
+    /// `explicit_imports` turns into one import per name the text mentions.
+    dep_modules: BTreeSet<ModulePath>,
+    /// [fn-emit-name] Every top-level fn's emitted name, per module.
+    fn_names: std::rc::Rc<salvo_core::naming::FnNames>,
+    /// [kt-imports] The foreign fns this file calls under an alias
+    /// (`FnNames::clashing`).
+    clashing: HashSet<(ModulePath, String)>,
+    /// [kt-imports] Foreign fns called under an alias: alias → (module, name).
+    fn_aliases: BTreeMap<String, (ModulePath, String)>,
 }
 
 /// One handler in scope: the checker effect type when known (the primary
@@ -1278,6 +1302,10 @@ impl<'p> Emitter<'p> {
             handler_deps: Vec::new(),
             stmt_ctx: StmtCtx::Normal,
             generated_imports: BTreeSet::new(),
+            dep_modules: BTreeSet::new(),
+            fn_names: std::rc::Rc::new(salvo_core::naming::FnNames::compute(program)),
+            clashing: HashSet::new(),
+            fn_aliases: BTreeMap::new(),
         }
     }
 
@@ -1653,13 +1681,14 @@ impl<'p> Emitter<'p> {
         if !self.tuple_sizes.is_empty() {
             imports.insert("import salvo.*".to_string());
         }
-        if !imports.is_empty() {
+        out.push('\n');
+        for import in &imports {
+            out.push_str(import);
             out.push('\n');
-            for import in &imports {
-                out.push_str(import);
-                out.push('\n');
-            }
         }
+        // [kt-imports] Where `explicit_imports` writes the imports of Salvo
+        // declarations, once every module's are known.
+        out.push_str(crate::imports::IMPORTS_MARK);
         out.push_str(&body);
         out
     }
@@ -4032,7 +4061,7 @@ impl<'p> Emitter<'p> {
     /// that exists as a Kotlin symbol (an `intrinsic fn` has none: it is
     /// lowered inline).
     /// Aliased fns get one alias import per overload *symbol*: a mangled
-    /// qualified overload [kt-qual-mangling] is its own Kotlin name, and
+    /// qualified overload [fn-emit-name] is its own Kotlin name, and
     /// its alias carries the same `__Qual` suffix so aliased call sites
     /// can address it.
     fn generate_imports(
@@ -4046,7 +4075,7 @@ impl<'p> Emitter<'p> {
         for name in salvo_core::reach::used_names(ast) {
             for module in scope.name_origins.get(name).into_iter().flatten() {
                 if *module != own && emitted_modules.contains(*module) {
-                    imports.insert(format!("import {}.*", kotlin_package(module)));
+                    self.dep_modules.insert((*module).clone());
                 }
             }
         }
@@ -4062,7 +4091,7 @@ impl<'p> Emitter<'p> {
         if drives_or_mints {
             for module in scope.name_origins.get("Finished").into_iter().flatten() {
                 if *module != own && emitted_modules.contains(*module) {
-                    imports.insert(format!("import {}.*", kotlin_package(module)));
+                    self.dep_modules.insert((*module).clone());
                 }
             }
         }
@@ -4075,7 +4104,7 @@ impl<'p> Emitter<'p> {
             let Some(unit) = self.program.units().nth(dep) else { continue };
             let module = &unit.file.module;
             if module != own && emitted_modules.contains(module) {
-                imports.insert(format!("import {}.*", kotlin_package(module)));
+                self.dep_modules.insert((*module).clone());
             }
         }
         // [effect-handler-multi] [effect-prereq] …and the effects a `use` binds:
@@ -4100,7 +4129,7 @@ impl<'p> Emitter<'p> {
                 });
                 let module = &unit.file.module;
                 if declares && module != own && emitted_modules.contains(module) {
-                    imports.insert(format!("import {}.*", kotlin_package(module)));
+                    self.dep_modules.insert((*module).clone());
                 }
             }
         }
@@ -4178,75 +4207,53 @@ impl<'p> Emitter<'p> {
         // [platform-fn] The program calls a platform fn's wrapper,
         // `<name>Platform`; the implementation keeps the real name (user
         // decision 2026-10-01). Two platform fns never overload each other.
-        if decl.platform {
-            return kt_ident(&format!("{}_platform", decl.name.name));
-        }
-        let name = decl.name.name.clone();
-        let overloads: Vec<&FnDecl> = match self.symbols.fns.get(name.as_str()) {
-            // [obligation-by] A generated structural member has no body and is
-            // still emitted, so it takes part in mangling like any overload —
-            // without this, three `auto Eq` structs would all emit `eq`.
-            Some(o) if o.len() > 1 => o
-                .iter()
-                .filter(|f| f.body.is_some())
-                .copied()
-                .collect(),
-            _ => return kt_ident(&name),
+        // [platform-fn] A platform fn is called through its wrapper,
+        // `<name>Platform`; the implementation keeps the real name (user
+        // decision 2026-10-01). Named and imported like any fn below.
+        // [fn-emit-name] The module's own name for it, then [kt-imports] an
+        // alias when this file sees the same name from another module —
+        // which is also what keeps Kotlin from resolving between the two
+        // [kt-fn-mangling].
+        let emitted = self.fn_names.get(decl).unwrap_or(&decl.name.name).to_string();
+        let Some(module) = self.module_of_fn(decl) else {
+            return kt_ident(&emitted);
         };
-        if overloads.len() <= 1 {
-            return kt_ident(&name);
+        let own = self.program.files[self.file_idx].module.clone();
+        if module == own {
+            return kt_ident(&emitted);
         }
-        // Qualifier-suffix pass: an overload whose erased signature
-        // collides with another's gets its qualifier suffix
-        // [kt-qual-mangling].
-        let mangled: Vec<String> = overloads
-            .iter()
-            .map(|f| {
-                let suffix = qual_suffix(f);
-                if suffix.is_empty() {
-                    return name.clone();
+        let name = if decl.platform { emitted.as_str() } else { decl.name.name.as_str() };
+        let clashes = self.fn_names.module_emits(&own, name, &emitted)
+            || self.clashing.contains(&(module.clone(), emitted.clone()));
+        if !clashes {
+            // [kt-imports] Imported from the module the call resolved to.
+            let plain = kt_ident(&emitted);
+            // A second module's fn of this name that the checker's tables did
+            // not show (a call the emitter synthesized) would be imported
+            // over the first: refused rather than guessed [backend-never-wrong].
+            if let Some((other, _)) = self.fn_aliases.get(&plain) {
+                if *other != module {
+                    self.error(format!(
+                        "internal: `{plain}` is called from both `{}` and `{}` here, and the \
+                         second call was not foreseen when choosing import aliases [fn-emit-name]",
+                        other.0.join("."),
+                        module.0.join(".")
+                    ));
                 }
-                let mine = self.erased_sig(f);
-                let collides = overloads.iter().any(|other| {
-                    !std::ptr::eq(*other as *const FnDecl, *f as *const FnDecl)
-                        && self.erased_sig(other) == mine
-                });
-                if collides {
-                    format!("{name}__{suffix}")
-                } else {
-                    name.clone()
-                }
-            })
-            .collect();
-        // Positional pass over what still collides.
-        let mut final_names = mangled.clone();
-        for i in 0..final_names.len() {
-            let dup_before = mangled[..i].iter().filter(|m| **m == mangled[i]).count();
-            if dup_before > 0 {
-                final_names[i] = format!("{}__{}", mangled[i], dup_before + 1);
             }
+            self.fn_aliases.insert(plain.clone(), (module, plain.clone()));
+            return plain;
         }
-        for (f, final_name) in overloads.iter().zip(&final_names) {
-            if std::ptr::eq(*f as *const FnDecl, decl as *const FnDecl) {
-                return kt_ident(final_name);
-            }
-        }
-        kt_ident(&name)
+        let alias = kt_ident(&format!("{emitted}__{}", module.0.join("_")));
+        self.fn_aliases.insert(alias.clone(), (module, kt_ident(&emitted)));
+        alias
     }
 
-    /// The erased (Kotlin) parameter signature of a fn, for collision
-    /// detection between qualifier-based overloads.
-    fn erased_sig(&mut self, decl: &FnDecl) -> String {
-        let saved = self.enter_generics(&decl.generics);
-        let sig = decl
-            .params
-            .iter()
-            .map(|p| self.emit_type(&p.ty))
-            .collect::<Vec<_>>()
-            .join(",");
-        self.generics = saved;
-        sig
+    /// The module declaring `decl`.
+    fn module_of_fn(&self, decl: &FnDecl) -> Option<ModulePath> {
+        self.fn_names.module_of(decl).cloned()
     }
+
 
     fn emit_param_list(&mut self, params: &[Param]) -> String {
         params
@@ -10030,7 +10037,7 @@ impl<'p> Emitter<'p> {
         // A call through an import alias keeps the alias: the generated
         // Kotlin alias import maps it to the declaration [kt-imports].
         // A mangled qualified overload keeps the same `__Qual` suffix on
-        // the alias [kt-qual-mangling].
+        // the alias [fn-emit-name].
         let kotlin_name = self.kotlin_fn_name(f);
         // [fn-rename] A rename is erased: the call spells the declaration's
         // own (mangled) name, where an *alias* import keeps the alias
@@ -10362,7 +10369,7 @@ fn rendered_base(rendered: &str) -> &str {
 }
 
 /// The alias-side Kotlin name for an aliased fn import: a mangled
-/// qualified overload (`name__Qual` [kt-qual-mangling]) keeps the same
+/// qualified overload (`name__Qual` [fn-emit-name]) keeps the same
 /// suffix on the alias, so the generated alias import and aliased call
 /// sites agree on the symbol.
 fn aliased_symbol(kotlin_name: &str, decl_name: &str, alias: &str) -> String {
@@ -10421,24 +10428,6 @@ fn is_none_type(ty: &Type) -> bool {
     matches!(ty, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == "None")
 }
 
-/// The qualifier names appearing on a fn's parameter types, joined for
-/// overload-mangling suffixes (`__Surname`).
-fn qual_suffix(decl: &FnDecl) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    for p in &decl.params {
-        match &p.ty {
-            Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
-                for q in qualifiers {
-                    // Dot-names canonicalize to their flattened spelling:
-                    // a mangled fn name is a single identifier [name-dot].
-                    parts.push(q.name.name.replace('.', ""));
-                }
-            }
-            _ => {}
-        }
-    }
-    parts.join("_")
-}
 
 /// Substitutes generic parameters in an AST type (for alias expansion).
 fn subst_ast_type(ty: &Type, map: &std::collections::HashMap<&str, &Type>) -> Type {
@@ -11022,3 +11011,9 @@ fn block_returns_early(stmts: &[Stmt]) -> bool {
     }
     false
 }
+
+/// [kt-imports] Whether `word` must be backticked as a Kotlin name.
+pub(crate) fn is_kotlin_keyword(word: &str) -> bool {
+    KOTLIN_KEYWORDS.contains(&word)
+}
+

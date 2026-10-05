@@ -1,16 +1,9 @@
-use crate::core_array::*;
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_range::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
 use crate::unions::*;
+use crate::core_iterator::Finished;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
 
-pub fn map<It: Clone, T: Clone, U: Clone>(it: &mut It, f: &mut impl FnMut(&T) -> U, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<U> {
+pub fn map__It_Fn<It: Clone, T: Clone, U: Clone>(it: &mut It, f: &mut impl FnMut(&T) -> U, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<U> {
     let mut out = vec![];
     while let Union2::U1(mut x) = next(it) {
         crate::core_list::add_platform(&mut out, f(&x));
@@ -28,7 +21,7 @@ pub fn filter<It: Clone, T: Clone>(it: &mut It, keep: &mut impl FnMut(&T) -> boo
     return out;
 }
 
-pub fn reduce<It: Clone, T: Clone, A: Clone>(it: &mut It, init: &A, f: &mut impl FnMut(&A, &T) -> A, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> A {
+pub fn reduce__It_A_Fn<It: Clone, T: Clone, A: Clone>(it: &mut It, init: &A, f: &mut impl FnMut(&A, &T) -> A, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> A {
     let mut acc = init.clone();
     while let Union2::U1(mut x) = next(it) {
         acc = f(&acc, &x);
@@ -36,7 +29,7 @@ pub fn reduce<It: Clone, T: Clone, A: Clone>(it: &mut It, init: &A, f: &mut impl
     return acc;
 }
 
-pub fn map__2<T: Clone, U: Clone>(list: &Vec<T>, f: &mut impl FnMut(&T) -> U) -> Vec<U> {
+pub fn map__List_Fn<T: Clone, U: Clone>(list: &Vec<T>, f: &mut impl FnMut(&T) -> U) -> Vec<U> {
     let mut out = vec![];
     for mut x in crate::platform_core_list::each(list).map(|__x| __x.clone()) {
         crate::core_list::add_platform(&mut out, f(&x));
@@ -48,7 +41,7 @@ pub fn filter_platform<T: Clone>(list: &Vec<T>, keep: &mut dyn FnMut(&T) -> bool
     crate::platform_core_seq::filter(list, keep)
 }
 
-pub fn reduce__2<T: Clone, A: Clone>(list: &Vec<T>, init: A, f: &mut impl FnMut(&A, &T) -> A) -> A {
+pub fn reduce__List_A_Fn<T: Clone, A: Clone>(list: &Vec<T>, init: A, f: &mut impl FnMut(&A, &T) -> A) -> A {
     let mut acc = init.clone();
     for mut x in crate::platform_core_list::each(list).map(|__x| __x.clone()) {
         acc = f(&acc, &x);
@@ -92,7 +85,7 @@ impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug, U: Clone + std::fm
     }
 }
 
-pub fn next__13<It: Clone, T: Clone, U: Clone>(m: &mut Mapping<It, T, U>) -> Union2<U, Finished> {
+pub fn next__Mapping<It: Clone, T: Clone, U: Clone>(m: &mut Mapping<It, T, U>) -> Union2<U, Finished> {
     let mut step = &m.step;
     let mut x = step(&mut m.src);
     if matches!(x, Union2::U2(_)) {
@@ -124,7 +117,7 @@ impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug fo
     }
 }
 
-pub fn next__14<It: Clone, T: Clone>(t: &mut Filtering<It, T>) -> Union2<T, Finished> {
+pub fn next__Filtering<It: Clone, T: Clone>(t: &mut Filtering<It, T>) -> Union2<T, Finished> {
     let mut step = &t.step;
     let mut keep = &t.keep;
     loop {
@@ -160,7 +153,7 @@ impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug fo
     }
 }
 
-pub fn next__15<It: Clone, T: Clone>(t: &mut Taking<It, T>) -> Union2<T, Finished> {
+pub fn next__Taking<It: Clone, T: Clone>(t: &mut Taking<It, T>) -> Union2<T, Finished> {
     if t.left <= 0 {
         return Union2::<T, Finished>::U2(finished());
     }
@@ -192,7 +185,7 @@ impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug fo
     }
 }
 
-pub fn next__16<It: Clone, T: Clone>(t: &mut TakingWhile<It, T>) -> Union2<T, Finished> {
+pub fn next__TakingWhile<It: Clone, T: Clone>(t: &mut TakingWhile<It, T>) -> Union2<T, Finished> {
     if t.done {
         return Union2::<T, Finished>::U2(finished());
     }
@@ -231,7 +224,7 @@ impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug fo
     }
 }
 
-pub fn next__17<It: Clone, T: Clone>(t: &mut Skipping<It, T>) -> Union2<T, Finished> {
+pub fn next__Skipping<It: Clone, T: Clone>(t: &mut Skipping<It, T>) -> Union2<T, Finished> {
     let mut step = &t.step;
     while t.left > 0 {
         t.left = t.left - 1;
@@ -266,7 +259,7 @@ impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug fo
     }
 }
 
-pub fn next__18<It: Clone, T: Clone>(t: &mut SkippingWhile<It, T>) -> Union2<T, Finished> {
+pub fn next__SkippingWhile<It: Clone, T: Clone>(t: &mut SkippingWhile<It, T>) -> Union2<T, Finished> {
     let mut step = &t.step;
     if t.started {
         return step(&mut t.src);
@@ -289,7 +282,7 @@ pub fn skipping_while<It: Clone, T: Clone>(it: It, skip: impl Fn(&T) -> bool + S
     return SkippingWhile { src: it, step: std::sync::Arc::new(next), skip: std::sync::Arc::new(skip), started: false };
 }
 
-pub fn to_list__2<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<T> {
+pub fn to_list<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<T> {
     let mut out = vec![];
     while let Union2::U1(mut x) = next(it) {
         crate::core_list::add_platform(&mut out, x);
@@ -297,7 +290,7 @@ pub fn to_list__2<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It
     return out;
 }
 
-pub fn count__2<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> i32 {
+pub fn count<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> i32 {
     let mut n = 0;
     while let Union2::U1(mut _x) = next(it) {
         n = n + 1;

@@ -36,17 +36,12 @@ pub mod platform_core_list;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
-use crate::core_console::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_result::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::throw::*;
 use crate::unions::*;
 use std::ops::ControlFlow;
+use crate::core_console::ConsolePlatformSync as _;
+use crate::core_console::__Stateful_Console as _;
+use crate::core_console::__Stateless_Console as _;
+use crate::core_console::println;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileHandle {
@@ -69,7 +64,7 @@ pub fn open_file(console: &crate::core_console::Console, name: String) -> FileHa
     return FileHandle { name: name };
 }
 
-pub fn close__4(console: &crate::core_console::Console, handle: FileHandle) {
+pub fn close(console: &crate::core_console::Console, handle: FileHandle) {
     println(console, &(format!("1. close {}", handle.name.clone())));
     drop(handle);
 }
@@ -79,10 +74,10 @@ pub fn read_size(console: &crate::core_console::Console, name: String, want: i32
     let mut handle = open_file(console, name);
     if want > there_is {
         println(console, &("1. asked for more than there is".to_string()));
-        close__4(console, handle);
+        close(console, handle);
         return there_is;
     }
-    close__4(console, handle);
+    close(console, handle);
     return want;
 }
 
@@ -105,7 +100,7 @@ pub fn port_of(config: &String) -> ControlFlow<String, i32> {
 pub fn port_from_file(console: &crate::core_console::Console, name: String, text: &String) -> ControlFlow<String, i32> {
     let mut handle = open_file(console, name);
     let mut from = handle.name.clone();
-    close__4(console, handle);
+    close(console, handle);
     println(console, &(format!("2. reading a port out of {}", from)));
     return ControlFlow::Continue(parse_port(text)?);
 }

@@ -1,21 +1,58 @@
 package salvo.main
 
-import salvo.core.actor.*
-import salvo.core.console.*
-import salvo.core.list.*
-import salvo.core.string.*
-import salvo.time.*
+import salvo.core.actor.Idle
+import salvo.core.actor.__Codec_Idle
+import salvo.core.console.Console
+import salvo.core.console.println
+import salvo.core.list.at
+import salvo.time.Clock
+import salvo.time.DefaultClock
+import salvo.time.DefaultTicker
+import salvo.time.Duration
+import salvo.time.Fired
+import salvo.time.ManualTime
+import salvo.time.Tick
+import salvo.time.Ticker
+import salvo.time.Timer
+import salvo.time.__Actor_ManualTime
+import salvo.time.__Codec_Duration
+import salvo.time.__Codec_Fired
+import salvo.time.__Codec_Tick
+import salvo.time.__Codec___Msg_Timer
+import salvo.time.__Codec___Msg_TimerCtl
+import salvo.time.__Mon_Clock
+import salvo.time.__Mon_Ticker
+import salvo.time.__Msg_Timer
+import salvo.time.__Msg_TimerCtl
+import salvo.time.__PROTO_Timer
+import salvo.time.__PROTO_TimerCtl
+import salvo.time.__Stub_Timer
+import salvo.time.between__Tick_Tick
+import salvo.time.cmp__Duration_Duration
+import salvo.time.elapsed
+import salvo.time.epochMilli
+import salvo.time.millis
+import salvo.time.minus__Duration_Duration
+import salvo.time.minutes
+import salvo.time.nanos
+import salvo.time.plus__Duration_Duration
+import salvo.time.plus__Instant_Duration
+import salvo.time.seconds
+import salvo.time.times
+import salvo.time.toEpochSecond
+import salvo.time.toMillis
+import salvo.time.toStr
 
 fun verdict(started: Tick, at: Tick, budget: Duration): String {
-    val took = between__2(started, at)
-    if (cmp__2(took, budget) > 0) {
-        return "late by ${toStr__9(minus(took, budget))}"
+    val took = between__Tick_Tick(started, at)
+    if (cmp__Duration_Duration(took, budget) > 0) {
+        return "late by ${toStr(minus__Duration_Duration(took, budget))}"
     }
-    return "in time, ${toStr__9(minus(budget, took))} to spare"
+    return "in time, ${toStr(minus__Duration_Duration(budget, took))} to spare"
 }
 
 fun overdue(ticker: Ticker, started: Tick, budget: Duration): Boolean {
-    return cmp__2(elapsed(ticker, started), budget) > 0
+    return cmp__Duration_Duration(elapsed(ticker, started), budget) > 0
 }
 
 class SteppingTicker(private val step: Duration) : Ticker {
@@ -85,7 +122,7 @@ class Sessions(private val __dep_Timer: Timer) : Session {
     internal val __parked: MutableMap<Long, __Cont_Sessions> = mutableMapOf()
 
     override fun open(started: Tick, budget: Duration, out: salvo.SalvoReply) {
-        __dep_Timer.after(plus(budget, seconds(1L)), run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Sessions.Expire(started, budget, out); __r })
+        __dep_Timer.after(plus__Duration_Duration(budget, seconds(1L)), run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Sessions.Expire(started, budget, out); __r })
     }
 
     override fun expire(started: Tick, budget: Duration, out: salvo.SalvoReply, f: Fired) {
@@ -216,7 +253,7 @@ class Napping(private val __dep_Timer: Timer, private val __dep_Ticker: Ticker) 
     }
 
     override fun woke(started: Tick, out: salvo.SalvoReply, f: Fired) {
-        salvo.SalvoSched.replyWire(out, "napped ${toStr__9(elapsed(__dep_Ticker, started))}", salvo.StrCodec)
+        salvo.SalvoSched.replyWire(out, "napped ${toStr(elapsed(__dep_Ticker, started))}", salvo.StrCodec)
     }
 }
 
@@ -272,9 +309,9 @@ fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Session", salvo.main.__PROTO_Session), Pair("Sleeper", salvo.main.__PROTO_Sleeper), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
     val console: Console = salvo.core.console.__Platform_StdOutConsole()
     val budget = millis(1500L)
-    println(console, "budget ${toStr__9(budget)}, doubled ${toStr__9(times(budget, 2L))}, in millis ${toMillis(budget)}")
+    println(console, "budget ${toStr(budget)}, doubled ${toStr(times(budget, 2L))}, in millis ${toMillis(budget)}")
     val stamp = epochMilli(1700000000000L)
-    println(console, "stamp ${toEpochSecond(stamp)}s, a minute later ${toEpochSecond(plus__2(stamp, minutes(1L)))}s")
+    println(console, "stamp ${toEpochSecond(stamp)}s, a minute later ${toEpochSecond(plus__Instant_Duration(stamp, minutes(1L)))}s")
     val clock: Clock = __Mon_Clock(DefaultClock())
     val ticker: Ticker = DefaultTicker()
     println(console, "wall clock is set: ${toEpochSecond(clock.now()) > 1600000000}")

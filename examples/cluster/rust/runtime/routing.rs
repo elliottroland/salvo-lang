@@ -1,16 +1,34 @@
 use crate::collections::*;
-use crate::core_actor::*;
-use crate::core_array::*;
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
-use crate::core_string::*;
-use crate::runtime::*;
 use crate::unions::*;
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
+use crate::core_bytes::Bytes;
+use crate::core_list::at;
+use crate::runtime::Body;
+use crate::runtime::Dyn;
+use crate::runtime::Exported;
+use crate::runtime::Parker;
+use crate::runtime::RuntimeHostPlatformSync as _;
+use crate::runtime::__Stateful_RuntimeHost as _;
+use crate::runtime::__Stateful_SchedTable as _;
+use crate::runtime::__Stateless_RuntimeHost as _;
+use crate::runtime::__Stateless_SchedTable as _;
+use crate::runtime::actor_pool;
+use crate::runtime::answer;
+use crate::runtime::current_pool;
+use crate::runtime::deliver_remote;
+use crate::runtime::identity_bits;
+use crate::runtime::kill_actor;
+use crate::runtime::mailbox_dead;
+use crate::runtime::mailbox_queued;
+use crate::runtime::mailbox_room;
+use crate::runtime::mark_proxy;
+use crate::runtime::mint_task_on;
+use crate::runtime::new_pool_of;
+use crate::runtime::spawn_inert;
+use crate::runtime::token_to_actor;
+use crate::runtime::token_to_waiter;
+use crate::runtime::waiter_pool;
 
 /// [mod-use] The module's `use` #0, bound on first use.
 fn __module_use_0() -> &'static crate::runtime_routing::RouteTable {
@@ -1208,7 +1226,7 @@ pub fn same_actor(a: i32, b: i32) -> bool {
     if !__module_use_0().is_proxy(a.clone()) && !__module_use_0().is_proxy(b.clone()) {
         return false;
     }
-    return eq__6(&(identity(a)), &(identity(b)));
+    return eq__RemoteRef_RemoteRef(&(identity(a)), &(identity(b)));
 }
 
 pub fn import_addr(node: i64, actor: i64, bits: i64) -> i32 {
@@ -1514,7 +1532,7 @@ pub fn view_wait(group: i32, seen: i64, nanos: i64) {
     __module_use_0().drop_view_waiter(id);
 }
 
-pub fn hash__5(value: &RemoteRef) -> i64 {
+pub fn hash__RemoteRef(value: &RemoteRef) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.actor), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
@@ -1522,7 +1540,7 @@ pub fn hash__5(value: &RemoteRef) -> i64 {
     return h;
 }
 
-pub fn eq__6(a: &RemoteRef, b: &RemoteRef) -> bool {
+pub fn eq__RemoteRef_RemoteRef(a: &RemoteRef, b: &RemoteRef) -> bool {
     if !((a.node) == (b.node)) {
         return false;
     }
@@ -1535,14 +1553,14 @@ pub fn eq__6(a: &RemoteRef, b: &RemoteRef) -> bool {
     return true;
 }
 
-pub fn hash__6(value: &ControlKey) -> i64 {
+pub fn hash__ControlKey(value: &ControlKey) -> i64 {
     let mut h = 17i64;
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.channel[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
     return h;
 }
 
-pub fn eq__7(a: &ControlKey, b: &ControlKey) -> bool {
+pub fn eq__ControlKey_ControlKey(a: &ControlKey, b: &ControlKey) -> bool {
     if !((a.node) == (b.node)) {
         return false;
     }
@@ -1554,20 +1572,20 @@ pub fn eq__7(a: &ControlKey, b: &ControlKey) -> bool {
 
 pub struct __Hash_hash__RemoteRef_RemoteRef;
 impl SalvoHash<RemoteRef> for __Hash_hash__RemoteRef_RemoteRef {
-    fn hash(__v: &RemoteRef) -> i64 { hash__5(__v) }
+    fn hash(__v: &RemoteRef) -> i64 { hash__RemoteRef(__v) }
 }
 
 pub struct __Eq_eq__RemoteRef_RemoteRef;
 impl SalvoEq<RemoteRef> for __Eq_eq__RemoteRef_RemoteRef {
-    fn eq(__a: &RemoteRef, __b: &RemoteRef) -> bool { eq__6(__a, __b) }
+    fn eq(__a: &RemoteRef, __b: &RemoteRef) -> bool { eq__RemoteRef_RemoteRef(__a, __b) }
 }
 
 pub struct __Hash_hash__ControlKey_ControlKey;
 impl SalvoHash<ControlKey> for __Hash_hash__ControlKey_ControlKey {
-    fn hash(__v: &ControlKey) -> i64 { hash__6(__v) }
+    fn hash(__v: &ControlKey) -> i64 { hash__ControlKey(__v) }
 }
 
 pub struct __Eq_eq__ControlKey_ControlKey;
 impl SalvoEq<ControlKey> for __Eq_eq__ControlKey_ControlKey {
-    fn eq(__a: &ControlKey, __b: &ControlKey) -> bool { eq__7(__a, __b) }
+    fn eq(__a: &ControlKey, __b: &ControlKey) -> bool { eq__ControlKey_ControlKey(__a, __b) }
 }

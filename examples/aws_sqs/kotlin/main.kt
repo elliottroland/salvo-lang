@@ -1,19 +1,40 @@
 package salvo.main
 
 import salvo.*
-import salvo.aws.*
-import salvo.aws.sqs.*
-import salvo.core.actor.*
-import salvo.core.bytes.*
-import salvo.core.checked.*
-import salvo.core.console.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.result.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.aws.AwsError
+import salvo.aws.__Codec_AwsError
+import salvo.aws.sqs.CreateQueueInput
+import salvo.aws.sqs.CreateQueueOutput
+import salvo.aws.sqs.DeleteMessageInput
+import salvo.aws.sqs.DeleteQueueInput
+import salvo.aws.sqs.FakeSqs
+import salvo.aws.sqs.GetQueueUrlInput
+import salvo.aws.sqs.GetQueueUrlOutput
+import salvo.aws.sqs.Message
+import salvo.aws.sqs.ReceiveMessageInput
+import salvo.aws.sqs.ReceiveMessageOutput
+import salvo.aws.sqs.SendMessageInput
+import salvo.aws.sqs.SendMessageOutput
+import salvo.aws.sqs.Sqs
+import salvo.aws.sqs.SqsCalls
+import salvo.aws.sqs.SqsError
+import salvo.aws.sqs.__Codec_CreateQueueOutput
+import salvo.aws.sqs.__Codec_GetQueueUrlOutput
+import salvo.aws.sqs.__Codec_SendMessageOutput
+import salvo.aws.sqs.__Codec_SqsError
+import salvo.aws.sqs.__Mon_Sqs
+import salvo.aws.sqs.__Mon_SqsCalls
+import salvo.core.checked.Checked
+import salvo.core.checked.__Codec_Checked
+import salvo.core.checked.checked
+import salvo.core.checked.detach
+import salvo.core.console.Console
+import salvo.core.console.println
+import salvo.core.list.addPlatform
+import salvo.core.list.sizePlatform
+import salvo.core.list.toStr
+import salvo.core.result.err
+import salvo.core.result.ok
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun describe(e: Union2<SqsError, AwsError>): String {
@@ -170,7 +191,7 @@ fun main() {
         val sqs: Sqs = __Mon_Sqs(__h, __l)
         val sqs_calls: SqsCalls = __Mon_SqsCalls(__h, __l)
         roundTrip(sqs, console, "orders")
-        println(console, "calls: ${toStr__2(sqs_calls.calls(), { __i0 -> __i0 })}")
+        println(console, "calls: ${toStr(sqs_calls.calls(), { __i0 -> __i0 })}")
     }
     println(console, "-- MemSqs --")
     if (true) {

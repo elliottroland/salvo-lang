@@ -83,27 +83,20 @@ fn of_base_name(of: &salvo_syntax::ast::Type) -> Option<&str> {
 
 /// [effect-member-overload] The emitted name of the member at `idx` in
 /// `effect`'s declaration order: the plain name for a member whose name is
-/// declared once, and for the **first** of an overload set; `name__2`,
-/// `name__3`, … for the ones after it.
-///
-/// Positional suffixes need no qualifier pass ([kt-qual-mangling] exists for
-/// fns because two overloads may erase to one target signature): here every
-/// overload but the first is renamed regardless, so no erasure collision can
-/// survive. The backends pass the result through their own identifier
-/// escaping.
+/// declared once; for an overload set, the name suffixed from its parameter
+/// types by the rule top-level fns follow [fn-emit-name] (`close__InStream`,
+/// `close__OutStream`). The backends pass the result through their own
+/// identifier escaping.
 pub fn effect_member_name(effect: &EffectDecl, idx: usize) -> String {
     let Some(member) = effect.fns.get(idx) else {
         return String::new();
     };
     let name = &member.name.name;
-    let before = effect.fns[..idx]
-        .iter()
-        .filter(|f| f.name.name == *name)
-        .count();
-    if before == 0 {
-        name.clone()
-    } else {
-        format!("{name}__{}", before + 1)
+    let set: Vec<&FnDecl> = effect.fns.iter().filter(|f| f.name.name == *name).collect();
+    let at = set.iter().position(|f| std::ptr::eq(*f, member)).unwrap_or(0);
+    match crate::naming::overload_names(name, &set) {
+        Ok(names) => names[at].clone(),
+        Err(_) => name.clone(),
     }
 }
 

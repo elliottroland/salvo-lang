@@ -7977,6 +7977,28 @@ between endpoints and delivers what arrives into the scheduler.
     (`is Str surname`) into a consequence of the rule.
   * Enforced at declaration sites in the parser (`ident_type` /
     `ident_value`); module paths in `resolve`.
+* [fn-emit-name] **Emitted names are deterministic and local to the module**
+  (user decision 2026-10-05). A fn whose name is unique in its module keeps
+  it; overloads within one module are named `<name>__<suffix>` from their
+  parameter types, at the first level that sets each apart from the others of
+  its name there: (1) each explicit parameter's base type (`next__StrYield`,
+  `map__List_Fn`); (2) with qualifiers (`swap__MutList_IdxInt_IdxInt`);
+  (3) with type arguments (`get__ListT_Int`); (4) with both; (5) plus the
+  implicit parameters' names. Parameters join with `_`, a generated type's
+  leading underscores drop, and a fn with no explicit parameters has the bare
+  name. Effect members overloaded within an effect follow the same rule
+  [effect-member-overload]. **No positional numbers**: overloads no level
+  tells apart are a backend error naming them, so a rule can be designed for
+  the case. Nothing outside the module takes part, so a name never changes
+  because another module — std or the program — gained a declaration.
+  Imports are one per name ([rs-imports], [kt-imports]); a file that calls
+  fns of one emitted name from two modules, or from another module and its
+  own, imports the foreign one as `<name>__<module>`.
+  `salvo_core::naming` is the one definition both backends use.
+  * Replaced (same day) a program-wide rule: every overload of a name across
+    the program was numbered in declaration order (`add__3`, `next__20`), so
+    adding a fn anywhere renamed fns elsewhere, and every module imported
+    every other by glob.
 * [name-camel] **Two value names that would be spelled alike in camel case
   are an error, on every backend** (user decision 2026-10-01, ABI D6): the
   Kotlin backend writes camel case [kt-camel], and a project's validity must
@@ -8039,7 +8061,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **Collision ban:** nothing visible in the file may carry the
     *concatenated* spelling (`EnvironmentId` beside `Environment.Id`).
     The Rust backend flattens dot-names, and overload mangling embeds the
-    same spelling [rs-fn-mangling] [kt-qual-mangling], so the ban is
+    same spelling [rs-fn-mangling] [fn-emit-name], so the ban is
     checked against the whole scope — own module (all its files),
     `core.*`, and imports — not just the declaring file. No encoding
     escapes this: Rust identifiers are `[A-Za-z0-9_]`, so every encoding
@@ -8948,8 +8970,9 @@ replaced the working document TESTING.md).
   * The chosen overload is recorded per call
     (`Checked::effect_member_calls`, the member's index in declaration
     order) because the emitters cannot re-derive it from a name.
-  * **Emitted names**: every overload after the first is suffixed
-    (`close`, `close__2`, … — `salvo_core::effect_member_name`, shared so the
+  * **Emitted names**: each overload is suffixed by its parameter types
+    [fn-emit-name] (`close__InStream`, `close__OutStream` —
+    `salvo_core::effect_member_name`, shared so the
     backends cannot disagree, and so an interface, a handler's override, a
     fusion's forwarding impl, a `platform generate` skeleton and a call site
     all say the same thing). Rust has no trait-method overloading at all;

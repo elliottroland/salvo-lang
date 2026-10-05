@@ -1,15 +1,27 @@
 package salvo.runtime.timers
 
-import salvo.core.actor.*
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-import salvo.runtime.*
-import salvo.time.*
+import salvo.core.list.addPlatform
+import salvo.core.list.at
+import salvo.core.list.drain
+import salvo.core.list.getPlatform
+import salvo.core.list.removeAtPlatform
+import salvo.core.list.removeFirstPlatform
+import salvo.core.list.sizePlatform
+import salvo.runtime.bodyOfPlatform
+import salvo.runtime.dropDynPlatform
+import salvo.runtime.mainPool
+import salvo.runtime.mintTaskOn
+import salvo.runtime.nowNanos
+import salvo.runtime.onClock
+import salvo.runtime.parkNanosPlatform
+import salvo.runtime.setVirtualNow
+import salvo.runtime.thisParkerPlatform
+import salvo.runtime.unparkPlatform
+import salvo.runtime.virtualRuntime
+import salvo.time.Fired
+import salvo.time.Tick
+import salvo.time.__Codec_Fired
+import salvo.time.nanos
 
 // [mod-use] The module's `use` #0, bound on first use.
 private val __moduleUse0: DeadlineTable by lazy {
@@ -143,7 +155,7 @@ class Deadlines : DeadlineTable {
 }
 
 fun answerAll(due: salvo.platform.core.list.MutList<salvo.SalvoReply>, now: Long) {
-    drain__2(due, { r -> salvo.SalvoSched.replyWire(r, Fired(at = Tick(nanos = now)), __Codec_Fired) })
+    drain(due, { r -> salvo.SalvoSched.replyWire(r, Fired(at = Tick(nanos = now)), __Codec_Fired) })
 }
 
 interface Wheel {

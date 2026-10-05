@@ -1,12 +1,9 @@
-use crate::core_array::*;
-use crate::core_bytes::*;
-use crate::core_deque::*;
-use crate::core_iterator::*;
-use crate::core_list::*;
-use crate::core_map::*;
-use crate::core_set::*;
-use crate::core_sorted::*;
 use crate::unions::*;
+use crate::core_iterator::Finished;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
+use crate::core_list::at;
+use crate::core_list::remove_back;
 
 /// [platform-type] The host's `Str`.
 pub use crate::platform_core_string::Str;
@@ -37,7 +34,7 @@ pub fn char_at_platform(str: &String, index: i32) -> Option<char> {
     crate::platform_core_string::char_at(str, index)
 }
 
-pub fn iter__9(str: &String) -> StrYield<'_> {
+pub fn iter(str: &String) -> StrYield<'_> {
     return StrYield { text: str, at: 0 };
 }
 
@@ -47,7 +44,7 @@ pub struct StrYield<'s> {
     pub at: i32,
 }
 
-pub fn next__20(p: &mut StrYield<'_>) -> Union2<char, Finished> {
+pub fn next(p: &mut StrYield<'_>) -> Union2<char, Finished> {
     let mut chr = char_at_platform(&p.text, p.at);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
@@ -64,7 +61,7 @@ pub fn index_of_platform(str: &String, needle: &String) -> Option<i32> {
     crate::platform_core_string::index_of(str, needle)
 }
 
-pub fn index_of__4(str: &String, needle: &String, from: i32) -> Option<i32> {
+pub fn index_of(str: &String, needle: &String, from: i32) -> Option<i32> {
     return index_of_from_platform(str, needle, from);
 }
 
@@ -135,11 +132,11 @@ impl crate::wire::__Wire for Span {
     }
 }
 
-pub fn SpanOf_qualifies(span: &Span, str: &String) -> bool {
+pub fn SpanOf__Span_qualifies(span: &Span, str: &String) -> bool {
     return span.start >= 0 && span.start <= span.end && span.end <= size_platform(str);
 }
 
-pub fn substr__2(str: &String, at: &Span) -> String {
+pub fn substr(str: &String, at: &Span) -> String {
     return substr_platform(str, at.start, at.end).expect("salvo: value is absent at core.string:150:12");
 }
 
@@ -171,7 +168,7 @@ pub fn clear_platform(str: &mut String) {
     crate::platform_core_string::clear(str)
 }
 
-pub fn is_empty__2(str: &String) -> bool {
+pub fn is_empty(str: &String) -> bool {
     return size_platform(str) == 0;
 }
 

@@ -2,9 +2,6 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5ecf120cea852ac5
-use crate::core_deque::*;
-use crate::core_list::*;
-use crate::core_string::*;
 
 /// [platform-type] The host's `Bytes`.
 pub use crate::platform_core_bytes::Bytes;

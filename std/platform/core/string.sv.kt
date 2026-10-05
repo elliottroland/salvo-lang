@@ -4,9 +4,6 @@
 // salvo-abi 1 5ecf120cea852ac5
 package salvo.core.string
 
-import salvo.core.bytes.*
-import salvo.core.deque.*
-import salvo.core.list.*
 
 fun emptyStrPlatform(): salvo.platform.core.string.MutStr {
     return salvo.platform.core.string.emptyStr()

@@ -1,13 +1,14 @@
 package salvo.core.list
 
 import salvo.*
-import salvo.core.array.*
-import salvo.core.checked.*
-import salvo.core.iterator.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
+import salvo.core.checked.Checked
+import salvo.core.checked.checked
+import salvo.core.checked.ignore
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.string.appendPlatform
+import salvo.core.string.mutStr
 
 fun<T> listBy(size: Int, init: (Int) -> T): List<T> {
     return mutListBy(size, init)
@@ -39,8 +40,8 @@ fun<T> get(list: List<T>, index: Int): T {
     return (getPlatform(list, index + 0) ?: throw AssertionError("salvo: value is absent at core.list:104:12"))
 }
 
-fun<T> swap__Mut_Idx_Idx(list: salvo.platform.core.list.MutList<T>, i: Int, j: Int) {
-    ignore(swap__Mut(list, i + 0, j + 0))
+fun<T> swap__MutList_IdxInt_IdxInt(list: salvo.platform.core.list.MutList<T>, i: Int, j: Int) {
+    ignore(swap__MutList_Int_Int(list, i + 0, j + 0))
     return
 }
 
@@ -78,7 +79,7 @@ fun<T> removeRangePlatform(list: salvo.platform.core.list.MutList<T>, from: Int,
     return salvo.platform.core.list.removeRange(list, from, to)
 }
 
-fun<T> swap__Mut(list: salvo.platform.core.list.MutList<T>, i: Int, j: Int): Checked<Boolean> {
+fun<T> swap__MutList_Int_Int(list: salvo.platform.core.list.MutList<T>, i: Int, j: Int): Checked<Boolean> {
     return checked(swapAtPlatform(list, i, j))
 }
 
@@ -86,7 +87,7 @@ fun<T> swapAtPlatform(list: salvo.platform.core.list.MutList<T>, i: Int, j: Int)
     return salvo.platform.core.list.swapAt(list, i, j)
 }
 
-fun<T> drain__2(list: List<T>, each: (T) -> Unit) {
+fun<T> drain(list: List<T>, each: (T) -> Unit) {
     val m = intoMutPlatform(list)
     reverse(m)
     while (sizePlatform(m) > 0) {
@@ -274,13 +275,13 @@ fun<T> reverse(list: salvo.platform.core.list.MutList<T>) {
     var i = 0
     var j = sizePlatform(list) - 1
     while (i < j) {
-        ignore(swap__Mut(list, i, j))
+        ignore(swap__MutList_Int_Int(list, i, j))
         i = i + 1
         j = j - 1
     }
 }
 
-fun<T> iter__4(list: List<T>): ListYield<T> {
+fun<T> iter(list: List<T>): ListYield<T> {
     return ListYield(items = list, at = 0)
 }
 
@@ -289,7 +290,7 @@ data class ListYield<T>(
     var at: Int,
 )
 
-fun<T> next__5(p: ListYield<T>): Union2<T, Finished> {
+fun<T> next__ListYield(p: ListYield<T>): Union2<T, Finished> {
     val elem = getPlatform(p.items, p.at)
     if (elem == null) {
         return Union2.U2<T, Finished>(finished())
@@ -303,11 +304,11 @@ data class __Iter_reversed_List<T>(
     var at: Int,
 )
 
-fun<T> reversed__2(list: List<T>): __Iter_reversed_List<T> {
+fun<T> reversed(list: List<T>): __Iter_reversed_List<T> {
     return __Iter_reversed_List(list = list, at = sizePlatform(list) - 1)
 }
 
-fun<T> next__6(__p: __Iter_reversed_List<T>): Union2<T, Finished> {
+fun<T> next__Iter_reversed_List(__p: __Iter_reversed_List<T>): Union2<T, Finished> {
     val elem = getPlatform(__p.list, __p.at)
     if (elem == null) {
         return Union2.U2<T, Finished>(finished())
@@ -325,7 +326,7 @@ fun<T> indices(list: List<T>): __Iter_indices_List<T> {
     return __Iter_indices_List(list = list, at = 0)
 }
 
-fun<T> next__7(__p: __Iter_indices_List<T>): Union2<Int, Finished> {
+fun<T> next__Iter_indices_List(__p: __Iter_indices_List<T>): Union2<Int, Finished> {
     if (__p.at >= sizePlatform(__p.list)) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -343,7 +344,7 @@ fun<T> revIndices(list: List<T>): __Iter_rev_indices_List<T> {
     return __Iter_rev_indices_List(list = list, at = sizePlatform(list) - 1)
 }
 
-fun<T> next__8(__p: __Iter_rev_indices_List<T>): Union2<Int, Finished> {
+fun<T> next__Iter_rev_indices_List(__p: __Iter_rev_indices_List<T>): Union2<Int, Finished> {
     if (__p.at < 0) {
         return Union2.U2<Int, Finished>(finished())
     }
@@ -366,7 +367,7 @@ fun<T> enumerate(list: List<T>): __Iter_enumerate_List<T> {
     return __Iter_enumerate_List(list = list, at = 0)
 }
 
-fun<T> next__9(__p: __Iter_enumerate_List<T>): Union2<Enumerated<T>, Finished> {
+fun<T> next__Iter_enumerate_List(__p: __Iter_enumerate_List<T>): Union2<Enumerated<T>, Finished> {
     val elem = getPlatform(__p.list, __p.at)
     if (elem == null) {
         return Union2.U2<Enumerated<T>, Finished>(finished())
@@ -385,7 +386,7 @@ fun<T> enumerateRev(list: List<T>): __Iter_enumerate_rev_List<T> {
     return __Iter_enumerate_rev_List(list = list, at = sizePlatform(list) - 1)
 }
 
-fun<T> next__10(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finished> {
+fun<T> next__Iter_enumerate_rev_List(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finished> {
     val elem = getPlatform(__p.list, __p.at)
     if (elem == null) {
         return Union2.U2<Enumerated<T>, Finished>(finished())
@@ -395,7 +396,7 @@ fun<T> next__10(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finish
     return Union2.U1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
 }
 
-fun<T> toStr__2(list: List<T>, toStr: (T) -> String): String {
+fun<T> toStr(list: List<T>, toStr: (T) -> String): String {
     val out = mutStr(arrayOf("["))
     var i = 0
     for (x in salvo.platform.core.list.each(list)) {

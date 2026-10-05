@@ -1,7 +1,7 @@
 package salvo.main
 
-import salvo.core.console.*
-import salvo.core.string.*
+import salvo.core.console.Console
+import salvo.core.console.println
 
 interface Clock {
     fun now(): Int
