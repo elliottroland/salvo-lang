@@ -157,7 +157,16 @@ Gatekeeper gotcha in COMPLETED.md; never take a perf number from the first
 run after a relink.)
 
 - **Always run `cargo build` and `cargo test` before presenting changes**, and
-  the fresh nextest run before anything that gets committed or handed over.
+  a **warm** `cargo nextest run --no-fail-fast` before a commit (user decision
+  2026-10-05; ~1m when little changed, up to ~5m after an emitter or std
+  change). The stamps already rerun every toolchain test whose generated code,
+  expected output or toolchain changed, and every CLI test after a compiler
+  rebuild.
+- **The fresh run (`SALVO_E2E_FRESH=1`) is for what stamps cannot see**, and
+  only then: a change to `salvo-testkit` or a stamp key; a toolchain, JDK or
+  host-dependency upgrade (`[dependencies]` artifacts and crates are not in
+  the keys); before a handover; or a suspected flaky test (a timing-dependent
+  program that passed once stays stamped).
 - **On failures, fix before re-running** (user decision 2026-09-12). When a
   run leaves a *small* number of failures, fix all of them and only then run
   the suite again — do not pay a suite run (or a per-test re-run loop) per
