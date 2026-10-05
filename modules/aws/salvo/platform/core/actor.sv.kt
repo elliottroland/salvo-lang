@@ -4,6 +4,13 @@
 // salvo-abi 1 023a4214a13ba612
 package salvo.core.actor
 
+import salvo.runtime.newPoolOf
+import salvo.runtime.routing.adopt
+import salvo.runtime.routing.sameActor
+
+fun eq(a: Int, b: Int): Boolean {
+    return sameActor((a), (b))
+}
 
 data class Mailbox(
     val capacity: Int,
@@ -14,6 +21,12 @@ object __Codec_Mailbox : salvo.WireCodec<Mailbox> {
         salvo.IntCodec.enc(v.capacity, out)
     }
     override fun dec(inp: salvo.WireIn): Mailbox = Mailbox(salvo.IntCodec.dec(inp))
+}
+
+fun pool(size: Int): Int {
+    val p = newPoolOf(size, -1)
+    adopt(p)
+    return (p)
 }
 
 data class Fault(

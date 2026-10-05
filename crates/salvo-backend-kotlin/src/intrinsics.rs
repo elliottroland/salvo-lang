@@ -108,12 +108,6 @@ pub fn fn_call(
             format!("(({}) == ({}))", a(0), a(1))
         }
         // [fn-attached] [kt-bytes] A buffer compares **structurally**: the
-        // runtime class overrides `equals`/`hashCode` for exactly this.
-        ("eq", Some("Addr")) => format!(
-            "(salvo.SalvoSched.addrIdentity({}) == salvo.SalvoSched.addrIdentity({}))",
-            a(0),
-            a(1)
-        ),
         // [cmp-hash-values] The host's own digest, widened to the `Long` the
         // signature answers. Values differ from Rust's by design; what holds
         // on both is that equal values hash equal.
@@ -129,6 +123,10 @@ pub fn fn_call(
         // [cmp-hash-values] The wrapping fold a structural `hash` combines
         // its fields with; the JVM's `Long` arithmetic wraps by itself.
         ("mix_hash", Some("Long")) => format!("(({}) * 31L + ({}))", a(0), a(1)),
+        // runtime ------------------------------------------------------
+        // [runtime-handles] An addr and a pool are `Int` indices already.
+        ("addr_index", Some("Addr")) | ("pool_index", Some("Pool")) | ("addr_of", Some("Int"))
+        | ("pool_of", Some("Int")) => format!("({})", a(0)),
         // core.actor ---------------------------------------------------
         // [actor-replyto] [kt-actor] Answering a request: the token is
         // consumed and the payload crosses the seam as the runtime's `Any?`.
@@ -146,7 +144,6 @@ pub fn fn_call(
             a(0),
             a(1)
         ),
-        ("pool", Some("Int")) => format!("salvo.SalvoSched.pool({})", a(0)),
         // [waitfor-dedicated] `thread()` is a pool of one, and the only
         // placement the language types `Dedicated` — the qualifier is erased,
         // so what reaches here is a plain pool id.

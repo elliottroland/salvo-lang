@@ -78,6 +78,7 @@ pub mod platform_runtime;
 
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
+use crate::core_actor::pool;
 use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
@@ -126,8 +127,13 @@ use crate::net::__Stateless_Transport as _;
 use crate::net::actor_group__Addr;
 use crate::net::default_route_config;
 use crate::net::eq__NodeId_NodeId;
+use crate::net::new_node;
+use crate::net::node_of;
+use crate::net::pending;
+use crate::net::pool_at;
 use crate::net::route_pick__Addr_RouteConfig_Long;
 use crate::net::route_pick__Addr_RouteConfig_Long_Long;
+use crate::net::this_node;
 use crate::time::DefaultTimer;
 use crate::time::Fired;
 use crate::time::__Actor_DefaultTimer;
@@ -1559,7 +1565,7 @@ impl crate::net::__Stateless_Leader for LastHost {
             *crate::scheduler::salvo_wait(__wid).downcast::<Vec<Node>>().expect("the awaited answer")
         };
         let mut best_host = self.me.host.clone();
-        let mut best = NodeId { id: crate::scheduler::salvo_here_node() as i64 };
+        let mut best = this_node();
         for n in crate::platform_core_list::each(&peers) {
             if ((Ord::cmp(&n.at.host[..], &best_host[..]) as i32) > 0) {
                 best_host = n.at.host.clone();
@@ -1760,7 +1766,7 @@ impl Booting {
 impl crate::__Stateful_Boot for Booting {
 
     fn boot(&mut self, done: crate::scheduler::SalvoReply) {
-        let mut p = crate::scheduler::salvo_pool(((1) as usize));
+        let mut p = pool(1);
         let mut group = ({ let __h = StaticNodeGroup::new("cluster".to_string(), self.all.clone(), self.__dep_Transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(__Actor_StaticNodeGroup::new(__h)), __DECODE_StaticNodeGroup); crate::scheduler::salvo_send(__a, std::boxed::Box::new(__Priv_StaticNodeGroup::Init)); __a });
         self.nodes = Some(group.clone());
         let mut seq = actor_group__Addr(group.clone(), &mut || Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() });
@@ -1858,9 +1864,9 @@ pub fn main() {
     let mut a = NodeEndpoint { host: "a".to_string(), port: 1 };
     let mut b = NodeEndpoint { host: "b".to_string(), port: 1 };
     let mut all = vec![a.clone(), b.clone()];
-    let mut network = ({ let __h = MemNetwork::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_pool(((1) as usize)), __cap as usize, std::boxed::Box::new(__Actor_MemNetwork::new(__h)), __DECODE_MemNetwork); __a });
+    let mut network = ({ let __h = MemNetwork::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(pool(1), __cap as usize, std::boxed::Box::new(__Actor_MemNetwork::new(__h)), __DECODE_MemNetwork); __a });
     let transport = crate::net::Transport::shared(MemTransport::new(a.clone(), network.clone()));
-    let mut p = crate::scheduler::salvo_pool(((2) as usize));
+    let mut p = pool(2);
     let mut nodes = ({ let __h = StaticNodeGroup::new("cluster".to_string(), all.clone(), transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(__Actor_StaticNodeGroup::new(__h)), __DECODE_StaticNodeGroup); crate::scheduler::salvo_send(__a, std::boxed::Box::new(__Priv_StaticNodeGroup::Init)); __a });
     let mut seq = actor_group__Addr(nodes.clone(), &mut || Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() });
     { let __spawned = ({ let __h = Sequencing::new("a".to_string()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(__Actor_Sequencing::new(__h)), __DECODE_Sequencing); __a }); crate::scheduler::salvo_send_wire((seq).clone(), crate::net::__Msg_ActorGroup::Join(__spawned), crate::net::__PROTO_ActorGroup); __spawned };
@@ -1870,7 +1876,7 @@ pub fn main() {
     { let __spawned = ({ let __h = Indexing::new(vec!["salvo".to_string(), "is".to_string(), "salvo".to_string()]); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(__Actor_Indexing::new(__h)), __DECODE_Indexing); __a }); crate::scheduler::salvo_send_wire((index).clone(), crate::net::__Msg_ActorGroup::Join(__spawned), crate::net::__PROTO_ActorGroup); __spawned };
     let mut looks = actor_group__Addr(nodes.clone(), &mut || Protocol { name: "Lookup".to_string(), hash: crate::__PROTO_Lookup.to_string() });
     { let __spawned = ({ let __h = Looking::new("a".to_string()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(__Actor_Looking::new(__h)), __DECODE_Looking); __a }); crate::scheduler::salvo_send_wire((looks).clone(), crate::net::__Msg_ActorGroup::Join(__spawned), crate::net::__PROTO_ActorGroup); __spawned };
-    let mut pb = crate::scheduler::salvo_pool_at((NodeId { id: crate::scheduler::salvo_new_node() as i64 }).id as u64, (1) as usize);
+    let mut pb = pool_at(&(new_node()), 1);
     let mut booter = ({ let __h = Booting::new(b.clone(), all.clone(), network.clone(), crate::net::Transport::shared(MemTransport::new(b.clone(), network.clone()))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(pb, __cap as usize, std::boxed::Box::new(__Actor_Booting::new(__h)), __DECODE_Booting); __a });
     let mut remote_seq = {
         let (mut done, __wid) = crate::scheduler::salvo_waiter();
@@ -1878,7 +1884,7 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(booter, crate::__Msg_Boot::Boot(done), crate::__PROTO_Boot);
         *crate::scheduler::salvo_wait(__wid).downcast::<usize>().expect("the awaited answer")
     };
-    let mut timer = ({ let __h = DefaultTimer::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_pool(((1) as usize)), __cap as usize, std::boxed::Box::new(__Actor_DefaultTimer::new(__h)), __DECODE_DefaultTimer); __a });
+    let mut timer = ({ let __h = DefaultTimer::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(pool(1), __cap as usize, std::boxed::Box::new(__Actor_DefaultTimer::new(__h)), __DECODE_DefaultTimer); __a });
     settle(&(timer.clone()));
     let mut members = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
@@ -1892,7 +1898,7 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(seq, crate::net::__Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<usize>>().expect("the awaited answer")
     })))));
-    println(&console, &(format!("singleton (b's sequencer is remote: {}):", !eq__NodeId_NodeId(&(NodeId { id: crate::scheduler::salvo_addr_identity((remote_seq).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })))));
+    println(&console, &(format!("singleton (b's sequencer is remote: {}):", !eq__NodeId_NodeId(&(node_of(&remote_seq)), &(this_node())))));
     let leader = crate::net::Leader::shared(LastHost::new(nodes.clone(), a.clone()));
     two_ids(&leader, &console, seq.clone());
     println(&console, &("sharded:".to_string()));

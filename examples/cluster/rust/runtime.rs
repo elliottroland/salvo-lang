@@ -3,6 +3,7 @@ use crate::core_actor::Exit;
 use crate::core_actor::Idle;
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
+use crate::core_actor::pool;
 use crate::core_deque::drain as drain__core_deque;
 use crate::core_deque::mut_deque_of;
 use crate::core_list::any;

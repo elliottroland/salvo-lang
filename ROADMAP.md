@@ -60,18 +60,17 @@ Built: see COMPLETED.md's decision log and its "Design record: the runtime in
 Salvo" (the runtime record, retired 2026-10-03). What is left, besides 0c, 0d, 0e
 and the `test actor` follow-ups recorded below:
 
-2. **The actor, net and time intrinsics as Salvo** (runtime E8's second
-   half): `core.actor` still declares 8 intrinsics (`pool`, `thread`,
-   `watch`, `on_idle`, `send`, …), `net` 26 and `time` 1, each lowered by the
-   emitters to a call of the scheduler shims. With the runtime in Salvo they
-   can be ordinary Salvo functions calling `runtime`, so a new backend
-   lowers none of them.
-3. **`Addr<E>`, `Reply<T>` and `Pool` as platform types of the runtime
-   module** (user decision 2026-10-04, option (b) over Salvo structs, which
-   Salvo's lack of private fields would make forgeable by a struct literal):
-   opaque handles over an index, `Reply<T>` linear, so they are unforgeable
-   and need no phantom parameters; a new backend writes an index wrapper per
-   type instead of lowering three intrinsic types.
+2. **What is left of the actor, net and time intrinsics** (most went
+   2026-10-05, COMPLETED.md). Still intrinsic, each for a reason:
+   `encode`/`decode`, `protocol<E>`, `send(reply, value)` and `key_hash`
+   are type-directed (they need a codec or a protocol hash per type, which a
+   generic Salvo fn cannot ask for); `pool(size, sink)`, `watch`, `on_idle`,
+   `watch_control` and `route_frames` hand the scheduler a builder for a
+   Salvo message it cannot construct (`Fault`, `Exit`, `Idle`, the handler's
+   private `control`, `Outbound`) — they could become Salvo once a Salvo fn
+   can register a message-building callback with the runtime; `thread()`
+   mints a `Dedicated Pool`, a provenance claim only a constructor can make;
+   `epoch_nanos` reads the host clock (a candidate for a platform fn).
 6. **Kotlin's `unerase<T>` cannot check `T`** (erased generics): a mismatch
    surfaces as a `ClassCastException` where the value is used. In the
    runtime a mismatch is a compiler bug either way; an exact check would need

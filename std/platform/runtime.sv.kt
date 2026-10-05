@@ -7,6 +7,7 @@ package salvo.runtime
 import salvo.*
 import salvo.core.actor.Exit
 import salvo.core.actor.Idle
+import salvo.core.actor.pool
 import salvo.core.deque.addLastPlatform
 import salvo.core.deque.drain as drain__core_deque
 import salvo.core.deque.getPlatform as getPlatform__core_deque

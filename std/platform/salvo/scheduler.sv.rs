@@ -89,7 +89,9 @@ pub fn salvo_current_pool() -> usize {
     crate::platform_runtime::here_pool() as usize
 }
 
-/// A pool of `n` worker threads.
+
+/// A pool of `n` workers whose faults go to the named report, for host code
+/// (generated code calls `core.actor`'s Salvo `pool`).
 pub fn salvo_pool(n: usize) -> usize {
     salvo_pool_with_sink(n, None)
 }
@@ -363,20 +365,8 @@ pub fn salvo_raw_answer(payload: Vec<u8>) -> Dyn {
     Dyn { v: Box::new(RawReply(payload)) }
 }
 
-/// [addr-routable] The node the current pool belongs to.
-pub fn salvo_here_node() -> u64 {
-    crate::runtime_routing::here_node() as u64
-}
 
-/// [addr-routable] Hosts a fresh virtual node in this process.
-pub fn salvo_new_node() -> u64 {
-    crate::runtime_routing::new_node() as u64
-}
 
-/// [addr-routable] A pool of `n` workers belonging to `node`.
-pub fn salvo_pool_at(node: u64, n: usize) -> usize {
-    crate::runtime_routing::pool_at(node as i64, n as i32) as usize
-}
 
 /// [addr-routable] The routable identity of a local index.
 pub fn salvo_addr_identity(addr: usize) -> RemoteRef {
@@ -384,25 +374,13 @@ pub fn salvo_addr_identity(addr: usize) -> RemoteRef {
     RemoteRef { node: r.node as u64, actor: r.actor as u64, bits: r.bits as u64 }
 }
 
-/// [addr-routable] Whether two addrs name one actor.
-pub fn salvo_same_actor(a: usize, b: usize) -> bool {
-    crate::runtime_routing::same_actor(a as i32, b as i32)
-}
 
 /// [addr-routable] [addr-capability] A decoded identity as a local index.
 pub fn salvo_import_addr(r: RemoteRef) -> usize {
     crate::runtime_routing::import_addr(r.node as i64, r.actor as i64, r.bits as i64) as usize
 }
 
-/// [addr-routable] Registers where a node's frames go.
-pub fn salvo_add_route(node: u64, endpoint: Vec<u8>) {
-    crate::runtime_routing::route(node as i64, endpoint);
-}
 
-/// [net-connect] Whether the current node's outbound hook is bound.
-pub fn salvo_connected() -> bool {
-    crate::runtime_routing::connected()
-}
 
 /// [addr-routable] Binds the outbound hook of the current node.
 pub fn salvo_set_wire(hook: Arc<dyn Fn(&[u8], Vec<u8>) + Send + Sync>) {
@@ -422,26 +400,9 @@ pub fn salvo_send_wire<M: crate::wire::__Wire + Any + Send>(addr: usize, msg: M,
     crate::runtime_routing::send_remote(addr as i32, proto.to_string(), payload);
 }
 
-/// [actor-group] [remote-backpressure] `pending(addr)`.
-pub fn salvo_pending(addr: usize) -> i32 {
-    crate::runtime_routing::pending(addr as i32)
-}
 
-/// [remote-backpressure] A proxy's credit balance, or `None` for a local actor.
-pub fn salvo_credits(addr: usize) -> Option<usize> {
-    crate::runtime_routing::credits(addr as i32).map(|c| c.max(0) as usize)
-}
 
-/// [route-stub] The replica `group` mirrors its member set here: the routing
-/// service keeps it, with its version.
-pub fn salvo_view_set(group: usize, members: &[usize]) {
-    crate::runtime_routing::view_set(group as i32, members.iter().map(|m| *m as i32).collect());
-}
 
-/// [route-stub] The mirrored members of `group`, by (node, actor id).
-pub fn salvo_view_members(group: usize) -> Vec<usize> {
-    crate::runtime_routing::view_members(group as i32).into_iter().map(|m| m as usize).collect()
-}
 
 /// [route-stub] FNV-1a over the key's canonical bytes.
 pub fn salvo_key_hash(bytes: &[u8]) -> i64 {
@@ -511,20 +472,8 @@ pub fn salvo_set_protocols(table: Vec<(String, String)>) {
     crate::runtime_routing::register_protocols(table);
 }
 
-/// [protocol-hash] This program's own protocol table.
-pub fn salvo_local_protocols() -> Vec<(String, String)> {
-    crate::runtime_routing::local_protocols()
-}
 
-/// [protocol-hash] Records peer `node`'s protocol table.
-pub fn salvo_set_peer_protocols(node: u64, table: Vec<(String, String)>) {
-    crate::runtime_routing::set_peer_protocols(node as i64, table);
-}
 
-/// [protocol-hash] A peer's hash for a protocol.
-pub fn salvo_peer_protocol(node: u64, protocol: &str) -> Option<String> {
-    crate::runtime_routing::peer_protocol(node as i64, &protocol.to_string())
-}
 
 /// [node-group] [actor-group] Where the current node's control frames on
 /// `channel` go, and the message they arrive as.
@@ -533,25 +482,9 @@ pub fn salvo_watch_control(channel: String, sink: usize, build: ControlOf) {
     crate::runtime_routing::watch_control(channel, sink as i32);
 }
 
-/// [node-group] A CONTROL frame for whichever node receives it.
-pub fn salvo_control_frame(channel: &str, payload: &[u8]) -> Vec<u8> {
-    crate::runtime_routing::control_frame(channel.to_string(), payload.to_vec())
-}
 
-/// [node-group] [actor-group] Routes a CONTROL frame to node `to`.
-pub fn salvo_send_control(to: u64, channel: &str, payload: &[u8]) {
-    crate::runtime_routing::send_control(to as i64, channel.to_string(), payload.to_vec());
-}
 
-/// [node-group] [node-exit] Node `node` has left.
-pub fn salvo_node_left(node: u64) {
-    crate::runtime_routing::node_left(node as i64);
-}
 
-/// [addr-routable] [wire-format] Delivers one frame that arrived on the wire.
-pub fn salvo_deliver_frame(frame: &[u8]) -> bool {
-    crate::runtime_routing::deliver(&frame.to_vec())
-}
 
 // [addr-routable] The codecs of the two scheduler handles live here, beside
 // what they ask, so the wire stands alone in a program with no actors.

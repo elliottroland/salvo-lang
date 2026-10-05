@@ -9104,46 +9104,6 @@ impl<'p> Emitter<'p> {
         // [addr-routable] [kt-wire] The routing intrinsics of std `net`.
         if f.intrinsic {
             match f.name.name.as_str() {
-                // [addr-routable] `NodeId` is a Salvo struct over the runtime's
-                // `Long`: built where a node is answered, read (`.id`) where
-                // one is taken.
-                "this_node" if args.is_empty() => {
-                    self.needs_scheduler = true;
-                    let nid = self.node_id_ty();
-                    return format!("{nid}(salvo.SalvoSched.hereNode())");
-                }
-                "new_node" if args.is_empty() => {
-                    self.needs_scheduler = true;
-                    let nid = self.node_id_ty();
-                    return format!("{nid}(salvo.SalvoSched.newNode())");
-                }
-                "pool_at" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    let node = self.emit_expr(args[0]);
-                    let n = self.emit_expr(args[1]);
-                    return format!("salvo.SalvoSched.poolAt(({node}).id, {n})");
-                }
-                "add_route" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    self.needs_wire = true;
-                    let node = self.emit_expr(args[0]);
-                    let at = self.emit_expr(args[1]);
-                    let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
-                    let codec = self.kotlin_codec_expr(&ep);
-                    return format!(
-                        "salvo.SalvoSched.addRoute(({node}).id, salvo.salvoEncode({at}, {codec}).toByteArray())"
-                    );
-                }
-                "deliver_frame" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let data = self.emit_expr(args[0]);
-                    return format!("salvo.SalvoSched.deliverFrame(({data}).toByteArray())");
-                }
-                "credits" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let a = self.emit_expr(args[0]);
-                    return format!("salvo.SalvoSched.credits({a})");
-                }
                 // [node-group] [actor-group] The control channel: the
                 // protocols std's node and actor groups speak are std's own
                 // (`std/net.sv`), and the runtime only carries them.
@@ -9162,45 +9122,6 @@ impl<'p> Emitter<'p> {
                         "salvo.SalvoSched.watchControl({channel}, {sink}) {{ __n, __d -> {msg}.Control({nid}(__n), salvo.SalvoBytes(__d)) }}"
                     );
                 }
-                "send_control" if args.len() == 3 => {
-                    self.needs_scheduler = true;
-                    let to = self.emit_expr(args[0]);
-                    let channel = self.emit_expr(args[1]);
-                    let payload = self.emit_expr(args[2]);
-                    return format!(
-                        "salvo.SalvoSched.sendControl(({to}).id, {channel}, ({payload}).toByteArray())"
-                    );
-                }
-                "control_frame" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    self.needs_bytes = true;
-                    let channel = self.emit_expr(args[0]);
-                    let payload = self.emit_expr(args[1]);
-                    return format!(
-                        "salvo.SalvoBytes(salvo.SalvoSched.controlFrame({channel}, ({payload}).toByteArray()))"
-                    );
-                }
-                "node_left" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let node = self.emit_expr(args[0]);
-                    return format!("salvo.SalvoSched.nodeLeft(({node}).id)");
-                }
-                "local_protocols" if args.is_empty() => {
-                    self.needs_scheduler = true;
-                    return "salvo.SalvoSched.localProtocols()".to_string();
-                }
-                "set_peer_protocols" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    let node = self.emit_expr(args[0]);
-                    let table = self.emit_expr(args[1]);
-                    return format!("salvo.SalvoSched.setPeerProtocols(({node}).id, {table})");
-                }
-                "peer_protocol" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    let node = self.emit_expr(args[0]);
-                    let proto = self.emit_expr(args[1]);
-                    return format!("salvo.SalvoSched.peerProtocol(({node}).id, {proto})");
-                }
                 // [protocol-hash] [actor-group] `protocol<E>()` written
                 // directly: the literal for the written type argument. The
                 // same intrinsic filling an implicit `?protocol` is rendered
@@ -9216,46 +9137,6 @@ impl<'p> Emitter<'p> {
                         return "TODO()".to_string();
                     };
                     return self.protocol_literal(&effect, "protocol");
-                }
-                "pending" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let a = self.emit_expr(args[0]);
-                    return format!("salvo.SalvoSched.pending({a})");
-                }
-                "node_of" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let a = self.emit_expr(args[0]);
-                    let nid = self.node_id_ty();
-                    return format!("{nid}(salvo.SalvoSched.addrIdentity({a}).node)");
-                }
-                // [route-stub] The view mirror and the stub's primitives.
-                "view_set" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    let g = self.emit_expr(args[0]);
-                    let m = self.emit_expr(args[1]);
-                    return format!("salvo.SalvoSched.viewSet({g}, {m})");
-                }
-                "view_members" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let g = self.emit_expr(args[0]);
-                    return format!("salvo.SalvoSched.viewMembers({g})");
-                }
-                "view_version" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let g = self.emit_expr(args[0]);
-                    return format!("salvo.runtime.routing.viewVersion({g})");
-                }
-                "view_refresh" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let g = self.emit_expr(args[0]);
-                    return format!("salvo.runtime.routing.viewRefresh({g})");
-                }
-                "view_wait" if args.len() == 3 => {
-                    self.needs_scheduler = true;
-                    let g = self.emit_expr(args[0]);
-                    let seen = self.emit_expr(args[1]);
-                    let nanos = self.emit_expr(args[2]);
-                    return format!("salvo.runtime.routing.viewWait({g}, {seen}, {nanos})");
                 }
                 "key_hash" if args.len() == 1 => {
                     self.needs_scheduler = true;
@@ -9275,10 +9156,6 @@ impl<'p> Emitter<'p> {
                     return format!(
                         "salvo.SalvoSched.keyHash(salvo.salvoEncode({k}, {codec}).toByteArray())"
                     );
-                }
-                "connected" if args.is_empty() => {
-                    self.needs_scheduler = true;
-                    return "salvo.SalvoSched.connected()".to_string();
                 }
                 "route_frames" if args.len() == 1 => {
                     self.needs_scheduler = true;

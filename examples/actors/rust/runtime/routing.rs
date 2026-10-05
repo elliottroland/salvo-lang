@@ -2,6 +2,8 @@ use crate::collections::*;
 use crate::unions::*;
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
+use crate::core_actor::eq;
+use crate::core_actor::pool;
 use crate::core_bytes::Bytes;
 use crate::core_list::at;
 use crate::runtime::Body;

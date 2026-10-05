@@ -2,6 +2,8 @@ use crate::collections::*;
 use crate::unions::*;
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
+use crate::core_actor::eq;
+use crate::core_actor::pool;
 use crate::core_bytes::Bytes;
 use crate::core_checked::detach;
 use crate::core_list::all;
@@ -10,6 +12,34 @@ use crate::core_list::last;
 use crate::core_list::partition;
 use crate::core_result::err;
 use crate::core_result::ok;
+use crate::runtime::Delivered;
+use crate::runtime::RuntimeHostPlatformSync as _;
+use crate::runtime::__Stateful_RuntimeHost as _;
+use crate::runtime::__Stateful_SchedTable as _;
+use crate::runtime::__Stateless_RuntimeHost as _;
+use crate::runtime::__Stateless_SchedTable as _;
+use crate::runtime_routing::__Stateful_RouteTable as _;
+use crate::runtime_routing::__Stateless_RouteTable as _;
+use crate::runtime_routing::connected as connected__runtime_routing;
+use crate::runtime_routing::control_frame;
+use crate::runtime_routing::credits as credits__runtime_routing;
+use crate::runtime_routing::deliver;
+use crate::runtime_routing::here_node;
+use crate::runtime_routing::identity;
+use crate::runtime_routing::local_protocols;
+use crate::runtime_routing::new_node as new_node__runtime_routing;
+use crate::runtime_routing::node_left as node_left__runtime_routing;
+use crate::runtime_routing::peer_protocol as peer_protocol__runtime_routing;
+use crate::runtime_routing::pending as pending__runtime_routing;
+use crate::runtime_routing::pool_at as pool_at__runtime_routing;
+use crate::runtime_routing::route;
+use crate::runtime_routing::send_control as send_control__runtime_routing;
+use crate::runtime_routing::set_peer_protocols as set_peer_protocols__runtime_routing;
+use crate::runtime_routing::view_members as view_members__runtime_routing;
+use crate::runtime_routing::view_refresh as view_refresh__runtime_routing;
+use crate::runtime_routing::view_set as view_set__runtime_routing;
+use crate::runtime_routing::view_version as view_version__runtime_routing;
+use crate::runtime_routing::view_wait as view_wait__runtime_routing;
 use crate::time::Duration;
 use crate::time::__Stateful_Clock as _;
 use crate::time::__Stateful_Ticker as _;
@@ -327,6 +357,37 @@ impl crate::wire::__Wire for NodeId {
     }
 }
 
+pub fn this_node() -> NodeId {
+    return NodeId { id: here_node() };
+}
+
+pub fn new_node() -> NodeId {
+    return NodeId { id: new_node__runtime_routing() };
+}
+
+pub fn pool_at(node: &NodeId, size: i32) -> usize {
+    return ((pool_at__runtime_routing(node.id, size)) as usize);
+}
+
+pub fn add_route(node: &NodeId, at: &NodeEndpoint) {
+    route(node.id, crate::wire::salvo_encode(&at.clone()));
+}
+
+pub fn deliver_frame(data: &Bytes) -> bool {
+    return deliver(data);
+}
+
+pub fn credits(a: &usize) -> Option<i32> {
+    let mut c = credits__runtime_routing((((a).clone()) as i32));
+    if c.is_none() {
+        return None;
+    }
+    if c.unwrap() < 0 {
+        return Some(0);
+    }
+    return Some(c.unwrap());
+}
+
 pub trait __Stateless_Outbound: Send + Sync {
     fn send_frame(&self, to: NodeEndpoint, frame: Bytes);
 }
@@ -514,7 +575,7 @@ impl Receiving {
 impl crate::net::__Stateless_Inbound for Receiving {
 
     fn receive_frame(&self, from: NodeEndpoint, frame: Bytes) {
-        let mut _delivered = crate::scheduler::salvo_deliver_frame(&frame);
+        let mut _delivered = deliver_frame(&frame);
     }
 }
 
@@ -573,19 +634,23 @@ fn __decode_msg_Receiving(proto: &str, payload: &[u8]) -> Option<crate::schedule
     None
 }
 
+pub fn connected() -> bool {
+    return connected__runtime_routing();
+}
+
 pub fn connect__NodeEndpoint(transport: &crate::net::Transport, me: NodeEndpoint) -> bool {
-    return connect__NodeEndpoint_Pool(transport, me, crate::scheduler::salvo_pool(((1) as usize)));
+    return connect__NodeEndpoint_Pool(transport, me, pool(1));
 }
 
 pub fn connect__NodeEndpoint_Pool(transport: &crate::net::Transport, me: NodeEndpoint, on: usize) -> bool {
-    if crate::scheduler::salvo_connected() {
+    if connected() {
         return false;
     }
     let mut sending = ({ let __h = Sending::new(transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, std::boxed::Box::new(__Actor_Sending::new(__h)), __DECODE_Sending); __a });
     let mut receiving = ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, std::boxed::Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving); __a });
     { let __out = sending; crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| { if let Some(__to) = crate::wire::salvo_decode::<NodeEndpoint>(__ep) { crate::scheduler::salvo_send_wire(__out, crate::net::__Msg_Outbound::SendFrame(__to, __frame), crate::net::__PROTO_Outbound); } })) };
     let mut _listening = transport.listen(&(me.clone()), receiving);
-    crate::scheduler::salvo_add_route((NodeId { id: crate::scheduler::salvo_here_node() as i64 }).id as u64, crate::wire::salvo_encode(&me));
+    add_route(&(this_node()), &me);
     return true;
 }
 
@@ -904,9 +969,25 @@ impl crate::wire::__Wire for Intro {
     }
 }
 
+pub fn send_control(to: &NodeId, channel: &String, payload: Bytes) {
+    send_control__runtime_routing(to.id, channel.clone(), payload);
+}
+
+pub fn node_left(node: &NodeId) {
+    node_left__runtime_routing(node.id);
+}
+
+pub fn set_peer_protocols(node: &NodeId, table: &Vec<(String, String)>) {
+    set_peer_protocols__runtime_routing(node.id, table.clone());
+}
+
+pub fn peer_protocol(node: &NodeId, protocol: &String) -> Option<String> {
+    return peer_protocol__runtime_routing(node.id, protocol);
+}
+
 pub fn hello_frame(transport: &crate::net::Transport, group: &String) -> Bytes {
-    let mut hello: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U1(Hello { group: group.clone(), at: transport.local_endpoint(), protocols: crate::scheduler::salvo_local_protocols() });
-    return crate::scheduler::salvo_control_frame(&"".to_string(), &crate::wire::salvo_encode(&hello));
+    let mut hello: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U1(Hello { group: group.clone(), at: transport.local_endpoint(), protocols: local_protocols() });
+    return control_frame("".to_string(), crate::wire::salvo_encode(&hello));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -967,22 +1048,22 @@ pub fn handshake(transport: &crate::net::Transport, group: &String, from: NodeId
             if !(&msg.as_ref().unwrap().u1().group[..] == &group[..]) {
                 return None;
             }
-            crate::scheduler::salvo_add_route((from.clone()).id as u64, crate::wire::salvo_encode(&msg.as_ref().unwrap().u1().clone().at.clone()));
-            crate::scheduler::salvo_set_peer_protocols((from.clone()).id as u64, (msg.as_ref().unwrap().u1().clone().protocols.clone()).clone());
-            let mut ack: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U2(Ack { group: group.clone(), at: transport.local_endpoint(), protocols: crate::scheduler::salvo_local_protocols() });
-            crate::scheduler::salvo_send_control((from.clone()).id as u64, &"".to_string(), &crate::wire::salvo_encode(&ack));
+            add_route(&(from.clone()), &(msg.as_ref().unwrap().u1().clone().at.clone()));
+            set_peer_protocols(&(from.clone()), &(msg.as_ref().unwrap().u1().clone().protocols.clone()));
+            let mut ack: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U2(Ack { group: group.clone(), at: transport.local_endpoint(), protocols: local_protocols() });
+            send_control(&(from.clone()), &("".to_string()), crate::wire::salvo_encode(&ack));
             return Some(Union3::<PeerHello, PeerGone, PeerIntro>::U1(PeerHello { node: from, at: msg.as_ref().unwrap().u1().clone().at.clone() }));
         }
         Some(Union4::U2(_)) => {
             if !(&msg.as_ref().unwrap().u2().group[..] == &group[..]) {
                 return None;
             }
-            crate::scheduler::salvo_add_route((from.clone()).id as u64, crate::wire::salvo_encode(&msg.as_ref().unwrap().u2().clone().at.clone()));
-            crate::scheduler::salvo_set_peer_protocols((from.clone()).id as u64, (msg.as_ref().unwrap().u2().clone().protocols.clone()).clone());
+            add_route(&(from.clone()), &(msg.as_ref().unwrap().u2().clone().at.clone()));
+            set_peer_protocols(&(from.clone()), &(msg.as_ref().unwrap().u2().clone().protocols.clone()));
             return Some(Union3::<PeerHello, PeerGone, PeerIntro>::U1(PeerHello { node: from, at: msg.as_ref().unwrap().u2().clone().at.clone() }));
         }
         Some(Union4::U3(_)) => {
-            crate::scheduler::salvo_node_left((from.clone()).id as u64);
+            node_left(&(from.clone()));
             return Some(Union3::<PeerHello, PeerGone, PeerIntro>::U2(PeerGone { node: from }));
         }
         Some(Union4::U4(_)) => {
@@ -996,13 +1077,13 @@ pub fn handshake(transport: &crate::net::Transport, group: &String, from: NodeId
 
 pub fn introduce(node: &NodeId, peers: &Vec<NodeEndpoint>) {
     let mut intro: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U4(Intro { peers: peers.clone() });
-    crate::scheduler::salvo_send_control((node.clone()).id as u64, &"".to_string(), &crate::wire::salvo_encode(&intro));
+    send_control(&(node.clone()), &("".to_string()), crate::wire::salvo_encode(&intro));
 }
 
 pub fn leave_group(known: &SalvoMap<NodeId, Node>) {
     for mut id in crate::platform_core_list::each(&(crate::core_map::keys_platform(known))).map(|__x| __x.clone()) {
         let mut leaving: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U3(Leaving {  });
-        crate::scheduler::salvo_send_control((id.clone()).id as u64, &"".to_string(), &crate::wire::salvo_encode(&leaving));
+        send_control(&(id.clone()), &("".to_string()), crate::wire::salvo_encode(&leaving));
     }
 }
 
@@ -1661,7 +1742,11 @@ impl crate::wire::__Wire for __Msg_ActorGroupWatcher {
 pub const __PROTO_ActorGroupWatcher: &str = "9fa424e5858bb3bd";
 
 pub fn share_members(name: &String, hash: &String, node: &NodeId, members: &Vec<usize>) {
-    crate::scheduler::salvo_send_control((node.clone()).id as u64, &name.clone(), &crate::wire::salvo_encode(&(hash.clone(), members.clone())));
+    send_control(&(node.clone()), &(name.clone()), crate::wire::salvo_encode(&(hash.clone(), members.clone())));
+}
+
+pub fn pending(a: &usize) -> i32 {
+    return pending__runtime_routing((((a).clone()) as i32));
 }
 
 pub fn actor_group__Addr(nodes: usize, protocol: &mut dyn FnMut() -> Protocol) -> usize {
@@ -1671,7 +1756,7 @@ pub fn actor_group__Addr(nodes: usize, protocol: &mut dyn FnMut() -> Protocol) -
 }
 
 pub fn actor_group__Str_Addr(name: String, nodes: usize, protocol: &mut dyn FnMut() -> Protocol) -> usize {
-    let (mut group, mut watcher) = ({ let __h = ActorGrouping::new(name, protocol()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_pool(((1) as usize)), __cap as usize, std::boxed::Box::new(__Actor_ActorGrouping::new(__h)), __DECODE_ActorGrouping); crate::scheduler::salvo_send(__a, std::boxed::Box::new(__Priv_ActorGrouping::Init)); (__a, __a) });
+    let (mut group, mut watcher) = ({ let __h = ActorGrouping::new(name, protocol()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(pool(1), __cap as usize, std::boxed::Box::new(__Actor_ActorGrouping::new(__h)), __DECODE_ActorGrouping); crate::scheduler::salvo_send(__a, std::boxed::Box::new(__Priv_ActorGrouping::Init)); (__a, __a) });
     crate::scheduler::salvo_send_wire(nodes, crate::net::__Msg_NodeGroup::Subscribe(watcher), crate::net::__PROTO_NodeGroup);
     return group;
 }
@@ -1736,7 +1821,7 @@ impl crate::net::__Stateful_ActorGroup for ActorGrouping {
     }
 
     fn refresh(&mut self) {
-        crate::runtime_routing::view_refresh((self.__addr.expect("a handler naming its own address runs as an actor")).clone() as i32);
+        view_refresh(&(self.__addr.expect("a handler naming its own address runs as an actor")));
     }
 
     fn subscribe(&mut self, w: usize) {
@@ -1753,7 +1838,7 @@ impl crate::net::__Stateful_NodeGroupWatcher for ActorGrouping {
     fn left(&mut self, n: Node, why: String) {
         let mut gone: Vec<usize> = vec![];
         for m in crate::platform_core_list::each(&self.all) {
-            if eq__NodeId_NodeId(&(NodeId { id: crate::scheduler::salvo_addr_identity((m.clone()).clone()).node as i64 }), &n.id) {
+            if eq__NodeId_NodeId(&(node_of(m)), &n.id) {
                 crate::core_list::add_platform(&mut gone, m.clone());
             }
         }
@@ -1914,12 +1999,12 @@ fn __decode_msg_ActorGrouping(proto: &str, payload: &[u8]) -> Option<crate::sche
 }
 
 pub fn mirror(group: &usize, members: &Vec<usize>) {
-    crate::scheduler::salvo_view_set((group.clone()).clone(), &members.clone());
+    view_set(group.clone(), members.clone());
 }
 
 pub fn admit(list: &mut Vec<usize>, a: usize) -> bool {
     for x in crate::platform_core_list::each(&*list) {
-        if ((crate::scheduler::salvo_addr_identity((x).clone()) == crate::scheduler::salvo_addr_identity((a).clone()))) {
+        if eq(x, &a) {
             return false;
         }
     }
@@ -1940,7 +2025,7 @@ pub fn withdraw(list: &mut Vec<usize>, a: usize) -> bool {
     let mut mut_index: Option<i32> = None;
     let mut i = 0;
     for x in crate::platform_core_list::each(&*list) {
-        if ((crate::scheduler::salvo_addr_identity((x).clone()) == crate::scheduler::salvo_addr_identity((a).clone()))) {
+        if eq(x, &a) {
             mut_index = Some(i);
         }
         i = i + 1;
@@ -1950,6 +2035,38 @@ pub fn withdraw(list: &mut Vec<usize>, a: usize) -> bool {
     }
     let mut _removed = crate::core_list::remove_at_platform(list, mut_index.unwrap());
     return true;
+}
+
+pub fn node_of(a: &usize) -> NodeId {
+    return NodeId { id: identity((((a).clone()) as i32)).node };
+}
+
+pub fn view_set(group: usize, members: Vec<usize>) {
+    let mut ixs = vec![];
+    for m in crate::platform_core_list::each(&members) {
+        crate::core_list::add_platform(&mut ixs, (((m).clone()) as i32));
+    }
+    view_set__runtime_routing((((group).clone()) as i32), ixs);
+}
+
+pub fn view_members(group: &usize) -> Vec<usize> {
+    let mut out = vec![];
+    for mut ix in crate::platform_core_list::each(&(view_members__runtime_routing((((group).clone()) as i32)))).map(|__x| __x.clone()) {
+        crate::core_list::add_platform(&mut out, ((ix) as usize));
+    }
+    return out;
+}
+
+pub fn view_version(group: &usize) -> i64 {
+    return view_version__runtime_routing((((group).clone()) as i32));
+}
+
+pub fn view_refresh(group: &usize) {
+    view_refresh__runtime_routing((((group).clone()) as i32));
+}
+
+pub fn view_wait(group: &usize, seen: i64, nanos: i64) {
+    view_wait__runtime_routing((((group).clone()) as i32), seen, nanos);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2097,7 +2214,7 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, group: &usize, co
     let mut cap = config.max_wait.nanos;
     let mut last = seen.clone();
     loop {
-        let mut version = crate::runtime_routing::view_version((group.clone()).clone() as i32);
+        let mut version = view_version(&(group.clone()));
         let mut view = route_view(&(group.clone()));
         if version != last {
             route_selector.changed(&(view.clone()));
@@ -2107,7 +2224,7 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, group: &usize, co
         if !(picked.is_none()) {
             return RoutePick { to: picked.as_ref().unwrap().clone(), version: last.clone() };
         }
-        crate::runtime_routing::view_wait((group.clone()).clone() as i32, version.clone(), wait.clone());
+        view_wait(&(group.clone()), version.clone(), wait.clone());
         wait = wait * ((2) as i64);
         if wait > cap {
             wait = cap.clone();
@@ -2118,8 +2235,8 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, group: &usize, co
 
 pub fn route_view(group: &usize) -> RouteView {
     let mut members: Vec<RouteMember> = vec![];
-    for mut m in crate::platform_core_list::each(&(crate::scheduler::salvo_view_members((group.clone()).clone()))).map(|__x| __x.clone()) {
-        crate::core_list::add_platform(&mut members, RouteMember { addr: m.clone(), local: eq__NodeId_NodeId(&(NodeId { id: crate::scheduler::salvo_addr_identity((m).clone()).node as i64 }), &(NodeId { id: crate::scheduler::salvo_here_node() as i64 })) });
+    for mut m in crate::platform_core_list::each(&(view_members(&(group.clone())))).map(|__x| __x.clone()) {
+        crate::core_list::add_platform(&mut members, RouteMember { addr: m.clone(), local: eq__NodeId_NodeId(&(node_of(&m)), &(this_node())) });
     }
     return RouteView { members: members.clone() };
 }
@@ -2146,7 +2263,7 @@ impl crate::net::__Stateless_RouteSelector for LeastLoaded {
         let mut best: Option<RouteMember> = None;
         let mut best_pending = 0;
         for a in crate::platform_core_list::each(&view.members) {
-            let mut load = crate::scheduler::salvo_pending((a.addr.clone()).clone());
+            let mut load = pending(&(a.addr.clone()));
             if best.is_none() {
                 best = Some(a.clone());
                 best_pending = load;
@@ -2290,7 +2407,7 @@ impl crate::net::__Stateful_RouteSelector for Elected {
         self.chosen = None;
         let mut l = { let __pick2 = self.__dep_Leader.leader(); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { return } };
         for a in crate::platform_core_list::each(&view.members) {
-            if eq__NodeId_NodeId(&(NodeId { id: crate::scheduler::salvo_addr_identity((a.addr.clone()).clone()).node as i64 }), &l) {
+            if eq__NodeId_NodeId(&(node_of(&(a.addr.clone()))), &l) {
                 self.chosen = Some(a.addr.clone());
                 return;
             }

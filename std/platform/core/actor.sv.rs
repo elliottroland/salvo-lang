@@ -2,6 +2,20 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 00a4643b6b12f596
+use crate::runtime::RuntimeHostPlatformSync as _;
+use crate::runtime::__Stateful_RuntimeHost as _;
+use crate::runtime::__Stateful_SchedTable as _;
+use crate::runtime::__Stateless_RuntimeHost as _;
+use crate::runtime::__Stateless_SchedTable as _;
+use crate::runtime::new_pool_of;
+use crate::runtime_routing::__Stateful_RouteTable as _;
+use crate::runtime_routing::__Stateless_RouteTable as _;
+use crate::runtime_routing::adopt;
+use crate::runtime_routing::same_actor;
+
+pub fn eq(a: &usize, b: &usize) -> bool {
+    return same_actor((((a).clone()) as i32), (((b).clone()) as i32));
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mailbox {
@@ -17,6 +31,12 @@ impl crate::wire::__Wire for Mailbox {
             capacity: crate::wire::__Wire::__dec(r)?,
         })
     }
+}
+
+pub fn pool(size: i32) -> usize {
+    let mut p = new_pool_of(size, -1);
+    adopt(p.clone());
+    return ((p) as usize);
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -6,6 +6,7 @@ package salvo.net
 
 import salvo.*
 import salvo.core.list.at
+import salvo.runtime.routing.deliver
 
 data class NodeEndpoint(
     val host: String,

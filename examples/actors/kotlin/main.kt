@@ -2,6 +2,7 @@ package salvo.main
 
 import salvo.core.actor.Exit
 import salvo.core.actor.__Codec_Exit
+import salvo.core.actor.pool
 import salvo.core.bytes.next
 import salvo.core.console.Console
 import salvo.core.console.println
@@ -478,7 +479,7 @@ fun reportLine(counter: Int, label: String, out: salvo.SalvoReply) {
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Counter", salvo.main.__PROTO_Counter), Pair("Desk", salvo.main.__PROTO_Desk), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Fragile", salvo.main.__PROTO_Fragile), Pair("Ledger", salvo.main.__PROTO_Ledger)))
     val console: Console = salvo.core.console.__Platform_StdOutConsole()
-    val workers = salvo.SalvoSched.pool(2)
+    val workers = pool(2)
     val counter = run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
     salvo.SalvoSched.sendWire(counter, __Msg_Counter.Bump(2), __PROTO_Counter, __Codec___Msg_Counter)
     salvo.SalvoSched.sendWire(counter, __Msg_Counter.Bump(3), __PROTO_Counter, __Codec___Msg_Counter)

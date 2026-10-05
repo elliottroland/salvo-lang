@@ -135,6 +135,29 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Most actor and net intrinsics as Salvo; `Addr`/`Reply`/`Pool` stay
+intrinsic (2026-10-05, user decisions, ROADMAP 0.2 and 0.3).** Started on 0.3
+(the three handles as platform types) and stopped at the user's question:
+the backends generate the actor machinery (spawns mint addrs, `replyto` and
+`waitfor` mint tokens, `send` on a token is lowered per payload codec, the
+wire carries both), so they name the types throughout — 5/9/2 sites in the
+Rust emitter for `Addr`/`Reply`/`Pool` — and a platform type would have moved
+only the three-line type mapping into host files, behind a rule rendering
+them without type arguments (Rust refuses a type alias that ignores a
+parameter, E0091). The user dropped 0.3. What 0.2 needed instead was a way
+between a handle and the runtime's index: four std-only intrinsics in
+`runtime` [runtime-handles] (`addr_index`, `addr_of`, `pool_index`,
+`pool_of`; a program cannot import `runtime`, so handles stay unforgeable).
+With them `core.actor`'s `eq` and `pool(size)` and 19 of `net`'s intrinsics
+(`this_node`, `new_node`, `pool_at`, `add_route`, `deliver_frame`, `credits`,
+`connected`, `send_control`, `control_frame`, `node_left`, `local_protocols`,
+`set_peer_protocols`, `peer_protocol`, `pending`, `node_of`, the five `view_*`)
+are Salvo calling `runtime.routing`; `control_frame` and `local_protocols`
+had the routing service's own signatures and simply went. About 21 lowerings
+per backend and 17 scheduler shims per runtime went with them;
+`salvo_pool`/`SalvoSched.pool` stay as host API (the runtime tests call
+them). What is still intrinsic, and why, is ROADMAP 0.2.
+
 **`SortedSet` and `SortedMap` as value platform types (2026-10-05, ROADMAP
 0.7).** Both in `core.sorted`, over the runtime's `SalvoSortedSet`/
 `SalvoSortedMap` (Rust) and `java.util.SortedSet`/`SortedMap` (Kotlin). 16

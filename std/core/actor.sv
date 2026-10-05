@@ -11,6 +11,12 @@
 // any frame's bridge into both — no declaration needed: a wait serves its
 // pool while it waits. See LANGUAGE_SPEC.md's "Actors".
 
+import runtime.addr_index
+import runtime.pool_of
+import runtime.new_pool_of
+import runtime.routing.adopt
+import runtime.routing.same_actor
+
 // [actor-spawn-expr] A handle to a running actor, and the *only* thing a
 // spawn hands back: the state behind it is the child's alone, so an `Addr` is
 // the whole of what one actor knows about another.
@@ -29,7 +35,9 @@ export intrinsic type Addr<E>
 // [actor-types] Two addrs are equal when they name the same actor — the same
 // identity, whether both are the local index or one is a proxy of the other's
 // actor. What a group's membership check reads [actor-group].
-export intrinsic fn eq<E>(a: Addr<E>, b: Addr<E>) [] -> Bool => a, b
+export fn eq<E>(a: Addr<E>, b: Addr<E>) [] -> Bool => a, b {
+    return same_actor(addr_index(a), addr_index(b))
+}
 
 // [actor-replyto] A one-shot answer channel, minted by `replyto k(captures)`
 // and consumed by sending to it. **Linear**, which is the guarantee the whole
@@ -83,7 +91,11 @@ export noremote intrinsic type Pool
 // [actor-spawn-expr] A pool of [size] threads. An ordinary function, not
 // syntax: `on pool(2)` is a call, and declaring `[spawn]` is what makes
 // creating one a capability the caller must hold.
-export intrinsic fn pool(size: Int) [spawn] -> Pool => size
+export fn pool(size: Int) [spawn] -> Pool => size {
+    let p = new_pool_of(size, -1)
+    adopt(copy(p))
+    return pool_of(p)
+}
 
 // [waitfor-dedicated] A pool of exactly one thread, and the placement that
 // grants the right to *block* it. It is a claim about where the handle came

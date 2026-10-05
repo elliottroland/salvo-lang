@@ -60,6 +60,7 @@ object SalvoSched {
 
     fun currentPool(): Int = salvo.platform.runtime.herePool()
 
+    /** A pool of [n] workers, for host code (generated code calls `core.actor`'s Salvo `pool`). */
     fun pool(n: Int): Int = poolWithSink(n, null, null)
 
     /** [pool-fault-sink] A pool whose uncaught faults go to [sinkAddr], as the message [sinkBuild] makes. */
@@ -183,25 +184,14 @@ object SalvoSched {
 
     fun hereNode(): Long = salvo.runtime.routing.hereNode()
 
-    fun newNode(): Long = salvo.runtime.routing.newNode()
-
-    fun poolAt(node: Long, n: Int): Int = salvo.runtime.routing.poolAt(node, n)
-
     fun addrIdentity(addr: Int): SalvoRemoteRef {
         val r = salvo.runtime.routing.identity(addr)
         return SalvoRemoteRef(r.node, r.actor, r.bits)
     }
 
-    fun sameActor(a: Int, b: Int): Boolean = salvo.runtime.routing.sameActor(a, b)
-
     fun importAddr(r: SalvoRemoteRef): Int = salvo.runtime.routing.importAddr(r.node, r.actor, r.bits)
 
     fun isRemote(addr: Int): Boolean = salvo.runtime.routing.remote(addr)
-
-    fun addRoute(node: Long, endpoint: ByteArray) = salvo.runtime.routing.route(node, SalvoBytes(endpoint))
-
-    /** [net-connect] Whether the current node's outbound hook is bound. */
-    fun connected(): Boolean = salvo.runtime.routing.connected()
 
     fun setWire(hook: (ByteArray, ByteArray) -> Unit) {
         wires[hereNode()] = hook
@@ -218,8 +208,6 @@ object SalvoSched {
         codec.enc(m, out)
         salvo.runtime.routing.sendRemote(addr, proto, out.toBytes())
     }
-
-    fun credits(addr: Int): Int? = salvo.runtime.routing.credits(addr)
 
     /** [addr-routable] [wire-format] The typed reply. */
     fun <T> replyWire(reply: SalvoReply, value: T, codec: WireCodec<T>) {
@@ -258,33 +246,10 @@ object SalvoSched {
 
     fun setProtocols(table: List<Pair<String, String>>) = salvo.runtime.routing.registerProtocols(table)
 
-    fun localProtocols(): List<Pair<String, String>> = salvo.runtime.routing.localProtocols()
-
-    fun setPeerProtocols(node: Long, table: List<Pair<String, String>>) = salvo.runtime.routing.setPeerProtocols(node, table)
-
-    fun peerProtocol(node: Long, protocol: String): String? = salvo.runtime.routing.peerProtocol(node, protocol)
-
     fun watchControl(channel: String, sink: Int, build: (Long, ByteArray) -> Any?) {
         controls[sink] = build
         salvo.runtime.routing.watchControl(channel, sink)
     }
-
-    /** [node-group] A CONTROL frame for whichever node receives it: a HELLO's. */
-    fun controlFrame(channel: String, payload: ByteArray): ByteArray =
-        salvo.runtime.routing.controlFrame(channel, SalvoBytes(payload)).toByteArray()
-
-    fun sendControl(to: Long, channel: String, payload: ByteArray) =
-        salvo.runtime.routing.sendControl(to, channel, SalvoBytes(payload))
-
-    fun nodeLeft(node: Long) = salvo.runtime.routing.nodeLeft(node)
-
-    fun pending(addr: Int): Int = salvo.runtime.routing.pending(addr)
-
-    /** [route-stub] The replica [group] mirrors its member set: the routing service keeps it. */
-    fun viewSet(group: Int, members: List<Int>) = salvo.runtime.routing.viewSet(group, members)
-
-    /** [route-stub] The mirrored members of [group], by (node, actor id). */
-    fun viewMembers(group: Int): List<Int> = salvo.runtime.routing.viewMembers(group)
 
     /** [route-stub] FNV-1a over the key's canonical bytes, identical to Rust's `salvo_key_hash`. */
     fun keyHash(bytes: ByteArray): Long {
@@ -298,8 +263,6 @@ object SalvoSched {
 
     /** [addr-routable] An answer that arrived over the wire for an actor, still as bytes. */
     fun rawAnswer(payload: ByteArray): Dyn = Dyn(SalvoRawReply(payload))
-
-    fun deliverFrame(frame: ByteArray): Boolean = salvo.runtime.routing.deliver(SalvoBytes(frame))
 }
 
 /**

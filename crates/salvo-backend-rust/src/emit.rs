@@ -16157,48 +16157,6 @@ impl<'p> Emitter<'p> {
         // the constructor, as `watch` does for `Exit` [actor-watch].
         if f.intrinsic {
             match f.name.name.as_str() {
-                // [addr-routable] `NodeId` is a Salvo struct over the runtime's
-                // `u64`: built at every intrinsic that answers a node, read
-                // (`.id as u64`) at every one that takes one.
-                "this_node" if args.is_empty() => {
-                    self.needs_scheduler = true;
-                    let nid = self.node_id_ty();
-                    return format!("{nid} {{ id: crate::scheduler::salvo_here_node() as i64 }}");
-                }
-                "new_node" if args.is_empty() => {
-                    self.needs_scheduler = true;
-                    let nid = self.node_id_ty();
-                    return format!("{nid} {{ id: crate::scheduler::salvo_new_node() as i64 }}");
-                }
-                "pool_at" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    let node = self.emit_read(args[0]);
-                    let n = self.emit_read(args[1]);
-                    return format!(
-                        "crate::scheduler::salvo_pool_at(({node}).id as u64, ({n}) as usize)"
-                    );
-                }
-                "add_route" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    self.needs_wire = true;
-                    let node = self.emit_read(args[0]);
-                    let at = self.emit_read(args[1]);
-                    return format!(
-                        "crate::scheduler::salvo_add_route(({node}).id as u64, crate::wire::salvo_encode(&{at}))"
-                    );
-                }
-                "deliver_frame" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let data = self.emit_read(args[0]);
-                    return format!("crate::scheduler::salvo_deliver_frame(&{data})");
-                }
-                "credits" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let a = self.emit_read(args[0]);
-                    // `emit_read` of a narrowed optional answers a `&usize`;
-                    // an addr is `Copy`, so a deref-by-clone normalises both.
-                    return format!("crate::scheduler::salvo_credits(({a}).clone()).map(|c| c as i32)");
-                }
                 // [node-group] [actor-group] The control channel: the
                 // protocols std's node and actor groups speak are std's own
                 // (`std/net.sv`), and the runtime only carries them.
@@ -16218,46 +16176,6 @@ impl<'p> Emitter<'p> {
                          |__n, __d| std::boxed::Box::new({msg}::Control({nid} {{ id: __n as i64 }}, __d)))"
                     );
                 }
-                "send_control" if args.len() == 3 => {
-                    self.needs_scheduler = true;
-                    let to = self.emit_read(args[0]);
-                    let channel = self.emit_read(args[1]);
-                    let payload = self.emit_read(args[2]);
-                    return format!(
-                        "crate::scheduler::salvo_send_control(({to}).id as u64, &{channel}, &{payload})"
-                    );
-                }
-                "control_frame" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    let channel = self.emit_read(args[0]);
-                    let payload = self.emit_read(args[1]);
-                    return format!("crate::scheduler::salvo_control_frame(&{channel}, &{payload})");
-                }
-                "node_left" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let node = self.emit_read(args[0]);
-                    return format!("crate::scheduler::salvo_node_left(({node}).id as u64)");
-                }
-                "local_protocols" if args.is_empty() => {
-                    self.needs_scheduler = true;
-                    return "crate::scheduler::salvo_local_protocols()".to_string();
-                }
-                "set_peer_protocols" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    let node = self.emit_read(args[0]);
-                    let table = self.emit_read(args[1]);
-                    return format!(
-                        "crate::scheduler::salvo_set_peer_protocols(({node}).id as u64, ({table}).clone())"
-                    );
-                }
-                "peer_protocol" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    let node = self.emit_read(args[0]);
-                    let proto = self.emit_read(args[1]);
-                    return format!(
-                        "crate::scheduler::salvo_peer_protocol(({node}).id as u64, &{proto})"
-                    );
-                }
                 // [protocol-hash] [actor-group] `protocol<E>()` written
                 // directly: the literal for the written type argument. The
                 // same intrinsic filling an implicit `?protocol` is rendered
@@ -16274,48 +16192,6 @@ impl<'p> Emitter<'p> {
                     };
                     return self.protocol_literal(&effect, "protocol");
                 }
-                "pending" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let a = self.emit_read(args[0]);
-                    return format!("crate::scheduler::salvo_pending(({a}).clone())");
-                }
-                "node_of" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let a = self.emit_read(args[0]);
-                    let nid = self.node_id_ty();
-                    return format!("{nid} {{ id: crate::scheduler::salvo_addr_identity(({a}).clone()).node as i64 }}");
-                }
-                // [route-stub] The view mirror and the stub's primitives.
-                "view_set" if args.len() == 2 => {
-                    self.needs_scheduler = true;
-                    let g = self.emit_read(args[0]);
-                    let m = self.emit_read(args[1]);
-                    return format!("crate::scheduler::salvo_view_set(({g}).clone(), &{m})");
-                }
-                "view_members" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let g = self.emit_read(args[0]);
-                    return format!("crate::scheduler::salvo_view_members(({g}).clone())");
-                }
-                "view_version" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let g = self.emit_read(args[0]);
-                    return format!("crate::runtime_routing::view_version(({g}).clone() as i32)");
-                }
-                "view_refresh" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    let g = self.emit_read(args[0]);
-                    return format!("crate::runtime_routing::view_refresh(({g}).clone() as i32)");
-                }
-                "view_wait" if args.len() == 3 => {
-                    self.needs_scheduler = true;
-                    let g = self.emit_read(args[0]);
-                    let seen = self.emit_owned(args[1]);
-                    let nanos = self.emit_owned(args[2]);
-                    return format!(
-                        "crate::runtime_routing::view_wait(({g}).clone() as i32, {seen}, {nanos})"
-                    );
-                }
                 "key_hash" if args.len() == 1 => {
                     self.needs_scheduler = true;
                     self.needs_wire = true;
@@ -16323,10 +16199,6 @@ impl<'p> Emitter<'p> {
                     return format!(
                         "crate::scheduler::salvo_key_hash(&crate::wire::salvo_encode(&{k}))"
                     );
-                }
-                "connected" if args.is_empty() => {
-                    self.needs_scheduler = true;
-                    return "crate::scheduler::salvo_connected()".to_string();
                 }
                 "route_frames" if args.len() == 1 => {
                     self.needs_scheduler = true;

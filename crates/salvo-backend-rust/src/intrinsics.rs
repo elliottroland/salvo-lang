@@ -199,12 +199,6 @@ pub fn fn_call(
         // Vec<u8>` is element-wise, which is what the Kotlin runtime's
         // `SalvoBytes.equals` also does [kt-bytes].
         // [actor-types] Same actor: the same routable identity, so a proxy
-        // and the actor it stands for compare equal.
-        ("eq", Some("Addr")) => format!(
-            "(crate::scheduler::salvo_addr_identity(({}).clone()) == crate::scheduler::salvo_addr_identity(({}).clone()))",
-            a(0),
-            a(1)
-        ),
         ("eq", Some("Int" | "Long" | "Double" | "Float" | "Byte" | "Char" | "Bool")) => {
             format!("(({}) == ({}))", a(0), a(1))
         }
@@ -250,6 +244,11 @@ pub fn fn_call(
             a(0),
             a(1)
         ),
+        // runtime ------------------------------------------------------
+        // [runtime-handles] An addr and a pool are `usize` indices here and
+        // `i32` in the Salvo runtime.
+        ("addr_index", Some("Addr")) | ("pool_index", Some("Pool")) => format!("((({}).clone()) as i32)", a(0)),
+        ("addr_of", Some("Int")) | ("pool_of", Some("Int")) => format!("(({}) as usize)", a(0)),
         // core.actor ---------------------------------------------------
         // [actor-replyto] [rs-actor] Answering a request: the token is
         // consumed, and the payload crosses the seam as the runtime's untyped
@@ -269,7 +268,6 @@ pub fn fn_call(
             a(0),
             a(1)
         ),
-        ("pool", Some("Int")) => format!("crate::scheduler::salvo_pool((({}) as usize))", a(0)),
         // [waitfor-dedicated] `thread()` is a pool of one, and the only
         // placement the language types `Dedicated` — the qualifier is erased,
         // so what reaches here is a plain pool id.

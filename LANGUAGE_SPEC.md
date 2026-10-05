@@ -7802,6 +7802,16 @@ between endpoints and delivers what arrives into the scheduler.
   never depends on something that depends on the scheduler. The core exports
   what services need (`Parker` and its fns, `now_nanos`); module-level
   `use` [mod-use] is allowed in both layers.
+* [runtime-handles] **An addr and a pool are indices into the runtime's
+  tables, and only std converts** (2026-10-05): `runtime` declares
+  `addr_index<E>(Addr<E>) -> Int`, `addr_of<E>(Int) -> Addr<E>`,
+  `pool_index(Pool) -> Int` and `pool_of(Int) -> Pool` as intrinsics (an `as`
+  cast on Rust, nothing on Kotlin). A program cannot import `runtime`
+  [mod-export], so it cannot forge a handle; std's `core.actor` and `net` are
+  Salvo over `runtime.routing` through them. `Addr`, `Reply` and `Pool` stay
+  `intrinsic type`s: the backends generate the actor machinery and name them
+  throughout, so a platform type would buy nothing (user decision 2026-10-05,
+  reversing the day before's option (b)).
 * [runtime-kept-fn] **The runtime's host may keep a fn value** (2026-10-02,
   runtime E2): a platform fn of the runtime's modules whose clause
   consumes a fn-typed parameter (`=> !body`) takes it owned, to keep or run

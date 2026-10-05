@@ -65,6 +65,7 @@ pub mod platform_runtime;
 use crate::core_actor::Idle;
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
+use crate::core_actor::pool;
 use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
@@ -573,7 +574,7 @@ pub fn main() {
     println(&console, &(format!("overdue after three: {} {} {}", overdue(&ticker2, &started, &budget), overdue(&ticker2, &started, &budget), overdue(&ticker2, &started, &budget))));
     println(&console, &(verdict(&(Tick { nanos: 0i64 }), &(Tick { nanos: 1000000000i64 }), &budget)));
     println(&console, &(verdict(&(Tick { nanos: 0i64 }), &(Tick { nanos: 2000000000i64 }), &budget)));
-    let mut p = crate::scheduler::salvo_pool(((1) as usize));
+    let mut p = pool(1);
     let (mut timer, mut ctl) = ({ let __h = ManualTime::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(__Actor_ManualTime::new(__h)), __DECODE_ManualTime); (__a, __a) });
     let mut sessions = ({ let __h = Sessions::new(crate::time::Timer::shared(__Stub_Timer::new(timer))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(__Actor_Sessions::new(__h)), __DECODE_Sessions); __a });
     let mut outcome = {

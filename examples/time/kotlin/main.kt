@@ -2,6 +2,7 @@ package salvo.main
 
 import salvo.core.actor.Idle
 import salvo.core.actor.__Codec_Idle
+import salvo.core.actor.pool
 import salvo.core.console.Console
 import salvo.core.console.println
 import salvo.core.list.at
@@ -321,7 +322,7 @@ fun main() {
     println(console, "overdue after three: ${overdue(ticker2, started, budget)} ${overdue(ticker2, started, budget)} ${overdue(ticker2, started, budget)}")
     println(console, verdict(Tick(nanos = 0L), Tick(nanos = 1000000000L), budget))
     println(console, verdict(Tick(nanos = 0L), Tick(nanos = 2000000000L), budget))
-    val p = salvo.SalvoSched.pool(1)
+    val p = pool(1)
     val (timer, ctl) = run { val __h = ManualTime(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_ManualTime(__h), __Actor_ManualTime.__DECODE); Pair(__a, __a) }
     val sessions = run { val __h = Sessions(__Stub_Timer(timer)); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sessions(__h), __Actor_Sessions.__DECODE); __a }
     val outcome = run {

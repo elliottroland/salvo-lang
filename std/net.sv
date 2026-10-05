@@ -67,6 +67,10 @@
 // to script.
 
 import time.Duration
+import runtime.routing
+import runtime.addr_index
+import runtime.addr_of
+import runtime.pool_of
 
 // Where a transport can dial: known **before** any contact, which is what
 // makes it the currency of node discovery. For TCP it is a host and a port;
@@ -167,17 +171,23 @@ export struct NodeId : Hashed<self> by auto {
 
 // [addr-routable] The identity of the node this code runs on: every actor
 // carries the node it was spawned on.
-export intrinsic fn this_node() [] -> NodeId
+export fn this_node() [] -> NodeId {
+    return NodeId { id: here_node() }
+}
 
 // [addr-routable] Hosts a fresh **virtual node** in this process: the
 // in-process double of another machine. Pools made with [pool_at] belong to
 // it, actors spawned on them carry it, and an addr of one that crosses to
 // another node — virtual or not — is reached through a proxy, so every remote
 // path runs without a socket.
-export intrinsic fn new_node() [spawn] -> NodeId
+export fn new_node() [spawn] -> NodeId {
+    return NodeId { id: new_node@runtime.routing() }
+}
 
 // [addr-routable] A pool of [size] workers belonging to [node].
-export intrinsic fn pool_at(node: NodeId, size: Int) [spawn] -> Pool => node, size
+export fn pool_at(node: NodeId, size: Int) [spawn] -> Pool => node, size {
+    return pool_of(pool_at(node.id, size))
+}
 
 // ---- the runtime's side of the wire (private: `connect` is the program's call)
 //
@@ -192,7 +202,9 @@ export intrinsic fn pool_at(node: NodeId, size: Int) [spawn] -> Pool => node, si
 // [addr-routable] Records where frames for [node] go. The self-route is
 // written by `connect`; routes to peers are learnt in the node group's
 // handshake. A frame for a node with no route yet waits until one arrives.
-intrinsic fn add_route(node: NodeId, at: NodeEndpoint) [] -> None => node, at
+fn add_route(node: NodeId, at: NodeEndpoint) [] -> None => node, at {
+    route(node.id, encode(copy(at)))
+}
 
 // [addr-routable] Binds the current node's outbound side: every frame the
 // runtime wants sent is queued to [out], whose activation calls
@@ -205,12 +217,23 @@ intrinsic fn route_frames(out: Addr<Outbound>) [] -> None => !out
 // proxy, a handshake to the node group. Answers whether it was delivered; a
 // frame for an unknown target, with mismatched bits or a malformed payload is
 // dropped, never delivered wrong.
-intrinsic fn deliver_frame(data: Bytes) [] -> Bool => data
+fn deliver_frame(data: Bytes) [] -> Bool => data {
+    return deliver(data)
+}
 
 // [remote-backpressure] For an addr that crossed the wire, how many more
 // messages its mailbox has granted room for; `None` for a local actor. What a
 // pick reads as a remote member's load (step ⑤).
-export intrinsic fn credits<E>(a: Addr<E>) [] -> Int? => a
+export fn credits<E>(a: Addr<E>) [] -> Int? => a {
+    let c = credits(addr_index(a))
+    if c is None {
+        return None
+    }
+    if c < 0 {
+        return 0
+    }
+    return c
+}
 
 // [addr-routable] The outbound protocol: the runtime sends every frame it
 // wants on the wire here, and the one handler of it hands them to the
@@ -242,7 +265,9 @@ export handler Receiving() of Inbound {
 // [net-connect] Whether the current node is connected to the wire: its
 // outbound side bound by [connect]. What makes `connect` idempotent, and what
 // a program asks before it decides to.
-export intrinsic fn connected() [] -> Bool
+export fn connected() [] -> Bool {
+    return connected@runtime.routing()
+}
 
 // [net-connect] Connects the current node to the wire, at endpoint [me]:
 // the three bindings between the scheduler and the `Transport` in scope,
@@ -274,7 +299,7 @@ export fn connect(me: NodeEndpoint) [Transport, spawn] -> Bool => !me {
 }
 
 export fn connect(me: NodeEndpoint, on: Pool) [Transport, spawn] -> Bool => !me, !on {
-    if connected() {
+    if connected@net() {
         return false
     }
     let sending = spawn Sending() on on
@@ -348,30 +373,38 @@ intrinsic fn watch_control<E>(channel: Str, sink: Addr<E>) [] -> None => channel
 
 // [node-group] [actor-group] Routes [payload] to the actor listening on
 // [channel] at node [to]: a control frame, parked until [to] has a route.
-intrinsic fn send_control(to: NodeId, channel: Str, payload: Bytes) [] -> None => to, channel, !payload
+fn send_control(to: NodeId, channel: Str, payload: Bytes) [] -> None => to, channel, !payload {
+    send_control(to.id, copy(channel), payload)
+}
 
 // [node-group] A control frame on [channel] for **whichever node receives
 // it**: what a HELLO is, since before the handshake the peer's identity is
 // not known and it has no route — it is handed to the transport directly.
-intrinsic fn control_frame(channel: Str, payload: Bytes) [] -> Bytes => channel, !payload
+// (Now `runtime.routing`'s own, called directly [runtime-handles].)
 
 // [node-group] [node-exit] Peer [node] has left: the runtime forgets its route
 // and protocol table, and every proxy of an actor on it dies — a send to one
 // is the silent no-op, and a `watch` on one fires.
-intrinsic fn node_left(node: NodeId) [] -> None => node
+fn node_left(node: NodeId) [] -> None => node {
+    node_left(node.id)
+}
 
 // [protocol-hash] This program's protocol table, which every [Hello] and
 // [Ack] carries.
-intrinsic fn local_protocols() [] -> List<(Str, Str)>
+// (Now `runtime.routing`'s own, called directly [runtime-handles].)
 
 // [protocol-hash] Records peer [node]'s protocol table, as its handshake
 // carried it: what [peer_protocol] answers from.
-intrinsic fn set_peer_protocols(node: NodeId, table: List<(Str, Str)>) [] -> None => node, table
+fn set_peer_protocols(node: NodeId, table: List<(Str, Str)>) [] -> None => node, table {
+    set_peer_protocols(node.id, copy(table))
+}
 
 // [protocol-hash] A peer's hash for the protocol named [protocol], as its
 // handshake carried it; `None` for an unknown peer or one without the
 // protocol.
-export intrinsic fn peer_protocol(node: NodeId, protocol: Str) [] -> Str? => node, protocol
+export fn peer_protocol(node: NodeId, protocol: Str) [] -> Str? => node, protocol {
+    return peer_protocol(node.id, protocol)
+}
 
 // [node-group] The HELLO for group [group], to be handed to the transport
 // directly: a node with no route yet cannot be sent to any other way.
@@ -705,7 +738,9 @@ fn share_members<E>(name: Str, hash: Str, node: NodeId, members: List<Addr<E>>) 
 // [actor-group] [remote-backpressure] How loaded a member looks from here:
 // the queue depth of a local actor, or the messages in flight to a remote one
 // that its host has not yet dequeued. What a pick compares (step ⑦).
-export intrinsic fn pending<E>(a: Addr<E>) [] -> Int => a
+export fn pending<E>(a: Addr<E>) [] -> Int => a {
+    return pending(addr_index(a))
+}
 
 // [actor-group] Opens the group of protocol [E] over [nodes] on this node:
 // one replica, spawned on the current pool, published under the group's name
@@ -911,7 +946,9 @@ fn withdraw<E>(list: Mut List<Addr<E>>, a: Addr<E>) [] -> Bool => list: Mut, !a 
 
 // [addr-routable] The node an addr lives on — for a log line, and for the
 // group's peer check.
-export intrinsic fn node_of<E>(a: Addr<E>) [] -> NodeId => a
+export fn node_of<E>(a: Addr<E>) [] -> NodeId => a {
+    return NodeId { id: identity(addr_index(a)).node }
+}
 
 // ---------------------------------------------------------- the pick kit ----
 
@@ -924,13 +961,31 @@ export intrinsic fn node_of<E>(a: Addr<E>) [] -> NodeId => a
 // `route_any(group)` stub per send. A group with no replica on this node has
 // an empty view, so its stub waits. Every write moves the view's **version**,
 // and so does `refresh`; a waiting send wakes when it moves.
-intrinsic fn view_set<E>(group: Addr<ActorGroup<E>>, members: List<Addr<E>>) [] -> None
-    => !group, !members
-intrinsic fn view_members<E>(group: Addr<ActorGroup<E>>) [] -> List<Addr<E>> => group
-intrinsic fn view_version<E>(group: Addr<ActorGroup<E>>) [] -> Long => group
-intrinsic fn view_refresh<E>(group: Addr<ActorGroup<E>>) [] -> None => group
-intrinsic fn view_wait<E>(group: Addr<ActorGroup<E>>, seen: Long, nanos: Long) [] -> None
-    => group, !seen, !nanos
+fn view_set<E>(group: Addr<ActorGroup<E>>, members: List<Addr<E>>) [] -> None
+    => !group, !members {
+    let ixs = mut_list_of<Int>()
+    for m in members {
+        add(ixs, addr_index(m))
+    }
+    view_set(addr_index(group), ixs)
+}
+fn view_members<E>(group: Addr<ActorGroup<E>>) [] -> List<Addr<E>> => group {
+    let out = mut_list_of<Addr<E>>()
+    for ix in view_members(addr_index(group)) {
+        add(out, addr_of<E>(ix))
+    }
+    return out
+}
+fn view_version<E>(group: Addr<ActorGroup<E>>) [] -> Long => group {
+    return view_version(addr_index(group))
+}
+fn view_refresh<E>(group: Addr<ActorGroup<E>>) [] -> None => group {
+    view_refresh(addr_index(group))
+}
+fn view_wait<E>(group: Addr<ActorGroup<E>>, seen: Long, nanos: Long) [] -> None
+    => group, !seen, !nanos {
+    view_wait(addr_index(group), seen, nanos)
+}
 
 // [route-stub] One member as a route selector sees it: where it is, and
 // whether it is on this node. Load is read when it is wanted, with

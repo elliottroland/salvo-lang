@@ -1,6 +1,7 @@
 package salvo.core.list
 
 import salvo.*
+import salvo.core.actor.eq
 import salvo.core.checked.Checked
 import salvo.core.checked.checked
 import salvo.core.checked.ignore

@@ -1,6 +1,8 @@
 package salvo.net
 
 import salvo.*
+import salvo.core.actor.eq
+import salvo.core.actor.pool
 import salvo.core.checked.detach
 import salvo.core.list.addPlatform as addPlatform__core_list
 import salvo.core.list.all
@@ -22,6 +24,27 @@ import salvo.core.seq.count
 import salvo.core.set.addPlatform as addPlatform__core_set
 import salvo.core.set.containsPlatform
 import salvo.core.set.removePlatform as removePlatform__core_set
+import salvo.runtime.Delivered
+import salvo.runtime.routing.connected as connected__runtime_routing
+import salvo.runtime.routing.controlFrame
+import salvo.runtime.routing.credits as credits__runtime_routing
+import salvo.runtime.routing.deliver
+import salvo.runtime.routing.hereNode
+import salvo.runtime.routing.identity
+import salvo.runtime.routing.localProtocols
+import salvo.runtime.routing.newNode as newNode__runtime_routing
+import salvo.runtime.routing.nodeLeft as nodeLeft__runtime_routing
+import salvo.runtime.routing.peerProtocol as peerProtocol__runtime_routing
+import salvo.runtime.routing.pending as pending__runtime_routing
+import salvo.runtime.routing.poolAt as poolAt__runtime_routing
+import salvo.runtime.routing.route
+import salvo.runtime.routing.sendControl as sendControl__runtime_routing
+import salvo.runtime.routing.setPeerProtocols as setPeerProtocols__runtime_routing
+import salvo.runtime.routing.viewMembers as viewMembers__runtime_routing
+import salvo.runtime.routing.viewRefresh as viewRefresh__runtime_routing
+import salvo.runtime.routing.viewSet as viewSet__runtime_routing
+import salvo.runtime.routing.viewVersion as viewVersion__runtime_routing
+import salvo.runtime.routing.viewWait as viewWait__runtime_routing
 import salvo.time.Duration
 import salvo.time.__Codec_Duration
 import salvo.time.nanos
@@ -196,6 +219,37 @@ object __Codec_NodeId : salvo.WireCodec<NodeId> {
     override fun dec(inp: salvo.WireIn): NodeId = NodeId(salvo.LongCodec.dec(inp))
 }
 
+fun thisNode(): NodeId {
+    return NodeId(id = hereNode())
+}
+
+fun newNode(): NodeId {
+    return NodeId(id = newNode__runtime_routing())
+}
+
+fun poolAt(node: NodeId, size: Int): Int {
+    return (poolAt__runtime_routing(node.id, size))
+}
+
+fun addRoute(node: NodeId, at: NodeEndpoint) {
+    route(node.id, salvo.salvoEncode(at, __Codec_NodeEndpoint))
+}
+
+fun deliverFrame(data: salvo.platform.core.bytes.Bytes): Boolean {
+    return deliver(data)
+}
+
+fun credits(a: Int): Int? {
+    val c = credits__runtime_routing((a))
+    if (c == null) {
+        return null
+    }
+    if (c < 0) {
+        return 0
+    }
+    return c
+}
+
 interface Outbound {
     fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes)
 }
@@ -296,7 +350,7 @@ class Receiving : Inbound {
     val __parked: MutableMap<Long, __Cont_Receiving> = mutableMapOf()
 
     override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
-        val _delivered = salvo.SalvoSched.deliverFrame((frame).toByteArray())
+        val _delivered = deliverFrame(frame)
     }
 }
 
@@ -344,19 +398,23 @@ class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
     }
 }
 
+fun connected(): Boolean {
+    return connected__runtime_routing()
+}
+
 fun connect__NodeEndpoint(transport: Transport, me: NodeEndpoint): Boolean {
-    return connect__NodeEndpoint_Pool(transport, me, salvo.SalvoSched.pool(1))
+    return connect__NodeEndpoint_Pool(transport, me, pool(1))
 }
 
 fun connect__NodeEndpoint_Pool(transport: Transport, me: NodeEndpoint, on: Int): Boolean {
-    if (salvo.SalvoSched.connected()) {
+    if (connected()) {
         return false
     }
     val sending = run { val __h = Sending(transport); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE); __a }
     val receiving = run { val __h = Receiving(); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE); __a }
     run { val __out = sending; salvo.SalvoSched.setWire { __ep, __frame -> val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint); if (__to != null) salvo.SalvoSched.sendWire(__out, __Msg_Outbound.SendFrame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec___Msg_Outbound) } }
     val _listening = transport.listen(me, receiving)
-    salvo.SalvoSched.addRoute((NodeId(salvo.SalvoSched.hereNode())).id, salvo.salvoEncode(me, __Codec_NodeEndpoint).toByteArray())
+    addRoute(thisNode(), me)
     return true
 }
 
@@ -538,9 +596,25 @@ object __Codec_Intro : salvo.WireCodec<Intro> {
     override fun dec(inp: salvo.WireIn): Intro = Intro(salvo.ListCodec(__Codec_NodeEndpoint).dec(inp))
 }
 
+fun sendControl(to: NodeId, channel: String, payload: salvo.platform.core.bytes.Bytes) {
+    sendControl__runtime_routing(to.id, channel, payload)
+}
+
+fun nodeLeft(node: NodeId) {
+    nodeLeft__runtime_routing(node.id)
+}
+
+fun setPeerProtocols(node: NodeId, table: List<Pair<String, String>>) {
+    setPeerProtocols__runtime_routing(node.id, table)
+}
+
+fun peerProtocol(node: NodeId, protocol: String): String? {
+    return peerProtocol__runtime_routing(node.id, protocol)
+}
+
 fun helloFrame(transport: Transport, group: String): salvo.platform.core.bytes.Bytes {
-    val hello: Union4<Hello, Ack, Leaving, Intro> = Union4.U1<Hello, Ack, Leaving, Intro>(Hello(group = group, at = transport.localEndpoint(), protocols = salvo.SalvoSched.localProtocols()))
-    return salvo.SalvoBytes(salvo.SalvoSched.controlFrame("", (salvo.salvoEncode(hello, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))).toByteArray()))
+    val hello: Union4<Hello, Ack, Leaving, Intro> = Union4.U1<Hello, Ack, Leaving, Intro>(Hello(group = group, at = transport.localEndpoint(), protocols = localProtocols()))
+    return controlFrame("", salvo.salvoEncode(hello, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
 }
 
 data class PeerHello(
@@ -586,22 +660,22 @@ fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.pla
             if (!(((msg?.value as Hello).group) == (group))) {
                 return null
             }
-            salvo.SalvoSched.addRoute((from).id, salvo.salvoEncode((msg?.value as Hello).at, __Codec_NodeEndpoint).toByteArray())
-            salvo.SalvoSched.setPeerProtocols((from).id, (msg?.value as Hello).protocols)
-            val ack: Union4<Hello, Ack, Leaving, Intro> = Union4.U2<Hello, Ack, Leaving, Intro>(Ack(group = group, at = transport.localEndpoint(), protocols = salvo.SalvoSched.localProtocols()))
-            salvo.SalvoSched.sendControl((from).id, "", (salvo.salvoEncode(ack, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))).toByteArray())
+            addRoute(from, (msg?.value as Hello).at)
+            setPeerProtocols(from, (msg?.value as Hello).protocols)
+            val ack: Union4<Hello, Ack, Leaving, Intro> = Union4.U2<Hello, Ack, Leaving, Intro>(Ack(group = group, at = transport.localEndpoint(), protocols = localProtocols()))
+            sendControl(from, "", salvo.salvoEncode(ack, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
             return Union3.U1<PeerHello, PeerGone, PeerIntro>(PeerHello(node = from, at = (msg?.value as Hello).at))
         }
         is Union4.U2<*, *, *, *> -> {
             if (!(((msg?.value as Ack).group) == (group))) {
                 return null
             }
-            salvo.SalvoSched.addRoute((from).id, salvo.salvoEncode((msg?.value as Ack).at, __Codec_NodeEndpoint).toByteArray())
-            salvo.SalvoSched.setPeerProtocols((from).id, (msg?.value as Ack).protocols)
+            addRoute(from, (msg?.value as Ack).at)
+            setPeerProtocols(from, (msg?.value as Ack).protocols)
             return Union3.U1<PeerHello, PeerGone, PeerIntro>(PeerHello(node = from, at = (msg?.value as Ack).at))
         }
         is Union4.U3<*, *, *, *> -> {
-            salvo.SalvoSched.nodeLeft((from).id)
+            nodeLeft(from)
             return Union3.U2<PeerHello, PeerGone, PeerIntro>(PeerGone(node = from))
         }
         is Union4.U4<*, *, *, *> -> {
@@ -615,13 +689,13 @@ fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.pla
 
 fun introduce(node: NodeId, peers: List<NodeEndpoint>) {
     val intro: Union4<Hello, Ack, Leaving, Intro> = Union4.U4<Hello, Ack, Leaving, Intro>(Intro(peers = peers))
-    salvo.SalvoSched.sendControl((node).id, "", (salvo.salvoEncode(intro, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))).toByteArray())
+    sendControl(node, "", salvo.salvoEncode(intro, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
 }
 
 fun leaveGroup(known: Map<NodeId, Node>) {
     for (id in salvo.platform.core.list.each(keysPlatform(known))) {
         val leaving: Union4<Hello, Ack, Leaving, Intro> = Union4.U3<Hello, Ack, Leaving, Intro>(Leaving())
-        salvo.SalvoSched.sendControl((id).id, "", (salvo.salvoEncode(leaving, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro))).toByteArray())
+        sendControl(id, "", salvo.salvoEncode(leaving, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
     }
 }
 
@@ -1083,7 +1157,11 @@ object __Codec___Msg_ActorGroupWatcher : salvo.WireCodec<__Msg_ActorGroupWatcher
 const val __PROTO_ActorGroupWatcher: String = "9fa424e5858bb3bd"
 
 fun shareMembers(name: String, hash: String, node: NodeId, members: List<Int>) {
-    salvo.SalvoSched.sendControl((node).id, name, (salvo.salvoEncode(Pair(hash, members), salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec)))).toByteArray())
+    sendControl(node, name, salvo.salvoEncode(Pair(hash, members), salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec))))
+}
+
+fun pending(a: Int): Int {
+    return pending__runtime_routing((a))
 }
 
 fun actorGroup__Addr(nodes: Int, protocol: () -> Protocol): Int {
@@ -1093,7 +1171,7 @@ fun actorGroup__Addr(nodes: Int, protocol: () -> Protocol): Int {
 }
 
 fun actorGroup__Str_Addr(name: String, nodes: Int, protocol: () -> Protocol): Int {
-    val (group, watcher) = run { val __h = ActorGrouping(name, protocol()); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.pool(1), __h.__mailboxCapacity, __Actor_ActorGrouping(__h), __Actor_ActorGrouping.__DECODE); salvo.SalvoSched.send(__a, __Priv_ActorGrouping.Init); Pair(__a, __a) }
+    val (group, watcher) = run { val __h = ActorGrouping(name, protocol()); val __a = salvo.SalvoSched.spawn(pool(1), __h.__mailboxCapacity, __Actor_ActorGrouping(__h), __Actor_ActorGrouping.__DECODE); salvo.SalvoSched.send(__a, __Priv_ActorGrouping.Init); Pair(__a, __a) }
     salvo.SalvoSched.sendWire(nodes, __Msg_NodeGroup.Subscribe(watcher), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
     return group
 }
@@ -1140,7 +1218,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
     override fun left(n: Node, why: String) {
         val gone: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
         for (m in salvo.platform.core.list.each(all)) {
-            if (eq__NodeId_NodeId(NodeId(salvo.SalvoSched.addrIdentity(m).node), n.id)) {
+            if (eq__NodeId_NodeId(nodeOf(m), n.id)) {
                 addPlatform__core_list(gone, m)
             }
         }
@@ -1161,7 +1239,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
     }
 
     override fun refresh() {
-        salvo.runtime.routing.viewRefresh(__addr!!)
+        viewRefresh(__addr!!)
     }
 
     override fun subscribe(w: Int) {
@@ -1291,12 +1369,12 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
 }
 
 fun mirror(group: Int, members: List<Int>) {
-    salvo.SalvoSched.viewSet(group, members)
+    viewSet(group, members)
 }
 
 fun admit(list: salvo.platform.core.list.MutList<Int>, a: Int): Boolean {
     for (x in salvo.platform.core.list.each(list)) {
-        if ((salvo.SalvoSched.addrIdentity(x) == salvo.SalvoSched.addrIdentity(a))) {
+        if (eq(x, a)) {
             return false
         }
     }
@@ -1317,7 +1395,7 @@ fun withdraw(list: salvo.platform.core.list.MutList<Int>, a: Int): Boolean {
     var mutIndex: Int? = null
     var i = 0
     for (x in salvo.platform.core.list.each(list)) {
-        if ((salvo.SalvoSched.addrIdentity(x) == salvo.SalvoSched.addrIdentity(a))) {
+        if (eq(x, a)) {
             mutIndex = i
         }
         i = i + 1
@@ -1327,6 +1405,38 @@ fun withdraw(list: salvo.platform.core.list.MutList<Int>, a: Int): Boolean {
     }
     val _removed = removeAtPlatform(list, mutIndex)
     return true
+}
+
+fun nodeOf(a: Int): NodeId {
+    return NodeId(id = identity((a)).node)
+}
+
+fun viewSet(group: Int, members: List<Int>) {
+    val ixs = mutableListOf<Int>()
+    for (m in salvo.platform.core.list.each(members)) {
+        addPlatform__core_list(ixs, (m))
+    }
+    viewSet__runtime_routing((group), ixs)
+}
+
+fun viewMembers(group: Int): List<Int> {
+    val out = mutableListOf<Int>()
+    for (ix in salvo.platform.core.list.each(viewMembers__runtime_routing((group)))) {
+        addPlatform__core_list(out, (ix))
+    }
+    return out
+}
+
+fun viewVersion(group: Int): Long {
+    return viewVersion__runtime_routing((group))
+}
+
+fun viewRefresh(group: Int) {
+    viewRefresh__runtime_routing((group))
+}
+
+fun viewWait(group: Int, seen: Long, nanos: Long) {
+    viewWait__runtime_routing((group), seen, nanos)
 }
 
 data class RouteMember(
@@ -1417,7 +1527,7 @@ fun routeKeyed(route_selector: RouteSelector, group: Int, config: RouteConfig, s
     val cap = config.maxWait.nanos
     var last = seen
     while (true) {
-        val version = salvo.runtime.routing.viewVersion(group)
+        val version = viewVersion(group)
         val view = routeView(group)
         if (version != last) {
             route_selector.changed(view)
@@ -1427,7 +1537,7 @@ fun routeKeyed(route_selector: RouteSelector, group: Int, config: RouteConfig, s
         if (!(picked == null)) {
             return RoutePick(to = picked, version = last)
         }
-        salvo.runtime.routing.viewWait(group, version, wait)
+        viewWait(group, version, wait)
         wait = wait * 2
         if (wait > cap) {
             wait = cap
@@ -1438,8 +1548,8 @@ fun routeKeyed(route_selector: RouteSelector, group: Int, config: RouteConfig, s
 
 fun routeView(group: Int): RouteView {
     val members: salvo.platform.core.list.MutList<RouteMember> = mutableListOf<RouteMember>()
-    for (m in salvo.platform.core.list.each(salvo.SalvoSched.viewMembers(group))) {
-        addPlatform__core_list(members, RouteMember(addr = m, local = eq__NodeId_NodeId(NodeId(salvo.SalvoSched.addrIdentity(m).node), NodeId(salvo.SalvoSched.hereNode()))))
+    for (m in salvo.platform.core.list.each(viewMembers(group))) {
+        addPlatform__core_list(members, RouteMember(addr = m, local = eq__NodeId_NodeId(nodeOf(m), thisNode())))
     }
     return RouteView(members = members.toMutableList())
 }
@@ -1453,7 +1563,7 @@ class LeastLoaded(private val preferLocal: Boolean) : RouteSelector {
         var best: RouteMember? = null
         var bestPending = 0
         for (a in salvo.platform.core.list.each(view.members)) {
-            val load = salvo.SalvoSched.pending(a.addr)
+            val load = pending(a.addr)
             if (best == null) {
                 best = a
                 bestPending = load
@@ -1532,7 +1642,7 @@ class Elected(private val __dep_Leader: Leader) : RouteSelector {
         chosen = null
         val l = (__dep_Leader.leader() ?: return)
         for (a in salvo.platform.core.list.each(view.members)) {
-            if (eq__NodeId_NodeId(NodeId(salvo.SalvoSched.addrIdentity(a.addr).node), l)) {
+            if (eq__NodeId_NodeId(nodeOf(a.addr), l)) {
                 chosen = a.addr
                 return
             }
