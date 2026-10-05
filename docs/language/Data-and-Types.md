@@ -39,6 +39,8 @@ is `1234567.0` and `${12345678.0}` is `1.2345678E7`, with `NaN`, `Infinity` and
 `-Infinity` for the specials. That holds wherever a float becomes text: on its
 own, inside a list or a map value, and as a struct field.
 
+Integer arithmetic **wraps** on overflow: `Int` and `Long` `+`, `-`, `*`, unary `-` and `++`/`--` keep the low 32 or 64 bits, the same on both backends, so `2147483647 + 1` is `-2147483648`. Bitwise operations are functions rather than operators, since `&`, `|`, `^` and `>>` already mean other things in the grammar: `bit_and`, `bit_or`, `bit_xor`, `bit_not`, `bit_shl`, `bit_shr` (keeps the sign) and `bit_ushr` (fills with zeros), each for `Int` and `Long`. A shift count is taken modulo the width, so `bit_shl(1, 33)` is `2`.
+
 Numeric literals default to `Int` and `Double`: `1` is an `Int` and `1.2` is a `Double`. Suffixes select the other widths: `1L` is a `Long`, and `1.2f` is a `Float` (the `f` suffix requires a decimal point — write `1.0f`, not `1f`). Underscores may separate digits (`1_000_000L`). An **unsuffixed** literal also *adopts* the numeric type its position expects — `let x: Long = 1`, `let d: Double = 3` and passing `1` to a `Long` parameter all work, and `x + 1` needs no `1L` because the operator widening covers it. Adoption is for literals only: an `Int` *variable* never becomes a `Long` implicitly — write `to_long(n)`.
 
 ## Strings

@@ -88,7 +88,7 @@ pub fn next<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     if key.is_none() {
         return Union2::<K, Finished>::U2(finished());
     }
-    p.at = p.at + 1;
+    p.at = i32::wrapping_add(p.at, 1);
     return Union2::<K, Finished>::U1(emitted(key.as_ref().unwrap().clone()));
 }
 

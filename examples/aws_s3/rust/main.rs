@@ -23,6 +23,8 @@ pub mod core_actor;
 pub mod core_bytes;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/deque.rs"]

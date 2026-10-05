@@ -2,6 +2,7 @@ package salvo.runtime.routing
 
 import salvo.*
 import salvo.core.actor.pool
+import salvo.core.compare.mixHash
 import salvo.core.list.addPlatform as addPlatform__core_list
 import salvo.core.list.at
 import salvo.core.list.getPlatform as getPlatform__core_list
@@ -1301,9 +1302,9 @@ fun viewWait(group: Int, seen: Long, nanos: Long) {
 
 fun hash__RemoteRef(value: RemoteRef): Long {
     var h = 17L
-    h = ((h) * 31L + ((value.node).hashCode().toLong()))
-    h = ((h) * 31L + ((value.actor).hashCode().toLong()))
-    h = ((h) * 31L + ((value.bits).hashCode().toLong()))
+    h = mixHash(h, (value.node).hashCode().toLong())
+    h = mixHash(h, (value.actor).hashCode().toLong())
+    h = mixHash(h, (value.bits).hashCode().toLong())
     return h
 }
 
@@ -1322,8 +1323,8 @@ fun eq__RemoteRef_RemoteRef(a: RemoteRef, b: RemoteRef): Boolean {
 
 fun hash__ControlKey(value: ControlKey): Long {
     var h = 17L
-    h = ((h) * 31L + ((value.node).hashCode().toLong()))
-    h = ((h) * 31L + ((value.channel).hashCode().toLong()))
+    h = mixHash(h, (value.node).hashCode().toLong())
+    h = mixHash(h, (value.channel).hashCode().toLong())
     return h
 }
 

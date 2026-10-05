@@ -49,7 +49,7 @@ pub fn next(p: &mut StrYield<'_>) -> Union2<char, Finished> {
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
     }
-    p.at = p.at + 1;
+    p.at = i32::wrapping_add(p.at, 1);
     return Union2::<char, Finished>::U1(emitted(chr.unwrap()));
 }
 
@@ -177,7 +177,7 @@ pub fn repeat(str: &String, n: i32) -> String {
     let mut i = 0;
     while i < n {
         append_platform(&mut out, str);
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     return out;
 }
@@ -199,7 +199,7 @@ pub fn split_once(str: &String, sep: &String) -> Option<(String, String)> {
     if at.is_some() {
         let mut i = at.unwrap();
         let mut before = { let __pick1 = substr_platform(str, 0, i.clone()); if __pick1.is_some() { __pick1.as_ref().unwrap().clone() } else { "".to_string() } };
-        let mut after = { let __pick2 = substr_platform(str, i + size_platform(sep), size_platform(str)); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { "".to_string() } };
+        let mut after = { let __pick2 = substr_platform(str, i32::wrapping_add(i, size_platform(sep)), size_platform(str)); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { "".to_string() } };
         return Some((before, after));
     }
     return None;
@@ -210,7 +210,7 @@ pub fn split_last(str: &String, sep: &String) -> Option<(String, String)> {
     if at.is_some() {
         let mut i = at.unwrap();
         let mut before = { let __pick3 = substr_platform(str, 0, i.clone()); if __pick3.is_some() { __pick3.as_ref().unwrap().clone() } else { "".to_string() } };
-        let mut after = { let __pick4 = substr_platform(str, i + size_platform(sep), size_platform(str)); if __pick4.is_some() { __pick4.as_ref().unwrap().clone() } else { "".to_string() } };
+        let mut after = { let __pick4 = substr_platform(str, i32::wrapping_add(i, size_platform(sep)), size_platform(str)); if __pick4.is_some() { __pick4.as_ref().unwrap().clone() } else { "".to_string() } };
         return Some((before, after));
     }
     return None;

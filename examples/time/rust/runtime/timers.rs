@@ -186,7 +186,7 @@ impl crate::runtime_timers::__Stateful_DeadlineTable for Deadlines {
                     crate::core_list::add_platform(&mut due, r);
                 }
             } else {
-                i = i + 1;
+                i = i32::wrapping_add(i, 1);
             }
         }
         return due;
@@ -334,7 +334,7 @@ impl crate::runtime_timers::__Stateless_Wheel for Wheeling {
             if until.is_none() {
                 return;
             }
-            let mut wait = until.unwrap() - now_nanos();
+            let mut wait = i64::wrapping_sub(until.unwrap(), now_nanos());
             if wait > ((0) as i64) {
                 crate::runtime::park_nanos_platform(&(crate::runtime::this_parker_platform()), wait);
             }
@@ -387,12 +387,12 @@ pub fn after_nanos(delay: i64, done: crate::scheduler::SalvoReply) {
         wait = 0i64;
     }
     if virtual_runtime() {
-        if __module_use_0().register(now_nanos() + wait, done) {
+        if __module_use_0().register(i64::wrapping_add(now_nanos(), wait), done) {
             arm_clock();
         }
         return;
     }
-    if __module_use_0().register(now_nanos() + wait, done) {
+    if __module_use_0().register(i64::wrapping_add(now_nanos(), wait), done) {
         __module_use_1().run();
         return;
     }

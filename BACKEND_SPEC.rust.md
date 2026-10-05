@@ -169,6 +169,13 @@ Conventions:
   tighter than every arithmetic operator and `(n * 2 as i64)` would cast
   only the `2`. Targets are `i64` and `f64` only (widening goes up within
   a class).
+* [rs-op-wrap] [op-wrap] Integer `+`/`-`/`*` render as `i32::wrapping_add(a,
+  b)` (and `i64::`, `wrapping_sub`, `wrapping_mul`), negation of a non-literal
+  as `i32::wrapping_neg(x)`, and a step as `x = i32::wrapping_add(x, 1)`: the
+  function form, because a method on a bare literal is E0689. A lent scalar
+  operand is dereferenced first [rs-cmp-deref], since `&i32 + i32` had an
+  impl and `wrapping_add(&i32, …)` does not. `bit_ushr` casts through the
+  signed type before the unsigned one, or a literal `-16` types as `u32`.
 * [lit-adopt] An adopted literal renders at its **checked** type
   (`1i64`, `3f64`, `0.5f32`); an unsuffixed literal at its default type
   stays bare for inference [lit-numeric]. [op-convert] lowers to `as`

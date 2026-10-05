@@ -1,5 +1,6 @@
 package salvo.time
 
+import salvo.core.compare.mixHash
 import salvo.core.list.addPlatform
 import salvo.core.list.at
 import salvo.core.list.getPlatform
@@ -515,7 +516,7 @@ fun cmp__Duration_Duration(a: Duration, b: Duration): Int {
 
 fun hash__Duration(value: Duration): Long {
     var h = 17L
-    h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
+    h = mixHash(h, (value.nanos).hashCode().toLong())
     return h
 }
 
@@ -536,7 +537,7 @@ fun cmp__Instant_Instant(a: Instant, b: Instant): Int {
 
 fun hash__Instant(value: Instant): Long {
     var h = 17L
-    h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
+    h = mixHash(h, (value.nanos).hashCode().toLong())
     return h
 }
 
@@ -557,7 +558,7 @@ fun cmp__Tick_Tick(a: Tick, b: Tick): Int {
 
 fun hash__Tick(value: Tick): Long {
     var h = 17L
-    h = ((h) * 31L + ((value.nanos).hashCode().toLong()))
+    h = mixHash(h, (value.nanos).hashCode().toLong())
     return h
 }
 

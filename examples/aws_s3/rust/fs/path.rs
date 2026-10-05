@@ -1,5 +1,6 @@
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
+use crate::core_compare::mix_hash;
 use crate::core_string::is_empty;
 use crate::core_string::split_last;
 
@@ -150,7 +151,7 @@ pub fn trim_trailing_slashes(text: &String) -> String {
 
 pub fn hash(value: &Path) -> i64 {
     let mut h = 17i64;
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.text[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.text[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 

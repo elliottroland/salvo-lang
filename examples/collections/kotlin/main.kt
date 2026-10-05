@@ -1,6 +1,7 @@
 package salvo.main
 
 import salvo.*
+import salvo.core.compare.mixHash
 import salvo.core.console.Console
 import salvo.core.console.println
 import salvo.core.list.addPlatform as addPlatform__core_list
@@ -169,8 +170,8 @@ fun cmp(a: Point, b: Point): Int {
 
 fun hash(value: Point): Long {
     var h = 17L
-    h = ((h) * 31L + ((value.x).hashCode().toLong()))
-    h = ((h) * 31L + ((value.y).hashCode().toLong()))
+    h = mixHash(h, (value.x).hashCode().toLong())
+    h = mixHash(h, (value.y).hashCode().toLong())
     return h
 }
 

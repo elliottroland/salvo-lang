@@ -21,6 +21,8 @@ pub mod core_actor;
 pub mod core_bytes;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/deque.rs"]
@@ -215,7 +217,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
         for mut b in crate::platform_core_list::each(&(held.unwrap().clone())).map(|__x| __x.clone()) {
             crate::core_list::add_platform(&mut grown, b.clone());
         }
-        let mut id = format!("m{}", crate::core_list::size_platform(&grown) + 1);
+        let mut id = format!("m{}", i32::wrapping_add(crate::core_list::size_platform(&grown), 1));
         crate::core_list::add_platform(&mut grown, input.message_body.clone());
         let mut stored: Vec<String> = grown;
         crate::core_map::put_platform(&mut self.queues, input.queue_url.clone(), stored);
@@ -231,7 +233,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
         let mut out = vec![];
         let mut i = 0;
         for mut b in crate::platform_core_list::each(&(held.unwrap().clone())).map(|__x| __x.clone()) {
-            i = i + 1;
+            i = i32::wrapping_add(i, 1);
             crate::core_list::add_platform(&mut out, Message { message_id: Some(format!("m{}", i)), receipt_handle: Some(format!("m{}", i)), body: Some(b.clone()), md5_of_body: None, attributes: None, md5_of_message_attributes: None, message_attributes: None });
         }
         let mut messages: Vec<Message> = out;

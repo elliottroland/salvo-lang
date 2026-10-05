@@ -19,6 +19,6 @@ pub fn next<'s, T: Clone>(p: &mut ArrayYield<'s, T>) -> Union2<&'s T, Finished> 
     if elem.is_none() {
         return Union2::U2(finished());
     }
-    p.at = p.at + 1;
+    p.at = i32::wrapping_add(p.at, 1);
     return Union2::U1(emitted(elem.unwrap()));
 }

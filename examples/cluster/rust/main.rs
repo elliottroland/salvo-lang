@@ -19,6 +19,8 @@ pub mod core_array;
 pub mod core_bytes;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/deque.rs"]
@@ -525,7 +527,7 @@ impl Sequencing {
 impl crate::__Stateful_Sequencer for Sequencing {
 
     fn next(&mut self, out: crate::scheduler::SalvoReply) {
-        self.n = self.n + 1;
+        self.n = i32::wrapping_add(self.n, 1);
         crate::scheduler::salvo_reply_wire::<String>(out, format!("{}#{}", self.who.clone(), self.n));
     }
 }
@@ -608,7 +610,7 @@ impl Stocking {
 impl crate::__Stateful_Inventory for Stocking {
 
     fn reserve(&mut self, sku: String, qty: i32, out: crate::scheduler::SalvoReply) {
-        self.served = self.served + qty;
+        self.served = i32::wrapping_add(self.served, qty);
         crate::scheduler::salvo_reply_wire::<String>(out, format!("{}:{}", self.shard.clone(), self.served));
     }
 }
@@ -692,7 +694,7 @@ impl crate::__Stateless_Search for Indexing {
         let mut n = 0;
         for w in crate::platform_core_list::each(&self.words) {
             if ((&w[..] == &word[..])) {
-                n = n + 1;
+                n = i32::wrapping_add(n, 1);
             }
         }
         crate::scheduler::salvo_reply_wire::<i32>(out, n);
@@ -1157,8 +1159,8 @@ impl crate::__Stateful_Gather for Gathering {
 impl Gathering {
 
     fn partial(&mut self, n: i32) {
-        self.total = self.total + n;
-        self.left = self.left - 1;
+        self.total = i32::wrapping_add(self.total, n);
+        self.left = i32::wrapping_sub(self.left, 1);
         if self.left == 0 {
             let mut out = crate::core_deque::remove_first_platform(&mut self.pending);
             match out {
@@ -1894,7 +1896,7 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(nodes, crate::net::__Msg_NodeGroup::Members(out), crate::net::__PROTO_NodeGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<Node>>().expect("the awaited answer")
     };
-    println(&console, &(format!("nodes: {}, sequencers: {}", crate::core_list::size_platform(&members) + 1, crate::core_list::size_platform(&({
+    println(&console, &(format!("nodes: {}, sequencers: {}", i32::wrapping_add(crate::core_list::size_platform(&members), 1), crate::core_list::size_platform(&({
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Vec<usize>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(seq, crate::net::__Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);

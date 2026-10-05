@@ -29,6 +29,27 @@ export intrinsic fn to_float(value: Int) [] -> Float => value
 export intrinsic fn to_float(value: Long) [] -> Float => value
 export intrinsic fn to_float(value: Double) [] -> Float => value
 
+// [op-bits] Bitwise operations on the integer types, as functions rather
+// than operators (user decision 2026-10-05: `&`, `|`, `^` and `>>` already
+// mean other things in the grammar). A shift count is taken modulo the width
+// (0..31 for an `Int`, 0..63 for a `Long`), as the JVM does, so both
+// backends agree for every count; `bit_shr` keeps the sign, `bit_ushr` fills
+// with zeros.
+export intrinsic fn bit_and(a: Int, b: Int) [] -> Int => a, b
+export intrinsic fn bit_and(a: Long, b: Long) [] -> Long => a, b
+export intrinsic fn bit_or(a: Int, b: Int) [] -> Int => a, b
+export intrinsic fn bit_or(a: Long, b: Long) [] -> Long => a, b
+export intrinsic fn bit_xor(a: Int, b: Int) [] -> Int => a, b
+export intrinsic fn bit_xor(a: Long, b: Long) [] -> Long => a, b
+export intrinsic fn bit_not(a: Int) [] -> Int => a
+export intrinsic fn bit_not(a: Long) [] -> Long => a
+export intrinsic fn bit_shl(value: Int, count: Int) [] -> Int => value, count
+export intrinsic fn bit_shl(value: Long, count: Int) [] -> Long => value, count
+export intrinsic fn bit_shr(value: Int, count: Int) [] -> Int => value, count
+export intrinsic fn bit_shr(value: Long, count: Int) [] -> Long => value, count
+export intrinsic fn bit_ushr(value: Int, count: Int) [] -> Int => value, count
+export intrinsic fn bit_ushr(value: Long, count: Int) [] -> Long => value, count
+
 // [byte-value] A `Byte` is an **unsigned** 0..255 octet on both backends, and
 // it is not operator-numeric: these two conversions are the whole of its
 // arithmetic surface, so a byte is turned into an `Int`, computed with, and

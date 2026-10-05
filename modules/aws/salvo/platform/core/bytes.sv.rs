@@ -100,6 +100,6 @@ pub fn next(p: &mut BytesYield<'_>) -> Union2<u8, Finished> {
     if b.is_none() {
         return Union2::<u8, Finished>::U2(finished());
     }
-    p.at = p.at + 1;
+    p.at = i32::wrapping_add(p.at, 1);
     return Union2::<u8, Finished>::U1(emitted(b.unwrap()));
 }

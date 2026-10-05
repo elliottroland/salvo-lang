@@ -755,7 +755,7 @@ fn loops_lower_to_block_expressions() {
     assert!(main
         .content
         .contains("let mut __loop1: Option<i32> = None;"));
-    assert!(main.content.contains("__loop1 = Some(i * 10);"));
+    assert!(main.content.contains("__loop1 = Some(i32::wrapping_mul(i, 10));"));
     assert!(main.content.contains("__loop1.unwrap()"));
     // `else` runs only when the loop never did.
     assert!(main.content.contains("let mut __loop1_ran = false;"));
@@ -1104,6 +1104,33 @@ fn main() [use] {
 "#;
     let files = generate(&[("main.sv", src)]);
     run_rust_files(&files, "literal_identity", "1 1 1 1\n");
+}
+
+/// [op-wrap] [op-bits] Integer arithmetic wraps as on the JVM, and the `bit_`
+/// functions agree with Kotlin's (ROADMAP §0j step 2).
+#[test]
+fn rustc_compiles_and_runs_int_wrap_and_bits() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let src = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let big = 2147483647
+    let wrapped = big + 1
+    let neg = -wrapped
+    let i = big
+    i++
+    let l = 9223372036854775807L
+    println("${wrapped} ${neg} ${i} ${l + 1L} ${big * 2}")
+    println("${bit_and(12, 10)} ${bit_or(12, 10)} ${bit_xor(12, 10)} ${bit_not(0)}")
+    println("${bit_shl(1, 33)} ${bit_shr(-16, 2)} ${bit_ushr(-16, 28)} ${bit_ushr(-1L, 60)}")
+    println("${mix_hash(17L, 5L)}")
+}
+"#;
+    let files = generate(&[("main.sv", src)]);
+    run_rust_files(&files, "int_wrap_bits", "-2147483648 -2147483648 -2147483648 -9223372036854775808 -2\n8 14 6 -1\n2 -4 15 15\n532\n");
 }
 
 // ===== S2: move-mode bindings [fate-move-mode] =====
@@ -1810,7 +1837,7 @@ fn narrowed_field_operand_unwraps() {
         .find(|f| f.rel_path.ends_with("main.rs"))
         .unwrap();
     assert!(
-        main.content.contains("r.value.unwrap() + 1"),
+        main.content.contains("i32::wrapping_add(r.value.unwrap(), 1)"),
         "expected the narrowed operand to unwrap in:\n{}",
         main.content
     );
@@ -2779,7 +2806,7 @@ fn promotions_cast_and_literals_adopt() {
         "expected the adopted literal suffixed:\n{c}"
     );
     assert!(
-        c.contains("x + ((n * 2) as i64)"),
+        c.contains("i64::wrapping_add(x, ((i32::wrapping_mul(n, 2)) as i64))"),
         "expected the widened operand cast as a whole:\n{c}"
     );
     assert!(
@@ -7329,8 +7356,8 @@ fn sequence_functions_lower_to_helpers() {
         .expect("main.rs emitted")
         .content;
     assert!(
-        main.contains("(&xs, &mut (|n| *n * 2))")
-            && main.contains("(&xs, 0, &mut (|a, b| *a + *b))")
+        main.contains("(&xs, &mut (|n| i32::wrapping_mul(*n, 2)))")
+            && main.contains("(&xs, 0, &mut (|a, b| i32::wrapping_add(*a, *b)))")
             && main.contains("filter_platform(&xs, &mut (|n| *n > 2))"),
         "unexpected:\n{main}"
     );
@@ -14081,7 +14108,7 @@ fn a_narrowed_read_borrows_unless_the_position_owns() {
     );
     // A Copy payload is copied out of the representation in either mode.
     assert!(
-        main.contains("n.unwrap() + n.unwrap()"),
+        main.contains("i32::wrapping_add(n.unwrap(), n.unwrap())"),
         "a Copy narrowed read grew an `as_ref`:\n{main}"
     );
     run_rust_files(
@@ -14142,7 +14169,7 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
         main.content
     );
     assert!(
-        main.content.contains("xs[__h0].n = xs[__h0].n + 10;"),
+        main.content.contains("xs[__h0].n = i32::wrapping_add(xs[__h0].n, 10);"),
         "{}",
         main.content
     );
@@ -14261,7 +14288,7 @@ fn a_borrowed_copy_scalar_derefs_in_a_comparison_only() {
     );
     // Arithmetic keeps the borrow: no deref grew there.
     assert!(
-        !main.content.contains("(*get") || main.content.contains("+ 1"),
+        main.content.contains("i32::wrapping_add(*get(&xs, &i), 1)"),
         "{}",
         main.content
     );
@@ -14412,7 +14439,7 @@ fn covered_positions_render_as_anchor_and_locators() {
         main.content
     );
     assert!(
-        main.content.contains("__anchor[__c0].energy = __anchor[__c0].energy - 1;"),
+        main.content.contains("__anchor[__c0].energy = i32::wrapping_sub(__anchor[__c0].energy, 1);"),
         "{}",
         main.content
     );
@@ -15394,7 +15421,7 @@ fn an_anchored_canbe_indexes_the_anchor_parameter() {
         main.content
     );
     assert!(
-        main.content.contains("squad.members[__c1].energy = squad.members[__c1].energy - 1;"),
+        main.content.contains("squad.members[__c1].energy = i32::wrapping_sub(squad.members[__c1].energy, 1);"),
         "{}",
         main.content
     );
@@ -15675,7 +15702,7 @@ fn a_bound_accessor_handle_is_a_captured_locator() {
         main.content
     );
     assert!(
-        main.content.contains("es[__h0].hp = es[__h0].hp"),
+        main.content.contains("es[__h0].hp = i32::wrapping_add(es[__h0].hp"),
         "{}",
         main.content
     );

@@ -299,7 +299,7 @@ pub fn pipe_step(mut streams: crate::stream::Streams, to: OutStream, done: crate
             let mut bytes = __destructured2.bytes;
             let mut stream = __destructured2.stream;
             let mut written = streams.write_bytes(&to, &bytes);
-            { let __a1 = ({ let __e0 = streams.clone(); let __c0 = to; let __c1 = done; let __c2 = moved + written; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), std::boxed::Box::new(move |__v| pipe_step(__e0.clone(), __c0, __c1, __c2, *__v.downcast::<Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>>().expect("the awaited answer"))), (|_| None)) }); streams.receive(stream, __a1) };
+            { let __a1 = ({ let __e0 = streams.clone(); let __c0 = to; let __c1 = done; let __c2 = i64::wrapping_add(moved, written); crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), std::boxed::Box::new(move |__v| pipe_step(__e0.clone(), __c0, __c1, __c2, *__v.downcast::<Union3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>>().expect("the awaited answer"))), (|_| None)) }); streams.receive(stream, __a1) };
         }
         Union3::U2(_) => {
             let mut closed = streams.close__OutStream(to);
@@ -391,7 +391,7 @@ pub fn fill_from(streams: &crate::stream::Streams, s: &InStream, buf: &mut Bytes
             return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2((match got { Union2::U2(__v) => __v, _ => unreachable!() }));
         }
         let mut n: i32 = *got.u1();
-        total = total + ((n) as i64);
+        total = i64::wrapping_add(total, ((n) as i64));
         if n == 0 {
             reading = false;
         }
@@ -413,7 +413,7 @@ pub fn copy_stream(streams: &crate::stream::Streams, s: &InStream, w: &OutStream
         if n == 0 {
             copying = false;
         } else {
-            total = total + streams.write_bytes(w, &buf);
+            total = i64::wrapping_add(total, streams.write_bytes(w, &buf));
         }
     }
     return Union2::<i64, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(total));
@@ -430,7 +430,7 @@ pub fn write_long(streams: &crate::stream::Streams, s: &OutStream, v: i64) -> i6
 pub fn write_value<T: Clone>(streams: &crate::stream::Streams, s: &OutStream, v: T, encode: &mut dyn FnMut(T) -> Bytes) -> i64 {
     let mut data = encode(v);
     let mut n = write_int(streams, s, crate::core_bytes::size_platform(&data));
-    return n + streams.write_bytes(s, &data);
+    return i64::wrapping_add(n, streams.write_bytes(s, &data));
 }
 
 pub fn read_int(streams: &crate::stream::Streams, s: &InStream) -> Union3<i32, End, Checked<Union2<InvalidUtf8, StreamFailed>>> {
@@ -483,17 +483,17 @@ pub fn fixed_bytes(v: i64, width: i32) -> Bytes {
     while i < width {
         let mut low = rest % 256i64;
         if low < 0i64 {
-            low = low + 256i64;
+            low = i64::wrapping_add(low, 256i64);
         }
         crate::core_bytes::add_platform(&mut out, (((((low) as i32)) as i32) as u8));
-        rest = (rest - low) / 256i64;
-        i = i + 1;
+        rest = (i64::wrapping_sub(rest, low)) / 256i64;
+        i = i32::wrapping_add(i, 1);
     }
     let mut back = mut_bytes(vec![]);
-    let mut j = width - 1;
+    let mut j = i32::wrapping_sub(width, 1);
     while j >= 0 {
         crate::core_bytes::add_platform(&mut back, crate::core_bytes::get_platform(&out, j).expect("salvo: value is absent at stream:421:19"));
-        j = j - 1;
+        j = i32::wrapping_sub(j, 1);
     }
     return back;
 }
@@ -512,13 +512,13 @@ pub fn read_fixed(streams: &crate::stream::Streams, s: &InStream, width: i32) ->
     }
     let mut first = ((((crate::core_bytes::get_platform(&data, 0).expect("salvo: value is absent at stream:440:32")) as i32)) as i64);
     if first >= 128i64 {
-        first = first - 256i64;
+        first = i64::wrapping_sub(first, 256i64);
     }
     let mut v = first;
     let mut i = 1;
     while i < width {
-        v = v * 256i64 + ((((crate::core_bytes::get_platform(&data, i).expect("salvo: value is absent at stream:447:39")) as i32)) as i64);
-        i = i + 1;
+        v = i64::wrapping_add(i64::wrapping_mul(v, 256i64), ((((crate::core_bytes::get_platform(&data, i).expect("salvo: value is absent at stream:447:39")) as i32)) as i64));
+        i = i32::wrapping_add(i, 1);
     }
     return Union3::<i64, End, Checked<Union2<InvalidUtf8, StreamFailed>>>::U1(ok(v));
 }

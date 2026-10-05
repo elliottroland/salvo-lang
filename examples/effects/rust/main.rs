@@ -11,6 +11,8 @@ pub mod hosttime;
 pub mod wire;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]
@@ -105,7 +107,7 @@ impl TickingClock {
 impl crate::__Stateful_Clock for TickingClock {
 
     fn now(&mut self) -> i32 {
-        self.tick = self.tick + 5;
+        self.tick = i32::wrapping_add(self.tick, 5);
         return self.tick;
     }
 }
@@ -242,7 +244,7 @@ impl Numbered {
 impl crate::__Stateful_Logger for Numbered {
 
     fn log(&mut self, message: &String) {
-        self.seen = self.seen + 1;
+        self.seen = i32::wrapping_add(self.seen, 1);
         self.__dep_Logger.log(&(format!("#{} {}", self.seen, message.clone())));
     }
 }

@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1698 tests green; std's own Salvo tests run inside one of them.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1700 tests green; std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -110,11 +110,9 @@ and the survey behind them, with per-site line numbers. Four principles:
 The steps, in order. Each says what it absorbs from elsewhere in this file.
 
 1. ✅ **Defects** (2026-10-05, COMPLETED.md).
-2. **Integers: bitwise operators, shifts, and wrapping overflow.** Absorbs
-   §10's overflow row (wrapping, plus `checked_*`/`saturating_*`), with its
-   parity test; meets §9's prerequisite for a Salvo splitmix64; lets
-   `mix_hash` become Salvo. Spelling to confirm when built (`& | ^ ~ << >>`,
-   and whether a logical `>>>`).
+2. ✅ **Integers** (2026-10-05, COMPLETED.md): `bit_` functions [op-bits],
+   wrapping arithmetic [op-wrap], `mix_hash` in Salvo. Left, small:
+   `checked_*`/`saturating_*` std functions (§10's overflow row named them).
 3. **Shared machinery in `salvo-backend`** — mostly built 2026-10-05
    (COMPLETED.md): `driver.rs` (check, erase, resolve, reach) and
    `emit_util.rs` (23 shared walkers and helpers, `EmittedFile`, ABI
@@ -163,12 +161,9 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      auto` and codecs call the type's own `eq`/`encode` instead of walking
      fields they may not see.
    - d. ✅ **A total positional list write**, `replace(list, i: Idx(list)
-     Int, v) -> T` [col-replace] (2026-10-05, COMPLETED.md), for non-linear
-     elements. Left: linear elements, which need `canbe linear` on a
-     qualifier's type parameter (`Idx<T canbe linear>` is refused today: "only
-     supported on functions and structs") — a small language extension to
-     confirm when picked up; and §0d's `take(place: Mut T?) -> T?`, the same
-     gap at a field.
+     Int, v) -> T` [col-replace] (2026-10-05, COMPLETED.md), linear elements
+     included: a qualifier's type parameter may now `canbe linear`. Left:
+     §0d's `take(place: Mut T?) -> T?`, the same gap at a field.
    - **Defect found with it** (not fixed): the total `get` over a list of
      optionals traps on Kotlin where Rust answers `None`, because `T?` with
      `T = Str?` flattens on the JVM and `get(list, i)!` then sees a stored
@@ -999,13 +994,8 @@ Three failure classes still take the hosts' behaviour:
   (`arr[i] = x`), where a block expression cannot stand.
 - **Division by zero** → trap with our message; both hosts already trap, only the
   text differs.
-- **Integer overflow** → **wrapping**, stated in the spec, with `checked_*` /
-  `saturating_*` std functions for the cases that care. Moved to §0j step 2,
-  beside the bitwise operators. This is the JVM's
-  behaviour today and the cheap one on Rust. **It is the only row that changes
-  what existing programs compute**, so it wants its own slice and a parity test:
-  today Kotlin wraps silently while Rust refuses a constant fold and panics in
-  debug.
+- **Integer overflow** → **wrapping**: built 2026-10-05 [op-wrap] (§0j step
+  2); `checked_*`/`saturating_*` are left there.
 
 ### 11 — One read, one mode: the rendering that reports a reference
 

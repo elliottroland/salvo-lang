@@ -861,9 +861,10 @@ Conventions:
     **total positional write** (user decision 2026-10-05, ROADMAP §0j). The
     proven index leaves no out-of-range case, so the displaced element is
     always handed back, and `Idx` claims survive [qual-preserve]. Taking an
-    element out of a `List<T?>` is `replace(xs, i, None)`. Not yet for a
-    linear element type: `Idx` cannot claim an index of one, because a
-    qualifier's type parameter cannot `canbe linear`.
+    element out of a `List<T?>` is `replace(xs, i, None)`. It takes a linear
+    element type too, since a **qualifier's type parameter may `canbe
+    linear`** (user decision 2026-10-05): `qualifier Idx<T canbe linear>(list:
+    List<T>) of Int` claims an index of a list of obligations.
 * [str-mut-results] **A list made from a string is the caller's own**:
   `split` and `lines` answer `Mut List<Str>` (2026-10-03, user request).
 * [str-search] `index_of(str, needle, from)` (from an offset, below 0 the
@@ -1956,6 +1957,19 @@ Conventions:
   set already covers the mixes. Mixing the integer and float classes is
   an error naming the explicit conversions — never implicit, so float
   surprises stay opt-in.
+* [op-wrap] **Integer arithmetic wraps** (user decision 2026-09-23, A-6;
+  built 2026-10-05, ROADMAP §0j step 2): `Int`/`Long` `+`, `-`, `*`, unary `-`
+  and `++`/`--` keep the low 32/64 bits on both backends — the JVM's
+  behaviour, which Rust renders through `wrapping_*` [rs-op-wrap]. Division
+  and remainder are not covered (§10's division row). `checked_*` /
+  `saturating_*` functions for the cases that care are recorded, not built.
+* [op-bits] **Bitwise operations are `bit_` functions** (user decision
+  2026-10-05), not operators — `&`, `|`, `^` and `>>` already mean other
+  things: `bit_and`, `bit_or`, `bit_xor`, `bit_not`, `bit_shl`, `bit_shr`
+  (arithmetic) and `bit_ushr` (logical), each an `intrinsic fn` for `Int` and
+  `Long` in `core.basic`. A shift count is taken modulo the width (the JVM's
+  rule), so both backends agree for every count, negative ones included.
+  `mix_hash` is ordinary Salvo over [op-wrap] since.
 * [op-convert] `core.basic` declares the explicit conversions the
   operators point at: `to_int`, `to_long`, `to_float`, `to_double`, one
   overload per source width [intrinsic-fn]. Truncating conversions

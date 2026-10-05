@@ -17,6 +17,8 @@ pub mod core_actor;
 pub mod core_bytes;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/deque.rs"]
@@ -135,7 +137,7 @@ impl SteppingTicker {
 impl crate::time::__Stateful_Ticker for SteppingTicker {
 
     fn tick(&mut self) -> Tick {
-        self.at = self.at + self.step.nanos;
+        self.at = i64::wrapping_add(self.at, self.step.nanos);
         return Tick { nanos: self.at };
     }
 }

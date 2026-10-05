@@ -13,6 +13,8 @@ pub mod wire;
 pub mod aws;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]

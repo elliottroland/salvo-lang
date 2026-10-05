@@ -122,7 +122,15 @@ pub fn fn_call(
         ("hash", Some("List" | "()")) => format!("({}).hashCode().toLong()", a(0)),
         // [cmp-hash-values] The wrapping fold a structural `hash` combines
         // its fields with; the JVM's `Long` arithmetic wraps by itself.
-        ("mix_hash", Some("Long")) => format!("(({}) * 31L + ({}))", a(0), a(1)),
+        // [op-bits] Kotlin's infix bit operations; its shifts already take
+        // the count modulo the width, which is the language's rule.
+        ("bit_and", Some("Int" | "Long")) => format!("(({}) and ({}))", a(0), a(1)),
+        ("bit_or", Some("Int" | "Long")) => format!("(({}) or ({}))", a(0), a(1)),
+        ("bit_xor", Some("Int" | "Long")) => format!("(({}) xor ({}))", a(0), a(1)),
+        ("bit_not", Some("Int" | "Long")) => format!("({}).inv()", a(0)),
+        ("bit_shl", Some("Int" | "Long")) => format!("(({}) shl ({}))", a(0), a(1)),
+        ("bit_shr", Some("Int" | "Long")) => format!("(({}) shr ({}))", a(0), a(1)),
+        ("bit_ushr", Some("Int" | "Long")) => format!("(({}) ushr ({}))", a(0), a(1)),
         // runtime ------------------------------------------------------
         // [runtime-handles] An addr and a pool are `Int` indices already.
         ("addr_index", Some("Addr")) | ("pool_index", Some("Pool")) | ("addr_of", Some("Int"))

@@ -1186,7 +1186,7 @@ impl<'s> Parser<'s> {
         let (generics, canbe, slots) = self.parse_generics_all();
         for (ident, _) in &canbe {
             self.error(
-                "`canbe` on a type parameter is only supported on functions and structs",
+                "`canbe` on a type parameter is only supported on functions, structs and qualifiers",
                 ident.span,
             );
         }
@@ -1767,15 +1767,9 @@ impl<'s> Parser<'s> {
         // Int)`: type generics in `<…>`, value slots in the `(…)` block —
         // which is how a structure *holds* an ordering, and [qual-depend]
         // how a claim names the value it depends on.
-        let (generics, canbe, mut fn_slots) = self.parse_generics_slots();
+        let (generics, generic_canbe, mut fn_slots) = self.parse_generics_slots();
         let (block_slots, value_slots) = self.parse_slot_block();
         fn_slots.extend(block_slots);
-        for (ident, _) in &canbe {
-            self.error(
-                "`canbe` on a type parameter is only supported on functions and structs",
-                ident.span,
-            );
-        }
         self.expect(&TokenKind::KwOf)?;
         let of = self.parse_type()?;
         let mut with = Vec::new();
@@ -1817,6 +1811,7 @@ impl<'s> Parser<'s> {
             subject,
             name,
             generics,
+            generic_canbe,
             fn_slots,
             value_slots,
             of,

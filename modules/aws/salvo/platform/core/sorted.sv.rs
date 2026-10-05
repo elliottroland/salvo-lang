@@ -66,7 +66,7 @@ pub fn to_str<T: Clone>(set: &SalvoSortedSet<T>, to_str: &mut dyn FnMut(&T) -> S
             crate::core_string::append_platform(&mut out, &(", ".to_string()));
         }
         crate::core_string::append_platform(&mut out, &(to_str(&x)));
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     crate::core_string::append_platform(&mut out, &("}".to_string()));
     return out;

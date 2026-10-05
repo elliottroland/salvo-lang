@@ -364,7 +364,7 @@ pub fn mem_find_newline(data: &Bytes, from: i32) -> i32 {
         if (((crate::core_bytes::get_platform(data, i).expect("salvo: value is absent at fs.mem:323:19")) as i32) == 10) {
             return i;
         }
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     return end;
 }
@@ -409,7 +409,7 @@ pub fn mem_read_line(reads: &mut SalvoMap<i64, MemRead>, handle: i64) -> Option<
     let mut line = crate::core_bytes::slice_platform(&bytes, *at, stop).expect("salvo: value is absent at fs.mem:382:16");
     let mut next_at = stop;
     if stop < end {
-        next_at = stop + 1;
+        next_at = i32::wrapping_add(stop, 1);
     }
     let mut text = crate::core_bytes::str_of_bytes_platform(&line);
     if text.is_none() {
@@ -445,7 +445,7 @@ pub fn mem_read_bytes(reads: &mut SalvoMap<i64, MemRead>, handle: i64, max: i32)
         return Union2::<Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>::U2(err(checked(Union2::<InvalidUtf8, StreamFailed>::U1(InvalidUtf8 { source: source }))));
     }
     let mut bytes: Bytes = open.data.clone();
-    let mut stop = open.at + max;
+    let mut stop = i32::wrapping_add(open.at, max);
     if max < 0 {
         stop = open.at;
     }

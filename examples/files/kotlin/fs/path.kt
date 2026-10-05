@@ -1,5 +1,6 @@
 package salvo.fs.path
 
+import salvo.core.compare.mixHash
 import salvo.core.list.addPlatform
 import salvo.core.string.endsWithPlatform
 import salvo.core.string.isEmpty
@@ -154,7 +155,7 @@ fun trimTrailingSlashes(text: String): String {
 
 fun hash(value: Path): Long {
     var h = 17L
-    h = ((h) * 31L + ((value.text).hashCode().toLong()))
+    h = mixHash(h, (value.text).hashCode().toLong())
     return h
 }
 

@@ -692,6 +692,10 @@ pub struct QualifierDecl {
     pub subject: QualSubject,
     pub name: Ident,
     pub generics: Vec<Ident>,
+    /// [linear-container] `qualifier Idx<T canbe linear>(list: List<T>) of
+    /// Int`: the type parameters the claim admits a linear instantiation of
+    /// (2026-10-05, ROADMAP §0j step 6d), as on a fn or struct.
+    pub generic_canbe: Vec<(Ident, TypeRef)>,
     /// [cmp-carry] The **slot list** in the generics, after the type parameters:
     /// `qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>`, or a group spread
     /// (`?Ordered<T>`). The identity a use site writes (`Heap<Person>(cmp@Person)`)

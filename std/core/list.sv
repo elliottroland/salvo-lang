@@ -67,7 +67,7 @@ export platform fn get<T canbe linear>(list: List<T>, index: Int) [] -> (proj(li
 // identity, so `Idx(xs) Int` and `Idx(ys) Int` are different facts. Tested
 // with the filled block (`i is Idx(xs)`), stripped by any mutation of the
 // list; the total [get] and [swap] overloads below consume it.
-export qualifier Idx<T>(list: List<T>) of Int {
+export qualifier Idx<T canbe linear>(list: List<T>) of Int {
     fn qualifies(index: Int, list: List<T>) -> Bool {
         return index >= 0 && index < size(list)
     }
@@ -121,12 +121,11 @@ export fn swap<T>(list: Mut List<T>, i: Idx(list) Int, j: Idx(list) Int) [] -> N
 // [col-replace] The **total positional write**: puts [value] at [index] and
 // answers the element it displaced. The index is proven (`Idx(list) Int`), so
 // there is no out-of-range case to answer, and the displaced element is handed
-// back. Taking an element out of a `List<T?>` is `replace(xs, i, None)`. Not
-// yet for a list of obligations [linear-container]: `Idx` cannot claim an
-// index of a linear list, since a qualifier's type parameter cannot `canbe
-// linear` (ROADMAP §0j step 6d). A write moves no boundary, so
+// back — which is what makes it safe for a list of obligations
+// [linear-container]: nothing written is dropped. Taking an element out of a
+// `List<T?>` is `replace(xs, i, None)`. A write moves no boundary, so
 // existing `Idx` claims survive it [qual-preserve].
-export fn replace<T>(list: Mut List<T>, index: Idx(list) Int, value: T) [] -> T
+export fn replace<T canbe linear>(list: Mut List<T>, index: Idx(list) Int, value: T) [] -> T
 => list: Mut, list: preserve Idx, index, !value {
     return replace_at(list, index + 0, value)
 }

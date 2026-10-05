@@ -141,6 +141,30 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Integers wrap, and bit operations are functions (2026-10-05, user decisions;
+ROADMAP §0j step 2).**
+- **Bitwise operations are `bit_` functions** [op-bits] (user decision: not
+  operators, since `&`, `|`, `^` and `>>` already mean other things):
+  `bit_and`, `bit_or`, `bit_xor`, `bit_not`, `bit_shl`, `bit_shr`,
+  `bit_ushr`, for `Int` and `Long`, intrinsic in `core.basic`. Shift counts are
+  taken modulo the width on both backends (Kotlin natively; Rust through
+  `wrapping_shl`/`wrapping_shr`).
+- **Integer arithmetic wraps** [op-wrap] (A-6's overflow row, decided
+  2026-09-23): Rust renders `+`/`-`/`*`, negation and `++`/`--` through
+  `i32::wrapping_*` [rs-op-wrap]; Kotlin already wrapped. Every golden and
+  example changed with it. `mix_hash` became ordinary Salvo.
+- **A qualifier's type parameter may `canbe linear`** (user decision), so
+  `Idx<T canbe linear>` claims an index of a list of obligations and the total
+  `replace` takes one.
+- Fell out of the function form: a lent operand that `&i32 + i32` had
+  tolerated needs a deref — for a lending call and for a `proj` field
+  (`Enumerated.elem`) — but not for a lambda's peeled parameter. And the
+  two-phase-borrow hoist added earlier the same day matched a lent place by
+  **substring** (`p` inside `wrapping_add`), hoisting a closure into a `let`
+  where rustc could not infer its parameter; it matches whole identifiers now.
+- Tests: wrap and bit results e2e on both backends, the linear `replace` in
+  `linear_container_tests`. **1700 tests.**
+
 **Shrinking the backends, step 6d: a total positional list write (2026-10-05,
 ROADMAP §0j).** `replace(list, i: Idx(list) Int, v) -> T` [col-replace]: Salvo
 over a private platform fn `replace_at`, with an `Idx` refinement so the claim
@@ -21658,7 +21682,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1698; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1700; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

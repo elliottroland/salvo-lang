@@ -13,6 +13,8 @@ pub mod wire;
 pub mod core_array;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]
@@ -74,7 +76,7 @@ use crate::core_string::next as next__core_string;
 pub fn describe_container(console: &crate::core_console::Console, xs: &Vec<i32>) {
     let mut sum = 0;
     for n in crate::platform_core_list::each(xs) {
-        sum = sum + *n;
+        sum = i32::wrapping_add(sum, *n);
     }
     println(console, &(format!("1. list of {} sums to {}", crate::core_list::size_platform(xs), sum)));
     let mut letters = mut_str(vec![]);
@@ -85,7 +87,7 @@ pub fn describe_container(console: &crate::core_console::Console, xs: &Vec<i32>)
     let mut arr = vec![10, 20, 30];
     let mut from_array = 0;
     for n in &arr {
-        from_array = from_array + *n;
+        from_array = i32::wrapping_add(from_array, *n);
     }
     println(console, &(format!("1. array sums to {}", from_array)));
 }
@@ -115,7 +117,7 @@ pub fn next__Countdown(p: &mut Countdown) -> Union2<i32, Finished> {
         return Union2::<i32, Finished>::U2(finished());
     }
     let mut now = p.at;
-    p.at = p.at - 1;
+    p.at = i32::wrapping_sub(p.at, 1);
     return Union2::<i32, Finished>::U1(emitted(now));
 }
 
@@ -124,7 +126,7 @@ pub fn skip(p: &mut Countdown) -> Union2<i32, Finished> {
         return Union2::<i32, Finished>::U2(finished());
     }
     let mut now = p.at;
-    p.at = p.at - 2;
+    p.at = i32::wrapping_sub(p.at, 2);
     return Union2::<i32, Finished>::U1(emitted(now));
 }
 
@@ -132,7 +134,7 @@ pub fn take(console: &crate::core_console::Console, p: &mut Countdown, count: i3
     let mut seen = 0;
     while let Union2::U1(mut n) = next__Countdown(p) {
         println(console, &(format!("2. got {}", n)));
-        seen = seen + 1;
+        seen = i32::wrapping_add(seen, 1);
         if seen == count {
             break;
         }
@@ -206,7 +208,7 @@ pub fn next__Iter_iter_Bag(__p: &mut __Iter_iter_Bag<'_>) -> Union2<i32, Finishe
     if e.is_none() {
         return Union2::<i32, Finished>::U2(finished());
     }
-    __p.at = __p.at + 1;
+    __p.at = i32::wrapping_add(__p.at, 1);
     return Union2::<i32, Finished>::U1(emitted(*e.unwrap()));
 }
 
@@ -245,10 +247,10 @@ pub fn next__Iter_fibs_Int(console: &crate::core_console::Console, __p: &mut __I
         return Union2::<i32, Finished>::U2(finished());
     }
     let mut now = __p.a;
-    let mut sum = __p.a + __p.b;
+    let mut sum = i32::wrapping_add(__p.a, __p.b);
     __p.a = __p.b;
     __p.b = sum.clone();
-    __p.made = __p.made + 1;
+    __p.made = i32::wrapping_add(__p.made, 1);
     return Union2::<i32, Finished>::U1(emitted(now));
 }
 
@@ -277,14 +279,14 @@ pub fn naturals(from: i32) -> __Iter_naturals_Int {
 
 pub fn next__Iter_naturals_Int(__p: &mut __Iter_naturals_Int) -> Union2<i32, Finished> {
     let mut now = __p.at;
-    __p.at = __p.at + 1;
+    __p.at = i32::wrapping_add(__p.at, 1);
     return Union2::<i32, Finished>::U1(emitted(now));
 }
 
 pub fn sum_of<It: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<i32, Finished>) -> i32 {
     let mut total = 0;
     while let Union2::U1(mut n) = next(it) {
-        total = total + n;
+        total = i32::wrapping_add(total, n);
     }
     return total;
 }
@@ -293,7 +295,7 @@ pub fn total<'c, C: Clone, __It0: Clone>(c: &'c C, iter: &mut dyn FnMut(&'c C) -
     let mut total = 0;
     let mut __loop3_pass = iter(c);
     while let Union2::U1(mut n) = next(&mut __loop3_pass) {
-        total = total + n;
+        total = i32::wrapping_add(total, n);
     }
     return total;
 }
@@ -340,18 +342,18 @@ pub fn main() {
         }
         println(&console, &(format!("3. natural {}", n)));
     }
-    let mut doubled = map__List_Fn(&xs, &mut (|n| *n * 2));
+    let mut doubled = map__List_Fn(&xs, &mut (|n| i32::wrapping_mul(*n, 2)));
     let mut odd = crate::core_seq::filter_platform(&xs, &mut (|n| *n % 2 == 1));
-    let mut total = reduce__List_A_Fn(&xs, 0, &mut (|acc, n| *acc + *n));
+    let mut total = reduce__List_A_Fn(&xs, 0, &mut (|acc, n| i32::wrapping_add(*acc, *n)));
     println(&console, &(format!("5. list: {} doubled, {} odd, total {}", crate::core_list::size_platform(&doubled), crate::core_list::size_platform(&odd), total)));
     let mut words = vec!["ann".to_string(), "bo".to_string(), "carol".to_string()];
     let mut lengths = map__It_Fn::<ListYield<'_, String>, &String, i32>(&mut (iter__core_list(&words)), &mut (|w| { let w = *w; crate::core_string::size_platform(w) }), &mut |__i0| next__ListYield(__i0));
-    println(&console, &(format!("5. lengths: {}", reduce__It_A_Fn::<ListYield<'_, i32>, &i32, i32>(&mut (iter__core_list(&lengths)), &(0), &mut (|acc, n| { let n = *n; *acc + *n }), &mut |__i0| next__ListYield(__i0)))));
+    println(&console, &(format!("5. lengths: {}", reduce__It_A_Fn::<ListYield<'_, i32>, &i32, i32>(&mut (iter__core_list(&lengths)), &(0), &mut (|acc, n| { let n = *n; i32::wrapping_add(*acc, *n) }), &mut |__i0| next__ListYield(__i0)))));
     let mut word = "iteration".to_string();
     let mut vowels = filter::<StrYield<'_>, char>(&mut (iter__core_string(&word)), &mut (|c| *c == 'i' || *c == 'o'), &mut |__i0| next__core_string(__i0));
     println(&console, &(format!("5. vowels: {}", crate::core_list::size_platform(&vowels))));
-    println(&console, &(format!("5. halving total {}", reduce__It_A_Fn::<__Iter_halving_Int, i32, i32>(&mut (halving(20)), &(0), &mut (|acc, n| *acc + *n), &mut |__i0| next__Iter_halving_Int(__i0)))));
-    let mut collected = map_to::<Vec<i32>, Countdown, i32, i32>(vec![], &mut (countdown(3)), &mut (|n: &i32| *n * 10), &mut |__i0, __i1| crate::core_list::add_platform(__i0, __i1), &mut |__i0| next__Countdown(__i0));
+    println(&console, &(format!("5. halving total {}", reduce__It_A_Fn::<__Iter_halving_Int, i32, i32>(&mut (halving(20)), &(0), &mut (|acc, n| i32::wrapping_add(*acc, *n)), &mut |__i0| next__Iter_halving_Int(__i0)))));
+    let mut collected = map_to::<Vec<i32>, Countdown, i32, i32>(vec![], &mut (countdown(3)), &mut (|n: &i32| i32::wrapping_mul(*n, 10)), &mut |__i0, __i1| crate::core_list::add_platform(__i0, __i1), &mut |__i0| next__Countdown(__i0));
     println(&console, &(format!("6. collected {}", crate::core_list::size_platform(&collected))));
     let mut evens = mut_str(vec![]);
     let mut __loop9_pass = range__Int_Int_Int(0, 10, 2);

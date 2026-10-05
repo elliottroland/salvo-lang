@@ -1172,12 +1172,12 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
 
     fn new_pool(&mut self, sink: i32, dedicated: bool) -> i32 {
         crate::core_list::add_platform(&mut self.pools, PoolRec { idle: vec![], tasks: mut_deque_of(), ready: mut_deque_of(), sink: sink, owed: 0, dedicated: dedicated, retired: false });
-        return crate::core_list::size_platform(&self.pools) - 1;
+        return i32::wrapping_sub(crate::core_list::size_platform(&self.pools), 1);
     }
 
     fn new_actor(&mut self, pool: i32, bound: i32, body: Body) -> i32 {
         crate::core_list::add_platform(&mut self.actors, ActorRec { body: slot_of_platform(body), pool: pool, bound: bound, queue: mut_deque_of(), slots: mut_deque_of(), user_len: 0, gate: None, running: false, dead: false, exit_reason: "".to_string(), blocked: vec![], watchers: vec![], owed: 0, ready: false, proxy: false });
-        return crate::core_list::size_platform(&self.actors) - 1;
+        return i32::wrapping_sub(crate::core_list::size_platform(&self.actors), 1);
     }
 
     fn enqueue(&mut self, addr: i32, msg: Dyn, waiter: Parker) -> Union4<Sent, Dead, Full, Remote> {
@@ -1201,7 +1201,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         let mut e: Union3<Delivered, Answered, Reported> = Union3::<Delivered, Answered, Reported>::U1(Delivered { msg: msg, from: ((-1) as i64) });
         crate::core_deque::add_last_platform(&mut self.actors[__h0].queue, e);
         crate::core_deque::add_last_platform(&mut self.actors[__h0].slots, ((-1) as i64));
-        self.actors[__h0].user_len = self.actors[__h0].user_len + 1;
+        self.actors[__h0].user_len = i32::wrapping_add(self.actors[__h0].user_len, 1);
         if mark_ready(&mut self.actors[__h0], &mut self.pools, addr.clone()) {
             let mut pool = self.actors[__h0].pool;
             wake_pool(&mut self.pools, pool);
@@ -1223,7 +1223,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         let mut e: Union3<Delivered, Answered, Reported> = Union3::<Delivered, Answered, Reported>::U1(Delivered { msg: msg, from: from });
         crate::core_deque::add_last_platform(&mut self.actors[__h1].queue, e);
         crate::core_deque::add_last_platform(&mut self.actors[__h1].slots, ((-1) as i64));
-        self.actors[__h1].user_len = self.actors[__h1].user_len + 1;
+        self.actors[__h1].user_len = i32::wrapping_add(self.actors[__h1].user_len, 1);
         if mark_ready(&mut self.actors[__h1], &mut self.pools, addr.clone()) {
             let mut pool = self.actors[__h1].pool;
             wake_pool(&mut self.pools, pool);
@@ -1268,30 +1268,30 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     }
 
     fn mint_actor(&mut self, addr: i32, gated: bool) -> Token {
-        self.next_slot = self.next_slot + ((1) as i64);
+        self.next_slot = i64::wrapping_add(self.next_slot, ((1) as i64));
         let mut slot = self.next_slot.clone();
         let __h3 = (addr) as usize;
         self.actors.get(__h3).expect("salvo: value is absent at runtime:585:17");
         if gated {
             self.actors[__h3].gate = Some(slot.clone());
         }
-        self.actors[__h3].owed = self.actors[__h3].owed + 1;
+        self.actors[__h3].owed = i32::wrapping_add(self.actors[__h3].owed, 1);
         return Token { target: Union3::<ToActor, ToWaiter, ToTask>::U1(ToActor { addr: addr }), slot: slot, tracked: true };
     }
 
     fn mint_task(&mut self, pool: i32, body: Body) -> Token {
-        self.next_slot = self.next_slot + ((1) as i64);
+        self.next_slot = i64::wrapping_add(self.next_slot, ((1) as i64));
         let __h4 = (pool) as usize;
         self.pools.get(__h4).expect("salvo: value is absent at runtime:595:17");
-        self.pools[__h4].owed = self.pools[__h4].owed + 1;
+        self.pools[__h4].owed = i32::wrapping_add(self.pools[__h4].owed, 1);
         return Token { target: Union3::<ToActor, ToWaiter, ToTask>::U3(ToTask { pool: pool, body: body }), slot: self.next_slot.clone(), tracked: true };
     }
 
     fn mint_waiter(&mut self, pool: i32) -> WaiterMint {
         let __h5 = (pool) as usize;
         self.pools.get(__h5).expect("salvo: value is absent at runtime:601:17");
-        self.pools[__h5].owed = self.pools[__h5].owed + 1;
-        self.next_slot = self.next_slot + ((1) as i64);
+        self.pools[__h5].owed = i32::wrapping_add(self.pools[__h5].owed, 1);
+        self.next_slot = i64::wrapping_add(self.next_slot, ((1) as i64));
         let mut wid = reuse_waiter(&mut self.waiters, &mut self.free_waiters, pool.clone(), self.next_slot.clone());
         let mut t = Token { target: Union3::<ToActor, ToWaiter, ToTask>::U2(ToWaiter { wid: wid.clone() }), slot: self.next_slot.clone(), tracked: true };
         return WaiterMint { token: t, wid: wid };
@@ -1325,18 +1325,18 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
 
     fn next_work(&mut self, pool: i32, idle: Parker) -> Option<Union3<RunActor, RunTask, Retire>> {
         if crate::core_list::get_platform(&self.pools, pool).expect("salvo: value is absent at runtime:635:12").retired {
-            self.retired = self.retired + 1;
+            self.retired = i32::wrapping_add(self.retired, 1);
             return Some(Union3::<RunActor, RunTask, Retire>::U3(Retire {  }));
         }
         let mut w = take_work(&mut self.actors, &mut self.pools, pool.clone(), -1);
         if matches!(w, Some(Union2::U1(_))) {
             let mut ra = match w { Some(Union2::U1(__v)) => __v, _ => unreachable!() };
-            self.active = self.active + 1;
+            self.active = i32::wrapping_add(self.active, 1);
             return Some(Union3::<RunActor, RunTask, Retire>::U1(ra));
         }
         if matches!(w, Some(Union2::U2(_))) {
             let mut rt = match w { Some(Union2::U2(__v)) => __v, _ => unreachable!() };
-            self.active = self.active + 1;
+            self.active = i32::wrapping_add(self.active, 1);
             return Some(Union3::<RunActor, RunTask, Retire>::U2(rt));
         }
         let __h7 = (pool) as usize;
@@ -1362,9 +1362,9 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             self.waiters[__h8].waiting = frame.clone();
             self.waiters[__h8].waiting_actor = own.clone();
             if frame == 1 {
-                self.parked_frames = self.parked_frames + 1;
+                self.parked_frames = i32::wrapping_add(self.parked_frames, 1);
             } else {
-                self.main_waits = self.main_waits + 1;
+                self.main_waits = i32::wrapping_add(self.main_waits, 1);
             }
         }
         let mut got = slot_take_platform(&mut self.waiters[__h8].value);
@@ -1373,9 +1373,9 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             self.waiters[__h8].filled = false;
             self.waiters[__h8].parker = None;
             if self.waiters[__h8].waiting == 1 {
-                self.parked_frames = self.parked_frames - 1;
+                self.parked_frames = i32::wrapping_sub(self.parked_frames, 1);
             } else {
-                self.main_waits = self.main_waits - 1;
+                self.main_waits = i32::wrapping_sub(self.main_waits, 1);
             }
             self.waiters[__h8].waiting = 0;
             self.waiters[__h8].waiting_actor = -1;
@@ -1386,12 +1386,12 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         let mut work = take_for(&mut self.actors, &mut self.pools, pool.clone(), own.clone(), self.virtual_mode.clone());
         if matches!(work, Some(Union2::U1(_))) {
             let mut ra = match work { Some(Union2::U1(__v)) => __v, _ => unreachable!() };
-            self.active = self.active + 1;
+            self.active = i32::wrapping_add(self.active, 1);
             return Union6::<Got, RunActor, RunTask, Sleep, Again, Stuck>::U2(ra);
         }
         if matches!(work, Some(Union2::U2(_))) {
             let mut rt = match work { Some(Union2::U2(__v)) => __v, _ => unreachable!() };
-            self.active = self.active + 1;
+            self.active = i32::wrapping_add(self.active, 1);
             return Union6::<Got, RunActor, RunTask, Sleep, Again, Stuck>::U3(rt);
         }
         let mut q = quiet(&mut self.actors, &mut self.waiters, &mut self.pools, self.externals);
@@ -1416,7 +1416,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     }
 
     fn finish(&mut self, addr: i32, body: Body, fault: Option<String>) {
-        self.active = self.active - 1;
+        self.active = i32::wrapping_sub(self.active, 1);
         let __h11 = (addr) as usize;
         self.actors.get(__h11).expect("salvo: value is absent at runtime:737:17");
         self.actors[__h11].running = false;
@@ -1472,7 +1472,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     }
 
     fn task_done(&mut self, pool: i32, fault: Option<String>) {
-        self.active = self.active - 1;
+        self.active = i32::wrapping_sub(self.active, 1);
         if fault.is_some() {
             let mut reason = fault.as_ref().unwrap().clone();
             report_fault(&mut self.actors, &mut self.pools, pool.clone(), reason.clone());
@@ -1496,7 +1496,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
 
     fn room(&mut self, addr: i32) -> i32 {
         let mut a = crate::core_list::get_platform(&self.actors, addr).unwrap();
-        return a.bound - a.user_len;
+        return i32::wrapping_sub(a.bound, a.user_len);
     }
 
     fn is_dead(&mut self, addr: i32) -> bool {
@@ -1508,7 +1508,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     }
 
     fn external(&mut self, delta: i32) {
-        self.externals = self.externals + delta;
+        self.externals = i32::wrapping_add(self.externals, delta);
         if self.externals < 0 {
             self.externals = 0;
         }
@@ -1549,14 +1549,14 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         let mut lo = lehmer(hi.clone());
         self.rng = lo.clone();
         let mut m = 2147483646i64;
-        return (((hi - 1i64) * m + (lo - 1i64)) as f64) / (((m) as f64) * ((m) as f64));
+        return ((i64::wrapping_add(i64::wrapping_mul(i64::wrapping_sub(hi, 1i64), m), i64::wrapping_sub(lo, 1i64))) as f64) / (((m) as f64) * ((m) as f64));
     }
 
     fn random_bits(&mut self) -> i64 {
         let mut hi = lehmer(self.rng.clone());
         let mut lo = lehmer(hi.clone());
         self.rng = lo.clone();
-        return hi * ((2147483647) as i64) + lo;
+        return i64::wrapping_add(i64::wrapping_mul(hi, ((2147483647) as i64)), lo);
     }
 
     fn clock_hook(&mut self, t: Token) {
@@ -1568,12 +1568,12 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         let mut w = take_for(&mut self.actors, &mut self.pools, 0, own, true);
         if matches!(w, Some(Union2::U1(_))) {
             let mut ra = match w { Some(Union2::U1(__v)) => __v, _ => unreachable!() };
-            self.active = self.active + 1;
+            self.active = i32::wrapping_add(self.active, 1);
             return Some(Union2::<RunActor, RunTask>::U1(ra));
         }
         if matches!(w, Some(Union2::U2(_))) {
             let mut rt = match w { Some(Union2::U2(__v)) => __v, _ => unreachable!() };
-            self.active = self.active + 1;
+            self.active = i32::wrapping_add(self.active, 1);
             return Some(Union2::<RunActor, RunTask>::U2(rt));
         }
         return None;
@@ -1592,15 +1592,15 @@ pub enum __Priv_Scheduler {
 }
 
 pub fn lehmer(x: i64) -> i64 {
-    return x * ((48271) as i64) % ((2147483647) as i64);
+    return i64::wrapping_mul(x, ((48271) as i64)) % ((2147483647) as i64);
 }
 
 pub fn seed_of(seed: i64) -> i64 {
     let mut s = seed % ((2147483646) as i64);
     if s < ((0) as i64) {
-        s = ((0) as i64) - s;
+        s = i64::wrapping_sub(((0) as i64), s);
     }
-    return s + ((1) as i64);
+    return i64::wrapping_add(s, ((1) as i64));
 }
 
 pub fn reset_all(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, idle_hooks: &mut Vec<IdleHook>, clock_hooks: &mut Vec<Token>) {
@@ -1608,7 +1608,7 @@ pub fn reset_all(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, idle_hook
     while k < crate::core_list::size_platform(actors) {
         let __h13 = (k) as usize;
         actors.get(__h13).expect("salvo: value is absent at runtime:909:17");
-        k = k + 1;
+        k = i32::wrapping_add(k, 1);
         actors[__h13].dead = true;
         actors[__h13].running = false;
         actors[__h13].ready = false;
@@ -1654,7 +1654,7 @@ pub fn reset_all(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, idle_hook
         if i > 0 {
             pools[__h14].retired = true;
         }
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     loop {
         let mut __is10 = crate::core_list::remove_first_platform(idle_hooks);
@@ -1697,7 +1697,7 @@ pub fn take_for(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, pool: i32,
             let mut rt = match w { Some(Union2::U2(__v)) => __v, _ => unreachable!() };
             return Some(Union2::<RunActor, RunTask>::U2(rt));
         }
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     return None;
 }
@@ -1719,7 +1719,7 @@ pub fn release(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools: 
         let __h15 = (to.addr) as usize;
         actors.get(__h15).expect("salvo: value is absent at runtime:997:17");
         if actors[__h15].owed > 0 {
-            actors[__h15].owed = actors[__h15].owed - 1;
+            actors[__h15].owed = i32::wrapping_sub(actors[__h15].owed, 1);
         }
     } else if matches!(target, Union3::U2(_)) {
         let mut tw = target.u2().clone();
@@ -1727,13 +1727,13 @@ pub fn release(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools: 
         let __h16 = (pool) as usize;
         pools.get(__h16).expect("salvo: value is absent at runtime:1003:17");
         if pools[__h16].owed > 0 {
-            pools[__h16].owed = pools[__h16].owed - 1;
+            pools[__h16].owed = i32::wrapping_sub(pools[__h16].owed, 1);
         }
     } else {
         let __h17 = (target.u3().clone().pool) as usize;
         pools.get(__h17).expect("salvo: value is absent at runtime:1008:17");
         if pools[__h17].owed > 0 {
-            pools[__h17].owed = pools[__h17].owed - 1;
+            pools[__h17].owed = i32::wrapping_sub(pools[__h17].owed, 1);
         }
     }
 }
@@ -1753,7 +1753,7 @@ pub fn reuse_waiter(waiters: &mut Vec<WaiterRec>, free: &mut Vec<i32>, pool: i32
         return wid;
     }
     crate::core_list::add_platform(waiters, WaiterRec { pool: pool, value: slot_empty_platform(), filled: false, parker: None, waiting: 0, waiting_actor: -1, slot: slot });
-    return crate::core_list::size_platform(waiters) - 1;
+    return i32::wrapping_sub(crate::core_list::size_platform(waiters), 1);
 }
 
 pub fn deliver_to(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools: &mut Vec<PoolRec>, t: Token, value: Dyn) {
@@ -1859,9 +1859,9 @@ pub fn fire_idle(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools
         let mut tokens = crate::core_list::get_platform(pools, pool).expect("salvo: value is absent at runtime:1132:27").owed;
         for a in crate::platform_core_list::each(&*actors) {
             if a.pool == pool {
-                tokens = tokens + a.owed;
+                tokens = i32::wrapping_add(tokens, a.owed);
                 if !(a.gate.is_none()) && !a.dead {
-                    gates = gates + 1;
+                    gates = i32::wrapping_add(gates, 1);
                 }
             }
         }
@@ -1882,7 +1882,7 @@ pub fn deadlock_report(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>,
         if !(a.gate.is_none()) && !a.dead {
             crate::core_list::add_platform(&mut gated, format!("actor {}", i));
         }
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     let mut who = if own >= 0 {
         format!("actor {}", own)
@@ -1956,7 +1956,7 @@ pub fn mark_ready(a: &mut ActorRec, pools: &mut Vec<PoolRec>, addr: i32) -> bool
 pub fn work_of(a: &mut ActorRec, addr: i32, e: Union3<Delivered, Answered, Reported>, body: Body) -> Option<Union2<RunActor, RunTask>> {
     if matches!(e, Union3::U1(_)) {
         let mut d = match e { Union3::U1(__v) => __v, _ => unreachable!() };
-        a.user_len = a.user_len - 1;
+        a.user_len = i32::wrapping_sub(a.user_len, 1);
         let mut woken = crate::core_list::remove_first_platform(&mut a.blocked);
         if woken.is_some() {
             let mut b = woken.as_ref().unwrap().clone();
@@ -2000,7 +2000,7 @@ pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) 
         if *crate::core_deque::get_platform(slots, i).expect("salvo: value is absent at runtime:1263:12") == gate.unwrap() {
             return Some(i.clone());
         }
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     return None;
 }
@@ -2056,7 +2056,7 @@ pub fn wake_all_pools(pools: &mut Vec<PoolRec>) {
     let mut i = 0;
     while i < crate::core_list::size_platform(pools) {
         wake_every(pools, i.clone());
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
 }
 
@@ -2086,7 +2086,7 @@ pub fn start_pool(n: i32, sink: i32, dedicated: bool) -> i32 {
         start_thread_platform(std::boxed::Box::new({ let mut id = id.clone(); move || {
     serve_pool(id.clone());
 } }));
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     return id;
 }

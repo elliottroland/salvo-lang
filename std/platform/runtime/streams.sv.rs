@@ -355,7 +355,7 @@ impl Streams {
 impl crate::runtime_streams::__Stateful_StreamTable for Streams {
 
     fn next_handle(&mut self) -> i64 {
-        self.next = self.next + ((1) as i64);
+        self.next = i64::wrapping_add(self.next, ((1) as i64));
         return self.next.clone();
     }
 
@@ -413,7 +413,7 @@ impl crate::runtime_streams::__Stateful_StreamTable for Streams {
             if crate::core_list::get_platform(&self.pending, i).expect("salvo: value is absent at runtime.streams:193:16").handle == handle {
                 return crate::core_list::remove_at_platform(&mut self.pending, i);
             }
-            i = i + 1;
+            i = i32::wrapping_add(i, 1);
         }
         return None;
     }
@@ -425,7 +425,7 @@ pub fn index_in(keys: &Vec<i64>, handle: i64) -> i32 {
         if *crate::core_list::get_platform(keys, i).expect("salvo: value is absent at runtime.streams:207:12") == handle {
             return i;
         }
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     return -1;
 }
@@ -545,7 +545,7 @@ pub fn take_ahead(e: &mut InEntry, n: i32) -> Bytes {
     let mut front = { let __pick1 = crate::core_bytes::slice_platform(&e.ahead, 0, n.clone()); if __pick1.is_some() { __pick1.as_ref().unwrap().clone() } else { bytes_of(vec![]) } };
     let mut rest = { let __pick2 = crate::core_bytes::slice_platform(&e.ahead, n.clone(), all); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { bytes_of(vec![]) } };
     e.ahead = mut_bytes(vec![rest.clone()]);
-    e.position = e.position + ((n) as i64);
+    e.position = i64::wrapping_add(e.position, ((n) as i64));
     return front;
 }
 
@@ -580,10 +580,10 @@ pub fn read_line(e: &mut InEntry) -> Read {
         let mut at = crate::core_bytes::index_of_platform(&e.ahead, (((10) as i32) as u8));
         if at.is_some() {
             let mut i = at.unwrap();
-            let mut line = take_ahead(e, i + 1);
-            let mut n = crate::core_bytes::size_platform(&line) - 1;
-            if n > 0 && ((crate::core_bytes::get_platform(&line, n - 1).expect("salvo: value is absent at runtime.streams:362:32")) as i32) == 13 {
-                n = n - 1;
+            let mut line = take_ahead(e, i32::wrapping_add(i, 1));
+            let mut n = i32::wrapping_sub(crate::core_bytes::size_platform(&line), 1);
+            if n > 0 && ((crate::core_bytes::get_platform(&line, i32::wrapping_sub(n, 1)).expect("salvo: value is absent at runtime.streams:362:32")) as i32) == 13 {
+                n = i32::wrapping_sub(n, 1);
             }
             return Read { data: { let __pick3 = crate::core_bytes::slice_platform(&line, 0, n); if __pick3.is_some() { __pick3.as_ref().unwrap().clone() } else { bytes_of(vec![]) } }, end: false, fault: None };
         }
@@ -619,7 +619,7 @@ pub fn read_all(e: &mut InEntry) -> Read {
         if crate::core_bytes::size_platform(&got.data) == 0 {
             return Read { data: out.clone(), end: true, fault: None };
         }
-        e.position = e.position + ((crate::core_bytes::size_platform(&got.data)) as i64);
+        e.position = i64::wrapping_add(e.position, ((crate::core_bytes::size_platform(&got.data)) as i64));
         crate::core_bytes::append_platform(&mut out, &got.data);
     }
     return read_all(e);
@@ -645,7 +645,7 @@ pub fn read_up_to(e: &mut InEntry, max: i32) -> Read {
         let mut message = got.error.as_ref().unwrap().clone();
         return Read { data: bytes_of(vec![]), end: true, fault: Some(record(e, message.clone())) };
     }
-    e.position = e.position + ((crate::core_bytes::size_platform(&got.data)) as i64);
+    e.position = i64::wrapping_add(e.position, ((crate::core_bytes::size_platform(&got.data)) as i64));
     return Read { data: got.data.clone(), end: crate::core_bytes::size_platform(&got.data) == 0, fault: None };
 }
 
@@ -672,7 +672,7 @@ pub fn write(e: &mut OutEntry, data: &Bytes) -> i64 {
         record_out(e, message.clone());
         return 0i64;
     }
-    e.position = e.position + ((crate::core_bytes::size_platform(data)) as i64);
+    e.position = i64::wrapping_add(e.position, ((crate::core_bytes::size_platform(data)) as i64));
     return ((crate::core_bytes::size_platform(data)) as i64);
 }
 

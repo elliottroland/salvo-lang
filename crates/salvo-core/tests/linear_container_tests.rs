@@ -500,3 +500,38 @@ handler Counter() of Counting {
     );
     assert!(errs.is_empty(), "a scalar state field must be unaffected: {errs:?}");
 }
+
+/// [col-replace] [linear-container] A qualifier's type parameter may `canbe
+/// linear` (2026-10-05, ROADMAP §0j step 6d), which is what lets `Idx` claim an
+/// index of a list of obligations and the total `replace` take one: the
+/// displaced element comes back, so nothing is dropped.
+#[test]
+fn a_proven_index_replaces_in_a_list_of_obligations() {
+    let errs = diagnostics(
+        "\
+qualifier Idx<T canbe linear>(list: List<T>) of Int {
+    fn qualifies(index: Int, list: List<T>) -> Bool {
+        return index >= 0 && index < size(list)
+    }
+}
+
+fn replace<T canbe linear>(list: Mut List<T>, index: Idx(list) Int, value: T) [] -> T
+=> list: Mut, index, !value {
+    add(list, value)
+    return remove_first(list)!
+}
+
+fn go() [] -> None {
+    let queue: Mut List<Token> = mut_list_of()
+    add(queue, mint(1))
+    let i = 0
+    if i is Idx(queue) {
+        let old = replace(queue, i, mint(2))
+        spend(old)
+    }
+    drain(queue, spend)
+}
+",
+    );
+    assert!(errs.is_empty(), "replace over a linear list must check clean: {errs:?}");
+}

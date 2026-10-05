@@ -9,6 +9,7 @@ use crate::core_actor::__Stateless_Faults as _;
 use crate::core_actor::eq;
 use crate::core_actor::pool;
 use crate::core_bytes::Bytes;
+use crate::core_compare::mix_hash;
 use crate::core_list::at;
 use crate::runtime::Body;
 use crate::runtime::Dyn;
@@ -731,14 +732,14 @@ pub fn version_in(versions: &SalvoMap<i32, i64>, group: i32) -> i64 {
 }
 
 pub fn bump_in(versions: &mut SalvoMap<i32, i64>, waiters: &mut Vec<ViewWaiter>, group: i32) {
-    crate::core_map::put_platform(versions, group.clone(), version_in(versions, group.clone()) + ((1) as i64));
+    crate::core_map::put_platform(versions, group.clone(), i64::wrapping_add(version_in(versions, group.clone()), ((1) as i64)));
     let mut i = 0;
     while i < crate::core_list::size_platform(waiters) {
         if crate::core_list::get_platform(waiters, i).expect("salvo: value is absent at runtime.routing:171:12").group == group {
             let mut w = crate::core_list::remove_at_platform(waiters, i.clone()).expect("salvo: value is absent at runtime.routing:172:21");
             crate::runtime::unpark_platform(&(w.parker.clone()));
         } else {
-            i = i + 1;
+            i = i32::wrapping_add(i, 1);
         }
     }
 }
@@ -901,8 +902,8 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         if c.is_some() {
             let mut n = *c.unwrap();
             if n > 0 {
-                crate::core_map::put_platform(&mut self.credits, addr.clone(), n - 1);
-                { let __a1 = held_in(&self.held_n, addr.clone()) + 1; crate::core_map::put_platform(&mut self.held_n, addr.clone(), __a1) };
+                crate::core_map::put_platform(&mut self.credits, addr.clone(), i32::wrapping_sub(n, 1));
+                { let __a1 = i32::wrapping_add(held_in(&self.held_n, addr.clone()), 1); crate::core_map::put_platform(&mut self.held_n, addr.clone(), __a1) };
                 return 1;
             }
             crate::core_list::add_platform(&mut self.credit_waiters, me);
@@ -916,7 +917,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     }
 
     fn grant(&mut self, addr: i32, pool: i32, from: i64, n: i32) {
-        { let __a1 = held_in(&self.held_n, addr.clone()) + n; crate::core_map::put_platform(&mut self.held_n, addr.clone(), __a1) };
+        { let __a1 = i32::wrapping_add(held_in(&self.held_n, addr.clone()), n); crate::core_map::put_platform(&mut self.held_n, addr.clone(), __a1) };
         let mut me = identity_in(&self.remote, &mut self.bits, &self.pool_node, self.node_id, addr.clone(), pool);
         let mut frame = crate::wire::salvo_encode(&Union5::<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>::U3(GrantFrame { to: from.clone(), host: me.node, actor: me.actor, bits: me.bits, n: n }));
         stage_in(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked, me.node, from, frame);
@@ -925,7 +926,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     fn take_outbox(&mut self) -> Vec<Staged> {
         let mut out: Vec<Staged> = vec![];
         while crate::core_list::size_platform(&self.outbox) > 0 {
-            { let __a1 = crate::core_list::remove_at_platform(&mut self.outbox, 0).expect("salvo: value is absent at runtime.routing:327:22"); crate::core_list::add_platform(&mut out, __a1) };
+            crate::core_list::add_platform(&mut out, crate::core_list::remove_at_platform(&mut self.outbox, 0).expect("salvo: value is absent at runtime.routing:327:22"));
         }
         return out;
     }
@@ -960,7 +961,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
     fn received(&mut self, idx: i32) {
         let mut h = held_in(&self.held_n, idx.clone());
         if h > 0 {
-            crate::core_map::put_platform(&mut self.held_n, idx, h - 1);
+            crate::core_map::put_platform(&mut self.held_n, idx, i32::wrapping_sub(h, 1));
         }
     }
 
@@ -978,8 +979,8 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
                 let mut have = *c.unwrap();
                 now = have.clone();
             }
-            crate::core_map::put_platform(&mut self.credits, i.clone(), now + n);
-            let mut h = held_in(&self.held_n, i.clone()) - n;
+            crate::core_map::put_platform(&mut self.credits, i.clone(), i32::wrapping_add(now, n));
+            let mut h = i32::wrapping_sub(held_in(&self.held_n, i.clone()), n);
             if h < 0 {
                 h = 0;
             }
@@ -1006,7 +1007,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
                 let mut _k = crate::core_list::remove_at_platform(&mut self.task_keys, i.clone());
                 return crate::core_list::remove_at_platform(&mut self.tasks, i);
             }
-            i = i + 1;
+            i = i32::wrapping_add(i, 1);
         }
         return None;
     }
@@ -1093,7 +1094,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         if version_in(&self.versions, group.clone()) != seen {
             return -1i64;
         }
-        self.next_waiter = self.next_waiter + ((1) as i64);
+        self.next_waiter = i64::wrapping_add(self.next_waiter, ((1) as i64));
         crate::core_list::add_platform(&mut self.view_waiters, ViewWaiter { group: group, id: self.next_waiter.clone(), parker: me });
         return self.next_waiter.clone();
     }
@@ -1105,7 +1106,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
                 let mut _w = crate::core_list::remove_at_platform(&mut self.view_waiters, i.clone());
                 return;
             }
-            i = i + 1;
+            i = i32::wrapping_add(i, 1);
         }
     }
 
@@ -1198,7 +1199,7 @@ pub fn restage(routes: &SalvoMap<i64, Bytes>, outbound: &SalvoSet<i64>, outbox: 
 pub fn fresh_node() -> i64 {
     let mut b = identity_bits();
     if b < ((0) as i64) {
-        return -(b + ((1) as i64));
+        return i64::wrapping_neg(i64::wrapping_add(b, ((1) as i64)));
     }
     return b;
 }
@@ -1419,7 +1420,7 @@ pub fn deliver(data: &Bytes) -> bool {
             return false;
         }
         let mut idx = ((o.actor) as i32);
-        let mut room = mailbox_room(idx.clone()) - __module_use_0().held(idx.clone());
+        let mut room = i32::wrapping_sub(mailbox_room(idx.clone()), __module_use_0().held(idx.clone()));
         if room < 1 {
             room = 1;
         }
@@ -1506,9 +1507,9 @@ pub fn view_members(group: i32) -> Vec<i32> {
             if before(&(identity(*crate::core_list::get_platform(&left, i).expect("salvo: value is absent at runtime.routing:937:37"))), &(identity(*crate::core_list::get_platform(&left, best).expect("salvo: value is absent at runtime.routing:937:68")))) {
                 best = i.clone();
             }
-            i = i + 1;
+            i = i32::wrapping_add(i, 1);
         }
-        { let __a1 = crate::core_list::remove_at_platform(&mut left, best).expect("salvo: value is absent at runtime.routing:942:18"); crate::core_list::add_platform(&mut out, __a1) };
+        crate::core_list::add_platform(&mut out, crate::core_list::remove_at_platform(&mut left, best).expect("salvo: value is absent at runtime.routing:942:18"));
     }
     return out.clone();
 }
@@ -1540,9 +1541,9 @@ pub fn view_wait(group: i32, seen: i64, nanos: i64) {
 
 pub fn hash__RemoteRef(value: &RemoteRef) -> i64 {
     let mut h = 17i64;
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.actor), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.bits), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.actor), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.bits), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 
@@ -1561,8 +1562,8 @@ pub fn eq__RemoteRef_RemoteRef(a: &RemoteRef, b: &RemoteRef) -> bool {
 
 pub fn hash__ControlKey(value: &ControlKey) -> i64 {
     let mut h = 17i64;
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.channel[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.node), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.channel[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 

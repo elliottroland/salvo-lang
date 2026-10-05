@@ -69,7 +69,7 @@ pub fn mut_deque_by<T: Clone>(size: i32, init: &mut impl FnMut(i32) -> T) -> std
     let mut i = 0;
     while i < size {
         add_last_platform(&mut d, init(i.clone()));
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     return d;
 }
@@ -126,7 +126,7 @@ pub fn to_str<T: Clone>(d: &std::collections::VecDeque<T>, to_str: &mut dyn FnMu
             crate::core_string::append_platform(&mut out, &(", ".to_string()));
         }
         crate::core_string::append_platform(&mut out, &(to_str(&x)));
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     crate::core_string::append_platform(&mut out, &("]".to_string()));
     return out;
@@ -163,7 +163,7 @@ pub fn next__DequeYield<'s, T: Clone>(p: &mut DequeYield<'s, T>) -> Union2<&'s T
     if elem.is_none() {
         return Union2::U2(finished());
     }
-    p.at = p.at + 1;
+    p.at = i32::wrapping_add(p.at, 1);
     return Union2::U1(emitted(elem.unwrap()));
 }
 
@@ -174,7 +174,7 @@ pub struct __Iter_reversed_Deque<'s, T> {
 }
 
 pub fn reversed<T: Clone>(d: &std::collections::VecDeque<T>) -> __Iter_reversed_Deque<'_, T> {
-    return __Iter_reversed_Deque { d: d, at: size_platform(d) - 1 };
+    return __Iter_reversed_Deque { d: d, at: i32::wrapping_sub(size_platform(d), 1) };
 }
 
 pub fn next__Iter_reversed_Deque<'s, T: Clone>(__p: &mut __Iter_reversed_Deque<'s, T>) -> Union2<&'s T, Finished> {
@@ -182,6 +182,6 @@ pub fn next__Iter_reversed_Deque<'s, T: Clone>(__p: &mut __Iter_reversed_Deque<'
     if elem.is_none() {
         return Union2::U2(finished());
     }
-    __p.at = __p.at - 1;
+    __p.at = i32::wrapping_sub(__p.at, 1);
     return Union2::U1(emitted(elem.unwrap()));
 }

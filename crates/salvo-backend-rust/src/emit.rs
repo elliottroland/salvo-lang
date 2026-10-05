@@ -8424,6 +8424,24 @@ fn actor_struct_name(handler: &str) -> String {
 }
 
 /// Does `code` use `name` as a whole identifier?
+/// Whether `code` reads the place `path` (`m`, `self.items`): the path as a
+/// whole word, ending at a non-identifier byte.
+fn mentions_place(code: &str, path: &str) -> bool {
+    let bytes = code.as_bytes();
+    let mut from = 0;
+    while let Some(at) = code[from..].find(path) {
+        let start = from + at;
+        let end = start + path.len();
+        let before_ok = start == 0 || !is_ident_byte(bytes[start - 1]);
+        let after_ok = end == bytes.len() || !is_ident_byte(bytes[end]);
+        if before_ok && after_ok {
+            return true;
+        }
+        from = start + 1;
+    }
+    false
+}
+
 fn mentions_ident(code: &str, name: &str) -> bool {
     let bytes = code.as_bytes();
     let mut from = 0;
@@ -10697,6 +10715,11 @@ impl<'p> Emitter<'p> {
                 // [inc-dec] Statement position discards the value, so the
                 // fixity makes no difference: both are a step of one.
                 let t = self.emit_raw(operand);
+                // [op-wrap] A step wraps like any integer arithmetic.
+                if let Some(it) = self.wrap_int_ty(operand.span()) {
+                    let m = if *down { "wrapping_sub" } else { "wrapping_add" };
+                    return format!("{pad}{t} = {it}::{m}({t}, 1);\n");
+                }
                 let op = if *down { "-=" } else { "+=" };
                 format!("{pad}{t} {op} 1;\n")
             }
@@ -12568,6 +12591,15 @@ impl<'p> Emitter<'p> {
                 self.emit_struct_lit(ty.as_ref(), fields, *span)
             }
             Expr::Unary { op, operand, .. } => {
+                // [op-wrap] Integer negation wraps (`-Int.MIN` is `Int.MIN`), as
+                // on the JVM; a literal cannot overflow, so it keeps `-1`.
+                if *op == UnaryOp::Neg && !matches!(operand.as_ref(), Expr::Int { .. }) {
+                    if let Some(it) = self.wrap_int_ty(operand.span()) {
+                        let inner = self.emit_expr(operand);
+                        let inner = self.deref_lent_call(operand, inner);
+                        return format!("{it}::wrapping_neg({inner})");
+                    }
+                }
                 let inner = self.emit_operand(operand, 6);
                 match op {
                     UnaryOp::Neg => format!("-{inner}"),
@@ -12597,6 +12629,24 @@ impl<'p> Emitter<'p> {
                     let prologue = self.emit_is_bindings(lhs, 0);
                     let r = self.emit_expr(rhs);
                     return format!("{l} && {{ {} {r} }}", prologue.replace('\n', " "));
+                }
+                // [op-wrap] Integer `+`, `-` and `*` wrap on overflow, as on the
+                // JVM (user decision 2026-09-23, built 2026-10-05): the function
+                // form, since a method on a bare literal is E0689.
+                let wrapping = match op {
+                    BinaryOp::Add => Some("wrapping_add"),
+                    BinaryOp::Sub => Some("wrapping_sub"),
+                    BinaryOp::Mul => Some("wrapping_mul"),
+                    _ => None,
+                };
+                if let (Some(method), Some(it)) = (wrapping, self.wrap_int_ty(*span)) {
+                    let l = self.emit_expr(lhs);
+                    let r = self.emit_expr(rhs);
+                    let l = self.deref_lent_call(lhs, l);
+                    let r = self.deref_lent_call(rhs, r);
+                    let l = self.promote_operand(lhs.span(), l);
+                    let r = self.promote_operand(rhs.span(), r);
+                    return format!("{it}::{method}({l}, {r})");
                 }
                 let prec = bin_prec(*op);
                 let l = self.emit_operand_left(lhs, prec);
@@ -12712,6 +12762,14 @@ impl<'p> Emitter<'p> {
                 // [inc-dec] [rs-inc-dec] Rust has no `++`/`--`, so the value is produced
                 // by a block: postfix yields the old value, prefix the new.
                 let t = self.emit_raw(operand);
+                if let Some(it) = self.wrap_int_ty(operand.span()) {
+                    let m = if *down { "wrapping_sub" } else { "wrapping_add" };
+                    return if *prefix {
+                        format!("({{ {t} = {it}::{m}({t}, 1); {t} }})")
+                    } else {
+                        format!("({{ let __t = {t}; {t} = {it}::{m}({t}, 1); __t }})")
+                    };
+                }
                 let op = if *down { "-=" } else { "+=" };
                 if *prefix {
                     format!("({{ {t} {op} 1; {t} }})")
@@ -13151,6 +13209,44 @@ impl<'p> Emitter<'p> {
         if !comparison {
             return code;
         }
+        self.deref_lent_scalar(expr, code)
+    }
+
+    /// [rs-cmp-deref] A lending call's Copy scalar result, dereferenced: what
+    /// a comparison needs, and the function-form arithmetic of [op-wrap]
+    /// (`i32::wrapping_add` takes `i32`, where `&i32 + i32` had an impl).
+    fn deref_lent_scalar(&mut self, expr: &Expr, code: String) -> String {
+        self.deref_lent_scalar_inner(expr, code)
+    }
+
+    /// [op-wrap] The arithmetic case: only a **call** or a `proj` **field**
+    /// answers a borrow here. A binding the checker records as derived (a lambda's `proj`
+    /// parameter, copied out by its prologue) already reads as a value, and a
+    /// `*` on it is E0614 (found 2026-10-05 by the capture-rooted projection
+    /// test, `map(p, i -> i + i)`).
+    fn deref_lent_call(&mut self, expr: &Expr, code: String) -> String {
+        match expr {
+            Expr::Call { .. } => self.deref_lent_scalar_inner(expr, code),
+            // [proj-field] A `proj` field (`Enumerated.elem`) holds a borrow.
+            Expr::Field { base, field, .. } => {
+                let copy = self.ty_of(expr.span()).is_some_and(|t| Self::is_copy_ty(t));
+                let is_proj = self
+                    .ty_of(base.span())
+                    .and_then(ty_base_name)
+                    .and_then(|n| self.symbols.structs.get(n))
+                    .and_then(|s| s.fields.iter().find(|f| f.name.name == field.name))
+                    .is_some_and(|f| type_has_proj(&f.ty));
+                if copy && is_proj {
+                    format!("*{code}")
+                } else {
+                    code
+                }
+            }
+            _ => code,
+        }
+    }
+
+    fn deref_lent_scalar_inner(&mut self, expr: &Expr, code: String) -> String {
         let lends = self
             .checked
             .derived_calls
@@ -13165,6 +13261,16 @@ impl<'p> Emitter<'p> {
             return format!("*{code}");
         }
         code
+    }
+
+    /// [op-wrap] The Rust type an integer arithmetic result wraps at, when
+    /// the expression at `span` is an `Int` or a `Long`.
+    fn wrap_int_ty(&self, span: Span) -> Option<&'static str> {
+        match self.ty_of(span).and_then(ty_base_name)? {
+            "Int" => Some("i32"),
+            "Long" => Some("i64"),
+            _ => None,
+        }
     }
 
     fn emit_operand_left(&mut self, expr: &Expr, parent_prec: u8) -> String {
@@ -17375,7 +17481,9 @@ impl<'p> Emitter<'p> {
                 let mut out = Vec::new();
                 for code in args {
                     let is_lend = code.strip_prefix("&mut ").is_some_and(|r| lent.contains(&r.trim().to_string()));
-                    if !is_lend && lent.iter().any(|l| code.contains(l.as_str())) {
+                    // By identifier, not substring: a lent `p` must not hoist a
+                    // closure whose code says `wrapping_add` (found 2026-10-05).
+                    if !is_lend && lent.iter().any(|l| mentions_place(&code, l)) {
                         self.hoist_id += 1;
                         let name = format!("__a{}", self.hoist_id);
                         prelude.push(format!("let {name} = {code};"));

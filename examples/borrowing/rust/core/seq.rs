@@ -157,7 +157,7 @@ pub fn next__Taking<It: Clone, T: Clone>(t: &mut Taking<It, T>) -> Union2<T, Fin
     if t.left <= 0 {
         return Union2::<T, Finished>::U2(finished());
     }
-    t.left = t.left - 1;
+    t.left = i32::wrapping_sub(t.left, 1);
     let mut step = &t.step;
     return step(&mut t.src);
 }
@@ -227,7 +227,7 @@ impl<It: Clone + std::fmt::Debug, T: Clone + std::fmt::Debug> std::fmt::Debug fo
 pub fn next__Skipping<It: Clone, T: Clone>(t: &mut Skipping<It, T>) -> Union2<T, Finished> {
     let mut step = &t.step;
     while t.left > 0 {
-        t.left = t.left - 1;
+        t.left = i32::wrapping_sub(t.left, 1);
         let mut x = step(&mut t.src);
         if matches!(x, Union2::U2(_)) {
             return Union2::<T, Finished>::U2(finished());
@@ -293,7 +293,7 @@ pub fn to_list<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -
 pub fn count<It: Clone, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> i32 {
     let mut n = 0;
     while let Union2::U1(mut _x) = next(it) {
-        n = n + 1;
+        n = i32::wrapping_add(n, 1);
     }
     return n;
 }

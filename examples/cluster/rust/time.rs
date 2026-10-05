@@ -1,5 +1,6 @@
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
+use crate::core_compare::mix_hash;
 use crate::core_list::at;
 use crate::runtime::RuntimeHostPlatformSync as _;
 use crate::runtime::__Stateful_RuntimeHost as _;
@@ -67,23 +68,23 @@ pub fn nanos(n: i64) -> Duration {
 }
 
 pub fn micros(n: i64) -> Duration {
-    return Duration { nanos: n * 1000i64 };
+    return Duration { nanos: i64::wrapping_mul(n, 1000i64) };
 }
 
 pub fn millis(n: i64) -> Duration {
-    return Duration { nanos: n * 1000000i64 };
+    return Duration { nanos: i64::wrapping_mul(n, 1000000i64) };
 }
 
 pub fn seconds(n: i64) -> Duration {
-    return Duration { nanos: n * 1000000000i64 };
+    return Duration { nanos: i64::wrapping_mul(n, 1000000000i64) };
 }
 
 pub fn minutes(n: i64) -> Duration {
-    return Duration { nanos: n * 60000000000i64 };
+    return Duration { nanos: i64::wrapping_mul(n, 60000000000i64) };
 }
 
 pub fn hours(n: i64) -> Duration {
-    return Duration { nanos: n * 3600000000000i64 };
+    return Duration { nanos: i64::wrapping_mul(n, 3600000000000i64) };
 }
 
 pub fn to_nanos(d: &Duration) -> i64 {
@@ -103,27 +104,27 @@ pub fn to_seconds(d: &Duration) -> i64 {
 }
 
 pub fn plus__Duration_Duration(d1: &Duration, d2: &Duration) -> Duration {
-    return Duration { nanos: d1.nanos + d2.nanos };
+    return Duration { nanos: i64::wrapping_add(d1.nanos, d2.nanos) };
 }
 
 pub fn minus__Duration_Duration(d1: &Duration, d2: &Duration) -> Duration {
-    return Duration { nanos: d1.nanos - d2.nanos };
+    return Duration { nanos: i64::wrapping_sub(d1.nanos, d2.nanos) };
 }
 
 pub fn times(d: &Duration, n: i64) -> Duration {
-    return Duration { nanos: d.nanos * n };
+    return Duration { nanos: i64::wrapping_mul(d.nanos, n) };
 }
 
 pub fn abs(d: Duration) -> Duration {
     if d.nanos < ((0) as i64) {
-        return Duration { nanos: 0i64 - d.nanos };
+        return Duration { nanos: i64::wrapping_sub(0i64, d.nanos) };
     }
     return d;
 }
 
 pub fn to_str(d: &Duration) -> String {
     if d.nanos < ((0) as i64) {
-        let mut positive = Duration { nanos: 0i64 - d.nanos };
+        let mut positive = Duration { nanos: i64::wrapping_sub(0i64, d.nanos) };
         return format!("-{}", to_str(&positive));
     }
     if d.nanos == ((0) as i64) {
@@ -146,11 +147,11 @@ pub fn epoch_nano(n: i64) -> Instant {
 }
 
 pub fn epoch_milli(n: i64) -> Instant {
-    return Instant { nanos: n * 1000000i64 };
+    return Instant { nanos: i64::wrapping_mul(n, 1000000i64) };
 }
 
 pub fn epoch_second(n: i64) -> Instant {
-    return Instant { nanos: n * 1000000000i64 };
+    return Instant { nanos: i64::wrapping_mul(n, 1000000000i64) };
 }
 
 pub fn to_epoch_nano(at: &Instant) -> i64 {
@@ -166,27 +167,27 @@ pub fn to_epoch_second(at: &Instant) -> i64 {
 }
 
 pub fn between__Instant_Instant(start: &Instant, end: &Instant) -> Duration {
-    return Duration { nanos: end.nanos - start.nanos };
+    return Duration { nanos: i64::wrapping_sub(end.nanos, start.nanos) };
 }
 
 pub fn between__Tick_Tick(start: &Tick, end: &Tick) -> Duration {
-    return Duration { nanos: end.nanos - start.nanos };
+    return Duration { nanos: i64::wrapping_sub(end.nanos, start.nanos) };
 }
 
 pub fn plus__Instant_Duration(at: &Instant, d: &Duration) -> Instant {
-    return Instant { nanos: at.nanos + d.nanos };
+    return Instant { nanos: i64::wrapping_add(at.nanos, d.nanos) };
 }
 
 pub fn minus__Instant_Duration(at: &Instant, d: &Duration) -> Instant {
-    return Instant { nanos: at.nanos - d.nanos };
+    return Instant { nanos: i64::wrapping_sub(at.nanos, d.nanos) };
 }
 
 pub fn plus__Tick_Duration(at: &Tick, d: &Duration) -> Tick {
-    return Tick { nanos: at.nanos + d.nanos };
+    return Tick { nanos: i64::wrapping_add(at.nanos, d.nanos) };
 }
 
 pub fn minus__Tick_Duration(at: &Tick, d: &Duration) -> Tick {
-    return Tick { nanos: at.nanos - d.nanos };
+    return Tick { nanos: i64::wrapping_sub(at.nanos, d.nanos) };
 }
 
 pub trait __Stateless_Ticker: Send + Sync {
@@ -342,11 +343,11 @@ impl crate::time::__Stateful_Clock for DefaultClock {
     }
 
     fn to_instant(&mut self, at: &Tick) -> Instant {
-        return Instant { nanos: self.base_epoch + (at.nanos - self.base_tick) };
+        return Instant { nanos: i64::wrapping_add(self.base_epoch, i64::wrapping_sub(at.nanos, self.base_tick)) };
     }
 
     fn to_tick(&mut self, at: &Instant) -> Tick {
-        return Tick { nanos: self.base_tick + (at.nanos - self.base_epoch) };
+        return Tick { nanos: i64::wrapping_add(self.base_tick, i64::wrapping_sub(at.nanos, self.base_epoch)) };
     }
 }
 
@@ -655,7 +656,7 @@ impl crate::time::__Stateful_Timer for ManualTime {
         if wait.nanos <= ((0) as i64) {
             crate::scheduler::salvo_reply_wire::<Fired>(done, Fired { at: Tick { nanos: self.now } });
         } else {
-            crate::core_list::add_platform(&mut self.deadlines, self.now + wait.nanos);
+            crate::core_list::add_platform(&mut self.deadlines, i64::wrapping_add(self.now, wait.nanos));
             crate::core_list::add_platform(&mut self.pending, done);
         }
     }
@@ -664,7 +665,7 @@ impl crate::time::__Stateful_Timer for ManualTime {
 impl crate::time::__Stateful_TimerCtl for ManualTime {
 
     fn advance(&mut self, by: Duration) {
-        let mut target = self.now + by.nanos;
+        let mut target = i64::wrapping_add(self.now, by.nanos);
         loop {
             let mut __is1 = earliest_due(&self.deadlines, target);
             if !(__is1.is_some()) {
@@ -769,7 +770,7 @@ pub fn earliest_due(deadlines: &Vec<i64>, target: i64) -> Option<i32> {
             best = i.clone();
             best_at = at.clone();
         }
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     if best < 0 {
         return None;
@@ -787,7 +788,7 @@ pub fn cmp__Duration_Duration(a: &Duration, b: &Duration) -> i32 {
 
 pub fn hash__Duration(value: &Duration) -> i64 {
     let mut h = 17i64;
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 
@@ -808,7 +809,7 @@ pub fn cmp__Instant_Instant(a: &Instant, b: &Instant) -> i32 {
 
 pub fn hash__Instant(value: &Instant) -> i64 {
     let mut h = 17i64;
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 
@@ -829,7 +830,7 @@ pub fn cmp__Tick_Tick(a: &Tick, b: &Tick) -> i32 {
 
 pub fn hash__Tick(value: &Tick) -> i64 {
     let mut h = 17i64;
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 

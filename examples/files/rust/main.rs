@@ -19,6 +19,8 @@ pub mod core_actor;
 pub mod core_bytes;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/deque.rs"]
@@ -319,8 +321,8 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
                         if n == 0 {
                             reading = false;
                         } else {
-                            steps = steps + 1;
-                            moved = moved + n;
+                            steps = i32::wrapping_add(steps, 1);
+                            moved = i32::wrapping_add(moved, n);
                         }
                     }
                     Union2::U2(_) => {
@@ -372,7 +374,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             let mut p = ch.u1().clone();
             let mut seen = 0;
             while let Union2::U1(mut chunk) = next__Chunks(streams, &mut p) {
-                seen = seen + crate::core_bytes::size_platform(&chunk);
+                seen = i32::wrapping_add(seen, crate::core_bytes::size_platform(&chunk));
             }
             println(console, &(format!("chunks saw {} bytes", seen)));
             let mut done = close__Chunks(streams, p);

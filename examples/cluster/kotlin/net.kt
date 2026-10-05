@@ -4,6 +4,7 @@ import salvo.*
 import salvo.core.actor.eq
 import salvo.core.actor.pool
 import salvo.core.checked.detach
+import salvo.core.compare.mixHash
 import salvo.core.list.addPlatform as addPlatform__core_list
 import salvo.core.list.all
 import salvo.core.list.at
@@ -1936,8 +1937,8 @@ fun cmp(a: NodeEndpoint, b: NodeEndpoint): Int {
 
 fun hash__NodeEndpoint(value: NodeEndpoint): Long {
     var h = 17L
-    h = ((h) * 31L + ((value.host).hashCode().toLong()))
-    h = ((h) * 31L + ((value.port).hashCode().toLong()))
+    h = mixHash(h, (value.host).hashCode().toLong())
+    h = mixHash(h, (value.port).hashCode().toLong())
     return h
 }
 
@@ -1953,7 +1954,7 @@ fun eq__NodeEndpoint_NodeEndpoint(a: NodeEndpoint, b: NodeEndpoint): Boolean {
 
 fun hash__NodeId(value: NodeId): Long {
     var h = 17L
-    h = ((h) * 31L + ((value.id).hashCode().toLong()))
+    h = mixHash(h, (value.id).hashCode().toLong())
     return h
 }
 
@@ -1966,8 +1967,8 @@ fun eq__NodeId_NodeId(a: NodeId, b: NodeId): Boolean {
 
 fun hash__Node(value: Node): Long {
     var h = 17L
-    h = ((h) * 31L + (hash__NodeId(value.id)))
-    h = ((h) * 31L + (hash__NodeEndpoint(value.at)))
+    h = mixHash(h, hash__NodeId(value.id))
+    h = mixHash(h, hash__NodeEndpoint(value.at))
     return h
 }
 

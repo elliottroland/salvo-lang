@@ -41,7 +41,7 @@ pub fn next(__p: &mut __Iter_range_Int_Int_Int) -> Union2<i32, Finished> {
     } else if __p.step < 0 && __p.i <= __p.end {
         Union2::<Finished, i32>::U1(finished())
     } else {
-        __p.i = __p.i + __p.step;
+        __p.i = i32::wrapping_add(__p.i, __p.step);
         Union2::<Finished, i32>::U2(emitted(next))
     } { Union2::U1(__v) => Union2::<i32, Finished>::U2(__v), Union2::U2(__v) => Union2::<i32, Finished>::U1(__v), });
 }

@@ -11,6 +11,8 @@ pub mod hosttime;
 pub mod wire;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]
@@ -40,6 +42,7 @@ pub mod platform_core_string;
 
 use crate::collections::*;
 use crate::unions::*;
+use crate::core_compare::mix_hash;
 use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
@@ -145,7 +148,7 @@ pub fn main() {
     let mut n2 = Note { text: "same".to_string() };
     let mut notes_equal = eq__Note_Note(&n1, &n2);
     println(&console, &(format!("4. plain struct equality {}", notes_equal)));
-    let mut squares = list_by(4, &mut (|i| i * i));
+    let mut squares = list_by(4, &mut (|i| i32::wrapping_mul(i, i)));
     println(&console, &(format!("5. generated {}", to_str__core_list::<i32>(&squares, &mut |__i0| format!("{}", __i0)))));
     let mut deduped = SalvoSet::from_elements::<HostHash, HostEq, _>(primes.iter().cloned());
     println(&console, &(format!("5. to_set {}", to_str__core_set::<i32>(&deduped, &mut |__i0| format!("{}", __i0)))));
@@ -205,8 +208,8 @@ pub fn cmp(a: &Point, b: &Point) -> i32 {
 
 pub fn hash(value: &Point) -> i64 {
     let mut h = 17i64;
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.x), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.y), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.x), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.y), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 

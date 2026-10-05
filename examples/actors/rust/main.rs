@@ -17,6 +17,8 @@ pub mod core_actor;
 pub mod core_bytes;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/deque.rs"]
@@ -195,7 +197,7 @@ impl Counting {
 impl crate::__Stateful_Counter for Counting {
 
     fn bump(&mut self, n: i32) {
-        self.sum = self.sum + n;
+        self.sum = i32::wrapping_add(self.sum, n);
     }
 
     fn total(&mut self, out: crate::scheduler::SalvoReply) {

@@ -128,8 +128,10 @@ export intrinsic fn cmp<A, B, C>(a: (A, B, C), b: (A, B, C)) [] -> Int => a, b
 export intrinsic fn eq<A, B, C>(a: (A, B, C), b: (A, B, C)) [] -> Bool => a, b
 export intrinsic fn hash<A, B, C>(value: (A, B, C)) [] -> Long => value
 
-// The fold a structural `hash` combines its fields' digests with, **wrapping**
-// on both backends: `seed * 31 + value` where written arithmetic would trap
-// in a Rust debug build and wrap on the JVM. What `core.auto`'s `hash` calls
-// per field; a hand-written `hash` may use it too.
-export intrinsic fn mix_hash(seed: Long, value: Long) [] -> Long => seed, value
+// The fold a structural `hash` combines its fields' digests with: `seed * 31 +
+// value`, which wraps on both backends because integer arithmetic does
+// [op-wrap]. What `core.auto`'s `hash` calls per field; a hand-written `hash`
+// may use it too. Ordinary Salvo since 2026-10-05 (ROADMAP §0j step 2).
+export fn mix_hash(seed: Long, value: Long) [] -> Long => seed, value {
+    return seed * 31L + value
+}

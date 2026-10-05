@@ -6,6 +6,7 @@ use crate::core_actor::eq;
 use crate::core_actor::pool;
 use crate::core_bytes::Bytes;
 use crate::core_checked::detach;
+use crate::core_compare::mix_hash;
 use crate::core_list::all;
 use crate::core_list::at;
 use crate::core_list::last;
@@ -2028,7 +2029,7 @@ pub fn withdraw(list: &mut Vec<usize>, a: usize) -> bool {
         if eq(x, &a) {
             mut_index = Some(i);
         }
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     if mut_index.is_none() {
         return false;
@@ -2225,7 +2226,7 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, group: &usize, co
             return RoutePick { to: picked.as_ref().unwrap().clone(), version: last.clone() };
         }
         view_wait(&(group.clone()), version.clone(), wait.clone());
-        wait = wait * ((2) as i64);
+        wait = i64::wrapping_mul(wait, ((2) as i64));
         if wait > cap {
             wait = cap.clone();
         }
@@ -2310,7 +2311,7 @@ impl crate::net::__Stateless_RouteSelector for Sharded {
         }
         let mut k = if key.is_some() { key.unwrap() } else { 0i64 };
         let mut magnitude = if k < 0i64 {
-            0i64 - k
+            i64::wrapping_sub(0i64, k)
         } else {
             k
         };
@@ -2666,7 +2667,7 @@ impl crate::net::__Stateful_MemNet for MemNetwork {
             crate::scheduler::salvo_reply_wire::<Option<usize>>(out, None);
             return;
         }
-        self.count = self.count + 1;
+        self.count = i32::wrapping_add(self.count, 1);
         crate::scheduler::salvo_reply_wire::<Option<usize>>(out, Some(sink.unwrap().clone()));
     }
 
@@ -2832,8 +2833,8 @@ pub fn cmp(a: &NodeEndpoint, b: &NodeEndpoint) -> i32 {
 
 pub fn hash__NodeEndpoint(value: &NodeEndpoint) -> i64 {
     let mut h = 17i64;
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.host[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.port), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.host[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.port), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 
@@ -2849,7 +2850,7 @@ pub fn eq__NodeEndpoint_NodeEndpoint(a: &NodeEndpoint, b: &NodeEndpoint) -> bool
 
 pub fn hash__NodeId(value: &NodeId) -> i64 {
     let mut h = 17i64;
-    h = ((h).wrapping_mul(31).wrapping_add({ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.id), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }));
+    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.id), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 
@@ -2862,8 +2863,8 @@ pub fn eq__NodeId_NodeId(a: &NodeId, b: &NodeId) -> bool {
 
 pub fn hash__Node(value: &Node) -> i64 {
     let mut h = 17i64;
-    h = ((h).wrapping_mul(31).wrapping_add(hash__NodeId(&value.id)));
-    h = ((h).wrapping_mul(31).wrapping_add(hash__NodeEndpoint(&value.at)));
+    h = mix_hash(h, hash__NodeId(&value.id));
+    h = mix_hash(h, hash__NodeEndpoint(&value.at));
     return h;
 }
 

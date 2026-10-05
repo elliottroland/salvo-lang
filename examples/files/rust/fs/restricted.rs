@@ -27,31 +27,31 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
     let mut segs = crate::core_string::split_platform(path, &("/".to_string()));
     let mut kept: Vec<String> = vec![];
     let mut skip = 0;
-    let mut i = crate::core_list::size_platform(&segs) - 1;
+    let mut i = i32::wrapping_sub(crate::core_list::size_platform(&segs), 1);
     while i >= 0 {
         let mut seg = crate::core_list::get_platform(&segs, i).unwrap();
         if seg.clone() == "..".to_string() {
-            skip = skip + 1;
+            skip = i32::wrapping_add(skip, 1);
         } else {
             if crate::core_string::size_platform(seg) == 0 || seg.clone() == ".".to_string() {
             } else {
                 if skip > 0 {
-                    skip = skip - 1;
+                    skip = i32::wrapping_sub(skip, 1);
                 } else {
                     crate::core_list::add_platform(&mut kept, seg.clone());
                 }
             }
         }
-        i = i - 1;
+        i = i32::wrapping_sub(i, 1);
     }
     if skip > 0 {
         return None;
     }
     let mut parts: Vec<String> = vec![];
-    let mut j = crate::core_list::size_platform(&kept) - 1;
+    let mut j = i32::wrapping_sub(crate::core_list::size_platform(&kept), 1);
     while j >= 0 {
         crate::core_list::add_platform(&mut parts, crate::core_list::get_platform(&kept, j).expect("salvo: value is absent at fs.restricted:59:24").clone());
-        j = j - 1;
+        j = i32::wrapping_sub(j, 1);
     }
     let mut rel = crate::core_string::join_platform(&parts, &("/".to_string()));
     if crate::core_string::size_platform(&rel) == 0 {

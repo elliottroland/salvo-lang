@@ -3584,6 +3584,7 @@ Module {
                     span: 6125..6131,
                 },
                 generics: [],
+                generic_canbe: [],
                 fn_slots: [],
                 value_slots: [
                     ValueSlot {

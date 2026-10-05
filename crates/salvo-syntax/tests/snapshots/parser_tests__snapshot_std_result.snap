@@ -36,6 +36,7 @@ Module {
                         span: 826..827,
                     },
                 ],
+                generic_canbe: [],
                 fn_slots: [],
                 value_slots: [],
                 of: Named {
@@ -79,6 +80,7 @@ Module {
                         span: 866..867,
                     },
                 ],
+                generic_canbe: [],
                 fn_slots: [],
                 value_slots: [],
                 of: Named {

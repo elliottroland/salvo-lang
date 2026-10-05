@@ -33,6 +33,8 @@ pub mod core_actor;
 pub mod core_bytes;
 #[path = "core/checked.sv.rs"]
 pub mod core_checked;
+#[path = "core/compare.sv.rs"]
+pub mod core_compare;
 #[path = "core/deque.sv.rs"]
 pub mod core_deque;
 #[path = "core/iterator.sv.rs"]

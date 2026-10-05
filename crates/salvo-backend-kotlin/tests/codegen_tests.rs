@@ -4546,6 +4546,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_copy,
     kotlinc_compiles_and_runs_copy_elements,
     kotlinc_compiles_and_runs_literal_identity,
+    kotlinc_compiles_and_runs_int_wrap_and_bits,
     kotlinc_compiles_and_runs_move_modes,
     kotlinc_compiles_and_runs_borrows,
     kotlinc_compiles_and_runs_linear,
@@ -5747,6 +5748,32 @@ fn kotlinc_compiles_and_runs_literal_identity() -> KotlinCase {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "literal_identity", "1 1 1 1\n")
+}
+
+/// [op-wrap] [op-bits] Integer arithmetic wraps and the `bit_` functions
+/// agree with Rust's, shift counts taken modulo the width (ROADMAP §0j step 2).
+pub const INT_WRAP_BITS_DEMO: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let big = 2147483647
+    let wrapped = big + 1
+    let neg = -wrapped
+    let i = big
+    i++
+    let l = 9223372036854775807L
+    println("${wrapped} ${neg} ${i} ${l + 1L} ${big * 2}")
+    println("${bit_and(12, 10)} ${bit_or(12, 10)} ${bit_xor(12, 10)} ${bit_not(0)}")
+    println("${bit_shl(1, 33)} ${bit_shr(-16, 2)} ${bit_ushr(-16, 28)} ${bit_ushr(-1L, 60)}")
+    println("${mix_hash(17L, 5L)}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_int_wrap_and_bits() -> KotlinCase {
+    let program = build_program(&[("main.sv", INT_WRAP_BITS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "int_wrap_bits", "-2147483648 -2147483648 -2147483648 -9223372036854775808 -2\n8 14 6 -1\n2 -4 15 15\n532\n")
 }
 
 // ===== S2: move-mode bindings [fate-move-mode] =====

@@ -11,6 +11,8 @@ pub mod hosttime;
 pub mod wire;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]
@@ -68,7 +70,7 @@ pub fn describe__CelsiusInt(temp: &i32) -> String {
 pub fn sum(list: &Vec<i32>) -> i32 {
     let mut total = 0;
     for n in crate::platform_core_list::each(list) {
-        total = total + *n;
+        total = i32::wrapping_add(total, *n);
     }
     return total;
 }
@@ -104,7 +106,7 @@ pub fn freshen(mut request: Request) -> Request {
 }
 
 pub fn touch(request: &mut Request) {
-    request.touches = request.touches + 1;
+    request.touches = i32::wrapping_add(request.touches, 1);
 }
 
 pub fn handle__Request(request: &Request) -> String {

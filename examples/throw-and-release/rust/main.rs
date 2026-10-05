@@ -11,6 +11,8 @@ pub mod hosttime;
 pub mod wire;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]
@@ -100,7 +102,7 @@ pub fn parse_port(text: &String) -> ControlFlow<String, i32> {
 
 pub fn port_of(config: &String) -> ControlFlow<String, i32> {
     let mut port = parse_port(config)?;
-    return ControlFlow::Continue(port * 1);
+    return ControlFlow::Continue(i32::wrapping_mul(port, 1));
 }
 
 pub fn port_from_file(console: &crate::core_console::Console, name: String, text: &String) -> ControlFlow<String, i32> {

@@ -11,6 +11,8 @@ pub mod hosttime;
 pub mod wire;
 #[path = "core/checked.rs"]
 pub mod core_checked;
+#[path = "core/compare.rs"]
+pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]
@@ -106,7 +108,7 @@ pub fn peek<'s>(w: &Window<'s>) -> Option<&'s Fighter> {
 }
 
 pub fn heal(f: &mut Fighter) {
-    f.hp = f.hp + 10;
+    f.hp = i32::wrapping_add(f.hp, 10);
     return;
 }
 
@@ -134,14 +136,14 @@ pub fn rally_at<L: Clone>(squad: &mut Vec<Fighter>, l: &L, at: &mut dyn FnMut(&V
 }
 
 pub fn duel(a: &mut Fighter, d: &mut Fighter) {
-    a.hp = a.hp - 1;
-    d.hp = d.hp - 2;
+    a.hp = i32::wrapping_sub(a.hp, 1);
+    d.hp = i32::wrapping_sub(d.hp, 2);
     return;
 }
 
 pub fn strike(__anchor: &mut Vec<Fighter>, __c0: usize, __c1: usize) {
-    __anchor[__c0].energy = __anchor[__c0].energy - 1;
-    __anchor[__c1].hp = __anchor[__c1].hp - 2;
+    __anchor[__c0].energy = i32::wrapping_sub(__anchor[__c0].energy, 1);
+    __anchor[__c1].hp = i32::wrapping_sub(__anchor[__c1].hp, 2);
     return;
 }
 
@@ -165,8 +167,8 @@ impl crate::wire::__Wire for Squad {
 }
 
 pub fn rotate(squad: &mut Squad, __c1: usize, __c2: usize) {
-    squad.members[__c1].energy = squad.members[__c1].energy - 1;
-    squad.members[__c2].energy = squad.members[__c2].energy + 1;
+    squad.members[__c1].energy = i32::wrapping_sub(squad.members[__c1].energy, 1);
+    squad.members[__c2].energy = i32::wrapping_add(squad.members[__c2].energy, 1);
     return;
 }
 
@@ -190,7 +192,7 @@ impl crate::wire::__Wire for Camp {
 }
 
 pub fn spend(camp: &mut Camp, n: i32) {
-    camp.supplies = camp.supplies - n;
+    camp.supplies = i32::wrapping_sub(camp.supplies, n);
     return;
 }
 
@@ -222,9 +224,9 @@ pub fn main() {
     let mut squad: Vec<Fighter> = vec![Fighter { name: "Ada".to_string(), hp: 30, energy: 4 }, Fighter { name: "Bo".to_string(), hp: 8, energy: 9 }];
     let __h2 = (0) as usize;
     squad.get(__h2).expect("salvo: value is absent at main:232:16");
-    squad[__h2].hp = squad[__h2].hp + 1;
+    squad[__h2].hp = i32::wrapping_add(squad[__h2].hp, 1);
     let mut n = crate::core_list::size_platform(&squad);
-    squad[__h2].hp = squad[__h2].hp + n;
+    squad[__h2].hp = i32::wrapping_add(squad[__h2].hp, n);
     println(&console, &(format!("2. {} at {} after a read in the middle", crate::core_list::get_platform(&squad, 0).expect("salvo: value is absent at main:236:19").name.clone(), crate::core_list::get_platform(&squad, 0).expect("salvo: value is absent at main:236:45").hp)));
     heal({ let __l3 = wounded__loc(&squad).expect("salvo: value is absent at main:239:10"); &mut squad[__l3] });
     rally_at::<i32>(&mut squad, &(1), &mut |__i0, __i1| at__loc(__i0, (__i1).clone()));
@@ -236,20 +238,20 @@ pub fn main() {
         squad.get(__h4).expect("salvo: value is absent at main:260:17");
         let __h5 = (j) as usize;
         squad.get(__h5).expect("salvo: value is absent at main:261:17");
-        squad[__h4].hp = squad[__h4].hp + 1;
-        squad[__h5].hp = squad[__h5].hp + 1;
+        squad[__h4].hp = i32::wrapping_add(squad[__h4].hp, 1);
+        squad[__h5].hp = i32::wrapping_add(squad[__h5].hp, 1);
         let (__pm6, __pm7) = salvo_pair_mut(&mut squad[..], __h4, __h5).expect("salvo: value is absent at main:264:9");
         duel(__pm6, __pm7);
     }
     if Idx__Int_qualifies(i, &squad) {
         if Idx__Int_qualifies(j, &squad) {
             update(&mut squad, &i, &mut (|f: &mut Fighter| {
-    f.energy = f.energy + 1;
+    f.energy = i32::wrapping_add(f.energy, 1);
 }));
             if NotEq__Int_qualifies(j, i) {
                 update2(&mut squad, &i, &j, &mut (|a: &mut Fighter, b: &mut Fighter| {
-    a.energy = a.energy + 100;
-    b.energy = b.energy + 200;
+    a.energy = i32::wrapping_add(a.energy, 100);
+    b.energy = i32::wrapping_add(b.energy, 200);
 }));
             }
             println(&console, &(format!("3. {} {} (total reads: `Idx` survived)", get(&squad, &i).energy, get(&squad, &j).energy)));

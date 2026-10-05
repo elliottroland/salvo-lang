@@ -36,7 +36,7 @@ pub fn to_str<T: Clone>(set: &SalvoSet<T>, to_str: &mut dyn FnMut(&T) -> String)
             crate::core_string::append_platform(&mut out, &(", ".to_string()));
         }
         crate::core_string::append_platform(&mut out, &(to_str(&x)));
-        i = i + 1;
+        i = i32::wrapping_add(i, 1);
     }
     crate::core_string::append_platform(&mut out, &("}".to_string()));
     return out;
@@ -74,7 +74,7 @@ pub fn next<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());
     }
-    p.at = p.at + 1;
+    p.at = i32::wrapping_add(p.at, 1);
     return Union2::<T, Finished>::U1(emitted(elem.as_ref().unwrap().clone()));
 }
 

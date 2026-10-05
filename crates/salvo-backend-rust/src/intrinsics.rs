@@ -232,13 +232,30 @@ pub fn fn_call(
              (std::hash::Hasher::finish(&__h) as i64) }}",
             a(0)
         ),
-        // [cmp-hash-values] Folding one digest into another, wrapping: what a
-        // structural `hash` combines its fields with. Written arithmetic
-        // would trap here in a debug build, where the JVM wraps.
-        ("mix_hash", Some("Long")) => format!(
-            "(({}).wrapping_mul(31).wrapping_add({}))",
+        // [op-bits] Rust's operators for the three bitwise folds and `!`; the
+        // shifts go through `wrapping_shl`/`wrapping_shr`, which take the
+        // count modulo the width as the JVM does (a plain `<<` panics in a
+        // debug build past the width). `bit_ushr` shifts the unsigned twin.
+        // The function form (`i32::wrapping_shl(a, n)`) because a method on a
+        // bare literal is E0689, and the value goes through its signed type
+        // before the unsigned cast, which would otherwise type a literal `-16`
+        // as `u32` (E0600).
+        ("bit_and", Some("Int" | "Long")) => format!("(({}) & ({}))", a(0), a(1)),
+        ("bit_or", Some("Int" | "Long")) => format!("(({}) | ({}))", a(0), a(1)),
+        ("bit_xor", Some("Int" | "Long")) => format!("(({}) ^ ({}))", a(0), a(1)),
+        ("bit_not", Some("Int" | "Long")) => format!("(!({}))", a(0)),
+        ("bit_shl", Some(t @ ("Int" | "Long"))) => {
+            format!("{}::wrapping_shl({}, ({}) as u32)", rs_int(t), a(0), a(1))
+        }
+        ("bit_shr", Some(t @ ("Int" | "Long"))) => {
+            format!("{}::wrapping_shr({}, ({}) as u32)", rs_int(t), a(0), a(1))
+        }
+        ("bit_ushr", Some(t @ ("Int" | "Long"))) => format!(
+            "({u}::wrapping_shr((({}) as {s}) as {u}, ({}) as u32) as {s})",
             a(0),
-            a(1)
+            a(1),
+            s = rs_int(t),
+            u = if t == "Long" { "u64" } else { "u32" }
         ),
         // runtime ------------------------------------------------------
         // [runtime-handles] An addr and a pool are `usize` indices here and
@@ -507,4 +524,13 @@ pub fn handler_member(handler: &str, member: &str, params: &[String]) -> Option<
     // is a platform handler and `DefaultRandom` is Salvo.
     let _ = (handler, member, params);
     None
+}
+
+/// The Rust integer type of a Salvo one.
+fn rs_int(salvo: &str) -> &'static str {
+    if salvo == "Long" {
+        "i64"
+    } else {
+        "i32"
+    }
 }
