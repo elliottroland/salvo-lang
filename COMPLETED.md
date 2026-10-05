@@ -135,6 +135,20 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`SortedSet` and `SortedMap` as value platform types (2026-10-05, ROADMAP
+0.7).** Both in `core.sorted`, over the runtime's `SalvoSortedSet`/
+`SalvoSortedMap` (Rust) and `java.util.SortedSet`/`SortedMap` (Kotlin). 16
+lowerings per backend went; `SortedMap`'s `to_str` stays intrinsic, as
+`Map`'s does. What it took: two platform fns of one module may not overload,
+so `remove` and `size` are Salvo over `remove_elem`/`remove_key` and
+`set_size`/`map_size`; and two iterable types in one module need two
+`each`s, so their host loop fns carry the type's name
+(`each_sorted_set`) — the one-type case keeps `each`. The Rust runtime's
+sorted containers gained borrowing iterators and `PartialEq`/`Eq`/`Debug`,
+which the value-type contract asks for. The emitters' last `Map`-specific
+`for` lowering went with it. With this every std collection is a value
+platform type; constructors and the maps' `to_str` are the intrinsics left.
+
 **`Map` as a value platform type (2026-10-05, ROADMAP 0.7).** `iterable
 platform type Map<K, V canbe linear>(?hash, ?eq) canbe Mut : Iter<self, K>`
 over `SalvoMap`/`LinkedHashMap`; `get`, `get_present`, `put`, `replace`,

@@ -67,6 +67,8 @@ pub mod platform_core_list;
 pub mod platform_core_map;
 #[path = "salvo/platform/core/set.sv.rs"]
 pub mod platform_core_set;
+#[path = "salvo/platform/core/sorted.sv.rs"]
+pub mod platform_core_sorted;
 #[path = "salvo/platform/core/string.sv.rs"]
 pub mod platform_core_string;
 #[path = "salvo/platform/runtime/routing.sv.rs"]

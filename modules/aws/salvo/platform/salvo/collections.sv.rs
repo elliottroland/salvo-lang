@@ -770,6 +770,8 @@ trait SortedStore<T> {
     fn min(&self) -> Option<&T>;
     fn max(&self) -> Option<&T>;
     fn to_vec(&self) -> Vec<T>;
+    /// [platform-iterable] The elements in order, borrowed.
+    fn iter(&self) -> Box<dyn Iterator<Item = &T> + '_>;
     fn clone_box(&self) -> Box<dyn SortedStore<T> + Send>;
 }
 
@@ -816,6 +818,10 @@ where
 
     fn to_vec(&self) -> Vec<T> {
         self.inner.iter().map(|w| w.get().clone()).collect()
+    }
+
+    fn iter(&self) -> Box<dyn Iterator<Item = &T> + '_> {
+        Box::new(self.inner.iter().map(|w| w.get()))
     }
 
     fn clone_box(&self) -> Box<dyn SortedStore<T> + Send> {
@@ -901,6 +907,10 @@ impl<T: Clone + Send + 'static> SortedStore<T> for FnSortedStore<T> {
         self.items.clone()
     }
 
+    fn iter(&self) -> Box<dyn Iterator<Item = &T> + '_> {
+        Box::new(self.items.iter())
+    }
+
     fn clone_box(&self) -> Box<dyn SortedStore<T> + Send> {
         Box::new(FnSortedStore {
             items: self.items.clone(),
@@ -969,6 +979,24 @@ impl<T> SalvoSortedSet<T> {
     pub fn to_vec(&self) -> Vec<T> {
         self.store.to_vec()
     }
+    /// [platform-iterable] The elements in order, borrowed.
+    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        self.store.iter()
+    }
+}
+
+// [platform-value-type] Compared and printed element-wise, in order, as a
+// struct holding one needs.
+impl<T: PartialEq> PartialEq for SalvoSortedSet<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+impl<T: Eq> Eq for SalvoSortedSet<T> {}
+impl<T: fmt::Debug> fmt::Debug for SalvoSortedSet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_set().entries(self.iter()).finish()
+    }
 }
 
 impl<T> Clone for SalvoSortedSet<T> {
@@ -998,6 +1026,8 @@ trait SortedMapStore<K, V> {
     fn last_key(&self) -> Option<&K>;
     fn keys(&self) -> Vec<K>;
     fn entries(&self) -> Vec<(K, V)>;
+    /// [platform-iterable] The entries in key order, borrowed.
+    fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_>;
     fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send>;
 }
 
@@ -1068,6 +1098,10 @@ impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SortedMapStore<K, V>
         self.entries.clone()
     }
 
+    fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
+        Box::new(self.entries.iter().map(|(k, v)| (k, v)))
+    }
+
     fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send> {
         Box::new(FnSortedMapStore {
             entries: self.entries.clone(),
@@ -1115,6 +1149,10 @@ where
             .iter()
             .map(|(k, v)| (k.get().clone(), v.clone()))
             .collect()
+    }
+
+    fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
+        Box::new(self.inner.iter().map(|(k, v)| (k.get(), v)))
     }
     fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send> {
         Box::new(BTreeMapStore::<C, K, V> {
@@ -1187,6 +1225,22 @@ impl<K, V> SalvoSortedMap<K, V> {
     }
     pub fn entries(&self) -> Vec<(K, V)> {
         self.store.entries()
+    }
+    /// [platform-iterable] The entries in key order, borrowed.
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
+        self.store.iter()
+    }
+}
+
+impl<K: PartialEq, V: PartialEq> PartialEq for SalvoSortedMap<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+impl<K: Eq, V: Eq> Eq for SalvoSortedMap<K, V> {}
+impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for SalvoSortedMap<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
     }
 }
 

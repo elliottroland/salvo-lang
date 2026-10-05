@@ -4157,6 +4157,7 @@ impl<'p> Emitter<'p> {
         let module = self.program.files[self.file_idx].module.clone();
         self.platform_hosts.insert(module.clone());
         let name = rs_ident(&t.name.name);
+        let sfx = salvo_core::naming::each_suffix(self.program, &module, &t.name.name);
         // [platform-generic] A generic one is asserted at a sample argument.
         let sample = if t.generics.is_empty() {
             name.clone()
@@ -4215,14 +4216,14 @@ impl<'p> Emitter<'p> {
             });
             out.push_str(&format!(
                 "const _: fn() = || {{ fn __each(x: &{sample}) -> impl Iterator<Item = {elem}> + '_ \
-                 {{ crate::{host}::each(x).map(|e| e.clone()) }} let _ = __each; }};\n"
+                 {{ crate::{host}::each{sfx}(x).map(|e| e.clone()) }} let _ = __each; }};\n"
             ));
             if !t.generics.is_empty() {
                 out.push_str(&format!(
                     "const _: fn() = || {{ fn __each_ref(x: &{sample}) -> impl Iterator<Item = &{elem}> + '_ \
-                     {{ crate::{host}::each(x) }} fn __each_mut(x: &mut {sample}) -> impl Iterator<Item = &mut {elem}> + '_ \
-                     {{ crate::{host}::each_mut(x) }} fn __into_each(x: {sample}) -> impl Iterator<Item = {elem}> \
-                     {{ crate::{host}::into_each(x) }} let _ = (__each_ref, __each_mut, __into_each); }};\n"
+                     {{ crate::{host}::each{sfx}(x) }} fn __each_mut(x: &mut {sample}) -> impl Iterator<Item = &mut {elem}> + '_ \
+                     {{ crate::{host}::each{sfx}_mut(x) }} fn __into_each(x: {sample}) -> impl Iterator<Item = {elem}> \
+                     {{ crate::{host}::into_each{sfx}(x) }} let _ = (__each_ref, __each_mut, __into_each); }};\n"
                 ));
             }
         }
@@ -4242,6 +4243,8 @@ impl<'p> Emitter<'p> {
         };
         // [platform-iterable] The host's loop: `each` (and, for a container,
         // `each_mut`) — what the contract assertion beside the re-export checks.
+        let module = self.program.files[self.file_idx].module.clone();
+        let sfx = salvo_core::naming::each_suffix(self.program, &module, &t.name.name);
         let each = |this: &mut Self, ty: &str, gens: &str| -> String {
             if !t.iterable {
                 return String::new();
@@ -4255,14 +4258,14 @@ impl<'p> Emitter<'p> {
                 .unwrap_or_else(|| "()".to_string());
             let mut out = format!(
                 "\n// [platform-iterable] What a `for` over a `{}` loops over.\n\
-                 pub fn each{gens}(x: &{ty}) -> impl Iterator<Item = {}> + '_ {{\n    todo!(\"implement each\");\n    #[allow(unreachable_code)]\n    std::iter::empty()\n}}\n",
+                 pub fn each{sfx}{gens}(x: &{ty}) -> impl Iterator<Item = {}> + '_ {{\n    todo!(\"implement each\");\n    #[allow(unreachable_code)]\n    std::iter::empty()\n}}\n",
                 t.name.name,
                 if t.generics.is_empty() { elem.clone() } else { format!("&{elem}") }
             );
             if !t.generics.is_empty() {
                 out.push_str(&format!(
-                    "\npub fn each_mut{gens}(x: &mut {ty}) -> impl Iterator<Item = &mut {elem}> + '_ {{\n    todo!(\"implement each_mut\");\n    #[allow(unreachable_code)]\n    std::iter::empty()\n}}\n\
-                     \npub fn into_each{gens}(x: {ty}) -> impl Iterator<Item = {elem}> {{\n    todo!(\"implement into_each\");\n    #[allow(unreachable_code)]\n    std::iter::empty()\n}}\n"
+                    "\npub fn each{sfx}_mut{gens}(x: &mut {ty}) -> impl Iterator<Item = &mut {elem}> + '_ {{\n    todo!(\"implement each_mut\");\n    #[allow(unreachable_code)]\n    std::iter::empty()\n}}\n\
+                     \npub fn into_each{sfx}{gens}(x: {ty}) -> impl Iterator<Item = {elem}> {{\n    todo!(\"implement into_each\");\n    #[allow(unreachable_code)]\n    std::iter::empty()\n}}\n"
                 ));
             }
             out
@@ -10745,20 +10748,20 @@ impl<'p> Emitter<'p> {
                         // loop clones out of `each` — `clone` on a `&T` and on
                         // a yielded scalar alike.
                         (Some(m), Some(_)) if writes_elem => {
-                            format!("{m}::each_mut(&mut {})", self.emit_expr(iterable))
+                            format!("{}_mut(&mut {})", m, self.emit_expr(iterable))
                         }
-                        (Some(m), Some(code)) => format!("{m}::each({code})"),
+                        (Some(m), Some(code)) => format!("{m}({code})"),
                         // A move-mode loop over a container consumes it:
                         // `into_each` hands the elements over owned.
                         (Some(m), None) if by_value && elem_ok => {
-                            format!("{m}::into_each({})", self.emit_bound_value(iterable, iterable.span()))
+                            format!("{}({})", m.replacen("::each", "::into_each", 1), self.emit_bound_value(iterable, iterable.span()))
                         }
                         (Some(m), None) => {
                             let code = match self.borrow_value(iterable) {
                                 Some(code) => code,
                                 None => format!("&({})", self.emit_expr(iterable)),
                             };
-                            format!("{m}::each({code}).map(|__x| __x.clone())")
+                            format!("{m}({code}).map(|__x| __x.clone())")
                         }
                         (None, Some(_)) if writes_elem => format!("{}.iter_mut()", self.emit_expr(iterable)),
                         (None, Some(code)) => code,
@@ -14738,28 +14741,14 @@ impl<'p> Emitter<'p> {
         }
         let module = (*self.symbols.key_modules.get(name.as_str())?).clone();
         self.platform_hosts.insert(module.clone());
-        Some(format!("crate::{}", host_mod_name(&module)))
+        let sfx = salvo_core::naming::each_suffix(self.program, &module, name);
+        Some(format!("crate::{}::each{sfx}", host_mod_name(&module)))
     }
 
-    fn native_for_subject(&mut self, iterable: &Expr, code: String) -> String {
-        let base: Option<String> = self.ty_of(iterable.span()).and_then(|t| {
-            match t.strip_quals() {
-                Ty::Named { name, .. } => Some(name.clone()),
-                _ => None,
-            }
-        });
-        match base.as_deref() {
-            // [col-map-iter] A map iterates its **keys** — that is what
-            // `iter(map)` answers ([`MapKeyYield`]), and a `SalvoMap` is not
-            // an iterator at all, so before this the emitted code did not
-            // compile (found 2026-09-14 while writing `MemFs`; Kotlin
-            // compiled *and* iterated entries, printing `a=1` for `a`).
-            // Collected because the keys are borrowed out of the map.
-            Some("Map") | Some("SortedMap") => {
-                format!("{code}.keys().cloned().collect::<Vec<_>>()")
-            }
-            _ => code,
-        }
+    /// A native `for`'s subject as written: every container that needed a
+    /// different traversal is an iterable platform type now [platform-iterable].
+    fn native_for_subject(&mut self, _iterable: &Expr, code: String) -> String {
+        code
     }
 
     /// Lowers a value-position loop [while-value] [rs-loop-value] to a
@@ -14850,7 +14839,7 @@ impl<'p> Emitter<'p> {
                             Some(code) => code,
                             None => format!("&({})", self.emit_expr(cond_or_iter)),
                         };
-                        format!("{m}::each({code}).map(|__x| __x.clone())")
+                        format!("{m}({code}).map(|__x| __x.clone())")
                     }
                     None => {
                         let iter = self.emit_expr(cond_or_iter);

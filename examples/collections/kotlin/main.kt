@@ -23,6 +23,8 @@ import salvo.core.set.next as next__core_set
 import salvo.core.set.sizePlatform as sizePlatform__core_set
 import salvo.core.set.toListPlatform
 import salvo.core.set.toStr as toStr__core_set
+import salvo.core.sorted.minPlatform
+import salvo.core.sorted.toStr as toStr__core_sorted
 import salvo.core.string.sizePlatform as sizePlatform__core_string
 
 data class Point(
@@ -75,9 +77,9 @@ fun main() {
     putPlatform(tally, "fig", 3)
     putPlatform(tally, "pear", 99)
     println(console, "2. insertion order kept ${tally.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
-    val ranked: java.util.SortedSet<String> = java.util.TreeSet<String>(salvo.SalvoCanonicalOrder).also { __s -> __s.addAll(listOf("pear", "apple", "fig")) }
-    println(console, "2. key order ${ranked.joinToString(", ", "{", "}")}")
-    val smallest = ranked.firstOrNull()
+    val ranked: salvo.platform.core.sorted.MutSortedSet<String> = java.util.TreeSet<String>(salvo.SalvoCanonicalOrder).also { __s -> __s.addAll(listOf("pear", "apple", "fig")) }
+    println(console, "2. key order ${toStr__core_sorted(ranked, { __i0 -> __i0 })}")
+    val smallest = minPlatform(ranked)
     if (smallest != null) {
         println(console, "2. min is cheap here $smallest")
     }

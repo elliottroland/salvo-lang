@@ -424,22 +424,6 @@ pub fn fn_call(
         ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) => {
             sorted_set_ctor(format!("vec![{}]", args.join(", ")))
         }
-        ("add", Some("SortedSet")) => format!("{}.insert({})", a(0), a(1)),
-        ("remove", Some("SortedSet")) => format!("{}.remove(&{})", a(0), a(1)),
-        ("contains", Some("SortedSet")) => format!("{}.contains(&{})", a(0), a(1)),
-        ("size", Some("SortedSet")) => format!("({}.len() as i32)", a(0)),
-        // Cheap at either end of an ordered tree, which is the reason to use
-        // one; cloned because the declaration hands back an owned `T?`.
-        ("min", Some("SortedSet")) => format!("{}.min().cloned()", a(0)),
-        ("max", Some("SortedSet")) => format!("{}.max().cloned()", a(0)),
-        ("to_list", Some("SortedSet")) => format!("{}.to_vec()", a(0)),
-        // [col-to-str] The language's format, in key order — written out
-        // rather than left to Rust's `Debug` [backend-parity].
-        ("to_str", Some("SortedSet")) => format!(
-            "format!(\"{{{{{{}}}}}}\", {}.to_vec().iter().map(|__e| __e.to_string())\
-             .collect::<Vec<_>>().join(\", \"))",
-            a(0)
-        ),
 
         ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) if spread_any => {
             sorted_map_ctor(owned_iter())
@@ -447,14 +431,6 @@ pub fn fn_call(
         ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) => {
             sorted_map_ctor(format!("vec![{}]", args.join(", ")))
         }
-        ("get", Some("SortedMap")) => format!("{}.get(&{})", a(0), a(1)),
-        ("put", Some("SortedMap")) => format!("{}.insert({}, {})", a(0), a(1), a(2)),
-        ("remove", Some("SortedMap")) => format!("{}.remove(&{})", a(0), a(1)),
-        ("contains_key", Some("SortedMap")) => format!("{}.contains_key(&{})", a(0), a(1)),
-        ("size", Some("SortedMap")) => format!("({}.len() as i32)", a(0)),
-        ("first_key", Some("SortedMap")) => format!("{}.first_key().cloned()", a(0)),
-        ("last_key", Some("SortedMap")) => format!("{}.last_key().cloned()", a(0)),
-        ("keys", Some("SortedMap")) => format!("{}.keys()", a(0)),
         ("to_str", Some("SortedMap")) => format!(
             "format!(\"{{{{{{}}}}}}\", {}.entries().iter()\
              .map(|(__k, __v)| format!(\"{{}}: {{}}\", __k, __v))\

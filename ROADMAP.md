@@ -93,7 +93,8 @@ and the `test actor` follow-ups recorded below:
    types and a fn cannot take two implicits of one name (`?to_str` for `K`
    and for `V`) — a **DECISION** if it is to change: a renaming implicit
    (`?value_str: (V) -> Str = to_str`), or a `ToStr` group instantiated twice.
-   Next the sorted pair, whose identity
+   The sorted pair too (2026-10-05), which completes the step apart from
+   the constructors and the two maps' `to_str`. Originally: the sorted pair, whose identity
    slots (`Set<T>(?hash, ?eq)`) a platform type is to be allowed to declare,
    the host receiving the functions at construction (user decision
    2026-10-04, option (a)). Lost with `List`: printing a nested list, which

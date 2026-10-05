@@ -37,6 +37,8 @@ pub mod platform_core_map;
 pub mod platform_core_seq;
 #[path = "platform/core/set.rs"]
 pub mod platform_core_set;
+#[path = "platform/core/sorted.rs"]
+pub mod platform_core_sorted;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 

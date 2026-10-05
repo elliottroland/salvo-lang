@@ -298,17 +298,6 @@ pub fn fn_call(
             comparator(),
             args.join(", ")
         ),
-        ("add", Some("SortedSet")) => format!("{}.add({})", a(0), a(1)),
-        ("remove", Some("SortedSet")) => format!("{}.remove({})", a(0), a(1)),
-        ("contains", Some("SortedSet")) => format!("{}.contains({})", a(0), a(1)),
-        ("size", Some("SortedSet")) => format!("{}.size", a(0)),
-        // `first()`/`last()` throw on an empty set; Salvo answers `None`.
-        ("min", Some("SortedSet")) => format!("{}.firstOrNull()", a(0)),
-        ("max", Some("SortedSet")) => format!("{}.lastOrNull()", a(0)),
-        ("to_list", Some("SortedSet")) => format!("{}.toMutableList()", a(0)),
-        ("to_str", Some("SortedSet")) => {
-            format!("{}.joinToString(\", \", \"{{\", \"}}\")", a(0))
-        }
 
         ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) => format!(
             "java.util.TreeMap<{}, {}>({}).also {{ __m -> \
@@ -318,14 +307,6 @@ pub fn fn_call(
             comparator(),
             args.join(", ")
         ),
-        ("get", Some("SortedMap")) => format!("{}[{}]", a(0), a(1)),
-        ("put", Some("SortedMap")) => format!("{}.put({}, {})", a(0), a(1), a(2)),
-        ("remove", Some("SortedMap")) => format!("{}.remove({})", a(0), a(1)),
-        ("contains_key", Some("SortedMap")) => format!("{}.containsKey({})", a(0), a(1)),
-        ("size", Some("SortedMap")) => format!("{}.size", a(0)),
-        ("first_key", Some("SortedMap")) => format!("{}.keys.firstOrNull()", a(0)),
-        ("last_key", Some("SortedMap")) => format!("{}.keys.lastOrNull()", a(0)),
-        ("keys", Some("SortedMap")) => format!("{}.keys.toMutableList()", a(0)),
         ("to_str", Some("SortedMap")) => format!(
             "{}.entries.joinToString(\", \", \"{{\", \"}}\") \
              {{ \"${{it.key}}: ${{it.value}}\" }}",

@@ -2583,9 +2583,14 @@ impl<'p> Emitter<'p> {
                 .map(|a| self.emit_type(a))
                 .unwrap_or_else(|| "Any".to_string());
             let fn_params = if params.is_empty() { String::new() } else { format!("{params} ") };
+            let module = self.program.files[self.file_idx].module.clone();
+            let each = salvo_core::case::camel(&format!(
+                "each{}",
+                salvo_core::naming::each_suffix(self.program, &module, &t.name.name)
+            ));
             out.push_str(&format!(
                 "\n// [platform-iterable] What a `for` over a `{}` loops over.\n\
-                 fun {fn_params}each(x: {}{params}): Iterable<{elem}> = TODO(\"implement each\")\n",
+                 fun {fn_params}{each}(x: {}{params}): Iterable<{elem}> = TODO(\"implement each\")\n",
                 t.name.name, t.name.name
             ));
         }
@@ -10203,14 +10208,15 @@ impl<'p> Emitter<'p> {
                 .is_some_and(|d| d.platform && d.iterable);
             if iterable {
                 if let Some(module) = self.platform_type_module(name) {
-                    return format!("{}.each({code})", host_package(&module));
+                    let each = salvo_core::case::camel(&format!(
+                        "each{}",
+                        salvo_core::naming::each_suffix(self.program, &module, name)
+                    ));
+                    return format!("{}.{each}({code})", host_package(&module));
                 }
             }
         }
-        match base.as_deref() {
-            Some("Map") | Some("SortedMap") => format!("{code}.keys"),
-            _ => code,
-        }
+        code
     }
 
 }

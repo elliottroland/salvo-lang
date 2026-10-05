@@ -791,37 +791,140 @@ use crate::collections::*;
 use crate::core_list::at;
 use crate::core_map::MapKeyYield;
 use crate::core_set::SetYield;
+use crate::core_string::mut_str;
+
+/// [platform-type] The host's `SortedSet`.
+pub use crate::platform_core_sorted::SortedSet;
+const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<SortedSet<i32>>(); };
+const _: fn() = || { fn __each(x: &SortedSet<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_sorted::each_sorted_set(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &SortedSet<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_sorted::each_sorted_set(x) } fn __each_mut(x: &mut SortedSet<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_sorted::each_sorted_set_mut(x) } fn __into_each(x: SortedSet<i32>) -> impl Iterator<Item = i32> { crate::platform_core_sorted::into_each_sorted_set(x) } let _ = (__each_ref, __each_mut, __into_each); };
+
+pub fn add_platform<T: Clone>(set: &mut SalvoSortedSet<T>, elem: T) -> bool {
+    crate::platform_core_sorted::add(set, elem)
+}
+
+pub fn remove__SortedSet_T<T: Clone>(set: &mut SalvoSortedSet<T>, elem: &T) -> bool {
+    return remove_elem_platform(set, elem);
+}
+
+pub fn remove_elem_platform<T: Clone>(set: &mut SalvoSortedSet<T>, elem: &T) -> bool {
+    crate::platform_core_sorted::remove_elem(set, elem)
+}
+
+pub fn set_size_platform<T: Clone>(set: &SalvoSortedSet<T>) -> i32 {
+    crate::platform_core_sorted::set_size(set)
+}
+
+pub fn remove_key_platform<K: Clone, V: Clone>(map: &mut SalvoSortedMap<K, V>, key: &K) -> Option<V> {
+    crate::platform_core_sorted::remove_key(map, key)
+}
+
+pub fn map_size_platform<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> i32 {
+    crate::platform_core_sorted::map_size(map)
+}
+
+pub fn contains_platform<T: Clone>(set: &SalvoSortedSet<T>, elem: &T) -> bool {
+    crate::platform_core_sorted::contains(set, elem)
+}
+
+pub fn size__SortedSet<T: Clone>(set: &SalvoSortedSet<T>) -> i32 {
+    return set_size_platform(set);
+}
+
+pub fn min_platform<T: Clone>(set: &SalvoSortedSet<T>) -> Option<T> {
+    crate::platform_core_sorted::min(set)
+}
+
+pub fn max_platform<T: Clone>(set: &SalvoSortedSet<T>) -> Option<T> {
+    crate::platform_core_sorted::max(set)
+}
+
+pub fn to_list_platform<T: Clone>(set: &SalvoSortedSet<T>) -> Vec<T> {
+    crate::platform_core_sorted::to_list(set)
+}
+
+pub fn to_str<T: Clone>(set: &SalvoSortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+    let mut out = mut_str(vec!["{".to_string()]);
+    let mut i = 0;
+    for mut x in crate::platform_core_sorted::each_sorted_set(set).map(|__x| __x.clone()) {
+        if i > 0 {
+            crate::core_string::append_platform(&mut out, &(", ".to_string()));
+        }
+        crate::core_string::append_platform(&mut out, &(to_str(&x)));
+        i = i + 1;
+    }
+    crate::core_string::append_platform(&mut out, &("}".to_string()));
+    return out;
+}
 
 pub fn iter__SortedSet<T: Clone>(set: &SalvoSortedSet<T>) -> SetYield<T> {
-    return SetYield { items: set.to_vec(), at: 0 };
+    return SetYield { items: to_list_platform(set), at: 0 };
+}
+
+/// [platform-type] The host's `SortedMap`.
+pub use crate::platform_core_sorted::SortedMap;
+const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<SortedMap<i32, i32>>(); };
+const _: fn() = || { fn __each(x: &SortedMap<i32, i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_sorted::each_sorted_map(x).map(|e| e.clone()) } let _ = __each; };
+const _: fn() = || { fn __each_ref(x: &SortedMap<i32, i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_sorted::each_sorted_map(x) } fn __each_mut(x: &mut SortedMap<i32, i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_sorted::each_sorted_map_mut(x) } fn __into_each(x: SortedMap<i32, i32>) -> impl Iterator<Item = i32> { crate::platform_core_sorted::into_each_sorted_map(x) } let _ = (__each_ref, __each_mut, __into_each); };
+
+pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a SalvoSortedMap<K, V>, key: &K) -> Option<&'a V> {
+    crate::platform_core_sorted::get(map, key)
+}
+
+pub fn put_platform<K: Clone, V: Clone>(map: &mut SalvoSortedMap<K, V>, key: K, value: V) {
+    crate::platform_core_sorted::put(map, key, value)
+}
+
+pub fn remove__SortedMap_K<K: Clone, V: Clone>(map: &mut SalvoSortedMap<K, V>, key: &K) -> Option<V> {
+    return remove_key_platform(map, key);
+}
+
+pub fn contains_key_platform<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>, key: &K) -> bool {
+    crate::platform_core_sorted::contains_key(map, key)
+}
+
+pub fn size__SortedMap<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> i32 {
+    return map_size_platform(map);
+}
+
+pub fn first_key_platform<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> Option<K> {
+    crate::platform_core_sorted::first_key(map)
+}
+
+pub fn last_key_platform<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> Option<K> {
+    crate::platform_core_sorted::last_key(map)
+}
+
+pub fn keys_platform<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> Vec<K> {
+    crate::platform_core_sorted::keys(map)
 }
 
 pub fn iter__SortedMap<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> MapKeyYield<K> {
-    return MapKeyYield { items: map.keys(), at: 0 };
+    return MapKeyYield { items: keys_platform(map), at: 0 };
 }
 
 pub fn NonEmpty__SortedSet_qualifies<T: Clone>(set: &SalvoSortedSet<T>) -> bool {
-    return (set.len() as i32) > 0;
+    return size__SortedSet(set) > 0;
 }
 
 pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> bool {
-    return (map.len() as i32) > 0;
+    return size__SortedMap(map) > 0;
 }
 
 pub fn min<T: Clone>(set: &SalvoSortedSet<T>) -> T {
-    return set.min().cloned().expect("salvo: value is absent at core.sorted:160:12");
+    return min_platform(set).expect("salvo: value is absent at core.sorted:188:12");
 }
 
 pub fn max<T: Clone>(set: &SalvoSortedSet<T>) -> T {
-    return set.max().cloned().expect("salvo: value is absent at core.sorted:164:12");
+    return max_platform(set).expect("salvo: value is absent at core.sorted:192:12");
 }
 
 pub fn first_key<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> K {
-    return map.first_key().cloned().expect("salvo: value is absent at core.sorted:168:12");
+    return first_key_platform(map).expect("salvo: value is absent at core.sorted:196:12");
 }
 
 pub fn last_key<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> K {
-    return map.last_key().cloned().expect("salvo: value is absent at core.sorted:172:12");
+    return last_key_platform(map).expect("salvo: value is absent at core.sorted:200:12");
 }
 
 // ===== core/string.rs =====
@@ -1081,6 +1184,8 @@ pub mod platform_core_list;
 pub mod platform_core_map;
 #[path = "platform/core/set.rs"]
 pub mod platform_core_set;
+#[path = "platform/core/sorted.rs"]
+pub mod platform_core_sorted;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
@@ -2333,6 +2438,8 @@ trait SortedStore<T> {
     fn min(&self) -> Option<&T>;
     fn max(&self) -> Option<&T>;
     fn to_vec(&self) -> Vec<T>;
+    /// [platform-iterable] The elements in order, borrowed.
+    fn iter(&self) -> Box<dyn Iterator<Item = &T> + '_>;
     fn clone_box(&self) -> Box<dyn SortedStore<T> + Send>;
 }
 
@@ -2379,6 +2486,10 @@ where
 
     fn to_vec(&self) -> Vec<T> {
         self.inner.iter().map(|w| w.get().clone()).collect()
+    }
+
+    fn iter(&self) -> Box<dyn Iterator<Item = &T> + '_> {
+        Box::new(self.inner.iter().map(|w| w.get()))
     }
 
     fn clone_box(&self) -> Box<dyn SortedStore<T> + Send> {
@@ -2464,6 +2575,10 @@ impl<T: Clone + Send + 'static> SortedStore<T> for FnSortedStore<T> {
         self.items.clone()
     }
 
+    fn iter(&self) -> Box<dyn Iterator<Item = &T> + '_> {
+        Box::new(self.items.iter())
+    }
+
     fn clone_box(&self) -> Box<dyn SortedStore<T> + Send> {
         Box::new(FnSortedStore {
             items: self.items.clone(),
@@ -2532,6 +2647,24 @@ impl<T> SalvoSortedSet<T> {
     pub fn to_vec(&self) -> Vec<T> {
         self.store.to_vec()
     }
+    /// [platform-iterable] The elements in order, borrowed.
+    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        self.store.iter()
+    }
+}
+
+// [platform-value-type] Compared and printed element-wise, in order, as a
+// struct holding one needs.
+impl<T: PartialEq> PartialEq for SalvoSortedSet<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+impl<T: Eq> Eq for SalvoSortedSet<T> {}
+impl<T: fmt::Debug> fmt::Debug for SalvoSortedSet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_set().entries(self.iter()).finish()
+    }
 }
 
 impl<T> Clone for SalvoSortedSet<T> {
@@ -2561,6 +2694,8 @@ trait SortedMapStore<K, V> {
     fn last_key(&self) -> Option<&K>;
     fn keys(&self) -> Vec<K>;
     fn entries(&self) -> Vec<(K, V)>;
+    /// [platform-iterable] The entries in key order, borrowed.
+    fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_>;
     fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send>;
 }
 
@@ -2631,6 +2766,10 @@ impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SortedMapStore<K, V>
         self.entries.clone()
     }
 
+    fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
+        Box::new(self.entries.iter().map(|(k, v)| (k, v)))
+    }
+
     fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send> {
         Box::new(FnSortedMapStore {
             entries: self.entries.clone(),
@@ -2678,6 +2817,10 @@ where
             .iter()
             .map(|(k, v)| (k.get().clone(), v.clone()))
             .collect()
+    }
+
+    fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
+        Box::new(self.inner.iter().map(|(k, v)| (k.get(), v)))
     }
     fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send> {
         Box::new(BTreeMapStore::<C, K, V> {
@@ -2750,6 +2893,22 @@ impl<K, V> SalvoSortedMap<K, V> {
     }
     pub fn entries(&self) -> Vec<(K, V)> {
         self.store.entries()
+    }
+    /// [platform-iterable] The entries in key order, borrowed.
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
+        self.store.iter()
+    }
+}
+
+impl<K: PartialEq, V: PartialEq> PartialEq for SalvoSortedMap<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+impl<K: Eq, V: Eq> Eq for SalvoSortedMap<K, V> {}
+impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for SalvoSortedMap<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
     }
 }
 
@@ -3074,6 +3233,103 @@ pub fn size<T>(set: &Set<T>) -> i32 {
 // In insertion order [col-insertion-order].
 pub fn to_list<T: Clone>(set: &Set<T>) -> Vec<T> {
     set.iter().cloned().collect()
+}
+
+// ===== platform/core/sorted.rs =====
+// [platform-value-type] std's sorted pair, for `core.sorted`'s `platform type
+// SortedSet<T>(?cmp)` and `SortedMap<K, V>(?cmp)` (ROADMAP 0.7): the runtime's
+// containers, which carry the ordering they were built with
+// [platform-slots]. A `Mut` one is the same type, passed as `&mut`.
+
+pub type SortedSet<T> = crate::collections::SalvoSortedSet<T>;
+pub type MutSortedSet<T> = crate::collections::SalvoSortedSet<T>;
+pub type SortedMap<K, V> = crate::collections::SalvoSortedMap<K, V>;
+pub type MutSortedMap<K, V> = crate::collections::SalvoSortedMap<K, V>;
+
+// [platform-iterable] The host's loops: a set's elements and a map's keys,
+// in order. Elements and keys are not written in place.
+pub fn each_sorted_set<T>(set: &SortedSet<T>) -> impl Iterator<Item = &T> + '_ {
+    set.iter()
+}
+
+pub fn each_sorted_set_mut<T>(_set: &mut SortedSet<T>) -> std::iter::Empty<&mut T> {
+    unreachable!("salvo: a sorted set's elements are not written in place")
+}
+
+pub fn into_each_sorted_set<T: Clone>(set: SortedSet<T>) -> std::vec::IntoIter<T> {
+    set.to_vec().into_iter()
+}
+
+pub fn each_sorted_map<K, V>(map: &SortedMap<K, V>) -> impl Iterator<Item = &K> + '_ {
+    map.iter().map(|(k, _)| k)
+}
+
+pub fn each_sorted_map_mut<K, V>(_map: &mut SortedMap<K, V>) -> std::iter::Empty<&mut K> {
+    unreachable!("salvo: a sorted map's keys are not written in place")
+}
+
+pub fn into_each_sorted_map<K, V>(map: SortedMap<K, V>) -> std::vec::IntoIter<K> {
+    map.keys().into_iter()
+}
+
+pub fn add<T>(set: &mut SortedSet<T>, elem: T) -> bool {
+    set.insert(elem)
+}
+
+pub fn remove_elem<T>(set: &mut SortedSet<T>, elem: &T) -> bool {
+    set.remove(elem)
+}
+
+pub fn contains<T>(set: &SortedSet<T>, elem: &T) -> bool {
+    set.contains(elem)
+}
+
+pub fn set_size<T>(set: &SortedSet<T>) -> i32 {
+    set.len() as i32
+}
+
+pub fn min<T: Clone>(set: &SortedSet<T>) -> Option<T> {
+    set.min().cloned()
+}
+
+pub fn max<T: Clone>(set: &SortedSet<T>) -> Option<T> {
+    set.max().cloned()
+}
+
+pub fn to_list<T>(set: &SortedSet<T>) -> Vec<T> {
+    set.to_vec()
+}
+
+pub fn get<'a, K, V>(map: &'a SortedMap<K, V>, key: &K) -> Option<&'a V> {
+    map.get(key)
+}
+
+pub fn put<K, V>(map: &mut SortedMap<K, V>, key: K, value: V) {
+    map.insert(key, value);
+}
+
+pub fn remove_key<K, V>(map: &mut SortedMap<K, V>, key: &K) -> Option<V> {
+    map.remove(key)
+}
+
+pub fn contains_key<K, V>(map: &SortedMap<K, V>, key: &K) -> bool {
+    map.contains_key(key)
+}
+
+pub fn map_size<K, V>(map: &SortedMap<K, V>) -> i32 {
+    map.len() as i32
+}
+
+pub fn first_key<K: Clone, V>(map: &SortedMap<K, V>) -> Option<K> {
+    map.first_key().cloned()
+}
+
+pub fn last_key<K: Clone, V>(map: &SortedMap<K, V>) -> Option<K> {
+    map.last_key().cloned()
+}
+
+pub fn keys<K, V>(map: &SortedMap<K, V>) -> Vec<K> {
+    map.keys()
 }
 
 // ===== platform/core/string.rs =====

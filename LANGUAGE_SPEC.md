@@ -8562,8 +8562,8 @@ replaced the working document TESTING.md).
     (deep), `Debug`, `PartialEq`, `Eq` and `Hash`, so a struct holding one
     still derives. A value type keeps its canonical wire form where the
     encoding defines one [wire-format] (`Bytes`); otherwise it is `noremote`.
-    `Bytes`, `Str`, `Deque`, `List`, `Set` and `Map` are built; the sorted
-    pair follows. A `Map` iterates its keys through its host's `each`
+    Every collection is built: `Bytes`, `Str`, `Deque`, `List`, `Set`, `Map`,
+    `SortedSet` and `SortedMap`. A `Map` iterates its keys through its host's `each`
     [col-map-iter], and its `to_str` stays intrinsic: rendering keys *and*
     values in Salvo needs two `to_str`s, and implicits resolve by name.
     On Rust an argument reading a place another argument lends `&mut` is
@@ -8603,8 +8603,12 @@ replaced the working document TESTING.md).
     element, [for-elem-write]) and **`into_each(x)`** over owned elements (a
     loop that consumes the container). Rust asserts all three against the
     obligation's element type beside the re-export, and `salvo platform
-    generate` writes their stubs. `List`, `Str`, `Bytes` and `Deque` are
-    iterable; a by-value loop over an elementless one clones out of `each`.
+    generate` writes their stubs. When a module declares more than one
+    iterable platform type, each one's fns carry its name in snake case
+    (`each_sorted_set`, `each_sorted_set_mut`, `into_each_sorted_set`; Kotlin
+    `eachSortedSet`), since one Rust host file holds one `each`
+    (`salvo_core::naming::each_suffix`). Every std collection is iterable; a
+    by-value loop over an elementless one clones out of `each`.
   * **Always `noremote`** [noremote] — a host object has no wire form, and
     the wire predicate says so for a struct holding one — and
     sendable [actor-sendable] (Rust: `Send + 'static`), so a handle may sit

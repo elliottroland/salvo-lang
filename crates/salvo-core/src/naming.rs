@@ -289,3 +289,31 @@ fn render(ty: &Type, args: bool, quals: bool) -> String {
         }
     }
 }
+
+/// [platform-iterable] The suffix of an iterable platform type's host loop
+/// fns (`each`, `each_mut`, `into_each`): none when its module declares one
+/// iterable platform type, else `_<type in snake case>` (`each_sorted_set`),
+/// since one host file cannot hold two `each`s on Rust.
+pub fn each_suffix(program: &Program, module: &ModulePath, type_name: &str) -> String {
+    let iterables = program
+        .units()
+        .filter(|u| u.file.module == *module)
+        .flat_map(|u| u.ast.items.iter())
+        .filter(|i| matches!(i, Item::Type(t) if t.platform && t.iterable))
+        .count();
+    if iterables <= 1 {
+        return String::new();
+    }
+    let mut out = String::from("_");
+    for (i, c) in type_name.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}

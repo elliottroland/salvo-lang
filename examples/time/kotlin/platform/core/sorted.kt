@@ -1,0 +1,48 @@
+// [platform-value-type] std's sorted pair, for `core.sorted`'s `platform type
+// SortedSet<T>(?cmp)` and `SortedMap<K, V>(?cmp)` (ROADMAP 0.7): Java's
+// `TreeSet`/`TreeMap` behind their interfaces, ordered by the comparator they
+// were built with [platform-slots].
+package salvo.platform.core.sorted
+
+typealias SortedSet<T> = java.util.SortedSet<T>
+typealias MutSortedSet<T> = java.util.SortedSet<T>
+typealias SortedMap<K, V> = java.util.SortedMap<K, V>
+typealias MutSortedMap<K, V> = java.util.SortedMap<K, V>
+
+// [platform-iterable] The host's loops: a set's elements and a map's keys.
+fun <T> eachSortedSet(set: SortedSet<T>): Iterable<T> = set
+
+fun <K, V> eachSortedMap(map: SortedMap<K, V>): Iterable<K> = map.keys
+
+fun <T> add(set: MutSortedSet<T>, elem: T): Boolean = set.add(elem)
+
+fun <T> removeElem(set: MutSortedSet<T>, elem: T): Boolean = set.remove(elem)
+
+fun <T> contains(set: SortedSet<T>, elem: T): Boolean = set.contains(elem)
+
+fun <T> setSize(set: SortedSet<T>): Int = set.size
+
+// `first()`/`last()` throw on an empty set; Salvo answers `None`.
+fun <T> min(set: SortedSet<T>): T? = set.firstOrNull()
+
+fun <T> max(set: SortedSet<T>): T? = set.lastOrNull()
+
+fun <T> toList(set: SortedSet<T>): MutableList<T> = set.toMutableList()
+
+fun <K, V> get(map: SortedMap<K, V>, key: K): V? = map[key]
+
+fun <K, V> put(map: MutSortedMap<K, V>, key: K, value: V) {
+    map[key] = value
+}
+
+fun <K, V> removeKey(map: MutSortedMap<K, V>, key: K): V? = map.remove(key)
+
+fun <K, V> containsKey(map: SortedMap<K, V>, key: K): Boolean = map.containsKey(key)
+
+fun <K, V> mapSize(map: SortedMap<K, V>): Int = map.size
+
+fun <K, V> firstKey(map: SortedMap<K, V>): K? = map.keys.firstOrNull()
+
+fun <K, V> lastKey(map: SortedMap<K, V>): K? = map.keys.lastOrNull()
+
+fun <K, V> keys(map: SortedMap<K, V>): MutableList<K> = map.keys.toMutableList()

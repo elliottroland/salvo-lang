@@ -27,7 +27,7 @@
 // has to arrange deliberately (its `String.compareTo` is UTF-16 code-unit
 // order) [kt-ordered].
 
-export intrinsic type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut
+export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter<self, T>
 
 // Constructor. The elements are stored, so they are moved; duplicates
 // collapse, and the result is in order however the arguments were written.
@@ -37,30 +37,54 @@ export intrinsic fn sorted_set_of<T>(...elems: T[], ?Ordered<T>) [] -> SortedSet
 export intrinsic fn mut_sorted_set_of<T>(...elems: T[], ?Ordered<T>) [] -> Mut SortedSet<T>(?cmp)
 
 // Adds an element, reporting whether it was new.
-export intrinsic fn add<T>(set: Mut SortedSet<T>, elem: T) [] -> Bool => set: Mut, !elem
+export platform fn add<T>(set: Mut SortedSet<T>, elem: T) [] -> Bool => set: Mut, !elem
 
 // Removes an element, reporting whether it was there.
-export intrinsic fn remove<T>(set: Mut SortedSet<T>, elem: T) [] -> Bool => set: Mut, elem
+export fn remove<T>(set: Mut SortedSet<T>, elem: T) [] -> Bool => set: Mut, elem {
+    return remove_elem(set, elem)
+}
+
+// The host's [remove] and [size] for each container, under names of their own:
+// two platform fns of one module may not overload each other.
+platform fn remove_elem<T>(set: Mut SortedSet<T>, elem: T) [] -> Bool => set: Mut, elem
+platform fn set_size<T>(set: SortedSet<T>) [] -> Int => set
+platform fn remove_key<K, V>(map: Mut SortedMap<K, V>, key: K) [] -> V? => map: Mut, key
+platform fn map_size<K, V>(map: SortedMap<K, V>) [] -> Int => map
 
 // Whether the set holds an element equal to [elem].
-export intrinsic fn contains<T>(set: SortedSet<T>, elem: T) [] -> Bool => set, elem
+export platform fn contains<T>(set: SortedSet<T>, elem: T) [] -> Bool => set, elem
 
 // Returns the number of elements in the set
-export intrinsic fn size<T>(set: SortedSet<T>) [] -> Int => set
+export fn size<T>(set: SortedSet<T>) [] -> Int => set {
+    return set_size(set)
+}
 
 // The smallest element, or `None` when the set is empty. Cheap here, where
 // on an unordered `Set` it would be a scan — which is the reason to reach
 // for a sorted collection in the first place.
-export intrinsic fn min<T>(set: SortedSet<T>) [] -> T? => set
+export platform fn min<T>(set: SortedSet<T>) [] -> T? => set
 
 // The largest element, or `None` when the set is empty.
-export intrinsic fn max<T>(set: SortedSet<T>) [] -> T? => set
+export platform fn max<T>(set: SortedSet<T>) [] -> T? => set
 
 // The elements as a list, in order.
-export intrinsic fn to_list<T>(set: SortedSet<T>) [] -> List<T> => set
+export platform fn to_list<T>(set: SortedSet<T>) [] -> List<T> => set
 
-// The text form: `{1, 2, 3}` in **sorted** order [col-to-str].
-export intrinsic fn to_str<T>(set: SortedSet<T>) [] -> Str => set
+// The text form: `{1, 2, 3}` in **sorted** order [col-to-str], each element
+// by its own `to_str` [platform-value-type].
+export fn to_str<T>(set: SortedSet<T>, ?to_str: (x: T) -> Str) [] -> Str => set {
+    let out = mut_str("{")
+    let i = 0
+    for x in set {
+        if i > 0 {
+            append(out, ", ")
+        }
+        append(out, to_str(x))
+        i = i + 1
+    }
+    append(out, "}")
+    return out
+}
 
 // [iter-mint] A fresh iterator over the elements, in order. A snapshot, like the
 // unordered collections' iterators and for the same reason (there is no index
@@ -69,7 +93,7 @@ export fn iter<T>(set: SortedSet<T>) [] -> Mut SetYield<T> => set {
     return Mut SetYield<T> { items: to_list(set), at: 0 }
 }
 
-export intrinsic type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut
+export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : Iter<self, K>
 
 // Constructor, from entries written as pairs. A repeated key takes the value
 // of its last appearance [col-duplicate-keys]; position is irrelevant here,
@@ -81,30 +105,34 @@ export intrinsic fn mut_sorted_map_of<K, V>(...entries: (K, V)[], ?Ordered<K>) [
 
 // Possibly gets the value stored under [key], **borrowed** out of the map
 // [copy-opt-in].
-export intrinsic fn get<K, V>(map: SortedMap<K, V>, key: K) [] -> (proj(map) V)?
+export platform fn get<K, V>(map: SortedMap<K, V>, key: K) [] -> (proj(map) V)?
 => map, key
 
 // Stores [value] under [key], replacing any value already there.
-export intrinsic fn put<K, V>(map: Mut SortedMap<K, V>, key: K, value: V) [] -> None
+export platform fn put<K, V>(map: Mut SortedMap<K, V>, key: K, value: V) [] -> None
 => map: Mut, !key, !value
 
 // Removes the entry under [key] and hands its value back.
-export intrinsic fn remove<K, V>(map: Mut SortedMap<K, V>, key: K) [] -> V? => map: Mut, key
+export fn remove<K, V>(map: Mut SortedMap<K, V>, key: K) [] -> V? => map: Mut, key {
+    return remove_key(map, key)
+}
 
 // Whether the map holds an entry under [key].
-export intrinsic fn contains_key<K, V>(map: SortedMap<K, V>, key: K) [] -> Bool => map, key
+export platform fn contains_key<K, V>(map: SortedMap<K, V>, key: K) [] -> Bool => map, key
 
 // Returns the number of entries in the map
-export intrinsic fn size<K, V>(map: SortedMap<K, V>) [] -> Int => map
+export fn size<K, V>(map: SortedMap<K, V>) [] -> Int => map {
+    return map_size(map)
+}
 
 // The smallest key, or `None` when the map is empty.
-export intrinsic fn first_key<K, V>(map: SortedMap<K, V>) [] -> K? => map
+export platform fn first_key<K, V>(map: SortedMap<K, V>) [] -> K? => map
 
 // The largest key, or `None` when the map is empty.
-export intrinsic fn last_key<K, V>(map: SortedMap<K, V>) [] -> K? => map
+export platform fn last_key<K, V>(map: SortedMap<K, V>) [] -> K? => map
 
 // The keys, in order.
-export intrinsic fn keys<K, V>(map: SortedMap<K, V>) [] -> List<K> => map
+export platform fn keys<K, V>(map: SortedMap<K, V>) [] -> List<K> => map
 
 // The text form: `{a: 1, b: 2}` in **key order** [col-to-str].
 export intrinsic fn to_str<K, V>(map: SortedMap<K, V>) [] -> Str => map

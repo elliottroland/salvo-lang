@@ -33,6 +33,8 @@ pub mod platform_core_list;
 pub mod platform_core_map;
 #[path = "platform/core/set.rs"]
 pub mod platform_core_set;
+#[path = "platform/core/sorted.rs"]
+pub mod platform_core_sorted;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
@@ -55,6 +57,7 @@ use crate::core_map::next as next__core_map;
 use crate::core_set::iter as iter__core_set;
 use crate::core_set::next as next__core_set;
 use crate::core_set::to_str as to_str__core_set;
+use crate::core_sorted::to_str as to_str__core_sorted;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Point {
@@ -117,8 +120,8 @@ pub fn main() {
     crate::core_map::put_platform(&mut tally, "pear".to_string(), 99);
     println(&console, &(format!("2. insertion order kept {}", tally.to_string())));
     let mut ranked: SalvoSortedSet<String> = SalvoSortedSet::from_elements::<HostOrd, _>(vec!["pear".to_string(), "apple".to_string(), "fig".to_string()]);
-    println(&console, &(format!("2. key order {}", format!("{{{}}}", ranked.to_vec().iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
-    let mut smallest = ranked.min().cloned();
+    println(&console, &(format!("2. key order {}", to_str__core_sorted::<String>(&ranked, &mut |__i0| format!("{}", __i0)))));
+    let mut smallest = crate::core_sorted::min_platform(&ranked);
     if smallest.is_some() {
         println(&console, &(format!("2. min is cheap here {}", smallest.as_ref().unwrap().clone())));
     }
