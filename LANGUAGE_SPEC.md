@@ -867,8 +867,8 @@ Conventions:
   `lines(str)` (split at `\n`, a `\r` before it dropped, no empty last line
   for a trailing newline), and `split_once(str, sep)` / `split_last(str, sep)`
   (`(before, after)?`, at the first or last `sep`).
-* [path-type] **`path.Path` is a path as a value** (user decision
-  2026-10-04: a struct rather than functions over `Str`, so `Str`'s surface
+* [path-type] **`fs.path.Path` is a path as a value** (user decisions
+  2026-10-04, and 2026-10-05 for the module, which moved from `path` to `fs.path`: a struct rather than functions over `Str`, so `Str`'s surface
   and its completion stay free of path operations): `struct Path : Hashed<self>
   by auto { text: Str }`, built with `path(text)`, read with `to_str`. Its
   operations are Salvo: `join(p, child)` (an absolute child replaces, a
@@ -1255,6 +1255,12 @@ Conventions:
 * [struct-spread] `Name {...base, field: v}` copies `base` and overrides
   listed fields.
   * Multiple spreads in one literal are a codegen error (deliberate cut).
+* [struct-lit-shorthand] **A field may be written by its name alone** (user
+  request 2026-10-05, noticeboard): `Person { name, age: 3 }` is `Person {
+  name: name, age: 3 }`, the inverse of destructuring. Only after a type name:
+  a bare `{ name }` is a set literal [col-literal], and `{ name: … }` still
+  needs its colon. The value is an ordinary read of the variable, so it moves
+  as `name: name` would.
 * [struct-lit-infer] The struct literal's type annotation can be dropped
   when the expected type is known (`let p: Person = {name: ...}`).
   * A struct literal with no inferable type is a codegen error, never a
@@ -1995,6 +2001,10 @@ Conventions:
     `list.size() > 0`), assert with `!`, or test the type with `is`.
   * The parser disables struct-literal speculation in condition position
     (`no_struct`) so `if x is Person { ... }` parses.
+    [struct-lit-condition] Inside parentheses (call arguments, a
+    parenthesized expression) it is enabled again, since a `{` there cannot
+    open the block: `for n in notices(Path { text: t }, s) { … }` (fixed
+    2026-10-05).
 * [if-else-none] A missing `else` contributes `None` to an
   if-expression's type (`Str` + no else → `Str?`).
 * [is-narrowing] `is` checks flow-narrow their subject *place*
@@ -9314,8 +9324,22 @@ replaced the working document TESTING.md).
   the receiver's [fn-dot], then those whose first parameter is a type
   parameter, ranked after. The buffer is analysed with the word and its dot
   removed, so a half-written call parses; the receiver is the smallest typed
-  expression ending at the dot. `.` is a trigger character. Not yet: effect
-  members, locals, fields, keywords.
+  expression ending at the dot. `.` is a trigger character. Since 2026-10-05:
+  a struct receiver's **fields** rank first; **types** in scope are offered
+  (ranked first where a type is written — after `:`, `->`, `<` or `|` — and
+  after the fns elsewhere); on an `import` line, the next segment of every
+  module path the written prefix extends and, once the prefix names a module,
+  its exported items. Not yet: effect members, locals, keywords.
+* [lsp-coalesce] **Edits are coalesced** (2026-10-05): a change notification
+  only updates the overlay, and diagnostics are published once no message is
+  waiting, so a completion asked for after several keystrokes is answered
+  after one analysis rather than one per keystroke.
+* [lsp-hover-iter-fn] An `iter fn`'s minter and generated `next` both hover as
+  the `iter fn` written (`iter fn upto(n: Int) -> Emitted Int | Finished`),
+  with its docs and without the `next` overload set.
+* [lsp-effect-fix] A "no handler for effect `E` in scope" diagnostic offers a
+  quick-fix adding `E` to the enclosing top-level fn's effect list (a new
+  `[E]` after the parameters, `E` into `[]`, or `, E` at the end).
 * [lsp-definition] `textDocument/definition` jumps from a name to its
   declaration's *identifier*. Fn names resolve through
   `Checked::fn_refs` (overload-precise, so a call site lands on the

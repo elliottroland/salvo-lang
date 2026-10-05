@@ -101,6 +101,7 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         doc_uris: HashMap::new(),
         published: HashSet::new(),
         connection: &connection,
+        dirty: false,
     };
     server.main_loop()?;
     drop(server);
@@ -124,20 +125,35 @@ struct Server<'c> {
     /// clears them client-side when they disappear.
     published: HashSet<Url>,
     connection: &'c Connection,
+    /// [lsp-coalesce] A document changed since diagnostics were last
+    /// published: they are published once the queue is drained.
+    dirty: bool,
 }
 
 impl Server<'_> {
+    /// [lsp-coalesce] Edits only update the overlay; diagnostics are
+    /// published once nothing is waiting. Each keystroke used to re-analyse the
+    /// whole program before the next message was read, so a completion asked
+    /// for after five keystrokes waited behind five analyses.
     fn main_loop(&mut self) -> Result<(), Box<dyn Error + Sync + Send>> {
         while let Ok(msg) = self.connection.receiver.recv() {
-            match msg {
-                Message::Request(req) => {
-                    if self.connection.handle_shutdown(&req)? {
-                        return Ok(());
+            let mut next = Some(msg);
+            while let Some(msg) = next.take() {
+                match msg {
+                    Message::Request(req) => {
+                        if self.connection.handle_shutdown(&req)? {
+                            return Ok(());
+                        }
+                        self.handle_request(req)?;
                     }
-                    self.handle_request(req)?;
+                    Message::Notification(note) => self.handle_notification(note)?,
+                    Message::Response(_) => {}
                 }
-                Message::Notification(note) => self.handle_notification(note)?,
-                Message::Response(_) => {}
+                next = self.connection.receiver.try_recv().ok();
+            }
+            if self.dirty {
+                self.dirty = false;
+                self.publish_diagnostics()?;
             }
         }
         Ok(())
@@ -184,7 +200,7 @@ impl Server<'_> {
                 if let Some(path) = file_path(&params.text_document.uri) {
                     self.doc_uris.insert(path.clone(), params.text_document.uri);
                     self.overlay.insert(path, params.text_document.text);
-                    self.publish_diagnostics()?;
+                    self.dirty = true;
                 }
             }
             DidChangeTextDocument::METHOD => {
@@ -196,7 +212,7 @@ impl Server<'_> {
                 ) {
                     self.doc_uris.insert(path.clone(), params.text_document.uri);
                     self.overlay.insert(path, change.text);
-                    self.publish_diagnostics()?;
+                    self.dirty = true;
                 }
             }
             DidCloseTextDocument::METHOD => {
@@ -205,12 +221,12 @@ impl Server<'_> {
                     // Back to the on-disk contents.
                     self.overlay.remove(&path);
                     self.doc_uris.remove(&path);
-                    self.publish_diagnostics()?;
+                    self.dirty = true;
                 }
             }
             DidSaveTextDocument::METHOD => {
                 let _params: DidSaveTextDocumentParams = serde_json::from_value(note.params)?;
-                self.publish_diagnostics()?;
+                self.dirty = true;
             }
             _ => {}
         }
@@ -504,10 +520,23 @@ impl Server<'_> {
                 // std's, an import's, or this module's, and the signature
                 // alone does not say which won.
                 let origin = self.origin_section(&analysis, key.file, file_idx);
+                // [lsp-hover-iter-fn] An `iter fn` reads as itself: no docs
+                // or overload set of the generated halves (the step's name,
+                // `next`, is shared by every iterator).
+                let iter_fn = decl.is_some_and(|d| iter_fn_signature(&analysis.program.modules[key.file], d).is_some());
+                let docs = if iter_fn {
+                    decl.and_then(|d| iter_fn_minter(&analysis.program.modules[key.file], d)).and_then(|m| {
+                        let source = &analysis.program.files.get(key.file)?.content;
+                        let scope = docs::fn_scope(m, key.file, source, &analysis.program.modules, &link);
+                        docs::render(&m.docs, &scope)
+                    })
+                } else {
+                    docs
+                };
                 // [lsp-hover-overloads] The rest of the overload set, so the
                 // resolved signature reads as *a choice* rather than as the
                 // only candidate.
-                let others = decl.and_then(|d| {
+                let others = decl.filter(|_| !iter_fn).and_then(|d| {
                     self.overload_section(
                         &analysis,
                         file_idx,
@@ -1109,6 +1138,19 @@ impl Server<'_> {
             None => std::fs::read_to_string(&path).ok()?,
         };
         let cursor = position_to_offset(&text, doc.position) as usize;
+        // [lsp-completion] On an `import` line: modules, then a module's items.
+        let line_start = text[..cursor.min(text.len())].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let line = &text[line_start..cursor.min(text.len())];
+        let trimmed = line.trim_start();
+        let import_path = trimmed
+            .strip_prefix("export import ")
+            .or_else(|| trimmed.strip_prefix("import "));
+        if let Some(written) = import_path {
+            if written.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.') {
+                let analysis = analyze_for_document(&path, &self.root, &self.overlay).ok()?;
+                return Some(CompletionResponse::Array(import_completions(&analysis, written)));
+            }
+        }
         let bytes = text.as_bytes();
         let mut word = cursor.min(bytes.len());
         while word > 0 && (bytes[word - 1].is_ascii_alphanumeric() || bytes[word - 1] == b'_') {
@@ -1139,14 +1181,51 @@ impl Server<'_> {
             None
         };
         let mut items: Vec<CompletionItem> = Vec::new();
+        // [lsp-completion] After a dot on a struct: its fields, first.
+        if let (true, Some(r)) = (dot, &receiver) {
+            for f in struct_fields(&analysis.program, r) {
+                items.push(CompletionItem {
+                    label: f.0.clone(),
+                    kind: Some(CompletionItemKind::FIELD),
+                    detail: Some(f.1),
+                    sort_text: Some(format!("0{}", f.0)),
+                    ..Default::default()
+                });
+            }
+        }
+        // [lsp-completion] Where a type is written (after `:`, `->`, `<` or
+        // `,` inside `<…>`), types come first; elsewhere after the fns.
+        let before = text[..word].trim_end();
+        let type_position = before.ends_with(':') || before.ends_with("->") || before.ends_with('<') || before.ends_with('|');
+        if !dot {
+            let type_rank = if type_position { "0" } else { "2" };
+            for (name, kind) in analysis.type_completions.get(view.file).into_iter().flatten() {
+                use crate::analysis::TypeKind;
+                let k = match kind {
+                    TypeKind::Struct => CompletionItemKind::STRUCT,
+                    TypeKind::Effect => CompletionItemKind::INTERFACE,
+                    TypeKind::Handler => CompletionItemKind::CLASS,
+                    TypeKind::Qualifier => CompletionItemKind::TYPE_PARAMETER,
+                    TypeKind::Type => CompletionItemKind::CLASS,
+                };
+                items.push(CompletionItem {
+                    label: name.clone(),
+                    kind: Some(k),
+                    sort_text: Some(format!("{type_rank}{name}")),
+                    ..Default::default()
+                });
+            }
+        }
         let mut seen: HashSet<(String, String)> = HashSet::new();
         for f in fns {
             let rank = if dot {
                 match (&receiver, &f.receiver) {
-                    (Some(r), Some(p)) if r == p => "0",
-                    (_, _) if f.generic_receiver => "1",
+                    (Some(r), Some(p)) if r == p => "1",
+                    (_, _) if f.generic_receiver => "2",
                     _ => continue,
                 }
+            } else if type_position {
+                "1"
             } else {
                 "0"
             };
@@ -1210,6 +1289,23 @@ impl Server<'_> {
                     ..Default::default()
                 }));
             }
+            // [lsp-effect-fix] A missing effect: add it to the enclosing
+            // fn's effect list.
+            if let Some(effect) = missing_effect(&diag.message) {
+                let at = position_to_offset(&content, diag.range.start) as usize;
+                if let Some((offset, text)) = effect_list_edit(&content, at, &effect) {
+                    let pos = offset_to_position(&content, offset as u32);
+                    let edit = TextEdit { range: Range::new(pos, pos), new_text: text };
+                    let changes = HashMap::from([(uri.clone(), vec![edit])]);
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: format!("Add `{effect}` to the function's effects"),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diag.clone()]),
+                        edit: Some(WorkspaceEdit { changes: Some(changes), ..Default::default() }),
+                        ..Default::default()
+                    }));
+                }
+            }
         }
         actions
     }
@@ -1220,8 +1316,71 @@ impl Server<'_> {
     }
 }
 
-/// Where a new `import` line goes: after the last existing top-level
-/// import, or at the very top of the file [diag-import-suggest].
+/// [lsp-completion] The fields of the struct named `name` (its first
+/// declaration), as `(name, type)`.
+fn struct_fields(program: &salvo_core::Program, name: &str) -> Vec<(String, String)> {
+    for module in &program.modules {
+        for item in &module.items {
+            if let salvo_syntax::ast::Item::Struct(s) = item {
+                if s.name.name == name {
+                    return s.fields.iter().map(|f| (f.name.name.clone(), f.ty.to_string())).collect();
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// [lsp-completion] What may follow `import <written>`: the next segment of
+/// every module path extending `written`'s module part, and — when that part
+/// names a module — its exported items.
+fn import_completions(analysis: &Analysis, written: &str) -> Vec<CompletionItem> {
+    use salvo_syntax::ast::Item;
+    let (parent, _) = written.rsplit_once('.').unwrap_or(("", written));
+    let parent: Vec<&str> = if parent.is_empty() { Vec::new() } else { parent.split('.').collect() };
+    let mut out: Vec<CompletionItem> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for (file, ast) in analysis.program.files.iter().zip(&analysis.program.modules) {
+        if file.is_test {
+            continue;
+        }
+        let m = &file.module.0;
+        if m.len() > parent.len() && m.iter().zip(&parent).all(|(a, b)| a == b) {
+            let seg = &m[parent.len()];
+            if seen.insert(format!("m:{seg}")) {
+                out.push(CompletionItem {
+                    label: seg.clone(),
+                    kind: Some(CompletionItemKind::MODULE),
+                    sort_text: Some(format!("0{seg}")),
+                    ..Default::default()
+                });
+            }
+        }
+        if !parent.is_empty() && m.len() == parent.len() && m.iter().zip(&parent).all(|(a, b)| a == b) {
+            for item in &ast.items {
+                let (name, kind) = match item {
+                    Item::Fn(f) if f.exported => (f.name.name.clone(), CompletionItemKind::FUNCTION),
+                    Item::Struct(s) if s.exported => (s.name.name.clone(), CompletionItemKind::STRUCT),
+                    Item::Effect(e) if e.exported => (e.name.name.clone(), CompletionItemKind::INTERFACE),
+                    Item::Handler(h) if h.exported => (h.name.name.clone(), CompletionItemKind::CLASS),
+                    Item::Type(t) if t.exported => (t.name.name.clone(), CompletionItemKind::CLASS),
+                    Item::Qualifier(q) if q.exported => (q.name.name.clone(), CompletionItemKind::TYPE_PARAMETER),
+                    _ => continue,
+                };
+                if !name.starts_with("__") && seen.insert(format!("i:{name}")) {
+                    out.push(CompletionItem {
+                        label: name.clone(),
+                        kind: Some(kind),
+                        sort_text: Some(format!("1{name}")),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
 /// [lsp-completion] The type name a receiver of type [ty] matches a first
 /// parameter by: the base, without qualifiers or a module key.
 fn receiver_name(ty: &Ty) -> Option<String> {
@@ -1265,6 +1424,8 @@ fn is_embedded_std_copy(path: &Path) -> bool {
     path.starts_with(&dir)
 }
 
+/// Where a new `import` line goes: after the last existing top-level
+/// import, or at the very top of the file [diag-import-suggest].
 fn import_insert_position(content: &str) -> Position {
     let mut line = 0u32;
     for (i, text) in content.lines().enumerate() {
@@ -1895,7 +2056,85 @@ fn fn_signature(program: &Program, checked: &Checked, key: FnKey) -> Option<Stri
     let Item::Fn(decl) = module.items.get(key.item)? else {
         return None;
     };
+    // [lsp-hover-iter-fn] An `iter fn` is desugared into a minter and a
+    // `next` over a generated struct; either reads as the `iter fn` written.
+    if let Some(sig) = iter_fn_signature(module, decl) {
+        return Some(sig);
+    }
     Some(fn_decl_signature(decl, checked.deductions.get(&key).map(|d| d.as_slice())))
+}
+
+/// [lsp-hover-iter-fn] The minter an `iter fn` became, from either half.
+fn iter_fn_minter<'a>(module: &'a salvo_syntax::ast::Module, decl: &'a FnDecl) -> Option<&'a FnDecl> {
+    use salvo_syntax::ast::Type;
+    let prefix = salvo_syntax::desugar::ITER_STRUCT_PREFIX;
+    let base_of = |t: &Type| match t {
+        Type::Named { base, .. } => Some(base.name.name.clone()),
+        _ => None,
+    };
+    let generated = decl
+        .params
+        .first()
+        .and_then(|p| base_of(&p.ty))
+        .filter(|n| n.starts_with(prefix) && decl.name.name == "next")
+        .or_else(|| decl.return_type.as_ref().and_then(base_of).filter(|n| n.starts_with(prefix)))?;
+    module.items.iter().find_map(|i| match i {
+        Item::Fn(f) if f.return_type.as_ref().and_then(base_of).as_deref() == Some(generated.as_str()) => Some(f),
+        _ => None,
+    })
+}
+
+/// [lsp-hover-iter-fn] `iter fn name(params) [effects] -> Emitted T | Finished`
+/// for the minter or the `next` an `iter fn` became, from the two of them.
+fn iter_fn_signature(module: &salvo_syntax::ast::Module, decl: &FnDecl) -> Option<String> {
+    use salvo_syntax::ast::Type;
+    let prefix = salvo_syntax::desugar::ITER_STRUCT_PREFIX;
+    let base_of = |t: &Type| match t {
+        Type::Named { base, .. } => Some(base.name.name.clone()),
+        _ => None,
+    };
+    let generated = decl
+        .params
+        .first()
+        .and_then(|p| base_of(&p.ty))
+        .filter(|n| n.starts_with(prefix) && decl.name.name == "next")
+        .or_else(|| decl.return_type.as_ref().and_then(base_of).filter(|n| n.starts_with(prefix)))?;
+    let fns = module.items.iter().filter_map(|i| match i {
+        Item::Fn(f) => Some(f),
+        _ => None,
+    });
+    let mut minter = None;
+    let mut next = None;
+    for f in fns {
+        if f.return_type.as_ref().and_then(base_of).as_deref() == Some(generated.as_str()) {
+            minter = Some(f);
+        }
+        if f.name.name == "next" && f.params.first().and_then(|p| base_of(&p.ty)).as_deref() == Some(generated.as_str()) {
+            next = Some(f);
+        }
+    }
+    let (minter, next) = (minter?, next?);
+    let mut sig = fn_decl_signature(minter, None);
+    // Swap the generated return type for the declared element shape.
+    let ret = next.return_type.as_ref()?.to_string();
+    if let Some(at) = sig.find(" -> ") {
+        let tail_end = sig[at + 4..].find(" => ").map(|e| at + 4 + e).unwrap_or(sig.len());
+        sig.replace_range(at + 4..tail_end, &ret);
+    }
+    if let Some(effects) = &next.effects {
+        if minter.effects.as_ref().is_none_or(|e| e.is_empty()) && !effects.is_empty() {
+            let list: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
+            if let Some(at) = sig.find(" -> ") {
+                sig.insert_str(at, &format!(" [{}]", list.join(", ")));
+            }
+        }
+    }
+    // The minter's effect list is the generated `[]` when the written fn had
+    // none; the `next` carries what it declared.
+    if next.effects.as_ref().is_none_or(|e| e.is_empty()) {
+        sig = sig.replacen(" [] -> ", " -> ", 1);
+    }
+    Some(format!("iter {sig}"))
 }
 
 /// A fn's source-like signature. `inferred` is the whole-program deduction
@@ -2303,5 +2542,79 @@ mod tests {
         assert_eq!(position_to_offset(text, Position::new(0, 99)), 2);
         assert_eq!(position_to_offset(text, Position::new(9, 0)), 5);
         assert_eq!(offset_to_position(text, 99), Position::new(1, 2));
+    }
+}
+
+/// [lsp-effect-fix] The effect a "no handler for effect `E` in scope"
+/// diagnostic names.
+fn missing_effect(message: &str) -> Option<String> {
+    let rest = message.strip_prefix("no handler for effect `")?;
+    Some(rest[..rest.find('`')?].to_string())
+}
+
+/// [lsp-effect-fix] Where `effect` goes in the top-level fn enclosing
+/// `offset`, and the text to insert: `, E` before an existing list's `]`, `E`
+/// into an empty `[]`, or ` [E]` after the parameter list.
+fn effect_list_edit(text: &str, offset: usize, effect: &str) -> Option<(usize, String)> {
+    let before = &text[..offset.min(text.len())];
+    let mut start = None;
+    let mut at = 0;
+    for line in before.split_inclusive('\n') {
+        let t = line.strip_prefix("export ").unwrap_or(line);
+        let t = t.strip_prefix("iter ").unwrap_or(t);
+        if t.starts_with("fn ") {
+            start = Some(at);
+        }
+        at += line.len();
+    }
+    let start = start?;
+    let header_end = start + text[start..].find('{')?;
+    let header = &text[start..header_end];
+    // The parameter list's closing paren, by depth.
+    let open = header.find('(')?;
+    let mut depth = 0;
+    let mut close = None;
+    for (i, c) in header[open..].char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(open + i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close = close?;
+    let after = &header[close + 1..];
+    let trimmed = after.trim_start();
+    if trimmed.starts_with('[') {
+        let lb = close + 1 + (after.len() - trimmed.len());
+        let rb = lb + header[lb..].find(']')?;
+        let inside = header[lb + 1..rb].trim();
+        let text = if inside.is_empty() { effect.to_string() } else { format!(", {effect}") };
+        return Some((start + rb, text));
+    }
+    Some((start + close + 1, format!(" [{effect}]")))
+}
+
+#[cfg(test)]
+mod effect_fix_tests {
+    use super::effect_list_edit;
+
+    fn apply(text: &str, needle: &str) -> String {
+        let at = text.find(needle).unwrap();
+        let (o, t) = effect_list_edit(text, at, "Console").unwrap();
+        format!("{}{}{}", &text[..o], t, &text[o..])
+    }
+
+    /// [lsp-effect-fix] No list, an empty one, and one with an effect.
+    #[test]
+    fn the_effect_goes_into_the_enclosing_fns_list() {
+        assert_eq!(apply("fn f(x: Int) -> None {\n    println(\"\")\n}\n", "println"), "fn f(x: Int) [Console] -> None {\n    println(\"\")\n}\n");
+        assert_eq!(apply("fn f() [] {\n    println(\"\")\n}\n", "println"), "fn f() [Console] {\n    println(\"\")\n}\n");
+        assert_eq!(apply("export fn f(g: (Int) -> Int) [Fs] {\n    println(\"\")\n}\n", "println"), "export fn f(g: (Int) -> Int) [Fs, Console] {\n    println(\"\")\n}\n");
     }
 }

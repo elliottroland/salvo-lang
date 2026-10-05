@@ -23,3 +23,7 @@ fun<T> ignore(checked: Checked<T>) {
 fun<T> detach(checked: Checked<T>): T {
     return checked.value
 }
+
+fun<T> toStr(checked: Checked<T>, toStr: (T) -> String): String {
+    return toStr(checked.value)
+}

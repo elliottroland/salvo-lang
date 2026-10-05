@@ -150,10 +150,10 @@ A stream belongs to the provider that minted it. Handing a `MemFs` stream to the
 
 ## Paths
 
-A path is a value of its own, `Path`, from `import path`, so path operations stay out of `Str`'s way:
+A path is a value of its own, `Path`, from `import fs.path`, so path operations stay out of `Str`'s way:
 
 ```
-import path
+import fs.path
 
 let db = path("/var/data/board.db")
 let dir = parent(db)              // Path?: /var/data

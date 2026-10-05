@@ -47,8 +47,8 @@ pub mod core_string;
 pub mod fs;
 #[path = "fs/mem.rs"]
 pub mod fs_mem;
-#[path = "path.rs"]
-pub mod path;
+#[path = "fs/path.rs"]
+pub mod fs_path;
 #[path = "runtime.rs"]
 pub mod runtime;
 #[path = "runtime/routing.rs"]

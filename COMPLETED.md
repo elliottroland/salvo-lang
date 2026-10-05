@@ -135,6 +135,36 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The noticeboard's TODOs, first batch (2026-10-05, user requests).** From
+`salvo-noticeboard/src/noticeboard/disk.sv`:
+- **A struct literal inside parentheses in a condition** parses
+  [struct-lit-condition]: `for n in notices(Path { text: t }, s) { … }` was a
+  parse error, because condition position disables struct-literal
+  speculation and call arguments did not turn it back on.
+- **Field shorthand** [struct-lit-shorthand]: `NoticeStream { source,
+  in_stream }`, after a type name only (a bare `{ x }` is a set).
+- **`to_str` of a `Checked<T>`**, over its value's, so `${_}` on an `Err
+  Checked<StreamError>` prints (std already had `StreamError`'s).
+- **`path` is `fs.path`** (`std/fs/path.sv`).
+- **LSP** [lsp-coalesce]: it was already one long-running process; what made
+  completion lag was that every keystroke re-analysed the program before the
+  next message was read (~0.3 s each for the noticeboard), so a completion
+  waited behind one analysis per character typed. Edits now only update the
+  overlay, and diagnostics are published once the queue is empty.
+- **Completion** [lsp-completion]: a struct's fields first after its dot;
+  types in scope (first where a type is written, after `:`, `->`, `<`, `|`);
+  on an `import` line, modules, sub-modules and a module's exported items.
+- **Hover** [lsp-hover-iter-fn]: an `iter fn` hovers as `iter fn name(…) ->
+  Emitted T | Finished`, at its declaration and at calls, without the
+  generated `next` overload set.
+- **Quick-fix** [lsp-effect-fix]: "no handler for effect `E` in scope" offers
+  adding `E` to the enclosing fn's effect list.
+- Go-to-definition on fields already worked, chains included (new test); the
+  TODO's line has two typos (`out_strema`, `md`), which is why it did not
+  resolve there.
+Waiting on the user: moving `encode`/`decode` out of `net`, and `Fs` taking
+only `Path`.
+
 **Most actor and net intrinsics as Salvo; `Addr`/`Reply`/`Pool` stay
 intrinsic (2026-10-05, user decisions, ROADMAP 0.2 and 0.3).** Started on 0.3
 (the three handles as platform types) and stopped at the user's question:

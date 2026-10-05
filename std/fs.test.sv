@@ -1,7 +1,7 @@
 // [test-file] The tests of module `fs`: the `Path` overloads [path-type].
 
 import fs.mem
-import path
+import fs.path
 
 test "a Path reaches the filesystem without spelling its text" {
     use MemFs()

@@ -34,3 +34,10 @@ export fn ignore<T>(checked: Checked<T>) => !checked {
 export fn detach<T canbe linear>(checked: Checked<T>) -> T => !checked {
     return checked.value
 }
+
+// [interp-to-str] The text of a checked value is its value's, so an error can
+// be interpolated without detaching it first. It only reads, so the
+// obligation stays with the caller.
+export fn to_str<T>(checked: Checked<T>, ?to_str: (x: T) -> Str) [] -> Str => checked {
+    return to_str(checked.value)
+}

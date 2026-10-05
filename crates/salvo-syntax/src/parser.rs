@@ -5422,7 +5422,17 @@ impl<'s> Parser<'s> {
     /// The name is recognised *after* parsing the expression, by the `=`
     /// that follows it — unambiguous because assignment is a statement in
     /// Salvo, never an expression, so `=` cannot otherwise appear here.
+    /// [struct-lit-condition] Inside parentheses a `{` cannot open the
+    /// condition's block, so a struct literal is allowed again there:
+    /// `for n in notices(Path { text: t }, s) { … }`.
     fn parse_call_args(&mut self) -> Option<(Vec<Expr>, Vec<NamedArg>, Span)> {
+        let saved = std::mem::replace(&mut self.no_struct, false);
+        let out = self.parse_call_args_inner();
+        self.no_struct = saved;
+        out
+    }
+
+    fn parse_call_args_inner(&mut self) -> Option<(Vec<Expr>, Vec<NamedArg>, Span)> {
         self.expect(&TokenKind::LParen)?;
         self.group_depth += 1;
         let mut args = Vec::new();
@@ -5693,7 +5703,13 @@ impl<'s> Parser<'s> {
                 }
                 self.parse_ident_expr()
             }
-            TokenKind::LParen => self.parse_paren_expr(),
+            TokenKind::LParen => {
+                // [struct-lit-condition] As in call arguments.
+                let saved = std::mem::replace(&mut self.no_struct, false);
+                let e = self.parse_paren_expr();
+                self.no_struct = saved;
+                e
+            }
             TokenKind::LBracket => self.parse_array_literal(),
             TokenKind::LBrace => self.parse_brace_expr(),
             TokenKind::KwIf => self.parse_if(),
@@ -5720,9 +5736,14 @@ impl<'s> Parser<'s> {
                 // fieldless struct literal (`Finished {}`) — the empty-brace
                 // collection reading applies only to a *bare* `{}`, which has
                 // no name to say what it builds.
+                // [struct-lit-shorthand] `Name { x, y }`: with a type name in
+                // front, a bare field name is `x: x` (bare, `{ x }` is a set).
+                let shorthand = matches!(self.peek_at(1).kind, TokenKind::Ident(_))
+                    && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RBrace);
                 let braced_body = self.at(&TokenKind::LBrace)
                     && self.same_line()
                     && (self.brace_is_struct_lit()
+                        || shorthand
                         || matches!(self.peek_at(1).kind, TokenKind::RBrace));
                 if braced_body {
                     let is_plain_ident = matches!(
@@ -5846,8 +5867,16 @@ impl<'s> Parser<'s> {
                 } else {
                     self.ident()?
                 };
-                self.expect(&TokenKind::Colon)?;
-                let value = self.parse_expr()?;
+                // [struct-lit-shorthand] `{ x }` is `{ x: x }`, the inverse
+                // of destructuring.
+                let value = if !name.name.starts_with('[')
+                    && matches!(self.kind(), TokenKind::Comma | TokenKind::RBrace)
+                {
+                    Expr::Ident(name.clone())
+                } else {
+                    self.expect(&TokenKind::Colon)?;
+                    self.parse_expr()?
+                };
                 let span = name.span.to(value.span());
                 fields.push(StructLitField {
                     kind: StructLitFieldKind::Named { name, value },

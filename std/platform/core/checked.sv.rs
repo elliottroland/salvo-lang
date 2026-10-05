@@ -30,3 +30,7 @@ pub fn ignore<T: Clone>(checked: Checked<T>) {
 pub fn detach<T>(checked: Checked<T>) -> T {
     return checked.value;
 }
+
+pub fn to_str<T: Clone>(checked: &Checked<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+    return to_str(&checked.value);
+}

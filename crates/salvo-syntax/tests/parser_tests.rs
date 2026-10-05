@@ -3093,3 +3093,26 @@ fn platform_types_parse_in_three_kinds() {
     let (_, diagnostics) = salvo_syntax::parse_module("platform type Client = Int\n");
     assert!(diagnostics.iter().any(|d| d.is_error() && d.message.contains("cannot be an alias")), "{diagnostics:?}");
 }
+
+/// [struct-lit-condition] A struct literal inside a call's parentheses in a
+/// `for` head or `if` condition parses as one; bare, it is still the block.
+#[test]
+fn a_struct_literal_parses_inside_parentheses_in_a_condition() {
+    let source = "fn f() {\n    for n in g(P { x: 1 }) {\n    }\n    if h((P { x: 2 })) {\n    }\n}\n";
+    let (_, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+}
+
+/// [struct-lit-shorthand] `P { x, y: e }`: a bare field name after a type
+/// name is `x: x`; a bare `{ x }` stays a set literal.
+#[test]
+fn a_struct_literal_field_may_be_written_by_its_name_alone() {
+    use salvo_syntax::ast::{Expr, Item, Stmt, StructLitFieldKind};
+    let (module, diagnostics) = salvo_syntax::parse_module("fn f() {\n    let p = P { x, y: 2 }\n    let s = { x }\n}\n");
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!() };
+    let stmts = &f.body.as_ref().unwrap().stmts;
+    let Stmt::Let { value: Expr::StructLit { fields, .. }, .. } = &stmts[0] else { panic!("{:?}", stmts[0]) };
+    assert!(matches!(&fields[0].kind, StructLitFieldKind::Named { name, value: Expr::Ident(v) } if name.name == "x" && v.name == "x"));
+    assert!(!matches!(&stmts[1], Stmt::Let { value: Expr::StructLit { .. }, .. }));
+}

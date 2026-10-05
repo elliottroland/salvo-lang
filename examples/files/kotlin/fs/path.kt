@@ -1,4 +1,4 @@
-package salvo.path
+package salvo.fs.path
 
 import salvo.core.list.addPlatform
 import salvo.core.string.endsWithPlatform

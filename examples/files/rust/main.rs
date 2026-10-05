@@ -43,10 +43,10 @@ pub mod fs;
 pub mod fs_host;
 #[path = "fs/mem.rs"]
 pub mod fs_mem;
+#[path = "fs/path.rs"]
+pub mod fs_path;
 #[path = "fs/restricted.rs"]
 pub mod fs_restricted;
-#[path = "path.rs"]
-pub mod path;
 #[path = "runtime.rs"]
 pub mod runtime;
 #[path = "runtime/routing.rs"]

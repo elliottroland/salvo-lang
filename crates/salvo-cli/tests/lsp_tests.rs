@@ -1990,3 +1990,148 @@ fn main() [Console] {
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
+
+/// [lsp-completion] Fields first after a struct's dot; types first where a
+/// type is written, and offered with only whitespace before the cursor;
+/// modules, sub-modules and a module's exported items on an `import` line.
+#[test]
+fn completion_offers_fields_types_and_modules() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_more");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "\
+import fs.
+import ti
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+fn norm(p: Point) -> Int {
+    return p.
+}
+
+fn take(p: Po) -> Int {
+    return 0
+}
+
+fn main() [Console] {
+    
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let complete = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> Vec<(String, String)> {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+                "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        response["result"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no completion list: {response}"))
+            .iter()
+            .map(|i| (i["label"].as_str().unwrap().to_string(), i["sortText"].as_str().unwrap_or("").to_string()))
+            .collect()
+    };
+    let rank = |items: &[(String, String)], l: &str| {
+        items.iter().find(|(x, _)| x == l).map(|(_, r)| r.clone()).unwrap_or_else(|| panic!("no `{l}` in {items:?}"))
+    };
+    // `import fs.`: its sub-modules and exported items.
+    let items = complete(&mut lsp, 2, 0, 10);
+    rank(&items, "mem");
+    rank(&items, "read_to_str");
+    // `import ti`: top-level modules.
+    let items = complete(&mut lsp, 3, 1, 9);
+    rank(&items, "time");
+    // `p.`: the fields first.
+    let items = complete(&mut lsp, 4, 9, 13);
+    assert!(rank(&items, "x") < rank(&items, "copy"), "{items:?}");
+    // `p: Po`: types first.
+    let items = complete(&mut lsp, 5, 12, 13);
+    assert!(rank(&items, "Point") < rank(&items, "norm"), "{items:?}");
+    // An empty line in a body: fns and types both.
+    let items = complete(&mut lsp, 6, 17, 4);
+    rank(&items, "norm");
+    rank(&items, "Point");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+/// [lsp-hover-iter-fn] [lsp-definition] An `iter fn` hovers as written, at
+/// its declaration and at a call; a field reached through a chain inside a
+/// dot-call's argument jumps to its declaration.
+#[test]
+fn iter_fns_hover_as_written_and_chained_fields_resolve() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_iter_hover");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "\
+iter fn upto(n: Int) -> Emitted Int | Finished {
+    state {
+        at: Int = 0
+    }
+    if at >= n {
+        return finished()
+    }
+    at = at + 1
+    return emitted(at)
+}
+
+struct Inner {
+    stamp: Int
+}
+
+struct Outer {
+    inner: Inner
+}
+
+fn show(o: Outer) [Console] {
+    for x in upto(2) {
+        println(\"${x}\")
+    }
+    println(o.inner.stamp.to_str())
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": source}}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(params["diagnostics"].as_array().unwrap().len(), 0, "diagnostics: {params}");
+    let at_decl = hover(&mut lsp, 2, &uri, 0, 9);
+    assert!(at_decl.contains("iter fn upto(n: Int) -> Emitted Int | Finished"), "{at_decl}");
+    assert!(!at_decl.contains("__Iter"), "{at_decl}");
+    let at_call = hover(&mut lsp, 3, &uri, 20, 14);
+    assert!(at_call.contains("iter fn upto(n: Int)"), "{at_call}");
+    // `stamp` in `println(o.inner.stamp.to_str())`: line 23, column 20.
+    let def = definition(&mut lsp, 4, &uri, 23, 21);
+    assert_eq!(def["range"]["start"]["line"], 12, "{def}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}

@@ -248,6 +248,16 @@ let person2 = Person {...person, surname: "Elliott", age: 25}
 
 Spreading a variable consumes it — its fields now live in the new struct — so `person` can no longer be used after building `person2`; spread `copy(person)` instead to keep both (see the ownership section for the full rules).
 
+A field whose value is a variable of the same name can be written by the name
+alone — the inverse of destructuring. The type name is required for this, since
+a bare `{ name }` is a set:
+
+```
+let name = "Roland"
+let age = 36
+let person = Person {name, age}     // Person {name: name, age: age}
+```
+
 When the type of a struct is known, then the type annotation can be dropped:
 
 ```

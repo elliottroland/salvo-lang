@@ -25,7 +25,7 @@
 //     double that fakes both fakes them too.
 
 import stream
-import path
+import fs.path
 
 // ===== errors =====
 

@@ -53,6 +53,20 @@ pub struct Analysis {
     /// [lsp-completion] Per file (aligned with `program.files`): every free
     /// fn visible there, for completion.
     pub completions: Vec<Vec<CompletionFn>>,
+    /// [lsp-completion] Per file: every type-like name visible there —
+    /// structs, effects, handlers, qualifiers, aliases and opaque types —
+    /// with what kind of declaration it is.
+    pub type_completions: Vec<Vec<(String, TypeKind)>>,
+}
+
+/// [lsp-completion] What a type-like completion names.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum TypeKind {
+    Struct,
+    Effect,
+    Handler,
+    Qualifier,
+    Type,
 }
 
 /// [lsp-completion] One function a file can call, as completion offers it.
@@ -207,11 +221,12 @@ fn analyze_project(
     // still resolves for other files), but their own resolution/checker
     // diagnostics are dropped: recovered ASTs cascade nonsense, and the
     // parse errors are the actionable signal there.
-    let (checked, overloads, completions) = {
+    let (checked, overloads, completions, type_completions) = {
         let symbols = Symbols::collect(&program);
         let resolution = salvo_core::resolve(&program);
         let overloads = overload_index(&resolution);
         let completions = completion_index(&resolution);
+        let type_completions = type_completion_index(&resolution);
         // `check_program` folds resolution errors into its own.
         let mut checked = salvo_core::check_program(&program, &resolution, &symbols);
         checked.errors.retain(|d| !parse_broken.contains(&d.file));
@@ -219,7 +234,7 @@ fn analyze_project(
         // [platform-root] Platform declarations need a platform root.
         let backends = project.as_ref().map(salvo_core::required_backends).unwrap_or_else(|| vec!["rust"]);
         diagnostics.extend(salvo_core::platform_root_required(&program, project.as_ref(), &backends));
-        (Some(checked), overloads, completions)
+        (Some(checked), overloads, completions, type_completions)
     };
 
     Ok(Analysis {
@@ -232,7 +247,43 @@ fn analyze_project(
         overloads,
         comptime_hovers,
         completions,
+        type_completions,
     })
+}
+
+/// [lsp-completion] The per-file index of type-like names, generated ones
+/// (`__…`) left out.
+fn type_completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<(String, TypeKind)>> {
+    resolution
+        .scopes
+        .iter()
+        .map(|scope| {
+            let mut out: Vec<(String, TypeKind)> = Vec::new();
+            let mut add = |name: &str, kind: TypeKind| {
+                if !name.starts_with("__") {
+                    out.push((name.split('§').next().unwrap_or(name).to_string(), kind));
+                }
+            };
+            for n in scope.structs.keys() {
+                add(n, TypeKind::Struct);
+            }
+            for n in scope.effects.keys() {
+                add(n, TypeKind::Effect);
+            }
+            for n in scope.handlers.keys() {
+                add(n, TypeKind::Handler);
+            }
+            for n in scope.qualifiers.keys() {
+                add(n, TypeKind::Qualifier);
+            }
+            for n in scope.type_aliases.keys().chain(scope.opaque_types.keys()) {
+                add(n, TypeKind::Type);
+            }
+            out.sort();
+            out.dedup();
+            out
+        })
+        .collect()
 }
 
 /// [lsp-completion] The per-file index of callable fns, read off the
