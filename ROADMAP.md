@@ -151,17 +151,9 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      COMPLETED.md). Left: Kotlin refuses a `canbe Mut Str` field (a
      `StringBuilder` is not a `String`, so one property cannot hold both
      shapes without `Any` and identity equality) [kt-field-canbe-mut].
-   - c. **Opaque structs** (`opaque struct`): in the declaring module an
-     ordinary struct; elsewhere the type is usable but its fields are not (no
-     literal, field read or write, spread, or destructuring). Settled: `by
-     auto` instances, `copy` and codecs are generated in the module and usable
-     everywhere; another module's qualifier cannot read the fields; the host
-     class keeps its fields under the host contract; the diagnostic names the
-     type as opaque and points at its fns; a `*.test.sv` annex counts as the
-     module. Also settled (user, 2026-10-05): a comptime fn instantiated
-     *outside* the module sees an opaque struct as kind `opaque`, so `by
-     auto` and codecs call the type's own `eq`/`encode` instead of walking
-     fields they may not see.
+   - c. ✅ **Opaque structs** [struct-opaque] (2026-10-05, COMPLETED.md).
+     Left: LSP completion still offers an opaque struct's fields outside its
+     module.
    - d. ✅ **A total positional list write**, `replace(list, i: Idx(list)
      Int, v) -> T` [col-replace] (2026-10-05, COMPLETED.md), linear elements
      included: a qualifier's type parameter may now `canbe linear`. Left:

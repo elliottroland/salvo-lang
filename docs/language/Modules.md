@@ -27,7 +27,20 @@ fn digits(n: Int) -> Int {         // this module's business, and nobody else's
 
 The modifier comes first, before `intrinsic`, `linear`, `actor`, `platform`, `provenance`, `iter` and `send`, so a declaration reads *who can see it, what kind it is, what it is called*. It is an ordinary word rather than a reserved one, so a variable may still be called `export`; only the start of a declaration makes it a modifier.
 
-It applies to the whole declaration and not its parts: an exported struct exports its fields, an exported effect its members, an exported handler its state. There is no field- or member-level visibility. What that leaves is one useful consequence worth knowing deliberately — a type you do not export may still appear in a signature you do, and callers can then hold values of it without being able to write its name. That is an opaque type, and it is the only way Salvo has to say it.
+It applies to the whole declaration and not its parts: an exported struct exports its fields, an exported effect its members, an exported handler its state. There is no field- or member-level visibility. A type you do not export may still appear in a signature you do, and callers can then hold values of it without being able to write its name.
+
+When callers should be able to name the type but not reach inside it, declare it **`opaque`**:
+
+```
+export opaque struct Bag : Eq<self> by auto {
+    items: List<Int>,
+    total: Int
+}
+
+export fn total(b: Bag) -> Int => b { return b.total }   // fine: Bag's own module
+```
+
+In its own module (and that module's `*.test.sv` annex) an opaque struct is an ordinary struct. Everywhere else `Bag` is a type like any other — a parameter, a field, an element of a list — but its fields are not there: no literal, no field read or write, no spread, no destructuring. The error names the type as opaque and lists its functions. What the module generates for it (`by auto` members, `copy`, the wire form) is generated in the module and usable everywhere, and a comptime function stamped in another module sees the type as `Opaque`, so it calls `Bag`'s own functions rather than walking fields it may not see. Opacity is about Salvo code: the host class still has its fields. It is what lets a module change a representation later, which a readable struct does not.
 
 One module is private to the standard library as a whole: `runtime`, the scheduler every program runs on, which std's own modules import and a program cannot.
 

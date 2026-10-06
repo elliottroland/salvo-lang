@@ -2640,6 +2640,7 @@ Module {
                 ],
                 fns: [],
                 linear: false,
+                opaque: false,
                 noremote: false,
                 comptime: false,
                 span: 5799..5959,

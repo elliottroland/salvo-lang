@@ -1330,6 +1330,7 @@ fn check_once<'p>(
             file_idx,
             file.content.len(),
             file.is_std,
+            &program.files,
             &resolution.scopes[file_idx],
             resolution,
             symbols,
@@ -1376,6 +1377,7 @@ fn check_once<'p>(
                     file_idx,
                     file.content.len(),
                     file.is_std,
+                    &program.files,
                     &resolution.scopes[file_idx],
                     resolution,
                     symbols,
@@ -1401,6 +1403,7 @@ fn check_once<'p>(
             file_idx,
             file.content.len(),
             file.is_std,
+            &program.files,
             &resolution.scopes[file_idx],
             resolution,
             symbols,
@@ -1822,6 +1825,9 @@ struct Checker<'p, 'r> {
     /// [comptime-instantiate] The file's length in bytes: a span at or past it
     /// is synthetic — a stamped copy's — and is redirected when reported.
     file_len: usize,
+    /// Every source file, for which module a declaration's file is
+    /// [struct-opaque].
+    files: &'p [crate::source::SourceFile],
     out: &'r mut Checked,
     /// Lexical scope stack of local variables (params + lets + bindings).
     locals: Vec<HashMap<String, LocalVar>>,
@@ -2229,6 +2235,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         file_idx: usize,
         file_len: usize,
         is_std: bool,
+        files: &'p [crate::source::SourceFile],
         scope: &'r ModuleScope<'p>,
         resolution: &'r Resolution<'p>,
         symbols: &'r Symbols<'p>,
@@ -2250,6 +2257,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             refinements,
             file_idx,
             file_len,
+            files,
             out,
             locals: Vec::new(),
             generics: HashSet::new(),
@@ -20839,6 +20847,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .expr_ty
                     .entry(self.key(*span))
                     .or_insert_with(|| ty.clone());
+                // [struct-opaque] Destructuring reads every named field.
+                self.refuse_opaque(&ty, "destructuring it", *span);
                 fields
                 .iter()
                 .map(|f| {
@@ -21492,6 +21502,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // the backend casts + asserts at the access site.
                 // [lsp-definition] the field name points at its
                 // declaration in the struct.
+                // [struct-opaque] Outside its module an opaque struct's fields
+                // are not there to read or write.
+                if self.refuse_opaque(&base_ty, &format!("reading its field `{}`", field.name), *span) {
+                    return Ty::Unknown;
+                }
                 self.record_field_ref(&base_ty, field);
                 if let Some(override_ty) = self.field_override_ty(&base_ty, &field.name) {
                     self.out
@@ -24095,6 +24110,21 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             return struct_ty;
         };
+        // [struct-opaque] Only the declaring module builds an opaque struct.
+        if self.refuse_opaque(&struct_ty, "building one with a literal", span) {
+            for f in fields {
+                match &f.kind {
+                    StructLitFieldKind::Named { value, .. } => {
+                        self.check_expr(value, None);
+                    }
+                    StructLitFieldKind::Spread(e) => {
+                        self.check_expr(e, None);
+                    }
+                    StructLitFieldKind::InlineFor { .. } => {}
+                }
+            }
+            return struct_ty;
+        }
         // [comptime-fields] A compile-time type is never constructed.
         if decl.comptime {
             self.error(
@@ -27033,6 +27063,83 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         collect(ty);
         Self::substitute_value_refs(ty, &map)
+    }
+
+    /// [struct-opaque] The declaration of struct `key` when it is `opaque`
+    /// and this file is outside its module — the declaring file and that
+    /// module's `*.test.sv` annex see inside, nothing else does.
+    fn hidden_opaque(&self, key: &str) -> Option<&'p StructDecl> {
+        let decl: &'p StructDecl = self.symbols.structs.get(key).copied()?;
+        if !decl.opaque {
+            return None;
+        }
+        let module = self.symbols.key_modules.get(key)?;
+        let here = &self.files[self.file_idx];
+        if here.module == **module {
+            return None;
+        }
+        // [test-file] The annex of module `m` is module `m.test`.
+        if here.is_test
+            && here.module.0.len() == module.0.len() + 1
+            && here.module.0.last().is_some_and(|l| l == "test")
+            && here.module.0[..module.0.len()] == module.0[..]
+        {
+            return None;
+        }
+        Some(decl)
+    }
+
+    /// [struct-opaque] Refuses `what` on a value of a struct type this file may
+    /// not look inside, naming the type as opaque and pointing at its fns.
+    /// True when refused.
+    fn refuse_opaque(&mut self, ty: &Ty, what: &str, span: Span) -> bool {
+        let Ty::Named { name, .. } = ty.strip_quals() else {
+            return false;
+        };
+        let name = name.clone();
+        let Some(decl) = self.hidden_opaque(&name) else {
+            return false;
+        };
+        let module = self.symbols.key_modules.get(name.as_str()).map(|m| m.to_string()).unwrap_or_default();
+        let shown = decl.name.name.clone();
+        // Its functions: the fns of its module whose first parameter is it.
+        let mut fns: Vec<String> = self
+            .symbols
+            .fns
+            .values()
+            .flatten()
+            .filter(|f| {
+                f.params.first().is_some_and(|p| {
+                    let base = match &p.ty {
+                        ast::Type::Named { base, .. } => Some(&base.name.name),
+                        ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
+                            ast::Type::Named { base, .. } => Some(&base.name.name),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    base.is_some_and(|b| *b == shown)
+                })
+            })
+            .filter(|f| f.exported || f.scoped_to.is_some())
+            .map(|f| format!("`{}`", f.name.name))
+            .collect();
+        fns.sort();
+        fns.dedup();
+        fns.truncate(8);
+        let pointer = if fns.is_empty() {
+            String::new()
+        } else {
+            format!(": use its functions ({})", fns.join(", "))
+        };
+        self.error(
+            span,
+            format!(
+                "`{shown}` is opaque outside `{module}`, so {what} is not allowed here{pointer} \
+                 [struct-opaque]"
+            ),
+        );
+        true
     }
 
     /// [call-resolve] Whether an argument of type `arg` fits a fn value's

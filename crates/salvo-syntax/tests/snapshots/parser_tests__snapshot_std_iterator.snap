@@ -90,6 +90,7 @@ Module {
                 fields: [],
                 fns: [],
                 linear: false,
+                opaque: false,
                 noremote: false,
                 comptime: false,
                 span: 1452..1470,

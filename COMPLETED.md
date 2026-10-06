@@ -141,6 +141,19 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, step 6c: opaque structs (2026-10-05, ROADMAP §0j).**
+`opaque struct S` [struct-opaque], a contextual modifier like `noremote`: the
+declaring module and its `*.test.sv` annex see an ordinary struct; elsewhere
+a literal, a field read or write, and destructuring are refused, naming the
+type as opaque and listing its functions. The comptime expansion classifies
+such a struct from another module as kind `opaque` (`Basic`) and refuses a
+`fn … by auto` stamped at it there. Nothing changed in the backends: the host
+class keeps its fields, and what the module generates (by-auto members,
+`copy`, codecs) is the module's code. The checker now holds the source files
+(for a declaration's module and the annex rule). Tests: `opaque_tests` (the
+refusals, the annex, the comptime kind), and a two-module program e2e on both
+backends. **1715 tests.**
+
 **Shrinking the backends, step 6i: stamping at generic structs, and implicits
 that join resolution (2026-10-05, ROADMAP §0j; user decision on option A).**
 - **The decision** [implicit-resolve-body] (user, 2026-10-05): inside a body an
@@ -21762,7 +21775,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1711; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1715; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

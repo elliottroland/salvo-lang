@@ -7820,6 +7820,27 @@ between endpoints and delivers what arrives into the scheduler.
 * [mod-visibility] Code sees: everything declared in its own module (all
   its `.sv` files), and everything **exported** [mod-export] by `core.*`
   (implicit) or by whatever it imports.
+* [struct-opaque] **`opaque struct S { … }`** (user decisions 2026-10-05,
+  ROADMAP §0j step 6c; built 2026-10-05): an ordinary struct in its
+  declaring module and that module's `*.test.sv` annex (module `m.test`
+  [test-file]); everywhere else the type is usable and its fields are not —
+  no literal, field read or write (`s.f`, an assignment target included), spread
+  or destructuring. A contextual modifier, like `noremote`, combinable with
+  `linear`, `noremote` and `export`.
+  * The diagnostic names the type as opaque outside its module and lists its
+    functions (exported or attached fns whose first parameter is it).
+  * Settled with the decision: `by auto` instances, `copy` and the codecs are
+    generated in the module and usable everywhere; another module's
+    qualifier cannot read the fields (its `qualifies` is other-module code);
+    the host class keeps its fields under the host contract, so the backends
+    change nothing.
+  * **A comptime fn instantiated outside the module sees kind `opaque`**
+    (`Basic`): `[when field.type]` takes the `Opaque` arm, so `by auto` and
+    the codecs call the type's own `eq`/`encode` instead of walking fields,
+    and `fn same(a: Bag, b: Bag) by auto` there is refused naming the
+    module to stamp it in [fn-by].
+  * Chosen over private fields and over a sealed (read-only) struct: opacity
+    is what lets a module change a representation later.
 * [mod-export] **Declarations are module-private by default; `export` lets one
   out** (user decision 2026-09-18). A declaration without it can be used only
   inside the file that declares it [mod-file]; with it, it is part of the

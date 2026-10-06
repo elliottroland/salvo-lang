@@ -223,8 +223,8 @@ dispatches on it with an ordinary `when`, exhaustive over the arms unless an
 }
 ```
 
-`Opaque` is a type the comptime fn cannot look inside — an `Int`, or a type
-parameter — and `is Opaque` matches either of its arms, `Basic` and `Generic`,
+`Opaque` is a type the comptime fn cannot look inside — an `Int`, a type
+parameter, or an `opaque struct` from another module — and `is Opaque` matches either of its arms, `Basic` and `Generic`,
 when the body does not care which. The exhaustiveness is deliberate: when the
 language gains a kind, every comptime fn that did not consider it stops
 compiling rather than silently skipping it.

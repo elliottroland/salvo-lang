@@ -4548,6 +4548,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_canbe_mut_field,
     kotlinc_compiles_and_runs_struct_slot,
     kotlinc_compiles_and_runs_generic_stamp,
+    kotlinc_compiles_and_runs_opaque_struct,
     kotlinc_compiles_and_runs_literal_identity,
     kotlinc_compiles_and_runs_int_wrap_and_bits,
     kotlinc_compiles_and_runs_move_modes,
@@ -5860,6 +5861,58 @@ fn kotlinc_compiles_and_runs_generic_stamp() -> KotlinCase {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic_stamp", "-1 false true\ntrue false true Wrapper { value: a, inner: Inner { k: 1 }, n: 1 }\n-1\n")
+}
+
+/// [struct-opaque] An opaque struct used from another module through its
+/// functions, its stamped `eq`/`to_str` reached from there, and copied deeply.
+pub const OPAQUE_BAG: &str = r#"
+export opaque struct Bag : Eq<self> by auto, ToStr<self> by auto canbe Mut {
+    items: canbe Mut List<Int>,
+    total: Int
+}
+
+export fn bag() [] -> Mut Bag {
+    return Mut Bag { items: mut_list_of<Int>(), total: 0 }
+}
+
+export fn put(b: Mut Bag, x: Int) [] -> None => b: Mut, !x {
+    b.total = b.total + x
+    add(b.items, x)
+}
+
+export fn total(b: Bag) [] -> Int => b {
+    return b.total
+}
+"#;
+
+pub const OPAQUE_MAIN: &str = r#"
+import bag.Bag
+import bag.bag
+import bag.put
+import bag.total
+
+struct Shelf : Eq<self> by auto, ToStr<self> by auto {
+    b: Bag
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let b = bag()
+    put(b, 3)
+    put(b, 4)
+    let c = copy(b)
+    put(c, 1)
+    let s = Shelf { b: copy(c) }
+    println("${total(b)} ${total(c)} ${b == c} ${s}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_opaque_struct() -> KotlinCase {
+    let program = build_program(&[("bag.sv", OPAQUE_BAG), ("main.sv", OPAQUE_MAIN)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "opaque_struct", "7 8 false Shelf { b: Bag { items: [3, 4, 1], total: 8 } }\n")
 }
 
 /// [kt-field-canbe-mut] A `canbe Mut Str` field would hold a `String` or a

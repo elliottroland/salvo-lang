@@ -341,6 +341,10 @@ pub struct StructDecl {
     /// modifier; the modifier is for leaf types and concrete linear
     /// fields.
     pub linear: bool,
+    /// [struct-opaque] `opaque struct Map<K, V> { … }`: an ordinary struct in
+    /// its declaring module (and that module's test annex); elsewhere the
+    /// type is usable but its fields are not.
+    pub opaque: bool,
     /// [noremote] `noremote struct Canvas { … }`: no wire form, and
     /// transitive — a struct with a `noremote` field is `noremote` whether or
     /// not it says so. The opt-out of serializable-by-default (user decision

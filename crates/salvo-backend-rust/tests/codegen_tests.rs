@@ -1227,6 +1227,57 @@ fn run_h() [use] -> None {
     run_rust_files(&files, "generic_stamp", "-1 false true\ntrue false true Wrapper { value: a, inner: Inner { k: 1 }, n: 1 }\n-1\n");
 }
 
+/// [struct-opaque] The Kotlin backend's opaque-struct case, run on Rust.
+#[test]
+fn rustc_compiles_and_runs_opaque_struct() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let bag = r#"
+export opaque struct Bag : Eq<self> by auto, ToStr<self> by auto canbe Mut {
+    items: canbe Mut List<Int>,
+    total: Int
+}
+
+export fn bag() [] -> Mut Bag {
+    return Mut Bag { items: mut_list_of<Int>(), total: 0 }
+}
+
+export fn put(b: Mut Bag, x: Int) [] -> None => b: Mut, !x {
+    b.total = b.total + x
+    add(b.items, x)
+}
+
+export fn total(b: Bag) [] -> Int => b {
+    return b.total
+}
+"#;
+    let main = r#"
+import bag.Bag
+import bag.bag
+import bag.put
+import bag.total
+
+struct Shelf : Eq<self> by auto, ToStr<self> by auto {
+    b: Bag
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let b = bag()
+    put(b, 3)
+    put(b, 4)
+    let c = copy(b)
+    put(c, 1)
+    let s = Shelf { b: copy(c) }
+    println("${total(b)} ${total(c)} ${b == c} ${s}")
+}
+"#;
+    let files = generate(&[("bag.sv", bag), ("main.sv", main)]);
+    run_rust_files(&files, "opaque_struct", "7 8 false Shelf { b: Bag { items: [3, 4, 1], total: 8 } }\n");
+}
+
 /// [cmp-carry] [col-literal] A collection literal takes its identity from the
 /// position, empty or not (ROADMAP §0j step 1).
 #[test]

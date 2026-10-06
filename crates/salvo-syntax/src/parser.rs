@@ -102,6 +102,10 @@ pub const ITERABLE_MODIFIER: &str = "iterable";
 /// everywhere but directly before a type-declaring keyword.
 pub const NOREMOTE_MODIFIER: &str = "noremote";
 
+/// [struct-opaque] The contextual modifier that keeps a struct's fields in its
+/// module: `opaque struct Map<K, V> { … }`.
+pub const OPAQUE_MODIFIER: &str = "opaque";
+
 /// [comptime-bound] [comptime-fields] The contextual modifier of the whole
 /// compile-time facility: `comptime fn cmp<T is Struct>(…)`, `comptime struct
 /// Field { … }`, `comptime type Type = …` (user decision 2026-09-29, replacing
@@ -743,7 +747,8 @@ impl<'s> Parser<'s> {
                             | TokenKind::KwHandler
                             | TokenKind::KwEffect
                             | TokenKind::KwQualifier
-                    ) =>
+                    ) || (name == NOREMOTE_MODIFIER
+                        && matches!(&self.peek_at(1).kind, TokenKind::Ident(w) if w == OPAQUE_MODIFIER)) =>
             {
                 let span = self.peek().span;
                 self.bump();
@@ -762,6 +767,30 @@ impl<'s> Parser<'s> {
                             "`noremote` keeps a *type* off the wire, so it precedes a \
                              `struct` or `type` declaration — a function, handler or \
                              effect has no wire form to refuse [noremote]",
+                            span,
+                        );
+                        Some(other)
+                    }
+                }
+            }
+            // [struct-opaque] `opaque struct S`, `opaque linear struct S`: the
+            // fields are the declaring module's. Contextual, like `noremote`.
+            TokenKind::Ident(name)
+                if name == OPAQUE_MODIFIER
+                    && matches!(self.peek_at(1).kind, TokenKind::KwStruct | TokenKind::KwLinear) =>
+            {
+                let span = self.peek().span;
+                self.bump();
+                let item = self.parse_declaration()?;
+                match item {
+                    Item::Struct(mut d) => {
+                        d.opaque = true;
+                        Some(Item::Struct(d))
+                    }
+                    other => {
+                        self.error(
+                            "`opaque` hides a struct's fields outside its module, so it \
+                             precedes a `struct` declaration [struct-opaque]",
                             span,
                         );
                         Some(other)
@@ -1543,6 +1572,8 @@ impl<'s> Parser<'s> {
             auto_qualifiers,
             fields,
             linear,
+            // [struct-opaque] Set by `parse_declaration`, which peels the word.
+            opaque: false,
             span: start.to(end),
         })
     }

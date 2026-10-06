@@ -254,11 +254,20 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                 };
                 let Some(target) = world.target(&target_name) else {
                     diags.push(Diagnostic::error(
-                        format!(
-                            "`fn {}` is stamped at `{target_name}`, which is not a struct or a \
-                             declared union type [fn-by]",
-                            f.name.name
-                        ),
+                        if world.opaque_here(&target_name) {
+                            format!(
+                                "`fn {}` is stamped at `{target_name}`, which is opaque outside its \
+                                 module: its fields are not this module's to walk, so stamp it \
+                                 where `{target_name}` is declared [struct-opaque] [fn-by]",
+                                f.name.name
+                            )
+                        } else {
+                            format!(
+                                "`fn {}` is stamped at `{target_name}`, which is not a struct or a \
+                                 declared union type [fn-by]",
+                                f.name.name
+                            )
+                        },
                         first.ty.span(),
                     ));
                     fallback_body(f);
@@ -823,6 +832,24 @@ struct World {
 }
 
 impl World {
+    /// [struct-opaque] Whether `name` is an opaque struct whose fields the
+    /// module being expanded may not see: declared elsewhere, and this is not
+    /// its `*.test.sv` annex (module `m.test`).
+    fn opaque_here(&self, name: &str) -> bool {
+        let Some(all) = self.structs.get(name) else { return false };
+        let own = self.own.borrow();
+        let Some((module, decl)) = all.iter().find(|(m, _)| *m == *own).or_else(|| all.first()) else {
+            return false;
+        };
+        if !decl.opaque || *module == *own {
+            return false;
+        }
+        let annex = own.0.len() == module.0.len() + 1
+            && own.0.last().is_some_and(|l| l == "test")
+            && own.0[..module.0.len()] == module.0[..];
+        !annex
+    }
+
     fn struct_named(&self, name: &str) -> Option<&StructDecl> {
         let all = self.structs.get(name)?;
         let own = self.own.borrow();
@@ -858,6 +885,11 @@ impl World {
     /// The target a type name denotes: a struct, or a `type` declaration
     /// whose alias is a union. Anything else is not a `by` target.
     fn target(&self, name: &str) -> Option<Target> {
+        // [struct-opaque] Kind `opaque` here: not a struct a comptime fn of kind
+        // `Struct` may be stamped at.
+        if self.opaque_here(name) {
+            return None;
+        }
         if let Some(s) = self.struct_named(name) {
             return Some(Target {
                 name: name.to_string(),
@@ -1094,6 +1126,12 @@ impl World {
                     return TypeKindWord::Generic;
                 }
                 if self.structs.contains_key(name) {
+                    // [struct-opaque] Outside its module an opaque struct is
+                    // kind `opaque`: a comptime body there calls the type's
+                    // own functions instead of walking fields it may not see.
+                    if self.opaque_here(name) {
+                        return TypeKindWord::Basic;
+                    }
                     return TypeKindWord::Struct;
                 }
                 if let Some(t) = self.type_named(name) {
