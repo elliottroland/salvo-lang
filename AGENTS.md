@@ -55,6 +55,7 @@ which rules are in play and where they live in the code*.
 | `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `std/**/*.rust.sv`) |
 | `ROADMAP.md` | What is left, as one sequence: steps, open defects, decisions, and the parked tail | Always |
 | `COMPLETED.md` | The record: decision log, milestone history, abandoned options, closed defects, test inventory, gotchas | Always |
+| `TOUR.md` | A guided tour of the compiler with snippets: the pipeline, a map of `salvo-core`, the `Checked` tables, both emitters, and what the IR work would change | When you need to find where a decision is made, or before design work on ownership and lowering |
 | `AGENTS.md` | This file — how to work on the repo | Always |
 | `examples/README.md` | The worked examples: layout, how to regenerate them, and the conventions they must keep | When adding or touching an example, or when a language change invalidates one |
 | `README.md` | Public-facing overview and quick start | Rarely (keep in sync on user-visible changes) |

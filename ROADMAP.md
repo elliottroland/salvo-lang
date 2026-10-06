@@ -236,36 +236,23 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     small: the dot-notation normalization still asks `effect_of_fn` (step 13
     removes it), and the actor-send path (`a.send_fn(..)`) still reads
     `effect_member_calls` for its overload index.
-12. **The ownership plan, as side tables.** Done (COMPLETED.md, 2026-10-06):
-    the per-parameter modes, for fns, effect members, handler members and fn
-    types (`salvo_core::param_mode`, [param-mode]), and the per-fn sets
-    (which fns need a locator twin, which cover `canbe`:
-    `salvo_core::mut_lends`). Left, in this order: per narrowing (locals
-    bound to an optional borrow or a call with `proj` arms, keyed by the
-    binding span), per read (move, copy, clone-out, borrow, take: the
-    ident/projection split first, then arguments), per call (hoists: these
-    are rustc E0502 remedies and stay in the backend, reading the read
-    table), and the `Ty`-based fn-position renderings
-    (`fn_ty_param_renderings`, the implicit positions). Rust code is deleted
-    site by site as each table lands. Absorbs §11 (the read-mode table says
-    what a read produced) and §0h's note that Rust's `__loc` variants depend
-    on callers. Also moved (2026-10-06): the optional-borrow and `proj`-arm
-    call classification (`salvo_core::borrows`). What remains of the
-    narrowing table is the *local* classification (which `let` holds an
-    optional borrow, which holds borrowed arms), which the emitter builds in
-    its `bindings` map at about thirty sites, so it moves with step 13. The `rs-` rules that state Salvo ownership (rs-read-mode,
-    rs-opt-borrow, rs-proj-arm, rs-fn-param-convention) become neutral
-    LANGUAGE_SPEC.md rules; the Rust spellings stay in BACKEND_SPEC.rust.md.
-13. **A lowering pass for the rewrites**: argument hoists, fn variants,
-    value-position `loop`/`if`/blocks, the iterator driver; possibly fn
-    bodies only. Designed with 12's tables as its vocabulary. Dot-notation
-    is done (`Checked::dot_calls`, 2026-10-06). Survey findings to start
-    from: there is no last-use analysis to build (an owned local in a
-    consuming position is a move, because the checker rejected any later
-    use), so the per-read table is position x root binding kind x type; the
-    position (ambient `ValueMode` set by about ten callers) and the root kind
-    (`BindKind`, set at about thirty `bindings` insertions) are the two inputs
-    core lacks, and both come from the same walk this step is.
+12. **The ownership plan.** Done (COMPLETED.md, 2026-10-06): parameter modes
+    (`salvo_core::param_mode`), the mutable-lend sets (`mut_lends`), the
+    borrowed-result classification (`borrows`), and the unifications (effect
+    members count element `Mut`; one ABI module rule). Examined and *not*
+    built, by the core/backend rule (AGENTS.md, [core-layers]): a per-local
+    `BindKind` table and the borrow-`let` are Rust's state about its own
+    output types, not Salvo facts. **Open, for discussion in TOUR.md §9–10:**
+    one new core table, the *demand* on each expression (moved / lent / lent
+    mutably / discarded / returned), which is what `ValueMode` is a function of.
+13. **Rewrites as opt-in helpers in `salvo-backend`**, in this order: argument
+    hoists (AST-to-AST, registering checker-table entries for the nodes they
+    create), the `__loc` fn variants, value-position control flow (a helper
+    taking the target's native-construct set, so core stays target-free), then
+    the IR as the named output of these. Dot-notation is done
+    (`Checked::dot_calls`). An `iter fn` is a syntax-crate desugaring with no
+    state machine ([iter-fn]); the only generated control flow is the `for`
+    loop calling `next`. TOUR.md §10 lists the decisions still open.
 
 What a garbage-collected third backend then writes: expression, statement
 and type rendering; the `UnionN` generator and union renderers; `try`/throw;

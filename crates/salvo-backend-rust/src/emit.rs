@@ -1147,8 +1147,6 @@ struct Narrowing {
     copy: bool,
 }
 
-/// How a name in scope is bound in the emitted Rust [rs-borrows].
-
 /// [rs-read-mode] What a position wants of the value being emitted: `Read` when
 /// a borrow is enough (an interpolation, a `&T` argument, a comparison), `Own`
 /// when it must be a value (a `let`, a `return`, a struct field, a consuming
@@ -1159,6 +1157,7 @@ enum ValueMode {
     Own,
 }
 
+/// How a name in scope is bound in the emitted Rust [rs-borrows].
 #[derive(Clone, Copy, PartialEq)]
 enum BindKind {
     /// An owned binding (locals, moved parameters, lambda/loop bindings).
