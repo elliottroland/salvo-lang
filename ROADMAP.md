@@ -161,8 +161,10 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    - e. ✅ **Deep copy of structs on Kotlin** [kt-copy] (2026-10-05, with b).
      Left: a struct reached again inside its own copy (`List<Mut Node>` in
      `Node`) is a codegen error; it needs a generated recursive copy fn.
-   - f. **Hand-written `eq`/`hash`/`to_str` beside `by auto`** on a struct:
-     check what exists; a map's equality ignores order and tombstones.
+   - f. ✅ **Hand-written `eq`/`hash`/`to_str` beside `by auto`** (checked
+     2026-10-05, COMPLETED.md): already supported (an obligation without
+     `by` is a promise any visible fn keeps), generic structs included since
+     6i. Step 7's map writes its order- and tombstone-blind `eq` this way.
    - g0. ✅ **`Idx` for anything indexable** [col-idx] (user decision and
      build 2026-10-05, COMPLETED.md): `core.index`, `qualifies` taking
      `?size` at the tested container. `Str` stays excluded until the

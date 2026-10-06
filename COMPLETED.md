@@ -141,6 +141,19 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, step 6f: hand-written members beside `by auto`
+(2026-10-05, ROADMAP §0j).** Checked rather than built: a struct may take
+`Eq<self>, ToStr<self> by auto` and write its own `eq` (an obligation without
+`by` is kept by any visible fn of the shape [group-obligation]), and since 6i
+that holds for a generic struct, whose hand-written `eq<T>(a, b, ?Eq<T>)` and
+stamped `to_str<T>(…, ?ToStr<T>)` sit side by side. One Rust defect fell out:
+inside the stamped `to_str`, interpolating a `List<T>` field called the
+list's `to_str` by its bare name, which the fn's own implicit `to_str`
+shadows (E0057); the interpolation path now spells the path
+(`crate::core_list::to_str`) as a call already did [rs-shadowed-call], and
+`fn_module_path` finds a declaration of another file by its key. Test: one
+program e2e on both backends. **1716 tests.**
+
 **Shrinking the backends, steps 6g0 and 6g: one `Idx` for every container,
 and the buffers (2026-10-05, ROADMAP §0j; built on the user's decisions
 recorded the same day).**
@@ -21827,7 +21840,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1715; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1716; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

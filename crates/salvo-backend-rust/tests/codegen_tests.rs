@@ -1278,6 +1278,66 @@ fn main() [use] -> None {
     run_rust_files(&files, "opaque_struct", "7 8 false Shelf { b: Bag { items: [3, 4, 1], total: 8 } }\n");
 }
 
+/// [obligation-by] [rs-shadowed-call] The Kotlin backend's mixed-members
+/// case, run on Rust: the stamped `to_str` calls `crate::core_list::to_str`,
+/// since its own implicit `to_str` shadows the name.
+#[test]
+fn rustc_compiles_and_runs_mixed_members() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let src = r#"
+struct Bag<T> : Eq<self>, ToStr<self> by auto {
+    items: List<T>,
+    n: Int
+}
+
+// Order-blind equality, by hand, beside the stamped `to_str`.
+fn eq<T>(a: Bag<T>, b: Bag<T>, ?Eq<T>) [] -> Bool => a, b {
+    if size(a.items) != size(b.items) {
+        return false
+    }
+    for x in a.items {
+        if !contains_eq(b.items, x) {
+            return false
+        }
+    }
+    return true
+}
+
+fn contains_eq<T>(xs: proj List<T>, x: proj T, ?Eq<T>) [] -> Bool => xs, x {
+    for y in xs {
+        if eq(x, y) {
+            return true
+        }
+    }
+    return false
+}
+
+struct Point : Hashed<self> by auto, ToStr<self> {
+    x: Int,
+    y: Int
+}
+
+fn to_str(p: Point) [] -> Str => p {
+    return "(${p.x}, ${p.y})"
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let a = Bag<Int> { items: list_of(1, 2), n: 0 }
+    let b = Bag<Int> { items: list_of(2, 1), n: 5 }
+    println("${a == b} ${a}")
+    let p = Point { x: 1, y: 2 }
+    let s = set_of(p, Point { x: 1, y: 2 })
+    println("${p} ${size(s)}")
+}
+"#;
+    let files = generate(&[("main.sv", src)]);
+    run_rust_files(&files, "mixed_members", "true Bag { items: [1, 2], n: 0 }\n(1, 2) 1\n");
+}
+
 /// [cmp-carry] [col-literal] A collection literal takes its identity from the
 /// position, empty or not (ROADMAP §0j step 1).
 #[test]

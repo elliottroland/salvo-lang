@@ -6747,6 +6747,7 @@ impl<'p> Emitter<'p> {
             .fn_refs
             .get(&(self.file_idx, decl.name.span))
             .map(|key| key.file)
+            .or_else(|| self.key_of_fn(decl).map(|k| k.file))
             .and_then(|file| self.program.files.get(file))
             .map(|f| &f.module);
         match module {
@@ -14369,7 +14370,12 @@ impl<'p> Emitter<'p> {
                 }
             };
         }
-        let name = self.rust_fn_name(decl);
+        let mut name = self.rust_fn_name(decl);
+        // [rs-shadowed-call] Inside a fn with an implicit `to_str` (a stamp at a
+        // generic struct), a declaration of that name is reached by its path.
+        if self.bindings.contains_key(decl.name.name.as_str()) && !name.contains("::") {
+            name = format!("{}::{name}", self.fn_module_path(decl));
+        }
         // [interp-to-str] A `to_str` with implicits had them filled at the
         // zero-width span after the value.
         let at = Span::new(expr.span().end, expr.span().end);

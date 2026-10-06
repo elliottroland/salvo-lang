@@ -4549,6 +4549,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_struct_slot,
     kotlinc_compiles_and_runs_generic_stamp,
     kotlinc_compiles_and_runs_opaque_struct,
+    kotlinc_compiles_and_runs_mixed_members,
     kotlinc_compiles_and_runs_literal_identity,
     kotlinc_compiles_and_runs_int_wrap_and_bits,
     kotlinc_compiles_and_runs_move_modes,
@@ -5913,6 +5914,67 @@ fn kotlinc_compiles_and_runs_opaque_struct() -> KotlinCase {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "opaque_struct", "7 8 false Shelf { b: Bag { items: [3, 4, 1], total: 8 } }\n")
+}
+
+/// [obligation-by] [group-obligation] Hand-written members beside stamped
+/// ones (ROADMAP §0j 6f): an order-blind `eq` written for a generic struct
+/// whose `to_str` is `by auto`, and a `to_str` written for a struct whose
+/// `hash`/`eq` are. Shared with the Rust backend's run, where the stamped
+/// `to_str` reaches the list's `to_str` past its own implicit of that name.
+pub const MIXED_MEMBERS_DEMO: &str = r#"
+struct Bag<T> : Eq<self>, ToStr<self> by auto {
+    items: List<T>,
+    n: Int
+}
+
+// Order-blind equality, by hand, beside the stamped `to_str`.
+fn eq<T>(a: Bag<T>, b: Bag<T>, ?Eq<T>) [] -> Bool => a, b {
+    if size(a.items) != size(b.items) {
+        return false
+    }
+    for x in a.items {
+        if !contains_eq(b.items, x) {
+            return false
+        }
+    }
+    return true
+}
+
+fn contains_eq<T>(xs: proj List<T>, x: proj T, ?Eq<T>) [] -> Bool => xs, x {
+    for y in xs {
+        if eq(x, y) {
+            return true
+        }
+    }
+    return false
+}
+
+struct Point : Hashed<self> by auto, ToStr<self> {
+    x: Int,
+    y: Int
+}
+
+fn to_str(p: Point) [] -> Str => p {
+    return "(${p.x}, ${p.y})"
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let a = Bag<Int> { items: list_of(1, 2), n: 0 }
+    let b = Bag<Int> { items: list_of(2, 1), n: 5 }
+    println("${a == b} ${a}")
+    let p = Point { x: 1, y: 2 }
+    let s = set_of(p, Point { x: 1, y: 2 })
+    println("${p} ${size(s)}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_mixed_members() -> KotlinCase {
+    let program = build_program(&[("main.sv", MIXED_MEMBERS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "mixed_members", "true Bag { items: [1, 2], n: 0 }\n(1, 2) 1\n")
 }
 
 /// [kt-field-canbe-mut] A `canbe Mut Str` field would hold a `String` or a
