@@ -136,6 +136,23 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — Lending variants in core (§0j step 12, second table)
+
+`salvo_core::lend_variants` took `lend_mut_demand` (which fns need a locator
+twin, which call sites are seeds and which return-path calls forward),
+`covered_fns` (per fn, the parameters a `canbe` clause covers and their shared
+anchor) and their walkers (`collect_returned_exprs`, `collect_let_values`,
+`fn_type_lends_mut`, `ty_lends_mut`, `mut_lend_call_of`, `strip_top_proj_ast`)
+verbatim, 440 lines out of the Rust emitter. They touch only the program, the
+checker tables and the AST, so no behavior changed and the generated code is
+byte-identical. Rendering (`lend_loc_mode`, `loc_adapter`, `mut_call_lent`,
+the `__loc` names) stays in Rust. `Emitter::new` still recomputes the demand
+per file; caching it on `Checked` is a small follow-up. The survey for the
+remaining tables found no last-use analysis anywhere: an owned local in a
+consuming position is always a move, because the checker already rejected a
+later use, so the per-read table needs only position × root binding kind ×
+type.
+
 ### 2026-10-06 — Parameter modes in core (§0j step 12, first table)
 
 `salvo_core::param_mode` ([param-mode]) holds what `param_mode`,

@@ -7564,6 +7564,14 @@ between endpoints and delivers what arrives into the scheduler.
   type's own clause (`fn_type_position`), which is how a lambda binds its
   parameters. A backend whose values are all references ignores the modes; one
   that spells ownership renders them ([rs-borrows]).
+* [lend-variants] **Which fns lend a `Mut` result, and which cover `canbe`
+  parameters, is core's call** (built 2026-10-06, `salvo_core::lend_variants`):
+  the fns a `Mut` position reads a lent result of (the checker's
+  `mut_lend_calls` resolved through `call_fn`, followed along return paths
+  inside each demanded body), and, per fn, the parameters its `canbe` clause
+  covers and the anchor they share. A target that renders a lent mutable
+  result as a locator ([rs-loc]) emits a twin for each demanded fn; a
+  garbage-collected target ignores both.
 * [copy-plan] **What `copy` duplicates is core's call** (built 2026-10-06,
   `salvo_core::copyplan`): a tree per type — share the value when no Salvo
   operation can mutate any part of it (scalars, `Str`, non-`Mut` structs of

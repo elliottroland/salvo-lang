@@ -243,10 +243,14 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     `effect_member_calls` for its overload index.
 12. **The ownership plan, as side tables.** Done (COMPLETED.md, 2026-10-06):
     the per-parameter modes, for fns, effect members, handler members and fn
-    types (`salvo_core::param_mode`, [param-mode]). Left, in this order:
-    per read (move, copy, borrow, take), per narrowing (is the subject a
-    borrow), per fn (lends mutably on its return path; which variants callers
-    need), per call (hoists), and the `Ty`-based fn-position renderings
+    types (`salvo_core::param_mode`, [param-mode]), and the per-fn sets
+    (which fns need a locator twin, which cover `canbe`:
+    `salvo_core::lend_variants`). Left, in this order: per narrowing (locals
+    bound to an optional borrow or a call with `proj` arms, keyed by the
+    binding span), per read (move, copy, clone-out, borrow, take: the
+    ident/projection split first, then arguments), per call (hoists: these
+    are rustc E0502 remedies and stay in the backend, reading the read
+    table), and the `Ty`-based fn-position renderings
     (`fn_ty_param_renderings`, the implicit positions). Rust code is deleted
     site by site as each table lands. Absorbs §11 (the read-mode table says
     what a read produced) and §0h's note that Rust's `__loc` variants depend

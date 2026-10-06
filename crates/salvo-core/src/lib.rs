@@ -5,6 +5,7 @@ pub mod route;
 pub mod features;
 pub mod copyplan;
 pub mod param_mode;
+pub mod lend_variants;
 pub mod abi;
 pub mod case;
 pub mod check;
