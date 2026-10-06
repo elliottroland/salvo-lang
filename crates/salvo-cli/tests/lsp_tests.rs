@@ -2075,6 +2075,79 @@ fn main() [Console] {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [lsp-completion] [struct-opaque] After the dot on a value of an opaque
+/// struct, the fields are offered in the declaring module and not elsewhere.
+#[test]
+fn completion_hides_an_opaque_structs_fields_outside_its_module() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_opaque");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let bag = "\
+export opaque struct Bag {
+    secret: Int
+}
+
+export fn make() [] -> Bag {
+    return Bag { secret: 1 }
+}
+
+fn inside(b: Bag) -> Int {
+    return b.
+}
+";
+    let main = "\
+import bag.Bag
+
+fn outside(b: Bag) -> Int {
+    return b.
+}
+
+fn main() [Console] {
+}
+";
+    std::fs::write(root.join("bag.sv"), bag).unwrap();
+    std::fs::write(root.join("main.sv"), main).unwrap();
+    let mut lsp = start(&root);
+    let open = |lsp: &mut Lsp, file: &str, text: &str| {
+        let uri = format!("file://{}", root.join(file).display());
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "method": "textDocument/didOpen",
+                "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": text}}
+            }),
+        );
+        let _ = expect_diagnostics(&lsp.rx);
+        uri
+    };
+    let bag_uri = open(&mut lsp, "bag.sv", bag);
+    let main_uri = open(&mut lsp, "main.sv", main);
+    let complete = |lsp: &mut Lsp, id: i64, uri: &str, line: u32, character: u32| -> Vec<String> {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+                "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        response["result"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no completion list: {response}"))
+            .iter()
+            .map(|i| i["label"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let inside = complete(&mut lsp, 2, &bag_uri, 9, 13);
+    assert!(inside.iter().any(|l| l == "secret"), "{inside:?}");
+    let outside = complete(&mut lsp, 3, &main_uri, 3, 13);
+    assert!(!outside.iter().any(|l| l == "secret"), "{outside:?}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [lsp-hover-iter-fn] [lsp-definition] An `iter fn` hovers as written, at
 /// its declaration and at a call; a field reached through a chain inside a
 /// dot-call's argument jumps to its declaration.

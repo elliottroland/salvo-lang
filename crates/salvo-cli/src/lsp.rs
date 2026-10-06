@@ -1183,7 +1183,7 @@ impl Server<'_> {
         let mut items: Vec<CompletionItem> = Vec::new();
         // [lsp-completion] After a dot on a struct: its fields, first.
         if let (true, Some(r)) = (dot, &receiver) {
-            for f in struct_fields(&analysis.program, r) {
+            for f in struct_fields(&analysis.program, r, view.file) {
                 items.push(CompletionItem {
                     label: f.0.clone(),
                     kind: Some(CompletionItemKind::FIELD),
@@ -1318,17 +1318,33 @@ impl Server<'_> {
 
 /// [lsp-completion] The fields of the struct named `name` (its first
 /// declaration), as `(name, type)`.
-fn struct_fields(program: &salvo_core::Program, name: &str) -> Vec<(String, String)> {
-    for module in &program.modules {
+fn struct_fields(program: &salvo_core::Program, name: &str, viewer: usize) -> Vec<(String, String)> {
+    for (file, module) in program.files.iter().zip(&program.modules) {
         for item in &module.items {
             if let salvo_syntax::ast::Item::Struct(s) = item {
                 if s.name.name == name {
+                    // [struct-opaque] Outside its module (and that module's
+                    // test annex) an opaque struct's fields are not offered.
+                    if s.opaque && !sees_inside(program, &file.module, viewer) {
+                        return Vec::new();
+                    }
                     return s.fields.iter().map(|f| (f.name.name.clone(), f.ty.to_string())).collect();
                 }
             }
         }
     }
     Vec::new()
+}
+
+/// [struct-opaque] Whether the file `viewer` is the declaring module or its
+/// `*.test.sv` annex (module `<m>.test`).
+fn sees_inside(program: &salvo_core::Program, declaring: &salvo_core::ModulePath, viewer: usize) -> bool {
+    let Some(here) = program.files.get(viewer) else { return false };
+    here.module == *declaring
+        || (here.is_test
+            && here.module.0.len() == declaring.0.len() + 1
+            && here.module.0.last().is_some_and(|l| l == "test")
+            && here.module.0[..declaring.0.len()] == declaring.0[..])
 }
 
 /// [lsp-completion] What may follow `import <written>`: the next segment of

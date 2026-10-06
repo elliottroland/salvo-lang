@@ -149,9 +149,8 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      COMPLETED.md). Left: Kotlin refuses a `canbe Mut Str` field (a
      `StringBuilder` is not a `String`, so one property cannot hold both
      shapes without `Any` and identity equality) [kt-field-canbe-mut].
-   - c. ✅ **Opaque structs** [struct-opaque] (2026-10-05, COMPLETED.md).
-     Left: LSP completion still offers an opaque struct's fields outside its
-     module.
+   - c. ✅ **Opaque structs** [struct-opaque] (2026-10-05, COMPLETED.md; LSP
+     completion hides the fields outside the module, 2026-10-06).
    - d. ✅ **A total positional list write**, `replace(list, i: Idx(list)
      Int, v) -> T` [col-replace] (2026-10-05, COMPLETED.md), linear elements
      included: a qualifier's type parameter may now `canbe linear`. Left:
@@ -192,8 +191,15 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      A). Left: a stamp with implicits cannot be passed as a fn value (a
      `Set<Wrapper<Str>>`'s `hash`) until step 8; a generic union with a
      generic struct arm (`type Either<A> = Box<A> | Int : ToStr<self> by
-     auto`) is an overload-ranking ambiguity between the union's and `Box`'s
-     `to_str` at `Box<A>`.
+     auto`) no longer reports an ambiguity but **fails in rustc** (2026-10-06
+     diagnosis): the stamped union `to_str` (`std/core/auto.sv`, `[when value]
+     { [arm] { return to_str(value) } }`) is one body stamped per arm, so every
+     arm's `value` has the same span, and the span-keyed `repr_ty` / `expr_ty`
+     tables hold one arm's narrowing. The `Int` arm then renders as
+     `format!("{}", *value)` over the whole union, which needs `Box<A>:
+     Display`. (Non-generic unions have the same wrong rendering and pass only
+     because every arm has a `Display`.) Fix in the checker: give each stamped
+     arm distinct spans or key the narrowing tables by stamp.
 7. ✅ **The keyed collections, one representation per backend, identity
    per call** (user decisions and build 2026-10-06, COMPLETED.md; the
    "written in Salvo" plan was dropped by the user for this; leftovers

@@ -143,12 +143,14 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   part takes a `&mut` of a place (not a `&mut |closure|` argument) and no place
   read was hoisted, each part is formatted to text in turn and the texts are
   joined. Fixing it textually on the rendered argument (not on the AST) kept it
-  to the one site; the 1.5 narrower cases were already covered by the place
+  to the one site; the cases with a plain place read are already covered by the place
   hoist.
 * **A struct holding itself on Kotlin**: `CopyPlan::Recur` and a generated
   `__copy[Mut]_Name` fn per such struct; generic structs are still refused.
   The written field type names the struct plainly, so the plan keeps the
   *outer* struct's keyed name (a plain `Node` may be another module's).
+* **LSP completion** no longer offers an opaque struct's fields outside its
+  module or that module's test annex ([struct-opaque]).
 * The lending sets are computed once per program (`Lend`), and the ABI module
   rule lives once in `driver::reach` (`abi_modules`, `emitted`). The two
   backends differ on purpose: Rust also writes the reached modules in ABI mode,
@@ -22148,7 +22150,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1708; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1711; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
