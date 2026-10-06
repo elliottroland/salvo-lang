@@ -782,6 +782,10 @@ pub struct Checked {
     /// `to_str` the checker resolved for it at that site. The emitters call
     /// it instead of formatting the value directly.
     pub interp_to_str: HashMap<Key, FnKey>,
+    /// [interp-to-str] [implicit-resolve-body] Interpolated values rendered by
+    /// an **implicit** `to_str` of the enclosing fn (its name): `${v.value}`
+    /// at a generic `T` inside a `to_str` stamped with `?ToStr<T>`.
+    pub interp_implicit: HashMap<Key, String>,
     /// [proj-anywhere] Derived-return calls whose borrowed argument is a
     /// *temporary*: usable within the statement, but binding, returning or
     /// storing the view is an error (it would outlive what it borrows).
@@ -2053,6 +2057,13 @@ struct Checker<'p, 'r> {
     /// type, not by how they were declared, so a group spread here can fill
     /// an individually-declared `?add` there and the other way round.
     own_implicits: Vec<ImplicitParam>,
+    /// [implicit-resolve-body] Argument types of a call that fell through an
+    /// implicit to the fns of its name, consumed by `resolve_named_call`.
+    pending_arg_tys: Option<Vec<Ty>>,
+    /// [comptime-generic] `resolve_implicit_fn_at` is answering for a call
+    /// (an operator, an interpolation), which fills the found fn's own
+    /// implicits, rather than for a fn value, which cannot yet.
+    resolve_as_call: bool,
     /// [fn-rename] Renames in force, outermost first: a module-level one for
     /// the whole file, then one per `rename fn` statement, dropped when its
     /// block ends. Each takes an overload *out* of its own name and gives it
@@ -2290,6 +2301,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             own_proj_arms: Vec::new(),
             lending_ctor: None,
             own_implicits: Vec::new(),
+            pending_arg_tys: None,
+            resolve_as_call: false,
             renames: Vec::new(),
             warned_spare_lends: HashSet::new(),
             try_stack: Vec::new(),
@@ -5048,15 +5061,43 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [fn-contract]. Resolution needs the contract, because a fn that
     /// consumes an argument cannot fill a position that keeps it, and that
     /// difference does not show in a printed type.
+    /// [implicit-group] The implicit parameters a fn's spread groups add,
+    /// which its written list does not show: as a *value* the fn takes them
+    /// like a written `?eq: …`, so it fits no position that does not pass
+    /// them.
+    fn group_member_params(&self, key: FnKey, decl: &FnDecl) -> Vec<Ty> {
+        if decl.implicit_groups.is_empty() {
+            return Vec::new();
+        }
+        let written: HashSet<&str> =
+            decl.params.iter().filter(|p| p.implicit).map(|p| p.name.name.as_str()).collect();
+        self.out
+            .implicit_params
+            .get(&key)
+            .map(|imps| {
+                imps.iter()
+                    .filter(|i| !written.contains(i.name.as_str()))
+                    .map(|i| i.ty.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     fn fn_value_ty(&mut self, key: FnKey, decl: &'p FnDecl) -> Ty {
         let saved = self.enter_generics(&decl.generics);
-        let params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        let mut params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
         let ret = decl
             .return_type
             .as_ref()
             .map(|t| self.lower_type(t))
             .unwrap_or_else(Ty::none);
         self.generics = saved;
+        // [implicit-group] A spread group's members are implicit parameters
+        // the written list does not show; as a value the fn takes them like a
+        // written `?eq: …`, so it fits no position that does not pass them.
+        if !self.resolve_as_call {
+            params.extend(self.group_member_params(key, decl));
+        }
         let facts: Option<Vec<crate::deduce::ParamDeduction>> =
             self.effective_contract(Some(key), decl);
         let contract = facts.map(|facts| {
@@ -5684,10 +5725,36 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         for entry in entries {
             let decl = entry.decl;
-            if decl.params.iter().any(|p| p.implicit) {
+            if !self.resolve_as_call
+                && (decl.params.iter().any(|p| p.implicit) || !decl.implicit_groups.is_empty())
+            {
                 // A default that itself needs implicits would have to be
-                // resolved recursively; out of scope for now, and silently
-                // skipping it is better than picking it and failing later.
+                // resolved recursively (ROADMAP §0j step 8); out of scope for
+                // now, and silently skipping it is better than picking it and
+                // failing later. A spread group (`?Ordered<T>`, which a stamp
+                // at a generic struct carries) counts too.
+                let first_base = decl.params.iter().find(|p| !p.implicit).and_then(|p| match &p.ty {
+                    ast::Type::Named { base, .. } => Some(base.name.name.clone()),
+                    _ => None,
+                });
+                let want_base = want_params.first().and_then(|t| match t.strip_quals() {
+                    Ty::Named { name, .. } => Some(crate::typekey::plain(name).to_string()),
+                    _ => None,
+                });
+                if decl.params.iter().filter(|p| !p.implicit).count() == want_params.len()
+                    && first_base.is_some()
+                    && first_base == want_base
+                {
+                    note(
+                        0,
+                        format!(
+                            "a `{name}` taking these needs implicits of its own, which a \
+                             function passed as a value cannot carry yet (recursive \
+                             implicit resolution, ROADMAP §0j step 8)"
+                        ),
+                        &mut near,
+                    );
+                }
                 continue;
             }
             if decl.params.len() != want_params.len() {
@@ -6034,9 +6101,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let decl = entry.decl;
         let saved = self.enter_generics(&decl.generics);
-        let params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        let mut params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
         let ret = self.fn_return_ty(decl);
         self.generics = saved;
+        params.extend(self.group_member_params(entry.key, decl));
         // [fn-contract] The fn value carries the declaration's contract
         // (written list, else the inferred facts), so boundary checks compare
         // real modes — a consuming fn no longer masquerades as
@@ -9625,6 +9693,30 @@ impl<'p, 'r> Checker<'p, 'r> {
         None
     }
 
+    /// [implicit-resolve] Fills the implicits of the fn `key` (a `name`
+    /// overload) as a call with arguments `arg_tys` would, keyed at `at`.
+    /// Nothing for a fn without implicits.
+    fn fill_resolved_implicits(&mut self, key: FnKey, name: &str, arg_tys: &[Ty], at: Span) {
+        let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
+        if implicits.is_empty() {
+            return;
+        }
+        let Some(entry) = self.overloads_of(name).into_iter().find(|e| e.key == key) else {
+            return;
+        };
+        let decl = entry.decl;
+        let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
+        let saved = self.enter_generics(&decl.generics);
+        let patterns: Vec<Ty> = fixed.iter().map(|p| self.lower_type(&p.ty)).collect();
+        self.generics = saved;
+        let mut subst: HashMap<String, Ty> = HashMap::new();
+        for (p, a) in patterns.iter().zip(arg_tys) {
+            unify(p, a.strip_quals(), &mut subst);
+        }
+        let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+        self.fill_implicits(&implicits, name, &mut subst, &generics, &[], at);
+    }
+
     fn check_interpolable(&mut self, expr: &'p Expr, ty: &Ty) {
         if ty.is_unknown() || matches!(ty, Ty::Never) || Self::interp_native(ty) {
             return;
@@ -9635,9 +9727,29 @@ impl<'p, 'r> Checker<'p, 'r> {
             contract: None,
             effects: Vec::new(),
         };
-        match self.resolve_implicit_fn_at("to_str", None, &want) {
+        // [implicit-resolve-body] An implicit `to_str` of the enclosing fn that
+        // takes this value renders it — the same rule a call to the name
+        // follows.
+        let own = self.own_implicits.iter().find(|p| {
+            p.name == "to_str"
+                && matches!(p.ty.strip_quals(), Ty::Fn { params, .. }
+                    if params.len() == 1 && Self::arg_fits_fn_value(ty, &params[0]))
+        });
+        if let Some(own) = own {
+            let name = own.name.clone();
+            self.out.interp_implicit.insert(self.key(expr.span()), name);
+            return;
+        }
+        self.resolve_as_call = true;
+        let resolved = self.resolve_implicit_fn_at("to_str", None, &want);
+        self.resolve_as_call = false;
+        match resolved {
             Ok((key, _)) => {
                 self.out.interp_to_str.insert(self.key(expr.span()), key);
+                // A `to_str` with implicits of its own: filled where the
+                // emitters look for them, the zero-width span after the value.
+                let at = Span::new(expr.span().end, expr.span().end);
+                self.fill_resolved_implicits(key, "to_str", &[ty.clone()], at);
                 return;
             }
             Err(_) => {}
@@ -11243,11 +11355,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // 2. A visible declaration: the canonical, a generated structural
         // member, or any other fitting overload [implicit-resolve].
-        match self.resolve_implicit_fn_at(member, None, &want) {
+        // [comptime-generic] The operator is a *call*, so a candidate with
+        // implicits of its own is fine: they are filled here.
+        self.resolve_as_call = true;
+        let resolved = self.resolve_implicit_fn_at(member, None, &want);
+        self.resolve_as_call = false;
+        match resolved {
             Ok((key, _)) => {
                 self.out
                     .comparisons
                     .insert(self.key(span), CompareVia::Call(key));
+                // [comptime-generic] A `cmp`/`eq` with implicits of its own (one
+                // stamped at a generic struct) is a call made here: they are
+                // filled at the comparison's span, where the emitters read a
+                // call's implicit arguments.
+                self.fill_resolved_implicits(key, member, &[lb.clone(), rb.clone()], span);
             }
             Err(why) => {
                 // The *base* types, not the written ones: a comparison ignores
@@ -26418,6 +26540,37 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
 
         if let Expr::Ident(id) = callee {
+            // [implicit-resolve-body] An **implicit** parameter of the
+            // enclosing fn joins resolution by argument types (user decision
+            // 2026-10-05, ROADMAP §0j 6i, option A): the call goes through the
+            // implicit when its arguments fit it, and to the visible fns of
+            // the name otherwise. Typed once, here; a call that falls through
+            // hands the types on, so nothing is checked twice.
+            let mut implicit_typed: Option<Vec<Ty>> = None;
+            if let Some(var) = self.lookup(&id.name) {
+                let is_implicit = self
+                    .own_implicits
+                    .iter()
+                    .any(|p| p.name == id.name && spans_overlap(p.span, var.decl_span));
+                if is_implicit
+                    && !self.overloads_of(&id.name).is_empty()
+                    && !args.iter().any(|a| matches!(a, Expr::Lambda { .. } | Expr::Spread { .. }))
+                {
+                    if let Ty::Fn { params, .. } = var.narrowed.strip_quals().clone() {
+                        let tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+                        let fits = tys.len() == params.len()
+                            && tys.iter().zip(&params).all(|(a, p)| Self::arg_fits_fn_value(a, p));
+                        if !fits {
+                            self.pending_arg_tys = Some(tys);
+                            let arg_refs: Vec<&'p Expr> = args.iter().collect();
+                            return self.resolve_named_call(
+                                &id.name, id.span, type_args, &arg_refs, named, expected, None, span,
+                            );
+                        }
+                        implicit_typed = Some(tys);
+                    }
+                }
+            }
             // A local holding a callable (lambda parameter etc.).
             if let Some(var) = self.lookup(&id.name) {
                 let vty = var.narrowed.clone();
@@ -26450,8 +26603,42 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     // [fn-effects] The call supplies the value's effects.
                     self.check_fn_value_effects(&effects, span);
+                    let typed = implicit_typed.take();
                     for (i, a) in args.iter().enumerate() {
-                        self.check_expr(a, params.get(i));
+                        let aty = match &typed {
+                            Some(tys) => tys[i].clone(),
+                            None => self.check_expr(a, params.get(i)),
+                        };
+                        // [call-resolve] A call through a local goes through
+                        // that value, so an argument that does not fit it is an
+                        // error here (accepted unchecked until 2026-10-05, and
+                        // the target compiler refused it). Base shapes are
+                        // compared: what a qualifier or a `Mut` demands is the
+                        // contract's business.
+                        if let Some(p) = params.get(i) {
+                            if !matches!(a, Expr::Spread { .. }) && !Self::arg_fits_fn_value(&aty, p) {
+                                self.error(
+                                    a.span(),
+                                    format!(
+                                        "`{}` takes `{p}` here, found `{aty}` [call-resolve]",
+                                        id.name
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                    if args.len() != params.len()
+                        && !args.iter().any(|a| matches!(a, Expr::Spread { .. }))
+                    {
+                        self.error(
+                            span,
+                            format!(
+                                "`{}` takes {} argument(s), found {} [call-resolve]",
+                                id.name,
+                                params.len(),
+                                args.len()
+                            ),
+                        );
                     }
                     // [fn-contract] Apply the fn value's contract to the
                     // arguments (default: keeps everything).
@@ -26848,6 +27035,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         Self::substitute_value_refs(ty, &map)
     }
 
+    /// [call-resolve] Whether an argument of type `arg` fits a fn value's
+    /// parameter `param`, by base shape (an unknown fits anything).
+    fn arg_fits_fn_value(arg: &Ty, param: &Ty) -> bool {
+        arg.is_unknown()
+            || param.is_unknown()
+            || matches!(arg, Ty::Never)
+            || is_subtype(arg.strip_quals(), param.strip_quals())
+    }
+
     fn resolve_named_call(
         &mut self,
         name: &str,
@@ -26865,7 +27061,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Argument types computed while deciding *which* overload set a
         // colliding name belongs to [effect-available]: the fn path below
         // takes them as they are instead of typing the arguments twice.
-        let mut pre_typed: Option<Vec<Ty>> = None;
+        // [implicit-resolve-body] A call that fell through an implicit of its
+        // name arrives with its arguments typed.
+        let mut pre_typed: Option<Vec<Ty>> = self.pending_arg_tys.take();
         // The callee's own name, kept before the argument loops shadow `name`
         // with an *argument's* — the refinement diagnostics name the callee.
         let callee_fn_name = name.to_string();
@@ -29645,7 +29843,7 @@ fn proj_arm_indices(ty: &ast::Type) -> Vec<usize> {
 }
 
 /// [yield-proj] Whether a written type mentions a generic parameter by name.
-fn type_mentions_generic(ty: &ast::Type, name: &str) -> bool {
+pub(crate) fn type_mentions_generic(ty: &ast::Type, name: &str) -> bool {
     fn in_ref(r: &TypeRef, name: &str) -> bool {
         r.name.name == name || r.args.iter().any(|a| type_mentions_generic(a, name))
     }
@@ -29735,4 +29933,10 @@ fn collect_binding_is<'a>(cond: &'a Expr, f: &mut impl FnMut(&'a Expr, Span)) {
         }
         _ => {}
     }
+}
+
+/// Whether two spans share any position (one written inside the other, as a
+/// parameter's name sits inside the parameter).
+fn spans_overlap(a: Span, b: Span) -> bool {
+    a.start <= b.end && b.start <= a.end
 }

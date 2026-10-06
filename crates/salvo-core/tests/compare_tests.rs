@@ -1192,22 +1192,42 @@ struct Point : Eq<self> by auto {
     );
 }
 
-/// [obligation-by] A generic struct is **not** stamped at yet (ROADMAP §2c,
-/// deferred): the copy for a field of type `T` would need an implicit, and the
-/// refusal names the hand-written form that declares one.
+/// [comptime-generic] A generic struct **is** stamped at (ROADMAP §0j 6i): the
+/// stamped `eq` is generic and asks for `?Eq<T>`, since a field of type `T`
+/// has nothing to compare it by but what the caller passes. A concrete field
+/// beside it still reaches its own `eq` — the implicit joins resolution
+/// rather than shadowing [implicit-resolve-body]. Calls and operators fill
+/// the stamp's implicits; a fn *value* cannot carry them yet (step 8), and
+/// says so.
 #[test]
-fn a_generic_struct_is_refused_with_the_remedy() {
-    let errs = errors(
-        r#"
+fn a_generic_struct_is_stamped_with_the_implicits_it_needs() {
+    let src = r#"
+struct Box<T> : Eq<self> by auto, Hashed<self> by auto {
+    item: T,
+    n: Int
+}
+
+fn same(a: Box<Str>, b: Box<Str>) [] -> Bool => a, b {
+    return eq(a, b) && a == b && hash(a) == hash(b)
+}
+"#;
+    let errs = errors(src);
+    assert!(errs.is_empty(), "{errs:?}");
+    let as_value = r#"
 struct Box<T> : Eq<self> by auto {
     item: T
 }
-"#,
-    );
-    assert!(
-        errs.iter().any(|e| e.contains("`Box` is generic") && e.contains("?Hashed<T>")),
-        "expected the generic refusal with its remedy: {errs:?}"
-    );
+
+fn takes(f: (Box<Str>, Box<Str>) -> Bool) [] -> Bool => f {
+    return true
+}
+
+fn pass() [] -> Bool {
+    return takes(eq)
+}
+"#;
+    let errs = errors(as_value);
+    assert!(!errs.is_empty(), "a stamp with implicits passed as a value must be refused");
 }
 
 /// The obligation is still checked at the struct [group-obligation]: `default`

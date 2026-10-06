@@ -40,6 +40,22 @@ the parameter's own name, and the value can be either:
 sort(names, cmp = (a: Str, b: Str) -> size(a) - size(b))
 ```
 
+Inside the body an implicit is one more function of its name, chosen by the
+caller, and a call is resolved by its arguments: where they fit the implicit
+the call goes through it, and otherwise to the functions of that name in
+scope. So a generic body can compare its `T`s with `cmp` and an `Int` it
+holds with the ordinary `cmp` in the same breath:
+
+```
+fn rank<T>(a: T, b: T, ties: Int, ?cmp: (T, T) -> Int) -> Int => a, b {
+    let c = cmp(a, b)          // the implicit: the arguments are `T`s
+    if c != 0 {
+        return c
+    }
+    return cmp(ties, 0)        // `cmp(Int, Int)`: they are not
+}
+```
+
 ### Bundling them: `params`
 
 A set of related functions is declared once and spread with `?`:

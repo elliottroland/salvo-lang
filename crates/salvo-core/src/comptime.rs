@@ -1214,17 +1214,76 @@ impl<'w> Stamper<'w> {
 
     /// [obligation-by] A whole new fn: the template's signature with `T`
     /// substituted, and its body expanded.
+    /// [comptime-generic] What stamping at a **generic** target needs (ROADMAP
+    /// §0j 6i, decided with §2c): the target's type parameters, their `canbe`
+    /// opt-ins, and one implicit group per parameter a field (or arm) mentions
+    /// — `?Ordered<T>` for `cmp`, `?Eq<T>` for `eq`, `?Hashed<T>` for `hash`,
+    /// `?ToStr<T>` for `to_str`. A copy meeting an opaque `T` has nothing to
+    /// call but what the caller hands in, so the need is the signature's.
+    /// `None` for a template whose capability has no group to ask for.
+    fn generic_needs(&self, site: Span) -> Option<(Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<TypeRef>)> {
+        let group = match self.template.name.name.as_str() {
+            "cmp" => "Ordered",
+            "eq" => "Eq",
+            "hash" => "Hashed",
+            "to_str" => "ToStr",
+            _ => return None,
+        };
+        let (generics, canbe, parts): (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<Type>) =
+            if let Some(s) = self.world.struct_named(&self.target.name) {
+                (s.generics.clone(), s.generic_canbe.clone(), s.fields.iter().map(|f| f.ty.clone()).collect())
+            } else if let Some(t) = self.world.type_named(&self.target.name) {
+                let arms = t.alias.as_ref().map(|a| self.world.arms_of(a)).unwrap_or_default();
+                (t.generics.clone(), t.generic_canbe.clone(), arms)
+            } else {
+                return None;
+            };
+        let needs = generics
+            .iter()
+            .filter(|g| parts.iter().any(|t| crate::check::type_mentions_generic(t, &g.name)))
+            .map(|g| {
+                let Type::Named { mut base, .. } = World::simple_named(group, site) else { unreachable!() };
+                base.args = vec![World::simple_named(&g.name, site)];
+                base
+            })
+            .collect();
+        let generics = generics.into_iter().map(|g| Ident { name: g.name, span: site }).collect();
+        Some((generics, canbe, needs))
+    }
+
     fn stamp_whole(self, site: Span) -> Result<FnDecl, Vec<Diagnostic>> {
-        if let Some(d) = self.generic_refused(site) {
-            return Err(vec![d]);
-        }
+        let generic = if self.target.generics.is_empty() {
+            None
+        } else {
+            match self.generic_needs(site) {
+                Some(needs) => Some(needs),
+                None => return Err(vec![self.generic_refused(site).expect("generic target")]),
+            }
+        };
         let mut f = self.template.clone();
         // Everything the template carries moves into virtual space first, so
         // the target file's own spans are never reused.
         let mut remap = Remap::fresh(&mut f, self.virtual_next);
         visit_mut::walk_fn(&mut remap, &mut f);
-        let param = self.template.compfn.as_ref().and_then(|c| c.bound.as_ref()).map(|(_, id)| id.name.clone());
-        let mut ex = Expander::new(self.world, param.map(|p| (p, self.target.clone())), site, self.virtual_next);
+        let mut param = self.template.compfn.as_ref().and_then(|c| c.bound.as_ref()).map(|(_, id)| id.name.clone());
+        // [comptime-generic] The template's own parameter is renamed out of
+        // the way of the target's (`cmp<T is Struct>` stamped at `Wrapper<T>`):
+        // the substitution `T` → `Wrapper<T>` would otherwise meet its own `T`.
+        let mut target = self.target.clone();
+        if generic.is_some() {
+            if let Some(p) = &param {
+                if self.target.generics.contains(p) {
+                    let fresh = "__Self".to_string();
+                    let mut rename = RenameIdent { from: p.clone(), to: fresh.clone() };
+                    visit_mut::walk_fn(&mut rename, &mut f);
+                    param = Some(fresh);
+                }
+            }
+            if let Type::Named { base, .. } = &mut target.ty {
+                base.args = self.target.generics.iter().map(|g| World::simple_named(g, site)).collect();
+            }
+        }
+        let mut ex = Expander::new(self.world, param.map(|p| (p, target)), site, self.virtual_next);
         // Signature substitution: `T` → the target.
         let mut sig = SigSubst { ex: &mut ex };
         for p in &mut f.params {
@@ -1236,14 +1295,37 @@ impl<'w> Stamper<'w> {
         if let Some(b) = &mut f.body {
             ex.expand_block(b);
         }
-        let (regions, errs) = ex.finish();
+        let (mut regions, errs) = ex.finish();
         if !errs.is_empty() {
             return Err(errs);
         }
+        // [comptime-generic] One `by` site stamps several members (`Hashed`'s
+        // `hash` and `eq`), and a generic stamp's implicits are looked up by
+        // its name's span: each gets a span of its own, which diagnostics
+        // redirect to the site.
+        let name_span = if generic.is_some() {
+            let start = *self.virtual_next;
+            *self.virtual_next = start + 2;
+            regions.push(StampRegion {
+                start,
+                end: start + 1,
+                target: site,
+                label: format!("`{}` stamped at `{}`", self.template.name.name, self.target.name),
+            });
+            Span::new(start, start + 1)
+        } else {
+            site
+        };
         f.generics.clear();
         f.generic_canbe.clear();
+        if let Some((generics, canbe, needs)) = generic {
+            f.generics = generics;
+            f.generic_canbe = canbe;
+            f.implicit_groups.extend(needs);
+        }
         f.compfn = None;
         f.by = None;
+
         f.docs = vec![format!(
             "The `{}` of [{}], stamped from `{}`'s `compfn` [obligation-by].",
             f.name.name, self.target.name, self.by.text()
@@ -1256,7 +1338,7 @@ impl<'w> Stamper<'w> {
             regions,
         });
         f.span = site;
-        f.name.span = site;
+        f.name.span = name_span;
         Ok(f)
     }
 
@@ -1386,6 +1468,21 @@ fn group_for(member: &str) -> &'static str {
         "hash" | "eq" => "Hashed",
         "to_str" => "ToStr",
         _ => "Group",
+    }
+}
+
+/// [comptime-generic] Renames every identifier spelled `from` — a type
+/// parameter's name, which no value, field or fn can share (casing).
+struct RenameIdent {
+    from: String,
+    to: String,
+}
+
+impl MutVisitor for RenameIdent {
+    fn visit_ident(&mut self, ident: &mut Ident) {
+        if ident.name == self.from {
+            ident.name = self.to.clone();
+        }
     }
 }
 

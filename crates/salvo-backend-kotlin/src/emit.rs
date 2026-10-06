@@ -3918,6 +3918,10 @@ impl<'p> Emitter<'p> {
     /// natively.
     fn apply_interp_to_str(&mut self, expr: &Expr, code: String) -> String {
         let key = (self.file_idx, expr.span());
+        // [implicit-resolve-body] Through the enclosing fn's implicit `to_str`.
+        if let Some(name) = self.checked.interp_implicit.get(&key).cloned() {
+            return format!("{}({code})", kt_ident(&name));
+        }
         let Some(fn_key) = self.checked.interp_to_str.get(&key).copied() else {
             return code;
         };
@@ -7869,7 +7873,8 @@ impl<'p> Emitter<'p> {
                     let has_to_str = self
                         .checked
                         .interp_to_str
-                        .contains_key(&(self.file_idx, expr.span()));
+                        .contains_key(&(self.file_idx, expr.span()))
+                        || self.checked.interp_implicit.contains_key(&(self.file_idx, expr.span()));
                     if let Some(repr) = self.emitted_repr(expr).filter(|_| !has_to_str) {
                         if repr.is_wrapper_union() {
                             let access = if repr.has_none_arm() { "?" } else { "" };
@@ -8853,7 +8858,13 @@ impl<'p> Emitter<'p> {
         // [implicit-param] An implicit parameter shadows the fns of the same
         // name inside the body: it *is* one of them, chosen by the caller, so
         // the call goes through the parameter rather than resolving again.
-        if self.implicits.iter().any(|i| i.name == name) || self.ctor_implicits.contains(name) {
+        // [implicit-resolve-body] Only where the checker sent the call through
+        // the implicit: one whose arguments do not fit it resolved to a
+        // declaration of the name.
+        if (self.implicits.iter().any(|i| i.name == name)
+            && self.checked.local_calls.contains(&(self.file_idx, span)))
+            || self.ctor_implicits.contains(name)
+        {
             let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
             return format!("{}({})", kt_ident(name), arg_code.join(", "));
         }

@@ -141,6 +141,41 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, step 6i: stamping at generic structs, and implicits
+that join resolution (2026-10-05, ROADMAP §0j; user decision on option A).**
+- **The decision** [implicit-resolve-body] (user, 2026-10-05): inside a body an
+  implicit is one more fn of its name, and a call goes through it when the
+  arguments fit and to the visible fns otherwise. Chosen over keeping the
+  stated shadowing rule (which the checker never applied and the emitters
+  did, so `cmp(a.size(), b.size())` beside a `?cmp` binder checked and then
+  failed in rustc/kotlinc) and over a module selector at the call. The
+  checker types the arguments once and hands them on when it falls through;
+  both emitters now go through the implicit only for a call the checker
+  recorded in `local_calls`. Rust already qualified the shadowed global
+  (`crate::cmp`).
+- **Fixed with it**: a call through a fn-typed local checks its arguments
+  (base shapes) and arity [call-resolve] — `f(1)` with `f: (Str) -> Int` was
+  accepted.
+- **Generic stamps** [comptime-generic]: `struct Wrapper<T> : Ordered<self> by
+  auto` stamps `fn cmp<T>(…, ?Ordered<T>)`, one group per type parameter a
+  field or arm mentions (`Eq`, `Hashed`, `ToStr` for the other three). What it
+  took: renaming the template's `T` out of the target's way (`T` → `Wrapper<T>`
+  would otherwise substitute into itself, forever); a name span per stamped
+  member, because `Hashed<self> by auto` stamps `hash` and `eq` at one site and
+  the emitters look a fn's implicits up by its name span (the `hash` got
+  `eq`'s list); an interpolated `T` rendering through the enclosing implicit
+  `to_str` (`interp_implicit`).
+- **Operators and interpolation fill a callee's implicits** — the recorded
+  `a < b` defect: the comparison and the interpolation resolve "as a call"
+  (`resolve_as_call`), may pick a fn with implicits, and fill them where the
+  emitters already read a call's. As a fn *value* such a fn is refused, with
+  a message naming step 8, and a spread group's members count as its
+  parameters when passed by name, so `takes(eq)` no longer fits a position
+  that cannot fill them.
+- Tests: the stamp, operators and the value refusal in `compare_tests`
+  (replacing the generic refusal's test); option A and the argument check in
+  `carry_tests`; one program e2e on both backends. **1711 tests.**
+
 **Shrinking the backends, step 6a: fn slots on structs (2026-10-05, ROADMAP
 §0j).** [struct-slot]: `struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut { … }`,
 parsed as a type declaration's slot list (generics or a `(…)` block). The
@@ -21727,7 +21762,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1708; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1711; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

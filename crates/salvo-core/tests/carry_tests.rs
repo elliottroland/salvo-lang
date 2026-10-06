@@ -914,3 +914,28 @@ fn a_struct_slot_carries_its_identity_in_the_type() {
         "{errs:?}"
     );
 }
+
+/// [implicit-resolve-body] An implicit joins resolution by argument types
+/// (user decision 2026-10-05, option A): `cmp(a, a)` at `T` goes through it,
+/// `cmp(1, 2)` at `Int` reaches the visible `cmp(Int, Int)`.
+#[test]
+fn an_implicit_joins_resolution_by_argument_types() {
+    let errs = errors(
+        "fn f<T>(a: T, ?cmp: (T, T) -> Int) [] -> Int => a {\n    \
+         return cmp(a, a) + cmp(1, 2)\n}\n",
+    );
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
+/// [call-resolve] A call through a fn-typed local checks its arguments: an
+/// ordinary local has no other declarations to fall through to.
+#[test]
+fn a_call_through_a_local_checks_its_arguments() {
+    let errs = errors("fn g(f: (Str) -> Int) [] -> Int => f {\n    return f(1)\n}\n");
+    assert!(
+        errs.iter().any(|e| e.contains("`f` takes `Str` here, found `Int`")),
+        "{errs:?}"
+    );
+    let errs = errors("fn g(f: (Str) -> Int) [] -> Int => f {\n    return f(\"a\", \"b\")\n}\n");
+    assert!(errs.iter().any(|e| e.contains("`f` takes 1 argument(s), found 2")), "{errs:?}");
+}

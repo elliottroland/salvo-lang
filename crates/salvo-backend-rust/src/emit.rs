@@ -14287,6 +14287,11 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
+        // [implicit-resolve-body] Through the enclosing fn's implicit `to_str`.
+        if let Some(name) = self.checked.interp_implicit.get(&key).cloned() {
+            let arg = self.emit_expr(expr);
+            return format!("{}(&{arg})", rs_ident(&name));
+        }
         let Some(fn_key) = self.checked.interp_to_str.get(&key).copied() else {
             return self.emit_expr(expr);
         };
@@ -15593,9 +15598,14 @@ impl<'p> Emitter<'p> {
             );
         }
 
-        // [implicit-param] An implicit parameter shadows the fns of the same
-        // name inside the body: it *is* one of them, chosen by the caller.
-        if self.implicits.iter().any(|i| i.name == name) {
+        // [implicit-param] [implicit-resolve-body] A call the checker sent
+        // through an implicit parameter: it *is* one of the fns of its name,
+        // chosen by the caller. A call of the same name whose arguments do
+        // not fit the implicit resolved to a declaration instead, and goes
+        // the ordinary way below.
+        if self.implicits.iter().any(|i| i.name == name)
+            && self.checked.local_calls.contains(&(self.file_idx, span))
+        {
             // A kept `Mut` position of the implicit's fn type is a `&mut`
             // borrow; everything else is by value [fn-contract].
             let modes: Vec<bool> = self

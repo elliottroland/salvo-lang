@@ -269,9 +269,16 @@ parameter may resolve to it.
 
 ## What is not there yet
 
-Two things this page's machinery is built for are recorded rather than shipped:
-a `by auto` on a **generic struct** (`Wrapper<T>`), whose copy for a field of
-type `T` would need an implicit (`?Ordered<T>`) the stamped function acquires —
-refused today with the hand-written form named — and `eq by auto` at a **call**,
-supplying an implicit by stamping, which is how a tuple would get an identity.
-Both are in ROADMAP.md.
+A `by auto` on a **generic struct** works: `struct Wrapper<T> : Ordered<self>
+by auto { value: T, n: Int }` stamps `fn cmp<T>(a: Wrapper<T>, b: Wrapper<T>,
+?Ordered<T>)`, since the copy for a field of type `T` has nothing to compare it
+by but what the caller hands in. Each type parameter a field mentions gets the
+group (`?Eq<T>` for `eq`, `?Hashed<T>` for `hash`, `?ToStr<T>` for `to_str`),
+and the `n: Int` beside it still reaches the ordinary `cmp`. Calls, operators
+and interpolation fill those implicits as they would any function's. What does
+not work yet is passing such a function as a *value*, which a `Set<Wrapper<Str>>`
+needs for its `hash`: a function value cannot carry implicits of its own until
+recursive implicit resolution lands, and the compiler says so.
+
+Recorded rather than shipped: `eq by auto` at a **call**, supplying an implicit
+by stamping, which is how a tuple would get an identity. It is in ROADMAP.md.

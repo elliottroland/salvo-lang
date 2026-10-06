@@ -2859,9 +2859,26 @@ Conventions:
   ordinary ones, since a positional parameter written after one could not be
   passed. They take no part in arity or overload scoring.
   * Inside the body an implicit parameter is an ordinary local of fn type,
-    **kept**: it belongs to whoever supplied it. A call to its name goes
-    through the parameter, not through overload resolution — it *is* one of
-    those functions, chosen by the caller.
+    **kept**: it belongs to whoever supplied it.
+  * [implicit-resolve-body] **It joins resolution by argument types** (user
+    decision 2026-10-05, ROADMAP §0j 6i, option A; it used to be said to
+    shadow the fns of its name, which the checker never did and the
+    emitters did): a call to its name goes through the implicit when the
+    arguments fit it — it *is* one of those functions, chosen by the caller —
+    and to the visible fns of the name otherwise. So `cmp(a, b)` at `T` and
+    `cmp(x.n, y.n)` at `Int` sit in one body, which a stamp at a generic
+    struct needs [comptime-generic].
+    * The arguments are typed once: a call that falls through hands their
+      types to ordinary resolution. A call with a lambda or spread argument
+      stays with the implicit.
+    * The checker records which (`local_calls`); the emitters render through
+      the parameter only for a recorded call. Rust qualifies a shadowed
+      global as `crate::…`; Kotlin's own resolution passes an inapplicable
+      local `invoke` by.
+    * An ordinary fn-typed local still outranks every declaration
+      [call-resolve], and a call through one now **checks its arguments**
+      (by base shape) and its arity: `f(1)` with `f: (Str) -> Int` was
+      accepted until 2026-10-05 and refused by the target compiler.
   * A fn type carries no effects here, so an implicitly resolved default is
     effect-free by construction: [fn-effects] variance already refuses an
     effectful function where a pure one is expected.
@@ -4005,10 +4022,36 @@ Conventions:
     [group-obligation]: what satisfies it may be a stamped fn (`fn cmp(…) by
     auto` in the body) or a hand-written one, which is how a type mixes the
     two.
-  * **Generic structs are not stamped at yet** (ROADMAP §2c, deferred):
-    the copy for a field of type `T` would need an implicit. Refused at the
-    clause with the hand-written form named (`fn eq<T>(a: Box<T>, b: Box<T>,
-    ?Eq<T>)`).
+  * [comptime-generic] **A generic target is stamped generically** (decided
+    with §2c, built 2026-10-05, ROADMAP §0j 6i): `struct Wrapper<T> :
+    Ordered<self> by auto` stamps `fn cmp<T>(a: Wrapper<T>, b: Wrapper<T>,
+    ?Ordered<T>)` — the target's type parameters and their `canbe` opt-ins,
+    and one group per parameter a field (or arm) mentions: `?Ordered<T>` for
+    `cmp`, `?Eq<T>` for `eq`, `?Hashed<T>` for `hash`, `?ToStr<T>` for
+    `to_str`. A template of another name is still refused at a generic
+    target. The template's own type parameter is renamed out of the way first
+    (`T` → `__Self`) when it shares a name with the target's. A concrete field
+    beside a generic one reaches its own member [implicit-resolve-body].
+    * Each stamped member gets a name span of its own (redirected to the `by`
+      site), since one site stamps several and a fn's implicits are keyed by
+      its name.
+    * The obligation's match ignores the trailing implicits
+      [group-obligation].
+    * **Calls fill them**: a written call as always, an operator
+      [op-order] [op-equality] at the comparison's span, an interpolation
+      [interp-to-str] at the zero-width span after the value, and inside a
+      stamped `to_str` an interpolated `T` renders through the implicit
+      (`Checked::interp_implicit`).
+    * **A fn value cannot carry them**: [implicit-resolve] skips a candidate
+      with implicits of its own (a spread group included), naming recursive
+      resolution (§0j step 8) when it is the one that would have fit; passed
+      by name, a spread group's members count as parameters, so the value fits
+      no position that does not pass them. So `set_of(w)` over a
+      `Wrapper<Str>` is refused until step 8.
+    * Not yet: a generic union whose arm is a generic struct
+      (`type Either<A> = Box<A> | Int`), whose stamped body calls `to_str`
+      with a `Box<A>` that both the union's and `Box`'s overloads fit, which
+      overload ranking does not order.
   * **Lowering**: a stamped fn is emitted as an ordinary fn whose body is the
     unrolled Salvo — a `cmp` per field, in declaration order. No structural
     member is lowered to a host derive any more. The Rust backend still

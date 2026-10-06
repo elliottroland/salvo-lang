@@ -1185,6 +1185,48 @@ fn main() [use] -> None {
     run_rust_files(&files, "struct_slot", "[1, 2, 3] [3, 2, 1] 1 3\n");
 }
 
+/// [comptime-generic] [implicit-resolve-body] The Kotlin backend's generic
+/// stamp case, run on Rust: a global shadowed by an implicit of its name is
+/// called through `crate::`.
+#[test]
+fn rustc_compiles_and_runs_generic_stamp() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let src = r#"
+struct Inner : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto {
+    k: Int
+}
+
+struct Wrapper<T> : Hashed<self> by auto, Ordered<self> by auto, ToStr<self> by auto {
+    value: T,
+    inner: Inner,
+    n: Int
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let a = Wrapper<Str> { value: "a", inner: Inner { k: 1 }, n: 1 }
+    let b = Wrapper<Str> { value: "a", inner: Inner { k: 2 }, n: 0 }
+    println("${cmp(a, b)} ${eq(a, b)} ${hash(a) == hash(copy(a))}")
+    println("${a < b} ${a == b} ${a != b} ${a}")
+    run_h()
+}
+
+fn h<T>(a: T, i: Inner, ?cmp: (T, T) -> Int) [] -> Int => a, i {
+    return cmp(1, 2) + cmp(a, a) + cmp(i, i)
+}
+
+fn run_h() [use] -> None {
+    use StdOutConsole()
+    println("${h("x", Inner { k: 3 })}")
+}
+"#;
+    let files = generate(&[("main.sv", src)]);
+    run_rust_files(&files, "generic_stamp", "-1 false true\ntrue false true Wrapper { value: a, inner: Inner { k: 1 }, n: 1 }\n-1\n");
+}
+
 /// [cmp-carry] [col-literal] A collection literal takes its identity from the
 /// position, empty or not (ROADMAP §0j step 1).
 #[test]

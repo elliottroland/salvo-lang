@@ -190,38 +190,14 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      above). Unblocks §0 item 2's builders: `pool(size, sink)`, `watch`,
      `on_idle`, `watch_control` and `route_frames` hand the scheduler a named
      message-building fn and become Salvo.
-   - i. **Implicits on stamped fns for generic structs** (§2c, first bullet):
-     a prerequisite of `struct Entry<K, V> : … by auto` and of codecs over
-     generic structs. **Blocked on a DECISION** (found 2026-10-05): inside a
-     body with an implicit `cmp: (T, T) -> Int`, does `cmp(a.n, b.n)` at
-     `Int` reach the module's `cmp(Int, Int)`? [implicit-param] says the
-     implicit shadows the fns of its name; the checker lets the call resolve
-     to the global (`carry_tests::one_binder_accepts_two_arguments_that_agree`
-     relies on it); both emitters render it through the implicit, so the
-     program fails in rustc/kotlinc. A stamped `cmp` for `struct Wrapper<T>
-     { value: T, n: Int }` needs both. Options: (A) an implicit joins
-     resolution by argument types: the call goes through the implicit when
-     its parameters fit, and to the visible fns otherwise; the checker
-     records which, and emitters qualify a global whose name an implicit
-     shadows in the target (recommended: it is what the checker and that test
-     already do, and two implicits of one name at different types, decided
-     2026-09-28, already need a choice by type). (B) Keep shadowing, and give
-     the stamper another way to reach the field's fn (an alias spelling for
-     implicit parameters, or refusing a mix of generic and concrete fields).
-     (C) Shadowing plus a module selector at the call (`cmp@core.basic(…)`),
-     which a stamper cannot know for an arbitrary field type. The same answer
-     fixes the defect below.
-   - **Defect found with it** (not fixed, waits on the DECISION above): a call
-     through a fn-typed local or implicit checks its arguments against
-     nothing, so `fn g(f: (Str) -> Int) -> Int { return f(1) }` is accepted and
-     rustc/kotlinc refuse the output. A check comparing base shapes is a dozen
-     lines in the local-call arm of `check_call`; it fails the one test above,
-     which is why it waits.
-   - **Also found** (not fixed): `a < b` on a struct whose `cmp` is generic
-     with implicits (`fn cmp<T>(a: Wrapper<T>, b: Wrapper<T>, ?Ordered<T>)`)
-     emits the call without the implicit argument on both backends
-     (`cmp(&a, &b)`), where an explicit `cmp(a, b)` passes it: the operator's
-     resolution does not record `implicit_args`.
+   - i. ✅ **Implicits on stamped fns for generic structs** [comptime-generic]
+     (2026-10-05, COMPLETED.md), with the DECISION it needed: an implicit
+     joins resolution by argument types [implicit-resolve-body] (user, option
+     A). Left: a stamp with implicits cannot be passed as a fn value (a
+     `Set<Wrapper<Str>>`'s `hash`) until step 8; a generic union with a
+     generic struct arm (`type Either<A> = Box<A> | Int : ToStr<self> by
+     auto`) is an overload-ranking ambiguity between the union's and `Box`'s
+     `to_str` at `Box<A>`.
 7. **`Set`/`Map` in Salvo, then the sorted pair.** `Map<K, V>(?hash, ?eq)` is
    the slab both runtimes share today: entries in insertion order with
    `None` tombstones, an `IntBuffer` index with open addressing over a
@@ -582,16 +558,8 @@ compile-time-only structs with `Type` a union the kind `when` dispatches over,
 and added hover inside comptime fn bodies. What the decided design still owes,
 in build order:
 
-- **Implicits on stamped fns for generic structs** (ROADMAP §2c, decided
-  "from the start", built as a refusal with the remedy named; a prerequisite
-  of §0j steps 7 and 9, as step 6i). `struct
-  Wrapper<T> : Ordered<self> by auto { value: T }`: a copy meeting an opaque
-  `T` **records a need** instead of failing; the stamped signature gains
-  `?Ordered<T>` (deduplicated by name and type); and [group-obligation]'s match
-  **ignores trailing implicit parameters** — the relaxation section 16 needs
-  too, and the third customer is the obligation clause on `intrinsic type`
-  below. The principle it rests on is [deduce-infer]'s: a fact inferred from
-  the body, printed by the language server. `Checked<T>`'s `to_str` waits on it
+- ✅ **Implicits on stamped fns for generic structs** (built 2026-10-05 as
+  §0j step 6i, COMPLETED.md). `Checked<T>`'s `to_str` could now be `by auto`
   [checked-type].
 - **Obligation clauses on platform types** (decided for `intrinsic type`
   2026-09-28; the collections became platform types and, per §0j, `Set`/`Map`/

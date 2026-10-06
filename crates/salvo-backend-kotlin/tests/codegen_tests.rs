@@ -4547,6 +4547,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_copy_elements,
     kotlinc_compiles_and_runs_canbe_mut_field,
     kotlinc_compiles_and_runs_struct_slot,
+    kotlinc_compiles_and_runs_generic_stamp,
     kotlinc_compiles_and_runs_literal_identity,
     kotlinc_compiles_and_runs_int_wrap_and_bits,
     kotlinc_compiles_and_runs_move_modes,
@@ -5817,6 +5818,48 @@ fn kotlinc_compiles_and_runs_struct_slot() -> KotlinCase {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "struct_slot", "[1, 2, 3] [3, 2, 1] 1 3\n")
+}
+
+/// [comptime-generic] [implicit-resolve-body] `by auto` at a generic struct:
+/// the stamps take `?Ordered<T>`/`?Hashed<T>`/`?ToStr<T>`, calls and operators
+/// fill them, and inside a body an implicit and a declaration of its name are
+/// told apart by argument types. Shared with the Rust backend's run.
+pub const GENERIC_STAMP_DEMO: &str = r#"
+struct Inner : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto {
+    k: Int
+}
+
+struct Wrapper<T> : Hashed<self> by auto, Ordered<self> by auto, ToStr<self> by auto {
+    value: T,
+    inner: Inner,
+    n: Int
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let a = Wrapper<Str> { value: "a", inner: Inner { k: 1 }, n: 1 }
+    let b = Wrapper<Str> { value: "a", inner: Inner { k: 2 }, n: 0 }
+    println("${cmp(a, b)} ${eq(a, b)} ${hash(a) == hash(copy(a))}")
+    println("${a < b} ${a == b} ${a != b} ${a}")
+    run_h()
+}
+
+fn h<T>(a: T, i: Inner, ?cmp: (T, T) -> Int) [] -> Int => a, i {
+    return cmp(1, 2) + cmp(a, a) + cmp(i, i)
+}
+
+fn run_h() [use] -> None {
+    use StdOutConsole()
+    println("${h("x", Inner { k: 3 })}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_generic_stamp() -> KotlinCase {
+    let program = build_program(&[("main.sv", GENERIC_STAMP_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "generic_stamp", "-1 false true\ntrue false true Wrapper { value: a, inner: Inner { k: 1 }, n: 1 }\n-1\n")
 }
 
 /// [kt-field-canbe-mut] A `canbe Mut Str` field would hold a `String` or a
