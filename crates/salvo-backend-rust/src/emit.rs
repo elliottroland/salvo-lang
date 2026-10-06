@@ -15349,6 +15349,9 @@ impl<'p> Emitter<'p> {
                             self.bindings.get(id.name.as_str()),
                             Some(BindKind::Ref | BindKind::RefMut)
                         )
+                        // A narrowed read goes through the union's arm, not the
+                        // binding itself [rs-narrow].
+                        && !self.checked.repr_ty.contains_key(&(self.file_idx, id.span))
                         && self.ty_of(id.span).is_some_and(|t| Self::is_copy_ty(t)) =>
                 {
                     format!("*{}", self.binding_place(&id.name))

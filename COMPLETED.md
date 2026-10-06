@@ -149,6 +149,13 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `__copy[Mut]_Name` fn per such struct; generic structs are still refused.
   The written field type names the struct plainly, so the plan keeps the
   *outer* struct's keyed name (a plain `Node` may be another module's).
+* **Generic union with a scalar arm** (step 6i's leftover): the diagnosis in
+  ROADMAP was wrong twice over. There is no ambiguity any more, and the fault
+  is not stamping. Rust's intrinsic-argument shortcut for a Copy scalar in a
+  reference binding (`*place`) ran before narrowing, so `to_str(value)` under
+  `if value is Int` rendered `format!("{}", *value)` over the whole union; it
+  compiled only because every arm of a non-generic union has a `Display`. The
+  shortcut now skips a span the checker recorded a narrowing for.
 * **LSP completion** no longer offers an opaque struct's fields outside its
   module or that module's test annex ([struct-opaque]).
 * The lending sets are computed once per program (`Lend`), and the ABI module
@@ -22150,7 +22157,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1711; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1712; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

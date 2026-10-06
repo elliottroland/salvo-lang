@@ -1625,3 +1625,32 @@ fn a_struct_holding_itself_copies_on_both_backends() {
     }
     __stamp.verified();
 }
+
+/// [rs-narrow] A scalar arm of a union, narrowed and handed to an intrinsic
+/// (`to_str(value)`), reads through the arm rather than the whole union: a
+/// generic union with a generic struct arm used to render `*value` and need
+/// `Box<A>: Display` (closed 2026-10-06).
+#[test]
+fn a_generic_union_with_a_scalar_arm_prints_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("generic_union_to_str", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("generic_union_to_str");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Box<A> : ToStr<self> by auto {\n    v: A\n}\n\n\
+         type Either<A> = Box<A> | Int : ToStr<self> by auto\n\n\
+         fn main() [use] {\n    use StdOutConsole()\n    \
+         let e: Either<Str> = Box { v: \"x\" }\n    let f: Either<Str> = 7\n    \
+         println(\"${e} ${f}\")\n}\n",
+    )
+    .unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "Box { v: x } 7\n", "{backend}");
+    }
+    __stamp.verified();
+}

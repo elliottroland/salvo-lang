@@ -189,17 +189,10 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      (2026-10-05, COMPLETED.md), with the DECISION it needed: an implicit
      joins resolution by argument types [implicit-resolve-body] (user, option
      A). Left: a stamp with implicits cannot be passed as a fn value (a
-     `Set<Wrapper<Str>>`'s `hash`) until step 8; a generic union with a
-     generic struct arm (`type Either<A> = Box<A> | Int : ToStr<self> by
-     auto`) no longer reports an ambiguity but **fails in rustc** (2026-10-06
-     diagnosis): the stamped union `to_str` (`std/core/auto.sv`, `[when value]
-     { [arm] { return to_str(value) } }`) is one body stamped per arm, so every
-     arm's `value` has the same span, and the span-keyed `repr_ty` / `expr_ty`
-     tables hold one arm's narrowing. The `Int` arm then renders as
-     `format!("{}", *value)` over the whole union, which needs `Box<A>:
-     Display`. (Non-generic unions have the same wrong rendering and pass only
-     because every arm has a `Display`.) Fix in the checker: give each stamped
-     arm distinct spans or key the narrowing tables by stamp.
+     `Set<Wrapper<Str>>`'s `hash`) until step 8. (The generic union with a
+     generic struct arm, `type Either<A> = Box<A> | Int : ToStr<self> by
+     auto`, works since 2026-10-06: a narrowed scalar arm handed to an
+     intrinsic was read as the whole union, which needed `Box<A>: Display`.)
 7. ✅ **The keyed collections, one representation per backend, identity
    per call** (user decisions and build 2026-10-06, COMPLETED.md; the
    "written in Salvo" plan was dropped by the user for this; leftovers
