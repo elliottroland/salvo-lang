@@ -136,6 +136,21 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — Runtime features from core (§0j step 10, second half)
+
+`salvo_core::features::module_features` decides whether a program ships the
+scheduler and the wire codecs, replacing the emitters' `needs_scheduler`,
+`needs_wire` and `needs_time` flags and their ~90 set sites ([runtime-features]).
+Built by deriving the set beside the flags and diffing them over the examples,
+std tests, the aws module and the whole suite (`SALVO_FEATURE_DIFF=<file>`):
+the derived set was equal except two over-approximations, which is the
+direction that is safe. The ABI build (`platform generate`) emits only the
+kept declarations and no bodies, so `module_features` takes an `emitted`
+predicate (`emit_util::abi_emits`) and skips the body-side tables there;
+without it `time`'s actor effect pulled in the scheduler with no runtime
+module to bind to. Backend-only needs stay local (Rust `needs_str`/`needs_seq`,
+Kotlin throw, bytes and compare).
+
 ### 2026-10-06 — Imports from the checker's references (§0j step 10, first half)
 
 Both `imports.rs` text scans (`mentioned`, ~150 lines each) are gone. A file's

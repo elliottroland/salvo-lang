@@ -8049,6 +8049,17 @@ between endpoints and delivers what arrives into the scheduler.
   the argument becomes a `move` closure, so a capture that is not `Send`, or
   is used after the call, is rustc's refusal — the runtime is std's, and that
   is the check of last resort there; Kotlin needs nothing.
+* [runtime-features] **Which runtime services ship is core's call** (user
+  decision 2026-10-05, built 2026-10-06): `salvo_core::features` derives, from
+  the emitted modules' declarations and the checker's tables, whether the
+  program needs the scheduler (an actor effect or a handler of one; a spawn,
+  send, reply, wait or `use` of an addr; an `Addr`, `Pool` or `Reply` named
+  anywhere; `pool`/`thread`) and the wire codecs (an actor effect with a wire
+  form, a struct with one, a `Reply`). Time travels with either. The set is
+  an over-approximation: a service too many ships a file nothing calls, one
+  too few would leave a call unbound. Backends keep only their own
+  target-specific needs (Rust's string and sequence helpers, Kotlin's throw
+  signal, byte buffer and comparison runtime).
 * [runtime-sched] **The scheduler is Salvo** (runtime steps, steps 1–15,
   complete 2026-10-03): the core `std/runtime.sv`, its services under
   `std/runtime/` (`timers`, `routing`, `streams`), and the host's part —

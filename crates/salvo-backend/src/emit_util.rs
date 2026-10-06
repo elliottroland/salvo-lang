@@ -976,3 +976,13 @@ pub fn checker_refs(
     refs.extend(tys.iter().map(|n| rename(n)));
     refs
 }
+
+/// [platform-abi] Whether a module's item is emitted: everything outside an
+/// ABI build, and in one only the platform declarations and the reached names.
+pub fn abi_emits(item: &Item, keep: Option<&std::collections::BTreeSet<String>>) -> bool {
+    let Some(keep) = keep else { return true };
+    let platform = matches!(item, Item::Handler(h) if h.platform)
+        || matches!(item, Item::Fn(f) if f.platform)
+        || matches!(item, Item::Type(t) if t.platform);
+    platform || abi_item_name(item).is_some_and(|n| keep.contains(n))
+}

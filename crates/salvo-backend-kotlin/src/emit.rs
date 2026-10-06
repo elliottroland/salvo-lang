@@ -131,11 +131,9 @@ fn emit_program_mode(
     // [kt-bytes] And for the byte buffer, whenever a `Bytes` is named
     // anywhere in the program [bytes-type].
     let mut needs_bytes = false;
-    let mut needs_wire = false;
     // [kt-actor] And for the scheduler, when a program spawns.
-    let mut needs_scheduler = false;
+    let mut derived = salvo_core::features::RuntimeFeatures::default();
     // [time-types] And for the two clock readings, when a program reads time.
-    let mut needs_time = false;
     // [platform-handler] [platform-tree] Modules whose host companion a
     // `use` of a platform handler needs; checked once every file is emitted.
     let mut platform_hosts: BTreeSet<ModulePath> = BTreeSet::new();
@@ -161,6 +159,7 @@ fn emit_program_mode(
         emitter.abi_keep = if abi_full.contains(&unit.file.module) { None } else { closure.clone() };
         emitter.platform_effects = platform_effects.clone();
         let content = emitter.emit_module(unit.ast);
+        derived.or(salvo_core::features::module_features(&symbols, &checked, file_idx, unit.ast, emitter.abi_keep.is_some(), |i| salvo_backend::emit_util::abi_emits(i, emitter.abi_keep.as_ref())));
         import_plans.push((
             files.len(),
             unit.file.module.clone(),
@@ -188,9 +187,6 @@ fn emit_program_mode(
         needs_throw |= emitter.needs_throw;
         needs_compare |= emitter.needs_compare;
         needs_bytes |= emitter.needs_bytes;
-        needs_wire |= emitter.needs_wire;
-        needs_scheduler |= emitter.needs_scheduler;
-        needs_time |= emitter.needs_time;
         platform_hosts.extend(emitter.platform_hosts);
         let mut rel_path = std::path::PathBuf::new();
         for part in &unit.file.module.0 {
@@ -200,6 +196,7 @@ fn emit_program_mode(
         files.push(EmittedFile { rel_path, content });
     }
     // [kt-imports] One import per foreign name each file's text mentions.
+    let (needs_scheduler, needs_wire) = (derived.scheduler, derived.wire);
     crate::imports::explicit_imports(&mut files, &import_plans, kotlin_package);
     // [kt-union-wrappers] One file per arity, `unions/UnionN.kt`, so every
     // arity has one place whoever compiles it — a program, or the shared std
@@ -242,7 +239,7 @@ fn emit_program_mode(
             && emitted_modules.contains(&u.file.module)
             && (!abi || abi_full.contains(&u.file.module))
     });
-    let needs_time = needs_time || needs_scheduler || needs_wire;
+    let needs_time = derived.time();
     // [runtime-sched] The scheduler shims onto the Salvo core: a build that
     // ships one without the other would not compile, so it is refused here
     // by name [backend-never-wrong].
@@ -997,15 +994,6 @@ struct Emitter<'p> {
     /// [kt-bytes] Whether this file named a `Bytes`, so the program needs
     /// the buffer runtime class.
     needs_bytes: bool,
-    /// [kt-wire] Whether the wire runtime is needed: a codec was generated
-    /// or `encode`/`decode` lowered.
-    needs_wire: bool,
-    /// [kt-actor] This file spawns, sends to an addr, or bridges with
-    /// `waitfor`, so the scheduler file is part of the program.
-    needs_scheduler: bool,
-    /// [time-types] Whether this module reads a clock, so the time runtime is
-    /// part of the program.
-    needs_time: bool,
     /// [is-bind-once] Hoisted `is` subjects: the span of a subject that is not
     /// a place, mapped to the `val` holding its single evaluation. The test and
     /// the binding both read it through `emit_place_storage`; they used to
@@ -1130,9 +1118,6 @@ impl<'p> Emitter<'p> {
             needs_throw: false,
             needs_compare: false,
             needs_bytes: false,
-            needs_wire: false,
-            needs_scheduler: false,
-            needs_time: false,
             is_temps: HashMap::new(),
             is_temp_id: 0,
             gen_slots: HashSet::new(),
@@ -1695,7 +1680,6 @@ impl<'p> Emitter<'p> {
     /// constructor. Beside the struct, in its package, so it is visible
     /// wherever the struct is.
     fn emit_struct_codec(&mut self, s: &StructDecl) -> String {
-        self.needs_wire = true;
         // A dot-named struct is `Outer.Inner` as a type and
         // `__Codec_Outer_Inner` as a codec.
         let declared_name: &str = &s.name.name;
@@ -1761,7 +1745,6 @@ impl<'p> Emitter<'p> {
     }
 
     fn kotlin_codec_expr(&mut self, ty: &Ty) -> String {
-        self.needs_wire = true;
         // [type-literal] A literal travels as its base, and a union of them
         // as its runtime shape.
         if salvo_core::literal::mentions_lit(ty) {
@@ -1847,11 +1830,9 @@ impl<'p> Emitter<'p> {
                 "None" => "salvo.UnitCodec".to_string(),
                 // [addr-routable] Scheduler handles: routable identities.
                 "Addr" => {
-                    self.needs_scheduler = true;
                     "salvo.AddrCodec".to_string()
                 }
                 "Reply" => {
-                    self.needs_scheduler = true;
                     "salvo.ReplyCodec".to_string()
                 }
                 "List" if args.len() == 1 => {
@@ -2042,7 +2023,6 @@ impl<'p> Emitter<'p> {
         if sends.is_empty() {
             return String::new();
         }
-        self.needs_scheduler = true;
         let name = stub_class_name(&e.name.name);
         let msg = msg_class_name(&e.name.name);
         let mut out = format!(
@@ -2167,7 +2147,6 @@ impl<'p> Emitter<'p> {
             ));
             return String::new();
         }
-        self.needs_scheduler = true;
         let enum_name = msg_class_name(&e.name.name);
         let mut out = format!("\nsealed class {enum_name} {{\n");
         for (i, f) in &sends {
@@ -2215,7 +2194,6 @@ impl<'p> Emitter<'p> {
             }
             param_tys.push(tys);
         }
-        self.needs_wire = true;
         let mut enc = String::new();
         let mut dec = String::new();
         for (tag, ((i, f), tys)) in sends.iter().zip(&param_tys).enumerate() {
@@ -3024,7 +3002,6 @@ impl<'p> Emitter<'p> {
         if sends.iter().all(|(_, list)| list.is_empty()) {
             return String::new();
         }
-        self.needs_scheduler = true;
         let proc_name = actor_class_name(&h.name.name);
         // [actor-private-send] The private send members: `__Priv_H`, its own
         // dispatcher.
@@ -3236,7 +3213,6 @@ impl<'p> Emitter<'p> {
                      val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = null\n    }\n",
                 );
             } else {
-                self.needs_wire = true;
                 out.push_str(&format!(
                     "\n    companion object {{\n        \
                      val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = {{ proto, payload ->\n            \
@@ -3274,7 +3250,6 @@ impl<'p> Emitter<'p> {
         if entries.is_empty() {
             return String::new();
         }
-        self.needs_scheduler = true;
         let pad = "    ".repeat(indent);
         format!(
             "{pad}salvo.SalvoSched.setProtocols(listOf({}))\n",
@@ -3304,7 +3279,6 @@ impl<'p> Emitter<'p> {
         if !ty_is_concrete(&ty) || salvo_core::wire_blocker(self.symbols, &ty).is_some() {
             return "{ _: ByteArray -> Pair(false, null) }".to_string();
         }
-        self.needs_wire = true;
         let codec = self.kotlin_codec_expr(&ty);
         // A decoded `null` (the unit `None`) is a value: distinguish it from a
         // failed decode by decoding into an `Optional`-shaped pair by hand.
@@ -4359,7 +4333,6 @@ impl<'p> Emitter<'p> {
             // is an `Int` and a token is one class, so the Salvo type argument
             // has no rendering — the generated message classes carry it.
             if matches!(name, "Addr" | "Pool" | "Reply") {
-                self.needs_scheduler = true;
                 return kt.to_string();
             }
             return format!("{kt}{args}");
@@ -4973,7 +4946,6 @@ impl<'p> Emitter<'p> {
             // the checker refused `Mut` parameters, which is what makes the
             // JVM's sharing and Rust's cloning observably identical.
             if decl.fns.iter().any(|f| f.is_send) {
-                self.needs_scheduler = true;
                 let mut lets = String::new();
                 let mut handler_args: Vec<String> = Vec::new();
                 let mut fac_args: Vec<String> = vec!["__a".to_string()];
@@ -5004,7 +4976,6 @@ impl<'p> Emitter<'p> {
             }
             return format!("{ctor}({})", args.join(", "));
         }
-        self.needs_scheduler = true;
         // [effect-handler-deps] [kt-handle] The child's dependencies are
         // trailing constructor arguments: the clause's instances and the
         // inherited ones, in the handler's *declaration* order — which is
@@ -5170,7 +5141,6 @@ impl<'p> Emitter<'p> {
         body: &Block,
         _span: Span,
     ) -> String {
-        self.needs_scheduler = true;
         let indent = self.expr_indent;
         let pad = "    ".repeat(indent + 1);
         let close = "    ".repeat(indent);
@@ -5220,7 +5190,6 @@ impl<'p> Emitter<'p> {
         args: &[Expr],
         span: Span,
     ) -> String {
-        self.needs_scheduler = true;
         let Expr::Field { base, field, .. } = callee else {
             self.error("internal: an addr send whose callee is not a dot-call");
             return "TODO()".to_string();
@@ -5252,7 +5221,6 @@ impl<'p> Emitter<'p> {
             .copied()
             .is_some_and(|e| self.effect_has_wire_form(e));
         if has_wire {
-            self.needs_wire = true;
             let msg = msg_class_name(effect_name);
             crate::imports::note(&format!("__PROTO_{}", kt_ident(effect_name)));
             crate::imports::note(&format!("__Codec_{msg}"));
@@ -5269,7 +5237,6 @@ impl<'p> Emitter<'p> {
     /// mailbox through the façade's own addr. The message class is the
     /// *handler's* (`__Msg_H`), not an effect's.
     fn emit_facade_send(&mut self, member: &str, args: &[Expr]) -> String {
-        self.needs_scheduler = true;
         let Some(handler) = self.current_handler.clone() else {
             self.error("internal: a façade send outside a handler member");
             return "TODO()".to_string();
@@ -5375,7 +5342,6 @@ impl<'p> Emitter<'p> {
     /// than the face-keyed twin: a mixed servant has (for now) no
     /// dependencies and one protocol.
     fn emit_mixed_actor_parts(&mut self, h: &HandlerDecl) -> String {
-        self.needs_scheduler = true;
         let name = h.name.name.clone();
         let msg = msg_class_name(&name);
         let actor = actor_class_name(&name);
@@ -7304,8 +7270,6 @@ impl<'p> Emitter<'p> {
                     // [actor-group] `in GROUP`: the spawn, then the one `join`
                     // send with the face's addr, the value unchanged.
                     Some(group) => {
-                        self.needs_scheduler = true;
-                        self.needs_wire = true;
                         let face = self.checked.spawn_joins.get(&(self.file_idx, *span)).copied();
                         let g = self.emit_expr(group);
                         let net = self.effect_paths.get("ActorGroup").cloned().unwrap_or_default();
@@ -7373,7 +7337,6 @@ impl<'p> Emitter<'p> {
         pool: Option<&Expr>,
         span: Span,
     ) -> String {
-        self.needs_scheduler = true;
         // [task-mint] [kt-task] A mint whose target is a free `send fn` needs
         // no continuation class, no slot and no parked table: the lambda *is*
         // the continuation, and the runtime schedules it on the pool the mint
@@ -7503,7 +7466,6 @@ impl<'p> Emitter<'p> {
     /// enqueue on its own mailbox when this instance is an actor, and the
     /// ordinary inline member call when it was bound with `use`.
     fn emit_self_send(&mut self, member: &str, args: &[Expr]) -> String {
-        self.needs_scheduler = true;
         let Some(handler) = self.current_handler.clone() else {
             self.error("internal: a self-send outside a handler member");
             return "TODO()".to_string();
@@ -8687,7 +8649,6 @@ impl<'p> Emitter<'p> {
         // argument's for `encode`, the type argument's for `decode`. The
         // checker has already refused a type with no wire form at this call.
         if f.intrinsic && matches!(f.name.name.as_str(), "encode" | "decode") && args.len() == 1 {
-            self.needs_wire = true;
             // An explicit type argument wins for `encode` too: the argument
             // may be coerced to it (`encode<Frame>(Grant { … })` encodes the
             // union, tag included).
@@ -8732,7 +8693,6 @@ impl<'p> Emitter<'p> {
                 // protocols std's node and actor groups speak are std's own
                 // (`std/net.sv`), and the runtime only carries them.
                 "watch_control" if args.len() == 2 => {
-                    self.needs_scheduler = true;
                     self.needs_bytes = true;
                     let channel = self.emit_expr(args[0]);
                     let sink = self.emit_expr(args[1]);
@@ -8763,8 +8723,6 @@ impl<'p> Emitter<'p> {
                     return self.protocol_literal(&effect, "protocol");
                 }
                 "key_hash" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    self.needs_wire = true;
                     let Some(target) = self
                         .checked
                         .expr_ty
@@ -8802,8 +8760,6 @@ impl<'p> Emitter<'p> {
                 };
                 if let Some(vt) = payload {
                     if ty_is_concrete(&vt) && salvo_core::wire_blocker(self.symbols, &vt).is_none() {
-                        self.needs_scheduler = true;
-                        self.needs_wire = true;
                         let codec = self.kotlin_codec_expr(&vt);
                         return format!(
                             "salvo.SalvoSched.replyWire({}, {}, {codec})",
@@ -8821,7 +8777,6 @@ impl<'p> Emitter<'p> {
                     "pool" | "thread"
                 )
             {
-                self.needs_scheduler = true;
             }
             // [cmp-groups] The canonical `cmp(Str, Str)` goes through the same
             // comparator, for the same reason: `String.compareTo` is UTF-16
@@ -9232,7 +9187,6 @@ impl<'p> Emitter<'p> {
                                 // the position was resolved at, as `protocol`.
                                 match Self::codec_position_type(&decl.name.name, want) {
                                     Some(t) => {
-                                        self.needs_wire = true;
                                         let codec = self.kotlin_codec_expr(&t);
                                         out.push(if decl.name.name == "encode" {
                                             format!("{{ __v -> salvo.salvoEncode(__v, {codec}) }}")

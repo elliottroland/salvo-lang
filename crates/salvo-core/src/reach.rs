@@ -431,7 +431,7 @@ fn fn_names<'p>(f: &'p FnDecl, used: &mut HashSet<&'p str>) {
     }
 }
 
-fn type_names<'p>(ty: &'p Type, used: &mut HashSet<&'p str>) {
+pub(crate) fn type_names<'p>(ty: &'p Type, used: &mut HashSet<&'p str>) {
     match ty {
         Type::Literal { .. } => {}
         Type::Named { qualifiers, base } => {

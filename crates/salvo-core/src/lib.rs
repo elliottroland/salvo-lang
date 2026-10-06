@@ -2,6 +2,7 @@
 //! checking, and (later) IR lowering.
 
 pub mod route;
+pub mod features;
 pub mod abi;
 pub mod case;
 pub mod check;

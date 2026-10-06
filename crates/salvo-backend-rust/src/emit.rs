@@ -216,10 +216,8 @@ fn emit_program_mode(
     // `map`/`filter`/`reduce` lower to.
     let mut needs_seq = false;
     // [rs-actor] And for the scheduler, when a program spawns.
-    let mut needs_scheduler = false;
+    let mut derived = salvo_core::features::RuntimeFeatures::default();
     // [time-types] And for the two clock readings, when a program reads time.
-    let mut needs_time = false;
-    let mut needs_wire = false;
     for (file_idx, unit) in program.units().enumerate() {
         let wanted = if abi {
             abi_modules.contains(&unit.file.module)
@@ -253,13 +251,11 @@ fn emit_program_mode(
         emitter.abi_keep = if abi_full.contains(&unit.file.module) { None } else { closure.clone() };
         emitter.platform_effects = platform_effects.clone();
         let content = emitter.emit_module(unit.ast);
+        derived.or(salvo_core::features::module_features(&symbols, &checked, file_idx, unit.ast, emitter.abi_keep.is_some(), |i| salvo_backend::emit_util::abi_emits(i, emitter.abi_keep.as_ref())));
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
         needs_str |= emitter.needs_str;
         needs_seq |= emitter.needs_seq;
-        needs_scheduler |= emitter.needs_scheduler;
-        needs_time |= emitter.needs_time;
-        needs_wire |= emitter.needs_wire;
         platform_hosts.extend(emitter.platform_hosts);
         let mut rel_path = std::path::PathBuf::new();
         for part in &unit.file.module.0 {
@@ -271,6 +267,7 @@ fn emit_program_mode(
         import_plans.push((files.len(), unit.file.module.clone(), deps, std::mem::take(&mut emitter.fn_aliases), refs));
         files.push(EmittedFile { rel_path, content });
     }
+    let (needs_scheduler, needs_wire) = (derived.scheduler, derived.wire);
     // [rs-imports] One `use` per foreign name each file's text mentions.
     explicit_imports(&mut files, &import_plans, &module_prefixes);
     // [rs-union-enums] One file per arity, `unions/unionN.rs`, under a
@@ -317,7 +314,7 @@ fn emit_program_mode(
             && emitted_modules.contains(&u.file.module)
             && (!abi || abi_full.contains(&u.file.module))
     });
-    let needs_time = needs_time || needs_scheduler || needs_wire;
+    let needs_time = derived.time();
     // [runtime-sched] The scheduler shims onto the Salvo core: a build that
     // ships one without the other would not compile, so it is refused here
     // by name [backend-never-wrong].
@@ -1439,7 +1436,6 @@ struct Emitter<'p> {
     erased: salvo_core::Erased,
     /// [rs-wire] Whether this file needs the wire runtime mounted: a codec
     /// was generated or `encode`/`decode` was lowered.
-    needs_wire: bool,
     /// [rs-none-unit] The fn being emitted returns `None`, i.e. Rust `()`:
     /// `return None;` must be a bare `return;`. Not decidable from the
     /// returned *value*'s type — `return None` in an `Option`-returning fn is
@@ -1514,12 +1510,6 @@ struct Emitter<'p> {
     /// [rs-seq] This file calls a sequence helper, so the program needs the
     /// generated sequence support file.
     needs_seq: bool,
-    /// [rs-actor] This file spawns, sends to an addr, or bridges with
-    /// `waitfor`, so the scheduler module is part of the program.
-    needs_scheduler: bool,
-    /// [time-types] Whether this module reads a clock, so the time module is
-    /// part of the program.
-    needs_time: bool,
     /// [is-bind-once] Hoisted `is` subjects: the span of a subject expression
     /// that is *not* a place, mapped to the temporary holding its single
     /// evaluation. Both the test and the binding read the temp through
@@ -2057,7 +2047,6 @@ impl<'p> Emitter<'p> {
             module_prefixes: HashMap::new(),
             visible_structs: HashSet::new(),
             erased: salvo_core::Erased::default(),
-            needs_wire: false,
             ret_is_unit: false,
             effect_env: Vec::new(),
             module_entries: Vec::new(),
@@ -2147,8 +2136,6 @@ impl<'p> Emitter<'p> {
             needs_protocol: false,
             needs_str: false,
             needs_seq: false,
-            needs_scheduler: false,
-            needs_time: false,
             is_temps: HashMap::new(),
             is_temp_id: 0,
             in_iterator_fn: false,
@@ -2834,7 +2821,6 @@ impl<'p> Emitter<'p> {
     /// parameters having a codec — the instantiation decides, which is what
     /// the checker's per-call refusal of a generic `T` assumes.
     fn emit_struct_wire(&mut self, s: &StructDecl) -> String {
-        self.needs_wire = true;
         let name = rs_ident(&s.name.name);
         let args = if s.generics.is_empty() {
             String::new()
@@ -3226,7 +3212,6 @@ impl<'p> Emitter<'p> {
         if sends.is_empty() {
             return String::new();
         }
-        self.needs_scheduler = true;
         let name = stub_struct_name(&e.name.name);
         let msg = msg_enum_name(&e.name.name);
         let mut out = format!(
@@ -3400,7 +3385,6 @@ impl<'p> Emitter<'p> {
             ));
             return String::new();
         }
-        self.needs_scheduler = true;
         let mut out = format!("\npub enum {} {{\n", msg_enum_name(&e.name.name));
         for (i, f) in &sends {
             let payload: Vec<String> = f
@@ -3453,7 +3437,6 @@ impl<'p> Emitter<'p> {
         if entries.is_empty() {
             return String::new();
         }
-        self.needs_scheduler = true;
         let pad = "    ".repeat(indent);
         format!(
             "{pad}crate::scheduler::salvo_set_protocols(vec![{}]);\n",
@@ -3482,7 +3465,6 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
-        self.needs_wire = true;
         let msg = msg_enum_name(&e.name.name);
         let mut enc = String::new();
         let mut dec = String::new();
@@ -4666,7 +4648,6 @@ impl<'p> Emitter<'p> {
         if sends.iter().all(|(_, list)| list.is_empty()) {
             return String::new();
         }
-        self.needs_scheduler = true;
         let name = rs_ident(&h.name.name);
         let proc_name = actor_struct_name(&h.name.name);
         // [actor-private-send] The private send members, dispatched from
@@ -4965,7 +4946,6 @@ impl<'p> Emitter<'p> {
                     "\npub const {decode_const}: Option<crate::scheduler::MsgDecoder> = None;\n"
                 ));
             } else {
-                self.needs_wire = true;
                 let decode_fn = format!("__decode_msg_{}", rs_ident(&h.name.name));
                 out.push_str(&format!(
                     "\npub const {decode_const}: Option<crate::scheduler::MsgDecoder> = Some({decode_fn});\n\
@@ -6951,7 +6931,6 @@ impl<'p> Emitter<'p> {
             // argument (the effect an addr serves, the payload a token carries)
             // has no rendering here — the generated message enum carries it.
             if matches!(name, "Addr" | "Pool" | "Reply") {
-                self.needs_scheduler = true;
                 return rs.to_string();
             }
             return format!("{rs}{args}");
@@ -8862,7 +8841,6 @@ impl<'p> Emitter<'p> {
             // the checker proved them sendable and refused `Mut`, which is
             // what makes the copy legal and unobservable.
             if decl.fns.iter().any(|f| f.is_send) {
-                self.needs_scheduler = true;
                 let mut lets = String::new();
                 let mut handler_args: Vec<String> = Vec::new();
                 let mut fac_fields: Vec<String> = vec!["__addr: __a".to_string()];
@@ -8931,7 +8909,6 @@ impl<'p> Emitter<'p> {
             let mk = if self.handler_is_stateful(decl) { "locked" } else { "shared" };
             return format!("{handle}::{mk}({ctor}::new({}))", arg_code.join(", "));
         }
-        self.needs_scheduler = true;
         // [effect-handler-deps] [rs-handle] A dependent child owns its
         // dependency handles: the clause's instances and the inherited ones
         // are trailing constructor arguments, in the *handler's declaration*
@@ -9142,7 +9119,6 @@ impl<'p> Emitter<'p> {
         body: &Block,
         _span: Span,
     ) -> String {
-        self.needs_scheduler = true;
         let indent = self.expr_indent;
         let pad = "    ".repeat(indent + 1);
         let close = "    ".repeat(indent);
@@ -9199,7 +9175,6 @@ impl<'p> Emitter<'p> {
         args: &[Expr],
         span: Span,
     ) -> String {
-        self.needs_scheduler = true;
         let Expr::Field { base, field, .. } = callee else {
             self.error("internal: an addr send whose callee is not a dot-call");
             return "todo!()".to_string();
@@ -9245,7 +9220,6 @@ impl<'p> Emitter<'p> {
             .copied()
             .is_some_and(|e| self.effect_has_wire_form(e));
         if has_wire {
-            self.needs_wire = true;
             let proto = self.effect_path(effect_name, &protocol_const_name(effect_name));
             format!("crate::scheduler::salvo_send_wire({target}, {built}, {proto})")
         } else {
@@ -9258,7 +9232,6 @@ impl<'p> Emitter<'p> {
     /// enclosing mixed handler's `send fn` members, so the message enum is
     /// the *handler's* (`__Msg_H`), not an effect's.
     fn emit_facade_send(&mut self, member: &str, args: &[Expr]) -> String {
-        self.needs_scheduler = true;
         let Some(handler) = self.current_handler.clone() else {
             self.error("internal: a façade send outside a handler member");
             return "todo!()".to_string();
@@ -9341,7 +9314,6 @@ impl<'p> Emitter<'p> {
     /// because a mixed servant has (for now) no dependencies and one
     /// protocol.
     fn emit_mixed_actor_parts(&mut self, h: &HandlerDecl) -> String {
-        self.needs_scheduler = true;
         let name = rs_ident(&h.name.name);
         let msg = msg_enum_name(&h.name.name);
         let actor = actor_struct_name(&h.name.name);
@@ -12294,7 +12266,6 @@ impl<'p> Emitter<'p> {
                     // send with the face's addr — the same send std's `join`
                     // fn makes — and the spawn's value stays the value.
                     Some(group) => {
-                        self.needs_scheduler = true;
                         let face = self.checked.spawn_joins.get(&(self.file_idx, *span)).copied();
                         let g = self.emit_read(group);
                         let msg = self.effect_path("ActorGroup", &msg_enum_name("ActorGroup"));
@@ -12367,7 +12338,6 @@ impl<'p> Emitter<'p> {
         pool: Option<&Expr>,
         span: Span,
     ) -> String {
-        self.needs_scheduler = true;
         // [task-mint] [rs-task] A mint whose target is a free `send fn` needs
         // no continuation enum, no slot and no parked table: the closure *is*
         // the continuation, and the runtime schedules it on the pool the mint
@@ -12516,7 +12486,6 @@ impl<'p> Emitter<'p> {
         if !ty_is_concrete(&ty) || salvo_core::wire_blocker(self.symbols, &ty).is_some() {
             return "(|_| None)".to_string();
         }
-        self.needs_wire = true;
         let rs = self.rust_ty(&ty);
         format!(
             "(|__b: &[u8]| crate::wire::salvo_decode::<{rs}>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))"
@@ -12535,7 +12504,6 @@ impl<'p> Emitter<'p> {
     ///   the ordinary inline member call a local binding of a send protocol
     ///   already makes.
     fn emit_self_send(&mut self, member: &str, args: &[Expr]) -> String {
-        self.needs_scheduler = true;
         let Some(handler) = self.current_handler.clone() else {
             self.error("internal: a self-send outside a handler member");
             return "todo!()".to_string();
@@ -15565,7 +15533,6 @@ impl<'p> Emitter<'p> {
         // rendering from the call's checked type argument. The checker has
         // already refused a type with no wire form at this call.
         if f.intrinsic && matches!(f.name.name.as_str(), "encode" | "decode") && args.len() == 1 {
-            self.needs_wire = true;
             if f.name.name == "encode" {
                 let code = self.emit_read(args[0]);
                 return format!("crate::wire::salvo_encode(&{code})");
@@ -15594,7 +15561,6 @@ impl<'p> Emitter<'p> {
                 // protocols std's node and actor groups speak are std's own
                 // (`std/net.sv`), and the runtime only carries them.
                 "watch_control" if args.len() == 2 => {
-                    self.needs_scheduler = true;
                     let channel = self.emit_read(args[0]);
                     let sink = self.emit_read(args[1]);
                     // [actor-private-send] The payload arrives as the enclosing
@@ -15626,8 +15592,6 @@ impl<'p> Emitter<'p> {
                     return self.protocol_literal(&effect, "protocol");
                 }
                 "key_hash" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    self.needs_wire = true;
                     let k = self.emit_read(args[0]);
                     return format!(
                         "crate::scheduler::salvo_key_hash(&crate::wire::salvo_encode(&{k}))"
@@ -15656,9 +15620,7 @@ impl<'p> Emitter<'p> {
                     if ty_is_concrete(&ty) {
                         let rs = self.rust_ty(&ty);
                         let tok = self.emit_expr(args[0]);
-                        self.needs_scheduler = true;
                         if salvo_core::wire_blocker(self.symbols, &ty).is_none() {
-                            self.needs_wire = true;
                             return format!(
                                 "crate::scheduler::salvo_reply_wire::<{rs}>({tok}, None)"
                             );
@@ -15686,8 +15648,6 @@ impl<'p> Emitter<'p> {
                 };
                 if let Some(vt) = payload {
                     if ty_is_concrete(&vt) && salvo_core::wire_blocker(self.symbols, &vt).is_none() {
-                        self.needs_scheduler = true;
-                        self.needs_wire = true;
                         let rs = self.rust_ty(&vt);
                         let rendered = self.intrinsic_arg_code(f, args);
                         let tok = rendered[0].clone();
@@ -15711,7 +15671,6 @@ impl<'p> Emitter<'p> {
                     "pool" | "thread"
                 )
             {
-                self.needs_scheduler = true;
             }
             // [rs-seq] The `List` fast paths lower to the generated
             // sequence helpers, which is what gives their callbacks an
@@ -16513,7 +16472,6 @@ impl<'p> Emitter<'p> {
                                 // position was resolved at, as `protocol`.
                                 match Self::codec_position_type(&decl.name.name, want) {
                                     Some(t) => {
-                                        self.needs_wire = true;
                                         let rs = self.rust_ty(&t);
                                         if decl.name.name == "encode" {
                                             format!(
