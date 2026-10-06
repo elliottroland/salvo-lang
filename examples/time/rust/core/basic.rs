@@ -1,3 +1,4 @@
+use crate::core_string::Str;
 
 pub fn to_str__TupleAB<A: Clone, B: Clone>(value: &(A, B), to_str: &mut dyn FnMut(&A) -> String, to_str__1: &mut dyn FnMut(&B) -> String) -> String {
     return format!("({}, {})", to_str(&value.0), to_str__1(&value.1));

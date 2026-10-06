@@ -2,6 +2,7 @@ package salvo.fs
 
 import salvo.*
 import salvo.core.bytes.mutBytes
+import salvo.core.bytes.next
 import salvo.core.checked.Checked
 import salvo.core.checked.checked
 import salvo.core.checked.detach
@@ -10,6 +11,8 @@ import salvo.core.iterator.Finished
 import salvo.core.list.addPlatform
 import salvo.core.result.err
 import salvo.core.result.ok
+import salvo.core.set.next
+import salvo.core.string.next
 import salvo.fs.path.Path
 import salvo.fs.path.path
 import salvo.stream.Chunks
@@ -18,6 +21,7 @@ import salvo.stream.InvalidUtf8
 import salvo.stream.Lines
 import salvo.stream.OutStream
 import salvo.stream.StreamFailed
+import salvo.stream.Streams
 import salvo.stream.__Codec_InvalidUtf8
 import salvo.stream.__Codec_StreamFailed
 import salvo.stream.chunks

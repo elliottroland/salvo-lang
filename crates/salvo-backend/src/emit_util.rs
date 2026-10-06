@@ -918,3 +918,61 @@ pub fn literal_as_call(
         span,
     })
 }
+
+/// Every name a module's emitted code can refer to that the checker knows
+/// of: the names its source mentions, the fns its calls, operators,
+/// interpolations and implicits resolved to, and the type names in its
+/// expression types. `rename` maps a Salvo name to the target's spelling.
+/// What this misses is what an emitter synthesizes (a union struct, an actor
+/// wrapper): each emitter registers those itself.
+pub fn checker_refs(
+    ast: &Module,
+    checked: &salvo_core::check::Checked,
+    program: &salvo_core::program::Program,
+    fn_names: &salvo_core::naming::FnNames,
+    file_idx: usize,
+    rename: impl Fn(&str) -> String,
+) -> std::collections::BTreeSet<String> {
+    use std::collections::BTreeSet;
+    fn ty_names(t: &Ty, out: &mut BTreeSet<String>) {
+        match t {
+            Ty::Named { name, args } => {
+                out.insert(salvo_core::typekey::plain(name).to_string());
+                args.iter().for_each(|a| ty_names(a, out));
+            }
+            Ty::Qualified { quals, base } => {
+                for q in quals {
+                    out.insert(q.name.clone());
+                    q.args.iter().for_each(|a| ty_names(a, out));
+                }
+                ty_names(base, out);
+            }
+            Ty::Union(v) | Ty::Tuple(v) => v.iter().for_each(|a| ty_names(a, out)),
+            Ty::Array(b) => ty_names(b, out),
+            Ty::Fn { params, ret, .. } => {
+                params.iter().for_each(|a| ty_names(a, out));
+                ty_names(ret, out);
+            }
+            _ => {}
+        }
+    }
+    let mut refs: BTreeSet<String> = salvo_core::reach::used_names(ast).into_iter().map(&rename).collect();
+    for key in salvo_core::reach::resolved_fn_keys(checked, file_idx) {
+        if let Some(u) = program.units().nth(key.file) {
+            if let Some(Item::Fn(d)) = u.ast.items.get(key.item) {
+                refs.insert(rename(&d.name.name));
+                if let Some(n) = fn_names.get(d) {
+                    refs.insert(n.to_string());
+                }
+            }
+        }
+    }
+    let mut tys = BTreeSet::new();
+    for ((f, _), t) in checked.expr_ty.iter() {
+        if *f == file_idx {
+            ty_names(t, &mut tys);
+        }
+    }
+    refs.extend(tys.iter().map(|n| rename(n)));
+    refs
+}

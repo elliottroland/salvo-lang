@@ -1,10 +1,20 @@
 package salvo.core.bytes
 
 import salvo.*
+import salvo.core.deque.get
+import salvo.core.deque.toStr
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
-import salvo.core.list.at
+import salvo.core.list.get
+import salvo.core.list.indexOf
+import salvo.core.list.toStr
+import salvo.core.map.eq
+import salvo.core.map.get
+import salvo.core.map.toStr
+import salvo.core.set.eq
+import salvo.core.set.toStr
+import salvo.core.string.indexOf
 
 fun bytesOf(elems: Array<UByte>): salvo.platform.core.bytes.Bytes {
     val out = emptyBytesPlatform()

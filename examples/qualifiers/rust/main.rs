@@ -42,11 +42,14 @@ pub mod platform_core_sorted;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
+use crate::core_console::Console;
 use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
 use crate::core_console::println;
+use crate::core_list::List;
 use crate::core_list::first;
+use crate::core_string::Str;
 
 pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
     return crate::core_list::size_platform(list) > 0;

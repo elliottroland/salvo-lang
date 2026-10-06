@@ -2,13 +2,19 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
+use crate::core_actor::Mailbox;
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
+use crate::core_compare::mix_hash;
+use crate::core_list::List;
+use crate::core_list::at;
+use crate::core_string::Str;
 use crate::runtime::RuntimeHostPlatformSync as _;
 use crate::runtime::__Stateful_RuntimeHost as _;
 use crate::runtime::__Stateful_SchedTable as _;
 use crate::runtime::__Stateless_RuntimeHost as _;
 use crate::runtime::__Stateless_SchedTable as _;
+use crate::runtime::now_nanos;
 
 pub fn epoch_nanos_platform() -> i64 {
     crate::platform_time::epoch_nanos()

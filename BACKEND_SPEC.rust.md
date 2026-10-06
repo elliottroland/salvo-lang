@@ -111,9 +111,14 @@ Conventions:
     iteration emits inline pass drives [rs-iter-pass], no runtime file.)
 * [rs-imports] Files get generated `use` items **one per name** (user
   decision 2026-10-05): `use crate::<mod>::<name>;` for each Salvo
-  declaration of a foreign emitted module the file's text mentions, written
-  after every module is emitted (`imports.rs` reads the names each module
-  declares and each file mentions off the emitted text). A fn the emitter
+  declaration of a foreign emitted module the file refers to, written after
+  every module is emitted. What a file refers to comes from the checker
+  (`emit_util::checker_refs`: the names its source mentions, the fns its
+  calls, operators, interpolations and implicits resolved to, and the type
+  names in its expression types) plus the names the emitter registers as it
+  synthesizes them (`imports::note`: union structs, `__Actor_H`, `..._qualifies`,
+  `__loc` variants); `imports.rs` reads only what each module *declares* off
+  the emitted text. A fn the emitter
   calls is imported from the module the checker resolved it to, under its own
   name or `<name>__<module>` when the file uses the same emitted name from two
   modules, or from another module and its own [fn-emit-name]. Every trait of

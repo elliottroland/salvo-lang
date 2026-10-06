@@ -2,7 +2,9 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
+use crate::core_string::Str;
 use crate::runtime::RuntimeHostPlatformSync as _;
+use crate::runtime::Token;
 use crate::runtime::__Stateful_RuntimeHost as _;
 use crate::runtime::__Stateful_SchedTable as _;
 use crate::runtime::__Stateless_RuntimeHost as _;

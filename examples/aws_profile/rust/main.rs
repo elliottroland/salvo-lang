@@ -46,6 +46,7 @@ pub mod platform_core_string;
 
 use crate::aws::ProfileCredentials;
 use crate::aws::to_str;
+use crate::core_console::Console;
 use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;

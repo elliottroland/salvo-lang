@@ -42,9 +42,12 @@ Conventions:
     position.
 * [kt-imports] Files get generated Kotlin imports, **one per name** (user
   decision 2026-10-05): `import salvo.<module>.<name>` for each Salvo
-  declaration of a foreign emitted module the file's text mentions, written
-  after every module is emitted (`imports.rs`: the names each module
-  declares and each file mentions are read off the emitted text). A fn the
+  declaration of a foreign emitted module the file refers to, written after
+  every module is emitted. What a file refers to comes from the checker
+  (`emit_util::checker_refs`, shared with the Rust backend) plus the names the
+  emitter registers as it synthesizes them (`imports::note`: `__Mon_E`,
+  `__Codec_M`, `__PROTO_E`, `Finished`, ...); `imports.rs` reads only what
+  each module *declares* off the emitted text. A fn the
   emitter calls is imported from the module the checker resolved it to, under
   its own name, or under `<name>__<module>` when the file uses a fn of the
   same emitted name from two modules, or from another module and its own

@@ -8,11 +8,16 @@ use crate::core_actor::Idle;
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
 use crate::core_actor::pool;
+use crate::core_deque::Deque;
+use crate::core_deque::add_last_platform;
 use crate::core_deque::drain as drain__core_deque;
 use crate::core_deque::mut_deque_of;
+use crate::core_list::List;
 use crate::core_list::any;
 use crate::core_list::at;
 use crate::core_list::drain as drain__core_list;
+use crate::core_string::Str;
+use crate::core_string::join_platform;
 
 /// [mod-use] The module's `use` #0, bound on first use.
 fn __module_use_0() -> &'static crate::runtime::RuntimeHost {

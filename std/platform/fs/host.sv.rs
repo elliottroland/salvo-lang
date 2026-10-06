@@ -3,8 +3,13 @@
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
 use crate::unions::*;
+use crate::core_checked::Checked;
+use crate::core_checked::checked;
+use crate::core_list::List;
+use crate::core_string::Str;
 use crate::fs::AlreadyExists;
 use crate::fs::FileInfo;
+use crate::fs::FsError;
 use crate::fs::IoError;
 use crate::fs::NotADirectory;
 use crate::fs::NotFound;

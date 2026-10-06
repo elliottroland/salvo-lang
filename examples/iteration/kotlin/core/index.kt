@@ -1,11 +1,13 @@
 package salvo.core.index
 
 import salvo.*
+import salvo.core.array.next
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
-import salvo.core.list.at
 import salvo.core.list.sizePlatform
+import salvo.core.set.next
+import salvo.core.string.next
 
 fun<C> Idx_qualifies(index: Int, c: C, size: (C) -> Int): Boolean {
     return index >= 0 && index < size(c)

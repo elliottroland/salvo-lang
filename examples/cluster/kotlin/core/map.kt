@@ -1,13 +1,16 @@
 package salvo.core.map
 
 import salvo.*
+import salvo.core.array.next
+import salvo.core.bytes.next
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
-import salvo.core.list.at
 import salvo.core.list.drain as drain__core_list
+import salvo.core.set.next
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
+import salvo.core.string.next
 
 inline fun<K, V> mapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
     return salvo.platform.core.map.mapOf(entries, hash, eq)

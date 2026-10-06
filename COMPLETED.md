@@ -136,6 +136,25 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — Imports from the checker's references (§0j step 10, first half)
+
+Both `imports.rs` text scans (`mentioned`, ~150 lines each) are gone. A file's
+imports now come from `emit_util::checker_refs` — source names
+(`reach::used_names`), the fns `reach::resolved_fn_keys` lists (by Salvo and
+emitted name), and the type names in `expr_ty` — plus an `imports::note` hook
+each emitter calls where it synthesizes a name (union structs via `rust_ty`/
+`emit_ty`, `__Actor_H`/`__Stub_E`/`__Mon_E`/`__Codec_M`/`__PROTO_E`,
+`..._qualifies`, `__loc`, `Finished`). `declared()` still reads what each
+module exports off its emitted text, as decided. The reference diff found the
+scan importing names that were only field or method names (`at`, `entries`,
+`nanos`, `partition`); those imports are gone from the generated examples.
+Gotchas: a dotted struct name (`StorageClass.Glacier`) is spelled differently
+per backend (Rust concatenates, Kotlin imports the namespace object), so the
+rename is a parameter of `checker_refs`; Kotlin fns are camel-cased, so its
+refs also carry the camel form; Rust's prelude `drop` needs no import. Types
+now import even when the Rust spelling is an alias (`Str`), which adds some
+unused `use` lines. The runtime-feature half is still open (ROADMAP §0j 10).
+
 Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first

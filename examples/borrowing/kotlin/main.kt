@@ -1,9 +1,11 @@
 package salvo.main
 
 import salvo.core.console.Console
+import salvo.core.console.__Platform_StdOutConsole
 import salvo.core.console.println
 import salvo.core.index.Idx_qualifies
 import salvo.core.index.NotEq_qualifies
+import salvo.core.list.ListYield
 import salvo.core.list.addPlatform
 import salvo.core.list.at
 import salvo.core.list.get
@@ -15,6 +17,8 @@ import salvo.core.list.toStr
 import salvo.core.list.update
 import salvo.core.list.update2
 import salvo.core.seq.filter
+import salvo.core.set.next
+import salvo.core.string.next
 
 data class Fighter(
     var name: String,

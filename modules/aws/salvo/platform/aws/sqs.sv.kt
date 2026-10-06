@@ -6,7 +6,11 @@ package salvo.aws.sqs
 
 import salvo.*
 import salvo.aws.AwsError
+import salvo.core.bytes.addPlatform
 import salvo.core.checked.Checked
+import salvo.core.list.addPlatform
+import salvo.core.set.addPlatform
+import salvo.core.sorted.addPlatform
 
 data class CreateQueueInput(
     val queueName: String,

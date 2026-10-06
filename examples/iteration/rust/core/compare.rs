@@ -1,8 +1,12 @@
 use crate::unions::*;
 use crate::core_index::Idx__Int_qualifies;
+use crate::core_list::Enumerated;
+use crate::core_list::List;
+use crate::core_list::__Iter_enumerate_List;
 use crate::core_list::enumerate;
 use crate::core_list::get;
 use crate::core_list::next__Iter_enumerate_List;
+use crate::core_string::Str;
 
 pub fn eq__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
     if crate::core_list::size_platform(a) != crate::core_list::size_platform(b) {

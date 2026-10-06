@@ -2,6 +2,11 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
+use crate::core_iterator::Finished;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
+use crate::core_string::Str;
+use crate::core_string::mut_str;
 
 /// [platform-type] The host's `IntBuffer`.
 pub use crate::platform_core_buffer::IntBuffer;

@@ -5,6 +5,48 @@
 package salvo.stream
 
 import salvo.*
+import salvo.core.bytes.addPlatform
+import salvo.core.bytes.clearPlatform
+import salvo.core.bytes.getPlatform
+import salvo.core.bytes.mutBytes
+import salvo.core.bytes.next
+import salvo.core.bytes.sizePlatform
+import salvo.core.checked.Checked
+import salvo.core.checked.checked
+import salvo.core.checked.ignore
+import salvo.core.checked.toStr
+import salvo.core.deque.get
+import salvo.core.deque.getPlatform
+import salvo.core.deque.sizePlatform
+import salvo.core.deque.toStr
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.addPlatform
+import salvo.core.list.first
+import salvo.core.list.get
+import salvo.core.list.getPlatform
+import salvo.core.list.sizePlatform
+import salvo.core.list.toStr
+import salvo.core.map.get
+import salvo.core.map.getPlatform
+import salvo.core.map.sizePlatform
+import salvo.core.map.toStr
+import salvo.core.set.addPlatform
+import salvo.core.set.next
+import salvo.core.set.sizePlatform
+import salvo.core.set.toStr
+import salvo.core.sorted.addPlatform
+import salvo.core.sorted.getPlatform
+import salvo.core.string.clearPlatform
+import salvo.core.string.lines
+import salvo.core.string.next
+import salvo.core.string.sizePlatform
+import salvo.runtime.streams.Streams
+import salvo.runtime.streams.decode
+import salvo.runtime.streams.freshHandle
+import salvo.runtime.streams.readLine
+import salvo.runtime.streams.receive
 
 // Factories for the host: one per arm of the union [platform-factory].
 object StreamErrors {

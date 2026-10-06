@@ -47,12 +47,14 @@ pub mod platform_core_sorted;
 pub mod platform_core_string;
 
 use crate::seq::*;
+use crate::core_console::Console;
 use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
 use crate::core_console::println;
 use crate::core_index::Idx__Int_qualifies;
 use crate::core_index::NotEq__Int_qualifies;
+use crate::core_list::List;
 use crate::core_list::ListYield;
 use crate::core_list::at;
 use crate::core_list::at__loc;
@@ -63,6 +65,7 @@ use crate::core_list::to_str;
 use crate::core_list::update2;
 use crate::core_list::update;
 use crate::core_seq::filter;
+use crate::core_string::Str;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fighter {

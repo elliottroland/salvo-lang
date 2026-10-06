@@ -44,10 +44,12 @@ pub mod platform_core_string;
 
 use crate::unions::*;
 use crate::core_compare::mix_hash;
+use crate::core_console::Console;
 use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
 use crate::core_console::println;
+use crate::core_list::List;
 use crate::core_list::add_sorted;
 use crate::core_list::at;
 use crate::core_list::binary_search;
@@ -57,16 +59,27 @@ use crate::core_list::mut_sort;
 use crate::core_list::sort;
 use crate::core_list::to_str as to_str__core_list;
 use crate::core_map::Map;
+use crate::core_map::MapKeyYield;
 use crate::core_map::iter as iter__core_map;
+use crate::core_map::map_of_platform;
+use crate::core_map::mut_map_of_platform;
 use crate::core_map::next__MapKeyYield;
 use crate::core_map::to_map;
 use crate::core_map::to_str as to_str__core_map;
 use crate::core_set::Set;
+use crate::core_set::SetYield;
 use crate::core_set::iter as iter__core_set;
+use crate::core_set::mut_set_of_platform;
 use crate::core_set::next;
+use crate::core_set::set_of_platform;
+use crate::core_set::to_set_platform;
 use crate::core_set::to_str as to_str__core_set;
 use crate::core_sorted::SortedSet;
+use crate::core_sorted::min;
+use crate::core_sorted::min_platform;
+use crate::core_sorted::mut_sorted_set_of_platform;
 use crate::core_sorted::to_str__SortedSet;
+use crate::core_string::Str;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Point {

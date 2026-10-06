@@ -3,7 +3,17 @@
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
 use crate::unions::*;
+use crate::core_bytes::Bytes;
+use crate::core_bytes::mut_bytes;
+use crate::core_checked::Checked;
+use crate::core_checked::checked;
+use crate::core_checked::detach;
+use crate::core_checked::ignore;
+use crate::core_list::List;
+use crate::core_string::Str;
+use crate::core_string::lines;
 use crate::stream::InvalidUtf8;
+use crate::stream::StreamError;
 use crate::stream::StreamFailed;
 
 pub type FsError = Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>;

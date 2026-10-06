@@ -5,5 +5,7 @@
 package salvo.aws.sqs.host
 
 import salvo.aws.AwsConfig
+import salvo.aws.sqs.Sqs
+import salvo.aws.sqs.__Platform_Sqs
 
 class __Platform_HostSqs(config: AwsConfig) : salvo.aws.sqs.__Platform_Sqs(salvo.platform.aws.sqs.host.HostSqs(config))

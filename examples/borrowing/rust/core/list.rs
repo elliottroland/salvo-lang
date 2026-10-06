@@ -4,6 +4,8 @@ use crate::core_checked::Checked;
 use crate::core_checked::checked;
 use crate::core_checked::ignore;
 use crate::core_index::Idx__Int_qualifies;
+use crate::core_index::__Iter_indices_List;
+use crate::core_index::__Iter_rev_indices_List;
 use crate::core_index::indices;
 use crate::core_index::next__Iter_indices_List;
 use crate::core_index::next__Iter_rev_indices_List;
@@ -11,6 +13,8 @@ use crate::core_index::rev_indices;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
+use crate::core_string::Str;
+use crate::core_string::append_platform;
 use crate::core_string::mut_str;
 
 /// [platform-type] The host's `List`.

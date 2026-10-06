@@ -2,8 +2,11 @@ use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_list::at;
+use crate::core_list::List;
 use crate::core_list::first;
+use crate::core_list::last;
+use crate::core_string::Str;
+use crate::core_string::append_platform;
 use crate::core_string::mut_str;
 
 /// [platform-type] The host's `Deque`.

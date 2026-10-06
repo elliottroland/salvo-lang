@@ -8,21 +8,40 @@ import salvo.*
 import salvo.core.actor.Exit
 import salvo.core.actor.Idle
 import salvo.core.actor.pool
+import salvo.core.bytes.getPlatform
+import salvo.core.bytes.sizePlatform
 import salvo.core.deque.addLastPlatform
+import salvo.core.deque.drain
 import salvo.core.deque.drain as drain__core_deque
+import salvo.core.deque.get
+import salvo.core.deque.getPlatform
 import salvo.core.deque.getPlatform as getPlatform__core_deque
 import salvo.core.deque.mutDequeOf
 import salvo.core.deque.removeAtPlatform
+import salvo.core.deque.removeFirstPlatform
 import salvo.core.deque.removeFirstPlatform as removeFirstPlatform__core_deque
+import salvo.core.deque.sizePlatform
 import salvo.core.deque.sizePlatform as sizePlatform__core_deque
 import salvo.core.list.addPlatform
 import salvo.core.list.any
 import salvo.core.list.at
+import salvo.core.list.drain
 import salvo.core.list.drain as drain__core_list
+import salvo.core.list.get
+import salvo.core.list.getPlatform
 import salvo.core.list.getPlatform as getPlatform__core_list
+import salvo.core.list.removeFirstPlatform
 import salvo.core.list.removeFirstPlatform as removeFirstPlatform__core_list
+import salvo.core.list.sizePlatform
 import salvo.core.list.sizePlatform as sizePlatform__core_list
+import salvo.core.map.drain
+import salvo.core.map.get
+import salvo.core.map.getPlatform
+import salvo.core.map.sizePlatform
+import salvo.core.set.sizePlatform
+import salvo.core.sorted.getPlatform
 import salvo.core.string.joinPlatform
+import salvo.core.string.sizePlatform
 
 // [mod-use] The module's `use` #0, bound on first use.
 private val __moduleUse0: RuntimeHost by lazy {

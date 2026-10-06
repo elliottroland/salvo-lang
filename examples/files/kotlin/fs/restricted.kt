@@ -1,13 +1,22 @@
 package salvo.fs.restricted
 
 import salvo.*
+import salvo.core.bytes.sizePlatform
 import salvo.core.checked.Checked
 import salvo.core.checked.checked
+import salvo.core.deque.get
+import salvo.core.deque.sizePlatform
 import salvo.core.list.addPlatform
+import salvo.core.list.get
 import salvo.core.list.getPlatform
+import salvo.core.list.sizePlatform
 import salvo.core.list.sizePlatform as sizePlatform__core_list
+import salvo.core.map.get
+import salvo.core.map.sizePlatform
 import salvo.core.result.err
+import salvo.core.set.sizePlatform
 import salvo.core.string.joinPlatform
+import salvo.core.string.sizePlatform
 import salvo.core.string.sizePlatform as sizePlatform__core_string
 import salvo.core.string.splitPlatform
 import salvo.core.string.startsWithPlatform

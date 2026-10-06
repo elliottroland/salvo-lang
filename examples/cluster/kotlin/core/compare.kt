@@ -2,14 +2,20 @@ package salvo.core.compare
 
 import salvo.*
 import salvo.core.actor.eq
+import salvo.core.array.next
+import salvo.core.bytes.next
 import salvo.core.index.Idx_qualifies
+import salvo.core.iterator.Finished
 import salvo.core.list.Enumerated
+import salvo.core.list.__Iter_enumerate_List
 import salvo.core.list.enumerate
 import salvo.core.list.get
 import salvo.core.list.next__Iter_enumerate_List
 import salvo.core.list.sizePlatform
 import salvo.core.map.eq
 import salvo.core.set.eq
+import salvo.core.set.next
+import salvo.core.string.next
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> eq__List_List(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {

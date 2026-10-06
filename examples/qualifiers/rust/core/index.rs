@@ -2,7 +2,7 @@ use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_list::at;
+use crate::core_list::List;
 
 pub fn Idx__Int_qualifies<C: Clone>(index: i32, c: &C, size: &mut dyn FnMut(&C) -> i32) -> bool {
     return index >= 0 && index < size(c);

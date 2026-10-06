@@ -5,5 +5,7 @@
 package salvo.aws.s3.host
 
 import salvo.aws.AwsConfig
+import salvo.aws.s3.S3
+import salvo.aws.s3.__Platform_S3
 
 class __Platform_HostS3(config: AwsConfig) : salvo.aws.s3.__Platform_S3(salvo.platform.aws.s3.host.HostS3(config))

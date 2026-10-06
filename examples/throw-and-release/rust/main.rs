@@ -48,10 +48,13 @@ pub mod platform_core_string;
 
 use crate::unions::*;
 use std::ops::ControlFlow;
+use crate::core_console::Console;
 use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
 use crate::core_console::println;
+use crate::core_string::Str;
+use crate::core_string::parse_int_platform;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileHandle {

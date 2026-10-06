@@ -84,7 +84,10 @@ use crate::aws_sqs::ReceiveMessageInput;
 use crate::aws_sqs::ReceiveMessageOutput;
 use crate::aws_sqs::SendMessageInput;
 use crate::aws_sqs::SendMessageOutput;
+use crate::aws_sqs::Sqs;
+use crate::aws_sqs::SqsCalls;
 use crate::aws_sqs::SqsError;
+use crate::aws_sqs::SqsFailure;
 use crate::aws_sqs::__Stateful_Sqs as _;
 use crate::aws_sqs::__Stateful_SqsCalls as _;
 use crate::aws_sqs::__Stateless_Sqs as _;
@@ -94,14 +97,18 @@ use crate::core_actor::__Stateless_Faults as _;
 use crate::core_checked::Checked;
 use crate::core_checked::checked;
 use crate::core_checked::detach;
+use crate::core_console::Console;
 use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
 use crate::core_console::println;
+use crate::core_list::List;
 use crate::core_list::to_str;
 use crate::core_map::Map;
+use crate::core_map::mut_map_of_platform;
 use crate::core_result::err;
 use crate::core_result::ok;
+use crate::core_string::Str;
 
 pub fn describe(e: &Union2<SqsError, AwsError>) -> String {
     if matches!(e, Union2::U2(_)) {

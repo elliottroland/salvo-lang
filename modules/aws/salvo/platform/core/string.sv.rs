@@ -6,7 +6,10 @@ use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
+use crate::core_list::List;
 use crate::core_list::at;
+use crate::core_list::contains;
+use crate::core_list::last_index_of;
 use crate::core_list::remove_back;
 
 /// [platform-type] The host's `Str`.

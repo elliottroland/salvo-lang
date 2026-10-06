@@ -204,7 +204,7 @@ fn emit_program_mode(
     let mut files = Vec::new();
     let fn_names = std::rc::Rc::new(salvo_core::naming::FnNames::compute(program));
     errors.extend(fn_names.errors.iter().cloned());
-    let mut import_plans: Vec<(usize, ModulePath, BTreeSet<ModulePath>, BTreeMap<String, (ModulePath, String)>)> = Vec::new();
+    let mut import_plans: Vec<crate::imports::Plan> = Vec::new();
     let mut union_sizes: BTreeSet<usize> = BTreeSet::new();
     // [platform-handler] [platform-tree] Modules whose host companion a
     // `use` of a platform handler needs; checked once every file is emitted.
@@ -266,7 +266,9 @@ fn emit_program_mode(
             rel_path.push(part);
         }
         rel_path.set_extension(if abi { "sv.rs" } else { "rs" });
-        import_plans.push((files.len(), unit.file.module.clone(), deps, std::mem::take(&mut emitter.fn_aliases)));
+        let mut refs = salvo_backend::emit_util::checker_refs(unit.ast, &checked, program, &fn_names, file_idx, |n| n.replace('.', ""));
+        refs.extend(crate::imports::take_noted());
+        import_plans.push((files.len(), unit.file.module.clone(), deps, std::mem::take(&mut emitter.fn_aliases), refs));
         files.push(EmittedFile { rel_path, content });
     }
     // [rs-imports] One `use` per foreign name each file's text mentions.
@@ -6336,7 +6338,7 @@ impl<'p> Emitter<'p> {
             let base = self.rust_fn_name(f);
             // [rs-loc] The locator variant's name.
             if self.lend_loc_mode {
-                format!("{base}__loc")
+                loc_name(&base)
             } else {
                 base
             }
@@ -6349,7 +6351,7 @@ impl<'p> Emitter<'p> {
                     let base = self.handler_member_name(h, f);
                     // [rs-loc] The locator face of a mutable-lending member.
                     if self.lend_loc_mode {
-                        format!("{base}__loc")
+                        loc_name(&base)
                     } else {
                         base
                     }
@@ -7088,6 +7090,10 @@ impl<'p> Emitter<'p> {
             return self.rust_ty(&salvo_core::literal::collapse_ty(ty));
         }
         match ty {
+            Ty::Named { name, .. } => crate::imports::note(name),
+            _ => {}
+        }
+        match ty {
             Ty::Lit(l) => self.rust_ty(&Ty::named(l.base())),
             // [qual-depend] A place argument is the checker's alone: it
             // lives inside an erased qualifier and never reaches output.
@@ -7692,12 +7698,20 @@ fn protocol_const_name(effect: &str) -> String {
 
 /// [actor-use-addr] The forwarding stub of a protocol: `__Stub_Counter`, the
 /// effect implemented by sending to an addr.
+/// [rs-loc] The locator variant of a fn name, noted as used.
+fn loc_name(base: &str) -> String {
+    let n = format!("{base}__loc");
+    crate::imports::note(&n);
+    n
+}
 fn stub_struct_name(effect: &str) -> String {
     // [type-identity] A path a clashing name renders with stays in front.
     if let Some((path, last)) = split_path(effect) {
         return format!("{path}::{}", stub_struct_name(last));
     }
-    format!("__Stub_{}", rs_ident(effect))
+    let n = format!("__Stub_{}", rs_ident(effect));
+    crate::imports::note(&n);
+    n
 }
 
 /// An effect as a *type* (impl target, trait bound): `Random<i32>`.
@@ -7749,7 +7763,9 @@ fn private_enum_name(handler: &str) -> String {
     if let Some((path, last)) = split_path(handler) {
         return format!("{path}::{}", private_enum_name(last));
     }
-    format!("__Priv_{}", rs_ident(handler))
+    let n = format!("__Priv_{}", rs_ident(handler));
+    crate::imports::note(&n);
+    n
 }
 
 /// [actor-replyto] [actor-private-send] What a parked continuation may
@@ -7816,7 +7832,9 @@ fn actor_decode_const_name(handler: &str) -> String {
     if let Some((path, last)) = split_path(handler) {
         return format!("{path}::{}", actor_decode_const_name(last));
     }
-    format!("__DECODE_{}", rs_ident(handler))
+    let n = format!("__DECODE_{}", rs_ident(handler));
+    crate::imports::note(&n);
+    n
 }
 
 /// [rs-actor] The generated body a spawn boxes: `__Actor_Counting`, wrapping
@@ -7826,7 +7844,9 @@ fn actor_struct_name(handler: &str) -> String {
     if let Some((path, last)) = split_path(handler) {
         return format!("{path}::{}", actor_struct_name(last));
     }
-    format!("__Actor_{}", rs_ident(handler))
+    let n = format!("__Actor_{}", rs_ident(handler));
+    crate::imports::note(&n);
+    n
 }
 
 /// Does `code` use `name` as a whole identifier?
@@ -12871,6 +12891,7 @@ impl<'p> Emitter<'p> {
             let mut fn_name = format!("{q}_qualifies");
             if let Some(decl) = decl {
                 fn_name = self.qualifier_member_name(decl, "qualifies");
+                crate::imports::note(&fn_name);
                 if let Some(f) = decl.fns.iter().find(|f| f.name.name == "qualifies") {
                     for eff in f.effects.iter().flatten() {
                         if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
@@ -12966,7 +12987,7 @@ impl<'p> Emitter<'p> {
             lends_mut_position && key.is_some_and(|k| self.mut_lend_fns.contains(&k));
         let saved_loc_adapter = std::mem::replace(&mut self.loc_adapter, loc_variant);
         let rust_name = if loc_variant {
-            format!("{}__loc", self.rust_fn_name(decl))
+            loc_name(&self.rust_fn_name(decl))
         } else {
             self.rust_fn_name(decl)
         };
@@ -16528,7 +16549,7 @@ impl<'p> Emitter<'p> {
                                 let saved_loc_adapter =
                                     std::mem::replace(&mut self.loc_adapter, loc_variant);
                                 let target = if loc_variant {
-                                    format!("{}__loc", self.rust_fn_name(decl))
+                                    loc_name(&self.rust_fn_name(decl))
                                 } else {
                                     self.rust_fn_name(decl)
                                 };
@@ -16899,7 +16920,7 @@ impl<'p> Emitter<'p> {
         };
         // [rs-loc] …and the locator variant's name.
         if mut_lend_call {
-            rs_name = format!("{rs_name}__loc");
+            rs_name = loc_name(&rs_name);
         }
         // [rs-shadowed-call] [fn-overload-at] A **local of the same name** shadows the function
         // in Rust's value namespace (E0618: "call expression requires

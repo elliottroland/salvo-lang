@@ -1,14 +1,18 @@
 package salvo.core.deque
 
 import salvo.*
+import salvo.core.array.next
+import salvo.core.bytes.next
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
 import salvo.core.list.addPlatform
-import salvo.core.list.at
 import salvo.core.list.first
+import salvo.core.list.last
+import salvo.core.set.next
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
+import salvo.core.string.next
 
 fun<T> emptyDequePlatform(): salvo.platform.core.deque.MutDeque<T> {
     return salvo.platform.core.deque.emptyDeque()

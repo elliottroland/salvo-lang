@@ -2,6 +2,7 @@ use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
+use crate::core_list::List;
 
 pub fn map__It_Fn<It: Clone, T: Clone, U: Clone>(it: &mut It, f: &mut impl FnMut(&T) -> U, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<U> {
     let mut out = vec![];

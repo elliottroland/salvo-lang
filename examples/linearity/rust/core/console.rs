@@ -1,3 +1,4 @@
+use crate::core_string::Str;
 
 pub trait __Stateless_Console: Send + Sync {
     fn print(&self, message: &String);

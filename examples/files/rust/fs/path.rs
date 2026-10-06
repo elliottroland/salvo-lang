@@ -1,8 +1,14 @@
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
 use crate::core_compare::mix_hash;
+use crate::core_list::List;
+use crate::core_string::Str;
+use crate::core_string::ends_with_platform;
 use crate::core_string::is_empty;
 use crate::core_string::split_last;
+use crate::core_string::split_platform;
+use crate::core_string::starts_with_platform;
+use crate::core_string::trim_suffix_platform;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Path {

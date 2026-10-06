@@ -12,6 +12,28 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::EmittedFile;
 use salvo_core::ModulePath;
 
+/// One file's import plan: its index, its module, the foreign modules it
+/// depends on, the aliases the emitter chose for clashing fns, and the names
+/// the checker (and the emitter, for what it synthesizes) say it refers to.
+pub type Plan = (usize, ModulePath, BTreeSet<ModulePath>, BTreeMap<String, (ModulePath, String)>, BTreeSet<String>);
+
+thread_local! {
+    static NOTED: std::cell::RefCell<BTreeSet<String>> = const { std::cell::RefCell::new(BTreeSet::new()) };
+}
+
+/// The emitter names something the checker's tables do not. Registering it
+/// is how the module's import plan learns the name is used.
+pub fn note(name: &str) {
+    NOTED.with(|n| {
+        n.borrow_mut().insert(name.to_string());
+    });
+}
+
+/// The names noted since the last call.
+pub fn take_noted() -> BTreeSet<String> {
+    NOTED.with(|n| std::mem::take(&mut *n.borrow_mut()))
+}
+
 /// Where a file's explicit imports go.
 pub const IMPORTS_MARK: &str = "//@@salvo-imports@@\n";
 
@@ -123,171 +145,25 @@ fn declared(text: &str) -> Declared {
     out
 }
 
-/// The identifiers `text` uses, split into those that stand as a name of
-/// their own and those after a `.` (only an extension fn is reached that
-/// way). Comments, string text and char literals are skipped; the code in a
-/// string template is scanned.
-fn mentioned(text: &str) -> (BTreeSet<String>, BTreeSet<String>) {
-    let c: Vec<char> = text.chars().collect();
-    let mut bare = BTreeSet::new();
-    let mut dotted = BTreeSet::new();
-    scan(&c, 0, c.len(), &mut bare, &mut dotted);
-    (bare, dotted)
-}
-
-fn ident_char(ch: char) -> bool {
-    ch.is_alphanumeric() || ch == '_'
-}
-
-/// Scans code in `c[i..end]`, stopping early at an unbalanced `}` (the end of
-/// a template expression); answers where it stopped.
-fn scan(c: &[char], mut i: usize, end: usize, bare: &mut BTreeSet<String>, dotted: &mut BTreeSet<String>) -> usize {
-    let mut braces = 0usize;
-    while i < end {
-        let ch = c[i];
-        if ch == '/' && i + 1 < end && c[i + 1] == '/' {
-            while i < end && c[i] != '\n' {
-                i += 1;
-            }
-            continue;
-        }
-        if ch == '/' && i + 1 < end && c[i + 1] == '*' {
-            let mut depth = 0;
-            while i < end {
-                if c[i] == '/' && i + 1 < end && c[i + 1] == '*' {
-                    depth += 1;
-                    i += 2;
-                } else if c[i] == '*' && i + 1 < end && c[i + 1] == '/' {
-                    depth -= 1;
-                    i += 2;
-                    if depth == 0 {
-                        break;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            continue;
-        }
-        if ch == '"' {
-            let raw = i + 2 < end && c[i + 1] == '"' && c[i + 2] == '"';
-            i += if raw { 3 } else { 1 };
-            while i < end {
-                if raw && c[i] == '"' && i + 2 < end && c[i + 1] == '"' && c[i + 2] == '"' {
-                    i += 3;
-                    while i < end && c[i] == '"' {
-                        i += 1;
-                    }
-                    break;
-                }
-                if !raw && c[i] == '"' {
-                    i += 1;
-                    break;
-                }
-                if !raw && c[i] == '\\' {
-                    i += 2;
-                    continue;
-                }
-                if c[i] == '$' && i + 1 < end && c[i + 1] == '{' {
-                    i = scan(c, i + 2, end, bare, dotted) + 1;
-                    continue;
-                }
-                if c[i] == '$' && i + 1 < end && (c[i + 1].is_alphabetic() || c[i + 1] == '_') {
-                    let s = i + 1;
-                    i = s;
-                    while i < end && ident_char(c[i]) {
-                        i += 1;
-                    }
-                    bare.insert(c[s..i].iter().collect());
-                    continue;
-                }
-                i += 1;
-            }
-            continue;
-        }
-        if ch == '\'' {
-            i += 1;
-            while i < end && c[i] != '\'' {
-                if c[i] == '\\' {
-                    i += 1;
-                }
-                i += 1;
-            }
-            i += 1;
-            continue;
-        }
-        if ch == '{' {
-            braces += 1;
-        }
-        if ch == '}' {
-            if braces == 0 {
-                return i;
-            }
-            braces -= 1;
-        }
-        if ch.is_ascii_digit() {
-            while i < end && ident_char(c[i]) {
-                i += 1;
-            }
-            continue;
-        }
-        if ch == '`' {
-            let s = i + 1;
-            i = s;
-            while i < end && c[i] != '`' {
-                i += 1;
-            }
-            let word: String = c[s..i.min(end)].iter().collect();
-            i += 1;
-            classify(c, s - 1, word, bare, dotted);
-            continue;
-        }
-        if ch.is_alphabetic() || ch == '_' {
-            let s = i;
-            while i < end && ident_char(c[i]) {
-                i += 1;
-            }
-            classify(c, s, c[s..i].iter().collect(), bare, dotted);
-            continue;
-        }
-        i += 1;
-    }
-    end
-}
-
-fn classify(c: &[char], start: usize, word: String, bare: &mut BTreeSet<String>, dotted: &mut BTreeSet<String>) {
-    let mut k = start;
-    while k > 0 && (c[k - 1] == ' ' || c[k - 1] == '\n') {
-        k -= 1;
-    }
-    // `::name` is a callable reference, which names a top-level fn bare.
-    if k >= 1 && c[k - 1] == '.' {
-        dotted.insert(word);
-    } else {
-        bare.insert(word);
-    }
-}
-
 /// Replaces each planned file's marker with its explicit imports: one per
 /// mentioned name exactly one of its foreign modules declares, every
 /// mentioned extension fn of those modules, and the aliases the emitter
 /// chose for clashing fns.
 pub fn explicit_imports(
     files: &mut [EmittedFile],
-    plans: &[(usize, ModulePath, BTreeSet<ModulePath>, BTreeMap<String, (ModulePath, String)>)],
+    plans: &[Plan],
     package: fn(&ModulePath) -> String,
 ) {
     let mut by_module: HashMap<ModulePath, Declared> = HashMap::new();
-    for (idx, module, _, _) in plans {
+    for (idx, module, _, _, _) in plans {
         let d = declared(&files[*idx].content);
         let entry = by_module.entry(module.clone()).or_default();
         entry.names.extend(d.names);
         entry.fns.extend(d.fns);
         entry.extensions.extend(d.extensions);
     }
-    for (idx, own, deps, aliases) in plans {
-        let (bare, dotted) = mentioned(&files[*idx].content);
-        let empty = Declared::default();
+    for (idx, own, deps, aliases, refs) in plans {
+                let empty = Declared::default();
         let mine = by_module.get(own).unwrap_or(&empty);
         let foreign: Vec<(&Declared, String)> = deps
             .iter()
@@ -295,7 +171,7 @@ pub fn explicit_imports(
             .filter_map(|m| Some((by_module.get(m)?, package(m))))
             .collect();
         let mut lines: BTreeSet<String> = BTreeSet::new();
-        for word in &bare {
+        for word in refs {
             if mine.names.contains(word) || aliases.contains_key(word) {
                 continue;
             }
@@ -313,7 +189,7 @@ pub fn explicit_imports(
                 }
             }
         }
-        for word in bare.iter().chain(&dotted) {
+        for word in refs {
             for (d, pkg) in &foreign {
                 if d.extensions.contains(word) && !mine.names.contains(word) {
                     lines.insert(format!("import {pkg}.{}", quote(word)));

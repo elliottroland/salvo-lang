@@ -1,7 +1,10 @@
 package salvo.fs.mem
 
 import salvo.*
+import salvo.core.actor.eq
+import salvo.core.bytes.appendPlatform
 import salvo.core.bytes.appendPlatform as appendPlatform__core_bytes
+import salvo.core.bytes.getPlatform
 import salvo.core.bytes.getPlatform as getPlatform__core_bytes
 import salvo.core.bytes.mutBytes
 import salvo.core.bytes.sizePlatform
@@ -11,9 +14,18 @@ import salvo.core.bytes.toBytesPlatform
 import salvo.core.checked.Checked
 import salvo.core.checked.checked
 import salvo.core.checked.ignore
+import salvo.core.deque.get
+import salvo.core.deque.getPlatform
+import salvo.core.deque.toList
 import salvo.core.list.at
+import salvo.core.list.get
+import salvo.core.list.getPlatform
+import salvo.core.list.indexOf
 import salvo.core.list.sort
 import salvo.core.map.containsKeyPlatform
+import salvo.core.map.eq
+import salvo.core.map.get
+import salvo.core.map.getPlatform
 import salvo.core.map.getPlatform as getPlatform__core_map
 import salvo.core.map.mutMapOfPlatform
 import salvo.core.map.putPlatform
@@ -21,13 +33,18 @@ import salvo.core.map.removePlatform
 import salvo.core.result.err
 import salvo.core.result.ok
 import salvo.core.set.addPlatform
+import salvo.core.set.eq
 import salvo.core.set.mutSetOfPlatform
 import salvo.core.set.toListPlatform
+import salvo.core.sorted.getPlatform
 import salvo.core.sorted.max
+import salvo.core.string.appendPlatform
 import salvo.core.string.appendPlatform as appendPlatform__core_string
 import salvo.core.string.byteSizePlatform
+import salvo.core.string.indexOf
 import salvo.core.string.indexOfPlatform
 import salvo.core.string.startsWithPlatform
+import salvo.core.string.substr
 import salvo.core.string.substrPlatform
 import salvo.core.string.trimPrefixPlatform
 import salvo.core.string.trimSuffixPlatform
@@ -41,6 +58,8 @@ import salvo.fs.PathEscapes
 import salvo.fs.PermissionDenied
 import salvo.fs.Streaming
 import salvo.fs.path.Path
+import salvo.fs.path.eq
+import salvo.fs.path.hash
 import salvo.fs.path.path
 import salvo.fs.path.toStr
 import salvo.stream.End
@@ -49,6 +68,7 @@ import salvo.stream.InvalidUtf8
 import salvo.stream.OutStream
 import salvo.stream.Packet
 import salvo.stream.StreamFailed
+import salvo.stream.Streams
 import salvo.stream.freshHandle
 
 data class MemRead(

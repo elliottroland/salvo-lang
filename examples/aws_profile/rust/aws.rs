@@ -1,4 +1,6 @@
 use crate::unions::*;
+use crate::core_string::Str;
+use crate::core_string::append_platform;
 use crate::core_string::mut_str;
 
 #[derive(Clone, Debug, PartialEq)]

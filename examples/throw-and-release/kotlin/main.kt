@@ -2,6 +2,7 @@ package salvo.main
 
 import salvo.*
 import salvo.core.console.Console
+import salvo.core.console.__Platform_StdOutConsole
 import salvo.core.console.println
 import salvo.core.string.parseIntPlatform
 import salvo.core.string.sizePlatform

@@ -1,6 +1,7 @@
 package salvo.stream.host
 
 import salvo.*
+import salvo.core.bytes.appendPlatform
 import salvo.core.bytes.appendPlatform as appendPlatform__core_bytes
 import salvo.core.bytes.sizePlatform
 import salvo.core.bytes.toBytesPlatform
@@ -11,8 +12,12 @@ import salvo.core.list.count
 import salvo.core.result.err
 import salvo.core.result.ok
 import salvo.core.sorted.max
+import salvo.core.string.appendPlatform
 import salvo.core.string.appendPlatform as appendPlatform__core_string
 import salvo.runtime.streams.Chunk
+import salvo.runtime.streams.InEntry
+import salvo.runtime.streams.OutEntry
+import salvo.runtime.streams.Read
 import salvo.runtime.streams.__Codec_Chunk
 import salvo.runtime.streams.checkinIn
 import salvo.runtime.streams.checkinOut

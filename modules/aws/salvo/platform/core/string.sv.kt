@@ -10,6 +10,8 @@ import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
 import salvo.core.list.addPlatform
 import salvo.core.list.at
+import salvo.core.list.contains
+import salvo.core.list.lastIndexOf
 import salvo.core.list.removeBack
 import salvo.core.list.sizePlatform as sizePlatform__core_list
 

@@ -1,17 +1,25 @@
 package salvo.core.sorted
 
 import salvo.core.checked.toStr
+import salvo.core.deque.get
+import salvo.core.deque.iter
+import salvo.core.deque.toList
 import salvo.core.deque.toStr
-import salvo.core.list.at
+import salvo.core.list.contains
+import salvo.core.list.get
+import salvo.core.list.iter
 import salvo.core.list.toStr
 import salvo.core.map.MapKeyYield
-import salvo.core.map.entries
 import salvo.core.map.eq
+import salvo.core.map.get
+import salvo.core.map.iter
 import salvo.core.map.toStr
 import salvo.core.set.SetYield
 import salvo.core.set.eq
+import salvo.core.set.iter
 import salvo.core.set.toStr
 import salvo.core.string.appendPlatform
+import salvo.core.string.iter
 import salvo.core.string.mutStr
 
 inline fun<T> sortedSetOfPlatform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.SortedSet<T> {

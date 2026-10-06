@@ -5,6 +5,25 @@
 package salvo.fs
 
 import salvo.*
+import salvo.core.bytes.addPlatform
+import salvo.core.bytes.mutBytes
+import salvo.core.bytes.next
+import salvo.core.checked.Checked
+import salvo.core.checked.checked
+import salvo.core.checked.detach
+import salvo.core.checked.ignore
+import salvo.core.checked.toStr
+import salvo.core.deque.toStr
+import salvo.core.iterator.Finished
+import salvo.core.list.addPlatform
+import salvo.core.list.toStr
+import salvo.core.map.toStr
+import salvo.core.set.addPlatform
+import salvo.core.set.next
+import salvo.core.set.toStr
+import salvo.core.sorted.addPlatform
+import salvo.core.string.lines
+import salvo.core.string.next
 import salvo.stream.InvalidUtf8
 import salvo.stream.StreamFailed
 import salvo.stream.__Codec_InvalidUtf8

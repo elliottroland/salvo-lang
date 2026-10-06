@@ -3,9 +3,10 @@ use crate::core_index::Idx__Int_qualifies;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_list::at;
+use crate::core_range::__Iter_range_Int_Int_Int;
 use crate::core_range::next;
 use crate::core_range::range__Int;
+use crate::core_string::Str;
 use crate::core_string::mut_str;
 
 /// [platform-type] The host's `IntBuffer`.

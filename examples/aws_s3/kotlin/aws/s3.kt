@@ -14,6 +14,7 @@ import salvo.core.result.ok
 import salvo.stream.InStream
 import salvo.stream.InvalidUtf8
 import salvo.stream.StreamFailed
+import salvo.stream.Streams
 import salvo.time.Instant
 import salvo.time.__Codec_Instant
 

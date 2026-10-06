@@ -3,6 +3,7 @@ source: crates/salvo-backend-rust/tests/codegen_tests.rs
 expression: combined
 ---
 // ===== core/basic.rs =====
+use crate::core_string::Str;
 
 pub fn to_str__TupleAB<A: Clone, B: Clone>(value: &(A, B), to_str: &mut dyn FnMut(&A) -> String, to_str__1: &mut dyn FnMut(&B) -> String) -> String {
     return format!("({}, {})", to_str(&value.0), to_str__1(&value.1));
@@ -13,6 +14,7 @@ pub fn to_str__TupleABC<A: Clone, B: Clone, C: Clone>(value: &(A, B, C), to_str:
 }
 
 // ===== core/checked.rs =====
+use crate::core_string::Str;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Checked<T> {
@@ -49,9 +51,13 @@ pub fn to_str<T: Clone>(checked: &Checked<T>, to_str: &mut dyn FnMut(&T) -> Stri
 // ===== core/compare.rs =====
 use crate::unions::*;
 use crate::core_index::Idx__Int_qualifies;
+use crate::core_list::Enumerated;
+use crate::core_list::List;
+use crate::core_list::__Iter_enumerate_List;
 use crate::core_list::enumerate;
 use crate::core_list::get;
 use crate::core_list::next__Iter_enumerate_List;
+use crate::core_string::Str;
 
 pub fn eq__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
     if crate::core_list::size_platform(a) != crate::core_list::size_platform(b) {
@@ -137,6 +143,7 @@ pub fn mix_hash(seed: i64, value: i64) -> i64 {
 }
 
 // ===== core/console.rs =====
+use crate::core_string::Str;
 
 pub trait __Stateless_Console: Send + Sync {
     fn print(&self, message: &String);
@@ -217,7 +224,7 @@ use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_list::at;
+use crate::core_list::List;
 
 pub fn Idx__Int_qualifies<C: Clone>(index: i32, c: &C, size: &mut dyn FnMut(&C) -> i32) -> bool {
     return index >= 0 && index < size(c);
@@ -295,6 +302,8 @@ use crate::core_checked::Checked;
 use crate::core_checked::checked;
 use crate::core_checked::ignore;
 use crate::core_index::Idx__Int_qualifies;
+use crate::core_index::__Iter_indices_List;
+use crate::core_index::__Iter_rev_indices_List;
 use crate::core_index::indices;
 use crate::core_index::next__Iter_indices_List;
 use crate::core_index::next__Iter_rev_indices_List;
@@ -302,6 +311,8 @@ use crate::core_index::rev_indices;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
+use crate::core_string::Str;
+use crate::core_string::append_platform;
 use crate::core_string::mut_str;
 
 /// [platform-type] The host's `List`.
@@ -725,8 +736,10 @@ use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_list::at;
+use crate::core_list::List;
 use crate::core_list::drain as drain__core_list;
+use crate::core_string::Str;
+use crate::core_string::append_platform;
 use crate::core_string::mut_str;
 
 /// [platform-type] The host's `Map`.
@@ -958,7 +971,10 @@ use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_list::at;
+use crate::core_list::List;
+use crate::core_list::contains;
+use crate::core_string::Str;
+use crate::core_string::append_platform;
 use crate::core_string::mut_str;
 
 /// [platform-type] The host's `Set`.
@@ -1070,10 +1086,12 @@ pub fn NonEmpty__Set_qualifies<T: Clone>(set: &Set<T>) -> bool {
 }
 
 // ===== core/sorted.rs =====
-use crate::core_list::at;
+use crate::core_list::List;
+use crate::core_list::contains;
 use crate::core_map::MapKeyYield;
-use crate::core_map::entries;
 use crate::core_set::SetYield;
+use crate::core_string::Str;
+use crate::core_string::append_platform;
 use crate::core_string::mut_str;
 
 /// [platform-type] The host's `SortedSet`.
@@ -1275,7 +1293,10 @@ use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
+use crate::core_list::List;
 use crate::core_list::at;
+use crate::core_list::contains;
+use crate::core_list::last_index_of;
 use crate::core_list::remove_back;
 
 /// [platform-type] The host's `Str`.
@@ -1537,12 +1558,14 @@ pub mod platform_core_sorted;
 pub mod platform_core_string;
 
 use crate::unions::*;
+use crate::core_console::Console;
 use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
 use crate::core_console::println;
 use crate::core_result::err;
 use crate::core_result::ok;
+use crate::core_string::Str;
 
 pub fn parse_age(input: i32) -> Union2<i32, String> {
     if input >= 0 {

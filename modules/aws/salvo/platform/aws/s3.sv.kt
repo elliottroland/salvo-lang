@@ -6,7 +6,14 @@ package salvo.aws.s3
 
 import salvo.*
 import salvo.aws.AwsError
+import salvo.core.bytes.addPlatform
+import salvo.core.bytes.bytesOf
 import salvo.core.checked.Checked
+import salvo.core.checked.checked
+import salvo.core.checked.ignore
+import salvo.core.list.addPlatform
+import salvo.core.set.addPlatform
+import salvo.core.sorted.addPlatform
 import salvo.stream.InStream
 import salvo.time.Instant
 import salvo.time.__Codec_Instant

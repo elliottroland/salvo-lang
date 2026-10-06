@@ -5,6 +5,8 @@ import salvo.core.checked.Checked
 import salvo.core.checked.checked
 import salvo.core.checked.ignore
 import salvo.core.index.Idx_qualifies
+import salvo.core.index.__Iter_indices_List
+import salvo.core.index.__Iter_rev_indices_List
 import salvo.core.index.indices
 import salvo.core.index.next__Iter_indices_List
 import salvo.core.index.next__Iter_rev_indices_List
@@ -14,8 +16,10 @@ import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
 import salvo.core.map.eq
 import salvo.core.set.eq
+import salvo.core.set.next
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
+import salvo.core.string.next
 
 fun<T> listBy(size: Int, init: (Int) -> T): List<T> {
     return mutListBy(size, init)

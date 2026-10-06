@@ -4,7 +4,9 @@ import salvo.*
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
-import salvo.core.list.at
+import salvo.core.list.first
+import salvo.core.list.get
+import salvo.core.map.get
 
 fun<T> iter(array: Array<T>): ArrayYield<T> {
     return ArrayYield(items = array, at = 0)

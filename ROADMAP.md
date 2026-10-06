@@ -236,11 +236,13 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    `wire.kt`/`wire.rs` and every generated codec. Absorbs §2c's "`decode<T>`
    as an implicit": the stamped codec is that implicit. Needs 6i, and 8 for
    container fields.
-10. **Imports and runtime features from core.** Per-file references from the
-    checker replace both `imports.rs` text scans; a runtime-feature set from
-    reach replaces the emitters' `needs_*` flags. Absorbs §0h's "emit
-    runtime files only when used" and §0i's third bullet. Needs a hook for
-    names an emitter synthesizes.
+10. **Runtime features from core** (the imports half is done: COMPLETED.md,
+    2026-10-06). A runtime-feature set from reach replaces the emitters'
+    `needs_*` flags (118 sites; the flags are set where an emitter
+    synthesizes a spawn, send or dispatch, so the set has to be derived from
+    the checker's handler/send/spawn tables and compared against the flags
+    across the suite before they go). Absorbs §0h's "emit runtime files only
+    when used" and §0i's third bullet.
 11. **Effect dispatch and copy plans** as side tables: per call, which
     effect, member and handler; per copy site, identity, builder,
     element-wise or platform copy.

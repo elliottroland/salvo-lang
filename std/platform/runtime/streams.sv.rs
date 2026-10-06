@@ -8,9 +8,13 @@ use crate::core_actor::__Stateless_Faults as _;
 use crate::core_bytes::Bytes;
 use crate::core_bytes::bytes_of;
 use crate::core_bytes::mut_bytes;
+use crate::core_bytes::slice_platform;
+use crate::core_bytes::str_of_bytes_platform;
+use crate::core_list::List;
 use crate::core_list::all;
 use crate::core_list::at;
 use crate::core_sorted::max;
+use crate::core_string::Str;
 use crate::runtime::Parker;
 use crate::runtime::RuntimeHostPlatformSync as _;
 use crate::runtime::__Stateful_RuntimeHost as _;
@@ -19,6 +23,10 @@ use crate::runtime::__Stateless_RuntimeHost as _;
 use crate::runtime::__Stateless_SchedTable as _;
 use crate::runtime::external_begin;
 use crate::runtime::external_end;
+use crate::runtime::park_platform;
+use crate::runtime::start_thread_platform;
+use crate::runtime::this_parker_platform;
+use crate::runtime::unpark_platform;
 
 /// [mod-use] The module's `use` #0, bound on first use.
 fn __module_use_0() -> &'static crate::runtime_streams::StreamTable {

@@ -24,22 +24,29 @@ import salvo.aws.sqs.__Codec_SendMessageOutput
 import salvo.aws.sqs.__Codec_SqsError
 import salvo.aws.sqs.__Mon_Sqs
 import salvo.aws.sqs.__Mon_SqsCalls
+import salvo.core.actor.eq
 import salvo.core.checked.Checked
 import salvo.core.checked.__Codec_Checked
 import salvo.core.checked.checked
 import salvo.core.checked.detach
 import salvo.core.console.Console
+import salvo.core.console.__Platform_StdOutConsole
 import salvo.core.console.println
+import salvo.core.deque.get
 import salvo.core.list.addPlatform
+import salvo.core.list.get
 import salvo.core.list.sizePlatform
 import salvo.core.list.toStr
 import salvo.core.map.containsKeyPlatform
+import salvo.core.map.eq
+import salvo.core.map.get
 import salvo.core.map.getPlatform
 import salvo.core.map.mutMapOfPlatform
 import salvo.core.map.putPlatform
 import salvo.core.map.removePlatform
 import salvo.core.result.err
 import salvo.core.result.ok
+import salvo.core.set.eq
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun describe(e: Union2<SqsError, AwsError>): String {

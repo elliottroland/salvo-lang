@@ -3,17 +3,23 @@ package salvo.main
 import salvo.*
 import salvo.core.array.next
 import salvo.core.console.Console
+import salvo.core.console.__Platform_StdOutConsole
 import salvo.core.console.println
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
+import salvo.core.list.ListYield
 import salvo.core.list.addPlatform
-import salvo.core.list.at
 import salvo.core.list.count
+import salvo.core.list.get
 import salvo.core.list.getPlatform
 import salvo.core.list.iter as iter__core_list
 import salvo.core.list.next__ListYield
+import salvo.core.list.sizePlatform
 import salvo.core.list.sizePlatform as sizePlatform__core_list
+import salvo.core.map.get
+import salvo.core.map.sizePlatform
+import salvo.core.range.__Iter_range_Int_Int_Int
 import salvo.core.range.next
 import salvo.core.range.next as next__core_range
 import salvo.core.range.range__Int_Int_Int
@@ -26,11 +32,14 @@ import salvo.core.seq.map__List_Fn
 import salvo.core.seq.reduce__It_A_Fn
 import salvo.core.seq.reduce__List_A_Fn
 import salvo.core.set.next
+import salvo.core.set.sizePlatform
+import salvo.core.string.StrYield
 import salvo.core.string.appendPlatform
 import salvo.core.string.iter as iter__core_string
 import salvo.core.string.mutStr
 import salvo.core.string.next
 import salvo.core.string.next as next__core_string
+import salvo.core.string.sizePlatform
 import salvo.core.string.sizePlatform as sizePlatform__core_string
 
 fun describeContainer(console: Console, xs: List<Int>) {

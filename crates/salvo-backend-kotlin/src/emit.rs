@@ -117,8 +117,7 @@ fn emit_program_mode(
     let mut files = Vec::new();
     let fn_names = std::rc::Rc::new(salvo_core::naming::FnNames::compute(program));
     errors.extend(fn_names.errors.iter().cloned());
-    let mut import_plans: Vec<(usize, ModulePath, BTreeSet<ModulePath>, BTreeMap<String, (ModulePath, String)>)> =
-        Vec::new();
+    let mut import_plans: Vec<crate::imports::Plan> = Vec::new();
     let mut union_sizes: BTreeSet<usize> = BTreeSet::new();
     // [kt-tuple-class] The tuple arities past `Pair`/`Triple` the program
     // names, which `tuples.kt` declares a class for.
@@ -167,6 +166,21 @@ fn emit_program_mode(
             unit.file.module.clone(),
             std::mem::take(&mut emitter.dep_modules),
             std::mem::take(&mut emitter.fn_aliases),
+            {
+                let mut refs = salvo_backend::emit_util::checker_refs(
+                    unit.ast,
+                    &checked,
+                    program,
+                    &fn_names,
+                    file_idx,
+                    |n| n.split('.').next().unwrap_or(n).to_string(),
+                );
+                refs.extend(crate::imports::take_noted());
+                // A fn's Kotlin spelling is its camel-cased name.
+                let camel: Vec<String> = refs.iter().map(|r| salvo_core::case::camel(r)).collect();
+                refs.extend(camel);
+                refs
+            },
         ));
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
@@ -382,7 +396,9 @@ fn platform_adapter_name(name: &str) -> String {
         return format!("{pkg}.{}", platform_adapter_name(last));
     }
     let name = salvo_core::typekey::plain(name);
-    format!("__Platform_{name}")
+    let n = format!("__Platform_{name}");
+    crate::imports::note(&n);
+    n
 }
 
 /// [kt-handle] A rendered effect instance as an identifier fragment:/// `Random<Int>` → `Random_Int`. Not injective (an effect literally named
@@ -490,7 +506,9 @@ fn stub_class_name(effect: &str) -> String {
         return format!("{pkg}.{}", stub_class_name(last));
     }
     let effect = salvo_core::typekey::plain(effect);
-    format!("__Stub_{effect}")
+    let n = format!("__Stub_{effect}");
+    crate::imports::note(&n);
+    n
 }
 
 /// [monitor-handler] [kt-monitor] The lock wrapper of a **plain** effect:
@@ -504,7 +522,9 @@ fn stub_class_name(effect: &str) -> String {
 fn struct_codec_name(struct_name: &str) -> String {
     // [type-identity] Named after the declaration's written name.
     let struct_name = salvo_core::typekey::plain(struct_name);
-    format!("__Codec_{}", struct_name.replace('.', "_"))
+    let n = format!("__Codec_{}", struct_name.replace('.', "_"));
+    crate::imports::note(&n);
+    n
 }
 
 fn monitor_class_name(effect: &str) -> String {
@@ -514,7 +534,9 @@ fn monitor_class_name(effect: &str) -> String {
         return format!("{pkg}.{}", monitor_class_name(last));
     }
     let effect = salvo_core::typekey::plain(effect);
-    format!("__Mon_{effect}")
+    let n = format!("__Mon_{effect}");
+    crate::imports::note(&n);
+    n
 }
 
 /// [mixed-handler] [kt-mixed] The façade of a mixed handler:
@@ -527,7 +549,9 @@ fn facade_class_name(handler: &str) -> String {
         return format!("{pkg}.{}", facade_class_name(last));
     }
     let handler = salvo_core::typekey::plain(handler);
-    format!("__Fac_{handler}")
+    let n = format!("__Fac_{handler}");
+    crate::imports::note(&n);
+    n
 }
 
 /// The base name of a *rendered* effect instance (`Store<Int>` → `Store`) —
@@ -551,7 +575,9 @@ fn msg_class_name(effect: &str) -> String {
         return format!("{pkg}.{}", msg_class_name(last));
     }
     let effect = salvo_core::typekey::plain(effect);
-    format!("__Msg_{effect}")
+    let n = format!("__Msg_{effect}");
+    crate::imports::note(&n);
+    n
 }
 
 /// [kt-actor] [actor-replyto] The parked-continuation class of a protocol:
@@ -563,7 +589,9 @@ fn private_class_name(handler: &str) -> String {
         return format!("{pkg}.{}", private_class_name(last));
     }
     let handler = salvo_core::typekey::plain(handler);
-    format!("__Priv_{handler}")
+    let n = format!("__Priv_{handler}");
+    crate::imports::note(&n);
+    n
 }
 
 /// [actor-replyto] [actor-private-send] What a parked continuation targets:
@@ -583,7 +611,9 @@ fn cont_class_name(effect: &str) -> String {
         return format!("{pkg}.{}", cont_class_name(last));
     }
     let effect = salvo_core::typekey::plain(effect);
-    format!("__Cont_{effect}")
+    let n = format!("__Cont_{effect}");
+    crate::imports::note(&n);
+    n
 }
 
 /// [kt-actor] The generated body a spawn hands the scheduler:
@@ -596,7 +626,9 @@ fn actor_class_name(handler: &str) -> String {
         return format!("{pkg}.{}", actor_class_name(last));
     }
     let handler = salvo_core::typekey::plain(handler);
-    format!("__Actor_{handler}")
+    let n = format!("__Actor_{handler}");
+    crate::imports::note(&n);
+    n
 }
 
 fn generate_bytes_file() -> String {
@@ -3190,6 +3222,8 @@ impl<'p> Emitter<'p> {
                     && self.effect_has_wire_form(effect)
                 {
                     let msg = msg_class_name(&effect.name.name);
+                    crate::imports::note(&format!("__PROTO_{}", kt_ident(&effect.name.name)));
+                    crate::imports::note(&format!("__Codec_{msg}"));
                     arms.push_str(&format!(
                         "                __PROTO_{} -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec_{msg})?.let {{ Pair(true, it) }} ?: Pair(false, null)\n",
                         kt_ident(&effect.name.name)
@@ -3885,6 +3919,7 @@ impl<'p> Emitter<'p> {
             .keys()
             .any(|(file, _)| *file == self.file_idx);
         if drives_or_mints {
+            crate::imports::note("Finished");
             for module in scope.name_origins.get("Finished").into_iter().flatten() {
                 if *module != own && emitted_modules.contains(*module) {
                     self.dep_modules.insert((*module).clone());
@@ -4414,6 +4449,9 @@ impl<'p> Emitter<'p> {
     /// it must agree with `emit_type` on the rendering of the same source
     /// type.
     fn kotlin_ty(&mut self, ty: &Ty) -> String {
+        if let Ty::Named { name, .. } = ty {
+            crate::imports::note(salvo_core::typekey::plain(name));
+        }
         match ty {
             Ty::Named { name, args } => {
                 // [monitor-handler] [kt-monitor] A plain effect's addr is the
@@ -4542,6 +4580,7 @@ impl<'p> Emitter<'p> {
             // lives inside an erased qualifier and never reaches output.
             Ty::ValueRef { .. } | Ty::ConstInt(_) => String::new(),
             Ty::Named { name, args } => {
+                crate::imports::note(salvo_core::typekey::plain(name));
                 // [cmp-carry] An identity a keyed container carries is the
                 // checker's, not a rendering: the container's own machinery holds
                 // the ordering, so the emitted type names only its elements.
@@ -5215,6 +5254,8 @@ impl<'p> Emitter<'p> {
         if has_wire {
             self.needs_wire = true;
             let msg = msg_class_name(effect_name);
+            crate::imports::note(&format!("__PROTO_{}", kt_ident(effect_name)));
+            crate::imports::note(&format!("__Codec_{msg}"));
             format!(
                 "salvo.SalvoSched.sendWire({target}, {built}, __PROTO_{}, __Codec_{msg})",
                 kt_ident(effect_name)
@@ -6717,6 +6758,7 @@ impl<'p> Emitter<'p> {
             if let Some(at) = check.implicits_at {
                 args.extend(self.emit_implicit_args(&[], at));
             }
+            crate::imports::note(&format!("{q}_qualifies"));
             parts.push(format!("{q}_qualifies({})", args.join(", ")));
         }
         if parts.len() == 1 {
@@ -9263,6 +9305,7 @@ impl<'p> Emitter<'p> {
                         .collect();
                     let hs = hs.join(", ");
                     self.union_sizes.insert(2);
+                    crate::imports::note("Finished");
                     // The machine's type is written on the adapter's parameter:
                     // it is what pins the callee's `It`, which kotlinc cannot
                     // infer from a bare lambda parameter.

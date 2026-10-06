@@ -54,13 +54,17 @@ package salvo.core.compare
 
 import salvo.*
 import salvo.core.index.Idx_qualifies
+import salvo.core.iterator.Finished
 import salvo.core.list.Enumerated
+import salvo.core.list.__Iter_enumerate_List
 import salvo.core.list.enumerate
 import salvo.core.list.get
 import salvo.core.list.next__Iter_enumerate_List
 import salvo.core.list.sizePlatform
 import salvo.core.map.eq
 import salvo.core.set.eq
+import salvo.core.set.next
+import salvo.core.string.next
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> eq__List_List(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
@@ -195,8 +199,9 @@ import salvo.*
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
-import salvo.core.list.at
 import salvo.core.list.sizePlatform
+import salvo.core.set.next
+import salvo.core.string.next
 
 fun<C> Idx_qualifies(index: Int, c: C, size: (C) -> Int): Boolean {
     return index >= 0 && index < size(c)
@@ -270,6 +275,8 @@ import salvo.core.checked.Checked
 import salvo.core.checked.checked
 import salvo.core.checked.ignore
 import salvo.core.index.Idx_qualifies
+import salvo.core.index.__Iter_indices_List
+import salvo.core.index.__Iter_rev_indices_List
 import salvo.core.index.indices
 import salvo.core.index.next__Iter_indices_List
 import salvo.core.index.next__Iter_rev_indices_List
@@ -279,8 +286,10 @@ import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
 import salvo.core.map.eq
 import salvo.core.set.eq
+import salvo.core.set.next
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
+import salvo.core.string.next
 
 fun<T> listBy(size: Int, init: (Int) -> T): List<T> {
     return mutListBy(size, init)
@@ -697,10 +706,11 @@ import salvo.*
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
-import salvo.core.list.at
 import salvo.core.list.drain as drain__core_list
+import salvo.core.set.next
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
+import salvo.core.string.next
 
 inline fun<K, V> mapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
     return salvo.platform.core.map.mapOf(entries, hash, eq)
@@ -920,7 +930,7 @@ import salvo.*
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
-import salvo.core.list.at
+import salvo.core.list.contains
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
 
@@ -1024,16 +1034,21 @@ fun<T> NonEmpty_qualifies(set: salvo.platform.core.set.Set<T>): Boolean {
 package salvo.core.sorted
 
 import salvo.core.checked.toStr
-import salvo.core.list.at
+import salvo.core.list.contains
+import salvo.core.list.get
+import salvo.core.list.iter
 import salvo.core.list.toStr
 import salvo.core.map.MapKeyYield
-import salvo.core.map.entries
 import salvo.core.map.eq
+import salvo.core.map.get
+import salvo.core.map.iter
 import salvo.core.map.toStr
 import salvo.core.set.SetYield
 import salvo.core.set.eq
+import salvo.core.set.iter
 import salvo.core.set.toStr
 import salvo.core.string.appendPlatform
+import salvo.core.string.iter
 import salvo.core.string.mutStr
 
 inline fun<T> sortedSetOfPlatform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.SortedSet<T> {
@@ -1227,6 +1242,8 @@ import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
 import salvo.core.list.addPlatform
 import salvo.core.list.at
+import salvo.core.list.contains
+import salvo.core.list.lastIndexOf
 import salvo.core.list.removeBack
 import salvo.core.list.sizePlatform as sizePlatform__core_list
 
@@ -1436,6 +1453,7 @@ package salvo.main
 
 import salvo.*
 import salvo.core.console.Console
+import salvo.core.console.__Platform_StdOutConsole
 import salvo.core.console.println
 import salvo.core.result.err
 import salvo.core.result.ok

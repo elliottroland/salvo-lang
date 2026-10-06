@@ -2,6 +2,12 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
+use crate::core_deque::to_list;
+use crate::core_iterator::Finished;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
+use crate::core_list::List;
+use crate::core_list::count;
 
 pub fn filter_platform<T: Clone>(list: &Vec<T>, keep: &mut dyn FnMut(&T) -> bool) -> Vec<T> {
     crate::platform_core_seq::filter(list, keep)

@@ -1,11 +1,14 @@
 package salvo.main
 
 import salvo.core.console.Console
+import salvo.core.console.__Platform_StdOutConsole
 import salvo.core.console.println
 import salvo.core.list.addPlatform
 import salvo.core.list.first
+import salvo.core.list.get
 import salvo.core.list.getPlatform
 import salvo.core.list.sizePlatform
+import salvo.core.map.get
 
 fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
     return sizePlatform(list) > 0

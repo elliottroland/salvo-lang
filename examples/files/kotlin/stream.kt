@@ -5,25 +5,27 @@ import salvo.core.bytes.addPlatform
 import salvo.core.bytes.clearPlatform
 import salvo.core.bytes.getPlatform
 import salvo.core.bytes.mutBytes
+import salvo.core.bytes.next
 import salvo.core.bytes.sizePlatform
 import salvo.core.checked.Checked
 import salvo.core.checked.__Codec_Checked
 import salvo.core.checked.checked
 import salvo.core.checked.ignore
+import salvo.core.deque.get
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
 import salvo.core.list.first
+import salvo.core.list.get
+import salvo.core.map.get
 import salvo.core.result.err
 import salvo.core.result.ok
-import salvo.core.sorted.max
+import salvo.core.set.next
+import salvo.core.string.next
 import salvo.runtime.streams.decode
-import salvo.runtime.streams.flush
 import salvo.runtime.streams.freshHandle as freshHandle__runtime_streams
-import salvo.runtime.streams.readAll
 import salvo.runtime.streams.readLine
 import salvo.runtime.streams.receive
-import salvo.runtime.streams.write
 
 fun freshHandle(): Long {
     return freshHandle__runtime_streams()

@@ -3,6 +3,7 @@
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
 use crate::aws::AwsConfig;
+use crate::aws_sqs::Sqs;
 use crate::aws_sqs::SqsPlatformSync as _;
 use crate::aws_sqs::__Stateful_Sqs as _;
 use crate::aws_sqs::__Stateless_Sqs as _;

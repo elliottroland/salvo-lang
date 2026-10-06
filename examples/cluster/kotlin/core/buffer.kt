@@ -1,14 +1,29 @@
 package salvo.core.buffer
 
 import salvo.*
+import salvo.core.array.iter
+import salvo.core.bytes.iter
+import salvo.core.checked.toStr
+import salvo.core.deque.get
+import salvo.core.deque.iter
+import salvo.core.deque.toStr
 import salvo.core.index.Idx_qualifies
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
-import salvo.core.list.at
+import salvo.core.list.get
+import salvo.core.list.iter
+import salvo.core.list.toStr
+import salvo.core.map.get
+import salvo.core.map.iter
+import salvo.core.map.toStr
+import salvo.core.range.__Iter_range_Int_Int_Int
 import salvo.core.range.next
 import salvo.core.range.range__Int
+import salvo.core.set.iter
+import salvo.core.set.toStr
 import salvo.core.string.appendPlatform
+import salvo.core.string.iter
 import salvo.core.string.mutStr
 
 fun intBuffer(size: Int, fill: Int): salvo.platform.core.buffer.MutIntBuffer {

@@ -4,8 +4,24 @@
 // salvo-abi 1 023a4214a13ba612
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
+use crate::core_bytes::Bytes;
+use crate::core_bytes::mut_bytes;
+use crate::core_checked::Checked;
+use crate::core_checked::checked;
+use crate::core_checked::ignore;
+use crate::core_iterator::Finished;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
+use crate::core_list::first;
+use crate::core_string::Str;
+use crate::core_string::lines;
+use crate::runtime_streams::Streams;
 use crate::runtime_streams::__Stateful_StreamTable as _;
 use crate::runtime_streams::__Stateless_StreamTable as _;
+use crate::runtime_streams::decode;
+use crate::runtime_streams::fresh_handle;
+use crate::runtime_streams::read_line;
+use crate::runtime_streams::receive;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct InStream {

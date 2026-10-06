@@ -12,6 +12,30 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::EmittedFile;
 use salvo_core::ModulePath;
 
+thread_local! {
+    static NOTED: std::cell::RefCell<BTreeSet<String>> = const { std::cell::RefCell::new(BTreeSet::new()) };
+}
+
+/// The emitter names something the checker's tables do not: a union struct,
+/// a generated `__Actor_H`, a qualifier's `..._qualifies`. Registering it is
+/// how the module's import plan learns the name is used.
+pub fn note(name: &str) {
+    let last = name.rsplit("::").next().unwrap_or(name);
+    NOTED.with(|n| {
+        n.borrow_mut().insert(last.to_string());
+    });
+}
+
+/// The names noted since the last call.
+pub fn take_noted() -> BTreeSet<String> {
+    NOTED.with(|n| std::mem::take(&mut *n.borrow_mut()))
+}
+
+/// One file's import plan: its index, its module, the foreign modules it
+/// depends on, the aliases the emitter chose for clashing fns, and the names
+/// the checker says its source refers to.
+pub type Plan = (usize, ModulePath, BTreeSet<ModulePath>, BTreeMap<String, (ModulePath, String)>, BTreeSet<String>);
+
 /// Where a file's explicit imports go.
 pub const IMPORTS_MARK: &str = "//@@salvo-imports@@\n";
 
@@ -64,152 +88,23 @@ fn declared(text: &str) -> Declared {
     out
 }
 
-/// The identifiers `text` uses as a path's first segment: not after `.` or
-/// `::`, not a macro name, and outside comments, strings and char literals.
-pub fn mentioned(text: &str) -> BTreeSet<String> {
-    let c: Vec<char> = text.chars().collect();
-    let mut out = BTreeSet::new();
-    let mut i = 0;
-    let n = c.len();
-    let ident_start = |ch: char| ch.is_alphabetic() || ch == '_';
-    let ident_char = |ch: char| ch.is_alphanumeric() || ch == '_';
-    while i < n {
-        let ch = c[i];
-        // Comments.
-        if ch == '/' && i + 1 < n && c[i + 1] == '/' {
-            while i < n && c[i] != '\n' {
-                i += 1;
-            }
-            continue;
-        }
-        if ch == '/' && i + 1 < n && c[i + 1] == '*' {
-            let mut depth = 0;
-            while i < n {
-                if c[i] == '/' && i + 1 < n && c[i + 1] == '*' {
-                    depth += 1;
-                    i += 2;
-                } else if c[i] == '*' && i + 1 < n && c[i + 1] == '/' {
-                    depth -= 1;
-                    i += 2;
-                    if depth == 0 {
-                        break;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            continue;
-        }
-        // Raw strings: r"…", r#"…"#, br#"…"#.
-        if (ch == 'r' || (ch == 'b' && i + 1 < n && c[i + 1] == 'r'))
-            && (i == 0 || !ident_char(c[i - 1]))
-        {
-            let mut j = if ch == 'b' { i + 2 } else { i + 1 };
-            let mut hashes = 0;
-            while j < n && c[j] == '#' {
-                hashes += 1;
-                j += 1;
-            }
-            if j < n && c[j] == '"' {
-                j += 1;
-                loop {
-                    if j >= n {
-                        break;
-                    }
-                    if c[j] == '"' && (0..hashes).all(|k| j + 1 + k < n && c[j + 1 + k] == '#') {
-                        j += 1 + hashes;
-                        break;
-                    }
-                    j += 1;
-                }
-                i = j;
-                continue;
-            }
-        }
-        if ch == '"' {
-            i += 1;
-            while i < n && c[i] != '"' {
-                if c[i] == '\\' {
-                    i += 1;
-                }
-                i += 1;
-            }
-            i += 1;
-            continue;
-        }
-        if ch == '\'' {
-            // A char literal, or a lifetime (whose name is not a path).
-            if i + 1 < n && c[i + 1] == '\\' {
-                i += 2;
-                while i < n && c[i] != '\'' {
-                    i += 1;
-                }
-                i += 1;
-            } else if i + 2 < n && c[i + 2] == '\'' {
-                i += 3;
-            } else {
-                i += 1;
-                while i < n && ident_char(c[i]) {
-                    i += 1;
-                }
-            }
-            continue;
-        }
-        if ch.is_ascii_digit() {
-            while i < n && ident_char(c[i]) {
-                i += 1;
-            }
-            continue;
-        }
-        if ident_start(ch) {
-            let start = i;
-            while i < n && ident_char(c[i]) {
-                i += 1;
-            }
-            let mut word: String = c[start..i].iter().collect();
-            // A raw identifier, `r#type`.
-            if word == "r" && i + 1 < n && c[i] == '#' && ident_start(c[i + 1]) {
-                let s2 = i + 1;
-                i = s2;
-                while i < n && ident_char(c[i]) {
-                    i += 1;
-                }
-                word = c[s2..i].iter().collect();
-            }
-            let mut k = start;
-            while k > 0 && c[k - 1] == ' ' {
-                k -= 1;
-            }
-            let after_path = k >= 1 && (c[k - 1] == '.' || (k >= 2 && c[k - 1] == ':' && c[k - 2] == ':'));
-            let macro_name = i < n && c[i] == '!' && !(i + 1 < n && c[i + 1] == '=');
-            if !after_path && !macro_name {
-                out.insert(word);
-            }
-            continue;
-        }
-        i += 1;
-    }
-    out
-}
-
 /// Replaces each planned file's marker with its explicit imports: one
 /// `use` per mentioned name that exactly one of its foreign modules declares,
 /// the aliases the emitter chose for clashing fns, and every trait of those
 /// modules as `as _` (a method call names no trait, yet needs it in scope).
 pub fn explicit_imports(
     files: &mut [EmittedFile],
-    plans: &[(usize, ModulePath, BTreeSet<ModulePath>, BTreeMap<String, (ModulePath, String)>)],
+    plans: &[Plan],
     module_prefixes: &HashMap<ModulePath, String>,
 ) {
     let mut by_module: HashMap<ModulePath, Declared> = HashMap::new();
-    for (idx, module, _, _) in plans {
+    for (idx, module, _, _, _) in plans {
         let d = declared(&files[*idx].content);
         let entry = by_module.entry(module.clone()).or_default();
         entry.names.extend(d.names);
         entry.traits.extend(d.traits);
     }
-    for (idx, own, deps, aliases) in plans {
-        let text = &files[*idx].content;
+    for (idx, own, deps, aliases, refs) in plans {
         let empty = Declared::default();
         let mine = by_module.get(own).unwrap_or(&empty);
         let foreign: Vec<(&ModulePath, &Declared, &String)> = deps
@@ -218,7 +113,7 @@ pub fn explicit_imports(
             .filter_map(|m| Some((m, by_module.get(m)?, module_prefixes.get(m)?)))
             .collect();
         let mut lines: BTreeSet<String> = BTreeSet::new();
-        for word in mentioned(text) {
+        for word in refs.iter().cloned() {
             if mine.names.contains(&word) || aliases.contains_key(&word) {
                 continue;
             }

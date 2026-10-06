@@ -1,3 +1,4 @@
+use crate::core_string::Str;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Checked<T> {

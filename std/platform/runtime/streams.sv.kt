@@ -7,22 +7,38 @@ package salvo.runtime.streams
 import salvo.*
 import salvo.core.bytes.appendPlatform
 import salvo.core.bytes.bytesOf
+import salvo.core.bytes.getPlatform
 import salvo.core.bytes.getPlatform as getPlatform__core_bytes
 import salvo.core.bytes.indexOfPlatform
 import salvo.core.bytes.mutBytes
 import salvo.core.bytes.next
+import salvo.core.bytes.sizePlatform
 import salvo.core.bytes.sizePlatform as sizePlatform__core_bytes
 import salvo.core.bytes.slicePlatform
 import salvo.core.bytes.strOfBytesPlatform
+import salvo.core.deque.get
+import salvo.core.deque.getPlatform
+import salvo.core.deque.sizePlatform
 import salvo.core.list.addPlatform
 import salvo.core.list.all
 import salvo.core.list.at
+import salvo.core.list.get
+import salvo.core.list.getPlatform
 import salvo.core.list.getPlatform as getPlatform__core_list
+import salvo.core.list.indexOf
 import salvo.core.list.removeAtPlatform
+import salvo.core.list.sizePlatform
 import salvo.core.list.sizePlatform as sizePlatform__core_list
+import salvo.core.map.get
+import salvo.core.map.getPlatform
+import salvo.core.map.sizePlatform
 import salvo.core.set.next
+import salvo.core.set.sizePlatform
+import salvo.core.sorted.getPlatform
 import salvo.core.sorted.max
+import salvo.core.string.indexOf
 import salvo.core.string.next
+import salvo.core.string.sizePlatform
 import salvo.runtime.externalBegin
 import salvo.runtime.externalEnd
 import salvo.runtime.parkPlatform

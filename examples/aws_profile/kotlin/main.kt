@@ -3,6 +3,7 @@ package salvo.main
 import salvo.aws.ProfileCredentials
 import salvo.aws.toStr
 import salvo.core.console.Console
+import salvo.core.console.__Platform_StdOutConsole
 import salvo.core.console.println
 
 fun main() {

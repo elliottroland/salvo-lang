@@ -5,10 +5,11 @@
 package salvo.core.set
 
 import salvo.*
+import salvo.core.deque.toList
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
-import salvo.core.list.at
+import salvo.core.list.contains
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
 

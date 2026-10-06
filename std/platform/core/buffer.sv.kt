@@ -4,6 +4,29 @@
 // salvo-abi 1 5cd1832c3b5d03f1
 package salvo.core.buffer
 
+import salvo.core.bytes.appendPlatform
+import salvo.core.bytes.iter
+import salvo.core.bytes.next
+import salvo.core.checked.toStr
+import salvo.core.deque.get
+import salvo.core.deque.iter
+import salvo.core.deque.toStr
+import salvo.core.iterator.Finished
+import salvo.core.iterator.emitted
+import salvo.core.iterator.finished
+import salvo.core.list.get
+import salvo.core.list.iter
+import salvo.core.list.toStr
+import salvo.core.map.get
+import salvo.core.map.iter
+import salvo.core.map.toStr
+import salvo.core.set.iter
+import salvo.core.set.next
+import salvo.core.set.toStr
+import salvo.core.string.appendPlatform
+import salvo.core.string.iter
+import salvo.core.string.mutStr
+import salvo.core.string.next
 
 fun newIntPlatform(size: Int, fill: Int): salvo.platform.core.buffer.MutIntBuffer {
     return salvo.platform.core.buffer.newInt(size, fill)
