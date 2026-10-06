@@ -69,31 +69,11 @@ fn emit_program_mode(
         salvo_backend::driver::check_for_emission(program)?;
     let program = &erased_program;
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
-    let salvo_backend::driver::Reach { reachable, closure, platform_effects, abi_full } =
+    let salvo_backend::driver::Reach { reachable, closure, platform_effects, abi_full, abi_modules, emitted, .. } =
         salvo_backend::driver::reach(program, &resolution, &symbols, &checked, abi);
-    let in_abi = |u: &salvo_core::program::Unit| {
-        (abi_full.contains(&u.file.module) && module_produces_code(u.ast)) || closure.as_ref().is_some_and(|c| {
-            u.ast.items.iter().any(|i| abi_item_name(i).is_some_and(|n| c.contains(n)))
-                // A module declaring platform items is written even when
-                // nothing of it is kept: its implementation file imports it.
-                || ((!u.file.is_std || u.file.is_shadow)
-                    && u.file.dependency.is_none()
-                    && !salvo_core::platform_declarations(u.ast).is_empty())
-        })
-    };
-    // The modules that will exist as Kotlin files: targets for generated
-    // imports [kt-package].
-    let emitted_modules: HashSet<&ModulePath> = program
-        .units()
-        .filter(|u| {
-            if abi {
-                in_abi(u)
-            } else {
-                reachable.contains(&u.file.module) && module_produces_code(u.ast)
-            }
-        })
-        .map(|u| &u.file.module)
-        .collect();
+    // In ABI mode only the host-facing modules are written; Rust also writes
+    // the reached ones [platform-abi].
+    let emitted_modules = if abi { abi_modules } else { emitted };
 
     let mut errors: Vec<String> = Vec::new();
 

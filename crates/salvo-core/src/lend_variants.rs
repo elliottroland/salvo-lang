@@ -20,6 +20,7 @@ use crate::types::Ty;
 /// (group-borrowing ladder step ③, user decision 2026-09-24 — option (a)
 /// over promoting the total `get` to intrinsic, so *user-written* lending
 /// accessors serve `Mut` positions too).
+#[derive(Clone)]
 pub struct LendMutDemand {
     pub demanded: HashSet<crate::FnKey>,
     pub seeds: HashSet<(usize, Span)>,

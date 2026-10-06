@@ -124,29 +124,9 @@ fn emit_program_mode(
         salvo_backend::driver::check_for_emission(program)?;
     let program = &erased_program;
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
-    let salvo_backend::driver::Reach { reachable, closure, platform_effects, abi_full } =
+    let salvo_backend::driver::Reach { reachable, closure, platform_effects, abi_full, abi_modules, emitted } =
         salvo_backend::driver::reach(program, &resolution, &symbols, &checked, abi);
-    let abi_modules: HashSet<&ModulePath> = program
-        .units()
-        .filter(|u| {
-            closure.as_ref().is_some_and(|c| {
-                u.ast.items.iter().any(|i| abi_item_name(i).is_some_and(|n| c.contains(n)))
-                    // A module declaring platform items is mounted even when
-                    // nothing of it is kept: its implementation file imports it.
-                    || (is_project_module(program, &u.file.module)
-                        && !salvo_core::platform_declarations(u.ast).is_empty())
-            }) || (abi_full.contains(&u.file.module) && module_produces_code(u.ast))
-        })
-        .map(|u| &u.file.module)
-        .collect();
-    let emitted_modules: HashSet<&ModulePath> = program
-        .units()
-        .filter(|u| {
-            (reachable.contains(&u.file.module) && module_produces_code(u.ast))
-                || abi_modules.contains(&u.file.module)
-        })
-        .map(|u| &u.file.module)
-        .collect();
+    let (abi_modules, emitted_modules) = (abi_modules, emitted);
 
     // The Rust module name of every emitted Salvo module [rs-crate]:
     // path parts joined with `_` (`core.console` -> `core_console`).
@@ -202,6 +182,7 @@ fn emit_program_mode(
     }
 
     let mut files = Vec::new();
+    let lend = Lend::compute(program, &checked);
     let fn_names = std::rc::Rc::new(salvo_core::naming::FnNames::compute(program));
     errors.extend(fn_names.errors.iter().cloned());
     let mut import_plans: Vec<crate::imports::Plan> = Vec::new();
@@ -238,7 +219,7 @@ fn emit_program_mode(
             file_idx,
         );
         let (generated, deps) = generated;
-        let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
+        let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name, &lend);
         emitter.generated_imports = generated;
         emitter.fn_names = fn_names.clone();
         emitter.clashing = fn_names.clashing(program, &checked, file_idx);
@@ -644,6 +625,7 @@ pub fn platform_skeletons(
                 .map(|name| format!("crate::{}", rs_ident(name)))
         }
     };
+    let lend = Lend::compute(program, &checked);
     // [platform-handler] Every effect: a platform
     // handler implements an *ordinary* effect, whose trait may live in
     // another module (std's, typically).
@@ -696,7 +678,7 @@ pub fn platform_skeletons(
             ));
             continue;
         };
-        let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
+        let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name, &lend);
         let mut body = String::new();
         // The modules whose items the host file has to see beyond its own
         // (an effect declared elsewhere — std's, typically).
@@ -1601,6 +1583,18 @@ use salvo_core::lend_variants::{
     collect_returned_exprs, covered_fns, fn_type_lends_mut, lend_mut_demand, mut_lend_call_of, ty_lends_mut, Covered,
 };
 
+/// [lend-variants] The lending sets, computed once per program.
+struct Lend {
+    demand: salvo_core::lend_variants::LendMutDemand,
+    covered: HashMap<salvo_core::FnKey, Covered>,
+}
+
+impl Lend {
+    fn compute(program: &Program, checked: &Checked) -> Lend {
+        Lend { demand: lend_mut_demand(program, checked), covered: covered_fns(program, checked) }
+    }
+}
+
 impl<'p> Emitter<'p> {
     fn new(
         symbols: &'p Symbols<'p>,
@@ -1608,8 +1602,9 @@ impl<'p> Emitter<'p> {
         program: &'p Program,
         file_idx: usize,
         file_name: &str,
+        lend: &Lend,
     ) -> Self {
-        let lend_mut = lend_mut_demand(program, checked);
+        let lend_mut = lend.demand.clone();
         Emitter {
             abi_keep: None,
             platform_effects: Default::default(),
@@ -1637,7 +1632,7 @@ impl<'p> Emitter<'p> {
             lend_loc_mode: false,
             member_receiver_mut: true,
             loc_adapter: false,
-            covered_fns: covered_fns(program, checked),
+            covered_fns: lend.covered.clone(),
             covered_here: HashMap::new(),
             hoisted_reads: HashMap::new(),
             virtual_places: HashMap::new(),

@@ -64,6 +64,14 @@ pub struct Reach<'p> {
     /// a host project carries in full: the runtime module and what it reaches
     /// when the build runs actors, and the stream table's service.
     pub abi_full: HashSet<&'p ModulePath>,
+    /// [platform-abi] In ABI mode, the modules written for the host: those
+    /// declaring a kept name, the project's modules declaring platform items
+    /// (its implementation file imports them even when nothing is kept), and
+    /// the full ones.
+    pub abi_modules: HashSet<&'p ModulePath>,
+    /// Every module the backend writes: the reached ones that produce code,
+    /// and the ABI ones. One rule for both backends.
+    pub emitted: HashSet<&'p ModulePath>,
 }
 
 pub fn reach<'p>(
@@ -83,11 +91,32 @@ pub fn reach<'p>(
     if abi {
         abi_full.extend(salvo_core::streams_closure(program, resolution, checked, &reachable));
     }
+    let abi_modules: HashSet<&ModulePath> = program
+        .units()
+        .filter(|u| {
+            closure.as_ref().is_some_and(|c| {
+                u.ast.items.iter().any(|i| crate::emit_util::abi_item_name(i).is_some_and(|n| c.contains(n)))
+                    || (crate::emit_util::is_project_module(program, &u.file.module)
+                        && !salvo_core::platform_declarations(u.ast).is_empty())
+            }) || (abi_full.contains(&u.file.module) && crate::emit_util::module_produces_code(u.ast))
+        })
+        .map(|u| &u.file.module)
+        .collect();
+    let emitted: HashSet<&ModulePath> = program
+        .units()
+        .filter(|u| {
+            (reachable.contains(&u.file.module) && crate::emit_util::module_produces_code(u.ast))
+                || abi_modules.contains(&u.file.module)
+        })
+        .map(|u| &u.file.module)
+        .collect();
     Reach {
         reachable,
         closure,
         platform_effects,
         abi_full,
+        abi_modules,
+        emitted,
     }
 }
 
