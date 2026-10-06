@@ -1,11 +1,12 @@
-//! Lending variants [lend-variants]: which fns need a mode-specialized
-//! (locator) twin because a `Mut` position reads a result they lend, and
-//! which fns cover `canbe` parameters.
+//! Mutable lends [mut-lends]: which fns hand back a result that a `Mut`
+//! position then reads, and which fns cover `canbe` parameters.
 //!
 //! Both are closures over Salvo-level facts: the checker's `mut_lend_calls`
-//! seeded through `call_fn`, followed along return paths; and the clause
-//! written on a fn (`canbe`). A target that renders a lent mutable result as
-//! a locator (Rust) consults them; a garbage-collected one ignores them.
+//! (a call whose lent result serves a `Mut` position) resolved through
+//! `call_fn` and followed along return paths; and the clause written on a fn
+//! (`canbe`). What a target does with them is its own business: Rust spells a
+//! lent mutable result as a locator and emits a twin of each fn in `fns`; a
+//! garbage-collected target ignores them.
 
 use std::collections::{HashMap, HashSet};
 
@@ -16,14 +17,16 @@ use crate::check::Checked;
 use crate::program::Program;
 use crate::types::Ty;
 
-/// [rs-loc] The demand sets of mode-specialized lending emission
+/// The fns whose lent result serves a `Mut` position (`fns`), the call sites
+/// that read one (`sites`), and the return-path calls inside those fns that
+/// pass one on (`forwards`)
 /// (group-borrowing ladder step ③, user decision 2026-09-24 — option (a)
 /// over promoting the total `get` to intrinsic, so *user-written* lending
 /// accessors serve `Mut` positions too).
 #[derive(Clone)]
-pub struct LendMutDemand {
-    pub demanded: HashSet<crate::FnKey>,
-    pub seeds: HashSet<(usize, Span)>,
+pub struct MutLendUses {
+    pub fns: HashSet<crate::FnKey>,
+    pub sites: HashSet<(usize, Span)>,
     pub forwards: HashSet<(usize, Span)>,
 }
 
@@ -32,7 +35,7 @@ pub struct LendMutDemand {
 /// body (an intrinsic forward becomes a mut splice, a named one demands
 /// the callee's variant too). A seed with no named callee — a fn value or
 /// effect member lending mutably — is the loud v1 cut.
-pub fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
+pub fn mut_lend_uses(program: &Program, checked: &Checked) -> MutLendUses {
     let fn_of = |key: crate::FnKey| -> Option<&FnDecl> {
         match program.modules.get(key.file)?.items.get(key.item)? {
             Item::Fn(f) => Some(f),
@@ -137,9 +140,9 @@ pub fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
             }
         }
     }
-    LendMutDemand {
-        demanded,
-        seeds,
+    MutLendUses {
+        fns: demanded,
+        sites: seeds,
         forwards,
     }
 }

@@ -7551,28 +7551,39 @@ between endpoints and delivers what arrives into the scheduler.
     stored, sent). Without this, `return get(numbers, i)` on a `List<Double>`
     was refused as a view of `numbers` and asked for a `copy` that neither
     backend would emit. A non-scalar element read is unaffected.
-* [param-mode] **How a callee holds a parameter is core's call** (built
-  2026-10-06, `salvo_core::param_mode`): *moved in* (consumed: `=> !p`, or
-  inferred so; also every scalar, variadic parameter and `once` fn group,
-  which a target can only pass by value), *lent* (kept, read by the callee),
-  or *lent mutably* (kept, and the declared type carries `Mut`, or its
-  elements do: `List<Mut T>` lends mutable handles [proj-mut]). A fn-typed
-  parameter is lent mutably unless the fn stores its callbacks (a fn-typed
-  parameter and a struct with a fn-typed field as the result), when it is
-  moved in. The inputs differ by family and stay so: a top-level fn reads the
-  checker's deductions; an effect member (and the handler members implementing
-  it) reads the clause written on it, and ignores element `Mut`; everything
-  else is kept. A position in a fn *type* follows the same rule from the
-  type's own clause (`fn_type_position`), which is how a lambda binds its
-  parameters. A backend whose values are all references ignores the modes; one
-  that spells ownership renders them ([rs-borrows]).
-* [lend-variants] **Which fns lend a `Mut` result, and which cover `canbe`
-  parameters, is core's call** (built 2026-10-06, `salvo_core::lend_variants`):
-  the fns a `Mut` position reads a lent result of (the checker's
-  `mut_lend_calls` resolved through `call_fn`, followed along return paths
-  inside each demanded body), and, per fn, the parameters its `canbe` clause
-  covers and the anchor they share. A target that renders a lent mutable
-  result as a locator ([rs-loc]) emits a twin for each demanded fn; a
+* [core-layers] **Core states what Salvo means; a backend spells it**
+  (user decision 2026-10-06). `salvo-core` holds Salvo facts: ownership
+  (how a callee holds a parameter, what a read does to a value), evaluation
+  order, what `copy` duplicates, which calls resolve to which declarations.
+  `salvo-backend` holds opt-in helpers a backend may call (the shared driver,
+  walkers, and later the rewrites that make a Salvo fact concrete in a target
+  that needs it). Each backend chooses what to spell and how: that a scalar
+  is copied for free, that a fn value is a `&mut impl FnMut`, that a read must
+  be hoisted ahead of a mutable borrow (rustc's E0502), that a block in
+  expression position needs `run {}`. None of those is a Salvo fact, so none
+  belongs in core.
+* [param-mode] **How a callee holds a parameter** (`salvo_core::param_mode`,
+  built 2026-10-06): *moved in* (consumed: `=> !p`, or inferred so), *lent*
+  (kept, read by the callee), or *lent mutably* (kept, and the declared type
+  carries `Mut`, or its elements do: `List<Mut T>` lends mutable handles
+  [proj-mut]). A fn-typed parameter is lent, or moved in when the fn stores
+  its callbacks (a fn-typed parameter and a struct with a fn-typed field as
+  the result); a variadic tail and a `once` fn group are moved in. The inputs
+  differ by family: a top-level fn reads the checker's deductions; an effect
+  member (and the handler members implementing it) reads the clause written
+  on it; everything else is kept. Element `Mut` counts the same in all three
+  (unified 2026-10-06). A position in a fn *type* follows the same rule from
+  the type's own clause, which is how a lambda binds its parameters. What a
+  target makes of the mode is its own ([core-layers]): Rust passes a scalar by
+  value whatever the mode, spells a lent fn value `&mut impl FnMut`
+  ([rs-borrows]).
+* [mut-lends] **Which fns hand back a result a `Mut` position reads, and
+  which cover `canbe` parameters** (`salvo_core::mut_lends`, built
+  2026-10-06): the fns whose lent result serves a `Mut` position (the
+  checker's `mut_lend_calls` resolved through `call_fn`, followed along return
+  paths), the call sites that read one, and, per fn, the parameters its
+  `canbe` clause covers and the anchor they share. A target that renders a
+  lent mutable result as a locator ([rs-loc]) emits a twin of each such fn; a
   garbage-collected target ignores both.
 * [copy-plan] **What `copy` duplicates is core's call** (built 2026-10-06,
   `salvo_core::copyplan`): a tree per type — share the value when no Salvo

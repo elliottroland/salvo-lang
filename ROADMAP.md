@@ -240,7 +240,7 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     the per-parameter modes, for fns, effect members, handler members and fn
     types (`salvo_core::param_mode`, [param-mode]), and the per-fn sets
     (which fns need a locator twin, which cover `canbe`:
-    `salvo_core::lend_variants`). Left, in this order: per narrowing (locals
+    `salvo_core::mut_lends`). Left, in this order: per narrowing (locals
     bound to an optional borrow or a call with `proj` arms, keyed by the
     binding span), per read (move, copy, clone-out, borrow, take: the
     ident/projection split first, then arguments), per call (hoists: these

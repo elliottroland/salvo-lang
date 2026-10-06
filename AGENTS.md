@@ -297,6 +297,15 @@ Salvo source.
   Record the outcome in COMPLETED.md as a user decision (there is
   precedent — see the decision log). Analysis engineering under decisions
   already made does not need re-approval.
+- **Core states what Salvo means; a backend spells it** (user decision
+  2026-10-06, [core-layers]). Three layers: `salvo-core` holds Salvo
+  facts (ownership, evaluation order, what `copy` duplicates, what a call
+  resolves to) and never a target's convention; `salvo-backend` holds opt-in
+  helpers a backend may call; each backend decides how to spell a fact in its
+  language (a scalar passed by value, a `&mut impl FnMut`, a hoist ahead of a
+  mutable borrow, `run {}`). Before putting something in core, ask whether a
+  garbage-collected backend with expression blocks would care; if not, it is
+  not a Salvo fact.
 - **Backwards compatibility is not a requirement** (user decision
   2026-09-03). Salvo is experimental and its features are still being
   worked out; compatibility shims would get in the way. So:

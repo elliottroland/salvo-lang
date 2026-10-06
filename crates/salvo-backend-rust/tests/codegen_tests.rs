@@ -15987,13 +15987,13 @@ fn a_lending_effect_member_carries_both_faces() {
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
         main.content
-            .contains("fn lease<'a>(&mut self, es: &'a Vec<Entity>) -> Option<&'a Entity>;"),
+            .contains("fn lease<'a>(&mut self, es: &'a mut Vec<Entity>) -> Option<&'a Entity>;"),
         "{}",
         main.content
     );
     assert!(
         main.content
-            .contains("fn lease__loc(&mut self, es: &Vec<Entity>) -> Option<usize>;"),
+            .contains("fn lease__loc(&mut self, es: &mut Vec<Entity>) -> Option<usize>;"),
         "{}",
         main.content
     );

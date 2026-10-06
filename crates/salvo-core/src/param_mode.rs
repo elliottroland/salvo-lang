@@ -3,20 +3,24 @@
 //! A parameter is *moved in* (the callee consumes it), *lent* (the callee
 //! reads it and the caller keeps it) or *lent mutably* (the callee may change
 //! it in place). That is a fact about Salvo's ownership, decided here from
-//! the deduction tables, the written `=>` clause and the declared type; a
-//! backend with values that are all references ignores it, and one that
-//! spells ownership (Rust) renders it.
+//! the deduction tables, the written `=>` clause and the declared type.
+//! Nothing here knows how a target passes a value: that a scalar is copied
+//! for free, that a fn value is a `&mut impl FnMut`, that a variadic tail is
+//! a `Vec` are a backend's to apply on top (the Rust backend does, in
+//! `param_mode`). A backend whose values are all references ignores the modes.
 //!
-//! Three families of fn get it from different inputs, and the differences are
-//! kept exactly:
+//! Three families of fn get it from different inputs:
 //!
-//! * a top-level fn: the checker's deductions (`Checked::deductions`), with
-//!   fn-typed parameters lent mutably unless the fn stores its callbacks;
+//! * a top-level fn: the checker's deductions (`Checked::deductions`);
 //! * an effect member (and the handler members that implement one): the
-//!   clause written on the member (`=> !p`), whose moved parameters are
-//!   consumed;
+//!   clause written on the member (`=> !p`);
 //! * anything else (qualifier fns, handler-local members): every parameter is
 //!   kept.
+//!
+//! A fn-typed parameter is lent (the callee calls it and the caller keeps
+//! it), or moved in when the callee stores its callbacks. A variadic tail and
+//! a `once` fn group are moved in: the callee receives a fresh list, and
+//! calls a `once` closure once.
 
 use salvo_syntax::ast::{DeductionKind, FnDecl, Item, Param, Type};
 
@@ -24,13 +28,11 @@ use crate::check::Checked;
 use crate::program::{Program, Symbols};
 use crate::FnKey;
 
-/// How a callee takes one parameter [rs-borrows].
+/// How a callee takes one parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PassMode {
-    /// Consumed: passed by value, and the caller gives it up. Also every
-    /// value the target can only pass by value (a scalar, a variadic
-    /// `Vec`, a `once` fn group).
-    Owned,
+    /// Consumed: the caller gives it up.
+    Moved,
     /// Kept by the caller and read by the callee.
     Lent,
     /// Kept by the caller and changed in place by the callee.
@@ -46,21 +48,17 @@ pub struct Modes<'a, 'p> {
 
 impl<'a, 'p> Modes<'a, 'p> {
     /// The mode of one top-level-fn parameter: deduction-driven (omitted =
-    /// moved = by value; kept = lent, mutably when the declared type carries
-    /// `Mut`), with the scalar, variadic and fn-value exceptions.
+    /// moved; kept = lent, mutably when the declared type carries `Mut` or
+    /// its elements do).
     pub fn fn_param(&self, key: Option<FnKey>, param: &Param) -> PassMode {
-        if param.variadic || self.is_copy(&param.ty) || is_fn_group(&param.ty) {
-            return PassMode::Owned;
+        if param.variadic || is_fn_group(&param.ty) {
+            return PassMode::Moved;
         }
         if matches!(param.ty, Type::Fn { .. }) {
-            // [rs-fn-field] A callback the callee **stores** arrives owned
-            // rather than lent for the call: a composed pass calls it once
-            // per element, long after this returns.
-            if key.is_some_and(|k| self.owns_callbacks(k)) {
-                return PassMode::Owned;
-            }
-            // [fn-contract] Fn values are lent mutably.
-            return PassMode::LentMut;
+            // [rs-fn-field] A callback the callee **stores** is moved in: a
+            // composed pass calls it once per element, long after this
+            // returns. Otherwise it is lent for the call [fn-contract].
+            return if key.is_some_and(|k| self.owns_callbacks(k)) { PassMode::Moved } else { PassMode::Lent };
         }
         let kept = key
             .and_then(|k| self.checked.deductions.get(&k))
@@ -68,7 +66,7 @@ impl<'a, 'p> Modes<'a, 'p> {
             .map(|d| d.kept)
             .unwrap_or(true); // default kept (lenient, like deduce.rs)
         if !kept {
-            return PassMode::Owned;
+            return PassMode::Moved;
         }
         kept_mode(&param.ty)
     }
@@ -76,11 +74,11 @@ impl<'a, 'p> Modes<'a, 'p> {
     /// The mode of an effect member's parameter (and of the handler members
     /// that implement it), from the clause written on the member.
     pub fn member_param(&self, member: &FnDecl, p: &Param) -> PassMode {
-        if p.variadic || self.is_copy(&p.ty) || is_fn_group(&p.ty) {
-            return PassMode::Owned;
+        if p.variadic || is_fn_group(&p.ty) {
+            return PassMode::Moved;
         }
         if matches!(p.ty, Type::Fn { .. }) {
-            return PassMode::LentMut;
+            return PassMode::Lent;
         }
         let moved = member.deductions.iter().flatten().any(|d| {
             d.param_name().is_some_and(|n| n.name == p.name.name)
@@ -88,29 +86,27 @@ impl<'a, 'p> Modes<'a, 'p> {
                 && matches!(d.kind, DeductionKind::Moved | DeductionKind::Deferred)
         });
         if moved {
-            PassMode::Owned
-        } else if type_has_mut(&p.ty) {
-            PassMode::LentMut
+            PassMode::Moved
         } else {
-            PassMode::Lent
+            kept_mode(&p.ty)
         }
     }
 
     /// The mode of a parameter of a fn outside the deduction tables
     /// (qualifier fns, handler-local members): always kept.
     pub fn default_param(&self, ty: &Type, variadic: bool) -> PassMode {
-        if variadic || self.is_copy(ty) || is_fn_group(ty) {
-            return PassMode::Owned;
+        if variadic || is_fn_group(ty) {
+            return PassMode::Moved;
         }
         if matches!(ty, Type::Fn { .. }) {
-            return PassMode::LentMut;
+            return PassMode::Lent;
         }
         kept_mode(ty)
     }
 
-    /// Whether a type is a scalar the target copies for free [rs-borrows]:
-    /// `Int`, `Long`, `Float`, `Double`, `Bool`, `Char` or `Byte`, through
-    /// aliases.
+    /// Whether a type is one of the scalars (`Int`, `Long`, `Float`, `Double`,
+    /// `Bool`, `Char`, `Byte`), through aliases. A fact about the type; what a
+    /// target does with it (copy it for free, say) is the backend's.
     pub fn is_copy(&self, ty: &Type) -> bool {
         let Type::Named { qualifiers, base } = ty else { return false };
         if !qualifiers.is_empty() || !base.args.is_empty() {
@@ -140,8 +136,7 @@ impl<'a, 'p> Modes<'a, 'p> {
 
     /// [rs-fn-param-convention] How the *declaration* of a fn type takes its
     /// `i`th parameter, so a lambda passed into that position binds the same
-    /// way: kept and `Mut` is lent mutably, kept and not a scalar is lent,
-    /// moved (or a scalar) is by value.
+    /// way: kept and `Mut` is lent mutably, kept is lent, moved is moved.
     pub fn fn_type_position(
         &self,
         params: &[Type],
@@ -152,10 +147,10 @@ impl<'a, 'p> Modes<'a, 'p> {
         let (kept, is_mut) = fn_type_contract(params, param_names, deductions, i);
         if kept && is_mut {
             PassMode::LentMut
-        } else if kept && !params.get(i).is_some_and(|t| self.is_copy(t)) {
+        } else if kept {
             PassMode::Lent
         } else {
-            PassMode::Owned
+            PassMode::Moved
         }
     }
 

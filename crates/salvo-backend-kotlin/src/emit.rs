@@ -69,11 +69,9 @@ fn emit_program_mode(
         salvo_backend::driver::check_for_emission(program)?;
     let program = &erased_program;
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
-    let salvo_backend::driver::Reach { reachable, closure, platform_effects, abi_full, abi_modules, emitted, .. } =
+    let salvo_backend::driver::Reach { reachable, closure, platform_effects, abi_full, emitted, .. } =
         salvo_backend::driver::reach(program, &resolution, &symbols, &checked, abi);
-    // In ABI mode only the host-facing modules are written; Rust also writes
-    // the reached ones [platform-abi].
-    let emitted_modules = if abi { abi_modules } else { emitted };
+    let emitted_modules = emitted;
 
     let mut errors: Vec<String> = Vec::new();
 

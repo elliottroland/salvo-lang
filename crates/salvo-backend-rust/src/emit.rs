@@ -1197,13 +1197,15 @@ enum ParamMode {
     RefMut,
 }
 
-impl From<salvo_core::param_mode::PassMode> for ParamMode {
-    fn from(m: salvo_core::param_mode::PassMode) -> Self {
-        use salvo_core::param_mode::PassMode;
-        match m {
-            PassMode::Owned => ParamMode::Owned,
-            PassMode::Lent => ParamMode::Ref,
-            PassMode::LentMut => ParamMode::RefMut,
+impl ParamMode {
+    /// Rust's spelling of core's mode [param-mode]: a moved parameter is by
+    /// value, a lent one `&T`, a lent-mutably one `&mut T`, and a fn value
+    /// that is lent is a `&mut impl FnMut`.
+    fn spell(mode: PassMode, ty: &Type) -> ParamMode {
+        match (mode, matches!(ty, Type::Fn { .. })) {
+            (PassMode::Moved, _) => ParamMode::Owned,
+            (PassMode::Lent, true) | (PassMode::LentMut, _) => ParamMode::RefMut,
+            (PassMode::Lent, false) => ParamMode::Ref,
         }
     }
 }
@@ -1578,20 +1580,20 @@ enum StmtCtx {
 }
 
 use salvo_core::borrows::type_has_proj;
-use salvo_core::lend_variants::{
+use salvo_core::mut_lends::{
     strip_top_proj_ast,
-    collect_returned_exprs, covered_fns, fn_type_lends_mut, lend_mut_demand, mut_lend_call_of, ty_lends_mut, Covered,
+    collect_returned_exprs, covered_fns, fn_type_lends_mut, mut_lend_uses, mut_lend_call_of, ty_lends_mut, Covered,
 };
 
-/// [lend-variants] The lending sets, computed once per program.
+/// [mut-lends] The lending sets, computed once per program.
 struct Lend {
-    demand: salvo_core::lend_variants::LendMutDemand,
+    demand: salvo_core::mut_lends::MutLendUses,
     covered: HashMap<salvo_core::FnKey, Covered>,
 }
 
 impl Lend {
     fn compute(program: &Program, checked: &Checked) -> Lend {
-        Lend { demand: lend_mut_demand(program, checked), covered: covered_fns(program, checked) }
+        Lend { demand: mut_lend_uses(program, checked), covered: covered_fns(program, checked) }
     }
 }
 
@@ -1636,8 +1638,8 @@ impl<'p> Emitter<'p> {
             covered_here: HashMap::new(),
             hoisted_reads: HashMap::new(),
             virtual_places: HashMap::new(),
-            mut_lend_fns: lend_mut.demanded,
-            mut_call_sites: lend_mut.seeds,
+            mut_lend_fns: lend_mut.fns,
+            mut_call_sites: lend_mut.sites,
             mut_forward_sites: lend_mut.forwards,
             mut_call_lent: HashSet::new(),
             mode: ValueMode::Read,
@@ -3666,7 +3668,10 @@ impl<'p> Emitter<'p> {
     /// rendering at call sites, because a disagreement between any two of
     /// them is a rustc type error rather than something Salvo would notice.
     fn member_param_mode(&mut self, member: &FnDecl, p: &Param) -> ParamMode {
-        self.modes().member_param(member, p).into()
+        if self.modes().is_copy(&p.ty) {
+            return ParamMode::Owned;
+        }
+        ParamMode::spell(self.modes().member_param(member, p), &p.ty)
     }
 
     /// [implicit-param] A member's implicit parameters, as its interface
@@ -4935,7 +4940,26 @@ impl<'p> Emitter<'p> {
         if !param.variadic && !self.mut_call_lent.is_empty() && self.mut_call_lent.contains(&param.name.name) {
             return ParamMode::Ref;
         }
-        self.modes().fn_param(key, param).into()
+        // A scalar is copied for free, so it is by value whatever the mode.
+        if self.modes().is_copy(&param.ty) {
+            return ParamMode::Owned;
+        }
+        ParamMode::spell(self.modes().fn_param(key, param), &param.ty)
+    }
+
+    /// [rs-fn-param-convention] How a fn type's `i`th parameter is taken: core's
+    /// position, with a lent scalar by value.
+    fn fn_position(
+        &self,
+        params: &[Type],
+        param_names: &[Option<Ident>],
+        deductions: &Option<Vec<Deduction>>,
+        i: usize,
+    ) -> PassMode {
+        match self.modes().fn_type_position(params, param_names, deductions, i) {
+            PassMode::Lent if params.get(i).is_some_and(|t| self.modes().is_copy(t)) => PassMode::Moved,
+            m => m,
+        }
     }
 
     /// [param-mode] Core's parameter-mode decisions, over this emitter's tables.
@@ -4946,7 +4970,10 @@ impl<'p> Emitter<'p> {
     /// The default kept rule for fns outside the deduction tables
     /// (qualifier/effect/handler members) [rs-borrows].
     fn default_param_mode(&mut self, ty: &Type, variadic: bool) -> ParamMode {
-        self.modes().default_param(ty, variadic).into()
+        if self.modes().is_copy(ty) {
+            return ParamMode::Owned;
+        }
+        ParamMode::spell(self.modes().default_param(ty, variadic), ty)
     }
 
     /// Renders a parameter's Rust type for its mode.
@@ -6234,12 +6261,12 @@ impl<'p> Emitter<'p> {
                     .iter()
                     .enumerate()
                     .map(|(i, p)| {
-                        let mode = self.modes().fn_type_position(params, param_names, deductions, i);
+                        let mode = self.fn_position(params, param_names, deductions, i);
                         let base = self.emit_type(p);
                         match mode {
                             PassMode::LentMut => format!("&mut {base}"),
                             PassMode::Lent => format!("&{base}"),
-                            PassMode::Owned => base,
+                            PassMode::Moved => base,
                         }
                     })
                     .collect();
@@ -7123,10 +7150,10 @@ impl<'p> Emitter<'p> {
         };
         (0..params.len())
             .map(|i| {
-                match self.modes().fn_type_position(params, param_names, deductions, i) {
+                match self.fn_position(params, param_names, deductions, i) {
                     PassMode::LentMut => BindKind::RefMut,
                     PassMode::Lent => BindKind::Ref,
-                    PassMode::Owned => BindKind::Owned,
+                    PassMode::Moved => BindKind::Owned,
                 }
             })
             .collect()

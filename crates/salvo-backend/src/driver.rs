@@ -69,8 +69,9 @@ pub struct Reach<'p> {
     /// (its implementation file imports them even when nothing is kept), and
     /// the full ones.
     pub abi_modules: HashSet<&'p ModulePath>,
-    /// Every module the backend writes: the reached ones that produce code,
-    /// and the ABI ones. One rule for both backends.
+    /// Every module the backend writes: in a build the reached ones that
+    /// produce code, in ABI mode the host-facing ones. One rule for both
+    /// backends.
     pub emitted: HashSet<&'p ModulePath>,
 }
 
@@ -102,14 +103,15 @@ pub fn reach<'p>(
         })
         .map(|u| &u.file.module)
         .collect();
-    let emitted: HashSet<&ModulePath> = program
-        .units()
-        .filter(|u| {
-            (reachable.contains(&u.file.module) && crate::emit_util::module_produces_code(u.ast))
-                || abi_modules.contains(&u.file.module)
-        })
-        .map(|u| &u.file.module)
-        .collect();
+    let emitted: HashSet<&ModulePath> = if abi {
+        abi_modules.clone()
+    } else {
+        program
+            .units()
+            .filter(|u| reachable.contains(&u.file.module) && crate::emit_util::module_produces_code(u.ast))
+            .map(|u| &u.file.module)
+            .collect()
+    };
     Reach {
         reachable,
         closure,

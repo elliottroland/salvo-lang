@@ -136,6 +136,25 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — The layering rule, and three corrections to the core tables (user decision)
+
+User decision: core states what Salvo means, `salvo-backend` holds opt-in
+helpers, each backend spells a fact in its target ([core-layers], AGENTS.md).
+Checked against the tables already built, three things were target concerns:
+
+* `PassMode` folded "a scalar is passed by value" and "a fn value is a
+  `&mut impl FnMut`" into core. It is now `Moved / Lent / LentMut` from the
+  deductions alone (a variadic tail and a `once` group are moved in, a fn value
+  is lent, or moved in when the fn stores callbacks); Rust's `ParamMode::spell`
+  and its scalar exception are the backend's.
+* `lend_variants` named a Rust rendering ("locator twin"). It is `mut_lends`
+  ([mut-lends]) and states the fact: which fns hand back a result a `Mut`
+  position reads.
+* Unifications (user: "unify now"): an effect member now counts element `Mut`
+  (`List<Mut T>`) like a fn does, so it takes `&mut Vec<T>` (one codegen test
+  updated); and ABI mode writes only the host-facing modules on both backends
+  (Rust also wrote the reached ones; nothing changed on disk).
+
 ### 2026-10-06 — Two defects, two leftovers (§0j)
 
 * **E0502 in an interpolation** ([rs-interp-sequence]): `println("${get(d, i)}
@@ -184,7 +203,7 @@ bodies), not a series of moves, and ROADMAP §0j now records where it starts.
 
 ### 2026-10-06 — Lending variants in core (§0j step 12, second table)
 
-`salvo_core::lend_variants` took `lend_mut_demand` (which fns need a locator
+`salvo_core::mut_lends` took `mut_lend_uses` (which fns need a locator
 twin, which call sites are seeds and which return-path calls forward),
 `covered_fns` (per fn, the parameters a `canbe` clause covers and their shared
 anchor) and their walkers (`collect_returned_exprs`, `collect_let_values`,
@@ -4456,7 +4475,7 @@ identity actually has.
   reason (`in_iterator_fn`: what receives it outlives the call) — the precedent
   is what made this the cheap design.
 - **The demand is closed under forwarding** (`stored_implicit_demand`, mirroring
-  `lend_mut_demand`): seeds are the construction sites, and a fn that passes its
+  `mut_lend_uses`): seeds are the construction sites, and a fn that passes its
   own implicit into a position already owned holds an `Arc` for the same reason.
   A generic in such a fn is `Clone + Send + 'static`, the bounds the stores
   declare.
@@ -5416,7 +5435,7 @@ table** (ROADMAP.md's "Recorded refinements"). Built: [rs-loc] — a
 named lending fn used mutably anywhere gets a demand-driven `__mut`
 emission (lent params `&mut`, `proj` return `&mut`, transitive
 return-path forwards, intrinsic mut splices — `get`→`get_mut`; demand
-seeded by `Checked::mut_lend_calls`, closed in `lend_mut_demand`), and
+seeded by `Checked::mut_lend_calls`, closed in `mut_lend_uses`), and
 std's `update`/`update2` [col-update] as **ordinary Salvo** whose bodies
 are exactly the mints the proofs legalize. En route, three gaps found
 and fixed: **a parameter's declared dependent claim was a root-free
